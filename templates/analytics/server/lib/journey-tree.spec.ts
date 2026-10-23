@@ -115,6 +115,22 @@ describe("buildJourneyTree", () => {
     });
   });
 
+  it("keeps replay availability unknown when the lookup was skipped", () => {
+    const { nodes } = buildJourneyTree(
+      [session("unknown", ["signup"])],
+      null,
+      OPTIONS,
+    );
+    const example = nodes[0]!.examples[0]!;
+
+    expect(example).not.toHaveProperty("recordingId");
+    expect(example).toMatchObject({
+      offsetMs: null,
+      viewport: null,
+      viewportReason: "recording_unknown",
+    });
+  });
+
   it("lists parents before children with the biggest branch first", () => {
     const { nodes } = buildJourneyTree(SESSIONS, new Map(), OPTIONS);
     const keys = nodes.map((node) => node.key);

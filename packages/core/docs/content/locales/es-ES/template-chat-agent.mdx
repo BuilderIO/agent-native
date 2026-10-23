@@ -1,0 +1,100 @@
+---
+title: "Chat: Hablar con el Agent"
+description: "Lo que el agente sabe sobre dónde estás en Chat, y peticiones organizadas por tarea."
+---
+
+# Hablar con el Agent
+
+En Chat, la conversación es la forma principal de usar la app. El agente puede
+ejecutar las acciones de la app, buscar información, recordar lo que le dices
+y llevarte a otras páginas. Esta página cubre lo que el agente sabe sobre tu
+pantalla, peticiones útiles por tarea y dónde va más allá de las acciones
+integradas. Consulta [Chat](/docs/template-chat) para ver la visión general.
+
+## Cómo ve el agente tu pantalla
+
+El agente siempre sabe en qué página estás y qué conversación está abierta. Por
+eso "llévame de vuelta a Inicio" o "¿en qué página estoy?" funciona sin ninguna
+explicación. La app informa al agente de cada cambio de página en el momento en
+que ocurre, así que el agente nunca tiene que adivinar.
+
+Chat no tiene datos de negocio a los que apuntar, como un evento seleccionado o
+un documento abierto. Todo lo demás que el agente sabe proviene de lo que dices
+en la conversación.
+
+## Peticiones útiles por tarea
+
+Cada petición a continuación se ejecuta sobre la app real. Aquí hay un ejemplo
+resuelto:
+
+<Comparison>
+
+### :blue: Tú preguntas
+
+"Llama a la acción hello para Alex."
+
+### :green: Qué sucede
+
+El agente ejecuta la acción de ejemplo **hello** con el nombre Alex. La acción
+devuelve "Hello, Alex!" y el agente lo muestra en el chat. Nada más en la app
+cambia.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Descubrir qué puede hacer la app
+
+- **"¿Qué puede hacer esta app?"** El agente enumera las acciones que tiene y
+  qué hace cada una.
+- **"Muéstrame las acciones disponibles."** La misma idea, como una lista simple
+  de nombres.
+- **"Ayúdame a empezar."** El agente sugiere una primera cosa para probar.
+
+### Moverte por la app
+
+- **"Llévame a Ajustes."** La app abre la página por ti.
+- **"Abre la página de Database."** El agente abre `/database`, que no tiene
+  enlace en la barra lateral.
+- **"Vuelve a Inicio."** Se abre la página de Get started.
+
+### Enseñar al agente
+
+- **"Recuerda que prefiero respuestas cortas."** El agente lo guarda en su
+  memoria y lo usa en chats posteriores.
+- **"A partir de ahora, explica siempre tu razonamiento antes de responder."**
+  El agente puede guardarlo como una instrucción permanente.
+- **"¿Qué recuerdas sobre mí?"** El agente te lee su memoria.
+
+### Revisar tus datos
+
+- **"¿Qué tablas hay en la base de datos de esta app?"** El agente lee la
+  estructura de la base de datos y enumera las tablas.
+- **"¿Cuántos chats tengo?"** El agente ejecuta una consulta de solo lectura
+  contra la base de datos y responde en el chat.
+
+### Aprender el framework
+
+- **"¿Cómo añado una acción nueva a esta app?"** El agente busca en la
+  documentación de Agent-Native y explica los pasos.
+- **"¿Cuál es la diferencia entre una acción y una habilidad?"** Igual,
+  respondido a partir de la documentación.
+
+</Cards>
+
+<Callout tone="info">
+
+El agente lee la base de datos pero no la modifica directamente. Para guardar
+información nueva, usa una acción. Eso mantiene cada cambio en el mismo camino
+que usan las propias pantallas de la app. Un desarrollador puede cambiar esto
+en la configuración de la app.
+
+</Callout>
+
+## Qué sigue
+
+- [**Chat**](/docs/template-chat) — la visión general
+- [**Funciones**](/docs/template-chat-features) — conversaciones, la acción de ejemplo, equipos y páginas de administración
+- [**Chat en un espacio de trabajo con varias apps**](/docs/template-chat-integrations) — cómo conectar Chat con Dispatch y otras apps
+- [**Guía para desarrolladores**](/docs/template-chat-developers) — inicio rápido, acciones, la ruta del chat y cómo añadir tu primera función
+- [**Conciencia de contexto**](/docs/context-awareness) — cómo sabe el agente lo que hay en tu pantalla

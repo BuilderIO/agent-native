@@ -19,15 +19,21 @@ import type {
 } from "@shared/motion-native-style";
 import { switchMotionNativeStyleKey } from "@shared/motion-native-style-runtime";
 import {
+  IconAdjustmentsHorizontal,
+  IconArrowsMove,
+  IconBlur,
   IconChartLine,
   IconChevronDown,
   IconCheck,
+  IconCircleHalf,
   IconClock,
   IconFlipHorizontal,
   IconEye,
   IconEyeOff,
   IconMinus,
   IconPlus,
+  IconRotate,
+  IconScale,
   IconX,
 } from "@tabler/icons-react";
 import {
@@ -41,6 +47,13 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -55,8 +68,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+import { ORIGIN_ANCHORS } from "./edit-panel/motion-inspector-properties";
 
 const STYLE_LABEL_KEYS: Record<MotionNativeStyleKey, string> = {
   TextStagger: "text",
@@ -176,10 +191,14 @@ const TEXT_STAGGER_GROUPING_OPTIONS = [
 ];
 
 const TEXT_STAGGER_ORDER_OPTIONS = [
-  { value: "LEFT_RIGHT", labelKey: "forward" },
-  { value: "RIGHT_LEFT", labelKey: "reverse" },
-  { value: "TOP_BOTTOM", labelKey: "forward" },
-  { value: "BOTTOM_TOP", labelKey: "reverse" },
+  { value: "LEFT_RIGHT", labelKey: "leftToRight" },
+  { value: "RIGHT_LEFT", labelKey: "rightToLeft" },
+  { value: "CENTER_OUT", labelKey: "centerOut" },
+  { value: "RANDOM", labelKey: "random" },
+];
+const TEXT_STAGGER_VERTICAL_ORDER_OPTIONS = [
+  { value: "TOP_BOTTOM", labelKey: "topToBottom" },
+  { value: "BOTTOM_TOP", labelKey: "bottomToTop" },
 ];
 
 const TEXT_STAGGER_ANIMATION_DIRECTION_OPTIONS = [
@@ -190,7 +209,9 @@ const TEXT_STAGGER_ANIMATION_DIRECTION_OPTIONS = [
 const TEXT_STAGGER_EFFECTS = [
   {
     enabledKey: "positionEnabled",
-    labelKey: "position",
+    visibleKey: "positionVisible",
+    nameKey: "move",
+    Icon: IconArrowsMove,
     amountKey: "distance",
     amountLabelKey: "distance",
     unit: "px",
@@ -200,19 +221,10 @@ const TEXT_STAGGER_EFFECTS = [
     enabledByDefault: true,
   },
   {
-    enabledKey: "rotationEnabled",
-    labelKey: "rotation",
-    amountKey: "rotationAmount",
-    amountLabelKey: "amount",
-    unit: "°",
-    min: 0,
-    max: 360,
-    amountDefault: 180,
-    enabledByDefault: false,
-  },
-  {
     enabledKey: "scaleEnabled",
-    labelKey: "scale",
+    visibleKey: "scaleVisible",
+    nameKey: "growShrink",
+    Icon: IconScale,
     amountKey: "scaleAmount",
     amountLabelKey: "amount",
     unit: "%",
@@ -222,8 +234,23 @@ const TEXT_STAGGER_EFFECTS = [
     enabledByDefault: false,
   },
   {
+    enabledKey: "rotationEnabled",
+    visibleKey: "rotationVisible",
+    nameKey: "spin",
+    Icon: IconRotate,
+    amountKey: "rotationAmount",
+    amountLabelKey: "amount",
+    unit: "°",
+    min: 0,
+    max: 360,
+    amountDefault: 180,
+    enabledByDefault: false,
+  },
+  {
     enabledKey: "opacityEnabled",
-    labelKey: "opacity",
+    visibleKey: "opacityVisible",
+    nameKey: "fade",
+    Icon: IconCircleHalf,
     amountKey: "opacityAmount",
     amountLabelKey: "amount",
     unit: "%",
@@ -234,7 +261,9 @@ const TEXT_STAGGER_EFFECTS = [
   },
   {
     enabledKey: "blurEnabled",
-    labelKey: "blur",
+    visibleKey: "blurVisible",
+    nameKey: "soften",
+    Icon: IconBlur,
     amountKey: "blurAmount",
     amountLabelKey: "amount",
     unit: "px",
@@ -302,7 +331,7 @@ const AMOUNT_FIELDS: Partial<
   Position: { key: "distance", unit: "" },
   Scale: { key: "amount", unit: "%" },
   Rotation: { key: "amount", unit: "°" },
-  Size: { key: "amount", unit: "px" },
+  Size: { key: "amount", unit: "" },
   Opacity: { key: "amount", unit: "%" },
 };
 
@@ -338,6 +367,8 @@ export interface MotionNativeStyleIdentity {
 export interface MotionNativeStyleEditorProps {
   styles: MotionNativeStyleInstance[];
   targetNodeId: string;
+  /** Text stagger is only offered in the style switcher for text layers. */
+  isText?: boolean;
   disabled?: boolean;
   easingVariables?: MotionEasingVariable[];
   onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
@@ -352,6 +383,7 @@ export interface MotionNativeStyleEditorProps {
 export function MotionNativeStyleEditor({
   styles,
   targetNodeId,
+  isText = false,
   disabled = false,
   easingVariables = [],
   onEasingVariablesChange,
@@ -393,10 +425,26 @@ export function MotionNativeStyleEditor({
     key: string,
     value: MotionNativeStyleJsonValue,
   ) {
+    const props = { ...instance.props, [key]: value };
+    if (
+      instance.styleKey === "TextStagger" &&
+      key === "ignoreSpaces" &&
+      !Object.prototype.hasOwnProperty.call(
+        instance.props,
+        "textDelayTimingMode",
+      )
+    ) {
+      props.textDelayTimingMode = Object.prototype.hasOwnProperty.call(
+        instance.props,
+        "ignoreSpaces",
+      )
+        ? "duration-fitted"
+        : "fixed-stagger";
+    }
     changeInstance(
       {
         ...instance,
-        props: { ...instance.props, [key]: value },
+        props,
       },
       identity,
     );
@@ -446,12 +494,13 @@ export function MotionNativeStyleEditor({
             const selectedRow = selected?.identity.key === identity.key;
             const enabled = instance.enabled !== false;
             const label = styleLabel(instance);
-            const styleOptions =
-              instance.styleKey === "Path"
-                ? MOTION_STYLE_OPTIONS
-                : MOTION_STYLE_OPTIONS.filter(
-                    (option) => option.value !== "Path",
-                  );
+            const styleOptions = MOTION_STYLE_OPTIONS.filter(
+              (option) =>
+                (option.value !== "Path" || instance.styleKey === "Path") &&
+                (option.value !== "TextStagger" ||
+                  isText ||
+                  instance.styleKey === "TextStagger"),
+            );
 
             return (
               <Popover
@@ -511,11 +560,13 @@ export function MotionNativeStyleEditor({
                   {isRunnableStyle(instance.styleKey) ? (
                     <PopoverContent
                       align="start"
+                      alignOffset={-4}
                       side="left"
+                      sideOffset={10}
                       className="w-60 p-0"
                     >
                       <div>
-                        <div className="flex h-8 items-center justify-between border-b border-border px-2">
+                        <div className="flex h-10 items-center justify-between border-b border-border px-4">
                           <div className="min-w-0 flex-1">
                             <SelectControl
                               id={`${id}-style-name`}
@@ -694,7 +745,7 @@ function NativeStyleDetails({
   }
 
   return (
-    <div className="flex flex-col gap-1 px-2.5 py-2" id={id}>
+    <div className="flex flex-col gap-2 px-4 pb-5 pt-4" id={id}>
       <Field id={typeId} label={t("designEditor.motion.type")}>
         <SelectControl
           id={typeId}
@@ -1024,15 +1075,13 @@ function NativeTextStaggerDetails({
     value: option.value,
     labelKey: option.labelKey,
   }));
-  const orderOptions = TEXT_STAGGER_ORDER_OPTIONS.filter((option) =>
-    grouping === "LINE" || grouping === "PARAGRAPH"
-      ? option.value === "TOP_BOTTOM" || option.value === "BOTTOM_TOP"
-      : option.value === "LEFT_RIGHT" || option.value === "RIGHT_LEFT",
+  const order = stringValue(instance.props.textDelayOrder, "LEFT_RIGHT");
+  const storedVerticalOrder = TEXT_STAGGER_VERTICAL_ORDER_OPTIONS.find(
+    (option) => option.value === order,
   );
-  const order = stringValue(
-    instance.props.textDelayOrder,
-    orderOptions[0]?.value ?? "LEFT_RIGHT",
-  );
+  const orderOptions = storedVerticalOrder
+    ? [...TEXT_STAGGER_ORDER_OPTIONS, storedVerticalOrder]
+    : TEXT_STAGGER_ORDER_OPTIONS;
   const animationDirection = stringValue(
     instance.props.animationDirection,
     "in",
@@ -1042,14 +1091,59 @@ function NativeTextStaggerDetails({
   const directionId = `${id}-animation-direction`;
   const groupingId = `${id}-grouping`;
   const orderId = `${id}-order`;
+  const overlapId = `${id}-overlap`;
+  const settingsId = `${id}-settings`;
   const easingId = `${id}-easing`;
   const easingValue = easingToken(instance.props.easing);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [openEffects, setOpenEffects] = useState<string[]>([]);
+  const overlap = clampPercent(
+    numberValue(instance.props.presetStaggerOverlap, 50),
+  );
+  const pivotX = numberValue(instance.props.elementTransformOriginX, 50);
+  const pivotY = numberValue(instance.props.elementTransformOriginY, 50);
+  const addedEffects = TEXT_STAGGER_EFFECTS.filter((effect) =>
+    booleanValue(instance.props[effect.enabledKey], effect.enabledByDefault),
+  );
+  const availableEffects = TEXT_STAGGER_EFFECTS.filter(
+    (effect) => !addedEffects.includes(effect),
+  );
 
   function updateNumberProp(key: string, value: string, factor = 1) {
     if (!value.trim()) return;
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return;
     onUpdateProp(instance, identity, key, parsed / factor);
+  }
+
+  function effectLabel(effect: (typeof TEXT_STAGGER_EFFECTS)[number]) {
+    return t(
+      `designEditor.motion.textStaggerControls.effectNames.${effect.nameKey}`,
+    );
+  }
+
+  function toggleEffectDetails(enabledKey: string) {
+    setOpenEffects((open) =>
+      open.includes(enabledKey)
+        ? open.filter((key) => key !== enabledKey)
+        : [...open, enabledKey],
+    );
+  }
+
+  function addEffect(effect: (typeof TEXT_STAGGER_EFFECTS)[number]) {
+    onUpdateTopLevel(instance, identity, {
+      props: {
+        ...instance.props,
+        [effect.enabledKey]: true,
+        [effect.visibleKey]: true,
+      },
+    });
+    setOpenEffects((open) => [...open, effect.enabledKey]);
+  }
+
+  function removeEffect(effect: (typeof TEXT_STAGGER_EFFECTS)[number]) {
+    onUpdateProp(instance, identity, effect.enabledKey, false);
+    setOpenEffects((open) => open.filter((key) => key !== effect.enabledKey));
   }
 
   return (
@@ -1076,74 +1170,221 @@ function NativeTextStaggerDetails({
         id={groupingId}
         label={t("designEditor.motion.nativeTextStagger.grouping")}
       >
-        <SelectControl
-          id={groupingId}
-          label={t("designEditor.motion.nativeTextStagger.grouping")}
-          value={grouping}
-          disabled={disabled}
-          options={groupOptions}
-          labelBase="designEditor.motion.textAnimation.units"
-          t={t}
-          onChange={(value) => {
-            const nextGrouping = value;
-            const nextOrders = TEXT_STAGGER_ORDER_OPTIONS.filter((option) =>
-              nextGrouping === "LINE" || nextGrouping === "PARAGRAPH"
-                ? option.value === "TOP_BOTTOM" || option.value === "BOTTOM_TOP"
-                : option.value === "LEFT_RIGHT" ||
-                  option.value === "RIGHT_LEFT",
-            );
-            const currentOrderIsValid = nextOrders.some(
-              (option) => option.value === order,
-            );
-            onUpdateProp(instance, identity, "textDelayGrouping", value);
-            if (!currentOrderIsValid && nextOrders[0]) {
-              onUpdateProp(
-                instance,
-                identity,
-                "textDelayOrder",
-                nextOrders[0].value,
-              );
+        <div className="flex min-w-0 items-center gap-1">
+          <SelectControl
+            id={groupingId}
+            label={t("designEditor.motion.nativeTextStagger.grouping")}
+            value={grouping}
+            disabled={disabled}
+            options={groupOptions}
+            labelBase="designEditor.motion.textAnimation.units"
+            t={t}
+            onChange={(value) => {
+              const supportsVerticalOrder =
+                value === "LINE" || value === "PARAGRAPH";
+              const hasVerticalOrder =
+                order === "TOP_BOTTOM" || order === "BOTTOM_TOP";
+              const props: MotionNativeStyleInstance["props"] = {
+                ...instance.props,
+                textDelayGrouping: value,
+                ignoreSpaces: false,
+              };
+              if (!supportsVerticalOrder && hasVerticalOrder) {
+                props.textDelayOrder = "LEFT_RIGHT";
+              }
+              if (
+                !Object.prototype.hasOwnProperty.call(
+                  instance.props,
+                  "textDelayTimingMode",
+                )
+              ) {
+                props.textDelayTimingMode =
+                  Object.prototype.hasOwnProperty.call(
+                    instance.props,
+                    "ignoreSpaces",
+                  )
+                    ? "duration-fitted"
+                    : "fixed-stagger";
+              }
+              onUpdateTopLevel(instance, identity, {
+                props,
+              });
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("designEditor.motion.textStaggerControls.settings")}
+            aria-expanded={settingsOpen}
+            aria-controls={settingsId}
+            title={t("designEditor.motion.textStaggerControls.settings")}
+            className={settingsOpen ? "bg-accent" : undefined}
+            onClick={() => setSettingsOpen((open) => !open)}
+          >
+            <IconAdjustmentsHorizontal
+              aria-hidden="true"
+              className="size-3.5"
+            />
+          </Button>
+        </div>
+      </Field>
+
+      {settingsOpen ? (
+        <div
+          id={settingsId}
+          className="flex flex-col gap-1 border-l border-border pl-2"
+        >
+          <Field
+            id={orderId}
+            label={t("designEditor.motion.nativeTextStagger.order")}
+          >
+            <SelectControl
+              id={orderId}
+              label={t("designEditor.motion.nativeTextStagger.order")}
+              value={order}
+              disabled={disabled}
+              options={orderOptions}
+              labelBase="designEditor.motion.nativeTextStagger.orderOptions"
+              t={t}
+              onChange={(value) =>
+                onUpdateProp(instance, identity, "textDelayOrder", value)
+              }
+            />
+          </Field>
+
+          <Field
+            id={overlapId}
+            label={t("designEditor.motion.nativeTextStagger.overlap")}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <Slider
+                id={overlapId}
+                min={0}
+                max={100}
+                step={1}
+                value={[overlap]}
+                disabled={disabled}
+                thumbAriaLabel={t(
+                  "designEditor.motion.nativeTextStagger.overlap",
+                )}
+                onValueChange={([value]) => {
+                  if (typeof value === "number") {
+                    onUpdateProp(
+                      instance,
+                      identity,
+                      "presetStaggerOverlap",
+                      clampPercent(value),
+                    );
+                  }
+                }}
+              />
+              <span className="w-8 shrink-0 text-end text-[10px] tabular-nums text-muted-foreground">
+                {overlap}%
+              </span>
+            </div>
+          </Field>
+
+          {grouping === "CHARACTER" ? (
+            <SettingCheckbox
+              id={`${id}-ignore-spaces`}
+              label={t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
+              checked={booleanValue(instance.props.ignoreSpaces, true)}
+              disabled={disabled}
+              onChange={(checked) =>
+                onUpdateProp(instance, identity, "ignoreSpaces", checked)
+              }
+            />
+          ) : null}
+
+          <SettingCheckbox
+            id={`${id}-crop`}
+            label={t("designEditor.motion.textStaggerControls.crop")}
+            checked={booleanValue(instance.props.clipContent, false)}
+            disabled={disabled}
+            onChange={(checked) =>
+              onUpdateProp(instance, identity, "clipContent", checked)
             }
-          }}
-        />
-      </Field>
+          />
 
-      <Field
-        id={orderId}
-        label={t("designEditor.motion.nativeTextStagger.order")}
-      >
-        <SelectControl
-          id={orderId}
-          label={t("designEditor.motion.nativeTextStagger.order")}
-          value={order}
-          disabled={disabled}
-          options={orderOptions}
-          labelBase="designEditor.motion.nativeTextStagger.orderOptions"
-          t={t}
-          onChange={(value) =>
-            onUpdateProp(instance, identity, "textDelayOrder", value)
-          }
-        />
-      </Field>
+          <Field id={`${id}-pivot`} label={t("designEditor.motion.origin")}>
+            <div
+              id={`${id}-pivot`}
+              role="radiogroup"
+              aria-label={t("editPanel.scale.anchor")}
+              className="grid w-14 grid-cols-3"
+            >
+              {ORIGIN_ANCHORS.map(([x, y, key]) => {
+                const selected = pivotX === x && pivotY === y;
+                return (
+                  <button
+                    key={`${x}:${y}`}
+                    type="button"
+                    role="radio"
+                    aria-label={t(`editPanel.scale.${key}`)}
+                    aria-checked={selected}
+                    disabled={disabled}
+                    className={`flex h-3.5 w-full items-center justify-center rounded border border-transparent text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50 ${selected ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]" : ""}`}
+                    onClick={() =>
+                      onUpdateTopLevel(instance, identity, {
+                        props: {
+                          ...instance.props,
+                          elementTransformOriginX: x,
+                          elementTransformOriginY: y,
+                        },
+                      })
+                    }
+                  >
+                    <span className="size-1.5 rounded-full bg-current" />
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+        </div>
+      ) : null}
 
-      <NumberField
-        id={`${id}-overlap`}
-        label={t("designEditor.motion.nativeTextStagger.overlap")}
-        value={numberValue(instance.props.presetStaggerOverlap, 50)}
-        min={0}
-        max={100}
-        disabled={disabled}
-        unit="%"
-        onChange={(value) => updateNumberProp("presetStaggerOverlap", value)}
-      />
-
-      <div className="space-y-1 border-t border-border pt-1">
-        {TEXT_STAGGER_EFFECTS.map((effect) => {
-          const enabled = booleanValue(
-            instance.props[effect.enabledKey],
-            effect.enabledByDefault,
-          );
-          const effectId = `${id}-${effect.enabledKey}`;
+      <div className="space-y-0.5 border-t border-border pt-1">
+        <div className="flex min-h-6 items-center justify-between gap-2">
+          <span className="text-[10px] text-muted-foreground">
+            {t("designEditor.motion.textStaggerControls.effects")}
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t(
+                  "designEditor.motion.textStaggerControls.addEffect",
+                )}
+                title={t("designEditor.motion.textStaggerControls.addEffect")}
+                disabled={disabled || availableEffects.length === 0}
+              >
+                <IconPlus aria-hidden="true" className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[7.5rem] p-[7px]">
+              {availableEffects.map((effect) => (
+                <DropdownMenuItem
+                  key={effect.enabledKey}
+                  className="h-6 gap-2 px-2 text-[12px] leading-none"
+                  onSelect={() => addEffect(effect)}
+                >
+                  <effect.Icon
+                    aria-hidden="true"
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                  {effectLabel(effect)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        {addedEffects.map((effect) => {
+          const visible = booleanValue(instance.props[effect.visibleKey], true);
+          const detailsOpen = openEffects.includes(effect.enabledKey);
+          const label = effectLabel(effect);
           const amountId = `${id}-${effect.amountKey}`;
           const amount = numberValue(
             instance.props[effect.amountKey],
@@ -1152,28 +1393,66 @@ function NativeTextStaggerDetails({
 
           return (
             <div key={effect.enabledKey} className="space-y-0.5">
-              <div className="flex min-h-6 items-center justify-between gap-2">
-                <Label
-                  htmlFor={effectId}
-                  className="!text-[10px] text-muted-foreground"
-                >
-                  {t(
-                    `designEditor.motion.nativeTextStagger.effects.${effect.labelKey}`,
-                  )}
-                </Label>
-                <Switch
-                  id={effectId}
-                  aria-label={t(
-                    `designEditor.motion.nativeTextStagger.effects.${effect.labelKey}`,
-                  )}
-                  checked={enabled}
+              <div className="flex min-h-6 items-center gap-0.5">
+                <span className="min-w-0 flex-1 truncate text-[11px]">
+                  {label}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`${t(`designEditor.motion.textStaggerControls.${detailsOpen ? "hideDetails" : "showDetails"}`)} ${label}`}
+                  aria-expanded={detailsOpen}
                   disabled={disabled}
-                  onCheckedChange={(checked) =>
-                    onUpdateProp(instance, identity, effect.enabledKey, checked)
+                  onClick={() => toggleEffectDetails(effect.enabledKey)}
+                >
+                  <IconChevronDown
+                    aria-hidden="true"
+                    className={`size-3.5 text-muted-foreground ${detailsOpen ? "rotate-180" : ""}`}
+                  />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`${t(`designEditor.motion.animationStyles.${visible ? "hide" : "show"}`)} ${label}`}
+                  disabled={disabled}
+                  onClick={() =>
+                    onUpdateProp(
+                      instance,
+                      identity,
+                      effect.visibleKey,
+                      !visible,
+                    )
                   }
-                />
+                >
+                  {visible ? (
+                    <IconEye
+                      aria-hidden="true"
+                      className="size-3.5 text-muted-foreground"
+                    />
+                  ) : (
+                    <IconEyeOff
+                      aria-hidden="true"
+                      className="size-3.5 text-muted-foreground"
+                    />
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`${t("designEditor.motion.textStaggerControls.removeEffect")} ${label}`}
+                  disabled={disabled}
+                  onClick={() => removeEffect(effect)}
+                >
+                  <IconMinus
+                    aria-hidden="true"
+                    className="size-3.5 text-muted-foreground"
+                  />
+                </Button>
               </div>
-              {enabled ? (
+              {detailsOpen ? (
                 <div className="grid grid-cols-[58px_minmax(0,1fr)] items-center gap-2">
                   {effect.enabledKey === "positionEnabled" ? (
                     <>
@@ -1192,7 +1471,12 @@ function NativeTextStaggerDetails({
                         )}
                         value={stringValue(instance.props.direction, "top")}
                         disabled={disabled}
-                        options={DIRECTION_OPTIONS.Position ?? []}
+                        options={directionOptionsFor(
+                          "Position",
+                          animationDirection === "out"
+                            ? "slide_out"
+                            : "slide_in",
+                        )}
                         t={t}
                         onChange={(value) =>
                           onUpdateProp(instance, identity, "direction", value)
@@ -1380,10 +1664,6 @@ export function MotionEasingPicker({
   }
 
   const normalizedSearch = search.trim().toLocaleLowerCase();
-  const filteredPresets = EASING_OPTIONS.filter((option) => {
-    const label = optionLabel(option, t).toLocaleLowerCase();
-    return !normalizedSearch || label.includes(normalizedSearch);
-  });
   const collections = Array.from(
     new Set(
       easingVariables.map((variable) => variable.collection?.trim() ?? ""),
@@ -1425,7 +1705,7 @@ export function MotionEasingPicker({
           />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" side="left" className="w-64 p-2">
+      <PopoverContent align="start" side="bottom" className="w-60 p-2">
         {view === "new-variable" ? (
           <NewEasingVariableForm
             easingVariables={easingVariables}
@@ -1443,43 +1723,62 @@ export function MotionEasingPicker({
           <Tabs
             value={tab}
             onValueChange={(next) => {
-              if (next === "presets" || next === "libraries") setTab(next);
+              if (next === "presets" || next === "libraries") {
+                setTab(next);
+                setSearch("");
+              }
             }}
             className="space-y-2"
           >
-            <TabsList className="grid h-7 w-full grid-cols-2 p-0.5">
-              <TabsTrigger
-                value="presets"
+            <div className="flex items-center gap-1">
+              <TabsList className="grid h-8 min-w-0 flex-1 grid-cols-2 p-0.5">
+                <TabsTrigger
+                  value="presets"
+                  disabled={disabled}
+                  className="h-7 px-2 text-[11px]"
+                >
+                  {t(`${pickerKeys}.presets`)}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="libraries"
+                  disabled={disabled}
+                  className="h-7 px-2 text-[11px]"
+                >
+                  {t(`${pickerKeys}.libraries`)}
+                </TabsTrigger>
+              </TabsList>
+              {createAvailable ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t(`${pickerKeys}.newVariable`)}
+                  title={t(`${pickerKeys}.newVariable`)}
+                  className="size-7 shrink-0"
+                  disabled={disabled}
+                  onClick={() => setView("new-variable")}
+                >
+                  <IconPlus aria-hidden="true" className="size-3.5" />
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("designEditor.motion.animationStyles.close")}
+                title={t("designEditor.motion.animationStyles.close")}
+                className="size-7 shrink-0"
                 disabled={disabled}
-                className="h-6 px-2 text-[11px]"
+                onClick={closePicker}
               >
-                {t(`${pickerKeys}.presets`)}
-              </TabsTrigger>
-              <TabsTrigger
-                value="libraries"
-                disabled={disabled}
-                className="h-6 px-2 text-[11px]"
-              >
-                {t(`${pickerKeys}.libraries`)}
-              </TabsTrigger>
-            </TabsList>
-
-            <div className="relative">
-              <Input
-                type="search"
-                aria-label={t(`${pickerKeys}.searchPlaceholder`)}
-                placeholder={t(`${pickerKeys}.searchPlaceholder`)}
-                value={search}
-                disabled={disabled}
-                className={`${CONTROL_CLASS} pl-2`}
-                onChange={(event) => setSearch(event.currentTarget.value)}
-              />
+                <IconX aria-hidden="true" className="size-3.5" />
+              </Button>
             </div>
 
             <TabsContent value="presets" className="mt-0 space-y-1">
-              <div className="max-h-52 overflow-y-auto">
-                {filteredPresets.length > 0 ? (
-                  filteredPresets.map((option) => {
+              <div className="max-h-72 overflow-y-auto">
+                {EASING_OPTIONS.length > 0 ? (
+                  EASING_OPTIONS.map((option) => {
                     const selected =
                       option.value === "custom-bezier"
                         ? isCustomBezier(value)
@@ -1490,9 +1789,10 @@ export function MotionEasingPicker({
                       <button
                         key={option.value}
                         type="button"
+                        aria-label={optionLabel(option, t)}
                         aria-pressed={selected}
                         disabled={disabled}
-                        className="flex h-7 w-full items-center gap-1 rounded px-2 text-left text-[11px] leading-none hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+                        className="flex h-8 w-full items-center gap-1 rounded px-2 text-left text-[11px] leading-none hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
                         onClick={() => selectPreset(option)}
                       >
                         <span
@@ -1519,6 +1819,17 @@ export function MotionEasingPicker({
             </TabsContent>
 
             <TabsContent value="libraries" className="mt-0 space-y-1">
+              <div className="relative">
+                <Input
+                  type="search"
+                  aria-label={t(`${pickerKeys}.searchPlaceholder`)}
+                  placeholder={t(`${pickerKeys}.searchPlaceholder`)}
+                  value={search}
+                  disabled={disabled}
+                  className={`${CONTROL_CLASS} pl-2`}
+                  onChange={(event) => setSearch(event.currentTarget.value)}
+                />
+              </div>
               <Select
                 value={collectionFilter}
                 disabled={disabled}
@@ -1585,20 +1896,6 @@ export function MotionEasingPicker({
                 )}
               </div>
             </TabsContent>
-
-            {createAvailable ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 w-full justify-start gap-1 px-2 text-[11px]"
-                disabled={disabled}
-                onClick={() => setView("new-variable")}
-              >
-                <IconPlus aria-hidden="true" className="size-3.5" />
-                {t(`${pickerKeys}.newVariable`)}
-              </Button>
-            ) : null}
           </Tabs>
         )}
       </PopoverContent>
@@ -1801,6 +2098,35 @@ function SelectControl({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+function SettingCheckbox({
+  id,
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex min-h-6 items-center gap-2">
+      <Checkbox
+        id={id}
+        aria-label={label}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(next) => onChange(next === true)}
+      />
+      <Label htmlFor={id} className="!text-[10px] text-muted-foreground">
+        {label}
+      </Label>
+    </div>
   );
 }
 
@@ -2414,6 +2740,10 @@ function numberValue(
 
 function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function clampPercent(value: number): number {
+  return Math.min(100, Math.max(0, value));
 }
 
 function defaultAmount(styleKey: MotionNativeStyleKey): number {

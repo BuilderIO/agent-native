@@ -29,7 +29,11 @@ vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
   useFeatureFlags: () => ({}),
 }));
 vi.mock("../../chat/AgentSidebar.js", () => ({
-  AgentToggleButton: () => <button type="button">agent</button>,
+  AgentToggleButton: () => (
+    <button type="button" data-testid="shared-agent-toggle">
+      agent
+    </button>
+  ),
 }));
 
 const appState = vi.hoisted(() => ({
@@ -52,7 +56,10 @@ import { useSettingsPageHeader, useSettingsShell } from "./context.js";
 import { CORE_SETTINGS_PAGES } from "./core-pages.js";
 import {
   _resetSettingsPagesForTests,
+  getSettingsPages,
+  mergeAppSettingsPages,
   registerSettingsPages,
+  type AppSettingsPageDefinition,
   type SettingsPageProps,
 } from "./registry.js";
 import {
@@ -81,6 +88,42 @@ function StubPage({ pageId, sub }: SettingsPageProps) {
       {sub ? ` sub:${sub}` : ""}
     </div>
   );
+}
+
+function AppSettingsPage({ pageId, sub }: SettingsPageProps) {
+  const { navigate } = useSettingsShell();
+  return (
+    <div data-testid="app-settings-page">
+      page:{pageId}
+      {sub ? ` sub:${sub}` : ""}
+      <label>
+        App control
+        <input aria-label="App control" type="checkbox" />
+      </label>
+      <button
+        type="button"
+        onClick={() => navigate(pageId, "delivery")}
+        data-testid="open-app-subpage"
+      >
+        Delivery
+      </button>
+    </div>
+  );
+}
+
+function appPage(
+  id: string,
+  label: string,
+  order = 25,
+  component: AppSettingsPageDefinition["component"] = StubPage,
+): AppSettingsPageDefinition {
+  return {
+    id,
+    label,
+    order,
+    icon: CORE_SETTINGS_PAGES[0]!.icon,
+    component,
+  };
 }
 
 async function flush() {
@@ -207,6 +250,395 @@ describe("SettingsShell", () => {
       },
     ]);
     expect(container.textContent).toContain("Back to Clips");
+  });
+
+  it("adds ordered app-owned pages and renders their custom controls", async () => {
+    await render({
+      notifications: <p>Email notifications</p>,
+      appSettingsPages: [
+        appPage(
+          "custom-preferences",
+          "Custom preferences",
+          25,
+          AppSettingsPage,
+        ),
+        appPage("custom-options", "Custom options", 27),
+      ],
+    });
+
+    expect(groupLabels().find((group) => group.id === "app")?.pages).toEqual([
+      "app",
+      "notifications",
+      "custom-preferences",
+      "custom-options",
+      "automations",
+      "channels",
+      "mcp",
+      "labs",
+    ]);
+    clickPage("custom-preferences");
+    await waitFor(() =>
+      Boolean(container.querySelector('[data-testid="app-settings-page"]')),
+    );
+    expect(
+      container.querySelector('[data-testid="app-settings-page"]')?.textContent,
+    ).toContain("page:custom-preferences");
+    expect(
+      container.querySelector('[aria-label="App control"]'),
+    ).not.toBeNull();
+    expect(
+      getSettingsPages().some((page) => page.id === "mail-preferences"),
+    ).toBe(false);
+  });
+
+  it("renders ordered app sections with page, link, and action entries", async () => {
+    const onAddWorkspace = vi.fn();
+    const customPage = {
+      ...appPage("workspace-alpha", "Workspace Alpha", 25, AppSettingsPage),
+      subpages: [{ id: "settings", label: "Workspace settings" }],
+    };
+
+    await render({
+      appSettingsPages: [customPage],
+      appNavigationSections: [
+        {
+          id: "workspaces",
+          label: "Workspaces",
+          items: [
+            {
+              id: "workspace-overview",
+              type: "page",
+              pageId: "workspace-alpha",
+              label: "Workspace Alpha",
+            },
+            {
+              id: "workspace-settings",
+              type: "page",
+              pageId: "workspace-alpha",
+              sub: "settings",
+              label: "Workspace settings",
+            },
+            {
+              id: "workspace-help",
+              type: "link",
+              label: "Workspace help",
+              href: "/help",
+              visibleWhen: () => false,
+            },
+            {
+              id: "add-workspace",
+              type: "action",
+              label: "Add workspace",
+              onSelect: onAddWorkspace,
+            },
+          ],
+        },
+        {
+          id: "administration",
+          label: "Administration",
+          visibleWhen: (context) => context.isAdmin,
+          items: [
+            {
+              id: "invite-member",
+              type: "action",
+              label: "Invite member",
+              onSelect: () => undefined,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(
+      [...rail().querySelectorAll<HTMLElement>("[data-settings-group]")].map(
+        (group) => group.dataset.settingsGroup,
+      ),
+    ).toEqual(["workspaces"]);
+    expect(
+      rail().querySelector('[data-settings-link="workspace-help"]'),
+    ).toBeNull();
+    expect(
+      rail()
+        .querySelector('[data-settings-nav-item="workspace-settings"]')
+        ?.getAttribute("href"),
+    ).toBe("/settings/workspace-alpha/settings");
+
+    act(() => {
+      rail()
+        .querySelector<HTMLButtonElement>(
+          '[data-settings-action="add-workspace"]',
+        )
+        ?.click();
+    });
+    expect(onAddWorkspace).toHaveBeenCalled();
+
+    const subpageLink = rail().querySelector<HTMLElement>(
+      '[data-settings-nav-item="workspace-settings"]',
+    );
+    expect(subpageLink?.getAttribute("href")).toBe(
+      "/settings/workspace-alpha/settings",
+    );
+    act(() => {
+      subpageLink?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(
+      rail().querySelector(
+        '[data-settings-nav-item="workspace-overview"][aria-current="page"]',
+      ),
+    ).toBeNull();
+    expect(
+      rail().querySelector(
+        '[data-settings-nav-item="workspace-settings"][aria-current="page"]',
+      ),
+    ).not.toBeNull();
+    await waitFor(() =>
+      Boolean(container.querySelector('[data-testid="app-settings-page"]')),
+    );
+  });
+
+  it("keeps controlled template tabs ahead of a same-id app page", async () => {
+    const extraTab = {
+      id: "workspace-alpha",
+      label: "Template workspace",
+      content: "Template workspace content",
+    };
+    const customPage = appPage(
+      "workspace-alpha",
+      "Workspace alpha",
+      5,
+      AppSettingsPage,
+    );
+
+    await render({
+      value: "profile",
+      initialValue: "profile",
+      extraTabs: [extraTab],
+      appSettingsPages: [customPage],
+    });
+    await act(async () => {
+      root.render(
+        renderWithToolkitI18n(
+          <SettingsShell
+            appName="Clips"
+            value="workspace-alpha"
+            initialValue="profile"
+            extraTabs={[extraTab]}
+            appSettingsPages={[customPage]}
+          />,
+        ),
+      );
+    });
+    await waitFor(() =>
+      window.location.pathname.endsWith("/app-workspace-alpha"),
+    );
+  });
+
+  it("mounts an app chat panel and replaces the shared toggle by default", async () => {
+    await render({
+      agentPanel: <div data-testid="app-agent-panel">Local chat</div>,
+      agentToggle: (
+        <button type="button" data-testid="app-agent-toggle">
+          Open chat
+        </button>
+      ),
+    });
+
+    const shell = container.querySelector<HTMLElement>("[data-settings-shell]");
+    const panel = shell?.querySelector('[data-testid="app-agent-panel"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.parentElement).toBe(shell);
+    expect(
+      shell?.querySelector('[data-testid="app-agent-toggle"]'),
+    ).not.toBeNull();
+    expect(
+      shell?.querySelector('[data-testid="shared-agent-toggle"]'),
+    ).toBeNull();
+  });
+
+  it("renders an opted-in app page widget slot after the page content", async () => {
+    window.history.replaceState(null, "", "/settings/app-help");
+    await render({
+      appSettingsPages: [
+        {
+          ...appPage("app-help", "App help"),
+          widgetSlot: <div data-testid="settings-help-widget">Help</div>,
+        },
+      ],
+      initialValue: "app-help",
+      value: "app-help",
+    });
+
+    const widget = container.querySelector('[data-settings-widget-slot=""]');
+    expect(widget?.textContent).toBe("Help");
+    expect(widget?.previousElementSibling?.getAttribute("data-testid")).toBe(
+      "page",
+    );
+  });
+
+  it("does not render an app page widget slot when it is omitted", async () => {
+    window.history.replaceState(null, "", "/settings/app-help");
+    await render({
+      appSettingsPages: [appPage("app-help", "App help")],
+      initialValue: "app-help",
+      value: "app-help",
+    });
+
+    expect(
+      container.querySelector('[data-settings-widget-slot=""]'),
+    ).toBeNull();
+  });
+
+  it("keeps template tabs separate when an app page uses the same id", async () => {
+    await render({
+      appSettingsPages: [
+        appPage("custom-controls", "Custom controls", 25, AppSettingsPage),
+      ],
+      extraTabs: [
+        { id: "custom-controls", label: "Template controls", content: "tabs" },
+      ],
+    });
+
+    expect(groupLabels().find((group) => group.id === "app")?.pages).toEqual(
+      expect.arrayContaining(["custom-controls", "app-custom-controls"]),
+    );
+    clickPage("custom-controls");
+    await waitFor(() =>
+      Boolean(container.querySelector('[data-testid="app-settings-page"]')),
+    );
+    expect(
+      container.querySelector('[data-testid="app-settings-page"]')?.textContent,
+    ).toContain("page:custom-controls");
+  });
+
+  it("opens an app page when its id matches an app area", async () => {
+    await render({
+      appAreas: [{ id: "recordings", label: "Recordings", content: null }],
+      appSettingsPages: [
+        appPage("recordings", "Recordings settings", 25, AppSettingsPage),
+      ],
+    });
+
+    clickPage("recordings");
+    await waitFor(() =>
+      Boolean(container.querySelector('[data-testid="app-settings-page"]')),
+    );
+
+    expect(
+      container.querySelector('[data-testid="app-settings-page"]')?.textContent,
+    ).toContain("page:recordings");
+    expect(window.location.pathname).toBe("/settings/recordings");
+  });
+
+  it("rejects app page ids that would replace an existing page", () => {
+    expect(() =>
+      mergeAppSettingsPages(CORE_SETTINGS_PAGES, [
+        appPage("profile", "Replacement profile"),
+      ]),
+    ).toThrow(
+      'App settings page id "profile" conflicts with an existing page id.',
+    );
+    expect(() =>
+      mergeAppSettingsPages(
+        [],
+        [
+          appPage("custom-preferences", "First"),
+          appPage("custom-preferences", "Second"),
+        ],
+      ),
+    ).toThrow('Duplicate app settings page id "custom-preferences".');
+  });
+
+  it("keeps app pages and search entries isolated between shell instances", async () => {
+    const firstRouter = createMemoryRouter(
+      [
+        {
+          path: "/settings/*",
+          element: (
+            <SettingsShell
+              appName="First app"
+              appSettingsPages={[
+                {
+                  ...appPage("first-settings", "First settings", 25),
+                  keywords: "first-only",
+                },
+              ]}
+            />
+          ),
+        },
+      ],
+      { initialEntries: ["/settings/first-settings"] },
+    );
+    const secondRouter = createMemoryRouter(
+      [
+        {
+          path: "/settings/*",
+          element: (
+            <SettingsShell
+              appName="Second app"
+              appSettingsPages={[
+                {
+                  ...appPage("second-settings", "Second settings", 25),
+                  keywords: "second-only",
+                },
+              ]}
+            />
+          ),
+        },
+      ],
+      { initialEntries: ["/settings/second-settings"] },
+    );
+
+    await act(async () => {
+      root.render(
+        renderWithToolkitI18n(
+          <>
+            <RouterProvider router={firstRouter} />
+            <RouterProvider router={secondRouter} />
+          </>,
+        ),
+      );
+    });
+    await flush();
+
+    const shells = [
+      ...container.querySelectorAll<HTMLElement>("[data-settings-shell]"),
+    ];
+    expect(shells).toHaveLength(2);
+    expect(shells[0]?.querySelector('[data-testid="page"]')?.textContent).toBe(
+      "page:first-settings",
+    );
+    expect(shells[1]?.querySelector('[data-testid="page"]')?.textContent).toBe(
+      "page:second-settings",
+    );
+    expect(
+      shells[0]?.querySelector('[data-settings-page="second-settings"]'),
+    ).toBeNull();
+    expect(
+      shells[1]?.querySelector('[data-settings-page="first-settings"]'),
+    ).toBeNull();
+
+    const inputs = shells.map(
+      (shell) => shell.querySelector<HTMLInputElement>('input[type="search"]')!,
+    );
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    act(() => {
+      setValue.call(inputs[0], "first-only");
+      inputs[0]!.dispatchEvent(new Event("input", { bubbles: true }));
+      setValue.call(inputs[1], "first-only");
+      inputs[1]!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(shells[0]?.querySelector('[role="option"]')?.textContent).toContain(
+      "First settings",
+    );
+    expect(shells[1]?.querySelector('[role="option"]')).toBeNull();
+    expect(getSettingsPages().map((page) => page.id)).not.toEqual(
+      expect.arrayContaining(["first-settings", "second-settings"]),
+    );
   });
 
   it("shows Notifications and What's new when the app passes them", async () => {
@@ -472,6 +904,9 @@ describe("SettingsShell", () => {
       expect(search("database")[0]).toBe(
         "DatabaseOrganization › Infrastructure",
       );
+      expect(search("web search")[0]).toBe(
+        "Web searchOrganization › Infrastructure",
+      );
     });
 
     it("opens the first hit on Enter and flashes its row", async () => {
@@ -525,6 +960,45 @@ describe("SettingsShell", () => {
       expect(`${window.location.pathname}${window.location.hash}`).toBe(
         "/settings/app/recordings#playback",
       );
+    });
+
+    it("routes an app page search entry to its nested page", async () => {
+      const customPage: AppSettingsPageDefinition = {
+        ...appPage("custom-controls", "Custom controls", 25, AppSettingsPage),
+        subpages: [{ id: "delivery", label: "Delivery settings" }],
+        searchEntries: [
+          {
+            id: "delivery-rules",
+            label: "Delivery rules",
+            keywords: "exceptions",
+            sub: "delivery",
+          },
+        ],
+      };
+      await render({ appSettingsPages: [customPage] });
+
+      clickPage("custom-controls");
+      await waitFor(() =>
+        Boolean(container.querySelector('[data-testid="app-settings-page"]')),
+      );
+      expect(
+        container.querySelector('[aria-label="App control"]'),
+      ).not.toBeNull();
+
+      expect(search("delivery exceptions")[0]).toContain("Delivery rules");
+      press("Enter");
+      await flush();
+      expect(window.location.pathname).toBe(
+        "/settings/custom-controls/delivery",
+      );
+      expect(
+        container.querySelector('header nav [aria-current="page"]')
+          ?.textContent,
+      ).toBe("Delivery settings");
+      expect(
+        container.querySelector('[data-testid="app-settings-page"]')
+          ?.textContent,
+      ).toContain("sub:delivery");
     });
 
     it("focuses on / and clears on Escape", async () => {

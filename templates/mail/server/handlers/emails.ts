@@ -8,6 +8,10 @@ import { readBody, getSession } from "@agent-native/core/server";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
+  ACTION_BROWSER_PERSIST_ALLOW,
+  ACTION_BROWSER_PERSIST_HEADER,
+} from "@agent-native/core/shared";
+import {
   gmailReadState,
   GMAIL_QUOTA_COOLDOWN_ERROR_CODE,
 } from "@shared/gmail-freshness.js";
@@ -652,7 +656,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         pageTokens,
         threadFormat:
           view === "drafts" || hasAttachmentSavedFilter ? "full" : "metadata",
-        threadCandidateLimit: q ? 80 : undefined,
+        threadCandidateLimit: q
+          ? Math.min(500, Math.max(40, pageLimit + 1))
+          : undefined,
         accountTokens,
         labelMap,
       });
@@ -798,6 +804,11 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
 // ─── Thread messages ─────────────────────────────────────────────────────────
 
 export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
+  setResponseHeader(
+    event,
+    ACTION_BROWSER_PERSIST_HEADER,
+    ACTION_BROWSER_PERSIST_ALLOW,
+  );
   const email = await userEmail(event);
   const threadId = getRouterParam(event, "threadId") as string;
   const { accountEmail } = getQuery(event) as { accountEmail?: string };

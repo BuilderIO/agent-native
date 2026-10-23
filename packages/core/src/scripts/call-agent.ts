@@ -287,12 +287,13 @@ class A2AInvocationError extends Error {
  */
 function unresolvableAgentTargetError(
   requestedAgent: string,
-  available: Array<{ id: string; name: string }>,
+  available: Array<{ id: string; name: string; aliases?: string[] }>,
   callerApp: string | undefined,
   correlation: A2ACorrelationMetadata,
   mode: A2AInvocationMode,
 ): A2AInvocationError {
   const connected = available.map((a) => a.id).join(", ");
+  const suggestions = suggestAgentTargets(requestedAgent, available);
   console.error(
     `[call-agent] Unresolvable delegation target "${requestedAgent}" from ${
       callerApp || "unknown"
@@ -311,10 +312,72 @@ function unresolvableAgentTargetError(
   return new A2AInvocationError(
     `No connected agent matches "${requestedAgent}". This is a target-resolution failure, ` +
       "not an outage: do not describe the app as unavailable, down, or temporarily broken. " +
-      `Connected agents: ${connected || "(none)"}. ` +
-      `Retry with one of those exact ids, or tell the user that "${requestedAgent}" is not connected to this workspace.`,
+      (suggestions.length > 0
+        ? `Possible matches: ${suggestions.join(", ")}. Retry with one of those exact ids, or tell the user that "${requestedAgent}" is not connected to this workspace.`
+        : `No close matches were found. Tell the user that "${requestedAgent}" is not connected to this workspace.`),
     { errorCode: "agent_not_found" },
   );
+}
+
+function normalizeAgentSuggestion(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function agentNameDistance(left: string, right: string): number {
+  const previous = Array.from(
+    { length: right.length + 1 },
+    (_, index) => index,
+  );
+  for (let i = 1; i <= left.length; i++) {
+    let diagonal = previous[0]!;
+    previous[0] = i;
+    for (let j = 1; j <= right.length; j++) {
+      const above = previous[j]!;
+      previous[j] = Math.min(
+        previous[j]! + 1,
+        previous[j - 1]! + 1,
+        diagonal + (left[i - 1] === right[j - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return previous[right.length]!;
+}
+
+function suggestAgentTargets(
+  requestedAgent: string,
+  available: Array<{ id: string; name: string; aliases?: string[] }>,
+): string[] {
+  const requested = normalizeAgentSuggestion(requestedAgent);
+  if (!requested) return [];
+  return available
+    .map((agent) => {
+      const labels = [agent.id, agent.name, ...(agent.aliases ?? [])]
+        .map(normalizeAgentSuggestion)
+        .filter(Boolean);
+      const distance = Math.min(
+        ...labels.map((label) =>
+          label.includes(requested) || requested.includes(label)
+            ? 0
+            : agentNameDistance(requested, label),
+        ),
+      );
+      return { id: agent.id, distance };
+    })
+    .filter(
+      ({ distance }) =>
+        distance <= Math.max(2, Math.floor(requested.length / 3)),
+    )
+    .sort(
+      (left, right) =>
+        left.distance - right.distance || left.id.localeCompare(right.id),
+    )
+    .slice(0, 3)
+    .map(({ id }) => id);
 }
 
 function buildMessageIdempotencyKey(
@@ -706,7 +769,7 @@ function stringifyManagedAgentApprovalInput(
 export const tool: ActionTool = {
   description:
     "Ask a DIFFERENT, separately-deployed app's agent over A2A. ONLY use it when the user's requested outcome depends on data or a capability only that app can provide, or the user explicitly asks you to involve it; availability alone is not a reason. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
-    'For brand-consistent generated media, the first-party Assets agent is available as agent="assets"; use it when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery, unless the current app has its own generation action that already delegates there. ' +
+    'For generated media, use the current app\'s image-generation action or provider when it has one. Call Assets (agent="assets") only when the user explicitly requests its brand library, or the requested capability is exclusive to Assets and unavailable locally. Assets being available, convenient, or able to enrich imagery is not enough to delegate; keep edits and placement in the current app. ' +
     "IMPORTANT — handling the response: " +
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
     '(b) If it does NOT contain a URL/ID and the user asked for one, say so explicitly (e.g. "the agent created the deck/image but didn\'t return a link — open the app directly to view it"). NEVER invent a URL, slug, or path — guessing produces broken links that look real. ' +
@@ -718,7 +781,7 @@ export const tool: ActionTool = {
       agent: {
         type: "string",
         description:
-          "Name or URL of a DIFFERENT deployed agent app (e.g. 'mail', 'calendar', 'analytics'). Must not be the current app's own name.",
+          "Exact id or name of a DIFFERENT connected agent app (e.g. 'mail', 'calendar', 'analytics'); URLs are not supported. Must not be the current app's own name.",
       },
       message: {
         type: "string",

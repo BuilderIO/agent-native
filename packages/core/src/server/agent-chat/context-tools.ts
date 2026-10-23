@@ -159,7 +159,7 @@ Agent-Native Plan, a Plan artifact, or the Plans app.
 - The user explicitly asks you to communicate with a different app
 - The requested outcome depends on data or a capability only another deployed app can provide
 
-For brand-consistent generated media, use agent "assets" unless the current app has its own generation action that already delegates there. Keep returned asset IDs and URLs verbatim.
+For brand media, use agent "assets" only when the user asks for its brand library or an asset/capability only Assets can provide. Ordinary image generation stays in the current app. Keep returned asset IDs and URLs verbatim.
 
 If \`call-agent\` says a downstream agent accepted the subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.`,
 
@@ -588,7 +588,41 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
             display: {
               type: "object",
               description:
-                "Optional display metadata: title, description, primaryAction.",
+                "Optional display metadata: title, description, primaryAction, sources, and actions.",
+              properties: {
+                actions: {
+                  type: "array",
+                  items: {
+                    oneOf: [
+                      {
+                        type: "object",
+                        properties: {
+                          id: { type: "string" },
+                          type: { type: "string", enum: ["link"] },
+                          label: { type: "string" },
+                          href: { type: "string" },
+                          icon: {
+                            type: "string",
+                            enum: ["explore", "camera", "notebook"],
+                          },
+                          presentation: { type: "string", enum: ["icon"] },
+                        },
+                        required: ["type", "label", "href"],
+                      },
+                      {
+                        type: "object",
+                        properties: {
+                          id: { type: "string" },
+                          type: { type: "string", enum: ["copy"] },
+                          label: { type: "string" },
+                          text: { type: "string" },
+                        },
+                        required: ["type", "label", "text"],
+                      },
+                    ],
+                  },
+                },
+              },
             },
             table: {
               type: "object",
@@ -598,7 +632,79 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
             chartSeries: {
               type: "object",
               description:
-                "For data-chart/data-insights: { type: 'bar'|'line'|'area', title?, xKey, series: [{ key, label, color? }], data, sampled? }.",
+                "For data-chart/data-insights: { type: 'bar'|'line'|'area', title?, xKey, series: [{ key, label, color? }], data, sampled? }. Optional display controls include contentHeight from 1 to 1200 px, contentPadding from 0 to 64 px, labelFontFamily (sans, serif, mono), label font sizes and weights, valueAxisTickInterval, and horizontalCategoryGapRatio; these apply only to chart rendering.",
+              properties: {
+                contentHeight: {
+                  type: "number",
+                  minimum: 1,
+                  maximum: 1200,
+                  description: "Optional chart body height in pixels.",
+                },
+                contentPadding: {
+                  type: "number",
+                  minimum: 0,
+                  maximum: 64,
+                  description: "Optional inner chart body padding in pixels.",
+                },
+                labelFontFamily: {
+                  type: "string",
+                  enum: ["sans", "serif", "mono"],
+                  description:
+                    "Optional label font token; sans follows the app theme font.",
+                },
+                labelFontSize: {
+                  type: "integer",
+                  minimum: 8,
+                  maximum: 24,
+                },
+                axisTitleFontSize: {
+                  type: "integer",
+                  minimum: 8,
+                  maximum: 24,
+                },
+                axisTitleFontWeight: {
+                  type: "number",
+                  enum: [400, 500],
+                },
+                valueLabelFontSize: {
+                  type: "integer",
+                  minimum: 8,
+                  maximum: 24,
+                },
+                valueLabelFontWeight: {
+                  type: "number",
+                  enum: [400, 500],
+                },
+                valueAxisTickInterval: {
+                  type: "number",
+                  minimum: 1e-12,
+                  description:
+                    "Optional positive step for numeric value-axis labels and grid lines; it must produce between 1 and 100 ticks for the chart's value range.",
+                },
+                horizontalCategoryGapRatio: {
+                  type: "number",
+                  minimum: 0,
+                  maximum: 0.9,
+                  description:
+                    "Optional fraction of each horizontal-bar category slot left empty. Defaults to the existing spacing; use 0.08 for an 8% gap.",
+                },
+                actions: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      label: { type: "string" },
+                      href: { type: "string" },
+                      icon: {
+                        type: "string",
+                        enum: ["explore", "camera", "notebook"],
+                      },
+                      presentation: { type: "string", enum: ["icon"] },
+                    },
+                    required: ["label", "href"],
+                  },
+                },
+              },
             },
           },
           required: ["widget"],

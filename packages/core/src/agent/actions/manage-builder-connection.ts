@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
+import { auditAttribution } from "../../audit/attribution.js";
 import type { BuilderDefaultModel } from "../../secrets/usage.js";
 import type { BuilderConnectionsStatus } from "../../server/core-routes-plugin.js";
 
@@ -54,6 +55,11 @@ export default defineAction({
   },
   // disconnectBuilderConnectionAtScope records the disconnect at its scope.
   audit: { enabled: false },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   run: async (
     args,
     ctx,
@@ -79,6 +85,7 @@ export default defineAction({
         orgId,
         role,
         scope: args.disconnect,
+        attribution: auditAttribution(ctx),
       });
       if (result.status !== 200) {
         fail(result.body.error, {

@@ -119,6 +119,41 @@ describe("extractLayerPosition", () => {
     );
   });
 
+  it("positions a clone without rewriting the rest of its authored style text", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        '<div data-agent-native-node-id="source" style="position:absolute;left:0;top:0;background:#fffdf8;padding:0 24px">Source</div>',
+      ],
+      { positions: [{ x: 100, y: 180 }] },
+    );
+
+    expect(parseFragment(result!.htmlFragments[0]!).getAttribute("style")).toBe(
+      "position:absolute;left: 100px;top: 180px;background:#fffdf8;padding:0 24px",
+    );
+  });
+
+  it("writes a measured clone position the way CSS serializes it", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      ['<div style="position:absolute;left:0;top:0">Source</div>'],
+      {
+        positions: [
+          {
+            x: 40,
+            y: 108.99966,
+            space: "visual",
+            visualOffset: { x: 0, y: 0 },
+          },
+        ],
+      },
+    );
+
+    expect(
+      (parseFragment(result!.htmlFragments[0]!) as HTMLElement).style.top,
+    ).toBe("109px");
+  });
+
   it("clears an authored inset before positioning a clone", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
@@ -138,7 +173,7 @@ describe("extractLayerPosition", () => {
     expect([clone.style.right, clone.style.bottom]).toEqual(["", ""]);
   });
 
-  it("preserves opposing relative offsets and RTL when moving a fractional clone", () => {
+  it("canonicalizes opposing relative offsets when moving a fractional clone", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
       [
@@ -158,22 +193,30 @@ describe("extractLayerPosition", () => {
       clone.style.top,
       clone.style.right,
       clone.style.bottom,
+      clone.style.getPropertyValue("inset"),
       clone.style.margin,
       clone.getAttribute("dir"),
     ]).toEqual([
       "relative",
       "56.25px",
       "28.5px",
-      "7.75px",
-      "9.25px",
+      "auto",
+      "auto",
+      "",
       "3px 4px",
       "rtl",
     ]);
     expect(clone.getAttribute("data-note")).toBe("kept");
     expect(clone.textContent).toBe("Source");
+    expect([
+      clone.style.getPropertyValue("inset-inline-start"),
+      clone.style.getPropertyValue("inset-inline-end"),
+      clone.style.getPropertyValue("inset-block-start"),
+      clone.style.getPropertyValue("inset-block-end"),
+    ]).toEqual(["auto", "auto", "auto", "auto"]);
   });
 
-  it("keeps a relative inset shorthand when updating fractional coordinates", () => {
+  it("clears a relative inset shorthand when updating fractional coordinates", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,
       [
@@ -192,14 +235,48 @@ describe("extractLayerPosition", () => {
       clone.style.left,
       clone.style.top,
       clone.style.getPropertyValue("inset"),
+      clone.style.right,
+      clone.style.bottom,
       clone.getAttribute("dir"),
-    ]).toEqual([
-      "relative",
-      "56.25px",
-      "28.5px",
-      "12.5px 7.75px 9.25px 40.25px",
-      "rtl",
-    ]);
+    ]).toEqual(["relative", "56.25px", "28.5px", "", "auto", "auto", "rtl"]);
+  });
+
+  it("overrides stylesheet inset constraints when moving a relative clone", () => {
+    const style = document.createElement("style");
+    style.textContent =
+      ".rtl-parent { direction: rtl; } .class-relative { position: relative; left: 40.25px; right: 7.75px; top: 12.5px; bottom: 9.25px; }";
+    const parent = document.createElement("div");
+    parent.className = "rtl-parent";
+    document.head.append(style);
+    document.body.append(parent);
+    try {
+      const result = prepareClonedHtmlLayersForLiveInsert(
+        LIVE_URL,
+        [
+          '<div class="class-relative" data-agent-native-node-id="source">Source</div>',
+        ],
+        {
+          positions: [
+            { x: 56.25, y: 28.5, positionMode: "relative", space: "layout" },
+          ],
+        },
+      );
+
+      const clone = parseFragment(result!.htmlFragments[0]!) as HTMLElement;
+      parent.append(clone);
+      expect(clone.className).toBe("class-relative");
+      expect([
+        clone.style.position,
+        clone.style.left,
+        clone.style.top,
+        clone.style.right,
+        clone.style.bottom,
+      ]).toEqual(["relative", "56.25px", "28.5px", "auto", "auto"]);
+      expect(window.getComputedStyle(clone).right).toBe("auto");
+    } finally {
+      parent.remove();
+      style.remove();
+    }
   });
 
   it("clears an authored inset when stripping root placement", () => {
@@ -1300,6 +1377,48 @@ function parseFragment(html: string): Element {
   return element;
 }
 
+describe("insertClonedHtmlLayers placement", () => {
+  const pasted = (html: string, parentId: string) =>
+    new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${parentId}"] > [data-agent-native-clone-root], [data-agent-native-node-id="${parentId}"] > [data-agent-native-node-id^="copy-"]`,
+      )!;
+  const layer = `<div data-agent-native-node-id="alpha" style="position:absolute;left:12px;top:8px;padding:12px">Alpha</div>`;
+
+  it("keeps a layer absolutely placed at the origin of a frame whose children are all absolute", () => {
+    const content = `<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="free" style="position:relative;width:360px;height:200px"><div data-agent-native-node-id="child" style="position:absolute;left:8px;top:8px"></div></div></body></html>`;
+    const result = insertClonedHtmlLayers(content, [layer], {
+      targetSelectors: ['[data-agent-native-node-id="free"]'],
+      placement: "inside",
+      stripRootPosition: true,
+    });
+
+    const copy = pasted(result!.content, "free");
+    expect([copy.style.position, copy.style.left, copy.style.top]).toEqual([
+      "absolute",
+      "",
+      "",
+    ]);
+  });
+
+  it("lets a layer pasted into a flex row join the flow", () => {
+    const content = `<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="row" style="display:flex"><div data-agent-native-node-id="child" style="position:absolute"></div></div></body></html>`;
+    const result = insertClonedHtmlLayers(content, [layer], {
+      targetSelectors: ['[data-agent-native-node-id="row"]'],
+      placement: "inside",
+      stripRootPosition: true,
+    });
+
+    const copy = pasted(result!.content, "row");
+    expect([copy.style.position, copy.style.left, copy.style.top]).toEqual([
+      "",
+      "",
+      "",
+    ]);
+  });
+});
+
 describe("prepareClonedHtmlLayersForLiveInsert", () => {
   it("rejects a failed snapshot sentinel atomically", () => {
     const layerHtmls = [
@@ -1397,6 +1516,67 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     );
   });
 
+  it("keeps nested SVG shape names while re-keying ids and local references", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(LIVE_URL, [
+      `<svg id="source-icon" data-agent-native-node-id="source-icon" data-an-primitive="pasted-svg" viewBox="0 0 80 40">
+        <defs><linearGradient id="warm-paint"><stop stop-color="#123456" /></linearGradient></defs>
+        <g id="source-group">
+          <path id="first-shape" d="M0 0h30v30z" fill="url(#warm-paint)" />
+          <path id="second-shape" d="M50 0h30v30z" fill="#7c3aed" />
+        </g>
+      </svg>`,
+    ]);
+
+    expect(result).not.toBeNull();
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    const gradient = Array.from(clone.querySelectorAll("[id]")).find(
+      (element) => element.localName.toLowerCase() === "lineargradient",
+    );
+    const paths = Array.from(clone.querySelectorAll("path"));
+    const ids = Array.from(clone.querySelectorAll("[id]"), (element) =>
+      element.getAttribute("id"),
+    );
+
+    expect(clone.id).not.toBe("source-icon");
+    expect(gradient?.id).not.toBe("warm-paint");
+    expect(paths.map((path) => path.id)).not.toEqual([
+      "first-shape",
+      "second-shape",
+    ]);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(paths[0]?.getAttribute("fill")).toBe(`url(#${gradient?.id})`);
+    expect(
+      paths.map((path) => path.getAttribute("data-agent-native-layer-name")),
+    ).toEqual(["First Shape", "Second Shape"]);
+    expect(
+      buildCodeLayerProjection(clone.outerHTML)
+        .nodes.filter((node) => node.tag === "path")
+        .map((node) => node.layerName),
+    ).toEqual(["First Shape", "Second Shape"]);
+  });
+
+  it("preserves explicit names on already-scoped SVG ids during clone", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(LIVE_URL, [
+      `<svg id="an-pasted-session-source-icon" data-agent-native-node-id="source-icon" data-an-primitive="pasted-svg" data-agent-native-layer-name="Pasted SVG" viewBox="0 0 80 40">
+        <defs><linearGradient id="an-pasted-session-warm-paint"><stop stop-color="#123456" /></linearGradient></defs>
+        <path id="an-pasted-session-first-shape" data-agent-native-layer-name="First Shape" d="M0 0h30v30z" fill="url(#an-pasted-session-warm-paint)" />
+      </svg>`,
+    ]);
+
+    expect(result).not.toBeNull();
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    const gradient = clone.querySelector("linearGradient");
+    const shape = clone.querySelector("path");
+
+    expect(clone.id).not.toBe("an-pasted-session-source-icon");
+    expect(gradient?.id).not.toBe("an-pasted-session-warm-paint");
+    expect(shape?.id).not.toBe("an-pasted-session-first-shape");
+    expect(shape?.getAttribute("data-agent-native-layer-name")).toBe(
+      "First Shape",
+    );
+    expect(shape?.getAttribute("fill")).toBe(`url(#${gradient?.id})`);
+  });
+
   it("keeps clone names stable when authored ids are re-keyed", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(LIVE_URL, [
       `<section id="runtime-panel" data-agent-native-node-id="root"><div>Panel</div></section>`,
@@ -1416,6 +1596,18 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     expect(result!.htmlFragments[0]).not.toContain('id="runtime-panel"');
     expect(result!.htmlFragments[1]).not.toContain(
       'data-agent-native-layer-name="Copy"',
+    );
+  });
+
+  it("leaves a text-named copy unnamed so its name follows its own text", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      ['<h1 data-agent-native-node-id="title">First title</h1>'],
+      { stripRootPosition: true },
+    );
+
+    expect(result!.htmlFragments[0]).not.toContain(
+      "data-agent-native-layer-name",
     );
   });
 
@@ -1462,7 +1654,7 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
           data-source-line="42"
           data-source-column="7"
           data-component-name="Card"
-          style="display:flex;color:rgb(1, 2, 3)"
+          style="color:rgb(1, 2, 3)"
         ><span
           data-agent-native-node-id="title"
           data-source-file="src/Card.tsx"

@@ -29,6 +29,11 @@ import type {
   ContentDatabaseNavigationSort,
   ContentDatabasePersonalViewOverrides,
 } from "../shared/api.js";
+import {
+  contentDatabaseFilterOperatorNeedsValue,
+  contentDatabaseFilterTree,
+  reduceContentDatabaseFilterTree,
+} from "../shared/database-query.js";
 import { favoritesSystemIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
@@ -114,9 +119,8 @@ function selectedFilterValues(value: string) {
 
 function activeNavigationFilter(filter: ContentDatabaseFilter) {
   return (
-    ["is_empty", "is_not_empty", "is_checked", "is_unchecked"].includes(
-      filter.operator,
-    ) || selectedFilterValues(filter.value).length > 0
+    !contentDatabaseFilterOperatorNeedsValue(filter.operator) ||
+    selectedFilterValues(filter.value).length > 0
   );
 }
 
@@ -201,11 +205,10 @@ function navigationFilterSql(args: {
     updatedAt: SQL<string>;
   };
 }) {
-  const filters = args.filters.filter(activeNavigationFilter);
-  if (filters.length === 0) return undefined;
+  if (!args.filters.some(activeNavigationFilter)) return undefined;
   const definitionById = args.definitionById;
 
-  const leaves = filters.map((filter) => {
+  const leaf = (filter: ContentDatabaseFilter): SQL => {
     let predicate: SQL | undefined;
     if (filter.key === "name") {
       predicate = textFilterSql(args.document.title, filter);
@@ -282,23 +285,18 @@ function navigationFilterSql(args: {
         },
       );
     }
-    return { filter, predicate };
-  });
-  const roots = leaves.filter(({ filter }) => !filter.parentFilterGroupId);
-  const groups = new Map<string, SQL[]>();
-  for (const { filter, predicate } of leaves) {
-    if (!filter.parentFilterGroupId || !filter.filterGroupId) continue;
-    groups.set(filter.filterGroupId, [
-      ...(groups.get(filter.filterGroupId) ?? []),
-      predicate,
-    ]);
-  }
-  const combine = (values: SQL[]): SQL =>
-    (args.filterMode === "or" ? or(...values) : and(...values)) ?? sql`true`;
-  return combine([
-    ...roots.map(({ predicate }) => predicate),
-    ...[...groups.values()].map(combine),
-  ]);
+    return predicate;
+  };
+  return reduceContentDatabaseFilterTree(
+    contentDatabaseFilterTree(
+      args.filters,
+      args.filterMode,
+      activeNavigationFilter,
+    ),
+    leaf,
+    (mode, values): SQL =>
+      (mode === "or" ? or(...values) : and(...values)) ?? sql`true`,
+  );
 }
 
 type NavigationRevision = { count: number; checksum: bigint };

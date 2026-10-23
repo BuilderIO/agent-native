@@ -1,0 +1,383 @@
+{
+  "pylon.newTickets": {
+    "all": {
+      "ok": true,
+      "items": [
+        {
+          "id": "t-bug",
+          "externalId": "t-bug",
+          "kind": "ticket",
+          "provider": "pylon",
+          "title": "Export fails with a blank page",
+          "url": "https://pylon.example.test/issues/t-bug",
+          "author": "bug@customer.example.test",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "ticketId": "t-bug"
+          },
+          "extras": {
+            "state": "new"
+          }
+        },
+        {
+          "id": "t-bill-ok",
+          "externalId": "t-bill-ok",
+          "kind": "ticket",
+          "provider": "pylon",
+          "title": "Question about my last invoice",
+          "url": "https://pylon.example.test/issues/t-bill-ok",
+          "author": "ok@customer.example.test",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "ticketId": "t-bill-ok"
+          },
+          "extras": {
+            "state": "new"
+          }
+        },
+        {
+          "id": "t-bill-unsure",
+          "externalId": "t-bill-unsure",
+          "kind": "ticket",
+          "provider": "pylon",
+          "title": "Was I refunded for September?",
+          "url": "https://pylon.example.test/issues/t-bill-unsure",
+          "author": "unsure@customer.example.test",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "ticketId": "t-bill-unsure"
+          },
+          "extras": {
+            "state": "new"
+          }
+        },
+        {
+          "id": "t-urgent",
+          "externalId": "t-urgent",
+          "kind": "ticket",
+          "provider": "pylon",
+          "title": "Our whole team is locked out",
+          "url": "https://pylon.example.test/issues/t-urgent",
+          "author": "urgent@customer.example.test",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "ticketId": "t-urgent"
+          },
+          "extras": {
+            "state": "new"
+          }
+        },
+        {
+          "id": "t-other",
+          "externalId": "t-other",
+          "kind": "ticket",
+          "provider": "pylon",
+          "title": "How do I export to CSV?",
+          "url": "https://pylon.example.test/issues/t-other",
+          "author": "other@customer.example.test",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "ticketId": "t-other"
+          },
+          "extras": {
+            "state": "new"
+          }
+        }
+      ],
+      "cursor": "2026-10-19T11:59:00Z"
+    },
+    "oneBug": {
+      "ok": true,
+      "items": [
+        {
+          "id": "t-bug",
+          "externalId": "t-bug",
+          "kind": "ticket",
+          "provider": "pylon",
+          "title": "Export fails with a blank page",
+          "url": "https://pylon.example.test/issues/t-bug",
+          "author": "bug@customer.example.test",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "ticketId": "t-bug"
+          },
+          "extras": {
+            "state": "new"
+          }
+        }
+      ],
+      "cursor": "2026-10-19T11:59:00Z"
+    },
+    "oneOther": {
+      "ok": true,
+      "items": [
+        {
+          "id": "t-other",
+          "externalId": "t-other",
+          "kind": "ticket",
+          "provider": "pylon",
+          "title": "How do I export to CSV?",
+          "url": "https://pylon.example.test/issues/t-other",
+          "author": "other@customer.example.test",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "ticketId": "t-other"
+          },
+          "extras": {
+            "state": "new"
+          }
+        }
+      ],
+      "cursor": "2026-10-19T11:59:00Z"
+    },
+    "claimed": {
+      "ok": true,
+      "items": [
+        {
+          "id": "t-bill-claimed",
+          "externalId": "t-bill-claimed",
+          "kind": "ticket",
+          "provider": "pylon",
+          "title": "Did you refund my duplicate charge?",
+          "url": "https://pylon.example.test/issues/t-bill-claimed",
+          "author": "claimed@customer.example.test",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "ticketId": "t-bill-claimed"
+          },
+          "extras": {
+            "state": "new"
+          }
+        }
+      ],
+      "cursor": "2026-10-19T11:59:00Z"
+    },
+    "none": {
+      "ok": true,
+      "items": []
+    },
+    "bugAndOther": {
+      "ok": true,
+      "items": [
+        {
+          "id": "t-bug",
+          "externalId": "t-bug",
+          "kind": "ticket",
+          "provider": "pylon",
+          "title": "Export fails with a blank page",
+          "url": "https://pylon.example.test/issues/t-bug",
+          "author": "bug@customer.example.test",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "ticketId": "t-bug"
+          },
+          "extras": {
+            "state": "new"
+          }
+        },
+        {
+          "id": "t-other",
+          "externalId": "t-other",
+          "kind": "ticket",
+          "provider": "pylon",
+          "title": "How do I export to CSV?",
+          "url": "https://pylon.example.test/issues/t-other",
+          "author": "other@customer.example.test",
+          "occurredAt": "2026-10-19T11:50:00.000Z",
+          "thread": {
+            "ticketId": "t-other"
+          },
+          "extras": {
+            "state": "new"
+          }
+        }
+      ],
+      "cursor": "2026-10-19T11:59:00Z"
+    }
+  },
+  "pylon.ticketThread": {
+    "threads": {
+      "ok": true,
+      "output": {
+        "data": [
+          {
+            "id": "msg-{fields.ticketId}",
+            "body_html": "<p>The customer's first message.</p>"
+          }
+        ]
+      }
+    },
+    "noOutput": {
+      "ok": true
+    }
+  },
+  "stripe.customerBilling": {
+    "customers": {
+      "match": [
+        {
+          "when": {
+            "email": "ok@customer.example.test"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "data": [
+                {
+                  "id": "cus_ok",
+                  "email": "ok@customer.example.test",
+                  "subscriptions": {
+                    "data": [
+                      {
+                        "id": "sub_cus_ok",
+                        "status": "active",
+                        "plan": {
+                          "nickname": "Pro"
+                        },
+                        "latest_invoice": {
+                          "id": "INV-1",
+                          "amount_paid": 4000,
+                          "currency": "usd",
+                          "status": "paid",
+                          "status_transitions": {
+                            "paid_at": "2026-10-01T09:00:00.000Z"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "when": {
+            "email": "unsure@customer.example.test"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "data": [
+                {
+                  "id": "cus_unsure",
+                  "email": "unsure@customer.example.test",
+                  "subscriptions": {
+                    "data": [
+                      {
+                        "id": "sub_cus_unsure",
+                        "status": "active",
+                        "plan": {
+                          "nickname": "Pro"
+                        },
+                        "latest_invoice": {
+                          "id": "INV-2",
+                          "amount_paid": 4000,
+                          "currency": "usd",
+                          "status": "paid",
+                          "status_transitions": {
+                            "paid_at": "2026-10-01T09:00:00.000Z"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "when": {
+            "email": "claimed@customer.example.test"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "data": [
+                {
+                  "id": "cus_claimed",
+                  "email": "claimed@customer.example.test",
+                  "subscriptions": {
+                    "data": [
+                      {
+                        "id": "sub_cus_claimed",
+                        "status": "active",
+                        "plan": {
+                          "nickname": "Pro"
+                        },
+                        "latest_invoice": {
+                          "id": "INV-3",
+                          "amount_paid": 4000,
+                          "currency": "usd",
+                          "status": "paid",
+                          "status_transitions": {
+                            "paid_at": "2026-10-01T09:00:00.000Z"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "jira.createIssue": {
+    "created": {
+      "ok": true,
+      "output": {
+        "id": "10001",
+        "key": "EXAMPLE-{n}"
+      },
+      "externalRef": "EXAMPLE-{n}"
+    }
+  },
+  "pylon.addNote": {
+    "added": {
+      "ok": true,
+      "output": {
+        "data": {
+          "id": "note-{n}"
+        }
+      },
+      "externalRef": "note-{n}"
+    }
+  },
+  "pylon.reply": {
+    "replied": {
+      "ok": true,
+      "output": {
+        "data": {
+          "id": "reply-{n}"
+        }
+      },
+      "externalRef": "reply-{n}"
+    }
+  },
+  "slack.postMessage": {
+    "posted": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "channel": "D0LEAD",
+        "ts": "1760004000.00000{n}",
+        "permalink": "https://slack.example.test/archives/D0LEAD/p176000400000000{n}"
+      },
+      "externalRef": "1760004000.00000{n}",
+      "url": "https://slack.example.test/archives/D0LEAD/p176000400000000{n}"
+    }
+  },
+  "email.send": {
+    "sent": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "messageRef": "mail-{n}"
+      },
+      "externalRef": "mail-{n}"
+    }
+  }
+}

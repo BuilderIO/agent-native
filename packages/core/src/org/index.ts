@@ -59,6 +59,10 @@ export const resolveOrgByDomain = lazyFunction(
   loadOrgContext,
   "resolveOrgByDomain",
 );
+export const lookupOrgByDomain = lazyFunction(
+  loadOrgContext,
+  "lookupOrgByDomain",
+);
 export const resolveOrgIdForEmail = lazyFunction(
   loadOrgContext,
   "resolveOrgIdForEmail",

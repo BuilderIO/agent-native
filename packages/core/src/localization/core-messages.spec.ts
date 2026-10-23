@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { CONSENT_BANNER_MESSAGES } from "./consent-banner-messages.js";
 import {
   coreMessagesForLocale,
   loadCoreMessagesForLocale,
@@ -59,6 +60,16 @@ describe("Core localization", () => {
     }
   });
 
+  it("localizes the managed MCP OAuth return link in every built-in locale", () => {
+    const english = MCP_SETTINGS_MESSAGES["en-US"].mcpOAuthBackToApp;
+    expect(english).toBe("Back to app");
+    for (const locale of SUPPORTED_LOCALES) {
+      const label = MCP_SETTINGS_MESSAGES[locale].mcpOAuthBackToApp;
+      expect(label, locale).toEqual(expect.any(String));
+      if (locale !== "en-US") expect(label, locale).not.toBe(english);
+    }
+  });
+
   it("loads each locale's icon picker copy from its own catalog", async () => {
     for (const locale of SUPPORTED_LOCALES) {
       const messages = await loadCoreMessagesForLocale(locale);
@@ -68,8 +79,9 @@ describe("Core localization", () => {
     }
   });
 
-  it("keeps localized environment badges in synchronous boot messages", () => {
+  it("keeps localized environment badges and the consent banner in synchronous boot messages", () => {
     expect(coreMessagesForLocale("es-ES")).toEqual({
+      consentBanner: CONSENT_BANNER_MESSAGES["es-ES"],
       environmentBadge: ENVIRONMENT_BADGE_MESSAGES["es-ES"],
     });
     expect(coreMessagesForLocale("es-ES")).not.toHaveProperty("settings");

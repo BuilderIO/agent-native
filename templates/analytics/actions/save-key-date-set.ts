@@ -7,6 +7,11 @@ import {
 } from "../server/lib/key-dates-store.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Create a key-date set, or rename one by id. Set names are unique in the organization, case-insensitively. A new set shows on every dashboard's time charts until a dashboard hides it.",
   schema: z.object({

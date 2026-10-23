@@ -24,6 +24,7 @@ vi.mock("../server/request-context.js", async (importOriginal) => ({
   getRequestOrgId: () => mockGetRequestOrgId(),
 }));
 
+import { runWithRequestContext } from "../server/request-context.js";
 import { ForbiddenError } from "../sharing/access.js";
 import {
   defineAppRoles,
@@ -135,6 +136,56 @@ describe("app roles", () => {
       await access.resolve({ userEmail: "  AE@Acme.COM ", orgId: "org1" });
 
       expect(mockExecute.mock.calls[0][0].args[2]).toBe("ae@acme.com");
+    });
+  });
+
+  describe("delegated org-member role", () => {
+    it.each(["owner", "admin"] as const)(
+      "reports stored %s as member to app permission policy",
+      async (storedRole) => {
+        const access = defineAppRoles(
+          {
+            appId: uniqueAppId("delegated-role"),
+            roles: ["member", "coach-admin"] as const,
+          },
+          { allowOrgAdmins: true },
+        );
+        mockExecute.mockResolvedValueOnce({
+          rows: [{ orgRole: storedRole, roles: [] }],
+        });
+
+        const lookup = await runWithRequestContext(
+          {
+            a2aIdentityAssurance: "org-member",
+            userEmail: CALLER.userEmail,
+            orgId: CALLER.orgId,
+          },
+          () => access.resolve(CALLER),
+        );
+
+        expect(lookup).toEqual({
+          status: "unassigned",
+          orgId: "org1",
+          orgRole: "member",
+        });
+      },
+    );
+
+    it("does not resolve another email or organization from delegated context", async () => {
+      const access = defineTestRoles();
+
+      const lookup = await runWithRequestContext(
+        {
+          a2aIdentityAssurance: "org-member",
+          userEmail: CALLER.userEmail,
+          orgId: CALLER.orgId,
+        },
+        () =>
+          access.resolve({ userEmail: "other@example.test", orgId: "org2" }),
+      );
+
+      expect(lookup).toEqual({ status: "not-a-member", orgId: "org2" });
+      expect(mockExecute).not.toHaveBeenCalled();
     });
   });
 

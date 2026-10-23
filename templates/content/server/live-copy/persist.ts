@@ -12,6 +12,7 @@ import {
 } from "../../actions/_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "../../actions/_content-database-lifecycle.js";
 import { documentContentHash } from "../../actions/_document-edit-mutation.js";
+import { assertSourceAllowsPageEdit } from "../../actions/_document-source.js";
 import { HISTORY_IDLE_MS } from "../../app/components/editor/document-history-session.js";
 import { changedBlocksBetween } from "../../shared/document-intent-merge.js";
 import { getDb, schema } from "../db/index.js";
@@ -103,6 +104,9 @@ const pageColumns = {
   orgId: schema.documents.orgId,
   updatedAt: schema.documents.updatedAt,
   trashedAt: schema.documents.trashedAt,
+  sourceMode: schema.documents.sourceMode,
+  sourceRootPath: schema.documents.sourceRootPath,
+  sourcePath: schema.documents.sourcePath,
 };
 
 export type PageRow = {
@@ -117,6 +121,9 @@ export type PageRow = {
   orgId: string | null;
   updatedAt: string;
   trashedAt: string | null;
+  sourceMode: string | null;
+  sourceRootPath: string | null;
+  sourcePath: string | null;
 };
 
 type BlocksFields = Awaited<ReturnType<typeof lockPrimaryBlocksFields>>;
@@ -251,7 +258,7 @@ function writePathChanged(documentId: string, reason: string): never {
   );
 }
 
-// A page in Trash refuses body writes, as update-document refuses them.
+// Live-copy commits bypass update-document's mutation checks.
 function assertEditablePage(page: PageRow): void {
   if (page.trashedAt) {
     throw new ActionContractError("Document not found.", {
@@ -259,6 +266,7 @@ function assertEditablePage(page: PageRow): void {
       statusCode: 404,
     });
   }
+  assertSourceAllowsPageEdit(page);
 }
 
 /**
@@ -275,34 +283,6 @@ export async function lockLiveCopyPage(
   const locked = await lockPageForBodyWrite(drizzleOverExec(tx), documentId);
   if (locked) assertEditablePage(locked.page);
   return locked;
-}
-
-/**
- * The inline-collection reconcile soft-deletes collections the body dropped.
- * One created after the lock pass would be locked after the page, which
- * deadlocks against a Trash of the page: Trash locks it first.
- */
-async function assertInlineDatabasesLocked(
-  db: ContentDb,
-  documentId: string,
-  ownerEmail: string,
-  lockedDatabaseIds: ReadonlySet<string>,
-): Promise<void> {
-  const owned = await db
-    .select({ id: schema.contentDatabases.id })
-    .from(schema.contentDatabases)
-    .where(
-      and(
-        eq(schema.contentDatabases.ownerDocumentId, documentId),
-        eq(schema.contentDatabases.ownerEmail, ownerEmail),
-        isNull(schema.contentDatabases.deletedAt),
-      ),
-    );
-  if (owned.some((database) => !lockedDatabaseIds.has(database.id))) {
-    scopeChanged(
-      "An inline collection was added to the document while it saved. Read the document again and retry.",
-    );
-  }
 }
 
 type EditorHistory =
@@ -519,18 +499,13 @@ async function writeBody(args: {
         now: updatedAt,
       });
     }
-    await assertInlineDatabasesLocked(
-      db,
-      documentId,
-      page.ownerEmail,
-      lockedDatabaseIds,
-    );
     softDeletedDatabaseIds = await reconcileInlineDatabasesForDocumentWithDb({
       db,
       documentId,
       content: text,
       ownerEmail: page.ownerEmail,
       now: updatedAt,
+      lockedDatabaseIds,
     });
     await followCommentAnchors(args.tx, {
       documentId,

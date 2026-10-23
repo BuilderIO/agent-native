@@ -28,7 +28,9 @@ export function readDesignEditorSource(): string {
   for (const name of ordered) {
     parts.push(readModule(path.join(PAGES, importPathByName.get(name)!)));
   }
-  parts.push(...readViewModules(parts[parts.length - 1]));
+  const viewModule = importPathByName.get("renderDesignEditorView");
+  if (!viewModule) throw new Error("DesignEditor view is not imported");
+  parts.push(...readViewModules(readModule(path.join(PAGES, viewModule))));
   if (existsSync(SHARED)) parts.push(readFileSync(SHARED, "utf8"));
   cached = parts.join("\n");
   return cached;
@@ -36,8 +38,14 @@ export function readDesignEditorSource(): string {
 
 function indexOfUse(body: string, name: string): number {
   const call = body.indexOf(`${name}(`);
-  if (call === -1) throw new Error(`${name} is imported but never called`);
-  return call;
+  const element = body.indexOf(`<${name}`);
+  const use = Math.min(
+    call === -1 ? Number.POSITIVE_INFINITY : call,
+    element === -1 ? Number.POSITIVE_INFINITY : element,
+  );
+  if (!Number.isFinite(use))
+    throw new Error(`${name} is imported but never used`);
+  return use;
 }
 
 function readModule(modulePath: string): string {

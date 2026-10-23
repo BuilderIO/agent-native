@@ -366,6 +366,41 @@ export async function getSuggestion(
   return suggestionFromRows(row, rows);
 }
 
+/** Loads several suggestions in two queries; missing ids come back as null. */
+export async function getSuggestions(
+  suggestionIds: readonly string[],
+  client = getDbExec(),
+): Promise<(ResourceSuggestion | null)[]> {
+  await ensureSuggestionTables(client);
+  if (suggestionIds.length === 0) return [];
+  const placeholders = suggestionIds.map(() => "?").join(",");
+  const rows = (
+    await client.execute({
+      sql: `SELECT s.*,p.summary AS proposal_summary FROM agent_review_suggestions s LEFT JOIN agent_review_suggestion_proposals p ON p.id = s.proposal_id WHERE s.id IN (${placeholders})`,
+      args: [...suggestionIds],
+    })
+  ).rows;
+  const operations = new Map<string, Record<string, unknown>[]>();
+  for (const operation of (
+    await client.execute({
+      sql: `SELECT * FROM agent_review_suggestion_operations WHERE suggestion_id IN (${placeholders}) ORDER BY suggestion_id,ordinal`,
+      args: [...suggestionIds],
+    })
+  ).rows) {
+    const id = String(operation.suggestion_id);
+    const list = operations.get(id);
+    if (list) list.push(operation);
+    else operations.set(id, [operation]);
+  }
+  const byId = new Map(
+    rows.map((row) => [
+      String(row.id),
+      suggestionFromRows(row, operations.get(String(row.id)) ?? []),
+    ]),
+  );
+  return suggestionIds.map((id) => byId.get(id) ?? null);
+}
+
 function suggestionFromRows(
   row: Record<string, unknown>,
   operationRows: Record<string, unknown>[],

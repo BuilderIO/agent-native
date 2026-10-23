@@ -119,6 +119,7 @@ vi.mock("./write-local-file.js", () => ({
   default: { run: mocks.writeLocal },
 }));
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { applyMotionHtmlSourceEdit } from "../shared/motion-html-source.js";
 import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime.js";
 import { applyMotionPathTrimSource } from "../shared/motion-path-trim-source.js";
@@ -220,7 +221,7 @@ const managedPathSource = applyMotionPathTrimSource(
   "tsx",
 );
 const htmlSourcePath = "pages/home.html";
-const htmlSource = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
+const htmlSource = `<!doctype html><html><head></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
 const managedHtmlSource = applyMotionHtmlSourceEdit({
   currentSource: htmlSource,
   expectedSource: htmlSource,
@@ -294,6 +295,7 @@ describe("remove-motion-timeline localhost React source", () => {
       sourcePatched: true,
       versionHash: afterHash,
       deleted: true,
+      _receipt: designOutputWriteReceipt("design-1", 1),
     });
   });
 

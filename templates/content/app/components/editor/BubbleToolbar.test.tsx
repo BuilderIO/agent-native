@@ -14,20 +14,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BubbleToolbar,
   getSelectionNotionSpanAttribute,
+  ReadOnlyCommentBubble,
   selectionHasColorableText,
   setSelectionNotionSpanAttribute,
   shouldShowBubbleToolbar,
+  shouldShowReadOnlyCommentBubble,
 } from "./BubbleToolbar";
-import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import {
   CompatibleCode,
   NotionInlineAtom,
   NotionSpanMark,
 } from "./extensions/NotionExtensions";
-import {
-  isUserInitiatedCollaborativeEditorUpdate,
-  shouldPersistCollaborativeEditorUpdate,
-} from "./VisualEditor";
+import { isLocalEditorEdit } from "./VisualEditor";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -380,6 +378,68 @@ describe("BubbleToolbar", () => {
     expect(onComment.mock.calls[0]?.[3]).toEqual({ from: 1, to: 8 });
   });
 
+  it("offers only Comment for text selected on a read-only page", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Comment on this text</p>",
+      editable: false,
+    });
+    const onComment = vi.fn();
+
+    root = createRoot(toolbarElement);
+    act(() =>
+      root!.render(
+        <ReadOnlyCommentBubble editor={editor!} onComment={onComment} />,
+      ),
+    );
+    expect(
+      [...toolbarElement.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["editor.comment"]);
+
+    const text = editor.view.dom.querySelector("p")!.firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 7);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    editor.commands.setTextSelection({ from: 1, to: 8 });
+    expect(
+      shouldShowReadOnlyCommentBubble({
+        editor,
+        state: editor.state,
+        from: 1,
+        to: 8,
+      }),
+    ).toBe(true);
+    window.getSelection()!.removeAllRanges();
+    expect(
+      shouldShowReadOnlyCommentBubble({
+        editor,
+        state: editor.state,
+        from: 1,
+        to: 8,
+      }),
+    ).toBe(false);
+
+    act(() => {
+      toolbarElement!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="editor.comment"]',
+        )!
+        .dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(onComment).toHaveBeenCalledOnce();
+    expect(onComment.mock.calls[0]?.[0]).toBe("Comment");
+    expect(onComment.mock.calls[0]?.[3]).toEqual({ from: 1, to: 8 });
+    expect(editor.getHTML()).toBe("<p>Comment on this text</p>");
+  });
+
   it("opens the link input for selected editor text on Mod+K", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");
@@ -452,7 +512,7 @@ describe("BubbleToolbar", () => {
     );
   });
 
-  it("makes an unfocused link removal persistable through exact transaction provenance", () => {
+  it("saves a link removal made while the link input has focus", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");
     document.body.append(editorElement, toolbarElement);
@@ -476,20 +536,10 @@ describe("BubbleToolbar", () => {
     expect(document.activeElement).toBe(input);
 
     let persistenceAllowed = false;
+    let focusedWhenRemoved = true;
     editor.on("update", ({ editor: updatedEditor, transaction }) => {
-      const editorFocused = updatedEditor.isFocused;
-      const userInitiated = isUserInitiatedCollaborativeEditorUpdate({
-        editorFocused,
-        explicitUserEdit:
-          transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
-        recentUserEditIntent: false,
-        transactionUiEvent: transaction.getMeta("uiEvent"),
-      });
-      persistenceAllowed = shouldPersistCollaborativeEditorUpdate({
-        collab: true,
-        editorFocused,
-        userInitiated,
-      });
+      focusedWhenRemoved = updatedEditor.isFocused;
+      persistenceAllowed = isLocalEditorEdit(transaction);
     });
     const removeButton = [...toolbarElement.querySelectorAll("button")].find(
       (button) => button.textContent === "editor.removeLink",
@@ -497,6 +547,7 @@ describe("BubbleToolbar", () => {
     act(() => removeButton.click());
 
     expect(editor.getHTML()).not.toContain("href=");
+    expect(focusedWhenRemoved).toBe(false);
     expect(persistenceAllowed).toBe(true);
   });
 
@@ -802,7 +853,7 @@ describe("BubbleToolbar", () => {
       underline: true,
     });
     expect(editor.getHTML()).toContain(
-      'class="notion-block-color--red notion-block-bg--yellow"',
+      'class="content-block-color--red content-block-bg--yellow"',
     );
     expect(editor.state.selection).toMatchObject({ from: 1, to: 8 });
   });

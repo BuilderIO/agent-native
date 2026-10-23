@@ -21,6 +21,11 @@ import {
   resolveGoogleProviderCredentialCandidatesWithReader,
 } from "@agent-native/core/server";
 
+import {
+  detectMeetingPlatform,
+  extractMeetingJoinUrl,
+} from "../../shared/meeting-platform.js";
+
 export const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GOOGLE_USERINFO_URL =
@@ -303,27 +308,16 @@ export function pickJoinUrl(event: CalendarEvent): string | undefined {
   const video = eps.find((e) => e.entryPointType === "video");
   if (video?.uri) return video.uri;
   for (const ep of eps) {
-    if (
-      ep.uri &&
-      /(zoom\.us|meet\.google|teams\.microsoft|webex\.com)/i.test(ep.uri)
-    ) {
+    if (ep.uri && detectMeetingPlatform(ep.uri) !== "other") {
       return ep.uri;
     }
   }
   const haystack = `${event.description ?? ""}\n${event.location ?? ""}`;
-  const m = haystack.match(
-    /https?:\/\/(?:[a-z0-9-]+\.)?(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com|webex\.com)\/[^\s<>"]+/i,
-  );
-  return m?.[0];
+  return extractMeetingJoinUrl(haystack);
 }
 
 export function detectPlatform(
   joinUrl: string | undefined,
 ): "zoom" | "meet" | "teams" | "webex" | "other" {
-  if (!joinUrl) return "other";
-  if (/meet\.google\.com/i.test(joinUrl)) return "meet";
-  if (/zoom\.us/i.test(joinUrl)) return "zoom";
-  if (/teams\.microsoft\.com/i.test(joinUrl)) return "teams";
-  if (/webex\.com/i.test(joinUrl)) return "webex";
-  return "other";
+  return detectMeetingPlatform(joinUrl);
 }

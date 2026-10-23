@@ -105,6 +105,8 @@ interface DbtConnection {
   semanticLayerBaseUrl: string | null;
   tokenConfigured: boolean;
   canManage: boolean;
+  // Several granted rows make the top-level fields null, so the panel must say so.
+  connections: Array<{ id: string }>;
 }
 
 interface DbtConnectionFields {
@@ -207,12 +209,16 @@ function sourceStateLabel(status: BrainSourceStatus, t: Translate): string {
       return t("dataStatus.connected");
     case "configured":
       return t("dataStatus.configuredUnverified");
+    case "checking":
+      return t("indexPanel.dbtChecking");
     case "not-connected":
       return t("dataStatus.notConnected");
     case "needs-reauth":
       return t("dataStatus.needsReauth");
     case "error":
       return t("dataStatus.error");
+    case "unknown":
+      return t("dataStatus.unknown");
   }
 }
 
@@ -303,17 +309,20 @@ function SourceStatusRowView({
   const t = useT();
   const formatters = useFormatters();
   const actionLabel =
-    row.status === "needs-reauth"
-      ? t("dataSources.reconnect")
-      : row.status === "connected" ||
-          row.status === "configured" ||
-          row.status === "error"
-        ? t("dataSources.manage")
-        : t("dataSources.connect");
+    row.status === "unknown"
+      ? t("dataSources.manage")
+      : row.status === "needs-reauth"
+        ? t("dataSources.reconnect")
+        : row.status === "connected" ||
+            row.status === "configured" ||
+            row.status === "error"
+          ? t("dataSources.manage")
+          : t("dataSources.connect");
   // Only sources with a data-source card have a page to act on.
   const showLink =
     row.status !== null &&
     row.status !== "connected" &&
+    row.status !== "unknown" &&
     getDataSourceById(row.id) !== undefined;
 
   return (
@@ -824,6 +833,15 @@ function DbtConnectionSection() {
     return (
       <p role="alert" className="text-sm text-destructive">
         {t("indexPanel.dbtReadFailed")}
+      </p>
+    );
+  }
+  // Blank fields here would read as "not connected" and invite a save that the
+  // action refuses. With several rows, show the reason and no form.
+  if (connection.connections.length > 1) {
+    return (
+      <p role="alert" className="text-sm text-muted-foreground">
+        {t("indexPanel.dbtSeveralConnections")}
       </p>
     );
   }

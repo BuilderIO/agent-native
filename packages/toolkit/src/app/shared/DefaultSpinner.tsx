@@ -117,11 +117,10 @@ export function DefaultSpinner({
           background: hsl(var(--background, 0 0% 100%));
           color: hsl(var(--foreground, 240 10% 3.9%));
         }
-        @media (prefers-color-scheme: dark) {
-          html {
-            background: hsl(var(--background, 240 10% 3.9%));
-            color: hsl(var(--foreground, 0 0% 98%));
-          }
+        html.dark,
+        html[data-theme="dark"]:not(.light) {
+          background: hsl(var(--background, 240 10% 3.9%));
+          color: hsl(var(--foreground, 0 0% 98%));
         }
       `}</style>
     </div>

@@ -1,5 +1,11 @@
 import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
-import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
+import {
+  parseAgentQueuedSubmissionReceipt,
+  type AgentRunOptions,
+  type AgentSubmissionReference,
+  type AgentQueuedSubmissionReceipt,
+  type AgentSuggestion,
+} from "@agent-native/agentkit/protocol";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
 import {
@@ -153,6 +159,7 @@ export interface AgentChatRuntimeAttachment {
   readonly contentType?: string;
   readonly data?: string;
   readonly url?: string;
+  readonly referenceUrl?: string;
   readonly text?: string;
   readonly metadata?: AgentChatRuntimeMetadata;
 }
@@ -310,6 +317,9 @@ export interface AgentChatRuntimeSessionSnapshot extends AgentChatRuntimeSession
 export interface AgentChatRuntimeTurnInput {
   readonly prompt?: string;
   readonly messages?: readonly AgentChatRuntimeMessage[];
+  readonly submissionPayload?: unknown;
+  readonly options?: AgentRunOptions;
+  readonly references?: readonly AgentSubmissionReference[];
   readonly queuePromotion?: {
     readonly messageId: string;
     readonly claimId: string;
@@ -760,7 +770,10 @@ export interface AgentChatRuntimeTurn<
   readonly sessionId: AgentChatRuntimeSessionId;
   readonly runId?: string;
   readonly metadata?: AgentChatRuntimeMetadata;
+  readonly queuedSubmission?: AgentQueuedSubmissionReceipt;
   readonly events: AsyncIterable<TEvent>;
+  /** Close the local event stream without cancelling the underlying run. */
+  closeEvents?(): Promise<void> | void;
   cancel?(
     input?: AgentChatRuntimeCancelInput,
   ): Promise<AgentChatRuntimeCancelResult>;
@@ -777,6 +790,11 @@ export interface AgentChatRuntimeSubscribeInput {
   readonly after?: number;
   readonly metadata?: AgentChatRuntimeMetadata;
   readonly abortSignal?: AbortSignal;
+}
+
+export interface AgentChatRuntimeReadRunStateInput extends AgentChatRuntimeSubscribeInput {
+  /** Include the durable request id when checking whether a restored request is pending. */
+  readonly includePendingConnectionRequest?: boolean;
 }
 
 export interface AgentChatRuntimeResumeInput extends AgentChatRuntimeSubscribeInput {
@@ -841,7 +859,9 @@ export interface AgentChatRuntime<
    * that provides it owns run outcome: a closed `subscribe` stream is then only
    * a connection fact. Rejects when the record cannot be read.
    */
-  readRunState?(input: AgentChatRuntimeSubscribeInput): Promise<ServerRunState>;
+  readRunState?(
+    input: AgentChatRuntimeReadRunStateInput,
+  ): Promise<ServerRunState>;
   cancel?(
     input: AgentChatRuntimeCancelInput,
   ): Promise<AgentChatRuntimeCancelResult>;
@@ -1250,6 +1270,9 @@ function defaultHttpRuntimeRequest(input: {
     prompt: input.turn.prompt,
     messages: input.turn.messages,
     attachments: input.turn.attachments,
+    submissionPayload: input.turn.submissionPayload,
+    options: input.turn.options,
+    references: input.turn.references,
     tools: input.turn.tools,
     model: input.turn.model,
     reasoningEffort: input.turn.reasoningEffort,
@@ -1331,6 +1354,12 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
       : payload && "activeRunId" in payload
         ? payload.activeRunId
         : nestedError?.activeRunId;
+  const submittedRunId =
+    data && "submittedRunId" in data
+      ? data.submittedRunId
+      : payload && "submittedRunId" in payload
+        ? payload.submittedRunId
+        : nestedError?.submittedRunId;
   const hasActiveRunId =
     (data !== null && "activeRunId" in data) ||
     (payload !== undefined && "activeRunId" in payload) ||
@@ -1341,7 +1370,12 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
   const runSlotBusy =
     status === 409 &&
     (explicitCode === "run_slot_busy" ||
-      (explicitCode === undefined && activeRunIdValue));
+      (explicitCode === "queued_message_already_submitted" &&
+        typeof submittedRunId === "string" &&
+        submittedRunId.length > 0) ||
+      (explicitCode === undefined &&
+        (activeRunIdValue ||
+          (typeof submittedRunId === "string" && submittedRunId.length > 0))));
   const errorCode =
     explicitCode ?? (runSlotBusy ? "run_slot_busy" : fallbackCode);
   const error = runSlotBusy
@@ -1349,11 +1383,17 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
         activeRunIdValue && typeof activeRunId === "string"
           ? activeRunId
           : undefined,
+        typeof submittedRunId === "string" && submittedRunId.length > 0
+          ? submittedRunId
+          : undefined,
       )
     : new Error(runtimeErrorMessage(text, response.status));
   Object.assign(error, {
     code: runSlotBusy ? "run_slot_busy" : errorCode,
     ...(hasActiveRunId ? { activeRunId } : {}),
+    ...(typeof submittedRunId === "string" && submittedRunId.length > 0
+      ? { submittedRunId }
+      : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined
@@ -1481,6 +1521,60 @@ export function createHttpAgentChatRuntime<
         throw withTurnId(error, turnId);
       }
 
+      if (response.status === 202) {
+        let queuedSubmission: AgentQueuedSubmissionReceipt;
+        try {
+          if (
+            !response.headers
+              .get("Content-Type")
+              ?.toLowerCase()
+              .includes("application/json")
+          ) {
+            throw new TypeError("Expected a JSON queued submission receipt.");
+          }
+          queuedSubmission = parseAgentQueuedSubmissionReceipt(
+            await response.json(),
+          );
+          const submission = asRecord(turn.submissionPayload);
+          const expectedThreadId = summary.threadId ?? sessionId;
+          if (
+            queuedSubmission.message.threadId !== expectedThreadId ||
+            (typeof submission?.id === "string" &&
+              queuedSubmission.message.id !== submission.id)
+          ) {
+            throw new TypeError(
+              "The queued submission receipt does not match this session turn.",
+            );
+          }
+        } catch (cause) {
+          cleanup();
+          throw withTurnId(
+            Object.assign(
+              new Error(
+                cause instanceof Error
+                  ? `Invalid queued submission response: ${cause.message}`
+                  : "Invalid queued submission response.",
+                { cause },
+              ),
+              {
+                code: "invalid_queued_submission_response",
+                status: response.status,
+                retryable: true,
+              },
+            ),
+            turnId,
+          );
+        }
+        cleanup();
+        forgetTurnContext(turnId, turn);
+        return {
+          id: turnId,
+          sessionId,
+          queuedSubmission,
+          events: (async function* () {})(),
+        };
+      }
+
       const runId = response.headers.get("X-Run-Id") ?? undefined;
       const events = (async function* () {
         let retryableFailure = false;
@@ -1509,14 +1603,19 @@ export function createHttpAgentChatRuntime<
           cleanup();
         }
       })();
+      const closeEvents = () => {
+        controller.abort();
+        cleanup();
+      };
 
       return {
         id: turnId,
         sessionId,
         runId,
         events,
+        closeEvents,
         cancel: async (cancelInput) => {
-          controller.abort();
+          closeEvents();
           if (!options.cancelEndpoint) return { status: "cancelled" };
           const endpoint =
             typeof options.cancelEndpoint === "function"
@@ -3575,6 +3674,8 @@ interface AgentNativeMessageProjectionState {
     approvalPending: boolean;
     pendingApprovalToolCallId?: string;
     connectionPending: boolean;
+    /** Delegated calls that streamed an activity row, which reports their end. */
+    activityParticipants?: Set<string>;
   };
 }
 
@@ -3876,6 +3977,7 @@ function mapAgentNativeEvent(
       approvalPending: boolean;
       pendingApprovalToolCallId?: string;
       connectionPending: boolean;
+      activityParticipants?: Set<string>;
     };
   },
 ): AgentChatRuntimeKnownEvent[] {
@@ -4258,6 +4360,11 @@ function mapAgentNativeEvent(
           : ev.status === "done"
             ? "completed"
             : "failed";
+    // A call that streamed an activity row already shows "Finished" there;
+    // a second "finished" row would repeat it.
+    const reportedByActivity =
+      interactionKind === "completed" &&
+      input.message.activityParticipants?.has(participantId) === true;
     const events: AgentChatRuntimeKnownEvent[] = [
       {
         type: "participant",
@@ -4265,7 +4372,9 @@ function mapAgentNativeEvent(
         operation: ev.status === "start" ? "register" : "update",
         participant,
       },
-      {
+    ];
+    if (!reportedByActivity) {
+      events.push({
         type: "interaction",
         ...base,
         interaction: {
@@ -4282,8 +4391,8 @@ function mapAgentNativeEvent(
                 : undefined,
           }),
         },
-      },
-    ];
+      });
+    }
     if (ev.taskId) {
       events.push({
         type: "task",
@@ -4363,6 +4472,7 @@ function mapAgentNativeEvent(
   if (ev.type === "agent_call_activity" && ev.snapshot) {
     const agent = ev.agent ?? "agent";
     const participantId = agentNativeParticipantId(ev);
+    (input.message.activityParticipants ??= new Set()).add(participantId);
     const status = agentNativeActivityStatus(ev.snapshot);
     return [
       {
@@ -4372,8 +4482,15 @@ function mapAgentNativeEvent(
         activity: {
           id: `${participantId}:activity`,
           kind: "agent",
-          label: AGENT_CALL_ACTIVITY_LABEL,
-          detail: ev.snapshot.activePhase,
+          // "processing" renders as "Working"; a finished run must not keep
+          // saying so.
+          label:
+            status === "running"
+              ? AGENT_CALL_ACTIVITY_LABEL
+              : status === "failed"
+                ? "failed"
+                : "finished",
+          detail: summarizeDelegatedActivity(ev.snapshot),
           status,
           participantId,
           scope: "external",
@@ -4952,6 +5069,11 @@ export function createAgentNativeChatRuntime(
         ...(loadedSkillSlugs.length ? { loadedSkillSlugs } : {}),
         turnId: continuationTurnId ?? turn.queuePromotion?.turnId ?? turnId,
         threadId: session.threadId ?? options.threadId,
+        ...(turn.submissionPayload !== undefined
+          ? { submissionPayload: turn.submissionPayload }
+          : {}),
+        ...(turn.references?.length ? { references: turn.references } : {}),
+        ...(turn.options ? { options: turn.options } : {}),
         ...(turn.queuePromotion
           ? {
               queuedMessageId: turn.queuePromotion.messageId,
@@ -5041,6 +5163,8 @@ export function createAgentNativeChatRuntime(
       const turnToContinue = continuation.attachments?.length
         ? { ...previousTurn, attachments: continuation.attachments }
         : previousTurn;
+      const { submissionPayload: _submissionPayload, ...continuationTurn } =
+        turnToContinue ?? {};
       const approval = continuation.approval;
       const connection = continuation.connection;
       const messageStateKey = continuation.turnId ?? session.id;
@@ -5056,7 +5180,7 @@ export function createAgentNativeChatRuntime(
         const messageState = messageStates.get(messageStateKey);
         if (messageState) messageState.message.connectionPending = false;
         return startTurn({
-          ...turnToContinue,
+          ...continuationTurn,
           prompt:
             continuation.prompt ??
             `The ${connection.id} connection is now available. Continue the requested work.`,
@@ -5079,7 +5203,7 @@ export function createAgentNativeChatRuntime(
         const messageState = messageStates.get(messageStateKey);
         if (messageState) messageState.message.approvalPending = false;
         return startTurn({
-          ...turnToContinue,
+          ...continuationTurn,
           prompt: continuation.prompt,
           metadata: {
             ...previousMetadata,
@@ -5134,7 +5258,7 @@ export function createAgentNativeChatRuntime(
       }
       if (messageState) messageState.message.approvalPending = false;
       return startTurn({
-        ...turnToContinue,
+        ...continuationTurn,
         prompt:
           continuation.prompt ??
           "Approved. Go ahead and run the requested action.",
@@ -5166,7 +5290,7 @@ export function createAgentNativeChatRuntime(
   });
 
   const readRunState = async (
-    input: AgentChatRuntimeSubscribeInput,
+    input: AgentChatRuntimeReadRunStateInput,
   ): Promise<ServerRunState> => {
     // Asking again cannot change these answers, so they are not retryable.
     const unreadable = (message: string, status?: number) =>
@@ -5184,6 +5308,9 @@ export function createAgentNativeChatRuntime(
     const query = new URLSearchParams({ threadId });
     if (input.runId) query.set("runId", input.runId);
     if (input.turnId) query.set("turnId", input.turnId);
+    if (input.includePendingConnectionRequest) {
+      query.set("includePendingConnectionRequest", "true");
+    }
     const headers = await resolveHeaders(options.headers, input);
     headers.set("x-agent-native-surface", options.surface ?? "app");
     const response = await runtimeFetch(
@@ -5195,7 +5322,14 @@ export function createAgentNativeChatRuntime(
         signal: input.abortSignal,
       },
     );
-    if (response.status === 404) return { status: "missing" };
+    if (response.status === 404) {
+      return {
+        status: "missing",
+        ...(input.includePendingConnectionRequest
+          ? { pendingConnectionRequestId: null }
+          : {}),
+      };
+    }
     if (!response.ok) throw await readHttpRuntimeError(response);
     let body: unknown;
     try {
@@ -5221,12 +5355,44 @@ export function createAgentNativeChatRuntime(
         response.status,
       );
     }
+    const pendingConnectionRequestId = value?.pendingConnectionRequestId;
+    const startMessageId = value?.startMessageId;
+    if (
+      input.includePendingConnectionRequest &&
+      (!value || !Object.hasOwn(value, "pendingConnectionRequestId"))
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (pending connection request was not returned).",
+        response.status,
+      );
+    }
+    if (
+      startMessageId !== undefined &&
+      (typeof startMessageId !== "string" || !startMessageId.trim())
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (start message ID is invalid).",
+        response.status,
+      );
+    }
+    if (
+      pendingConnectionRequestId !== undefined &&
+      pendingConnectionRequestId !== null &&
+      (typeof pendingConnectionRequestId !== "string" ||
+        !pendingConnectionRequestId.trim())
+    ) {
+      throw unreadable(
+        "Agent chat run state is unreadable (pending connection request ID is invalid).",
+        response.status,
+      );
+    }
     return {
       status,
       runId,
       ...(typeof value?.turnId === "string" && value.turnId
         ? { turnId: value.turnId }
         : {}),
+      ...(typeof startMessageId === "string" ? { startMessageId } : {}),
       ...(typeof value?.startedAt === "number" &&
       Number.isFinite(value.startedAt)
         ? { startedAt: value.startedAt }
@@ -5236,6 +5402,9 @@ export function createAgentNativeChatRuntime(
         : {}),
       terminalReason:
         typeof value?.terminalReason === "string" ? value.terminalReason : null,
+      ...(pendingConnectionRequestId === undefined
+        ? {}
+        : { pendingConnectionRequestId }),
     };
   };
 
@@ -5307,4 +5476,52 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+/**
+ * One line for a delegated agent's live work: the tool it is running (and on
+ * what), or the tail of what it is saying, so a remote coding agent's progress
+ * reads as progress instead of a bare phase name.
+ */
+function summarizeDelegatedActivity(snapshot: {
+  activePhase?: string;
+  toolCalls?: Array<{ name?: string; status?: string; input?: string }>;
+  reasoning?: string[];
+  responseText?: string;
+}): string | undefined {
+  const tools = snapshot.toolCalls ?? [];
+  const lastTool = tools[tools.length - 1];
+  const doneCount = tools.filter((tool) => tool.status !== "running").length;
+  const toolTarget = (input?: string) => {
+    if (!input) return "";
+    try {
+      const parsed = JSON.parse(input) as Record<string, unknown>;
+      const target =
+        parsed.file ??
+        parsed.file_path ??
+        parsed.filePath ??
+        parsed.path ??
+        parsed.command;
+      return typeof target === "string" ? ` ${target}` : "";
+    } catch {
+      // coercion-ok: tool input is free text when it is not JSON.
+      return "";
+    }
+  };
+  if (snapshot.activePhase === "complete") {
+    return tools.length
+      ? `Done · ${tools.length} step${tools.length === 1 ? "" : "s"}`
+      : "Done";
+  }
+  if (snapshot.activePhase === "tool" && lastTool?.name) {
+    return `${lastTool.name}${toolTarget(lastTool.input)} · ${doneCount}/${tools.length}`;
+  }
+  const text =
+    snapshot.responseText ??
+    snapshot.reasoning?.[snapshot.reasoning.length - 1];
+  if (text) {
+    const oneLine = text.replace(/\s+/g, " ").trim();
+    return oneLine.length > 90 ? `${oneLine.slice(0, 89)}…` : oneLine;
+  }
+  return snapshot.activePhase;
 }

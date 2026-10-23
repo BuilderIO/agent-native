@@ -34,6 +34,8 @@ const SKIP_DIRS = new Set([
 const INTENTIONAL_RAW_DB_DENYLIST = {
   "content:content_database_setup_receipts":
     "actor-scoped retry receipts; access is rechecked through database setup actions",
+  "content:content_database_builder_blob_cleanup":
+    "private payload cleanup outbox processed by Content source actions",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
   "analytics:first_party_analytics_cache":
     "internal query cache, accessed through scoped analytics queries",
@@ -134,6 +136,15 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "slides:deck_access_request_limits":
     "internal anonymous access-request throttling buckets",
   "slides:slide_comments": "child rows scoped through decks",
+  "slides-2:deck_share_links":
+    "public share-token snapshots scoped by token and created through authorized deck actions",
+  "slides-2:deck_events":
+    "deck access-request audit rows read and written through scoped actions",
+  "slides-2:deck_access_request_limits":
+    "internal anonymous access-request throttling buckets",
+  "slides-2:slide_comments": "child rows scoped through authorized decks",
+  "slides-2:uploaded_asset_object_lifecycle":
+    "global stored-object identity lifecycle registry, accessed only by the uploaded asset lifecycle helper",
 };
 
 async function* walk(dir) {

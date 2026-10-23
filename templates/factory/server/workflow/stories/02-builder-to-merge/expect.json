@@ -1,0 +1,1889 @@
+{
+  "a-working-task-is-checked-once-for-its-reports-and-left-alone": {
+    "ticks": [
+      {
+        "label": "working",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "state": { "in": 1, "ports": { "otherwise": 1 } }
+        },
+        "calls": { "builder.check": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "still working",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "state": { "in": 1, "ports": { "otherwise": 1 } }
+        },
+        "calls": { "builder.check": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:otherwise",
+        "ended@keep:released",
+        "decision@state:otherwise",
+        "ended@keep:released"
+      ],
+      "r1": ["ended@keep:released", "ended@keep:released"],
+      "r2": ["ended@keep:released", "ended@keep:released"]
+    }
+  },
+  "a-stuck-task-is-nudged-twice-then-escalated": {
+    "ticks": [
+      {
+        "label": "stuck: first nudge",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "nudge": { "in": 1, "ports": { "out": 1 } },
+          "nudgedTwice": { "in": 1, "ports": { "otherwise": 1 } },
+          "state": { "in": 1, "ports": { "route:stuck": 1 } }
+        },
+        "calls": { "builder.check": 1, "builder.followUp": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "nudge",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "status? continue"
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "stuck: second nudge",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "nudge": { "in": 1, "ports": { "out": 1 } },
+          "nudgedTwice": { "in": 1, "ports": { "otherwise": 1 } },
+          "state": { "in": 1, "ports": { "route:stuck": 1 } }
+        },
+        "calls": { "builder.check": 1, "builder.followUp": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "nudge",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "status? continue"
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "stuck: escalated",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1 }
+        },
+        "nodes": {
+          "alert": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "manual": { "in": 1, "ports": {} },
+          "nudgedTwice": { "in": 1, "ports": { "match": 1 } },
+          "state": { "in": 1, "ports": { "route:stuck": 1 } }
+        },
+        "calls": { "builder.check": 1, "slack.postMessage": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "alert",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Builder is stuck on Checkout button does nothing"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "nothing more happens",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:stuck",
+        "decision@nudgedTwice:otherwise",
+        "effect@nudge",
+        "ended@keep:released",
+        "decision@state:route:stuck",
+        "decision@nudgedTwice:otherwise",
+        "effect@nudge",
+        "ended@keep:released",
+        "decision@state:route:stuck",
+        "decision@nudgedTwice:match",
+        "effect@alert",
+        "ended@manual:needsManual"
+      ],
+      "r1": [
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@manual:needsManual"
+      ],
+      "r2": [
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@manual:needsManual"
+      ]
+    }
+  },
+  "a-failing-pull-request-is-sent-back-once-per-head-commit": {
+    "ticks": [
+      {
+        "label": "head A fails: sent back",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "otherwise": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "fix": { "in": 1, "ports": { "out": 1 } },
+          "fixedTask": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "roundCap": { "in": 1, "ports": { "otherwise": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "builder.followUp": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "fix",
+            "item": "group:byHead:1bd9130b2c717c",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "The unit tests failed on headA. Please fix them and push the change."
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "fix",
+            "mode": "perItem",
+            "items": ["group:byHead:1bd9130b2c717c"]
+          }
+        ]
+      },
+      {
+        "label": "head A still fails: not sent again",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "match": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": { "builder.check": 1, "github.readPullRequest": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "head B fails while Builder is working: not sent",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "builderIdle": { "in": 1, "ports": { "otherwise": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": { "builder.check": 1, "github.readPullRequest": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "head B fails, Builder idle: sent back",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "otherwise": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "fix": { "in": 1, "ports": { "out": 1 } },
+          "fixedTask": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "roundCap": { "in": 1, "ports": { "otherwise": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "builder.followUp": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "fix",
+            "item": "group:byHead:902313173bb68",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "The unit tests still fail, now on headB. Please look at the failure and push a fix."
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "fix",
+            "mode": "perItem",
+            "items": ["group:byHead:902313173bb68"]
+          }
+        ]
+      },
+      {
+        "label": "head B still fails: not sent again",
+        "at": "2026-10-19T12:20:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "match": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": { "builder.check": 1, "github.readPullRequest": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "group:byHead:1bd9130b2c717c": [
+        "decision@askedForHead:otherwise",
+        "effect@fix",
+        "decision@askedForHead:match",
+        "ended@keep:released"
+      ],
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match",
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match",
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:otherwise",
+        "ended@keep:released",
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match",
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match"
+      ],
+      "group:fixedTask:75aea82993fbf": [
+        "decision@roundCap:otherwise",
+        "ended@keep:released",
+        "decision@roundCap:otherwise",
+        "ended@keep:released"
+      ],
+      "r1": [
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released"
+      ],
+      "r2": [
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released"
+      ],
+      "group:byHead:902313173bb68": [
+        "decision@askedForHead:otherwise",
+        "effect@fix",
+        "decision@askedForHead:match",
+        "ended@keep:released"
+      ]
+    }
+  },
+  "pending-checks-wait-without-a-nudge-or-a-merge": {
+    "ticks": [
+      {
+        "label": "checks pending",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:pending": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": { "builder.check": 1, "github.readPullRequest": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "still pending",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:pending": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": { "builder.check": 1, "github.readPullRequest": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:pending",
+        "ended@keep:released",
+        "decision@state:route:hasPr",
+        "decision@ci:route:pending",
+        "ended@keep:released"
+      ],
+      "r1": ["ended@keep:released", "ended@keep:released"],
+      "r2": ["ended@keep:released", "ended@keep:released"]
+    }
+  },
+  "a-green-pull-request-is-merged-and-every-thread-is-told-once": {
+    "ticks": [
+      {
+        "label": "green: merged and announced",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 2, "done": 2 } },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "done": { "in": 2, "ports": {} },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "inSlack": { "in": 2, "ports": { "match": 2 } },
+          "merge": { "in": 1, "ports": { "out": 1 } },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 2 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } },
+          "tellReports": { "in": 2, "ports": { "out": 2 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1,
+          "github.mergePullRequest": 1,
+          "slack.replyInThread": 2
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "merge",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "github.mergePullRequest",
+            "fields": {
+              "mergeMethod": "squash",
+              "repo": "example-org/example-repo",
+              "number": 7
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "merge-sha-7",
+              "url": "https://github.example.test/example-org/example-repo/pull/7"
+            }
+          },
+          {
+            "node": "tellReports",
+            "item": "r1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r1 is resolved."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          },
+          {
+            "node": "tellReports",
+            "item": "r2",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000200",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000002"
+            }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "nothing more happens",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "merged", "r2": "merged" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "effect@merge"
+      ],
+      "r1": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"],
+      "r2": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"]
+    }
+  },
+  "a-green-pull-request-that-fails-the-merge-gate-is-not-merged": {
+    "ticks": [
+      {
+        "label": "green but not eligible",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "otherwise": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "manual": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "refused": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "refused",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 may not merge by itself: It changes a database migration, which no automation may merge. Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:otherwise",
+        "effect@refused",
+        "ended@manual:needsManual"
+      ],
+      "r1": ["ended@manual:needsManual"],
+      "r2": ["ended@manual:needsManual"]
+    }
+  },
+  "a-green-pull-request-without-a-current-approval-is-held-for-a-person": {
+    "ticks": [
+      {
+        "label": "green, but nobody approved the head commit",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "otherwise": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "manual": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "refused": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "refused",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 may not merge by itself: No owner, member or collaborator other than the author has approved the current head commit. Approvals found that do not count: 1 approval on an earlier commit. Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "held for a person: nothing more is sent",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:otherwise",
+        "effect@refused",
+        "ended@manual:needsManual"
+      ],
+      "r1": ["ended@manual:needsManual"],
+      "r2": ["ended@manual:needsManual"]
+    }
+  },
+  "a-pull-request-merged-by-someone-else-goes-straight-to-the-threads": {
+    "ticks": [
+      {
+        "label": "already merged",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 2, "done": 2 } },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:merged": 1 } },
+          "done": { "in": 2, "ports": {} },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "inSlack": { "in": 2, "ports": { "match": 2 } },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 2 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } },
+          "tellReports": { "in": 2, "ports": { "out": 2 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "slack.replyInThread": 2
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "tellReports",
+            "item": "r1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r1 is resolved."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          },
+          {
+            "node": "tellReports",
+            "item": "r2",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000200",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000002",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000002"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "merged", "r2": "merged" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:merged"
+      ],
+      "r1": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"],
+      "r2": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"]
+    }
+  },
+  "a-closed-pull-request-goes-to-a-person": {
+    "ticks": [
+      {
+        "label": "closed unmerged",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:closed": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "manual": { "in": 1, "ports": {} },
+          "person": { "in": 1, "ports": { "out": 1 } },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "person",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Needs a person: https://github.example.test/example-org/example-repo/pull/7"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:closed",
+        "effect@person",
+        "ended@manual:needsManual"
+      ],
+      "r1": ["ended@manual:needsManual"],
+      "r2": ["ended@manual:needsManual"]
+    }
+  },
+  "a-pull-request-with-no-checks-goes-to-a-person": {
+    "ticks": [
+      {
+        "label": "no checks at all",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "otherwise": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "manual": { "in": 1, "ports": {} },
+          "person": { "in": 1, "ports": { "out": 1 } },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "person",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Needs a person: https://github.example.test/example-org/example-repo/pull/7"
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:otherwise",
+        "effect@person",
+        "ended@manual:needsManual"
+      ],
+      "r1": ["ended@manual:needsManual"],
+      "r2": ["ended@manual:needsManual"]
+    }
+  },
+  "a-task-that-ended-without-a-pull-request-goes-to-a-person": {
+    "ticks": [
+      {
+        "label": "two tasks ended",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 2 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 2 } },
+          "check": { "in": 2, "ports": { "out": 2 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "lost": { "in": 2, "ports": { "out": 2 } },
+          "manual": { "in": 2, "ports": {} },
+          "state": { "in": 2, "ports": { "route:ended": 2 } }
+        },
+        "calls": { "builder.check": 2, "slack.postMessage": 2 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "lost",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Builder's task for Checkout button does nothing ended without a pull request (branch_deleted). Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          },
+          {
+            "node": "lost",
+            "item": "group:byTask:151d0341cdc24c",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "Builder's task for Export to CSV downloads an empty file ended without a pull request (merged_then_archived). Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000002",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000002"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r3": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:ended",
+        "effect@lost",
+        "ended@manual:needsManual"
+      ],
+      "group:byTask:151d0341cdc24c": [
+        "decision@state:route:ended",
+        "effect@lost",
+        "ended@manual:needsManual"
+      ],
+      "r1": ["ended@manual:needsManual"],
+      "r3": ["ended@manual:needsManual"]
+    }
+  },
+  "an-unreadable-task-is-never-read-as-working": {
+    "ticks": [
+      {
+        "label": "Builder cannot be read, a person is told",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1, "itemFailures": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          },
+          "inFlight": { "in": 0, "ports": { "out": 2 } }
+        },
+        "calls": { "builder.check": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "not looked at again",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "still not looked at again",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "error@check:provider_error",
+        "ended@check:needsManual"
+      ],
+      "r1": ["ended@check:needsManual"],
+      "r2": ["ended@check:needsManual"]
+    }
+  },
+  "a-failed-reply-is-retried-and-the-merge-is-not-repeated": {
+    "ticks": [
+      {
+        "label": "merged, one reply fails",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "taken": 2,
+            "done": 1,
+            "itemFailures": 1,
+            "retryParked": 1
+          }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "inSlack": { "in": 2, "ports": { "match": 2 } },
+          "merge": { "in": 1, "ports": { "out": 1 } },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 2 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } },
+          "tellReports": {
+            "in": 2,
+            "ports": { "out": 1 },
+            "status": "failed",
+            "error": "provider_error"
+          },
+          "done": { "in": 1, "ports": {} }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1,
+          "github.mergePullRequest": 1,
+          "slack.replyInThread": 4
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "merge",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "github.mergePullRequest",
+            "fields": {
+              "mergeMethod": "squash",
+              "repo": "example-org/example-repo",
+              "number": 7
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "merge-sha-7",
+              "url": "https://github.example.test/example-org/example-repo/pull/7"
+            }
+          },
+          {
+            "node": "tellReports",
+            "item": "r1",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000100",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r1 is resolved."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000001"
+            }
+          },
+          {
+            "node": "tellReports",
+            "item": "r2",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000200",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+            },
+            "receipt": { "status": "failed" }
+          },
+          {
+            "node": "tellReports",
+            "item": "r2",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000200",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+            },
+            "receipt": { "status": "failed" }
+          },
+          {
+            "node": "tellReports",
+            "item": "r2",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000200",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+            },
+            "receipt": { "status": "failed" }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "the unfinished report is taken again",
+        "at": "2026-10-19T12:06:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "done": 1, "retried": 1 } },
+        "nodes": {
+          "done": { "in": 1, "ports": {} },
+          "tellReports": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "slack.replyInThread": 1 },
+        "windows": {},
+        "effects": [
+          {
+            "node": "tellReports",
+            "item": "r2",
+            "operation": "slack.replyInThread",
+            "fields": {
+              "channel": "C0FEEDBACK",
+              "threadTs": "1760000000.000200",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, r2 is resolved."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000005",
+              "url": "https://slack.example.test/archives/C0FEEDBACK/p1760001000000005"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "merged", "r2": "merged" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "effect@merge"
+      ],
+      "r1": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"],
+      "r2": [
+        "decision@inSlack:match",
+        "error@tellReports:provider_error",
+        "parked@tellReports",
+        "woke@tellReports:?",
+        "effect@tellReports",
+        "ended@done:done"
+      ]
+    }
+  },
+  "a-merge-that-may-have-happened-is-never-repeated": {
+    "ticks": [
+      {
+        "label": "the merge times out",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1, "needsCheck": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "merge": {
+            "in": 1,
+            "ports": {},
+            "status": "needs_check",
+            "error": "effect_needs_check"
+          },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1,
+          "github.mergePullRequest": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "merge",
+            "item": "group:byTask:75aea82993fbf",
+            "operation": "github.mergePullRequest",
+            "fields": {
+              "mergeMethod": "squash",
+              "repo": "example-org/example-repo",
+              "number": 7
+            },
+            "receipt": { "status": "started" }
+          }
+        ],
+        "ai": []
+      },
+      {
+        "label": "offered again",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1, "needsCheck": 1 }
+        },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "merge": {
+            "in": 1,
+            "ports": {},
+            "status": "needs_check",
+            "error": "effect_needs_check"
+          },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1
+        },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "error@merge:effect_needs_check",
+        "ended@merge:needsManual",
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "error@merge:effect_needs_check",
+        "ended@merge:needsManual"
+      ],
+      "r1": ["ended@merge:needsManual", "ended@merge:needsManual"],
+      "r2": ["ended@merge:needsManual", "ended@merge:needsManual"]
+    }
+  },
+  "a-merged-fix-for-an-alert-is-announced-in-the-findings-channel": {
+    "ticks": [
+      {
+        "label": "merged, announced in the findings channel",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 1, "done": 1 } },
+        "nodes": {
+          "byTask": { "in": 1, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "done": { "in": 1, "ports": {} },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 1 } },
+          "inSlack": { "in": 1, "ports": { "otherwise": 1 } },
+          "merge": { "in": 1, "ports": { "out": 1 } },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } },
+          "tellFindings": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1,
+          "github.mergePullRequest": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "merge",
+            "item": "group:byTask:90fde8925619f",
+            "operation": "github.mergePullRequest",
+            "fields": {
+              "mergeMethod": "squash",
+              "repo": "example-org/example-repo",
+              "number": 7
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "merge-sha-7",
+              "url": "https://github.example.test/example-org/example-repo/pull/7"
+            }
+          },
+          {
+            "node": "tellFindings",
+            "item": "a1",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "C0FINDINGS",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 is merged, a1 (Dependency alert: example-lib prototype pollution) is resolved."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/C0FINDINGS/p1760002000000001"
+            }
+          }
+        ],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "a1": "merged" },
+    "cursors": {},
+    "journeys": {
+      "group:byTask:90fde8925619f": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "effect@merge"
+      ],
+      "a1": [
+        "decision@inSlack:otherwise",
+        "effect@tellFindings",
+        "ended@done:done"
+      ]
+    }
+  },
+  "a-dry-run-merges-nothing": {
+    "ticks": [
+      {
+        "label": "dry run",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "dry",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 2, "done": 2 } },
+        "nodes": {
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:green": 1 } },
+          "done": { "in": 2, "ports": {} },
+          "eligible": { "in": 1, "ports": { "match": 1 } },
+          "gate": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "inSlack": { "in": 2, "ports": { "match": 2 } },
+          "merge": { "in": 1, "ports": { "out": 1 } },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "reports": { "in": 1, "ports": { "out": 2 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } },
+          "tellReports": { "in": 2, "ports": { "out": 2 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "factory.mergeGate": 1
+        },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:green",
+        "decision@eligible:match",
+        "effect@merge"
+      ],
+      "r1": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"],
+      "r2": ["decision@inSlack:match", "effect@tellReports", "ended@done:done"]
+    }
+  },
+  "a-test-of-one-node-reads-but-writes-nothing": {
+    "ticks": [
+      {
+        "label": "test the read",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "test",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": { "readPr": { "in": 1, "ports": { "out": 1 } } },
+        "calls": { "github.readPullRequest": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {}
+  },
+  "a-pull-request-that-fails-on-every-new-head-goes-to-a-person-after-six-rounds": {
+    "ticks": [
+      {
+        "label": "round 1: a new head fails",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "otherwise": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "fix": { "in": 1, "ports": { "out": 1 } },
+          "fixedTask": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "roundCap": { "in": 1, "ports": { "otherwise": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "builder.followUp": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "fix",
+            "item": "group:byHead:75d580d758f2f",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "The unit tests failed on headA. Please fix them and push the change."
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "fix",
+            "mode": "perItem",
+            "items": ["group:byHead:75d580d758f2f"]
+          }
+        ]
+      },
+      {
+        "label": "round 2: a new head fails",
+        "at": "2026-10-19T12:05:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "otherwise": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "fix": { "in": 1, "ports": { "out": 1 } },
+          "fixedTask": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "roundCap": { "in": 1, "ports": { "otherwise": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "builder.followUp": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "fix",
+            "item": "group:byHead:f821abc28574e",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "The unit tests failed on headA. Please fix them and push the change."
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "fix",
+            "mode": "perItem",
+            "items": ["group:byHead:f821abc28574e"]
+          }
+        ]
+      },
+      {
+        "label": "round 3: a new head fails",
+        "at": "2026-10-19T12:10:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "otherwise": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "fix": { "in": 1, "ports": { "out": 1 } },
+          "fixedTask": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "roundCap": { "in": 1, "ports": { "otherwise": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "builder.followUp": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "fix",
+            "item": "group:byHead:118b47954644cf",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "The unit tests failed on headA. Please fix them and push the change."
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "fix",
+            "mode": "perItem",
+            "items": ["group:byHead:118b47954644cf"]
+          }
+        ]
+      },
+      {
+        "label": "round 4: a new head fails",
+        "at": "2026-10-19T12:15:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "otherwise": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "fix": { "in": 1, "ports": { "out": 1 } },
+          "fixedTask": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "roundCap": { "in": 1, "ports": { "otherwise": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "builder.followUp": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "fix",
+            "item": "group:byHead:f00fdc8702b0f",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "The unit tests failed on headA. Please fix them and push the change."
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "fix",
+            "mode": "perItem",
+            "items": ["group:byHead:f00fdc8702b0f"]
+          }
+        ]
+      },
+      {
+        "label": "round 5: a new head fails",
+        "at": "2026-10-19T12:20:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "released": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "otherwise": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "fix": { "in": 1, "ports": { "out": 1 } },
+          "fixedTask": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "keep": { "in": 1, "ports": {} },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "roundCap": { "in": 1, "ports": { "otherwise": 1 } },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "builder.followUp": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "fix",
+            "item": "group:byHead:1fcec2cd34b1fd",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "The unit tests failed on headA. Please fix them and push the change."
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          }
+        ],
+        "ai": [
+          {
+            "node": "fix",
+            "mode": "perItem",
+            "items": ["group:byHead:1fcec2cd34b1fd"]
+          }
+        ]
+      },
+      {
+        "label": "round 6: a new head fails",
+        "at": "2026-10-19T12:25:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "taken": 2, "needsManual": 1, "modelCalls": 1 }
+        },
+        "nodes": {
+          "askedForHead": { "in": 1, "ports": { "otherwise": 1 } },
+          "builderIdle": { "in": 1, "ports": { "match": 1 } },
+          "byHead": { "in": 1, "ports": { "out": 1 } },
+          "byTask": { "in": 2, "ports": { "out": 1 } },
+          "capAlert": { "in": 1, "ports": { "out": 1 } },
+          "check": { "in": 1, "ports": { "out": 1 } },
+          "ci": { "in": 1, "ports": { "route:failing": 1 } },
+          "fix": { "in": 1, "ports": { "out": 1 } },
+          "fixedTask": { "in": 1, "ports": { "out": 1 } },
+          "inFlight": { "in": 0, "ports": { "out": 2 } },
+          "readPr": { "in": 1, "ports": { "out": 1 } },
+          "roundCap": { "in": 1, "ports": { "match": 1 } },
+          "roundsExhausted": { "in": 1, "ports": {} },
+          "state": { "in": 1, "ports": { "route:hasPr": 1 } }
+        },
+        "calls": {
+          "builder.check": 1,
+          "github.readPullRequest": 1,
+          "builder.followUp": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "fix",
+            "item": "group:byHead:a71510279c1ec",
+            "operation": "builder.followUp",
+            "fields": {
+              "projectId": "project-1",
+              "branchName": "factory-m1",
+              "userMessage": "The unit tests failed on headA. Please fix them and push the change."
+            },
+            "receipt": { "status": "done", "externalRef": "factory-m1" }
+          },
+          {
+            "node": "capAlert",
+            "item": "group:fixedTask:75aea82993fbf",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "triage-owner@example.test",
+              "text": "https://github.example.test/example-org/example-repo/pull/7 still fails after six rounds with Builder. Needs a person."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760002000.000001",
+              "url": "https://slack.example.test/archives/D0TRIAGE/p1760002000000001"
+            }
+          }
+        ],
+        "ai": [
+          {
+            "node": "fix",
+            "mode": "perItem",
+            "items": ["group:byHead:a71510279c1ec"]
+          }
+        ]
+      },
+      {
+        "label": "nothing is left in automation_started",
+        "at": "2026-10-19T12:30:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "r1": "needs_manual", "r2": "needs_manual" },
+    "cursors": {},
+    "journeys": {
+      "group:byHead:75d580d758f2f": [
+        "decision@askedForHead:otherwise",
+        "effect@fix"
+      ],
+      "group:byTask:75aea82993fbf": [
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match",
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match",
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match",
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match",
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match",
+        "decision@state:route:hasPr",
+        "decision@ci:route:failing",
+        "decision@builderIdle:match"
+      ],
+      "group:fixedTask:75aea82993fbf": [
+        "decision@roundCap:otherwise",
+        "ended@keep:released",
+        "decision@roundCap:otherwise",
+        "ended@keep:released",
+        "decision@roundCap:otherwise",
+        "ended@keep:released",
+        "decision@roundCap:otherwise",
+        "ended@keep:released",
+        "decision@roundCap:otherwise",
+        "ended@keep:released",
+        "decision@roundCap:match",
+        "effect@capAlert",
+        "ended@roundsExhausted:needsManual"
+      ],
+      "r1": [
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@roundsExhausted:needsManual"
+      ],
+      "r2": [
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@keep:released",
+        "ended@roundsExhausted:needsManual"
+      ],
+      "group:byHead:f821abc28574e": [
+        "decision@askedForHead:otherwise",
+        "effect@fix"
+      ],
+      "group:byHead:118b47954644cf": [
+        "decision@askedForHead:otherwise",
+        "effect@fix"
+      ],
+      "group:byHead:f00fdc8702b0f": [
+        "decision@askedForHead:otherwise",
+        "effect@fix"
+      ],
+      "group:byHead:1fcec2cd34b1fd": [
+        "decision@askedForHead:otherwise",
+        "effect@fix"
+      ],
+      "group:byHead:a71510279c1ec": [
+        "decision@askedForHead:otherwise",
+        "effect@fix"
+      ]
+    }
+  }
+}

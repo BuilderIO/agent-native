@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getDb } from "../server/db/index.js";
+
 vi.mock("drizzle-orm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("drizzle-orm")>();
   return {
@@ -14,6 +16,15 @@ vi.mock("drizzle-orm", async (importOriginal) => {
 
 const mutationLock = vi.hoisted(() => vi.fn());
 const membershipLock = vi.hoisted(() => vi.fn());
+const deletePrivateBlob = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/private-blob", () => ({
+  deletePrivateBlob,
+}));
+
+const pageLock = vi.hoisted(() =>
+  vi.fn(async (_db: unknown, ids: Iterable<string>) => [...ids]),
+);
 
 vi.mock("./_content-database-mutation-lock.js", () => ({
   lockContentDatabaseMutation: mutationLock,
@@ -22,6 +33,11 @@ vi.mock("./_content-database-mutation-lock.js", () => ({
 
 vi.mock("./_database-membership-lock.js", () => ({
   lockDatabaseMemberships: membershipLock,
+}));
+
+vi.mock("./_row-lock-order.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./_row-lock-order.js")>()),
+  lockDocumentRows: pageLock,
 }));
 
 const { schema } = vi.hoisted(() => ({
@@ -64,6 +80,14 @@ const { schema } = vi.hoisted(() => ({
     },
     contentDatabaseSourceExecutions: {
       sourceId: "contentDatabaseSourceExecutions.sourceId",
+      changeSetId: "contentDatabaseSourceExecutions.changeSetId",
+      state: "contentDatabaseSourceExecutions.state",
+      updatedAt: "contentDatabaseSourceExecutions.updatedAt",
+      ownerEmail: "contentDatabaseSourceExecutions.ownerEmail",
+      payloadJson: "contentDatabaseSourceExecutions.payloadJson",
+    },
+    contentDatabaseBuilderBlobCleanup: {
+      blobReference: "contentDatabaseBuilderBlobCleanup.blobReference",
     },
     contentDatabaseSourceChangeReviews: {
       sourceId: "contentDatabaseSourceChangeReviews.sourceId",
@@ -139,6 +163,7 @@ function tableNameFor(colRef: string): string {
 }
 
 function matches(row: Record<string, unknown>, cond: any): boolean {
+  if (!cond) return true;
   if (cond.__and) return cond.__and.every((c: any) => matches(row, c));
   if (cond.__eq) {
     const [col, value] = cond.__eq;
@@ -159,16 +184,24 @@ describe("deleteDocumentRecursive", () => {
   let db: any;
   let transactionDepth: number;
   let operationsOutsideTransaction: string[];
+  let insertCalls: Array<{ table: string; values: unknown }>;
 
   beforeEach(() => {
     mutationLock.mockReset();
     membershipLock.mockReset();
+    deletePrivateBlob.mockReset();
+    deletePrivateBlob.mockImplementation(async () => {
+      expect(transactionDepth).toBe(0);
+      return { deleted: true, provider: "test" };
+    });
+    pageLock.mockClear();
     deleteCalls = [];
     selectRows = {
       documents: [],
     };
     transactionDepth = 0;
     operationsOutsideTransaction = [];
+    insertCalls = [];
 
     db = {
       select: () => ({
@@ -183,12 +216,26 @@ describe("deleteDocumentRecursive", () => {
         }),
       }),
       delete: (table: Record<string, string>) => ({
-        where: async (cond: any) => {
+        where: (cond: any) => {
           const name = tableNameFor(Object.values(table)[0] as string);
           if (transactionDepth === 0)
             operationsOutsideTransaction.push(`delete:${name}`);
           deleteCalls.push({ table: name, cond });
+          return {
+            returning: async () =>
+              (selectRows[name] ?? []).filter((row) => matches(row, cond)),
+          };
         },
+      }),
+      insert: (table: Record<string, string>) => ({
+        values: (values: unknown) => ({
+          onConflictDoNothing: async () => {
+            const name = tableNameFor(Object.values(table)[0] as string);
+            if (transactionDepth === 0)
+              operationsOutsideTransaction.push(`insert:${name}`);
+            insertCalls.push({ table: name, values });
+          },
+        }),
       }),
       update: () => ({
         set: () => ({
@@ -204,6 +251,106 @@ describe("deleteDocumentRecursive", () => {
         }
       },
     };
+    vi.mocked(getDb).mockReturnValue(db);
+  });
+
+  function seedBuilderSourceBlobs() {
+    const ownerEmail = "owner-a@example.com";
+    const sourceId = "source-1";
+    const reference = (id: string, boundSourceId = sourceId) =>
+      JSON.stringify({
+        kind: "agent-native.builder-private-payload",
+        version: 1,
+        binding: { ownerEmail, sourceId: boundSourceId },
+        sha256: "test-digest",
+        handle: { id, provider: "test", opaque: true, encrypted: true },
+      });
+    selectRows.contentDatabases = [
+      { id: "database-1", documentId: "database-doc", ownerEmail },
+    ];
+    selectRows.contentDatabaseSources = [
+      { id: sourceId, databaseId: "database-1" },
+    ];
+    selectRows.contentDatabaseSourceExecutions = [
+      {
+        sourceId,
+        ownerEmail,
+        payloadJson: JSON.stringify({
+          "__builder.execution.privatePayload": reference("execution"),
+        }),
+      },
+      {
+        sourceId,
+        ownerEmail,
+        payloadJson: JSON.stringify({
+          "__builder.execution.privatePayload": reference(
+            "foreign",
+            "different-source",
+          ),
+        }),
+      },
+    ];
+  }
+
+  it("queues only matching deleted Builder blobs without inline deletion", async () => {
+    seedBuilderSourceBlobs();
+    await deleteDocumentRecursive(db, "database-doc", "owner-a@example.com");
+    expect(
+      new Set(
+        insertCalls
+          .filter((call) => call.table === "contentDatabaseBuilderBlobCleanup")
+          .flatMap((call) => {
+            const rows = Array.isArray(call.values)
+              ? call.values
+              : [call.values];
+            return rows.map(
+              (row) =>
+                (
+                  JSON.parse(
+                    (row as { blobReference: string }).blobReference,
+                  ) as { handle: { id: string } }
+                ).handle.id,
+            );
+          }),
+      ),
+    ).toEqual(new Set(["execution"]));
+    expect(deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("preserves active Builder execution checkpoints during permanent deletion", async () => {
+    seedBuilderSourceBlobs();
+    selectRows.contentDatabaseSourceExecutions![0] = {
+      ...selectRows.contentDatabaseSourceExecutions![0],
+      state: "response_received",
+      updatedAt: new Date().toISOString(),
+    };
+
+    await expect(
+      deleteDocumentRecursive(db, "database-doc", "owner-a@example.com"),
+    ).rejects.toMatchObject({
+      errorCode: "builder_execution_running",
+      statusCode: 409,
+    });
+
+    expect(mutationLock).toHaveBeenCalledWith(db, "database-1");
+    expect(
+      deleteCalls.some(
+        (call) => call.table === "contentDatabaseSourceExecutions",
+      ),
+    ).toBe(false);
+  });
+
+  it("retains deleted-row blob references when commit acknowledgement is uncertain", async () => {
+    seedBuilderSourceBlobs();
+    const transaction = db.transaction;
+    db.transaction = async (run: (tx: unknown) => Promise<unknown>) => {
+      await transaction(run);
+      throw new Error("commit acknowledgement lost");
+    };
+    await expect(
+      deleteDocumentRecursive(db, "database-doc", "owner-a@example.com"),
+    ).rejects.toThrow("commit acknowledgement lost");
+    expect(deletePrivateBlob).not.toHaveBeenCalled();
   });
 
   it("keeps lock, final recollection, and cleanup on one transaction handle", async () => {
@@ -232,6 +379,10 @@ describe("deleteDocumentRecursive", () => {
     await deleteDocumentRecursive(db, "row-document", "owner-a@example.com");
 
     expect(mutationLock).toHaveBeenCalledWith(db, "parent-database");
+    expect(pageLock).toHaveBeenCalledWith(db, ["row-document"]);
+    expect(membershipLock.mock.invocationCallOrder[0]).toBeLessThan(
+      pageLock.mock.invocationCallOrder[0]!,
+    );
     const parentDatabaseDeletes = deleteCalls.filter(
       (call) => call.table === "contentDatabases",
     );

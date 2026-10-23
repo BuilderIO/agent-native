@@ -1,0 +1,143 @@
+import {
+  defineAction,
+  fail,
+  type WriteReceipt,
+} from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, asc, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { assertSlides2DeckData } from "./_deck-app-scope.js";
+
+export default defineAction({
+  description:
+    "Delete a slide comment. Authors can delete their own comments; otherwise editor access is required.",
+  schema: z.object({
+    id: z.string().describe("Comment ID"),
+    deckId: z.string().describe("Deck ID"),
+  }),
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
+  }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  run: async (args) => {
+    const access = await assertAccess("deck", args.deckId, "commenter");
+    assertSlides2DeckData(access.resource.data);
+    const db = getDb();
+    const [comment] = await db
+      .select({
+        id: schema.slideComments.id,
+        deckId: schema.slideComments.deckId,
+        slideId: schema.slideComments.slideId,
+        threadId: schema.slideComments.threadId,
+        authorEmail: schema.slideComments.authorEmail,
+      })
+      .from(schema.slideComments)
+      .where(
+        and(
+          eq(schema.slideComments.id, args.id),
+          eq(schema.slideComments.deckId, args.deckId),
+        ),
+      )
+      .limit(1);
+
+    if (!comment) {
+      fail(`Comment not found: ${args.id}`, {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
+    }
+
+    const userEmail = getRequestUserEmail()?.trim().toLowerCase();
+    if (comment.authorEmail.trim().toLowerCase() === userEmail) {
+      await assertAccess("deck", comment.deckId, "commenter");
+    } else {
+      await assertAccess("deck", comment.deckId, "editor");
+    }
+
+    const deletedCount = await db.transaction(async (tx) => {
+      const threadRows = await tx
+        .select({
+          id: schema.slideComments.id,
+          createdAt: schema.slideComments.createdAt,
+        })
+        .from(schema.slideComments)
+        .where(
+          and(
+            eq(schema.slideComments.deckId, comment.deckId),
+            eq(schema.slideComments.slideId, comment.slideId),
+            eq(schema.slideComments.threadId, comment.threadId),
+          ),
+        )
+        .orderBy(
+          asc(schema.slideComments.createdAt),
+          asc(schema.slideComments.id),
+        )
+        .for("update");
+      if (!threadRows.some((row) => row.id === comment.id)) {
+        fail(`Comment not found: ${args.id}`, {
+          errorCode: "not_found",
+          statusCode: 404,
+        });
+      }
+      const canonicalRoot = threadRows.find(
+        (row) => row.id === comment.threadId,
+      );
+      const rootId = canonicalRoot?.id ?? threadRows[0]?.id;
+      const isRoot = rootId === comment.id;
+
+      const expectedIds = isRoot
+        ? threadRows.map((row) => row.id)
+        : [comment.id];
+      const expectedIdsSorted = [...expectedIds].sort();
+      const deleted = await tx
+        .delete(schema.slideComments)
+        .where(
+          isRoot
+            ? and(
+                eq(schema.slideComments.deckId, comment.deckId),
+                eq(schema.slideComments.slideId, comment.slideId),
+                eq(schema.slideComments.threadId, comment.threadId),
+              )
+            : and(
+                eq(schema.slideComments.id, args.id),
+                eq(schema.slideComments.deckId, comment.deckId),
+              ),
+        )
+        .returning({ id: schema.slideComments.id });
+      const deletedIds = deleted.map((row) => row.id).sort();
+      if (
+        deletedIds.length !== expectedIdsSorted.length ||
+        deletedIds.some((id, index) => id !== expectedIdsSorted[index])
+      ) {
+        fail("Could not verify that the comment was deleted.", {
+          errorCode: "write_not_verified",
+          statusCode: 500,
+        });
+      }
+      return deletedIds.length;
+    });
+
+    const _receipt: WriteReceipt = {
+      changed: true,
+      verified: true,
+      subject: args.id,
+      summary: "Slide comment deleted.",
+      checks: [
+        {
+          id: "slide-comment-deletion",
+          ok: true,
+          detail: `Verified deletion of ${deletedCount} comment${deletedCount === 1 ? "" : "s"}.`,
+        },
+      ],
+    };
+    return { ok: true, _receipt };
+  },
+});

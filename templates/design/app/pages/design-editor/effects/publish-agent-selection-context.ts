@@ -1,5 +1,9 @@
-import { setClientAppState } from "@agent-native/core/client/hooks";
+import {
+  getBrowserTabId,
+  setClientAppState,
+} from "@agent-native/core/client/hooks";
 import { stripInlineBytes } from "@agent-native/core/shared";
+import { isHubSpotEmailHtml } from "@shared/hubspot-email";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { MotionPlaybackMode } from "@shared/motion-timeline";
 import type { InteractThemeMode } from "@shared/preview-color-scheme";
@@ -53,6 +57,18 @@ const MAX_SUMMARY_CLASSES = 40;
 const MAX_SUMMARY_CLASS_LENGTH = 200;
 const MAX_SUMMARY_TEXT_LENGTH = 200;
 const SELECTION_PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+const frameTypeByFile = new WeakMap<
+  DesignFile,
+  { content: string; frameType: "hubspot-email" | null }
+>();
+
+function frameTypeForFile(file: DesignFile): "hubspot-email" | null {
+  const cached = frameTypeByFile.get(file);
+  if (cached && cached.content === file.content) return cached.frameType;
+  const frameType = isHubSpotEmailHtml(file.content) ? "hubspot-email" : null;
+  frameTypeByFile.set(file, { content: file.content, frameType });
+  return frameType;
+}
 
 // The agent targets an element by these ids; its subtree style snapshot stays
 // in the frame, where copy reads it on demand.
@@ -177,12 +193,14 @@ export function runPublishAgentSelectionContext({
     designTitle: design?.title ?? null,
     activeFileId: activeFile?.id ?? null,
     activeFilename: activeFile?.filename ?? null,
+    activeFrameType: activeFile ? frameTypeForFile(activeFile) : null,
     viewMode,
     zoom,
     screens: files.map((file) => ({
       id: file.id,
       filename: file.filename,
       fileType: file.fileType,
+      frameType: frameTypeForFile(file),
     })),
     selectedScreenIds,
     selectedElement,
@@ -310,13 +328,17 @@ export function runPublishAgentSelectionContext({
     persistedSelectionStateRef.current = pending.key;
     persistedSelectionContextRef.current = pending.contextKey;
     const keys = designSelectionStateKeys();
+    const requestSource = getBrowserTabId();
     // Every key's write shares the browser's in-flight keepalive budget.
     const keepalive =
       new TextEncoder().encode(pending.key).length * keys.length <=
       KEEPALIVE_ACTION_MAX_BYTES;
     void Promise.all(
       keys.map((key) =>
-        setClientAppState(key, pending.value, { keepalive }).then(
+        setClientAppState(key, pending.value, {
+          keepalive,
+          requestSource,
+        }).then(
           () => true,
           (cause: unknown) => {
             console.error(new DesignSelectionPublishError(key, cause));

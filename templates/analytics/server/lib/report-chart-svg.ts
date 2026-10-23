@@ -13,6 +13,7 @@ import {
   type DashboardFunnelOutcomeSummary,
 } from "../../shared/dashboard-funnel";
 import { formatDollars } from "../../shared/format-dollars";
+import { isSafeSvgHexColor } from "../../shared/svg-color";
 import {
   FUNNEL_OUTCOME_REPORT_COLORS,
   FUNNEL_OUTCOME_SEGMENTS,
@@ -110,7 +111,6 @@ export const REPORT_CHART_FONT_FAMILY = OG_FONT_FAMILY;
 const BROWSER_FONT_FAMILY =
   "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
 
-const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
 const NEUTRAL_COLOR = "#71717a";
 
 function escapeXml(value: unknown): string {
@@ -122,12 +122,8 @@ function escapeXml(value: unknown): string {
 }
 
 function safeColor(value: string | undefined, fallback: string): string {
-  const candidate = value?.trim();
-  if (candidate && HEX_COLOR.test(candidate)) return candidate;
-  const fallbackCandidate = fallback?.trim();
-  if (fallbackCandidate && HEX_COLOR.test(fallbackCandidate)) {
-    return fallbackCandidate;
-  }
+  if (isSafeSvgHexColor(value)) return value.trim();
+  if (isSafeSvgHexColor(fallback)) return fallback.trim();
   return NEUTRAL_COLOR;
 }
 

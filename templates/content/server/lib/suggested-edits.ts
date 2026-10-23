@@ -18,6 +18,7 @@ import {
   prepareTransactionalChange,
   type TransactionalChange,
 } from "@agent-native/core/server";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
@@ -52,7 +53,6 @@ import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { rebaselineSuggestions } from "../../shared/suggestion-rebaseline.js";
 import { getDb, schema } from "../db/index.js";
 import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion-edit.js";
-import { drizzleOverExec } from "../live-copy/exec-db.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
@@ -193,11 +193,32 @@ function matchesDocumentRevision(
   );
 }
 
+type LockedSuggestionTarget = {
+  current: Record<string, unknown>;
+  primaryBlocksFields: Awaited<ReturnType<typeof lockPrimaryBlocksFields>>;
+  identityTx: ReturnType<typeof drizzleTransactionForExec>;
+};
+
+// A proposal decision places every member on the Page in memory, then commits
+// the result once: one write, one Page version, one Yjs update.
+type DeferredProposalCommit = LockedSuggestionTarget & {
+  content: string;
+  /** The Page after each earlier member, kept only for Blocks identity. */
+  intermediateContents: string[];
+  /** Whether a member added or removed a top-level block. */
+  blockCountChanged: boolean;
+  document: ProseMirrorNode;
+  ctx: Record<string, unknown> | undefined;
+  orgId: string | null;
+  operationId: string;
+  now: string;
+};
+
 type ContentDecisionCoordination = {
   ydoc: PreparedYDocMutationLease;
   sync: TransactionalChange;
   deferPersistence?: boolean;
-  finalContent?: string;
+  proposal?: DeferredProposalCommit;
 };
 
 export function publishPersistedAcceptedSuggestion(
@@ -377,7 +398,7 @@ async function proposalOnStoredBody(
 ): Promise<SuggestionOperation> {
   if (!transaction || typeof content !== "string") failBeforeStateConflict();
   const gate = await liveBodyWriterGate(documentId, {
-    db: drizzleOverExec(transaction),
+    context: { kind: "transaction", executor: transaction },
   });
   const before = markdownPayload(operation.before, "before").markdown;
   if (gate.writePath !== "live_copy" || canonicalizeNfm(before) !== content)
@@ -428,7 +449,7 @@ async function reanchorSourceComment(
     return;
   const root = (
     await tx.execute({
-      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL ORDER BY created_at ASC LIMIT 1",
+      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL AND field_id IS NULL ORDER BY created_at ASC LIMIT 1",
       args: [documentId, threadId],
     })
   ).rows[0];
@@ -592,6 +613,254 @@ async function applyOnLiveCopy(
     revision,
     baseRevision: revision,
     bodyRevision: commit.bodyRevision,
+  };
+}
+
+async function readSuggestionTarget(tx: DbExec, documentId: string) {
+  const current = (
+    await tx.execute({
+      sql: "SELECT id,title,content,body_revision,owner_email,org_id,updated_at,source_mode,source_kind,source_path,trashed_at FROM documents WHERE id = ?",
+      args: [documentId],
+    })
+  ).rows[0];
+  if (!current) throw new Error("Document not found");
+  if (
+    current.source_mode ||
+    current.source_kind ||
+    current.source_path ||
+    current.trashed_at
+  ) {
+    throw new Error("This Page can no longer accept suggestions");
+  }
+  const sourceLink = await tx.execute({
+    sql: "SELECT state FROM document_sync_links WHERE document_id = ? AND state != 'unlinked' LIMIT 1",
+    args: [documentId],
+  });
+  if (sourceLink.rows.length) {
+    throw new Error("Externally linked Pages cannot accept suggestions yet");
+  }
+  return current;
+}
+
+async function placeSuggestion(
+  tx: DbExec,
+  suggestion: ResourceSuggestion,
+  operation: SuggestionOperation,
+  currentContent: string,
+) {
+  const nextContent =
+    applyMarkdownSuggestionOperation(currentContent, operation) ??
+    applyMarkdownSuggestionWithSiblings(
+      currentContent,
+      operation,
+      await acceptedRangesOnSameText(
+        tx,
+        suggestion,
+        markdownPayload(operation.before, "before").markdown,
+      ),
+    );
+  if (nextContent === null) throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
+  return nextContent;
+}
+
+async function lockSuggestionTarget(tx: DbExec, documentId: string) {
+  const eligiblePrimaryIds = await assertSuggestionBodyTarget(tx, documentId);
+  const identityTx = drizzleTransactionForExec(tx);
+  await tx.execute({
+    sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+    args: [documentId],
+  });
+  // Memberships have no document foreign key. Never wait for the table after
+  // locking the Page: other editors lock memberships before the Page.
+  try {
+    await tx.execute(
+      "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT",
+    );
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "55P03"
+    ) {
+      fail("The Page is busy. Try accepting the suggestion again.", {
+        statusCode: 409,
+        errorCode: "suggestion_conflict",
+      });
+    }
+    throw error;
+  }
+  const primaryBlocksFields = await lockPrimaryBlocksFields(
+    identityTx,
+    documentId,
+  );
+  const currentTargets = await tx.execute({
+    sql: `SELECT d.system_role, p.id FROM content_database_items i
+          INNER JOIN content_databases d ON d.id = i.database_id AND d.deleted_at IS NULL
+          LEFT JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+          WHERE i.document_id = ?`,
+    args: [documentId],
+  });
+  const hasOrdinaryMembership = currentTargets.rows.some(
+    (row) => row.system_role === null,
+  );
+  const hasEligibleTarget = currentTargets.rows.some(
+    (row) =>
+      (row.system_role === null ||
+        (row.system_role === "files" && !hasOrdinaryMembership)) &&
+      eligiblePrimaryIds.includes(String(row.id)) &&
+      primaryBlocksFields.some((field) => field.propertyId === row.id),
+  );
+  if (
+    !hasEligibleTarget &&
+    (eligiblePrimaryIds.length > 0 || currentTargets.rows.length > 0)
+  ) {
+    fail(
+      "This database item has no primary Blocks field for body suggestions.",
+      {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      },
+    );
+  }
+  return { primaryBlocksFields, identityTx };
+}
+
+/** Writes accepted suggestion content as one Page revision and history entry. */
+async function commitAcceptedContent(input: {
+  tx: DbExec;
+  documentId: string;
+  target: LockedSuggestionTarget;
+  nextContent: string;
+  intermediateContents?: readonly string[];
+  blockCountChanged?: boolean;
+  nextDocument: ProseMirrorNode;
+  ydoc: PreparedYDocMutationLease;
+  ctx: Record<string, unknown> | undefined;
+  orgId: string | null;
+  operationId: string;
+  now: string;
+  afterWrite: () => Promise<void>;
+}) {
+  const { tx, documentId, nextContent, now } = input;
+  const { current, primaryBlocksFields, identityTx } = input.target;
+  const currentContent = String(current.content);
+  const bodyRevision = Number(current.body_revision);
+  replacePreparedCollabContent(input.ydoc, input.nextDocument);
+  const nextBodyRevision = bodyRevision + 1;
+  const nextRevision = documentRevisionToken(nextBodyRevision, nextContent);
+  const intent = {
+    writerId: `suggestion:${String(current.owner_email)}`,
+    operationId: input.operationId,
+    authoredBaseRevision: bodyRevision,
+  };
+  const planned = mergeDocumentBodyIntents({
+    authoredBaseContent: currentContent,
+    authoredCandidateContent: nextContent,
+    currentContent,
+    currentRevision: bodyRevision,
+    incoming: intent,
+    priorIntents: [],
+  });
+  if (planned.status !== "resolved") {
+    throw new Error(
+      "The accepted suggestion cannot preserve document structure",
+    );
+  }
+  const applied = await commitCanonicalDocumentBodyMutation({
+    write: async () => {
+      const updated = await tx.execute({
+        sql: "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?, updated_at = ? WHERE id = ? AND body_revision = ? AND updated_at = ? AND content = ?",
+        args: [
+          nextContent,
+          nextBodyRevision,
+          nextBodyRevision,
+          now,
+          documentId,
+          bodyRevision,
+          current.updated_at,
+          currentContent,
+        ],
+      });
+      return updated.rowsAffected === 1;
+    },
+    afterWrite: async () => {
+      if (
+        currentContent.includes("<callout") ||
+        nextContent.includes("<callout")
+      ) {
+        const actorEmail = input.ctx?.userEmail;
+        if (typeof actorEmail !== "string" || !actorEmail) {
+          throw new Error("Authentication is required to accept a suggestion");
+        }
+        await syncPrivateCalloutReferences(identityTx, {
+          documentId,
+          before: currentContent,
+          after: nextContent,
+          userEmail: actorEmail,
+          ownerEmail: String(current.owner_email),
+          orgId: current.org_id === null ? null : String(current.org_id),
+        });
+      }
+      for (const field of primaryBlocksFields) {
+        await persistBlocksFieldIdentity({
+          db: identityTx,
+          ownerEmail: field.ownerEmail,
+          documentId,
+          propertyId: field.propertyId,
+          previousMarkdown: currentContent,
+          markdown: nextContent,
+          intermediateMarkdown: input.intermediateContents,
+          now,
+        });
+      }
+      await recordDocumentHistoryTransition({
+        db: identityTx,
+        ownerEmail: String(current.owner_email),
+        documentId,
+        before: { title: String(current.title), content: currentContent },
+        after: { title: String(current.title), content: nextContent },
+        beforeBodyRevision: bodyRevision,
+        afterBodyRevision: nextBodyRevision,
+        cause: {
+          ctx: input.ctx as ActionRunContext | undefined,
+          operation: "accept-suggestion",
+          origin: "suggestion",
+        },
+        now,
+      });
+      await recordDocumentBodyIntent({
+        db: identityTx,
+        ownerEmail: String(current.owner_email),
+        orgId: input.orgId ?? "",
+        documentId,
+        intent,
+        candidateHash: documentContentHash(nextContent),
+        committedRevision: nextBodyRevision,
+        // Changed blocks are recorded by position. After a proposal member
+        // adds or removes a block, the blocks below it move, so the whole
+        // decision records none, as that member's own save did. A stale save
+        // over them is then kept for review rather than merged into a block
+        // that moved.
+        changedBlockIndexes: input.blockCountChanged
+          ? []
+          : planned.changedBlockIndexes,
+        canonicalChanged: true,
+        now,
+      });
+      await input.afterWrite();
+    },
+  });
+  if (!applied)
+    throw suggestionStaleError(
+      "The Page changed while accepting this suggestion",
+    );
+  return {
+    resourceId: documentId,
+    updatedAt: now,
+    revision: nextRevision,
+    baseRevision: nextRevision,
+    bodyRevision: nextBodyRevision,
   };
 }
 
@@ -774,15 +1043,29 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     const coordination = context.coordination as
       | ContentDecisionCoordination
       | undefined;
-    if (
-      !coordination?.deferPersistence ||
-      coordination.finalContent === undefined
-    ) {
+    const proposal = coordination?.proposal;
+    if (!coordination?.deferPersistence || !proposal) {
       throw new Error("Content proposal decision coordination is incomplete");
     }
     const tx = context.transaction as DbExec;
-    await coordination.ydoc.persist(tx, coordination.finalContent);
-    await coordination.sync.persist(tx);
+    await commitAcceptedContent({
+      tx,
+      documentId: context.resourceId,
+      target: proposal,
+      nextContent: proposal.content,
+      intermediateContents: proposal.intermediateContents,
+      blockCountChanged: proposal.blockCountChanged,
+      nextDocument: proposal.document,
+      ydoc: coordination.ydoc,
+      ctx: proposal.ctx,
+      orgId: proposal.orgId,
+      operationId: proposal.operationId,
+      now: proposal.now,
+      afterWrite: async () => {
+        await coordination.ydoc.persist(tx, proposal.content);
+        await coordination.sync.persist(tx);
+      },
+    });
   },
   async apply(context) {
     if (isLiveCopyDecision(context.coordination))
@@ -796,45 +1079,18 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     if (!coordination) {
       throw new Error("Content suggestion decision coordination is missing");
     }
-    const current = (
-      await tx.execute({
-        sql: "SELECT id,title,content,body_revision,owner_email,org_id,updated_at,source_mode,source_kind,source_path,trashed_at FROM documents WHERE id = ?",
-        args: [context.resourceId],
-      })
-    ).rows[0];
-    if (!current) throw new Error("Document not found");
-    const currentDocument = {
-      bodyRevision: Number(current.body_revision),
-      content: String(current.content),
-    };
-    if (
-      current.source_mode ||
-      current.source_kind ||
-      current.source_path ||
-      current.trashed_at
-    ) {
-      throw new Error("This Page can no longer accept suggestions");
-    }
-    const sourceLink = await tx.execute({
-      sql: "SELECT state FROM document_sync_links WHERE document_id = ? AND state != 'unlinked' LIMIT 1",
-      args: [context.resourceId],
-    });
-    if (sourceLink.rows.length) {
-      throw new Error("Externally linked Pages cannot accept suggestions yet");
-    }
-    const currentContent = String(current.content);
-    const nextContent =
-      applyMarkdownSuggestionOperation(currentContent, operation) ??
-      applyMarkdownSuggestionWithSiblings(
-        currentContent,
-        operation,
-        await acceptedRangesOnSameText(
-          tx,
-          context.suggestion,
-          markdownPayload(operation.before, "before").markdown,
-        ),
-      );
-    if (nextContent === null) throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
+    // Later proposal members land on the Page the earlier ones left, which
+    // this transaction already read and locked.
+    const placed = coordination.proposal;
+    const current =
+      placed?.current ?? (await readSuggestionTarget(tx, context.resourceId));
+    const currentContent = placed?.content ?? String(current.content);
+    const nextContent = await placeSuggestion(
+      tx,
+      context.suggestion,
+      operation,
+      currentContent,
+    );
     const nextDocument = validateSuggestionStructure(
       currentContent,
       nextContent,
@@ -846,165 +1102,56 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         errorCode: "suggestion_body_unavailable",
       });
     }
-    const eligiblePrimaryIds = await assertSuggestionBodyTarget(
-      tx,
-      context.resourceId,
-    );
-    const identityTx = drizzleTransactionForExec(tx);
-    await tx.execute({
-      sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
-      args: [context.resourceId],
-    });
-    // Memberships have no document foreign key. Never wait for the table after
-    // locking the Page: other editors lock memberships before the Page.
-    try {
-      await tx.execute(
-        "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT",
-      );
-    } catch (error) {
-      if (
-        error &&
-        typeof error === "object" &&
-        "code" in error &&
-        error.code === "55P03"
-      ) {
-        fail("The Page is busy. Try accepting the suggestion again.", {
-          statusCode: 409,
-          errorCode: "suggestion_conflict",
-        });
-      }
-      throw error;
-    }
-    const primaryBlocksFields = await lockPrimaryBlocksFields(
-      identityTx,
-      context.resourceId,
-    );
-    const currentTargets = await tx.execute({
-      sql: `SELECT d.system_role, p.id FROM content_database_items i
-            INNER JOIN content_databases d ON d.id = i.database_id AND d.deleted_at IS NULL
-            LEFT JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
-            WHERE i.document_id = ?`,
-      args: [context.resourceId],
-    });
-    const hasOrdinaryMembership = currentTargets.rows.some(
-      (row) => row.system_role === null,
-    );
-    const hasEligibleTarget = currentTargets.rows.some(
-      (row) =>
-        (row.system_role === null ||
-          (row.system_role === "files" && !hasOrdinaryMembership)) &&
-        eligiblePrimaryIds.includes(String(row.id)) &&
-        primaryBlocksFields.some((field) => field.propertyId === row.id),
-    );
-    if (
-      !hasEligibleTarget &&
-      (eligiblePrimaryIds.length > 0 || currentTargets.rows.length > 0)
-    ) {
-      fail(
-        "This database item has no primary Blocks field for body suggestions.",
-        {
-          statusCode: 409,
-          errorCode: "suggestion_body_unavailable",
-        },
-      );
-    }
-    replacePreparedCollabContent(coordination.ydoc, nextDocument);
-    const now = new Date().toISOString();
-    const nextBodyRevision = currentDocument.bodyRevision + 1;
-    const nextRevision = documentRevisionToken(nextBodyRevision, nextContent);
-    const intent = {
-      writerId: `suggestion:${String(current.owner_email)}`,
-      operationId: context.suggestion.id,
-      authoredBaseRevision: currentDocument.bodyRevision,
+    const target = placed ?? {
+      current,
+      ...(await lockSuggestionTarget(tx, context.resourceId)),
     };
-    const planned = mergeDocumentBodyIntents({
-      authoredBaseContent: currentContent,
-      authoredCandidateContent: nextContent,
-      currentContent,
-      currentRevision: currentDocument.bodyRevision,
-      incoming: intent,
-      priorIntents: [],
-    });
-    if (planned.status !== "resolved") {
-      throw new Error(
-        "The accepted suggestion cannot preserve document structure",
+    const now = placed?.now ?? new Date().toISOString();
+    if (coordination.deferPersistence) {
+      await reanchorSourceComment(
+        tx,
+        context.resourceId,
+        context.suggestion,
+        currentContent,
+        nextContent,
+        now,
       );
+      const intermediateContents = placed?.intermediateContents ?? [];
+      // Blocks IDs are matched edit by edit, as when each edit was saved.
+      // Matching only the first and last Page can swap blocks whose text
+      // one edit hands to another.
+      if (placed && target.primaryBlocksFields.length)
+        intermediateContents.push(currentContent);
+      const blockCountChanged =
+        placed?.blockCountChanged === true ||
+        nextDocument.childCount !==
+          (placed?.document ?? parseSuggestionMarkdown(currentContent))
+            .childCount;
+      coordination.proposal = {
+        ...target,
+        content: nextContent,
+        intermediateContents,
+        blockCountChanged,
+        document: nextDocument,
+        ctx: placed?.ctx ?? context.ctx,
+        orgId: placed?.orgId ?? context.suggestion.orgId ?? null,
+        operationId: placed?.operationId ?? context.suggestion.id,
+        now,
+      };
+      return { resourceId: context.resourceId };
     }
-    const applied = await commitCanonicalDocumentBodyMutation({
-      write: async () => {
-        const updated = await tx.execute({
-          sql: "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?, updated_at = ? WHERE id = ? AND body_revision = ? AND updated_at = ? AND content = ?",
-          args: [
-            nextContent,
-            nextBodyRevision,
-            nextBodyRevision,
-            now,
-            context.resourceId,
-            currentDocument.bodyRevision,
-            current.updated_at,
-            currentContent,
-          ],
-        });
-        return updated.rowsAffected === 1;
-      },
+    return commitAcceptedContent({
+      tx,
+      documentId: context.resourceId,
+      target,
+      nextContent,
+      nextDocument,
+      ydoc: coordination.ydoc,
+      ctx: context.ctx,
+      orgId: context.suggestion.orgId ?? null,
+      operationId: context.suggestion.id,
+      now,
       afterWrite: async () => {
-        if (
-          currentContent.includes("<callout") ||
-          nextContent.includes("<callout")
-        ) {
-          const actorEmail = context.ctx?.userEmail;
-          if (typeof actorEmail !== "string" || !actorEmail) {
-            throw new Error(
-              "Authentication is required to accept a suggestion",
-            );
-          }
-          await syncPrivateCalloutReferences(identityTx, {
-            documentId: context.resourceId,
-            before: currentContent,
-            after: nextContent,
-            userEmail: actorEmail,
-            ownerEmail: String(current.owner_email),
-            orgId: current.org_id === null ? null : String(current.org_id),
-          });
-        }
-        for (const field of primaryBlocksFields) {
-          await persistBlocksFieldIdentity({
-            db: identityTx,
-            ownerEmail: field.ownerEmail,
-            documentId: context.resourceId,
-            propertyId: field.propertyId,
-            previousMarkdown: currentContent,
-            markdown: nextContent,
-            now,
-          });
-        }
-        await recordDocumentHistoryTransition({
-          db: identityTx,
-          ownerEmail: String(current.owner_email),
-          documentId: context.resourceId,
-          before: { title: String(current.title), content: currentContent },
-          after: { title: String(current.title), content: nextContent },
-          beforeBodyRevision: currentDocument.bodyRevision,
-          afterBodyRevision: nextBodyRevision,
-          cause: {
-            ctx: context.ctx as ActionRunContext | undefined,
-            operation: "accept-suggestion",
-            origin: "suggestion",
-          },
-          now,
-        });
-        await recordDocumentBodyIntent({
-          db: identityTx,
-          ownerEmail: String(current.owner_email),
-          orgId: context.suggestion.orgId ?? "",
-          documentId: context.resourceId,
-          intent,
-          candidateHash: documentContentHash(nextContent),
-          committedRevision: nextBodyRevision,
-          changedBlockIndexes: planned.changedBlockIndexes,
-          canonicalChanged: true,
-          now,
-        });
         await reanchorSourceComment(
           tx,
           context.resourceId,
@@ -1013,25 +1160,10 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
           nextContent,
           now,
         );
-        if (coordination.deferPersistence) {
-          coordination.finalContent = nextContent;
-        } else {
-          await coordination.ydoc.persist(tx, nextContent);
-          await coordination.sync.persist(tx);
-        }
+        await coordination.ydoc.persist(tx, nextContent);
+        await coordination.sync.persist(tx);
       },
     });
-    if (!applied)
-      throw suggestionStaleError(
-        "The Page changed while accepting this suggestion",
-      );
-    return {
-      resourceId: context.resourceId,
-      updatedAt: now,
-      revision: nextRevision,
-      baseRevision: nextRevision,
-      bodyRevision: nextBodyRevision,
-    };
   },
   describeOperation(operation) {
     return operation.kind.split("_").join(" ");

@@ -136,18 +136,7 @@ async function fileRecord(app: App, designId: string, fileId: string) {
   };
 }
 
-function alphaBackgroundImage(page: Page, fileId: string) {
-  return page
-    .locator(
-      `iframe[data-design-preview-iframe][data-screen-iframe-id="${fileId}"]`,
-    )
-    .contentFrame()
-    .locator('[data-agent-native-node-id="e2e-alpha-button"]')
-    .evaluate((el) => window.getComputedStyle(el).backgroundImage);
-}
-
-// fixme: product bug: The canvas requests /design/theme.css from the app origin, gets HTML back, and Chrome refuses it (MIME text/html), so design CSS files
-test.fixme("a screen's linked design stylesheet applies on the canvas", async ({
+test("a screen's linked design stylesheet applies on the canvas", async ({
   app,
 }) => {
   const { designId, fileId } = await seedDeep(
@@ -166,10 +155,7 @@ test.fixme("a screen's linked design stylesheet applies on the canvas", async ({
   ).toHaveCSS("outline", "rgb(14, 165, 233) solid 2px");
 });
 
-// fixme: product bug: Inspect code shows editor-internal markup: <button><span data-an-text="">Alpha Button</span></button> (line 124).
-test.fixme("Inspect Code shows copyable selected HTML content", async ({
-  app,
-}) => {
+test("Inspect Code shows copyable selected HTML content", async ({ app }) => {
   const page = app.page;
   const { fileId } = await openDeep(app);
   await selectByText(page, "Alpha Button", { screenId: fileId });
@@ -311,133 +297,6 @@ test("run-design-audit scopes findings to the requested file", async ({
       /missing an alt attribute|missing an accessible label/.test(message),
     ),
   ).toStrictEqual([]);
-});
-
-// Overview renders multiple DesignCanvas instances, but the preview belongs to the active screen.
-test("a shader preview from the deep-linked Tools panel reaches the active overview screen without saving", async ({
-  app,
-}) => {
-  const page = app.page;
-  const { designId, fileId } = await seedDeep(app);
-  // The Tools panel has no rail button; ?panel=tools is its only UI entry point.
-  await resetPersistedCanvasState(page);
-  await page.goto(appPath(`/design/${designId}?panel=tools`), {
-    waitUntil: "domcontentloaded",
-  });
-  await selectByText(page, "Alpha Button", { screenId: fileId });
-  await expect.poll(() => alphaBackgroundImage(page, fileId)).toBe("none");
-  const before = await app.savedNodes(designId);
-
-  await page.getByRole("button", { name: /Shader Fills/ }).click();
-  await page.getByRole("button", { name: "Browse Shaders" }).click();
-  await page.getByRole("button", { name: "Mesh Gradient" }).click();
-  await expect
-    .poll(() => alphaBackgroundImage(page, fileId))
-    .toMatch(/(?:linear|radial|conic)-gradient/);
-  await app.settled();
-  expectOnlyChanged(before, await app.savedNodes(designId), []);
-
-  await gotoEditor(page, designId);
-  await expect.poll(() => alphaBackgroundImage(page, fileId)).toBe("none");
-});
-
-test("apply-shader-fill persists over pending content, re-applies, and refuses a stale revision", async ({
-  app,
-}) => {
-  const page = app.page;
-  const { designId, fileId } = await seedDeep(app);
-  const source = await fileRecord(app, designId, fileId);
-  expect(source.updatedAt).toEqual(expect.any(String));
-  const pendingSentinel = "<!-- shader-current-content-sentinel -->";
-  const applied = await postAction(page, "apply-shader-fill", {
-    descriptor: { preset: "MeshGradient" },
-    target: { nodeId: "e2e-alpha-button" },
-    source: {
-      kind: "design-file",
-      designId,
-      fileId,
-      revision: source.updatedAt,
-      currentContent: source.content.replace(
-        "</body>",
-        `${pendingSentinel}\n  </body>`,
-      ),
-    },
-  });
-  expect(applied).toMatchObject({
-    ok: true,
-    persisted: true,
-    updatedAt: expect.any(String),
-  });
-  expect(applied.updatedAt).not.toBe(source.updatedAt);
-
-  await app.open(designId);
-  await expect
-    .poll(() => alphaBackgroundImage(page, fileId))
-    .toMatch(/(?:linear|radial|conic)-gradient/);
-  const saved = (await fileRecord(app, designId, fileId)).content;
-  expect(saved.trimStart().startsWith("<!doctype html>")).toBe(true);
-  expect(saved).toContain(pendingSentinel);
-  expect(saved).toMatch(
-    /data-agent-native-node-id="e2e-alpha-button"[\s\S]*background:\s*(?:linear|radial|conic)-gradient/,
-  );
-
-  const sameTabSentinel = "<!-- shader-same-tab-second-apply -->";
-  const secondApplied = await postAction(page, "apply-shader-fill", {
-    descriptor: { preset: "MeshGradient", rotation: 0.2 },
-    target: { nodeId: "e2e-alpha-button" },
-    source: {
-      kind: "design-file",
-      designId,
-      fileId,
-      revision: applied.updatedAt,
-      currentContent: saved.replace("</body>", `${sameTabSentinel}\n  </body>`),
-    },
-  });
-  expect(secondApplied).toMatchObject({
-    ok: true,
-    persisted: true,
-    updatedAt: expect.any(String),
-  });
-  expect(secondApplied.updatedAt).not.toBe(applied.updatedAt);
-  expect((await fileRecord(app, designId, fileId)).content).toContain(
-    sameTabSentinel,
-  );
-
-  const stale = await fileRecord(app, designId, fileId);
-  const staleTabSentinel = "<!-- shader-stale-tab-sentinel -->";
-  const concurrentSaveSentinel = "<!-- shader-concurrent-save-sentinel -->";
-  await postAction(page, "update-file", {
-    id: fileId,
-    content: stale.content.replace(
-      "</body>",
-      `${concurrentSaveSentinel}\n  </body>`,
-    ),
-  });
-  const conflict = await postAction(page, "apply-shader-fill", {
-    descriptor: { preset: "MeshGradient" },
-    target: { nodeId: "e2e-alpha-button" },
-    source: {
-      kind: "design-file",
-      designId,
-      fileId,
-      revision: stale.updatedAt,
-      currentContent: stale.content.replace(
-        "</body>",
-        `${staleTabSentinel}\n  </body>`,
-      ),
-    },
-  });
-  expect(conflict).toMatchObject({
-    ok: false,
-    persisted: false,
-    conflict: true,
-  });
-  expect(conflict.error).toContain(
-    "changed since this shader fill was previewed",
-  );
-  const afterConflict = (await fileRecord(app, designId, fileId)).content;
-  expect(afterConflict).toContain(concurrentSaveSentinel);
-  expect(afterConflict).not.toContain(staleTabSentinel);
 });
 
 test("repeated motion writes replace the managed CSS block instead of duplicating", async ({

@@ -50,6 +50,15 @@ export default defineAction({
       content: source.document.content,
       baseRevision: attempt.sourceRevision,
       quotedText: source.root.quotedText,
+      // A thread on a Property value names it, with the value it had then
+      // (none for relation, rollup, and formula Properties).
+      property: source.root.propertyId
+        ? {
+            propertyId: source.root.propertyId,
+            propertyName: source.root.propertyName,
+            propertyValue: source.root.propertyValue,
+          }
+        : null,
       conversation: source.comments.map((comment) => ({
         id: comment.id,
         parentId: comment.parentId,

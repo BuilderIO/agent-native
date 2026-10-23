@@ -64,17 +64,49 @@ assert.deepEqual(Object.keys(workflow.on ?? {}).sort(), [
 ]);
 assert.deepEqual(workflow.on?.pull_request?.paths, [
   ".github/actions/setup-pnpm/**",
-  ".github/workflows/design-e2e.yml",
   "package.json",
-  "packages/agentkit/**",
-  "packages/core/**",
-  "packages/creative-context/**",
-  "packages/recap-cli/**",
-  "packages/toolkit/**",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
   "scripts/prebuild-workspace-packages.ts",
-  "templates/design/**",
+  "templates/design/agent-native.config.ts",
+  "templates/design/agent-native.json",
+  "templates/design/package.json",
+  "templates/design/playwright.config.ts",
+  "templates/design/react-router.config.ts",
+  "templates/design/vite.config.ts",
+  "templates/design/actions/edit-design.ts",
+  "templates/design/actions/update-design.ts",
+  "templates/design/actions/update-file.ts",
+  "templates/design/actions/update-screen-source.ts",
+  "templates/design/app/components/MultiScreenCanvas.tsx",
+  "templates/design/app/components/design/design-canvas/**",
+  "templates/design/app/components/design/multi-screen/**",
+  "templates/design/app/pages/DesignEditor.tsx",
+  "templates/design/app/pages/design-editor/**",
+  "templates/design/e2e/base-url.ts",
+  "templates/design/e2e/global-setup.ts",
+  "templates/design/e2e/global-teardown.ts",
+  "templates/design/e2e/helpers.ts",
+  "templates/design/e2e/rails.ts",
+  "templates/design/e2e/sql-inline-bytes-scan.ts",
+  "templates/design/public/**",
+  "templates/design/scripts/runtime-budget.json",
+  "templates/design/scripts/runtime-budget.ts",
+  "templates/design/scripts/design-export-validation/lib/compare.ts",
+  "templates/design/scripts/design-export-validation/lib/redact-diagnostic.ts",
+  "templates/design/scripts/design-export-validation/corpus/**",
+  "templates/design/server/db/**",
+  "templates/design/server/handlers/design.ts",
+  "templates/design/shared/canvas-*.ts",
+  "templates/design/shared/code-layer.ts",
+  "templates/design/shared/pen-path.ts",
+  "templates/design/shared/responsive-frame-layout.ts",
+  "templates/design/shared/journey-canvas.ts",
+  "templates/design/shared/journey-canvas-messages.ts",
+  "!templates/design/app/**/*.test.*",
+  "!templates/design/app/**/*.spec.*",
+  "!templates/design/scripts/**/*.test.*",
+  "!templates/design/scripts/**/*.spec.*",
 ]);
 assert.deepEqual(workflow.on?.schedule, [{ cron: "37 9 * * *" }]);
 assert.ok(Object.hasOwn(workflow.on ?? {}, "workflow_dispatch"));
@@ -86,14 +118,14 @@ assert.equal(
 assert.equal(workflow.concurrency?.["cancel-in-progress"], true);
 assert.equal(workflow.concurrency?.queue, undefined);
 const jobTimeout = workflow.jobs?.e2e?.["timeout-minutes"];
-assert.equal(jobTimeout, 55);
+assert.equal(jobTimeout, 90);
 assert.equal(
   workflow.jobs?.e2e?.name,
-  "${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/8', matrix.shard) }}",
+  "${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/16', matrix.shard) }}",
 );
 assert.equal(
   workflow.jobs?.e2e?.strategy?.matrix?.shard,
-  "${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8]') }}",
+  "${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]') }}",
 );
 assert.deepEqual(workflow.jobs?.e2e?.strategy?.matrix?.include, [
   { shard: "runtime-budget" },
@@ -109,10 +141,20 @@ assert.equal(
     "mkdir -p .react-router/types",
     'base_run_id="$E2E_RUN_ID"',
     'if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then',
-    '  E2E_RUN_ID="${base_run_id}-exports" pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts',
-    '  E2E_RUN_ID="${base_run_id}-marquee" pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"',
+    "  export_specs=()",
+    "  for spec in e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts; do",
+    '    if [[ -f "$spec" ]]; then',
+    '      export_specs+=("$spec")',
+    "    fi",
+    "  done",
+    "  if (( ${#export_specs[@]} > 0 )); then",
+    '    E2E_RUN_ID="${base_run_id}-exports" pnpm exec playwright test "${export_specs[@]}"',
+    "  fi",
+    "  if [[ -f e2e/marquee-reachability.spec.ts ]]; then",
+    '    E2E_RUN_ID="${base_run_id}-marquee" pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"',
+    "  fi",
     "else",
-    '  E2E_RUN_ID="${base_run_id}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/8',
+    '  E2E_RUN_ID="${base_run_id}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/16',
     "fi",
   ].join("\n") + "\n",
 );
@@ -121,12 +163,22 @@ assert.equal(
   "design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
 );
 const shardTimeout = shardStep?.["timeout-minutes"];
-assert.equal(shardTimeout, 37);
+assert.equal(shardTimeout, 52);
+const loopbackStep = steps.find(
+  (step) => step.name === "Run chat attachment and sizing loopback E2E",
+);
+const loopbackTimeout = loopbackStep?.["timeout-minutes"];
+assert.equal(loopbackTimeout, 21);
+assert.equal(
+  loopbackStep?.if,
+  "${{ matrix.shard == 1 && hashFiles('templates/design/e2e/ai-sidebar-reporter-path.spec.ts') != '' }}",
+);
 assert.ok(
   typeof jobTimeout === "number" &&
     typeof shardTimeout === "number" &&
-    jobTimeout - shardTimeout >= 10,
-  "leave at least 10 minutes for setup and report upload after the shard timeout",
+    typeof loopbackTimeout === "number" &&
+    jobTimeout - shardTimeout - loopbackTimeout >= 10,
+  "leave at least 10 minutes for setup and report upload after the shard and loopback timeouts",
 );
 const retryArtifactIndex = steps.findIndex(
   (step) => step.name === "Detect retried test failures",

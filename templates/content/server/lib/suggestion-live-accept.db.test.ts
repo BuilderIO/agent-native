@@ -22,8 +22,8 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
 }));
 
 // Gate reads that answer legacy, as though a live-copy commit raced them.
-// Only the decide path's reads miss: they pass no handle, while the live
-// copy's `appliesTo` passes its own and always reads the real gate.
+// Only the decide path's choice of writer, `liveCopyPage`, misses; the live
+// copy's own check that it covers the page reads the real gate.
 const gateMisses = vi.hoisted(() => ({ left: 0 }));
 
 vi.mock("./live-body-writer.js", async (importOriginal) => {
@@ -33,7 +33,7 @@ vi.mock("./live-body-writer.js", async (importOriginal) => {
     liveBodyWriterGate: async (
       ...args: Parameters<typeof actual.liveBodyWriterGate>
     ) => {
-      if (args[1] !== undefined || gateMisses.left === 0)
+      if (gateMisses.left === 0 || !new Error().stack?.includes("liveCopyPage"))
         return actual.liveBodyWriterGate(...args);
       gateMisses.left -= 1;
       return {
