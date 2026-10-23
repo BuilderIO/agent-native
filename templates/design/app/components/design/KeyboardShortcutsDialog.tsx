@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconInfoCircle, IconSearch, IconX } from "@tabler/icons-react";
+import { IconSearch, IconX } from "@tabler/icons-react";
 import { type RefObject, useCallback, useMemo, useRef, useState } from "react";
 
 import { createCoreCommands } from "@/components/design/code-workbench/commands";
@@ -20,25 +20,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   isApplePlatform,
   isShowKeyboardShortcutsHotkey,
 } from "@/hooks/useDesignHotkeys";
 import { cn } from "@/lib/utils";
-import {
-  MAX_NUDGE_AMOUNT,
-  MIN_NUDGE_AMOUNT,
-  normalizeNudgeAmount,
-} from "@/pages/design-editor/editor-preferences";
-import {
-  DEFAULT_NUDGE_AMOUNTS,
-  type NudgeAmounts,
-} from "@/pages/design-editor/nudge-intent";
 
 const DIALOG_ATTRIBUTE = "data-keyboard-shortcuts-dialog";
 
@@ -63,14 +48,9 @@ export function isEditorHotkeyBlockedByShortcutsDialog(event: KeyboardEvent) {
   );
 }
 
-export type KeyboardShortcutsInitialFocus = "search" | "nudge";
-
 interface KeyboardShortcutsDialogProps {
   open: boolean;
   onClose: () => void;
-  initialFocus?: KeyboardShortcutsInitialFocus;
-  nudgeAmounts?: NudgeAmounts;
-  onNudgeAmountsChange?: (next: NudgeAmounts) => void;
   /** Shortcut ids to leave out because their tool is not available. */
   unavailableShortcutIds?: readonly string[];
 }
@@ -173,65 +153,6 @@ function ShortcutBindings({ bindings }: { bindings: readonly string[] }) {
   );
 }
 
-function NudgeAmountFields({
-  amounts,
-  onChange,
-}: {
-  amounts: NudgeAmounts;
-  onChange: (next: NudgeAmounts) => void;
-}) {
-  const t = useT();
-  const field = (key: keyof NudgeAmounts, labelKey: string) => (
-    <label className="flex items-center gap-2 text-xs text-foreground">
-      <span>{t(labelKey)}</span>
-      <Input
-        data-nudge-amount={key}
-        type="number"
-        size="sm"
-        min={MIN_NUDGE_AMOUNT}
-        max={MAX_NUDGE_AMOUNT}
-        value={amounts[key]}
-        onChange={(event) =>
-          onChange({
-            ...amounts,
-            [key]: normalizeNudgeAmount(event.target.value, amounts[key]),
-          })
-        }
-        className="w-20 text-xs md:text-xs"
-      />
-      <span className="text-muted-foreground">
-        {t("designEditor.keyboardShortcuts.nudgeAmount.unit")}
-      </span>
-    </label>
-  );
-
-  return (
-    <div
-      data-nudge-amount-settings
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border py-2"
-    >
-      <TooltipProvider delayDuration={200}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="flex items-center gap-1 rounded text-xs font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {t("designEditor.keyboardShortcuts.nudgeAmount.title")}
-              <IconInfoCircle className="size-3.5 text-muted-foreground" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-64">
-            {t("designEditor.keyboardShortcuts.nudgeAmount.description")}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      {field("small", "designEditor.keyboardShortcuts.nudgeAmount.small")}
-      {field("big", "designEditor.keyboardShortcuts.nudgeAmount.big")}
-    </div>
-  );
-}
-
 function ShortcutRowView({ row }: { row: ShortcutRow }) {
   const t = useT();
   return (
@@ -265,13 +186,9 @@ function ShortcutRowView({ row }: { row: ShortcutRow }) {
 }
 
 function KeyboardShortcutsBody({
-  nudgeAmounts,
-  onNudgeAmountsChange,
   searchRef,
   unavailableShortcutIds,
 }: {
-  nudgeAmounts: NudgeAmounts;
-  onNudgeAmountsChange?: (next: NudgeAmounts) => void;
   searchRef: RefObject<HTMLInputElement | null>;
   unavailableShortcutIds?: readonly string[];
 }) {
@@ -413,12 +330,6 @@ function KeyboardShortcutsBody({
               >
                 {section.label}
               </h3>
-              {section.category === "cursor" && onNudgeAmountsChange ? (
-                <NudgeAmountFields
-                  amounts={nudgeAmounts}
-                  onChange={onNudgeAmountsChange}
-                />
-              ) : null}
               <ul role="list">
                 {section.rows.map((row) => (
                   <ShortcutRowView key={`${row.source}-${row.id}`} row={row} />
@@ -435,14 +346,10 @@ function KeyboardShortcutsBody({
 export function KeyboardShortcutsDialog({
   open,
   onClose,
-  initialFocus = "search",
-  nudgeAmounts = DEFAULT_NUDGE_AMOUNTS,
-  onNudgeAmountsChange,
   unavailableShortcutIds,
 }: KeyboardShortcutsDialogProps) {
   const t = useT();
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const contentRef = useRef<HTMLDivElement | null>(null);
 
   return (
     <Dialog
@@ -452,24 +359,12 @@ export function KeyboardShortcutsDialog({
       }}
     >
       <DialogContent
-        ref={contentRef}
         {...{ [DIALOG_ATTRIBUTE]: "" }}
         hideClose
         aria-describedby={undefined}
         className="flex h-[min(640px,calc(100dvh-32px))] w-[calc(100vw-24px)] max-w-[760px] flex-col gap-0 overflow-hidden p-0"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
-          if (initialFocus === "nudge") {
-            const nudgeField =
-              contentRef.current?.querySelector<HTMLInputElement>(
-                '[data-nudge-amount="small"]',
-              );
-            if (nudgeField) {
-              nudgeField.focus();
-              nudgeField.select();
-              return;
-            }
-          }
           searchRef.current?.focus({ preventScroll: true });
         }}
         // The editor restores focus itself (handleCloseKeyboardShortcuts), so
@@ -493,8 +388,6 @@ export function KeyboardShortcutsDialog({
           </DialogClose>
         </div>
         <KeyboardShortcutsBody
-          nudgeAmounts={nudgeAmounts}
-          onNudgeAmountsChange={onNudgeAmountsChange}
           searchRef={searchRef}
           unavailableShortcutIds={unavailableShortcutIds}
         />

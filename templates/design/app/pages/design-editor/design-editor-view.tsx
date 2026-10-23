@@ -57,6 +57,7 @@ import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
+import { NudgeAmountDialog } from "@/components/design/NudgeAmountDialog";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
@@ -452,7 +453,8 @@ export function renderDesignEditorView({
 
   const {
     keyboardShortcutsOpen,
-    keyboardShortcutsInitialFocus,
+    nudgeAmountOpen,
+    handleCloseNudgeAmount,
     responsiveInteractActive,
     handleModeChange,
     handlePinToolToggle,
@@ -2169,14 +2171,20 @@ export function renderDesignEditorView({
           <KeyboardShortcutsDialog
             open={keyboardShortcutsOpen}
             onClose={handleCloseKeyboardShortcuts}
-            initialFocus={keyboardShortcutsInitialFocus}
+            unavailableShortcutIds={getUnavailableShortcutIds({
+              annotateEnabled: annotateLab === "on",
+            })}
+          />
+        ) : null}
+
+        {!hostOwnsChrome ? (
+          <NudgeAmountDialog
+            open={nudgeAmountOpen}
+            onClose={handleCloseNudgeAmount}
             nudgeAmounts={editorPreferences.nudge}
             onNudgeAmountsChange={(nudge) =>
               setEditorPreferences({ ...editorPreferences, nudge })
             }
-            unavailableShortcutIds={getUnavailableShortcutIds({
-              annotateEnabled: annotateLab === "on",
-            })}
           />
         ) : null}
 

@@ -1895,8 +1895,10 @@ export default {
         small: "Deslocamento pequeno",
         big: "Deslocamento grande",
         unit: "px",
+        close: "Fechar distância de deslocamento",
+        done: "Concluído",
         description:
-          "As setas movem pela distância pequena e Shift seta pela grande. Dentro de um frame com layout automático, as setas reordenam a camada.",
+          "Deslocamento pequeno - Define quantos pixels um objeto se move ao usar as setas.\nDeslocamento grande - Define quantos pixels um objeto se move ao usar Shift + setas.",
       },
       keys: {
         or: "ou",

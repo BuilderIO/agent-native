@@ -1816,8 +1816,10 @@ export default {
         small: "Small nudge",
         big: "Big nudge",
         unit: "px",
+        close: "Close nudge amount",
+        done: "Done",
         description:
-          "Arrow keys move by the small amount and Shift arrow by the big one. Inside an auto layout frame, arrows reorder the layer instead of moving it.",
+          "Small nudge - Sets the number of pixels an object is moved when using arrow keys.\nBig nudge - Sets the number of pixels an object is moved when using shift + arrow keys.",
       },
       keys: {
         or: "or",
