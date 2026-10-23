@@ -1450,6 +1450,20 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
+  it("withholds a disclosed figure when OR bypasses the requested date bounds", () => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(disclosed, {
+        query:
+          "SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01' OR TRUE",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+      retryMessage: expect.stringContaining("calculation"),
+    });
+  });
+
   it("withholds a disclosed figure when date bounds use different expressions", () => {
     const result = realDataFinalGuard(
       explicitWarehouseContext(disclosed, {
