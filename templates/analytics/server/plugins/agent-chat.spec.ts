@@ -707,10 +707,14 @@ describe("Analytics agent Plan mode policy", () => {
     );
     expect(dataQueryingSkill).toContain("connection-required error");
     expect(dataQueryingSkill).toContain(
-      "is resumable: call again with only its `metricName`, `queryId`, and `nextPage`",
+      "Resume results that carry `queryId` and `nextPage` with only their `metricName`, `queryId`, and `nextPage`",
     );
     expect(dataQueryingSkill).toContain(
-      "resume with `queryId` and `nextPage` when `nextPage` is present",
+      "stop and report if a resume returns the same `nextPage` again",
+    );
+    expect(dataQueryingSkill).toContain("gets one resume");
+    expect(dataQueryingSkill).toContain(
+      "resume first (above) so the answer covers the full result",
     );
   });
 
