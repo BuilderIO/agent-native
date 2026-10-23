@@ -1653,6 +1653,9 @@ export function startRun(
 
   let lastAbortCheck = Date.now() - 3000;
   let consecutiveAbortCheckFailures = 0;
+  let completionInProgress = false;
+  let ownTerminalStatusEstablished = false;
+  let terminalStatusWrite: Promise<boolean> | null = null;
   const checkSqlAbort = () => {
     const now = Date.now();
     if (now - lastAbortCheck < 3000) return;
@@ -1663,9 +1666,17 @@ export function startRun(
           abortInMemoryRun(run, state.reason ?? "user");
           return;
         }
-        if (!abort.signal.aborted) {
+        if (!abort.signal.aborted && !ownTerminalStatusEstablished) {
           const status = await getRunStatus(runId);
           if (status !== null && status !== "running") {
+            const pendingStatusWrite = terminalStatusWrite;
+            if (pendingStatusWrite) await pendingStatusWrite;
+          }
+          if (
+            status !== null &&
+            status !== "running" &&
+            !ownTerminalStatusEstablished
+          ) {
             abortInMemoryRun(run, "displaced");
           }
         }
@@ -1699,7 +1710,6 @@ export function startRun(
 
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
-  let completionInProgress = false;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight) {
       heartbeatInFlight = true;
@@ -2255,12 +2265,29 @@ export function startRun(
               persistedStatus,
               terminalStatusOptions,
             );
+      const persistOwnTerminalState = async (
+        persist: () => Promise<boolean>,
+      ) => {
+        const write = withWorkerFence(persist);
+        terminalStatusWrite = write;
+        try {
+          const established = await write;
+          if (established) ownTerminalStatusEstablished = true;
+          return established;
+        } finally {
+          if (terminalStatusWrite === write) terminalStatusWrite = null;
+        }
+      };
+      const persistOwnTerminalStatus = () =>
+        persistOwnTerminalState(persistTerminalStatus);
       const reconcileTerminalRun = () =>
-        threadProjectionPending
-          ? reconcileTerminalRunFromEvents(runId, {
-              threadProjectionPending: true,
-            })
-          : reconcileTerminalRunFromEvents(runId);
+        persistOwnTerminalState(() =>
+          threadProjectionPending
+            ? reconcileTerminalRunFromEvents(runId, {
+                threadProjectionPending: true,
+              })
+            : reconcileTerminalRunFromEvents(runId),
+        );
       const reportTerminalStatusPersistenceError = (error: unknown) => {
         captureError(error, {
           route: "/_agent-native/agent-chat",
@@ -2306,11 +2333,10 @@ export function startRun(
           } else {
             try {
               await insertRunPromise;
-              continuationStatusPersistedBeforeEvent = await withWorkerFence(
-                persistTerminalStatus,
-              );
+              continuationStatusPersistedBeforeEvent =
+                await persistOwnTerminalStatus();
               if (!continuationStatusPersistedBeforeEvent) {
-                await withWorkerFence(reconcileTerminalRun);
+                await reconcileTerminalRun();
                 const persistedRun = await getRunById(runId);
                 continuationStatusPersistedBeforeEvent =
                   persistedRun?.status === "truncated" &&
@@ -2400,7 +2426,7 @@ export function startRun(
               : await withWorkerFence(persistAtomicAbort);
             terminalPersistenceEstablished = aborted
               ? true
-              : await withWorkerFence(reconcileTerminalRun);
+              : await reconcileTerminalRun();
           } catch (error) {
             terminalPersistenceEstablished = false;
             reportTerminalStatusPersistenceError(error);
@@ -2418,7 +2444,7 @@ export function startRun(
           ) {
             let statusUpdated = false;
             try {
-              statusUpdated = await withWorkerFence(persistTerminalStatus);
+              statusUpdated = await persistOwnTerminalStatus();
             } catch (error) {
               reportTerminalStatusPersistenceError(error);
             }
@@ -2430,8 +2456,7 @@ export function startRun(
               }
               terminalPersistenceEstablished = !terminalPersistenceError;
             } else {
-              terminalPersistenceEstablished =
-                await withWorkerFence(reconcileTerminalRun);
+              terminalPersistenceEstablished = await reconcileTerminalRun();
             }
           }
         } catch (error) {
@@ -2490,7 +2515,7 @@ export function startRun(
       if (terminalPersistenceError) {
         const reconciled = eventPersistenceError
           ? false
-          : await withWorkerFence(reconcileTerminalRun);
+          : await reconcileTerminalRun();
         if (!reconciled) throw terminalPersistenceError;
         terminalPersistenceEstablished = true;
       }
