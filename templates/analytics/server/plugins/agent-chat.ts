@@ -713,12 +713,14 @@ async function rewriteDbtFallbackSafely(input: {
         return [];
       }
       const payload = readDbtPayload(result.content);
+      if (payload === null || payload === UNREADABLE_DBT_PAYLOAD) return [];
       if (
-        payload !== null &&
-        payload !== UNREADABLE_DBT_PAYLOAD &&
-        ("error" in payload ||
-          payload.truncated === true ||
-          (typeof payload.nextPage === "string" && payload.nextPage.length > 0))
+        "error" in payload ||
+        payload.truncated === true ||
+        payload.partial === true ||
+        (payload.nextPage !== undefined &&
+          payload.nextPage !== null &&
+          payload.nextPage !== "")
       ) {
         return [];
       }
@@ -1013,8 +1015,8 @@ function findDataMetricNames(
   ];
 }
 
-// Query failures need matching metric and scope. A scope-less metadata page can only be
-// cleared by a complete success for that exact metric.
+// Scoped query failures need a matching metric and scope. Scope-less lookup failures can
+// only be cleared by a complete success for that exact metric.
 function dbtFailureResolvedLater(
   context: AgentLoopFinalResponseGuardContext,
   index: number,
@@ -1025,13 +1027,14 @@ function dbtFailureResolvedLater(
   const failedQuery = dbtQueryForResult(context, index);
   if (!failedQuery) return false;
   const failurePayload = readDbtPayload(results[index]?.content);
-  const isScopeLessMetadataPage =
+  const isScopeLessRecoverableLookup =
     failedQuery.querySpecKey === null &&
     failurePayload !== null &&
     failurePayload !== UNREADABLE_DBT_PAYLOAD &&
-    failurePayload.status === "metadata_truncated" &&
+    (failurePayload.status === "metadata_truncated" ||
+      failurePayload.status === "not_found") &&
     normalizedDbtMetricName(metricName) === failedQuery.metricKey;
-  if (!failedQuery.querySpecKey && !isScopeLessMetadataPage) return false;
+  if (!failedQuery.querySpecKey && !isScopeLessRecoverableLookup) return false;
   // find-data echoes the question as well as its candidates, so a name in the echo also
   // counts. Only a name the agent typed can appear there, not a value from the rows.
   const namesFound = new Set<string>();
@@ -1051,7 +1054,7 @@ function dbtFailureResolvedLater(
     const successIndex = index + 1 + offset;
     const successQuery = dbtQueryForResult(context, successIndex);
     if (!successQuery) continue;
-    if (isScopeLessMetadataPage) {
+    if (isScopeLessRecoverableLookup) {
       if (successQuery.metricKey === failedQuery.metricKey) return true;
       continue;
     }
@@ -1201,9 +1204,223 @@ function warehouseResultRows(
   return payload !== null &&
     payload !== UNREADABLE_DBT_PAYLOAD &&
     !("error" in payload) &&
+    isCompleteWarehousePayload(payload) &&
     Array.isArray(payload.rows)
     ? payload.rows
     : null;
+}
+
+function isCompleteWarehousePayload(payload: Record<string, unknown>): boolean {
+  return (
+    payload.truncated === false &&
+    (payload.partial === undefined || payload.partial === false) &&
+    (payload.nextPage === undefined ||
+      payload.nextPage === null ||
+      payload.nextPage === "")
+  );
+}
+
+type SqlToken = {
+  value: string;
+  kind: "word" | "quoted_identifier" | "literal" | "symbol";
+  depth: number;
+};
+
+function tokenizeSql(sql: string): SqlToken[] {
+  const tokens: SqlToken[] = [];
+  let depth = 0;
+  for (let index = 0; index < sql.length; ) {
+    const char = sql[index] ?? "";
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (sql.startsWith("--", index)) {
+      const newline = sql.indexOf("\n", index + 2);
+      index = newline < 0 ? sql.length : newline + 1;
+      continue;
+    }
+    if (sql.startsWith("/*", index)) {
+      const close = sql.indexOf("*/", index + 2);
+      index = close < 0 ? sql.length : close + 2;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      const quote = char;
+      let end = index + 1;
+      while (end < sql.length) {
+        if (sql[end] === "\\") {
+          end += 2;
+          continue;
+        }
+        if (sql[end] === quote) {
+          if (sql[end + 1] === quote) {
+            end += 2;
+            continue;
+          }
+          end += 1;
+          break;
+        }
+        end += 1;
+      }
+      const raw = sql.slice(index + 1, end - 1);
+      tokens.push({
+        value: raw,
+        kind: quote === "`" ? "quoted_identifier" : "literal",
+        depth,
+      });
+      index = end;
+      continue;
+    }
+    const word = sql.slice(index).match(/^[A-Za-z_$][\w$]*/)?.[0];
+    if (word) {
+      tokens.push({ value: word, kind: "word", depth });
+      index += word.length;
+      continue;
+    }
+    const number = sql
+      .slice(index)
+      .match(/^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/)?.[0];
+    if (number) {
+      tokens.push({ value: number, kind: "literal", depth });
+      index += number.length;
+      continue;
+    }
+    if (char === ")") depth = Math.max(0, depth - 1);
+    tokens.push({ value: char, kind: "symbol", depth });
+    if (char === "(") depth += 1;
+    index += 1;
+  }
+  return tokens;
+}
+
+function metricProjectionIsDataDerived(
+  sql: string,
+  metricName: string,
+): boolean {
+  const tokens = tokenizeSql(sql);
+  const constantWords = new Set([
+    "ALL",
+    "AND",
+    "AS",
+    "BOOL",
+    "BOOLEAN",
+    "BIGNUMERIC",
+    "BYTES",
+    "CASE",
+    "DATE",
+    "DATETIME",
+    "DAY",
+    "DISTINCT",
+    "ELSE",
+    "END",
+    "FALSE",
+    "FLOAT",
+    "FLOAT64",
+    "FROM",
+    "GEOGRAPHY",
+    "HOUR",
+    "INT64",
+    "INTEGER",
+    "INTERVAL",
+    "IS",
+    "JSON",
+    "MINUTE",
+    "MONTH",
+    "NOT",
+    "NULL",
+    "NUMERIC",
+    "OR",
+    "QUARTER",
+    "SECOND",
+    "SELECT",
+    "CURRENT_DATE",
+    "CURRENT_DATETIME",
+    "CURRENT_TIME",
+    "CURRENT_TIMESTAMP",
+    "CURRENT_USER",
+    "SESSION_USER",
+    "STRING",
+    "STRUCT",
+    "SYSTEM_USER",
+    "TIME",
+    "TIMESTAMP",
+    "TRUE",
+    "WEEK",
+    "WHEN",
+    "YEAR",
+  ]);
+  const target = metricName.toLowerCase();
+  for (let selectIndex = 0; selectIndex < tokens.length; selectIndex += 1) {
+    const select = tokens[selectIndex];
+    if (select?.kind !== "word" || select.value.toUpperCase() !== "SELECT") {
+      continue;
+    }
+    const projections: SqlToken[][] = [[]];
+    for (let index = selectIndex + 1; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (!token) continue;
+      if (
+        token.depth === select.depth &&
+        token.kind === "word" &&
+        token.value.toUpperCase() === "FROM"
+      ) {
+        break;
+      }
+      if (token.depth === select.depth && token.value === ",") {
+        projections.push([]);
+      } else {
+        projections[projections.length - 1]?.push(token);
+      }
+    }
+    for (const projection of projections) {
+      let aliasIndex = -1;
+      for (let index = 0; index < projection.length - 1; index += 1) {
+        const token = projection[index];
+        const candidate = projection[index + 1];
+        if (
+          token?.depth === select.depth &&
+          token.kind === "word" &&
+          token.value.toUpperCase() === "AS" &&
+          (candidate?.kind === "word" ||
+            candidate?.kind === "quoted_identifier")
+        ) {
+          aliasIndex = index;
+        }
+      }
+      const alias = projection[aliasIndex + 1];
+      if (aliasIndex < 0 || alias?.value.toLowerCase() !== target) continue;
+      const expression = projection.slice(0, aliasIndex);
+      if (expression.some((token) => token.kind === "quoted_identifier")) {
+        return true;
+      }
+      if (
+        expression.some(
+          (token, index) =>
+            token.kind === "word" &&
+            token.value.toUpperCase() === "COUNT" &&
+            expression[index + 1]?.value === "(" &&
+            expression[index + 2]?.value === "*" &&
+            expression[index + 3]?.value === ")",
+        )
+      ) {
+        return true;
+      }
+      return expression.some((token, index) => {
+        if (token.kind !== "word") return false;
+        const word = token.value.toUpperCase();
+        if (
+          constantWords.has(word) ||
+          expression[index - 1]?.value === "AS" ||
+          expression[index + 1]?.value === "("
+        ) {
+          return false;
+        }
+        return true;
+      });
+    }
+  }
+  return false;
 }
 
 function warehouseQueryMatchesDbtScope(
@@ -1237,14 +1454,7 @@ function warehouseQueryMatchesDbtScope(
   const scope = dbtInput.record;
   const metricName = String(scope.metricName ?? "").trim();
   const sql = warehouseQuery.replace(/--[^\r\n]*|\/\*[\s\S]*?\*\//g, " ");
-  if (
-    metricName &&
-    new RegExp(
-      '\\bSELECT\\s+(?:\\d+(?:\\.\\d+)?|\'[^\']*\'|"[^"]*")\\s+AS\\s+[`"]?' +
-        metricName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-      "i",
-    ).test(sql)
-  ) {
+  if (metricName && !metricProjectionIsDataDerived(sql, metricName)) {
     return false;
   }
 
@@ -1316,9 +1526,7 @@ function claimsOwnerApprovedMetric(text: string): boolean {
       Math.max(0, (match.index ?? 0) - 32),
       match.index,
     );
-    return !/\b(?:not|never|no)\s+(?:the\s+)?(?:owner[- ]approved|approved)\s*$/i.test(
-      before,
-    );
+    return !/\b(?:not|never|no)\s+(?:(?:the|a|an)\s+)?$/i.test(before);
   });
 }
 
