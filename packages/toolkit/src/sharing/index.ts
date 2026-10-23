@@ -20,6 +20,14 @@ export {
   type ShareTabsProps,
 } from "./ShareControls.js";
 export {
+  filterByOwnership,
+  OWNERSHIP_FILTER_VALUES,
+  OwnershipFilter,
+  type OwnershipFilterLabels,
+  type OwnershipFilterProps,
+  type OwnershipFilterValue,
+} from "./OwnershipFilter.js";
+export {
   ShareAgentsSection,
   type ShareAgentsSectionProps,
   ShareCopyRow,
@@ -32,6 +40,9 @@ export {
   type ShareTriggerProps,
 } from "./SharePrimitives.js";
 export {
+  DEFAULT_ENGLISH_VISIBILITY_BADGE_LABELS,
   VisibilityBadge,
+  type VisibilityBadgeLabels,
   type VisibilityBadgeProps,
+  type VisibilityBadgeValue,
 } from "./VisibilityBadge.js";

@@ -1,6 +1,9 @@
 import { currentInvocationEvidence } from "../action-frame.js";
-import { getVerifiedMcpCredentialFromEvent } from "../server/request-context.js";
-import type { AuditApproval } from "./types.js";
+import {
+  getRequestContext,
+  getVerifiedMcpCredentialFromEvent,
+} from "../server/request-context.js";
+import type { AuditApproval, AuditIdentityAssurance } from "./types.js";
 
 // Registered, so an attribution made by another loaded copy of this module
 // still passes the check.
@@ -20,12 +23,13 @@ interface AuditAttributionFields {
   mcpClient?: { name?: string; version?: string; oauthClientId?: string };
   mcpClientAccepted?: true;
   approval?: AuditApproval;
+  identityAssurance?: AuditIdentityAssurance;
 }
 
 /**
  * Where an audited call came from and what vouched for it: its source, the
- * MCP client it reported, the OAuth client of its credential, the approval
- * signal, and its run and network ids. `recordActionAudit` requires one and
+ * MCP client it reported, the OAuth client of its credential, verified A2A
+ * identity assurance, the approval signal, and its run and network ids. `recordActionAudit` requires one and
  * only {@link auditAttribution} makes one, so a recorder cannot build its own
  * context and store nulls for a field it forgot.
  */
@@ -59,7 +63,10 @@ export type AuditOverride = Partial<
 export type AuditAttributionSource = Partial<
   Omit<
     AuditAttributionFields,
-    "approval" | "approvedToolCallKey" | "mcpClientAccepted"
+    | "approval"
+    | "approvedToolCallKey"
+    | "mcpClientAccepted"
+    | "identityAssurance"
   >
 >;
 
@@ -115,6 +122,7 @@ export function auditAttribution(
     mcpClient: ctx?.mcpClient,
     mcpClientAccepted: evidence?.mcpClientAccepted,
     approval: override?.approval,
+    identityAssurance: getRequestContext()?.a2aIdentityAssurance,
   };
   return { ...fields, [auditAttributionBrand]: true } as AuditAttribution;
 }

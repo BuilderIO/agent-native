@@ -108,61 +108,20 @@ export default {
     sigmaRetryConnection: "تحقق من الاتصال وحاول مرة أخرى.",
     sigmaRetry: "إعادة المحاولة",
     sigmaNoWorkbooks: "لا توجد مصنفات Sigma متاحة.",
-    sigmaWorkbook: "المصنف",
-    sigmaChooseWorkbook: "اختر مصنفًا",
-    sigmaStatusNotImported: "لم يتم الاستيراد",
-    sigmaStatusImporting: "جارٍ الاستيراد",
-    sigmaStatusImported: "تم الاستيراد",
-    sigmaStatusFailed: "فشل الاستيراد",
+    sigmaSearchWorkbooks: "ابحث في المصنفات…",
+    sigmaNoMatchingWorkbooks: "لا توجد مصنفات مطابقة",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "لم يتم تحميل مصنفات مطابقة بعد. حمّل مزيدًا من المصنفات للبحث في الباقي.",
+    sigmaOpenMigratedDashboard:
+      "افتح لوحة المعلومات المستوردة في علامة تبويب جديدة",
+    sigmaOwnedBy: "المالك",
+    sigmaMigratingTooltip: "يجري ترحيله بواسطة {{name}}",
+    sigmaMigrate: "ترحيل",
+    sigmaMigrateComingSoon: "قريبًا",
     sigmaArchived: "مؤرشف",
-    sigmaPreviewTitle: "محتويات المصنف",
-    sigmaPreviewFailed: "تعذرت معاينة هذا المصنف",
-    sigmaRetryPreview: "حاول مرة أخرى لتحميل معاينة المصنف.",
-    sigmaImportableCount: "{{count}} قابل للاستيراد",
-    sigmaUnsupportedCount: "{{count}} غير مدعوم",
-    sigmaImportable: "قابل للاستيراد",
-    sigmaUnsupported: "غير مدعوم",
-    sigmaNoElements: "لم يتم العثور على عناصر في المصنف.",
-    sigmaPreviewOnly:
-      "المعاينة فقط حاليًا: لا تكشف Sigma عن تعيين لمشروع BigQuery يمكن لـ Analytics التحقق منه، لذا يظل الاستيراد معطّلًا حتى يتوفر هذا التعيين.",
-    sigmaPreviewTruncated: "يتم عرض {{shown}} من {{total}} عنصرًا.",
-    sigmaImportWorkbook: "استيراد المصنف",
-    sigmaImporting: "جارٍ استيراد المصنف…",
-    sigmaImportInProgress: "هناك عملية استيراد لهذا المصنف قيد التنفيذ بالفعل.",
-    sigmaMigrationFailed: "تعذر استيراد هذا المصنف. حاول مرة أخرى.",
-    sigmaMigrationResultInvalid:
-      "كانت استجابة الاستيراد غير مكتملة. أعد تحميل قائمة المصنفات للتحقق من حالتها.",
-    sigmaImportComplete: "تم إنشاء لوحة المعلومات",
-    sigmaImportSummary:
-      "تم استيراد {{imported}} عنصرًا، مع الاحتفاظ بـ {{unsupported}} عنصرًا غير مدعوم كتنبيهات للمراجعة.",
-    sigmaAlreadyImported: "تم استيراد هذا المصنف من قبل.",
-    sigmaImportedNoDashboard:
-      "تم استيراد لوحة المعلومات، لكن لا يمكن فتحها من هذا الحساب.",
-    sigmaReviewRequiredCount: "{{count}} بحاجة إلى مراجعة",
-    sigmaBetaRepresentationWarning:
-      "قد يعرض هذا الاستيراد التجريبي بعض التصورات بطريقة مختلفة عن Sigma.",
-    sigmaReasonUnsupportedElement: "نوع هذا العنصر غير مدعوم للاستيراد.",
-    sigmaReasonUnsupportedSource: "يستخدم هذا العنصر مصدرًا غير مدعوم للاستيراد.",
-    sigmaReasonSourceMappingRequired:
-      "لا تعرض Sigma ربطًا بمشروع BigQuery يمكن لـ Analytics التحقق منه، لذلك لا يمكن استيراد SQL هذا بعد.",
-    sigmaReasonSourceUnavailable:
-      "لم تسمح Sigma بالوصول إلى اتصال المصدر هذا. تحقق من أذوناته.",
-    sigmaReasonQueryUnavailable:
-      "لم تُرجع Sigma استعلامًا قابلًا للاستيراد لهذا العنصر.",
-    sigmaReasonUnsafeSql: "لا يمكن استيراد نمط هذا الاستعلام بأمان.",
-    sigmaReasonVisualizationReview:
-      "يمكن استيراد البيانات، لكن تحقّق من التصور بعد الاستيراد.",
-    sigmaRetryOwnerOnly: "يمكن لمن بدأ هذا الاستيراد وحده إعادة المحاولة.",
-    sigmaImportedByTeammate: "استورده أحد الزملاء",
-    sigmaFlaggedCount: "{{count}} معلّم للمراجعة",
     sigmaMoreWorkbooksFailed: "تعذّر تحميل مزيد من المصنفات",
     sigmaLoadingMore: "جارٍ تحميل المصنفات…",
     sigmaLoadMore: "تحميل مزيد من المصنفات",
-    sigmaOpenDashboard: "فتح لوحة المعلومات",
-    sigmaReviewWithAgent: "مراجعة مع الوكيل",
-    sigmaReviewContext: "لوحة معلومات مستوردة من Sigma",
-    sigmaReviewPrompt:
-      "راجع لوحة معلومات Sigma المستوردة {{name}}. تحقق من اللوحات المستوردة والعناصر غير المدعومة، ثم اقترح أي تصحيحات.",
   },
   sidebar: {
     collapseSidebar: "طي الشريط الجانبي",
@@ -716,6 +675,43 @@ export default {
     sameNameCheckFailed: "تعذّر التحقق من وجود إدخالات لهذا المقياس.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description: "النقرات ومرات الظهور اليومية لكل صفحة لعرض المحتوى.",
+      serviceAccount: "حساب الخدمة",
+      copyEmail: "نسخ البريد الإلكتروني",
+      grantHint:
+        "أضف هذا البريد الإلكتروني كمستخدم في كل موقع على Search Console، من الإعدادات ← المستخدمون والأذونات.",
+      noServiceAccount: "أضف مفتاح حساب خدمة Google أولاً.",
+      openGoogleCloud: "فتح Google Cloud",
+      invalidServiceAccount: "تتعذر قراءة مفتاح حساب الخدمة المحفوظ.",
+      properties: "المواقع",
+      siteLabel: "الموقع",
+      pathLabel: "بادئة المسار",
+      pathInvalid: "ابدأ بادئة المسار بـ /.",
+      addProperty: "إضافة موقع",
+      removeProperty: "إزالة الموقع",
+      save: "حفظ",
+      collectDaily: "الجمع يوميًا",
+      adminOnly: "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير هذا.",
+      statusCollecting: "جارٍ الجمع",
+      statusNeedsAccess: "يلزم الوصول",
+      statusFailed: "فشل آخر تشغيل",
+      runSucceeded: "تم الجمع {{when}}",
+      runNeedsAccess: "لا يوجد وصول حتى {{when}}",
+      runRunning: "جارٍ الجمع منذ {{when}}",
+      runFailed: "فشل {{when}}",
+      unavailable: "حالة الجمع غير متاحة: {{message}}",
+      keyUnreadable:
+        "تعذرت قراءة مفتاح حساب الخدمة المحفوظ. احفظه مرة أخرى ضمن Google Cloud.",
+      propertyBareDomain: "لموقع النطاق، استخدم {{suggestion}}.",
+      propertyInvalidDomain:
+        "اكتب النطاق فقط بعد sc-domain: ، مثل {{suggestion}}.",
+      propertyMissingSlash:
+        "تنتهي مواقع بادئة عنوان URL بالرمز /. استخدم {{suggestion}}.",
+      propertyUnrecognized:
+        "استخدم sc-domain:example.com، أو موقع بادئة عنوان URL ينتهي بالرمز /.",
+    },
     uploadFile: "تحميل الملف",
     googleSheetsExport: "تصدير Google Sheets",
     googleSheetsExportDescription:
@@ -1287,11 +1283,21 @@ export default {
     groupName: "اسم المجموعة",
     saveForEveryone: "حفظ للجميع",
     groupNameTaken: "توجد مجموعة بهذا الاسم بالفعل",
+    renameGroup: "إعادة تسمية المجموعة…",
+    deleteGroup: "حذف المجموعة",
     untitledDashboard: "لوحة تحكم بلا عنوان",
     dashboardFallback: "لوحة المعلومات",
     viewOnly: "لديك حق الوصول للعرض فقط إلى لوحة المعلومات هذه.",
     saveFailed: "تعذر حفظ لوحة البيانات",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: 'تكلفة BigQuery لـ "{{title}}"',
+    panelCostOverTitle: 'تحديث "{{title}}" مكلف',
+    panelCostScheduled:
+      "~{{size}} يتم فحصها · {{perRun}} لكل تحديث · ~{{perMonth}}/شهريًا في تقارير البريد الإلكتروني",
+    panelCostUnscheduled:
+      "~{{size}} يتم فحصها · {{perRun}} لكل تحديث · لا توجد تقارير بريد إلكتروني",
+    panelCostOverHint:
+      "نطاق تاريخ أضيق أو أعمدة أقل يقلل البيانات التي يتم فحصها.",
     archived: 'تمت أرشفة "{{name}}"',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "تعذر أرشفة لوحة التحكم",
@@ -1684,6 +1690,10 @@ export default {
     catalogOpenSessions: "عرض الجلسات التي تتضمن {{event}}",
     catalogAutomatic: "تلقائي",
     catalogStoppedFiring: "توقّف الإرسال",
+    catalogMadeIt: "إنشاء",
+    catalogUsedIt: "استخدام",
+    catalogNoUsedIt:
+      "لا يمكن لـ «أنشأه ولم يستخدمه» فحص مخرجات {{apps}} لعدم تعريف حدث «استخدام».",
     catalogPropertyKeys: "مفاتيح الخصائص",
     catalogMoreKeys: "+{{count}} أخرى",
     catalogTruncated: "يتم عرض أحدث {{count}} حدث ظهورًا فقط.",
@@ -1697,6 +1707,29 @@ export default {
     speedCoverageStarting: "تُقاس السرعة لمشاهدات الصفحات من الآن فصاعدًا.",
     speedFilterNeedsLab:
       "يحتوي هذا الرابط على عامل تصفية للسرعة. فعّل Lab فرز الجلسات من الإعدادات لتطبيقه.",
+    unusedOutputs: "أنشأه ولم يستخدمه",
+    anyOutcome: "أي جلسة",
+    unusedSlidesDecks: "عروض Slides غير المستخدمة",
+    unusedSlidesRule:
+      "العروض التي أُنشئت قبل {{days}} أيام على الأقل ولم تُقدَّم بعد الشريحة الأولى لمدة {{seconds}} ث أو أكثر، ولم تُصدَّر، خلال {{days}} أيام. فتح العرض لا يُحتسب.",
+    unusedFilterNeedsLab:
+      "يحتوي هذا الرابط على عامل تصفية «أنشأه ولم يستخدمه». فعّل Lab فرز الجلسات من الإعدادات لتطبيقه.",
+    outputCoverageSince:
+      "تُتتبّع المخرجات منذ {{date}}؛ وتظهر غير المستخدمة منها بعد {{days}} أيام من إنشائها.",
+    outputCoverageStarting:
+      "تُتتبّع المخرجات من الآن فصاعدًا؛ وتظهر غير المستخدمة منها بعد {{days}} أيام من إنشائها.",
+    openDeck: "فتح العرض",
+    moreOutputs: "+{{count}} أخرى",
+    deckCount: "{{count}} عروض",
+    deckCountSingular: "{{count}} عرض",
+    deckMadeOn: "أُنشئ العرض في {{date}}",
+    outputPresentedOn: "قُدِّم في {{date}}",
+    outputExportedOn: "صُدِّر في {{date}}",
+    outputUsedOn: "استُخدم في {{date}}",
+    outputUnused: "لم يُستخدم خلال {{days}} أيام",
+    outputOpen: "لم يُستخدم بعد؛ يُحتسب غير مستخدم بعد {{date}}",
+    outputUnmeasured: "غير مقيس: تعذّر حفظ بعض الأحداث",
+    outputsUnavailable: "تعذّر تحميل المخرجات.",
     slowRequestCount: "{{count}} طلبات بطيئة",
     slowRequestCountSingular: "{{count}} طلب بطيء",
     speedIncomplete: "بيانات السرعة غير مكتملة",

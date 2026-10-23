@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import * as jose from "jose";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { A2AIdentityVerificationUnavailableError } from "../a2a/server.js";
@@ -431,6 +432,155 @@ describe("mountActionRoutes", () => {
     });
     expect(event._status).toBe(403);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  describe("approval on the HTTP action route", () => {
+    type Caller =
+      | "proven UI"
+      | "frontend header without UI proof"
+      | "plain HTTP"
+      | "MCP OAuth bearer"
+      | "org service token"
+      | "a2a";
+    type Gate =
+      | "needsApproval true"
+      | "predicate false"
+      | "predicate throws"
+      | "no needsApproval";
+    type Outcome = "runs" | "ui-capability" | "approval-required";
+
+    const gates: Record<Gate, Record<string, unknown>> = {
+      "needsApproval true": { needsApproval: true },
+      "predicate false": { needsApproval: () => false },
+      "predicate throws": {
+        needsApproval: () => {
+          throw new Error("cannot decide");
+        },
+      },
+      "no needsApproval": {},
+    };
+
+    const refusedBy: Record<Caller, Outcome> = {
+      "proven UI": "runs",
+      "frontend header without UI proof": "ui-capability",
+      "plain HTTP": "approval-required",
+      "MCP OAuth bearer": "approval-required",
+      "org service token": "approval-required",
+      a2a: "approval-required",
+    };
+
+    const labelled: Record<Caller, string> = {
+      "proven UI": "frontend",
+      "frontend header without UI proof": "frontend",
+      "plain HTTP": "http",
+      "MCP OAuth bearer": "mcp",
+      "org service token": "mcp",
+      a2a: "a2a",
+    };
+
+    function expectedOutcome(caller: Caller, gate: Gate): Outcome {
+      if (gate === "predicate false" || gate === "no needsApproval") {
+        return "runs";
+      }
+      return refusedBy[caller];
+    }
+
+    const matrix = (Object.keys(refusedBy) as Caller[]).flatMap((caller) =>
+      (Object.keys(gates) as Gate[]).map(
+        (gate) => [caller, gate, expectedOutcome(caller, gate)] as const,
+      ),
+    );
+
+    beforeEach(() => {
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
+    });
+
+    async function callAs(caller: Caller, gate: Gate) {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async (_args: unknown, ctx: any) => ({
+        ran: true,
+        caller: ctx?.caller,
+      }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      const owner = "owner@example.com";
+      if (caller === "proven UI")
+        mockHasUiActionCapability.mockReturnValue(true);
+
+      mountActionRoutes(
+        nitroApp,
+        { "revoke-thing": { run, ...gates[gate] } as any },
+        {
+          getOwnerFromEvent: async () => owner,
+          ...(caller === "a2a"
+            ? {
+                actionRouteAuth: {
+                  resolveCaller: async () => ({ owner, anonymous: false }),
+                },
+              }
+            : {}),
+        },
+      );
+
+      const context: Record<string, unknown> = {};
+      if (caller === "MCP OAuth bearer" || caller === "org service token") {
+        context.__anVerifiedMcpCredential = { userEmail: owner };
+      }
+      if (caller === "org service token") {
+        context.__anVerifiedServiceIdentity = {
+          userEmail: owner,
+          orgId: "org-1",
+        };
+      }
+      // Every caller but plain HTTP claims to be the browser app; only the
+      // proven UI is.
+      const event: any = {
+        _method: "POST",
+        _headers: {
+          host: "app.example.com",
+          "sec-fetch-site": "same-origin",
+          ...(caller === "plain HTTP"
+            ? {}
+            : { "x-agent-native-frontend": "1" }),
+        },
+        context,
+        req: { json: async () => ({ id: "thing-1" }) },
+      };
+      const result = await mounted[0]!.handler(event);
+      return { result, run, status: event._status };
+    }
+
+    it.each(matrix)("%s, %s: %s", async (caller, gate, outcome) => {
+      const { result, run, status } = await callAs(caller, gate);
+
+      if (outcome === "runs") {
+        expect(result).toEqual({ ran: true, caller: labelled[caller] });
+        expect(run).toHaveBeenCalledTimes(1);
+        return;
+      }
+      expect(run).not.toHaveBeenCalled();
+      if (outcome === "ui-capability") {
+        expect(status).toBe(403);
+        expect(result).toMatchObject({ errorCode: "ui_capability_required" });
+        return;
+      }
+      expect(status).toBe(409);
+      expect(result).toMatchObject({ errorCode: "approval_required" });
+      expect(result.error).toContain('"revoke-thing" requires human approval');
+    });
+
+    it("tells a service identity it can never approve", async () => {
+      const { result } = await callAs(
+        "org service token",
+        "needsApproval true",
+      );
+
+      expect(result.error).toContain("a service identity can never give it");
+    });
   });
 
   it.each(["GET", "HEAD", "OPTIONS"] as const)(
@@ -3043,6 +3193,7 @@ describe("mountActionRoutes", () => {
     async function callReadRoute(
       access: "allowed" | "denied" | "unavailable" | "not-configured",
       caller: "session" | "adapter",
+      unavailableReason = "registry-http-error",
     ) {
       vi.resetModules();
       const workspaceAccess = vi.fn(async () =>
@@ -3051,10 +3202,11 @@ describe("mountActionRoutes", () => {
           : access === "unavailable"
             ? {
                 status: "unavailable",
-                reason: "registry-http-error",
-                upstreamStatus: 401,
+                reason: unavailableReason,
+                ...(unavailableReason === "registry-http-error"
+                  ? { upstreamStatus: 401, detail: "Unauthorized" }
+                  : {}),
                 audience: "https://slides.agent-native.test/dispatch",
-                detail: "Unauthorized",
               }
             : true,
       );
@@ -3171,6 +3323,22 @@ describe("mountActionRoutes", () => {
         upstreamStatus: 401,
         audience: "https://slides.agent-native.test/dispatch",
         detail: "Unauthorized",
+      });
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("answers 503 when the organization secret lookup fails", async () => {
+      const { event, result, run } = await callReadRoute(
+        "unavailable",
+        "session",
+        "org-a2a-secret-lookup-failed",
+      );
+
+      expect(event._status).toBe(503);
+      expect(result).toEqual({
+        error: "Workspace app access is temporarily unavailable.",
+        code: "org-a2a-secret-lookup-failed",
+        audience: "https://slides.agent-native.test/dispatch",
       });
       expect(run).not.toHaveBeenCalled();
     });
@@ -5209,6 +5377,66 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("caps a signed owner-sub flags write through the feature-flag action route", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+      orgDomain: "builder.io",
+      jti: "owner-write-1",
+      scope: ["flags:write"],
+      identityAssurance: "org-member",
+    });
+    const token = await new jose.SignJWT({
+      aud: "https://flags.example.com",
+      org_id: "org-1",
+      org_domain: "builder.io",
+      jti: "owner-write-1",
+      scope: "flags:write",
+      typ: "agent-native-org-member-delegation",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("owner@example.com")
+      .setIssuer("https://dispatch.example.com")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode("test-org-secret"));
+    const { effectiveOrgMemberRole } =
+      await import("../server/personal-provider-key-policy.js");
+    const writes: unknown[] = [];
+    const mounted: Array<{ path: string; handler: any }> = [];
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "set-feature-flag": {
+          run: async (_params: unknown, ctx: any) => {
+            const role = effectiveOrgMemberRole(
+              "owner",
+              ctx.orgId,
+              ctx.userEmail,
+            );
+            if (role === "owner" || role === "admin") writes.push(ctx);
+            return { role };
+          },
+        } as any,
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        _headers: { authorization: `Bearer ${token}` },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ role: "member" });
+    expect(writes).toEqual([]);
+    expect(mockVerifyA2ATokenWithClaims).toHaveBeenCalledWith(
+      token,
+      expect.anything(),
+    );
+  });
+
   it("allows allowlisted no-org list and set delegations without active-org fallback", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     process.env.AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS = "admin@example.com";
@@ -5283,6 +5511,7 @@ describe("mountActionRoutes", () => {
             ctx,
             requestUserEmail: getRequestUserEmail(),
             requestUserName: getRequestUserName(),
+            identityAssurance: getRequestContext()?.a2aIdentityAssurance,
           };
           return { ok: true };
         }),
@@ -5296,6 +5525,7 @@ describe("mountActionRoutes", () => {
           owner: "a2a-caller@example.com",
           anonymous: false,
           name: "A2A Caller",
+          identityAssurance: "org-member",
         }),
       },
     });
@@ -5312,6 +5542,7 @@ describe("mountActionRoutes", () => {
     expect(received.ctx.userEmail).toBe("a2a-caller@example.com");
     expect(received.requestUserEmail).toBe("a2a-caller@example.com");
     expect(received.requestUserName).toBe("A2A Caller");
+    expect(received.identityAssurance).toBe("org-member");
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
     expect(event.context[AGENT_RUN_OWNER_CONTEXT_KEY]).toEqual({
       owner: "a2a-caller@example.com",
@@ -5394,15 +5625,12 @@ describe("mountActionRoutes", () => {
           "set-workspace-app-access": setWorkspaceAppAccess as any,
         },
         {
-          actionRouteAuth: {
-            resolveCaller: async () => ({
-              owner: "owner@example.com",
-              anonymous: false,
-              orgId: "org-1",
-            }),
-          },
+          getOwnerFromEvent: async () => "owner@example.com",
+          resolveOrgId: async () => "org-1",
         },
       );
+      // Changing app access needs approval, which the signed-in app gives.
+      mockHasUiActionCapability.mockReturnValue(true);
       const handlerFor = (name: string) =>
         mounted.find(({ path }) => path === `/_agent-native/actions/${name}`)!
           .handler;
@@ -5432,7 +5660,7 @@ describe("mountActionRoutes", () => {
       await expect(
         handlerFor("set-workspace-app-access")({
           _method: "POST",
-          _headers: {},
+          _headers: { "x-agent-native-frontend": "1" },
           context: {},
           req: {
             url: "http://app.test/_agent-native/actions/set-workspace-app-access",

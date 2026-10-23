@@ -31,6 +31,7 @@ import {
   toolInputsMatch,
 } from "../shared/tool-inputs.js";
 import { approvalKeyForHistory } from "./approval-key.js";
+import { isAgentInternalContinuationPrompt } from "./continuation-prompt.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import {
   INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
@@ -51,6 +52,8 @@ interface ContentPart {
   text?: string;
   toolCallId?: string;
   toolName?: string;
+  executionStepId?: string;
+  inputFingerprint?: string;
   argsText?: string;
   args?: Record<string, unknown>;
   result?: string;
@@ -344,15 +347,15 @@ export function buildAssistantMessage(
 
     if (event.type === "tool_start") {
       const explicitToolCallId = event.id?.trim();
-      if (explicitToolCallId) {
-        const replayed = content.some(
-          (part) =>
-            part.type === "tool-call" &&
-            part.toolCallId === explicitToolCallId &&
-            part.toolName === (event.tool ?? "unknown"),
+      const executionStepId = event.executionStepId?.trim();
+      const replayed = content.some((part) => {
+        if (part.type !== "tool-call") return false;
+        return (
+          executionStepId !== undefined &&
+          part.executionStepId === executionStepId
         );
-        if (replayed) continue;
-      }
+      });
+      if (replayed) continue;
       toolCallCounter += 1;
       const toolCallId =
         explicitToolCallId ||
@@ -364,6 +367,10 @@ export function buildAssistantMessage(
         toolName: event.tool ?? "unknown",
         argsText: JSON.stringify(args),
         args,
+        ...(executionStepId ? { executionStepId } : {}),
+        ...(event.inputFingerprint
+          ? { inputFingerprint: event.inputFingerprint }
+          : {}),
       });
       continue;
     }
@@ -393,38 +400,98 @@ export function buildAssistantMessage(
     if (event.type === "tool_done") {
       const eventToolCallId = event.id?.trim();
       let matchingIndex = -1;
-
-      if (eventToolCallId) {
-        for (let i = content.length - 1; i >= 0; i--) {
-          const part = content[i];
-          if (
-            part.type === "tool-call" &&
-            part.toolCallId === eventToolCallId &&
-            part.result === undefined
-          ) {
-            matchingIndex = i;
-            break;
-          }
+      const executionStepId = event.executionStepId?.trim();
+      const candidates = content.flatMap((part, index) => {
+        if (
+          part.type !== "tool-call" ||
+          part.result !== undefined ||
+          part.toolName !== (event.tool ?? "unknown")
+        ) {
+          return [];
         }
-      }
-
-      if (matchingIndex === -1) {
-        for (let i = content.length - 1; i >= 0; i--) {
-          const part = content[i];
-          if (
-            part.type === "tool-call" &&
-            part.toolName === event.tool &&
-            part.result === undefined
-          ) {
-            matchingIndex = i;
-            break;
-          }
+        if (executionStepId) {
+          return part.executionStepId === executionStepId ? [index] : [];
         }
+        if (
+          event.inputFingerprint !== undefined &&
+          part.inputFingerprint !== event.inputFingerprint
+        ) {
+          return [];
+        }
+        if (
+          event.input !== undefined &&
+          !toolInputsMatch(part.args, event.input)
+        ) {
+          return [];
+        }
+        return [index];
+      });
+      const legacyCandidates = executionStepId
+        ? content.flatMap((part, index) => {
+            if (
+              part.type !== "tool-call" ||
+              part.result !== undefined ||
+              part.executionStepId !== undefined ||
+              part.toolName !== (event.tool ?? "unknown") ||
+              (event.inputFingerprint !== undefined &&
+                part.inputFingerprint !== event.inputFingerprint) ||
+              (event.input !== undefined &&
+                !toolInputsMatch(part.args, event.input))
+            ) {
+              return [];
+            }
+            return [index];
+          })
+        : candidates;
+      const candidateMatches =
+        candidates.length > 0
+          ? candidates
+          : executionStepId && legacyCandidates.length !== 1
+            ? []
+            : legacyCandidates;
+      const idCandidates =
+        eventToolCallId === undefined
+          ? candidateMatches
+          : candidateMatches.filter(
+              (index) =>
+                content[index]?.type === "tool-call" &&
+                content[index]?.toolCallId === eventToolCallId,
+            );
+      const matchingCandidates =
+        idCandidates.length > 0 || eventToolCallId === undefined
+          ? idCandidates
+          : candidateMatches;
+      if (matchingCandidates.length === 1) {
+        // Legacy results lack occurrence identity, so attach only a unique pending match.
+        matchingIndex = matchingCandidates[0]!;
       }
 
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
+        if (event.replayed === true && !executionStepId) {
+          const earlierDuplicate = content.findIndex(
+            (candidate, index) =>
+              index !== matchingIndex &&
+              candidate.type === "tool-call" &&
+              candidate.result !== undefined &&
+              candidate.toolCallId === part.toolCallId &&
+              candidate.toolName === part.toolName &&
+              (event.inputFingerprint !== undefined
+                ? candidate.inputFingerprint === event.inputFingerprint
+                : event.input === undefined ||
+                  toolInputsMatch(candidate.args, event.input)),
+          );
+          if (earlierDuplicate >= 0) {
+            content.splice(matchingIndex, 1);
+            approvalPauseCandidates.delete(part);
+            continue;
+          }
+        }
         part.result = event.result ?? "";
+        if (executionStepId) part.executionStepId = executionStepId;
+        if (event.inputFingerprint) {
+          part.inputFingerprint = event.inputFingerprint;
+        }
         // Older journals have approval_required but no pause marker on tool_done.
         const inferredLegacyPause =
           event.approvalPause === undefined &&
@@ -1152,7 +1219,18 @@ function assistantReplayContent(
     const name = typeof part.toolName === "string" ? part.toolName.trim() : "";
     if (!id || !name) continue;
     const input = replayedToolInput(part.args);
-    assistant.push({ type: "tool-call", id, name, input });
+    assistant.push({
+      type: "tool-call",
+      id,
+      name,
+      input,
+      ...(typeof part.executionStepId === "string"
+        ? { executionStepId: part.executionStepId }
+        : {}),
+      ...(typeof part.inputFingerprint === "string"
+        ? { inputFingerprint: part.inputFingerprint }
+        : {}),
+    });
     const result = replayedToolResult(part);
     results.push({
       type: "tool-result",
@@ -1160,6 +1238,12 @@ function assistantReplayContent(
       toolName: name,
       toolInput: stringifyToolUseInputForGateway(input),
       ...result,
+      ...(typeof part.executionStepId === "string"
+        ? { executionStepId: part.executionStepId }
+        : {}),
+      ...(typeof part.inputFingerprint === "string"
+        ? { inputFingerprint: part.inputFingerprint }
+        : {}),
       ...(part.approvalPause === true ? { approvalPause: true } : {}),
       ...(typeof part.approval?.askId === "string"
         ? { approvalAskId: part.approval.askId }
@@ -1295,16 +1379,7 @@ export function resumeThreadHistoryForRequest(
   const messages = threadDataToEngineMessages(threadData, {
     includeToolCalls: true,
   });
-  let turnStart = messages.length - 1;
-  while (
-    turnStart >= 0 &&
-    !(
-      messages[turnStart]!.role === "user" &&
-      messages[turnStart]!.content.some((part) => part.type === "text")
-    )
-  ) {
-    turnStart--;
-  }
+  const turnStart = lastUserPromptIndex(messages);
   if (turnStart < 0) return { messages, foundTurnPrompt: false };
   return {
     messages: [
@@ -1313,6 +1388,21 @@ export function resumeThreadHistoryForRequest(
     ],
     foundTurnPrompt: true,
   };
+}
+
+export function lastUserPromptIndex(messages: EngineMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (
+      messages[index]!.role === "user" &&
+      messages[index]!.content.some(
+        (part) =>
+          part.type === "text" && !isAgentInternalContinuationPrompt(part.text),
+      )
+    ) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 /**
@@ -1676,6 +1766,30 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
   return pruneClaimedQueuedMessages(normalized);
 }
 
+function reconcileDirectSubmissionQueue(repo: any, userCustom: unknown): any {
+  if (
+    !userCustom ||
+    typeof userCustom !== "object" ||
+    Array.isArray(userCustom)
+  ) {
+    return repo;
+  }
+  const messageId = (userCustom as Record<string, unknown>).agentKitMessageId;
+  if (
+    typeof messageId !== "string" ||
+    !Array.isArray(repo?.queuedMessages) ||
+    !repo.queuedMessages.some(
+      (message: unknown) =>
+        message &&
+        typeof message === "object" &&
+        (message as Record<string, unknown>).id === messageId,
+    )
+  ) {
+    return repo;
+  }
+  return claimQueuedMessage(repo, messageId);
+}
+
 export function applySubmittedUserMessage(
   repo: any,
   userMessage: UserMessage,
@@ -1731,7 +1845,10 @@ export function applySubmittedUserMessage(
       );
     });
   if (wasDirectlySubmitted) {
-    return { status: "already_submitted", repo };
+    return {
+      status: "already_submitted",
+      repo: reconcileDirectSubmissionQueue(repo, userCustom),
+    };
   }
   if (
     userCustom &&
@@ -1751,7 +1868,13 @@ export function applySubmittedUserMessage(
     }
   }
   if (!queuedMessage) {
-    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
+    return {
+      status: "submitted",
+      repo: upsertUserMessage(
+        reconcileDirectSubmissionQueue(repo, userCustom),
+        userMessage,
+      ),
+    };
   }
   if (hasClaimedQueuedMessage(repo, queuedMessage.id)) {
     return { status: "already_claimed" };
@@ -3862,9 +3985,9 @@ export function mergeThreadDataForClientSave(
       }
     }
   }
-  // Queue mutations are the only writer of the queue and opt out here. Any
-  // other save carries a queue it read earlier, and letting that copy win drops
-  // a promotion claim or an append that landed in between.
+  // Queue mutations own the queue; a submitted-message marker can remove its
+  // matching row. Other saves carry a queue they read earlier, and letting
+  // that copy win drops a promotion claim or an append that landed in between.
   if (preserveExistingQueuedMessages) {
     if (existingNormalized?.queuedMessages !== undefined) {
       merged.queuedMessages = existingNormalized.queuedMessages;

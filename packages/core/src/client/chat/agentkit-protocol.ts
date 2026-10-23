@@ -17,6 +17,7 @@ import type {
   AgentMessagePart,
   AgentObjectReference,
   AgentParticipant,
+  AgentQueuedSubmissionReceipt,
   AgentRunStatus,
   AgentRequestAttachment,
   AgentTask,
@@ -149,6 +150,7 @@ interface ProtocolRun {
   readonly runId: string;
   readonly threadId: string;
   readonly session: AgentChatRuntimeSession;
+  readonly startMessageId?: string;
   turn: AgentChatRuntimeTurn;
   events: AgentEvent[];
   firstRetainedSequence: number;
@@ -306,52 +308,61 @@ function runtimeRequestAttachments(args: {
       part.type === "file" ? [runtimeAttachmentFromFilePart(part)] : [],
     ) ?? [];
   for (const requestAttachment of args.requestAttachments ?? []) {
-    const originalUrl = requestAttachment.referenceUrl;
-    const originalIndex = originalUrl
-      ? attachments.findIndex((attachment) => attachment.url === originalUrl)
+    const referenceUrl = requestAttachment.referenceUrl;
+    const originalUrl = referenceUrl;
+    const originalLookupUrl = originalUrl ?? requestAttachment.url;
+    const originalIndex = originalLookupUrl
+      ? attachments.findIndex(
+          (attachment) => attachment.url === originalLookupUrl,
+        )
       : -1;
-    if (typeof requestAttachment.data === "string") {
-      const imageUrl = requestAttachment.url ?? originalUrl;
-      const keepsOriginalReference =
-        originalUrl !== undefined &&
-        imageUrl !== undefined &&
-        originalUrl !== imageUrl;
-      if (keepsOriginalReference) {
-        const original = originalIndex >= 0 ? attachments[originalIndex] : null;
-        const reference = {
-          type: "file",
-          name: original?.name || requestAttachment.name,
-          contentType: original?.contentType || requestAttachment.contentType,
-          url: originalUrl,
-          referenceOnly: true,
-        };
-        if (originalIndex >= 0) attachments.splice(originalIndex, 1, reference);
-        else attachments.push(reference);
+    const addReferenceOnly = (replaceOriginal: boolean) => {
+      const original = originalIndex >= 0 ? attachments[originalIndex] : null;
+      const reference: AgentChatAttachment = {
+        type: "file",
+        name: original?.name || requestAttachment.name,
+        contentType: original?.contentType || requestAttachment.contentType,
+        ...(original?.id ? { id: original.id } : {}),
+        ...(original?.mediaType ? { mediaType: original.mediaType } : {}),
+        url: originalLookupUrl,
+        referenceOnly: true,
+      };
+      if (replaceOriginal && originalIndex >= 0) {
+        attachments.splice(originalIndex, 1, reference);
+      } else {
+        attachments.push(reference);
       }
-      const image = {
+    };
+    if (typeof requestAttachment.data === "string") {
+      // The image's identity is exactly what the client fingerprinted: its own
+      // url, never one derived from referenceUrl. An original file part is kept
+      // as a reference (even when the image shares its url), so the submitted
+      // file fingerprint still matches the mapped attachments.
+      const imageUrl = requestAttachment.url;
+      const keepsOriginalReference =
+        originalIndex >= 0 ||
+        (originalUrl !== undefined &&
+          imageUrl !== undefined &&
+          originalUrl !== imageUrl);
+      if (keepsOriginalReference) {
+        addReferenceOnly(originalIndex >= 0);
+      }
+      attachments.push({
         type: "image",
         name: requestAttachment.name,
         contentType: requestAttachment.contentType,
         data: requestAttachment.data,
         ...(imageUrl ? { url: imageUrl } : {}),
-      };
-      if (originalIndex >= 0 && !keepsOriginalReference) {
-        attachments.splice(originalIndex, 1, image);
-      } else {
-        attachments.push(image);
-      }
+        ...(referenceUrl ? { referenceUrl } : {}),
+      });
       continue;
     }
 
-    if (originalIndex >= 0 && originalUrl) {
-      const original = attachments[originalIndex]!;
-      attachments.splice(originalIndex, 1, {
-        type: "file",
-        name: original.name || requestAttachment.name,
-        contentType: original.contentType,
-        url: originalUrl,
-        referenceOnly: true,
-      });
+    if (
+      originalUrl &&
+      (originalIndex < 0 || requestAttachment.url !== originalUrl)
+    ) {
+      addReferenceOnly(originalIndex >= 0);
     }
     if (typeof requestAttachment.url === "string") {
       attachments.push({
@@ -359,6 +370,7 @@ function runtimeRequestAttachments(args: {
         name: requestAttachment.name,
         contentType: requestAttachment.contentType,
         url: requestAttachment.url,
+        ...(referenceUrl ? { referenceUrl } : {}),
       });
     }
   }
@@ -461,6 +473,20 @@ function mergeProtocolMetadata(
     merged[AGENT_NATIVE_PROTOCOL_METADATA_KEY] = native;
   }
   return merged;
+}
+
+function withQueuedMessageIdMetadata(
+  metadata: Record<string, unknown> | undefined,
+  messageId: string | undefined,
+): Record<string, unknown> | undefined {
+  if (messageId === undefined) return metadata;
+  return {
+    ...metadata,
+    custom: {
+      ...asRecord(metadata?.custom),
+      agentNativeQueuedMessageId: messageId,
+    },
+  };
 }
 
 const PROTECTED_PROTOCOL_METADATA_KEYS = [
@@ -1564,9 +1590,18 @@ export function createAgentKitProtocolAdapter(
   function indexRun(
     run: ProtocolRun,
     runtimeRunId = run.turn.runId ?? run.runId,
-  ): void {
+    allowReplay = false,
+  ): ProtocolRun {
     const existingRun = runs.get(run.runId);
     if (existingRun && existingRun !== run) {
+      if (
+        allowReplay &&
+        existingRun.threadId === run.threadId &&
+        existingRun.turn.id !== undefined &&
+        existingRun.turn.id === run.turn.id
+      ) {
+        return existingRun;
+      }
       throw new Error(`Duplicate AgentKit run id: ${run.runId}`);
     }
     if (runtimeRunId && runtimeRunId !== run.runId) {
@@ -1591,6 +1626,7 @@ export function createAgentKitProtocolAdapter(
       runtimeRunAliases.set(aliasKey, run);
     }
     runs.set(run.runId, run);
+    return run;
   }
 
   async function resolveRuntimeRunOwner(
@@ -2056,6 +2092,9 @@ export function createAgentKitProtocolAdapter(
       runId: input.runId,
       threadId: input.threadId,
       session,
+      ...(state?.status !== "missing" && state?.startMessageId
+        ? { startMessageId: state.startMessageId }
+        : {}),
       turn: runAuthority
         ? turn
         : {
@@ -2089,7 +2128,11 @@ export function createAgentKitProtocolAdapter(
         : {}),
       listeners: new Set(),
     };
-    indexRun(run, turn.runId ?? input.runId);
+    const indexedRun = indexRun(run, turn.runId ?? input.runId, true);
+    if (indexedRun !== run) {
+      await closeDiscardedTurnEvents(turn);
+      return indexedRun;
+    }
     if (restoreRead) run.initialAuthorityRead = restoreRead;
     if (state && "pendingConnectionRequestId" in state) {
       run.restoredPendingConnectionRequestId = state.pendingConnectionRequestId;
@@ -2115,25 +2158,33 @@ export function createAgentKitProtocolAdapter(
     turn: AgentChatRuntimeTurn,
     turnMetadata: Record<string, unknown> | undefined,
     observability?: Record<string, unknown>,
+    start: {
+      attachReplayedRun?: boolean;
+      messageId?: string;
+      queuedMessageId?: string;
+    } = {},
   ): Promise<string> {
     const runId = turn.runId ?? turn.id ?? createId("run");
-    const runMetadata = mergeTrustedProtocolMetadata(
-      options.metadata,
-      turnMetadata,
-      turn.metadata,
-      {
-        [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
-          observability: {
-            protocolRunId: runId,
-            ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
-            runtimeId: runtime.id,
-            sessionId: session.id,
-            ...(turn.id === undefined ? {} : { turnId: turn.id }),
-            threadId,
-            ...observability,
-          },
-        } satisfies AgentNativeProtocolMetadata,
-      },
+    const runMetadata = withQueuedMessageIdMetadata(
+      mergeTrustedProtocolMetadata(
+        options.metadata,
+        turnMetadata,
+        turn.metadata,
+        {
+          [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
+            observability: {
+              protocolRunId: runId,
+              ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
+              runtimeId: runtime.id,
+              sessionId: session.id,
+              ...(turn.id === undefined ? {} : { turnId: turn.id }),
+              threadId,
+              ...observability,
+            },
+          } satisfies AgentNativeProtocolMetadata,
+        },
+      ),
+      start.queuedMessageId,
     );
     setRuntimeRunIdMetadata(runMetadata, turn.runId);
     setRuntimeTurnIdMetadata(runMetadata, turn.id);
@@ -2141,6 +2192,9 @@ export function createAgentKitProtocolAdapter(
       runId,
       threadId,
       session,
+      ...(start.messageId === undefined
+        ? {}
+        : { startMessageId: start.messageId }),
       turn,
       events: [],
       firstRetainedSequence: 1,
@@ -2169,8 +2223,45 @@ export function createAgentKitProtocolAdapter(
         "The AgentKit adapter was disposed during turn creation.",
       );
     }
+    const existingRun = start.attachReplayedRun
+      ? findRun(threadId, runId)
+      : undefined;
+    if (existingRun) {
+      if (
+        start.messageId === undefined ||
+        existingRun.startMessageId !== start.messageId
+      ) {
+        await closeDiscardedTurnEvents(turn);
+        throw new Error(`Duplicate AgentKit run id: ${runId}`);
+      }
+      const isRuntimeAlias = existingRun.runId !== runId;
+      const isSameRuntimeTurn =
+        existingRun.turn.id !== undefined && existingRun.turn.id === turn.id;
+      if (isRuntimeAlias && !isSameRuntimeTurn && !existingRun.terminal) {
+        await closeDiscardedTurnEvents(turn);
+        throw new Error(`Duplicate AgentKit run id: ${runId}`);
+      }
+      if (!isRuntimeAlias || isSameRuntimeTurn) {
+        await closeDiscardedTurnEvents(turn);
+        touchRun(existingRun);
+        ensurePump(existingRun);
+        // Protocol run IDs are authoritative. Runtime aliases only match the turn that
+        // created them.
+        return existingRun.runId;
+      }
+    }
     pruneRetainedRuns(run.lastAccessedAtMs);
-    indexRun(run, turn.runId);
+    let indexedRun: ProtocolRun;
+    try {
+      indexedRun = indexRun(run, turn.runId, start.attachReplayedRun === true);
+    } catch (error) {
+      await closeDiscardedTurnEvents(turn);
+      throw error;
+    }
+    if (indexedRun !== run) {
+      await closeDiscardedTurnEvents(turn);
+      return indexedRun.runId;
+    }
     append(run, {
       type: "run.started",
       agentId: runtime.id,
@@ -2187,6 +2278,58 @@ export function createAgentKitProtocolAdapter(
     if (disposedSessions.has(session)) return;
     disposedSessions.add(session);
     await session.dispose?.();
+  }
+
+  function drainDiscardedTurnEventIterator(
+    iterator: AsyncIterator<AgentChatRuntimeEvent>,
+  ): void {
+    void (async () => {
+      try {
+        while (!(await iterator.next()).done) {}
+      } catch (error) {
+        console.warn(
+          "[agentkit] Could not drain a discarded runtime event stream",
+          error,
+        );
+      }
+    })();
+  }
+
+  async function closeDiscardedTurnEvents(
+    turn: AgentChatRuntimeTurn,
+  ): Promise<void> {
+    const iterator = turn.events[Symbol.asyncIterator]();
+    let drainStarted = false;
+    const drain = () => {
+      if (drainStarted) return;
+      drainStarted = true;
+      drainDiscardedTurnEventIterator(iterator);
+    };
+    if (!turn.closeEvents && !iterator.return) {
+      drain();
+      return;
+    }
+
+    const attemptCleanup = (cleanup: () => unknown) => {
+      try {
+        void Promise.resolve(cleanup()).catch((error) => {
+          console.warn(
+            "[agentkit] Could not close a discarded runtime event stream",
+            error,
+          );
+          drain();
+        });
+      } catch (error) {
+        console.warn(
+          "[agentkit] Could not close a discarded runtime event stream",
+          error,
+        );
+        drain();
+      }
+    };
+
+    if (turn.closeEvents) attemptCleanup(() => turn.closeEvents?.());
+    if (iterator.return) attemptCleanup(() => iterator.return?.());
   }
 
   function append(run: ProtocolRun, event: ProtocolEventInput): void {
@@ -3815,14 +3958,21 @@ export function createAgentKitProtocolAdapter(
       const recoveryMetadata = asRecord(latestUserMetadata?.custom);
       const isRecoveryRetry =
         recoveryMetadata?.agentNativeRecoveryAction === "retry";
-      const turnMetadata = mergeTrustedProtocolMetadata(
-        options.metadata,
-        input.metadata,
-        input.options?.metadata,
-        input.options?.agentId ? { agentId: input.options.agentId } : undefined,
-        input.options?.locale ? { locale: input.options.locale } : undefined,
-        input.options?.mode ? { mode: input.options.mode } : undefined,
-        isRecoveryRetry ? { agentNativeInternalContinuation: true } : undefined,
+      const turnMetadata = withQueuedMessageIdMetadata(
+        mergeTrustedProtocolMetadata(
+          options.metadata,
+          input.metadata,
+          input.options?.metadata,
+          input.options?.agentId
+            ? { agentId: input.options.agentId }
+            : undefined,
+          input.options?.locale ? { locale: input.options.locale } : undefined,
+          input.options?.mode ? { mode: input.options.mode } : undefined,
+          isRecoveryRetry
+            ? { agentNativeInternalContinuation: true }
+            : undefined,
+        ),
+        input.queuePromotion?.messageId,
       );
       const queuePromotionKey = input.queuePromotion
         ? JSON.stringify([input.threadId, input.queuePromotion.turnId])
@@ -3842,7 +3992,9 @@ export function createAgentKitProtocolAdapter(
           return { runId: await pendingRun, capabilities };
         }
       }
-      const createRun = async (): Promise<string> => {
+      const createRun = async (): Promise<
+        string | AgentQueuedSubmissionReceipt
+      > => {
         const session = await getSession(input.threadId, turnMetadata);
         const messages = input.messages.map(protocolMessageToRuntimeMessage);
         const attachments = runtimeRequestAttachments({
@@ -3852,9 +4004,11 @@ export function createAgentKitProtocolAdapter(
         const turn = await session.startTurn({
           prompt: latestUserPrompt(input.messages),
           messages,
+          ...(input.options ? { options: input.options } : {}),
           ...(input.submissionPayload
             ? { submissionPayload: input.submissionPayload }
             : {}),
+          ...(input.references?.length ? { references: input.references } : {}),
           ...(input.queuePromotion
             ? { queuePromotion: input.queuePromotion }
             : {}),
@@ -3873,12 +4027,37 @@ export function createAgentKitProtocolAdapter(
           metadata: turnMetadata,
           abortSignal: readers.signal,
         });
-        return openStartedRun(input.threadId, session, turn, turnMetadata);
+        if (turn.queuedSubmission) return turn.queuedSubmission;
+        return openStartedRun(
+          input.threadId,
+          session,
+          turn,
+          turnMetadata,
+          undefined,
+          {
+            attachReplayedRun: true,
+            messageId: latestUserMessage?.id,
+            ...(input.queuePromotion
+              ? { queuedMessageId: input.queuePromotion.messageId }
+              : {}),
+          },
+        );
       };
       if (!queuePromotionKey) {
-        return { runId: await createRun(), capabilities };
+        const started = await createRun();
+        return typeof started === "string"
+          ? { runId: started, capabilities }
+          : { queuedSubmission: started, capabilities };
       }
-      const pendingRun = Promise.resolve().then(createRun);
+      const pendingRun = Promise.resolve().then(async () => {
+        const started = await createRun();
+        if (typeof started !== "string") {
+          throw new TypeError(
+            "A queue promotion cannot be acknowledged as a new queued submission.",
+          );
+        }
+        return started;
+      });
       pendingQueuePromotionRuns.set(queuePromotionKey, pendingRun);
       try {
         return { runId: await pendingRun, capabilities };
@@ -4218,6 +4397,9 @@ export function createAgentKitProtocolAdapter(
           runId: nextRunId,
           threadId: input.threadId,
           session: run.session,
+          ...(run.startMessageId === undefined
+            ? {}
+            : { startMessageId: run.startMessageId }),
           turn: nextTurn,
           events: [],
           firstRetainedSequence: 1,
@@ -4343,12 +4525,14 @@ export function createAgentKitProtocolAdapter(
         ...(attachments.length ? { attachments } : {}),
         abortSignal: readers.signal,
       });
+      const startMessageId = local?.startMessageId ?? state.startMessageId;
       const runId = await openStartedRun(
         input.threadId,
         session,
         turn,
         undefined,
         { continuedRunId: input.runId },
+        startMessageId === undefined ? {} : { messageId: startMessageId },
       );
       return { runId, capabilities };
     };
@@ -4591,6 +4775,9 @@ export function createAgentKitProtocolAdapter(
     transport.cancelUpload = hostOperations.cancelUpload;
   if (hostOperations?.listQueuedMessages)
     transport.listQueuedMessages = hostOperations.listQueuedMessages;
+  if (hostOperations?.getQueuedSubmissionStatus)
+    transport.getQueuedSubmissionStatus =
+      hostOperations.getQueuedSubmissionStatus;
   if (hostOperations?.queueMessage) {
     transport.queueMessage = (input, context) => {
       const metadata = mergeTrustedProtocolMetadata(

@@ -27,6 +27,10 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Workspace connection ID to delete."),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async ({ id }, ctx) => {
     const connection = await getWorkspaceConnection(id);
     if (!connection) {

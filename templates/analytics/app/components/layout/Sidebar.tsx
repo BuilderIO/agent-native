@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppSidebarFooter,
   AppSidebarHeader,
@@ -96,7 +97,6 @@ function useSettledSyncVersion(version: number): number {
 import {
   navigateWithAgentChatViewTransition,
   useChatThreads,
-  type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
@@ -104,13 +104,14 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  OwnershipChatHistoryRail,
+  useOwnershipChatHistory,
+  ownDraftRows,
+} from "@agent-native/toolkit/app/chat/ownership-history";
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { OrgSwitcher } from "@agent-native/toolkit/app/org";
-import {
-  ChatHistoryRail,
-  type ChatHistoryItem,
-} from "@agent-native/toolkit/chat-history";
 import {
   analyticsAskThreadIdFromPath,
   analyticsAskThreadPath,
@@ -333,33 +334,12 @@ function applyOrder<T extends { id: string }>(
   return ordered;
 }
 
-function isVisibility(value: unknown): value is Visibility {
-  return value === "private" || value === "org" || value === "public";
-}
-
 export function matchesVisibilityFilter(
   item: { visibility?: Visibility; ownerEmail?: string | null },
   filter: SidebarVisibilityFilter,
   currentUserEmail?: string | null,
 ): boolean {
   return matchesDashboardVisibilityFilter(item, filter, currentUserEmail);
-}
-
-export function threadMatchesVisibilityFilter(
-  thread: ChatThreadSummary,
-  filter: SidebarVisibilityFilter,
-): boolean {
-  const runtimeThread = thread as ChatThreadSummary & {
-    visibility?: unknown;
-  };
-  return matchesVisibilityFilter(
-    {
-      visibility: isVisibility(runtimeThread.visibility)
-        ? runtimeThread.visibility
-        : "private",
-    },
-    filter,
-  );
 }
 
 function SidebarSectionSettingsPopover({
@@ -1368,110 +1348,44 @@ export function prefetchSqlDashboard(
   });
 }
 
-function formatThreadAge(updatedAt: number) {
-  const diffMs = Math.max(0, Date.now() - updatedAt);
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(updatedAt).toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function threadTitle(thread: ChatThreadSummary, untitledLabel: string) {
-  return thread.title || thread.preview || untitledLabel;
-}
-
-function threadUpdatedAt(thread: ChatThreadSummary) {
-  return Number.isFinite(thread.updatedAt)
-    ? thread.updatedAt
-    : Number.isFinite(thread.createdAt)
-      ? thread.createdAt
-      : 0;
-}
-
-function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
-  const aPinned = a.pinnedAt ?? 0;
-  const bPinned = b.pinnedAt ?? 0;
-  if (aPinned || bPinned) return bPinned - aPinned;
-  return threadUpdatedAt(b) - threadUpdatedAt(a);
-}
-
 function AnalyticsChatsSection({
   askThreadId,
   open,
-  visibilityFilter,
 }: {
   /** The saved thread open on /ask/:threadId; null on the blank /ask page. */
   askThreadId: string | null;
   open: boolean;
-  visibilityFilter: SidebarVisibilityFilter;
 }) {
   const navigate = useNavigate();
   const t = useT();
-  const {
-    threads,
-    isLoading: chatsLoading,
-    pinThread,
-    archiveThread,
-    renameThread,
-    refreshThreads,
-  } = useChatThreads(undefined, ANALYTICS_CHAT_STORAGE_KEY, undefined, {
-    autoCreate: false,
-    restoreActiveThread: false,
+  const { threads, pinThread, archiveThread, renameThread, isNewThread } =
+    useChatThreads(undefined, ANALYTICS_CHAT_STORAGE_KEY, undefined, {
+      ownership: "mine",
+      autoCreate: false,
+      restoreActiveThread: false,
+    });
+
+  const history = useOwnershipChatHistory({
+    getThreadUrl: (threadId) => appPath(analyticsAskThreadPath(threadId)),
+    activeId: askThreadId,
+    localMineRows: ownDraftRows({ threads, isNewThread }),
+    mutations: {
+      pin: pinThread,
+      rename: renameThread,
+      archive: archiveThread,
+    },
+    onMutationFailed: (kind) => {
+      toast.error(
+        t(
+          kind === "archive"
+            ? "chat.archiveFailed"
+            : kind === "rename"
+              ? "chat.renameFailed"
+              : "agentChat.common.saveFailed",
+        ),
+      );
+    },
   });
-
-  const visibleThreads = useMemo(
-    () =>
-      threads
-        .filter(
-          (thread) =>
-            thread.messageCount > 0 &&
-            !thread.archivedAt &&
-            threadMatchesVisibilityFilter(thread, visibilityFilter),
-        )
-        .sort(compareThreads)
-        .slice(0, 15),
-    [threads, visibilityFilter],
-  );
-  const chatItems = useMemo<ChatHistoryItem[]>(
-    () =>
-      visibleThreads.map((thread) => ({
-        id: thread.id,
-        title: threadTitle(thread, t("chat.untitledChat")),
-        titleText: threadTitle(thread, t("chat.untitledChat")),
-        timestamp:
-          thread.id === askThreadId
-            ? undefined
-            : formatThreadAge(threadUpdatedAt(thread)),
-        pinned: Boolean(thread.pinnedAt),
-      })),
-    [askThreadId, t, visibleThreads],
-  );
-
-  useEffect(() => {
-    const refresh = () => refreshThreads();
-    const handleRunning = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | { isRunning?: unknown }
-        | undefined;
-      if (typeof detail?.isRunning === "boolean") refreshThreads();
-    };
-
-    window.addEventListener("agent-chat:threads-updated", refresh);
-    window.addEventListener("agentNative.chatRunning", handleRunning);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.removeEventListener("agent-chat:threads-updated", refresh);
-      window.removeEventListener("agentNative.chatRunning", handleRunning);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [refreshThreads]);
 
   function openThread(threadId: string) {
     navigateWithAgentChatViewTransition(
@@ -1494,18 +1408,10 @@ function AnalyticsChatsSection({
 
   async function handleArchiveThread(threadId: string) {
     const wasActive = threadId === askThreadId;
-    const archived = await archiveThread(threadId);
-    if (!archived) {
-      toast.error(t("chat.archiveFailed"));
-      return;
-    }
+    const archived = await history.listProps.onDelete!(threadId);
+    if (!archived) return false;
     if (wasActive) handleNewChat();
-  }
-
-  function handleRenameThread(threadId: string, title: string) {
-    void renameThread(threadId, title).then((renamed) => {
-      if (!renamed) toast.error(t("chat.renameFailed"));
-    });
+    return true;
   }
 
   return (
@@ -1515,43 +1421,15 @@ function AnalyticsChatsSection({
       aria-hidden={!open}
     >
       <div className="ms-4 min-w-0 space-y-0.5">
-        {chatsLoading &&
-          visibleThreads.length === 0 &&
-          Array.from({ length: 3 }).map((_, i) => (
-            <div
-              key={`chat-skeleton-${i}`}
-              className="flex items-center gap-2 px-3 py-1"
-            >
-              <Skeleton
-                className={cn(
-                  "h-3.5 w-3.5 shrink-0 rounded-sm",
-                  SIDEBAR_SKELETON_CLASS,
-                )}
-              />
-              <Skeleton
-                className={cn("h-3 rounded", SIDEBAR_SKELETON_CLASS)}
-                style={{ width: `${60 + ((i * 17) % 30)}%` }}
-              />
-            </div>
-          ))}
-        <ChatHistoryRail
-          items={chatItems}
+        <OwnershipChatHistoryRail
+          {...history}
           activeId={askThreadId}
           onSelect={(threadId) => openThread(threadId)}
           onNewChat={handleNewChat}
           railLabels={{
             newChat: t("chat.newChat"),
-            showMore: t("sidebar.showMore", {
-              count: Math.max(0, visibleThreads.length - SIDEBAR_PREVIEW_COUNT),
-            }),
-            showLess: t("sidebar.showLess"),
           }}
           renameMaxLength={160}
-          onTogglePin={(threadId) => {
-            const thread = visibleThreads.find((item) => item.id === threadId);
-            if (thread) void pinThread(threadId, !thread.pinnedAt);
-          }}
-          onRename={handleRenameThread}
           onDelete={(threadId) => void handleArchiveThread(threadId)}
           labels={{
             options: (item) =>
@@ -1639,7 +1517,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [askOpen, setAskOpen] = useState(
     () => getStoredBooleanPreference(ASK_OPEN_KEY) ?? isAskRoute,
   );
-  const [askFilter, setAskFilter] = useState<SidebarVisibilityFilter>("all");
   const [dashOpen, setDashOpen] = useState(
     () =>
       getStoredBooleanPreference(DASHBOARDS_OPEN_KEY) ??
@@ -2450,7 +2327,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             collapsed={true}
           />
           <nav className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-2 py-3">
-            <div className="my-auto flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-3">
               {collapsedNavItems.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -2511,11 +2388,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       {t("navigation.ask")}
                     </span>
                   </Link>
-                  <SidebarSectionSettingsPopover
-                    label={t("navigation.ask")}
-                    visibilityFilter={askFilter}
-                    onVisibilityFilterChange={setAskFilter}
-                  />
                   <button
                     type="button"
                     onClick={toggleAskOpen}
@@ -2538,7 +2410,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 <AnalyticsChatsSection
                   askThreadId={askThreadId}
                   open={askOpen}
-                  visibilityFilter={askFilter}
                 />
               </div>
 

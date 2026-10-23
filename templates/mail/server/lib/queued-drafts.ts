@@ -5,6 +5,7 @@ import {
   getAppProductionUrl,
   getRequestOrgId,
   getRequestUserEmail,
+  readOrgMemberRole,
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
@@ -107,9 +108,9 @@ export function buildQueuedDraftUrl(id: string): string {
 async function getMembership(
   orgId: string,
   email: string,
-): Promise<{ email: string; role: string } | null> {
+): Promise<{ email: string } | null> {
   const [row] = await getDb()
-    .select({ email: orgMembers.email, role: orgMembers.role })
+    .select({ email: orgMembers.email })
     .from(orgMembers)
     .where(
       and(
@@ -119,7 +120,7 @@ async function getMembership(
     )
     .limit(1);
   if (!row) return null;
-  return { email: row.email, role: row.role };
+  return { email: row.email };
 }
 
 export async function requireQueueContext(): Promise<QueueContext> {
@@ -136,11 +137,15 @@ export async function requireQueueContext(): Promise<QueueContext> {
   if (!membership) {
     throw new Error("Only members of this organization can queue drafts.");
   }
+  const role = await readOrgMemberRole(orgId, userEmail);
+  if (!role) {
+    throw new Error("Only members of this organization can queue drafts.");
+  }
 
   return {
     userEmail: normalizeEmail(membership.email),
     orgId,
-    role: membership.role,
+    role,
   };
 }
 

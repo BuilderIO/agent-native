@@ -13,7 +13,13 @@ import {
   DOCUMENT_PIXEL_V2_EFFECTS,
   HISTORICAL_DOCUMENT_PIXEL_EFFECTS,
 } from "./native-effect-document-pixels-v2";
-import { NATIVE_EFFECT_GALLERY_ADDITIONS } from "./native-effect-gallery-additions";
+import { FOLDED_MESH_EFFECT } from "./native-effect-folded-mesh";
+import { FOLDED_MESH_V1_EFFECT } from "./native-effect-folded-mesh-v1";
+import { FOLDED_MESH_V2_EFFECT } from "./native-effect-folded-mesh-v2";
+import {
+  NATIVE_EFFECT_GALLERY_ADDITIONS,
+  PULSING_BORDER_V1_EFFECT,
+} from "./native-effect-gallery-additions";
 import { LIQUID_GLASS_EFFECT as LIQUID_GLASS_V1_EFFECT } from "./native-effect-liquid-glass-v1";
 import { LIQUID_GLASS_EFFECT as LIQUID_GLASS_V2_EFFECT } from "./native-effect-liquid-glass-v2";
 import { LIQUID_GLASS_EFFECT } from "./native-effect-liquid-glass-v3";
@@ -33,6 +39,9 @@ import {
   SOURCE_GLINTS_EFFECT,
   SOURCE_GLINTS_PRESETS,
 } from "./native-effect-owned-cc-source-glints";
+import { PULSING_BORDER_EFFECT } from "./native-effect-pulsing-border";
+import { PULSING_BORDER_V3_EFFECT } from "./native-effect-pulsing-border-v3";
+import { PULSING_BORDER_V4_EFFECT } from "./native-effect-pulsing-border-v4";
 import {
   IMAGE_DITHERING_EFFECT,
   NEBULA_EFFECT,
@@ -390,6 +399,7 @@ if (galleryCandidates.length !== galleryCandidateIds.size)
   throw new Error("Native shader gallery selection is incomplete.");
 
 export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
+  FOLDED_MESH_EFFECT,
   ...tierOneCatalogDefinitions,
   ...galleryCandidates,
   ...NATIVE_EFFECT_V3_DEFINITIONS,
@@ -400,12 +410,14 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   LIQUID_METAL_EFFECT,
   FLUTED_GLASS_EFFECT,
   LIQUID_GLASS_EFFECT,
+  PULSING_BORDER_EFFECT,
   IMAGE_DITHERING_EFFECT,
   WAVES_EFFECT,
   NEBULA_EFFECT,
   ...DOCUMENT_PIXEL_V2_EFFECTS,
   ...NATIVE_EFFECT_GALLERY_ADDITIONS.filter(
     (definition) =>
+      definition.id !== PULSING_BORDER_EFFECT.id &&
       !HISTORICAL_DOCUMENT_PIXEL_EFFECTS.some(
         (legacy) => legacy.id === definition.id,
       ),
@@ -415,6 +427,8 @@ export const NATIVE_EFFECT_LATEST_DEFINITIONS: readonly EffectDefinition[] =
   NATIVE_EFFECT_DEFINITION_CATALOG;
 
 export const NATIVE_EFFECT_BUILTIN_VERSIONS: readonly EffectDefinition[] = [
+  FOLDED_MESH_V1_EFFECT,
+  FOLDED_MESH_V2_EFFECT,
   ...HISTORICAL_DOCUMENT_PIXEL_EFFECTS,
   LIQUID_METAL_V1_EFFECT,
   LIQUID_METAL_V2_EFFECT,
@@ -429,6 +443,9 @@ export const NATIVE_EFFECT_BUILTIN_VERSIONS: readonly EffectDefinition[] = [
   LIQUID_METAL_V11_EFFECT,
   LIQUID_GLASS_V1_EFFECT,
   LIQUID_GLASS_V2_EFFECT,
+  PULSING_BORDER_V1_EFFECT,
+  PULSING_BORDER_V3_EFFECT,
+  PULSING_BORDER_V4_EFFECT,
   ...NATIVE_EFFECT_DEFINITION_CATALOG,
 ];
 

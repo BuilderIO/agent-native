@@ -1842,7 +1842,7 @@ const messages = {
     unmuteMicrophone: "ミュートを解除",
     uploadVideo: "Upload video (ローカライズ済み)",
     takeScreenshot: "スクリーンショットを撮る",
-    importLoom: "Import Loom (ローカライズ済み)",
+    importLoom: "動画をインポート",
     importing: "Importing... (ローカライズ済み)",
     import: "Import (ローカライズ済み)",
     recordNew: "新規録画",
@@ -1983,6 +1983,10 @@ const messages = {
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}} (ローカライズ済み)",
     couldNotStartRecording: "Could not start recording (ローカライズ済み)",
+    intakeStorageUnavailable:
+      "このリンクで録画するには、リンクの所有者が動画ストレージを接続する必要があります。所有者に依頼してから、もう一度お試しください。",
+    streamingStorageUnavailable:
+      "現在のストレージは Clips に必要な再開可能なアップロードに対応していません。互換性のあるプロバイダーを設定するか、ワークスペースのオーナーまたは管理者に依頼してから、新しい録画を開始してください。",
     couldNotStartRecorder: "Could not start recorder (ローカライズ済み)",
     openSettings: "Open settings (ローカライズ済み)",
     openedRecorderInNewTab: "Opened recorder in a new tab (ローカライズ済み)",
@@ -2016,6 +2020,8 @@ const messages = {
     sessionExpired: "Session expired (ローカライズ済み)",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording. (ローカライズ済み)",
+    accountMismatch:
+      "録画の準備を始めた後に、ログイン中のアカウントが変わりました。最初に使用していたアカウントに戻って、もう一度お試しください。",
     logIn: "Log in (ローカライズ済み)",
     betterInDesktop: "Better in the desktop app (ローカライズ済み)",
     desktopAppDescription:
@@ -2029,8 +2035,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab (ローカライズ済み)",
     retryUpload: "アップロードを再試行",
     tryAgain: "もう一度試す",
-    storageConnectedReopeningRecorder:
-      "ストレージに接続しました。レコーダーを再度開いています...",
+    storageConnectedRecorderReady:
+      "ストレージに接続しました。準備ができたら、新しい録画を開始してください。",
     connectStorageToFinish:
       "次の画面で Builder.io ストレージ（無料プランのストレージと AI）を使用するか、S3 互換ストレージを設定してください。Clips が保存を完了します。",
     connectStorageToRetryLoom:
@@ -2098,8 +2104,8 @@ const messages = {
       "この録画はまだ処理中のため、Clips はコピーをここに残しました。完了を待つか、もう一度アップロードしてください。",
   },
   importRoute: {
-    pageTitle: "Loom をインポート — Clips",
-    title: "Loom をインポート",
+    pageTitle: "動画をインポート — Clips",
+    title: "動画をインポート",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "インポート",
     helperText:

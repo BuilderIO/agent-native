@@ -22,6 +22,12 @@
   backface-visibility: hidden;
 }
 
+.design-template-preview-frame[data-fit="cover"] {
+  top: 0;
+  transform: translateX(-50%) scale(var(--design-template-scale));
+  transform-origin: top center;
+}
+
 .design-library-card-preview {
   position: absolute;
   inset: 0;

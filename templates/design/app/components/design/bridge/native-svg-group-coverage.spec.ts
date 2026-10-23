@@ -75,9 +75,9 @@ describe("imported SVG group coverage", () => {
       "matrix(2 0 0 2 40 100)",
     );
     expect(parsed.querySelector("g")!.getAttribute("opacity")).toBe("0.6");
-    expect(parsed.querySelector("g > svg")!.getAttribute("transform")).toBe(
-      "none",
-    );
+    expect(
+      parsed.querySelector("g > svg")!.getAttribute("transform"),
+    ).toBeNull();
     expect(parsed.querySelector("path")!.getAttribute("fill-rule")).toBe(
       "evenodd",
     );

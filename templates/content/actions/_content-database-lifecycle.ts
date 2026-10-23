@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
@@ -126,23 +127,14 @@ export async function collectInlineDatabaseOwnerBlockIds(
   return { ok: true, ownerBlockIds };
 }
 
-export async function reconcileInlineDatabasesForDocument(
-  documentId: string,
-  content: string,
-): Promise<string[]> {
-  return reconcileInlineDatabasesForDocumentWithDb({
-    db: getDb(),
-    documentId,
-    content,
-  });
-}
-
 export async function reconcileInlineDatabasesForDocumentWithDb(args: {
   db: ReturnType<typeof getDb>;
   documentId: string;
   content: string;
   ownerEmail?: string;
   now?: string;
+  /** The collections `lockDocumentForSave` locked before the page. */
+  lockedDatabaseIds: ReadonlySet<string>;
 }): Promise<string[]> {
   const parsed = await collectInlineDatabaseOwnerBlockIds(args.content);
   if (!parsed.ok) return [];
@@ -177,6 +169,14 @@ export async function reconcileInlineDatabasesForDocumentWithDb(args: {
     );
 
   if (missing.length === 0) return [];
+  // Created after the caller locked its collections. Locking it now, after the
+  // page, deadlocks against a Trash of the page, which locks it first.
+  if (missing.some((database) => !args.lockedDatabaseIds.has(database.id))) {
+    throw new ActionContractError(
+      "An inline collection was added to the document while it saved. Read the document again and retry.",
+      { errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED", statusCode: 409 },
+    );
+  }
 
   const now = args.now ?? new Date().toISOString();
   const ids = missing.map((database) => database.id);

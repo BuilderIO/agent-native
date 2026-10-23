@@ -19,6 +19,9 @@ export const documents = table("documents", {
   content: text("content").notNull().default(""),
   bodyRevision: integer("body_revision").notNull().default(0),
   collabBodyRevision: integer("collab_body_revision"),
+  liveBodySwitchedAt: text("live_body_switched_at"),
+  // `_collab_docs.version` the stored body was last derived from.
+  liveCopyVersion: integer("live_copy_version"),
   description: text("description").notNull().default(""),
   icon: text("icon"),
   position: integer("position").notNull().default(0),
@@ -269,6 +272,15 @@ export const documentComments = table(
     propertyId: text("property_id"),
     propertyName: text("property_name"),
     propertyValue: text("property_value"),
+    /**
+     * The Blocks field tab a thread sits in, when it isn't the page body. Null
+     * means the body, so comments written before tabs had comments stay there.
+     * Set on every comment in the thread (replies copy the root's); the name is
+     * what the field was called when the thread started, so a deleted tab's
+     * threads still read as that tab.
+     */
+    fieldId: text("field_id"),
+    fieldName: text("field_name"),
     mentionsJson: text("mentions_json"),
     authorEmail: text("author_email").notNull(),
     authorName: text("author_name"),
@@ -790,6 +802,24 @@ export const contentDatabaseSourceExecutions = table(
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
+);
+
+export const contentDatabaseBuilderBlobCleanup = table(
+  "content_database_builder_blob_cleanup",
+  {
+    blobReference: text("blob_reference").primaryKey(),
+    createdAt: text("created_at").notNull().default(now()),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at")
+      .notNull()
+      .default("1970-01-01T00:00:00.000Z"),
+  },
+  (cleanup) => [
+    index("content_database_builder_blob_cleanup_due_idx").on(
+      cleanup.nextAttemptAt,
+      cleanup.createdAt,
+    ),
+  ],
 );
 
 export const contentDatabaseSourceExecutionClaims = table(

@@ -44,6 +44,7 @@ import {
   hasConfiguredCloudProvider,
   MODEL_SELECTOR_POPOVER_STYLE,
   mentionItemMatchesQuery,
+  modelProviderGroupLabel,
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
   shouldRenderModelSelector,
@@ -2759,6 +2760,7 @@ describe("createTiptapComposerExtensions", () => {
             selectedModel: "gpt-5.6-luna",
             selectedEngine: "openai",
             onModelChange: vi.fn(),
+            agentOnly: false,
             includeDefaultSlashSkills: false,
             plusMenuMode: "hidden",
             providerConnectStatusEnabled: false,
@@ -2808,6 +2810,11 @@ describe("createTiptapComposerExtensions", () => {
       '[data-agent-native-composer-popover="true"]',
     );
     expect(picker?.textContent).toContain("GPT-5.6 Luna");
+    expect(
+      Array.from(picker?.querySelectorAll('[role="tab"]') ?? []).some((tab) =>
+        tab.textContent?.includes("Model"),
+      ),
+    ).toBe(true);
   });
 
   it("shows current Builder model versions in the picker", () => {
@@ -5034,6 +5041,24 @@ describe("composerModelCostTier", () => {
     expect(composerModelCostTier("z-ai/glm-5.2")).toBeUndefined();
     expect(composerModelCostTier("kimi-k2-5")).toBeUndefined();
     expect(composerModelCostTier("")).toBeUndefined();
+  });
+});
+
+describe("modelProviderGroupLabel", () => {
+  it("drops the Builder.io suffix when the family name is unique", () => {
+    const builder = { engine: "builder", label: "OpenAI · Builder.io" };
+    const claude = { engine: "builder", label: "Claude · Builder.io" };
+    expect(modelProviderGroupLabel(builder, [builder, claude])).toBe("OpenAI");
+  });
+
+  it("keeps the suffix when a direct-key group shares the family name", () => {
+    const builder = { engine: "builder", label: "OpenAI · Builder.io" };
+    const direct = { engine: "ai-sdk:openai", label: "OpenAI" };
+    const groups = [builder, direct];
+    expect(modelProviderGroupLabel(builder, groups)).toBe(
+      "OpenAI · Builder.io",
+    );
+    expect(modelProviderGroupLabel(direct, groups)).toBe("OpenAI");
   });
 });
 

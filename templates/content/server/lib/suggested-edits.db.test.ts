@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
 import {
   markdownSuggestionOperations,
@@ -357,9 +358,303 @@ describe("Content suggested edits Blocks transaction", () => {
         );
         const updated = await getDocumentAction.run({ id: documentId }, ctx);
         expect(updated.content).toBe(after);
-        expect(updated.bodyRevision).toBe(2);
+        // The whole proposal lands as one Page revision.
+        expect(updated.bodyRevision).toBe(1);
       });
     await run();
+  });
+
+  it("accepts a 50-edit proposal as one Page version with every edit placed", async () => {
+    sequence += 1;
+    const documentId = `suggestion-large-proposal-page-${sequence}`;
+    const before = canonicalizeNfm(
+      Array.from(
+        { length: 50 },
+        (_, index) =>
+          `Paragraph ${index + 1} says the quick brown fox jumps over the lazy dog number ${index + 1}.`,
+      ).join("\n\n"),
+    );
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Large proposal page",
+      content: before,
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      // Each edit is saved against the same Page, as an agent's batch is.
+      const suggestions = Array.from({ length: 50 }, (_, index) => {
+        const from = before.indexOf(`lazy dog number ${index + 1}.`);
+        const to = from + "lazy dog".length;
+        return {
+          summary: `Edit ${index + 1}`,
+          operations: [
+            {
+              ordinal: 0,
+              kind: "replace_text",
+              targetId: "body",
+              schemaVersion: 1,
+              before: { markdown: before, changedText: "lazy dog" },
+              after: {
+                markdown: `${before.slice(0, from)}sleepy cat${before.slice(to)}`,
+                changedText: "sleepy cat",
+              },
+              anchor: {
+                from,
+                to,
+                prefix: before.slice(Math.max(0, from - 32), from),
+                suffix: before.slice(to, to + 32),
+              },
+            },
+          ],
+        };
+      });
+      const created = await (
+        await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal")
+      ).default.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind: adapter.kind,
+          baseRevision: document.revision,
+          summary: "Fifty edits",
+          idempotencyKey: `content-large-proposal-${documentId}`,
+          suggestions,
+        },
+        ctx,
+      );
+      const accepted = await (
+        await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal")
+      ).default.run(
+        {
+          proposalId: created.proposal.id,
+          decision: "accepted",
+          idempotencyKey: `content-large-proposal-decision-${documentId}`,
+          members: created.suggestions.map((suggestion) => ({
+            id: suggestion.id,
+            observedRevision: suggestion.revision,
+            observedBase: suggestion.baseRevision,
+          })),
+        },
+        ctx,
+      );
+      expect(accepted.suggestions.map((suggestion) => suggestion.id)).toEqual(
+        created.suggestions.map((suggestion) => suggestion.id),
+      );
+      expect(
+        accepted.suggestions.every(
+          (suggestion) => suggestion.status === "accepted",
+        ),
+      ).toBe(true);
+      const updated = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(updated.content).toBe(before.split("lazy dog").join("sleepy cat"));
+      expect(updated.bodyRevision).toBe(1);
+      // One history entry: the original Page, then the Page after all 50.
+      const versions = await getDb()
+        .select({
+          checkpointKind: schema.documentVersions.checkpointKind,
+          content: schema.documentVersions.content,
+        })
+        .from(schema.documentVersions)
+        .where(eq(schema.documentVersions.documentId, documentId));
+      expect(
+        versions
+          .map((version) => [version.checkpointKind, version.content])
+          .sort(([a], [b]) => String(a).localeCompare(String(b))),
+      ).toEqual([
+        ["after", updated.content],
+        ["before", before],
+      ]);
+    });
+  });
+
+  it("keeps each Blocks paragraph's ID when proposal edits reuse each other's text", async () => {
+    const { documentId, propertyId } = await seedSystemDatabasePage();
+    const original = "Apple\nBanana";
+    const db = getDb();
+    await db
+      .update(schema.documents)
+      .set({ content: original })
+      .where(eq(schema.documents.id, documentId));
+    const { persistBlocksFieldIdentity } =
+      await import("../../actions/_blocks-field-identity.js");
+    await persistBlocksFieldIdentity({
+      db,
+      ownerEmail,
+      documentId,
+      propertyId,
+      previousMarkdown: original,
+      markdown: original,
+      now: new Date().toISOString(),
+    });
+    const liveBlocks = async () => {
+      const [field] = await db
+        .select()
+        .from(schema.documentBlockFields)
+        .where(eq(schema.documentBlockFields.propertyId, propertyId));
+      const blocks = await db
+        .select({
+          id: schema.documentBlocks.id,
+          markdown: schema.documentBlocks.markdown,
+          state: schema.documentBlocks.state,
+        })
+        .from(schema.documentBlocks)
+        .where(eq(schema.documentBlocks.fieldId, field!.id))
+        .orderBy(schema.documentBlocks.sortIndex);
+      return blocks
+        .filter((block) => block.state !== "deleted")
+        .map(({ id, markdown }) => ({ id, markdown }));
+    };
+    const [apple, banana] = await liveBlocks();
+    expect([apple?.markdown, banana?.markdown]).toEqual(["Apple", "Banana"]);
+
+    const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      // Both edits are written against the original Page. The second turns
+      // Apple into the text that the first one replaces.
+      const suggestions = ["Apple\nCherry", "Banana\nBanana"].map((after) => {
+        const operations = markdownSuggestionOperations(original, after);
+        expect(operations).toHaveLength(1);
+        return { summary: after, operations };
+      });
+      const created = await (
+        await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal")
+      ).default.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind: adapter.kind,
+          baseRevision: document.revision,
+          summary: "Swap fruit",
+          idempotencyKey: `content-blocks-proposal-${documentId}`,
+          suggestions,
+        },
+        ctx,
+      );
+      await (
+        await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal")
+      ).default.run(
+        {
+          proposalId: created.proposal.id,
+          decision: "accepted",
+          idempotencyKey: `content-blocks-proposal-decision-${documentId}`,
+          members: created.suggestions.map((suggestion) => ({
+            id: suggestion.id,
+            observedRevision: suggestion.revision,
+            observedBase: suggestion.baseRevision,
+          })),
+        },
+        ctx,
+      );
+      const updated = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(updated.content).toBe("Banana\nCherry");
+    });
+    // Saved one edit at a time, Apple's paragraph becomes Banana and Banana's
+    // becomes Cherry. Matching only the first and last Page would swap them.
+    expect(await liveBlocks()).toEqual([
+      { id: apple!.id, markdown: "Banana" },
+      { id: banana!.id, markdown: "Cherry" },
+    ]);
+  });
+
+  it("keeps a stale save for review when proposal edits move paragraphs", async () => {
+    sequence += 1;
+    const documentId = `suggestion-moving-proposal-page-${sequence}`;
+    const original = canonicalizeNfm("Alpha\n\nBravo\n\nCharlie\n\nDelta");
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Moving proposal page",
+      content: original,
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+    const updated = await runWithRequestContext(
+      { userEmail: ownerEmail },
+      async () => {
+        const document = await getDocumentAction.run({ id: documentId }, ctx);
+        // One edit adds a paragraph and another removes one, so the Page keeps
+        // its paragraph count while Bravo and Charlie move down.
+        const suggestions = [
+          "Alpha\n\nInserted\n\nBravo\n\nCharlie\n\nDelta",
+          "Alpha\n\nBravo\n\nCharlie",
+        ].map((after) => {
+          const operations = markdownSuggestionOperations(
+            original,
+            canonicalizeNfm(after),
+          );
+          expect(operations).toHaveLength(1);
+          return { summary: after, operations };
+        });
+        const created = await (
+          await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal")
+        ).default.run(
+          {
+            resourceType: "document",
+            resourceId: documentId,
+            adapterKind: adapter.kind,
+            baseRevision: document.revision,
+            summary: "Move paragraphs",
+            idempotencyKey: `content-moving-proposal-${documentId}`,
+            suggestions,
+          },
+          ctx,
+        );
+        await (
+          await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal")
+        ).default.run(
+          {
+            proposalId: created.proposal.id,
+            decision: "accepted",
+            idempotencyKey: `content-moving-proposal-decision-${documentId}`,
+            members: created.suggestions.map((suggestion) => ({
+              id: suggestion.id,
+              observedRevision: suggestion.revision,
+              observedBase: suggestion.baseRevision,
+            })),
+          },
+          ctx,
+        );
+        return getDocumentAction.run({ id: documentId }, ctx);
+      },
+    );
+    expect(updated.content).toBe(
+      canonicalizeNfm("Alpha\n\nInserted\n\nBravo\n\nCharlie"),
+    );
+    const { readDocumentBodyIntents } =
+      await import("./document-body-intents.js");
+    // An editor still on the original Page saves a change to Bravo. Bravo now
+    // sits one paragraph lower, so merging by position would put the change
+    // into Inserted. Saved one edit at a time, this save was kept for review.
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: original,
+        authoredCandidateContent: canonicalizeNfm(
+          "Alpha\n\nBravo, edited\n\nCharlie\n\nDelta",
+        ),
+        currentContent: updated.content,
+        currentRevision: updated.bodyRevision,
+        incoming: {
+          writerId: "editor:stale-tab",
+          operationId: "stale-save",
+          authoredBaseRevision: 0,
+        },
+        priorIntents: await readDocumentBodyIntents({
+          db: getDb(),
+          ownerEmail,
+          documentId,
+          afterRevision: 0,
+          throughRevision: updated.bodyRevision,
+        }),
+      }),
+    ).toEqual({ status: "preservation-required", reason: "provenance" });
   });
 
   it("lets a commenter withdraw their own suggestion without touching the Page", async () => {

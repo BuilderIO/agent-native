@@ -1,5 +1,141 @@
 # @agent-native/toolkit
 
+## 0.218.0
+
+### Minor Changes
+
+- fc038a0: Add opt-in transcript positioning and chart presentation controls to shared chat, including regular tool-call renderers.
+
+### Patch Changes
+
+- 84e4b2e: Add an ownership-aware chat history adapter that combines owned chats, shared chats, and eligible started drafts with independent sections, paging, and failure-safe optimistic mutations.
+- Release all public npm packages with a patch version bump.
+- 84e4b2e: Keep shared chat rows on one line with the owner's avatar, give every chat row a Copy link menu, and stop the share panel's people search from opening an empty "No people found" list.
+- Updated dependencies
+  - @agent-native/agentkit@0.218.0
+
+## 0.217.0
+
+### Minor Changes
+
+- 6c3f3cb: Let each command menu add ordered app commands, nested pages, selected-row previews, filter launchers, no-match suggestions, and an embedded chat slot without replacing the shared menu. Apps can also choose a shared wide dialog, supply search and empty states, report when dynamic result components contain rows, control selection and result placement, and opt into custom footer content or portal containers.
+- 4c43f86: Let each settings shell declare app-owned pages, ordered navigation sections, nested routes, custom controls, optional widget, chat, and toggle slots, and expose the shared theme-family setting to app-owned pages.
+- 9e4119f: Expose the shared toast notification helper from the toolkit UI package.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.217.0
+
+## 0.216.0
+
+### Minor Changes
+
+- 31a1f1e: Allow hosts to customize the shared AgentPanel page header share trigger content.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies
+  - @agent-native/agentkit@0.216.0
+
+## 0.215.0
+
+### Minor Changes
+
+- f8f4b9e: Expose optional transcript layout, post-widget text, and worked-summary controls for chat hosts.
+- 0b58010: Allow hosts to provide an action icon for the shared context banner.
+- 4fd6b35: Add chart tick intervals, horizontal-bar spacing controls, and direct icon actions.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 11a11d9: Expose opt-in transcript positioning and typography controls on chat surfaces.
+- aa79d54: Move the shared work-summary disclosure indicator to the leading edge and give the row a full-size click target.
+- Updated dependencies
+  - @agent-native/agentkit@0.215.0
+
+## 0.214.0
+
+### Minor Changes
+
+- 05d1481: Add app-scoped theme family preferences and shared chat presentation controls.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.214.0
+
+## 0.213.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.1
+
+## 0.213.0
+
+### Minor Changes
+
+- b58658d: Allow organization owners to opt in to current-member A2A delegation with capped member permissions and durable audit provenance. Improve app discovery and Dispatch routing for connected analytics and customer credit questions.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.213.0
+
+## 0.212.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.212.1
+
+## 0.212.0
+
+### Patch Changes
+
+- 71749d3: Ask for confirmation before a resource becomes visible to the whole organization. `ShareButton` and `ShareDialog` now hold a private-to-Organization change until it is confirmed; Cancel leaves the saved access and cache untouched, and a failed save stays open to retry. Core adds `useShareVisibilityTransition` (request, confirm, cancel) and the toolkit adds `ShareVisibilityConfirmDialog` and `ShareGeneralAccessRow` for apps that compose their own sharing surface. `useShareButtonController.handleVisibilityChange` stays as a deprecated alias for `visibilityTransition.request`, so it also waits for confirmation; its promise resolves once the change is saved, rejects when a direct save fails, and for a held change stays pending through confirmation failures (retry is possible) until it saves or is cancelled or invalidated (`ShareVisibilityNotSavedError`). Visibility requests from a closed surface are ignored, and a pending visibility change never carries over to another resource. Saved share and visibility changes to chats also refresh the chat history lists.
+- 9d61445: An agent's connection request card now stays in the chat. Saved chat history keeps `connection.requested` and `connection.updated`, so the card survives a thread reload or page refresh, and a chat that is waiting on an open connection request no longer shows the "server says this chat is no longer running" notice while the server's run has ended by design.
+- 96e2cf6: Discover and rank authorized workspace apps across the organization directory, and add Lab-gated installs from reviewed, pinned community app templates.
+- Release all public npm packages with a patch version bump.
+- ae5a212: Keep the model picker's OpenAI sections distinct when Builder.io credits and an OpenAI key are both connected.
+- 71749d3: Keep visibility controls busy and locked across sharing-surface remounts until physical saves settle. Load organization details only for confirmation, preserve search-specific empty states in sectioned chat history, and document malformed history-pagination requests returning HTTP 400.
+- 71749d3: Add independent sections to `ChatHistoryRail` (per-section preview, Show all, paged load-more, loading skeleton, error and empty states), owner and access-basis row details, a per-row `hideActions` flag, and a pure `OwnershipFilter` with `filterByOwnership`. `VisibilityBadge` now takes translated `labels` instead of hardcoded English (omitted labels keep the legacy English text); use the localized `VisibilityBadge` and `OwnershipFilter` from `@agent-native/toolkit/app/sharing`.
+- 9fcbe67: `TooltipTrigger` no longer opens its tooltip when a closing menu, popover or dialog returns focus to the trigger after a click. Keyboard focus still opens it.
+- 66ae94a: Add `UnsupportedDeviceGate` and an `unsupportedDevice` option on `AppProviders`. On touch screens smaller than an iPad it replaces the signed-in app, before the sign-in screen, with a short notice that offers the OS share sheet and an "Email me the link" action, so someone who opens the app on a phone can continue on a larger device.
+- Updated dependencies [d24c71c]
+- Updated dependencies
+  - @agent-native/agentkit@0.212.0
+
+## 0.211.0
+
+### Patch Changes
+
+- 4fdf78c: Preserve file attachments when nested drop handlers stop event propagation.
+- ab1a9e8: Keep the hosted harness picker exclusive to Agent-Native Desktop.
+- 67514ae: Mark block menu actions and drag moves from the editor drag handle as user edits, so collaborative saves keep them.
+- b451cb2: Improve Gong setup with a click-to-connect flow that appears only when workspace permissions allow it.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.211.0
+
+## 0.210.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.210.2
+
 ## 0.210.1
 
 ### Patch Changes
@@ -1166,90 +1302,5 @@
 ### Patch Changes
 
 - c41fd16: Use theme tokens for collaboration edit highlight labels.
-
-## 0.13.7
-
-### Patch Changes
-
-- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-## 0.13.6
-
-### Patch Changes
-
-- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-## 0.13.5
-
-### Patch Changes
-
-- a107169: Fix PPTX/PDF import color and text fidelity: resolve theme/master colors (including `lumMod`/`lumOff`/`tint`/`shade` transforms) instead of defaulting to black, inherit per-level placeholder colors from the slide master, resolve each slide's own layout→master→theme chain instead of reusing the deck's first master (fixes wrong colors in presentations combining more than one template), recover per-run text colors and styles from PDF content streams instead of collapsing multi-color/multi-weight lines to a single style, treat a PDF's initial (unset) fill color as the known black default instead of an unresolved guess, preserve real PDF line spacing for bullet lists, bound concurrent PDF page image uploads, and fail clearly instead of silently importing a scanned/unrecoverable PDF as blank placeholder slides.
-
-## 0.13.4
-
-### Patch Changes
-
-- da40677: Fix realtime voice tool calls failing with "Invalid or expired realtime voice capability" on serverless deploys. The capability minted by `/_agent-native/realtime-voice/session` lived in a per-process `Map`, so under `NITRO_PRESET=netlify` a tool call that landed on a different instance than the SDP request was rejected — the agent would report that it could not read the current selection and ask the user to reopen the editor. The capability is now an HMAC-signed token carrying the caller's identity, browser tab, and allowed tool names, so any instance can verify it.
-
-  Two behavior changes follow from that. The grant no longer slides on use — it cannot be extended server-side — so its TTL is now an absolute 75 minutes, covering the provider's maximum session length. And when a `tool-search` widens the manifest, the tool response carries a re-issued capability that the client adopts; without it, calls to the newly discovered tools would 404.
-
-  Fix dictation stopping instantly with no error anywhere. `SpeechRecognition` always fires `end` after `error`, and `useVoiceDictation`'s `end` handler returned the composer to idle — erasing the message `onerror` had just set. Every speech failure was therefore invisible in both the UI and the console. `end` no longer overwrites a reported error.
-
-  Dictation also survives browsers that ship `SpeechRecognition` without a speech backend. Brave exposes `webkitSpeechRecognition` but removed the Google service behind it, so `auto` mode selected a recognizer that can only ever fail with `network`. In `auto` mode a recognizer that produced no text — because it failed, or because it ended before the microphone opened — now falls back to the MediaRecorder upload path. Permission and device errors are excluded, since retrying those through another provider fails identically. A mid-session drop that already captured speech keeps the transcript rather than failing over.
-
-  The amplitude meter's own `getUserMedia` also moved to after recognition claims the microphone, since taking the device first can make Chrome abort the session.
-
-## 0.13.3
-
-### Patch Changes
-
-- d3f8794: Allow hosts to configure the shared composer document attachment limit and label.
-
-## 0.13.2
-
-### Patch Changes
-
-- 277be3f: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
-- 277be3f: Keep the public app-config export available to browser-safe toolkit consumers.
-
-## 0.13.1
-
-### Patch Changes
-
-- c71d383: Include the shared creative-context and toolkit updates in the next package release.
-
-## 0.13.0
-
-### Minor Changes
-
-- 106af0e: Add dense horizontal variants to the design-tweak controls. `VisualColorPicker`
-  gains a `swatch` variant that drops the value text and caret, an optional
-  `glyph` rendered over the current color, and an app tooltip naming the property
-  it paints. `VisualScrubInput` gains a `steppers` option that replaces the
-  drag-scrub label with minus/plus buttons.
-
-## 0.12.2
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
-
-## 0.12.1
-
-### Patch Changes
-
-- 89e5910: Memoize the composer runtime adapters context value so consumer effects stop
-  re-running on every provider render. The voice input preference was re-read from
-  app state, and the sidebar-state listener re-subscribed, once per render.
-
-## 0.12.0
-
-### Minor Changes
-
-- c0e7d64: Add reusable canvas drawing, text annotation, and pinned agent-comment controls.
-- c0e7d64: Add a reusable canvas interaction controller for text activation, shortcuts, moving, resizing, duplication, and gesture lifecycle.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -25,14 +25,19 @@ export async function collectionWindow(
   step: ContentCollectionStepId,
   now: Date,
   lookbackDays: number,
+  configFingerprint?: string,
 ): Promise<{ startDate: string; endDate: string }> {
   const end = new Date(now.getTime() - DAY_MS);
   const previous = await lastSucceededContentRun(collection, step);
   const earliest = end.getTime() - (BACKFILL_DAYS - 1) * DAY_MS;
   const lookback = end.getTime() - (lookbackDays - 1) * DAY_MS;
-  const uncovered = previous?.windowEnd
-    ? new Date(`${previous.windowEnd}T00:00:00Z`).getTime() + DAY_MS
-    : earliest;
+  const sameConfig =
+    configFingerprint === undefined ||
+    previous?.configFingerprint === configFingerprint;
+  const uncovered =
+    previous?.windowEnd && sameConfig
+      ? new Date(`${previous.windowEnd}T00:00:00Z`).getTime() + DAY_MS
+      : earliest;
   const start = Math.max(earliest, Math.min(lookback, uncovered));
   return {
     startDate: utcDate(new Date(start)),

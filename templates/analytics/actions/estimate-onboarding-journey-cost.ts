@@ -14,10 +14,16 @@ import {
   estimateOnboardingJourneyEventQueryCost,
   OnboardingJourneyCostError,
 } from "../server/lib/onboarding-journey-cost.js";
-import { freezeOnboardingJourneyObservationWindow } from "../server/lib/onboarding-journey.js";
+import {
+  DEFAULT_ONBOARDING_EVENT_ROW_BUDGET,
+  freezeOnboardingJourneyObservationWindow,
+  MAX_ONBOARDING_EVENT_ROW_BUDGET,
+  ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
+  ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+  ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
+} from "../server/lib/onboarding-journey.js";
 
 const MAX_WINDOW_DAYS = 90;
-const MAX_JOURNEY_EVENT_ROWS = 200_000;
 
 const isoDate = z
   .string()
@@ -26,7 +32,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    "Dry-run the caller-scoped BigQuery event-page queries for an onboarding journey and return each possible page's estimated bytes, their total if all pages run, the existing per-query bytes-billed cap, and cap status.",
+    "Dry-run the caller-scoped BigQuery event-page queries for an onboarding journey. Returns requested and budget-allowed page counts, estimated bytes per page, and total possible bytes when every allowed page is estimated. Each page reserves the 25 GB per-query cap against maxTotalBytesBilled. Estimates stop after 45 seconds and explicitly report unestimated pages.",
   schema: z.object({
     dateFrom: isoDate.describe(
       "Inclusive UTC start date, YYYY-MM-DD. Use the same dateFrom as get-onboarding-journey.",
@@ -59,11 +65,21 @@ export default defineAction({
       .number()
       .int()
       .min(1000)
-      .max(MAX_JOURNEY_EVENT_ROWS)
+      .max(MAX_ONBOARDING_EVENT_ROW_BUDGET)
       .optional()
-      .default(40000)
+      .default(DEFAULT_ONBOARDING_EVENT_ROW_BUDGET)
       .describe(
-        `Event row budget, matching get-onboarding-journey. Defaults to 40000; at most ${MAX_JOURNEY_EVENT_ROWS}. The second page is estimated when this budget allows it, but the journey reads it only if the first page is full.`,
+        `Event row budget, matching get-onboarding-journey. Defaults to ${DEFAULT_ONBOARDING_EVENT_ROW_BUDGET}; at most ${MAX_ONBOARDING_EVENT_ROW_BUDGET}. Estimates include the one-row overflow check; the journey reads each page only when the previous page is full.`,
+      ),
+    maxTotalBytesBilled: z.coerce
+      .number()
+      .int()
+      .min(ONBOARDING_EVENTS_MAX_BYTES_BILLED)
+      .max(ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED)
+      .optional()
+      .default(ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED)
+      .describe(
+        "Aggregate cap for event-page queries, in bytes billed. Each allowed BigQuery page reserves its full 25 GB per-query cap. Defaults to 275 GB (11 pages); set a higher value deliberately to allow more pages, up to 1.275 TB (51 pages). Match get-onboarding-journey.",
       ),
   }),
   http: { method: "GET" },
@@ -102,6 +118,7 @@ export default defineAction({
         freezeOnboardingJourneyObservationWindow(filters),
         args.followUpMode === "person",
         context?.signal,
+        args.maxTotalBytesBilled,
       );
     } catch (error) {
       if (

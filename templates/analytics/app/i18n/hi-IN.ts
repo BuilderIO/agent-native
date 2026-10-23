@@ -104,63 +104,19 @@ export default {
     sigmaRetryConnection: "कनेक्शन जाँचें और फिर कोशिश करें।",
     sigmaRetry: "फिर कोशिश करें",
     sigmaNoWorkbooks: "कोई Sigma वर्कबुक उपलब्ध नहीं है।",
-    sigmaWorkbook: "वर्कबुक",
-    sigmaChooseWorkbook: "वर्कबुक चुनें",
-    sigmaStatusNotImported: "आयात नहीं किया गया",
-    sigmaStatusImporting: "आयात हो रहा है",
-    sigmaStatusImported: "आयात किया गया",
-    sigmaStatusFailed: "आयात विफल हुआ",
+    sigmaSearchWorkbooks: "वर्कबुक खोजें…",
+    sigmaNoMatchingWorkbooks: "कोई मेल खाती वर्कबुक नहीं",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "अभी तक कोई मेल खाती वर्कबुक लोड नहीं हुई। बाकी खोजने के लिए और वर्कबुक लोड करें।",
+    sigmaOpenMigratedDashboard: "आयात किया गया डैशबोर्ड नए टैब में खोलें",
+    sigmaOwnedBy: "स्वामी",
+    sigmaMigratingTooltip: "{{name}} द्वारा माइग्रेट किया जा रहा है",
+    sigmaMigrate: "माइग्रेट करें",
+    sigmaMigrateComingSoon: "जल्द आ रहा है",
     sigmaArchived: "संग्रहीत",
-    sigmaPreviewTitle: "वर्कबुक की सामग्री",
-    sigmaPreviewFailed: "इस वर्कबुक का पूर्वावलोकन नहीं हो सका",
-    sigmaRetryPreview: "वर्कबुक पूर्वावलोकन लोड करने के लिए फिर कोशिश करें।",
-    sigmaImportableCount: "{{count}} आयात योग्य",
-    sigmaUnsupportedCount: "{{count}} असमर्थित",
-    sigmaImportable: "आयात योग्य",
-    sigmaUnsupported: "असमर्थित",
-    sigmaNoElements: "वर्कबुक में कोई एलिमेंट नहीं मिला।",
-    sigmaPreviewOnly:
-      "अभी केवल पूर्वावलोकन: Sigma ऐसा BigQuery प्रोजेक्ट मैपिंग नहीं देता जिसे Analytics सत्यापित कर सके। यह मैपिंग उपलब्ध होने तक आयात बंद रहेगा।",
-    sigmaPreviewTruncated: "{{total}} में से {{shown}} एलिमेंट दिखाए गए हैं।",
-    sigmaImportWorkbook: "वर्कबुक आयात करें",
-    sigmaImporting: "वर्कबुक आयात हो रही है…",
-    sigmaImportInProgress: "इस वर्कबुक का आयात पहले से चल रहा है।",
-    sigmaMigrationFailed: "वर्कबुक आयात नहीं हो सकी। फिर कोशिश करें।",
-    sigmaMigrationResultInvalid:
-      "आयात का जवाब अधूरा था। स्थिति देखने के लिए वर्कबुक सूची फिर से लोड करें।",
-    sigmaImportComplete: "डैशबोर्ड बनाया गया",
-    sigmaImportSummary:
-      "{{imported}} एलिमेंट आयात किए गए; {{unsupported}} असमर्थित एलिमेंट समीक्षा कॉलआउट के रूप में रखे गए।",
-    sigmaAlreadyImported: "यह वर्कबुक पहले ही आयात की जा चुकी है।",
-    sigmaImportedNoDashboard:
-      "डैशबोर्ड आयात किया गया, लेकिन इसे इस खाते से खोला नहीं जा सकता।",
-    sigmaReviewRequiredCount: "{{count}} की समीक्षा ज़रूरी है",
-    sigmaBetaRepresentationWarning:
-      "इस बीटा आयात में कुछ विज़ुअलाइज़ेशन Sigma से अलग दिख सकते हैं।",
-    sigmaReasonUnsupportedElement: "यह एलिमेंट प्रकार आयात के लिए समर्थित नहीं है।",
-    sigmaReasonUnsupportedSource:
-      "यह एलिमेंट ऐसे स्रोत का उपयोग करता है जो आयात के लिए समर्थित नहीं है।",
-    sigmaReasonSourceMappingRequired:
-      "Sigma ऐसा BigQuery प्रोजेक्ट मैपिंग नहीं देता जिसे Analytics सत्यापित कर सके, इसलिए यह SQL अभी आयात नहीं हो सकता।",
-    sigmaReasonSourceUnavailable:
-      "Sigma ने इस स्रोत कनेक्शन तक पहुँच की अनुमति नहीं दी। इसकी अनुमतियाँ जाँचें।",
-    sigmaReasonQueryUnavailable:
-      "Sigma ने इस एलिमेंट के लिए आयात योग्य क्वेरी नहीं दी।",
-    sigmaReasonUnsafeSql: "इस क्वेरी पैटर्न को सुरक्षित रूप से आयात नहीं किया जा सकता।",
-    sigmaReasonVisualizationReview:
-      "डेटा आयात किया जा सकता है, लेकिन बाद में विज़ुअलाइज़ेशन जाँचें।",
-    sigmaRetryOwnerOnly:
-      "केवल इस आयात को शुरू करने वाला व्यक्ति इसे फिर से आज़मा सकता है।",
-    sigmaImportedByTeammate: "टीम के किसी सदस्य ने आयात किया",
-    sigmaFlaggedCount: "{{count}} समीक्षा के लिए चिह्नित",
     sigmaMoreWorkbooksFailed: "और वर्कबुक लोड नहीं हो सकीं",
     sigmaLoadingMore: "वर्कबुक लोड हो रही हैं…",
     sigmaLoadMore: "और वर्कबुक लोड करें",
-    sigmaOpenDashboard: "डैशबोर्ड खोलें",
-    sigmaReviewWithAgent: "एजेंट से समीक्षा कराएँ",
-    sigmaReviewContext: "आयात किया गया Sigma डैशबोर्ड",
-    sigmaReviewPrompt:
-      "आयात किए गए Sigma डैशबोर्ड {{name}} की समीक्षा करें। आयात किए गए पैनल और असमर्थित एलिमेंट जाँचें, फिर सुधार सुझाएँ।",
   },
   sidebar: {
     collapseSidebar: "साइडबार समेटें",
@@ -710,6 +666,43 @@ export default {
     sameNameCheckFailed: "इस मेट्रिक की मौजूदा प्रविष्टियों की जाँच नहीं हो सकी।",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description: "कंटेंट व्यू के लिए हर पेज के रोज़ाना क्लिक और इंप्रेशन।",
+      serviceAccount: "सर्विस अकाउंट",
+      copyEmail: "ईमेल कॉपी करें",
+      grantHint:
+        "Search Console में हर प्रॉपर्टी पर सेटिंग → उपयोगकर्ता और अनुमतियां में जाकर इस ईमेल को उपयोगकर्ता के रूप में जोड़ें।",
+      noServiceAccount: "पहले Google सर्विस अकाउंट की कुंजी जोड़ें।",
+      openGoogleCloud: "Google Cloud खोलें",
+      invalidServiceAccount: "सहेजी गई सर्विस अकाउंट कुंजी पढ़ी नहीं जा सकती।",
+      properties: "प्रॉपर्टी",
+      siteLabel: "प्रॉपर्टी",
+      pathLabel: "पाथ प्रीफ़िक्स",
+      pathInvalid: "पथ उपसर्ग / से शुरू करें।",
+      addProperty: "प्रॉपर्टी जोड़ें",
+      removeProperty: "प्रॉपर्टी हटाएं",
+      save: "सहेजें",
+      collectDaily: "रोज़ इकट्ठा करें",
+      adminOnly: "केवल संगठन के मालिक और एडमिन इसे बदल सकते हैं।",
+      statusCollecting: "इकट्ठा हो रहा है",
+      statusNeedsAccess: "एक्सेस चाहिए",
+      statusFailed: "पिछला रन विफल रहा",
+      runSucceeded: "{{when}} को इकट्ठा किया गया",
+      runNeedsAccess: "{{when}} तक कोई एक्सेस नहीं",
+      runRunning: "{{when}} से इकट्ठा हो रहा है",
+      runFailed: "{{when}} को विफल",
+      unavailable: "संग्रह की स्थिति उपलब्ध नहीं है: {{message}}",
+      keyUnreadable:
+        "सहेजी गई सर्विस अकाउंट कुंजी पढ़ी नहीं जा सकी। इसे Google Cloud में फिर से सहेजें।",
+      propertyBareDomain: "डोमेन प्रॉपर्टी के लिए {{suggestion}} का उपयोग करें।",
+      propertyInvalidDomain:
+        "sc-domain: के बाद सिर्फ़ डोमेन लिखें, जैसे {{suggestion}}।",
+      propertyMissingSlash:
+        "URL-प्रीफ़िक्स प्रॉपर्टी / पर खत्म होती हैं। {{suggestion}} का उपयोग करें।",
+      propertyUnrecognized:
+        "sc-domain:example.com या / पर खत्म होने वाली URL-प्रीफ़िक्स प्रॉपर्टी का उपयोग करें।",
+    },
     uploadFile: "फ़ाइल अपलोड करें",
     googleSheetsExport: "Google Sheets निर्यात",
     googleSheetsExportDescription:
@@ -1275,11 +1268,20 @@ export default {
     groupName: "समूह का नाम",
     saveForEveryone: "सबके लिए सहेजें",
     groupNameTaken: "इस नाम का समूह पहले से मौजूद है",
+    renameGroup: "समूह का नाम बदलें…",
+    deleteGroup: "समूह हटाएं",
     untitledDashboard: "शीर्षक रहित डैशबोर्ड",
     dashboardFallback: "डैशबोर्ड",
     viewOnly: "आपके पास इस डैशबोर्ड तक केवल देखने की पहुंच है।",
     saveFailed: "डैशबोर्ड सहेजा नहीं जा सका",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: '"{{title}}" की BigQuery लागत',
+    panelCostOverTitle: '"{{title}}" को रीफ़्रेश करना महंगा है',
+    panelCostScheduled:
+      "~{{size}} स्कैन · हर रीफ़्रेश पर {{perRun}} · ईमेल रिपोर्ट में ~{{perMonth}}/महीना",
+    panelCostUnscheduled:
+      "~{{size}} स्कैन · हर रीफ़्रेश पर {{perRun}} · कोई ईमेल रिपोर्ट नहीं",
+    panelCostOverHint: "छोटी तारीख सीमा या कम कॉलम कम डेटा स्कैन करते हैं।",
     archived: "“{{name}}” संग्रहीत किया गया",
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "डैशबोर्ड संग्रहीत नहीं किया जा सका",
@@ -1676,6 +1678,10 @@ export default {
     catalogOpenSessions: "{{event}} वाले सत्र दिखाएँ",
     catalogAutomatic: "स्वचालित",
     catalogStoppedFiring: "भेजना बंद हुआ",
+    catalogMadeIt: "बनाया",
+    catalogUsedIt: "इस्तेमाल किया",
+    catalogNoUsedIt:
+      "“बनाया, इस्तेमाल नहीं किया” {{apps}} के नतीजे नहीं जाँच सकता, क्योंकि कोई “इस्तेमाल किया” इवेंट तय नहीं है।",
     catalogPropertyKeys: "प्रॉपर्टी कुंजियाँ",
     catalogMoreKeys: "+{{count}} और",
     catalogTruncated: "सिर्फ़ हाल ही में देखे गए {{count}} इवेंट दिखाए जा रहे हैं।",
@@ -1689,6 +1695,29 @@ export default {
     speedCoverageStarting: "गति अब से होने वाले पेज व्यू के लिए मापी जाती है।",
     speedFilterNeedsLab:
       "इस लिंक में गति फ़िल्टर है। उसे लागू करने के लिए सेटिंग्स में सत्र जाँच Lab चालू करें।",
+    unusedOutputs: "बनाया, इस्तेमाल नहीं किया",
+    anyOutcome: "कोई भी सत्र",
+    unusedSlidesDecks: "इस्तेमाल न हुए Slides डेक",
+    unusedSlidesRule:
+      "कम से कम {{days}} दिन पहले बने डेक, जिन्हें {{days}} दिनों के भीतर पहली स्लाइड से आगे {{seconds}} सेकंड या ज़्यादा प्रस्तुत या एक्सपोर्ट नहीं किया गया। डेक खोलना नहीं गिना जाता।",
+    unusedFilterNeedsLab:
+      "इस लिंक में “बनाया, इस्तेमाल नहीं किया” फ़िल्टर है। उसे लागू करने के लिए सेटिंग्स में सत्र जाँच Lab चालू करें।",
+    outputCoverageSince:
+      "नतीजे {{date}} से ट्रैक हो रहे हैं; इस्तेमाल न हुए नतीजे बनने के {{days}} दिन बाद दिखते हैं।",
+    outputCoverageStarting:
+      "नतीजे अब से ट्रैक होते हैं; इस्तेमाल न हुए नतीजे बनने के {{days}} दिन बाद दिखते हैं।",
+    openDeck: "डेक खोलें",
+    moreOutputs: "+{{count}} और",
+    deckCount: "{{count}} डेक",
+    deckCountSingular: "{{count}} डेक",
+    deckMadeOn: "डेक {{date}} को बना",
+    outputPresentedOn: "{{date}} को प्रस्तुत किया",
+    outputExportedOn: "{{date}} को एक्सपोर्ट किया",
+    outputUsedOn: "{{date}} को इस्तेमाल किया",
+    outputUnused: "{{days}} दिनों में इस्तेमाल नहीं हुआ",
+    outputOpen: "अभी इस्तेमाल नहीं हुआ; {{date}} के बाद इस्तेमाल न हुआ गिना जाएगा",
+    outputUnmeasured: "मापा नहीं गया: कुछ इवेंट सेव नहीं हो सके",
+    outputsUnavailable: "नतीजे लोड नहीं हो सके।",
     slowRequestCount: "{{count}} धीमे अनुरोध",
     slowRequestCountSingular: "{{count}} धीमा अनुरोध",
     speedIncomplete: "गति डेटा अधूरा है",

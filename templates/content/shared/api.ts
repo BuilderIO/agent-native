@@ -1,6 +1,10 @@
 import type { IconValue } from "@agent-native/core/icons";
 
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type {
+  GitHubSourceProblemCode,
+  GitHubSourceSkipReason,
+} from "./github-source";
 import type { NfmFidelityReport } from "./nfm";
 import type {
   DocumentPropertyOptions,
@@ -62,7 +66,7 @@ export interface Document {
 }
 
 export interface DocumentSourceInfo {
-  mode: "database" | "local-files";
+  mode: "database" | "local-files" | "github";
   kind?: "file" | "folder" | (string & {});
   path?: string;
   absolutePath?: string;
@@ -73,6 +77,8 @@ export interface DocumentSourceInfo {
   contentType?: string;
   sizeBytes?: number;
   updatedAt?: string;
+  /** For GitHub-linked pages, the file on GitHub. */
+  url?: string;
 }
 
 export type SyncState = "idle" | "linked" | "syncing" | "error" | "conflict";
@@ -155,9 +161,23 @@ export interface DocumentUpdateRequest {
   loadedContentWasEmpty?: boolean;
 }
 
+/**
+ * The body part of a browser save on a page whose body is its live copy. The
+ * body was not written: the editor's updates reach the live copy over collab.
+ * `matchesLiveCopy` says whether every submitted, authored and snapshot body
+ * equals the body derived from the live copy at `collabVersion`.
+ */
+export interface LiveCopyBodySave {
+  status: "live_copy";
+  matchesLiveCopy: boolean;
+  bodyRevision: number;
+  collabVersion: number;
+}
+
 export interface DocumentUpdateResponse extends Document {
   urlPath: string;
   softDeletedDatabaseIds: string[];
+  bodySave?: LiveCopyBodySave;
 }
 
 export interface DocumentMoveRequest {
@@ -372,19 +392,25 @@ export interface ContentDatabaseSort {
   direction: ContentDatabaseSortDirection;
 }
 
+export const CONTENT_DATABASE_FILTER_OPERATORS = [
+  "contains",
+  "equals",
+  "does_not_equal",
+  "greater_than",
+  "less_than",
+  "greater_than_or_equal",
+  "less_than_or_equal",
+  "before",
+  "after",
+  "between",
+  "is_checked",
+  "is_unchecked",
+  "is_empty",
+  "is_not_empty",
+] as const;
+
 export type ContentDatabaseFilterOperator =
-  | "contains"
-  | "equals"
-  | "does_not_equal"
-  | "greater_than"
-  | "less_than"
-  | "before"
-  | "after"
-  | "between"
-  | "is_checked"
-  | "is_unchecked"
-  | "is_empty"
-  | "is_not_empty";
+  (typeof CONTENT_DATABASE_FILTER_OPERATORS)[number];
 
 export interface ContentDatabaseFilter {
   key: "name" | (string & {});
@@ -393,6 +419,8 @@ export interface ContentDatabaseFilter {
   value: string;
   filterGroupId?: string;
   parentFilterGroupId?: string;
+  filterGroupMode?: ContentDatabaseFilterMode;
+  parentFilterGroupMode?: ContentDatabaseFilterMode;
 }
 
 export interface ContentDatabaseTableQuery {
@@ -441,6 +469,29 @@ export interface ContentDatabaseFormQuestion {
   required: boolean;
 }
 
+export type ContentDatabaseItemLeadingKind =
+  | "none"
+  | "page_icon"
+  | "checkbox"
+  | "status";
+export type ContentDatabaseItemTitleWeight = "regular" | "medium" | "bold";
+/** What line 2 shows: a property, or the first lines of each row's page. */
+export type ContentDatabaseItemLine2Source = "property" | "page";
+
+/** Which property fills each part of a list row. */
+export interface ContentDatabaseItemLayout {
+  leading: { kind: ContentDatabaseItemLeadingKind; propertyId: string | null };
+  titleWeight: ContentDatabaseItemTitleWeight;
+  /** A saved layout leaves `source` out when line 2 shows a property. */
+  line2: {
+    source?: ContentDatabaseItemLine2Source;
+    propertyId: string | null;
+    lines: 1 | 2 | 3;
+  };
+  line3: string[];
+  trailing: string[];
+}
+
 export interface ContentDatabaseView {
   id: string;
   name: string;
@@ -465,6 +516,8 @@ export interface ContentDatabaseView {
   rowDensity?: ContentDatabaseRowDensity;
   openPagesIn?: ContentDatabaseOpenPagesIn;
   formQuestions?: ContentDatabaseFormQuestion[];
+  /** List rows only. Null or absent keeps the default rows. */
+  itemLayout?: ContentDatabaseItemLayout | null;
 }
 
 export interface ContentDatabaseViewConfig {
@@ -580,6 +633,11 @@ export interface ContentDatabaseItem {
   properties: DocumentProperty[];
   workspaceFilesDatabaseId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
+  /**
+   * The first lines of the row's page as plain text. List reads include it
+   * only when a List view of the collection shows page text in line 2.
+   */
+  excerpt?: string;
   sourceRecord?: ContentDatabaseSourceRow;
   canonicalKey?: string | null;
   sourceOverlays?: ContentDatabaseSourceOverlay[];
@@ -698,7 +756,8 @@ export type ContentDatabaseSourceType =
   | "builder-cms"
   | "local-table"
   | "notion-database"
-  | "local-folder";
+  | "local-folder"
+  | "github";
 export type ContentDatabaseSourceTruthPolicy =
   | "database_primary"
   | "source_primary"
@@ -858,6 +917,7 @@ export interface ContentDatabaseSourceExecution {
   idempotencyKey: string;
   summary: string;
   payload: Record<string, unknown>;
+  payloadUnavailable?: true;
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
@@ -944,6 +1004,7 @@ export interface ContentDatabaseSource {
     readMode?: "fixture" | "builder-api" | (string & {}) | null;
     connectionId?: string | null;
     connectionLabel?: string | null;
+    builderSpacePublicKey?: string | null;
     truthPolicy?: ContentDatabaseSourceTruthPolicy;
     syncPolicy?: "manual" | "keep_in_sync";
     liveBridgeEnabled?: boolean;
@@ -953,6 +1014,7 @@ export interface ContentDatabaseSource {
     lastReadMatchedRowCount?: number;
     lastReadLimit?: number;
     lastReadFetchedEntryCount?: number;
+    lastReadCollectionCount?: number;
     lastReadPartial?: boolean;
     lastReadHasMore?: boolean;
     lastReadNextOffset?: number;
@@ -963,6 +1025,7 @@ export interface ContentDatabaseSource {
     allowedWriteModes?: ContentDatabaseSourcePushMode[];
     builderModelFields?: BuilderCmsModelFieldSummary[];
     federation?: ContentDatabaseSourceFederation;
+    github?: ContentGitHubSourceStatus;
   };
   fields: ContentDatabaseSourceFieldMapping[];
   rows: ContentDatabaseSourceRow[];
@@ -972,6 +1035,36 @@ export interface ContentDatabaseSource {
     changeSets: "complete" | "page" | "omitted";
   };
   bodyHydration?: ContentDatabaseBodyHydrationSummary;
+}
+
+/** Where a GitHub folder link stands, for its status line and agents. */
+export interface ContentGitHubSourceStatus {
+  owner: string;
+  repo: string;
+  branch: string;
+  path: string;
+  folderUrl: string;
+  mode: "view_only";
+  /** The commit every row matches, once a sync has finished. */
+  syncedCommitSha: string | null;
+  syncedAt: string | null;
+  /** Last time Content asked GitHub whether the branch moved. */
+  checkedAt: string | null;
+  /** A newer commit that's partly applied; refresh again to finish it. */
+  pendingCommitSha: string | null;
+  progress: { done: number; total: number } | null;
+  files: number;
+  /** Up to 50 of the skipped files, with why each was skipped. */
+  skipped: Array<{ path: string; reason: GitHubSourceSkipReason }>;
+  /** How many files were skipped in all. */
+  skippedCount: number;
+  /** Images not shown yet because file storage isn't set up. */
+  imagesWaiting: number;
+  problem: {
+    code: GitHubSourceProblemCode;
+    message: string;
+    at: string;
+  } | null;
 }
 
 export interface ContentDatabaseSourceStatusResponse {

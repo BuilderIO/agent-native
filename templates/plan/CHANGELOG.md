@@ -5,9 +5,19 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-19
 
+### Fixed
+
+- Opening a comment thread puts the cursor in the reply box, and Edit puts it after the comment's text. A reply you haven't sent stays with its thread when you open another one.
+
 ### Changed
 
 - Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-16
+
+### Added
+
+- Owned and shared chats appear in separate history sections, with each shared chat's owner shown as an avatar and a Copy link action on every chat.
 
 ## 2026-10-13
 

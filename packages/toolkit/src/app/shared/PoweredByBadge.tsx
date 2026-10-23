@@ -47,8 +47,6 @@ const containerStyle = (
   opacity: 0.82,
 });
 
-const darkQuery = "(prefers-color-scheme: dark)";
-
 export function PoweredByBadge({
   position = "bottom-right",
   variant = "badge",
@@ -91,54 +89,36 @@ export function PoweredByBadge({
         .an-powered-badge-plain:hover {
           opacity: 0.82 !important;
         }
-        .dark .an-powered-badge:not(.an-powered-badge-plain) {
+        :is(html.dark, html[data-theme="dark"]:not(.light)) .an-powered-badge:not(.an-powered-badge-plain) {
           background: rgba(255, 255, 255, 0.06) !important;
           border-color: rgba(255, 255, 255, 0.08) !important;
           color: rgba(215, 215, 215, 0.94) !important;
         }
-        .dark .an-powered-logo-light {
+        :is(html.dark, html[data-theme="dark"]:not(.light)) .an-powered-logo-light {
           display: none;
         }
-        .dark .an-powered-logo-dark {
+        :is(html.dark, html[data-theme="dark"]:not(.light)) .an-powered-logo-dark {
           display: block;
         }
-        @media ${darkQuery} {
-          .an-powered-badge:not(.an-powered-badge-plain) {
-            background: rgba(255, 255, 255, 0.06) !important;
-            border-color: rgba(255, 255, 255, 0.08) !important;
-            color: rgba(215, 215, 215, 0.94) !important;
-          }
-          .an-powered-logo-light {
-            display: none;
-          }
-          .an-powered-logo-dark {
-            display: block;
-          }
-        }
-        .light .an-powered-badge:not(.an-powered-badge-plain) {
+        :is(html.light, html[data-theme="light"]:not(.dark)) .an-powered-badge:not(.an-powered-badge-plain) {
           background: rgba(0, 0, 0, 0.05) !important;
           border-color: rgba(0, 0, 0, 0.06) !important;
           color: rgba(95, 95, 95, 0.95) !important;
         }
-        .light .an-powered-logo-light {
+        :is(html.light, html[data-theme="light"]:not(.dark)) .an-powered-logo-light {
           display: block;
         }
-        .light .an-powered-logo-dark {
+        :is(html.light, html[data-theme="light"]:not(.dark)) .an-powered-logo-dark {
           display: none;
         }
         .an-powered-badge:not(.an-powered-badge-plain):hover {
           opacity: 1 !important;
           color: rgba(70, 70, 70, 1) !important;
         }
-        @media ${darkQuery} {
-          .an-powered-badge:not(.an-powered-badge-plain):hover {
-            color: rgba(238, 238, 238, 1) !important;
-          }
-        }
-        .dark .an-powered-badge:not(.an-powered-badge-plain):hover {
+        :is(html.dark, html[data-theme="dark"]:not(.light)) .an-powered-badge:not(.an-powered-badge-plain):hover {
           color: rgba(238, 238, 238, 1) !important;
         }
-        .light .an-powered-badge:not(.an-powered-badge-plain):hover {
+        :is(html.light, html[data-theme="light"]:not(.dark)) .an-powered-badge:not(.an-powered-badge-plain):hover {
           color: rgba(70, 70, 70, 1) !important;
         }
       `}</style>
@@ -205,30 +185,8 @@ export function OpenSourceBadge({
             max-width: calc(100vw - 2rem);
           }
         }
-        .dark .an-open-source-badge {
-          color: #00B5FF !important;
-        }
-        @media ${darkQuery} {
-          .an-open-source-badge {
-            color: #00B5FF !important;
-          }
-        }
-        .light .an-open-source-badge {
-          color: #00B5FF !important;
-        }
         .an-open-source-badge:hover {
           opacity: 1 !important;
-          color: #33C4FF !important;
-        }
-        @media ${darkQuery} {
-          .an-open-source-badge:hover {
-            color: #33C4FF !important;
-          }
-        }
-        .dark .an-open-source-badge:hover {
-          color: #33C4FF !important;
-        }
-        .light .an-open-source-badge:hover {
           color: #33C4FF !important;
         }
       `}</style>

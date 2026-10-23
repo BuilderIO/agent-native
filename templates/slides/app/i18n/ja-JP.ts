@@ -277,7 +277,6 @@ const messages = {
     commentMenu: "コメントのオプション",
     comments: "コメント",
     annotate: "注釈",
-    pinComment: "コメントをピン留め",
     agent: "エージェント",
     agentMenu: "エージェントのオプション",
     agentUnavailable:
@@ -285,6 +284,21 @@ const messages = {
     inspiration: "インスピレーション",
     tightenTone: "トーンを引き締める",
     polish: "仕上げ",
+    speakerNotes: "スピーカーノート",
+    speakerNotesMenu: "スピーカーノートのオプション",
+    writeScript: "スクリプトを作成",
+    summarizeKeyPoints: "要点を要約",
+    expandDetail: "詳細を追加",
+    addTimingCues: "タイミングの指示を追加",
+  },
+  speakerNotesPanel: {
+    title: "スピーカーノート",
+    resize: "スピーカーノートのサイズを変更",
+    generate: "ノートを生成",
+    rewrite: "ノートを書き直す",
+    close: "スピーカーノートを閉じる",
+    placeholder:
+      "入力を始めるか、エージェントでスピーカーノートをすばやく生成しましょう",
   },
   editorToolbar: {
     layoutTitle: "タイトル",
@@ -379,7 +393,6 @@ const messages = {
     shapeLine: "線",
     shapeStar: "星",
     shapePolygon: "多角形",
-    pinComments: "コメントをピン留め",
     undo: "元に戻す",
     undoWithShortcut: "元に戻す ({{shortcut}})",
     redo: "やり直す",

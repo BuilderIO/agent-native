@@ -112,67 +112,19 @@ export default {
     sigmaRetryConnection: "Comprueba la conexión e inténtalo de nuevo.",
     sigmaRetry: "Reintentar",
     sigmaNoWorkbooks: "No hay libros de trabajo de Sigma disponibles.",
-    sigmaWorkbook: "Libro de trabajo",
-    sigmaChooseWorkbook: "Elige un libro de trabajo",
-    sigmaStatusNotImported: "No importado",
-    sigmaStatusImporting: "Importando",
-    sigmaStatusImported: "Importado",
-    sigmaStatusFailed: "Error al importar",
+    sigmaSearchWorkbooks: "Buscar libros de trabajo…",
+    sigmaNoMatchingWorkbooks: "No hay libros de trabajo que coincidan",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "Aún no se han cargado libros de trabajo que coincidan. Carga más libros de trabajo para buscar en el resto.",
+    sigmaOpenMigratedDashboard: "Abrir el panel importado en una pestaña nueva",
+    sigmaOwnedBy: "Propiedad de",
+    sigmaMigratingTooltip: "{{name}} lo está migrando",
+    sigmaMigrate: "Migrar",
+    sigmaMigrateComingSoon: "Próximamente",
     sigmaArchived: "Archivado",
-    sigmaPreviewTitle: "Contenido del libro de trabajo",
-    sigmaPreviewFailed: "No se ha podido previsualizar este libro de trabajo",
-    sigmaRetryPreview: "Vuelve a intentar cargar la vista previa.",
-    sigmaImportableCount: "{{count}} importables",
-    sigmaUnsupportedCount: "{{count}} no compatibles",
-    sigmaImportable: "Importable",
-    sigmaUnsupported: "No compatible",
-    sigmaNoElements: "No se han encontrado elementos en este libro de trabajo.",
-    sigmaPreviewOnly:
-      "Solo vista previa por ahora: Sigma no proporciona una asignación de proyecto de BigQuery que Analytics pueda verificar. La importación seguirá desactivada hasta que esa asignación esté disponible.",
-    sigmaPreviewTruncated: "Se muestran {{shown}} de {{total}} elementos.",
-    sigmaImportWorkbook: "Importar libro de trabajo",
-    sigmaImporting: "Importando libro de trabajo…",
-    sigmaImportInProgress:
-      "Ya hay una importación de este libro de trabajo en curso.",
-    sigmaMigrationFailed:
-      "No se ha podido importar este libro de trabajo. Inténtalo de nuevo.",
-    sigmaMigrationResultInvalid:
-      "La respuesta de importación estaba incompleta. Vuelve a cargar la lista de libros para comprobar su estado.",
-    sigmaImportComplete: "Panel creado",
-    sigmaImportSummary:
-      "Se han importado {{imported}} elementos; los {{unsupported}} no compatibles se conservan como avisos de revisión.",
-    sigmaAlreadyImported: "Este libro de trabajo ya se ha importado.",
-    sigmaImportedNoDashboard:
-      "El panel se importó, pero no se puede abrir desde esta cuenta.",
-    sigmaReviewRequiredCount: "{{count}} requieren revisión",
-    sigmaBetaRepresentationWarning:
-      "Esta importación beta puede representar algunas visualizaciones de forma distinta a Sigma.",
-    sigmaReasonUnsupportedElement:
-      "Este tipo de elemento no se admite para la importación.",
-    sigmaReasonUnsupportedSource:
-      "Este elemento usa una fuente que no se admite para la importación.",
-    sigmaReasonSourceMappingRequired:
-      "Sigma no proporciona una asignación de proyecto de BigQuery que Analytics pueda verificar, así que todavía no se puede importar este SQL.",
-    sigmaReasonSourceUnavailable:
-      "Sigma no permitió acceder a esta conexión de origen. Revisa sus permisos.",
-    sigmaReasonQueryUnavailable:
-      "Sigma no devolvió una consulta importable para este elemento.",
-    sigmaReasonUnsafeSql:
-      "Este patrón de consulta no se puede importar de forma segura.",
-    sigmaReasonVisualizationReview:
-      "Se pueden importar los datos, pero revisa la visualización después.",
-    sigmaRetryOwnerOnly:
-      "Solo quien inició esta importación puede volver a intentarla.",
-    sigmaImportedByTeammate: "Importado por un compañero",
-    sigmaFlaggedCount: "{{count}} marcados para revisión",
     sigmaMoreWorkbooksFailed: "No se pudieron cargar más libros de trabajo",
     sigmaLoadingMore: "Cargando libros de trabajo…",
     sigmaLoadMore: "Cargar más libros de trabajo",
-    sigmaOpenDashboard: "Abrir panel",
-    sigmaReviewWithAgent: "Revisar con el agente",
-    sigmaReviewContext: "Panel importado desde Sigma",
-    sigmaReviewPrompt:
-      "Revisa el panel importado desde Sigma {{name}}. Comprueba los paneles importados y los elementos no compatibles, y sugiere las correcciones necesarias.",
   },
   sidebar: {
     collapseSidebar: "Contraer barra lateral",
@@ -742,6 +694,48 @@ export default {
       "No se pudieron comprobar las entradas existentes de esta métrica.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description:
+        "Clics e impresiones diarios por página para la vista de contenido.",
+      serviceAccount: "Cuenta de servicio",
+      copyEmail: "Copiar correo",
+      grantHint:
+        "Añade este correo como usuario en cada propiedad de Search Console, en Configuración → Usuarios y permisos.",
+      noServiceAccount:
+        "Primero añade una clave de cuenta de servicio de Google.",
+      openGoogleCloud: "Abrir Google Cloud",
+      invalidServiceAccount:
+        "No se puede leer la clave de cuenta de servicio guardada.",
+      properties: "Propiedades",
+      siteLabel: "Propiedad",
+      pathLabel: "Prefijo de ruta",
+      pathInvalid: "El prefijo de ruta debe empezar por /.",
+      addProperty: "Añadir propiedad",
+      removeProperty: "Quitar propiedad",
+      save: "Guardar",
+      collectDaily: "Recopilar a diario",
+      adminOnly:
+        "Solo los propietarios y administradores de la organización pueden cambiar esto.",
+      statusCollecting: "Recopilando",
+      statusNeedsAccess: "Necesita acceso",
+      statusFailed: "La última ejecución falló",
+      runSucceeded: "Recopilado {{when}}",
+      runNeedsAccess: "Sin acceso a {{when}}",
+      runRunning: "Recopilando desde {{when}}",
+      runFailed: "Falló {{when}}",
+      unavailable:
+        "El estado de la recopilación no está disponible: {{message}}",
+      keyUnreadable:
+        "No se pudo leer la clave de cuenta de servicio guardada. Vuelve a guardarla en Google Cloud.",
+      propertyBareDomain: "Para una propiedad de dominio, usa {{suggestion}}.",
+      propertyInvalidDomain:
+        "Después de sc-domain: va solo el dominio, como en {{suggestion}}.",
+      propertyMissingSlash:
+        "Las propiedades de prefijo de URL terminan en /. Usa {{suggestion}}.",
+      propertyUnrecognized:
+        "Usa sc-domain:example.com o una propiedad de prefijo de URL que termine en /.",
+    },
     uploadFile: "Subir archivo",
     googleSheetsExport: "Exportación a Google Sheets",
     googleSheetsExportDescription:
@@ -1333,11 +1327,21 @@ export default {
     groupName: "Nombre del grupo",
     saveForEveryone: "Guardar para todos",
     groupNameTaken: "Ya existe un grupo con este nombre",
+    renameGroup: "Cambiar nombre del grupo…",
+    deleteGroup: "Eliminar grupo",
     untitledDashboard: "Panel de control sin título",
     dashboardFallback: "panel",
     viewOnly: "Tiene acceso de solo lectura a este panel.",
     saveFailed: "No se pudo guardar el panel",
     saveFailedWithMessage: "Couldn't save dashboard: {{message}}",
+    panelCostTitle: "Coste de BigQuery de «{{title}}»",
+    panelCostOverTitle: "Actualizar «{{title}}» es caro",
+    panelCostScheduled:
+      "~{{size}} analizados · {{perRun}} por actualización · ~{{perMonth}}/mes en informes por correo",
+    panelCostUnscheduled:
+      "~{{size}} analizados · {{perRun}} por actualización · sin informes por correo",
+    panelCostOverHint:
+      "Un intervalo de fechas más corto o menos columnas analizan menos datos.",
     archived: 'Panel archivado: "{{name}}"',
     unhid: 'Unhid "{{name}}"',
     archiveFailed: "No se pudo archivar el panel",
@@ -1746,6 +1750,10 @@ export default {
     catalogOpenSessions: "Mostrar sesiones con {{event}}",
     catalogAutomatic: "Automático",
     catalogStoppedFiring: "Ya no se envía",
+    catalogMadeIt: "Lo creó",
+    catalogUsedIt: "Lo usó",
+    catalogNoUsedIt:
+      "“Lo creó, no lo usó” no puede revisar lo creado en {{apps}} porque no hay ningún evento de “lo usó” definido.",
     catalogPropertyKeys: "Claves de propiedades",
     catalogMoreKeys: "+{{count}} más",
     catalogTruncated:
@@ -1761,6 +1769,29 @@ export default {
       "La velocidad se mide en las páginas vistas a partir de ahora.",
     speedFilterNeedsLab:
       "Este enlace tiene un filtro de velocidad. Activa el Lab Clasificación de sesiones en Ajustes para aplicarlo.",
+    unusedOutputs: "Lo creó, no lo usó",
+    anyOutcome: "Cualquier sesión",
+    unusedSlidesDecks: "Decks de Slides sin usar",
+    unusedSlidesRule:
+      "Decks creados hace al menos {{days}} días que, en {{days}} días, no se presentaron más allá de la primera diapositiva durante {{seconds}} s o más ni se exportaron. Abrir un deck no cuenta.",
+    unusedFilterNeedsLab:
+      "Este enlace tiene un filtro “Lo creó, no lo usó”. Activa el Lab Clasificación de sesiones en Ajustes para aplicarlo.",
+    outputCoverageSince:
+      "Resultados registrados desde el {{date}}; los no usados aparecen {{days}} días después de crearse.",
+    outputCoverageStarting:
+      "Los resultados se registran a partir de ahora; los no usados aparecen {{days}} días después de crearse.",
+    openDeck: "Abrir deck",
+    moreOutputs: "+{{count}} más",
+    deckCount: "{{count}} decks",
+    deckCountSingular: "{{count}} deck",
+    deckMadeOn: "Deck creado el {{date}}",
+    outputPresentedOn: "Presentado el {{date}}",
+    outputExportedOn: "Exportado el {{date}}",
+    outputUsedOn: "Usado el {{date}}",
+    outputUnused: "No se usó en {{days}} días",
+    outputOpen: "Aún sin usar; cuenta como no usado después del {{date}}",
+    outputUnmeasured: "Sin medir: algunos eventos no se pudieron guardar",
+    outputsUnavailable: "No se pudieron cargar los resultados.",
     slowRequestCount: "{{count}} solicitudes lentas",
     slowRequestCountSingular: "{{count}} solicitud lenta",
     speedIncomplete: "Datos de velocidad incompletos",

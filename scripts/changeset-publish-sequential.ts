@@ -417,6 +417,74 @@ export function localRuntimeDependencyNames(pkg: PublishPackage): string[] {
   });
 }
 
+export async function ensureLocalRuntimeDependenciesAvailable(
+  pkg: PublishPackage,
+  packages: PublishPackage[],
+  waitForAvailability: (dependency: PublishPackage) => Promise<void>,
+  fetchablePackageNames: Set<string>,
+  failedPackageNames: Set<string>,
+): Promise<void> {
+  const dependencyNames = new Set(localRuntimeDependencyNames(pkg));
+  for (const dependency of packages) {
+    if (!dependencyNames.has(dependency.name)) continue;
+    if (failedPackageNames.has(dependency.name)) {
+      throw new Error(
+        `${pkg.name} depends on failed local runtime package: ${dependency.name}`,
+      );
+    }
+    if (fetchablePackageNames.has(dependency.name)) continue;
+
+    try {
+      await waitForAvailability(dependency);
+      fetchablePackageNames.add(dependency.name);
+    } catch (error) {
+      failedPackageNames.add(dependency.name);
+      throw error;
+    }
+  }
+}
+
+export async function preparePackagesForTagging(
+  packagesNeedingTags: PublishPackage[],
+  waitForAvailability: (pkg: PublishPackage) => Promise<void>,
+  fetchablePackageNames: Set<string>,
+  failedPackageNames: Set<string>,
+): Promise<{
+  packages: PublishPackage[];
+  failures: { pkg: PublishPackage; error: unknown }[];
+}> {
+  const results = await Promise.all(
+    packagesNeedingTags
+      .filter(
+        (pkg) =>
+          !fetchablePackageNames.has(pkg.name) &&
+          !failedPackageNames.has(pkg.name),
+      )
+      .map(async (pkg) => {
+        try {
+          await waitForAvailability(pkg);
+          fetchablePackageNames.add(pkg.name);
+          return null;
+        } catch (error) {
+          failedPackageNames.add(pkg.name);
+          return { pkg, error };
+        }
+      }),
+  );
+
+  const failures = results.filter(
+    (result): result is { pkg: PublishPackage; error: unknown } =>
+      result !== null,
+  );
+
+  return {
+    packages: packagesNeedingTags.filter(
+      (pkg) => !failedPackageNames.has(pkg.name),
+    ),
+    failures,
+  };
+}
+
 function formatError(error: unknown): string {
   if (!(error instanceof Error)) {
     return String(error);
@@ -588,6 +656,7 @@ async function main() {
   const packagesNeedingTags: PublishPackage[] = [];
   const failures: { pkg: PublishPackage; error: unknown }[] = [];
   const failedPackageNames = new Set<string>();
+  const fetchablePackageNames = new Set<string>();
 
   for (const pkg of packages) {
     if (await isPublished(pkg)) {
@@ -625,6 +694,13 @@ async function main() {
       `${pkg.name} is being published because local version ${pkg.version} has not been published on npm`,
     );
     try {
+      await ensureLocalRuntimeDependenciesAvailable(
+        pkg,
+        packages,
+        waitForPackageAvailability,
+        fetchablePackageNames,
+        failedPackageNames,
+      );
       if (await publishPackage(pkg)) {
         packagesNeedingTags.push(pkg);
       }
@@ -649,25 +725,35 @@ async function main() {
     }
   }
 
-  await Promise.all(
-    packagesNeedingTags.map((pkg) => waitForPackageAvailability(pkg)),
+  const tagPreparation = await preparePackagesForTagging(
+    packagesNeedingTags,
+    waitForPackageAvailability,
+    fetchablePackageNames,
+    failedPackageNames,
   );
+  for (const failure of tagPreparation.failures) {
+    failures.push(failure);
+    console.error(
+      `::error::Failed to make ${tagName(failure.pkg)} fetchable before tagging`,
+    );
+    console.error(formatError(failure.error));
+  }
 
-  if (packagesNeedingTags.length === 0) {
+  if (tagPreparation.packages.length === 0) {
     console.log("No unpublished packages found");
   } else {
     console.log("packages ready for release tags:");
-    for (const pkg of packagesNeedingTags) {
+    for (const pkg of tagPreparation.packages) {
       console.log(`${pkg.name}@${pkg.version}`);
     }
-    for (const pkg of packagesNeedingTags) {
+    for (const pkg of tagPreparation.packages) {
       console.log("Creating git tag...");
       await createLocalTag(pkg);
       console.log(`New tag:  ${tagName(pkg)}`);
     }
   }
 
-  await writePublishedPackagesOutput(packagesNeedingTags);
+  await writePublishedPackagesOutput(tagPreparation.packages);
 
   if (failures.length > 0) {
     throw new Error(

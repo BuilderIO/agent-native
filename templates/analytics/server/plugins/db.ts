@@ -15,7 +15,10 @@ import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration.js";
-import { CONTENT_METRICS_MIGRATION_SQL } from "../lib/content-metrics/migration.js";
+import {
+  CONTENT_METRICS_MIGRATION_SQL,
+  CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
+} from "../lib/content-metrics/migration.js";
 import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration.js";
 import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
@@ -1838,6 +1841,57 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       version: 180,
       name: "analytics-content-metrics-tables",
       sql: CONTENT_METRICS_MIGRATION_SQL.join(";\n"),
+    },
+    {
+      version: 181,
+      name: "analytics-content-coverage-config",
+      sql: CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
+    },
+    {
+      version: 182,
+      name: "analytics-output-outcomes",
+      sql: {
+        // The coverage table comes last: its existence is how ingest and
+        // reads know the other two exist.
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_output_outcomes (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      app TEXT NOT NULL,
+      output_type TEXT NOT NULL,
+      output_id TEXT NOT NULL,
+      made_at TEXT,
+      use_by TEXT,
+      made_session_id TEXT,
+      first_used_at TEXT,
+      used_event TEXT,
+      last_seen_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_output_outcomes_key_idx
+      ON analytics_output_outcomes (tenant_key, app, output_id);
+    CREATE INDEX IF NOT EXISTS analytics_output_outcomes_made_session_idx
+      ON analytics_output_outcomes (tenant_key, made_session_id);
+    CREATE INDEX IF NOT EXISTS analytics_output_outcomes_last_seen_idx
+      ON analytics_output_outcomes (last_seen_at);
+    CREATE TABLE IF NOT EXISTS analytics_output_outcome_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS analytics_output_outcome_gaps_tenant_idx
+      ON analytics_output_outcome_gaps (tenant_key, last_at);
+    CREATE TABLE IF NOT EXISTS analytics_output_outcome_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
     },
   ],
   { table: "analytics_migrations" },

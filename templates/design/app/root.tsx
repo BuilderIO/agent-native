@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import {
   getEmbedAuthToken,
+  isEmbedAuthActive,
   setAgentNativeApiDisabled,
 } from "@agent-native/core/client/host";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
@@ -281,6 +282,18 @@ export function computeSessionBypass(pathname: string): boolean {
   return Boolean(getEmbedAuthToken()) || isPublicDesignAppPath(pathname);
 }
 
+/**
+ * The editor lives under `/design/`, a public path, so the notice cannot key
+ * off session bypass. Embeds, the present view and visual edit stay as they are.
+ */
+function supportsUnsupportedDeviceNotice(pathname: string): boolean {
+  return (
+    !isEmbedAuthActive() &&
+    !pathname.startsWith("/present/") &&
+    !pathname.startsWith("/visual-edit")
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
@@ -291,6 +304,16 @@ export default function Root() {
         queryClient={queryClient}
         skeletonLayout="prompt-library"
         sessionBypass={sessionBypass}
+        unsupportedDevice={
+          supportsUnsupportedDeviceNotice(location.pathname)
+            ? {
+                appName: "Design",
+                subject: isPrivateDesignEditorPath(location.pathname)
+                  ? "design"
+                  : undefined,
+              }
+            : undefined
+        }
         webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
         i18n={{ catalog: i18nCatalog }}
         toaster={<DesignToaster />}
