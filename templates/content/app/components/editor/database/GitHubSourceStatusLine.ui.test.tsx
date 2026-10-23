@@ -515,7 +515,7 @@ describe("Filling while the collection is open", () => {
   it("stops once the collection shows a problem that stops updates", async () => {
     vi.useFakeTimers();
     sync.mutateAsync.mockResolvedValue(
-      syncResult({ state: "error", problem: problem("rate_limited") }),
+      syncResult({ state: "error", problem: problem("connection") }),
     );
     const { rerender } = renderUi(
       <GitHubSourceStatusLine
@@ -533,7 +533,7 @@ describe("Filling while the collection is open", () => {
         source={githubSource({
           pendingCommitSha: "abcdef1234567",
           progress: { done: 40, total: 120 },
-          problem: problem("rate_limited"),
+          problem: problem("connection"),
         })}
         documentId="doc-1"
         canEdit
@@ -541,6 +541,58 @@ describe("Filling while the collection is open", () => {
       />,
     );
     await after(30 * 60_000);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps trying, further apart each time, while the collection shows a problem it can retry", async () => {
+    vi.useFakeTimers();
+    sync.mutateAsync.mockResolvedValue(
+      syncResult({ state: "error", problem: problem("rate_limited") }),
+    );
+    const { rerender } = renderUi(
+      <GitHubSourceStatusLine
+        source={filling()}
+        documentId="doc-1"
+        canEdit
+        pageCount={4}
+      />,
+    );
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+    // The refresh brings the problem the sync recorded.
+    rerender(
+      <GitHubSourceStatusLine
+        source={githubSource({
+          pendingCommitSha: "abcdef1234567",
+          progress: { done: 40, total: 120 },
+          problem: problem("rate_limited"),
+        })}
+        documentId="doc-1"
+        canEdit
+        pageCount={4}
+      />,
+    );
+    await after(60_000);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+    await after(119_900);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+    await after(100);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(3);
+  });
+
+  it("waits a minute before its first sync when the collection opens with a problem it can retry", async () => {
+    vi.useFakeTimers();
+    sync.mutateAsync.mockResolvedValue(syncResult({ state: "synced" }));
+    renderLine(
+      githubSource({
+        pendingCommitSha: "abcdef1234567",
+        progress: { done: 40, total: 120 },
+        problem: problem("unavailable"),
+      }),
+    );
+    await settle();
+    expect(sync.mutateAsync).not.toHaveBeenCalled();
+    await after(60_000);
     expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
   });
 
@@ -636,7 +688,7 @@ describe("Filling while the collection is open", () => {
       githubSource({
         pendingCommitSha: "abcdef1234567",
         progress: { done: 40, total: 120 },
-        problem: problem("rate_limited"),
+        problem: problem("connection"),
       }),
     );
     await settle();

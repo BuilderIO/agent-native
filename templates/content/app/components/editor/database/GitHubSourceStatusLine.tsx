@@ -183,19 +183,22 @@ function gotFurther(
  * soon as the last returns, not at the next background sweep. It waits while
  * the sweep holds the sync, and waits longer after a sync that got no further
  * or failed. It pauses in a hidden tab and stops once the folder is current,
- * or once a problem the status line shows stops it. No toasts: the progress
+ * or once the collection shows a problem that stops updates. A problem the
+ * sync can retry, like a rate limit, only makes it wait: a collection that
+ * opens with one waits before its first sync too. No toasts: the progress
  * bar says it.
  */
 function useKeepFilling(
   databaseId: string,
   filling: boolean,
   remaining: number | null,
+  paused: boolean,
 ) {
   const { mutateAsync: syncNow } = useSyncGitHubFolder({ refresh: false });
   const refresh = useRefreshAfterGitHubFolder();
-  const latest = useRef({ refresh, remaining });
+  const latest = useRef({ refresh, remaining, paused });
   useEffect(() => {
-    latest.current = { refresh, remaining };
+    latest.current = { refresh, remaining, paused };
   });
   useEffect(() => {
     if (!filling) return;
@@ -240,8 +243,8 @@ function useKeepFilling(
         stalls = 0;
         void step();
       } else {
-        // A problem the sync recorded shows once the collection refreshes,
-        // and ends the fill, wait and all.
+        // A problem that stops updates shows once the collection refreshes,
+        // and ends the fill, wait and all. Any other waits its turn.
         wait(
           Math.min(FILL_STALL_RETRY_MAX_MS, FILL_STALL_RETRY_MS * 2 ** stalls),
         );
@@ -251,7 +254,14 @@ function useKeepFilling(
     const resume = () => {
       if (timer === undefined) void step();
     };
-    void step();
+    // A problem the sync can retry already shows, so this waits a turn, as
+    // it would after the sync that hit it.
+    if (latest.current.paused) {
+      stalls = 1;
+      wait(FILL_STALL_RETRY_MS);
+    } else {
+      void step();
+    }
     document.addEventListener("visibilitychange", resume);
     return () => {
       stopped = true;
@@ -487,15 +497,16 @@ function GitHubStatusLineContent({
   const stops = problem ? githubProblemStopsUpdates(problem.code) : false;
   const actions = problem && stops ? problemActions(problem.code) : null;
   const syncing = !!status.pendingCommitSha && !!status.progress;
-  useKeepFilling(
-    source.databaseId,
-    syncing && (!problem || problem.code === "storage_unavailable"),
-    status.progress ? status.progress.total - status.progress.done : null,
-  );
   // Pictures waiting on storage are a note, not a stop: the pages still update.
   const picturesWaiting =
     problem?.code === "storage_unavailable" || status.imagesWaiting > 0;
   const paused = !!problem && !stops && problem.code !== "storage_unavailable";
+  useKeepFilling(
+    source.databaseId,
+    syncing && !stops,
+    status.progress ? status.progress.total - status.progress.done : null,
+    paused,
+  );
   const openUnlink = () => {
     onDetailsOpenChange(false);
     onUnlinkOpenChange(true);
