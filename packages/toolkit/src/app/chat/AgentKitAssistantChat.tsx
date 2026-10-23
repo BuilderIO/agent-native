@@ -2108,6 +2108,7 @@ export const AgentKitAssistantChat = forwardRef<
           loadRunUsage={loadRunUsage}
           buildFeedbackReport={formatFeedbackReport}
           workedForRowLayout={props.workedForRowLayout}
+          dataChartLayout={props.dataChartLayout}
           formatWorkedForDuration={props.formatWorkedForDuration}
           onThreadForked={(thread) => props.onForkedThread?.(thread.id)}
           onCopyMessage={({ text }) => {
@@ -6474,6 +6475,7 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           activity={metadata.activity === true}
           isActiveTail={active === true}
           workedForRowLayout={surface.props.workedForRowLayout}
+          dataChartLayout={surface.props.dataChartLayout}
           formatWorkedForDuration={surface.props.formatWorkedForDuration}
         />
       </SuppressInlineOpenAppContext.Provider>

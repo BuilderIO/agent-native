@@ -401,7 +401,10 @@ describe("AgentKitChat", () => {
       ".agentkit-transcript {\n  grid-column: 1;\n  grid-row: 2;",
     );
     expect(styles).toMatch(
-      /\.agentkit-transcript \{[\s\S]*inline-size: 100%;[\s\S]*overflow-y: auto;/,
+      /\.agentkit-transcript \{[\s\S]*container-name: agentkit-transcript;[\s\S]*container-type: inline-size;[\s\S]*inline-size: 100%;[\s\S]*overflow-y: auto;/,
+    );
+    expect(styles).toContain(
+      "@container agentkit-transcript (max-width: 74.999rem)",
     );
     expect(styles).not.toMatch(
       /\.agentkit-transcript \{[^}]*inline-size: min\(100%, 47rem\);/,

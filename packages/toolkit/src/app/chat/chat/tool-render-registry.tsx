@@ -1,6 +1,8 @@
 import type { ActionChatUIConfig } from "@agent-native/core/action-ui";
 import type { ComponentType } from "react";
 
+import type { AgentChatDataChartLayout } from "../../agentkit/react/data-chart-layout.js";
+
 export interface ToolRendererContext {
   toolName: string;
   args: Record<string, unknown>;
@@ -15,6 +17,7 @@ export interface ToolRendererContext {
   isRunning: boolean;
   isActiveTail?: boolean;
   chatUI?: ActionChatUIConfig;
+  dataChartLayout?: AgentChatDataChartLayout;
 }
 
 export interface ToolRendererProps {
