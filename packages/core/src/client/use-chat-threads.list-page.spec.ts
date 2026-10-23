@@ -82,5 +82,30 @@ describe.each(["list", "search"] as const)(
         );
       },
     );
+
+    it("serializes archived-thread inclusion only when requested", async () => {
+      await fetchChatThreadListPage({
+        apiUrl: "/chat",
+        query,
+        includeArchived: true,
+      });
+      const includedUrl = new URL(
+        fetchMock.mock.calls[0][0],
+        "http://localhost",
+      );
+      expect(includedUrl.searchParams.get("includeArchived")).toBe("1");
+
+      fetchMock.mockClear();
+      await fetchChatThreadListPage({
+        apiUrl: "/chat",
+        query,
+        includeArchived: false,
+      });
+      const defaultUrl = new URL(
+        fetchMock.mock.calls[0][0],
+        "http://localhost",
+      );
+      expect(defaultUrl.searchParams.has("includeArchived")).toBe(false);
+    });
   },
 );

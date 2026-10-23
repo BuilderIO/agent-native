@@ -1,18 +1,24 @@
 ---
 name: design-generation
 description: >-
-  Generate or refine complete interactive HTML prototypes in Design. Use when
-  creating screens, variants, Alpine/Tailwind prototypes, tweaks, or visual
-  refinements from a prompt or selected design.
+  Generate or refine Design web prototypes and fixed promotional artwork. Use
+  when creating screens, variants, ads, social graphics, flyers, posters, or
+  banners. For HubSpot email requests, read hubspot-email instead.
 ---
 
 # Design Generation
 
-How to generate complete, interactive HTML prototypes using Alpine.js + Tailwind CSS (via CDN). This is the core skill for the design agent.
+Generate complete web prototypes through Design actions.
+
+## HubSpot emails
+
+For HubSpot email creation, alignment, token edits, conversion or HTML handoff,
+read `hubspot-email` before applying the web workflow below. It owns email-safe
+authoring and completion checks, which replace the web stack defaults.
 
 ## Technology Stack
 
-Every generated design uses:
+Web prototypes use:
 - **Tailwind CSS v4** — via `@tailwindcss/browser@4` CDN (NOT the old v3 CDN)
 - **Alpine.js 3.x** — via `alpinejs@3.15.11` CDN with `defer` attribute
 - **Google Fonts** — for distinctive typography (never Inter/Roboto/Arial)
@@ -456,9 +462,35 @@ Frame geometry is always numbers — `"width": 800`, never `"800"` or `"800px"`.
 
 At small ad-unit sizes (320×50, 160×600), text commonly runs 9-11px — smaller
 than this skill's general 16px body-text floor — because there is no room to
-reflow. That is expected for these formats; it stays legible in @2x+ exports
-since the export scale multiplies raster resolution, not the authored CSS
-size. Avoid dense multi-line copy at these sizes regardless.
+reflow. Higher-resolution exports make edges sharper, but do not increase text's
+relative size when the asset is displayed at its intended dimensions.
+
+### Promotional artwork typography at delivery size
+
+For ads, social graphics, flyers, posters, and banners, size and space type for
+the fixed canvas and where the asset will appear. The web prototype type scale
+and page section rhythm above are not defaults for artwork. If the user supplies
+a `design.md` or Brand Kit, use its typography, spacing, color, and voice as the
+source of truth and ground the output in those tokens.
+
+Use the canvas's shorter edge as a starting measure: on feed graphics and
+poster-like formats, a headline around 6–10% of that edge and supporting text
+around 2.5–4% often gives a clear first hierarchy (about 65–108px and 27–43px
+on a 1080px square; 38–63px and 16–25px on a 1200×627 canvas). Treat these as
+starting ranges, then adjust for the brand's typeface, copy length, composition,
+and intended display scale; raise type or recompose if the display-size check
+fails. Choose weights by role from the brand-approved type tokens: give the
+headline the strongest available emphasis, keep date/details quieter, and give
+the CTA enough emphasis to scan. If the brand offers one weight, use size,
+position, or contrast for hierarchy instead of inventing another. Estimate
+displayed type size as `authored px × displayed width / canvas width`: 36px type
+on a 1080px-wide asset appears about 12px tall in a 360px feed slot. A 2× export
+adds pixel density, not apparent size. On short banners and small ad slots, use
+a compact message and size type against the available height instead of
+carrying over those ratios. Set line length, line height, safe margins, and
+spacing from the actual canvas so the headline leads and supporting copy stays
+readable. When text does not fit, shorten or recompose it before shrinking
+every line.
 
 ### Phase 4 — Always ship tweaks with the design
 
@@ -501,6 +533,12 @@ UI, and whether the copy/content still sounds real. To compare two design
 snapshots/branches for a file-level visual diff (added/removed/modified) —
 e.g. after a large refactor or before/after a review pass — call
 `get-design-review` instead of eyeballing both versions.
+
+For fixed promotional artwork, inspect the exact-size screenshot at 1:1 and at
+the intended display scale (for example, as a feed thumbnail). Confirm the main
+message reads first and the supporting copy remains legible at that scale; if
+it fails, revise the type, spacing, or copy and capture it again. Export scale
+alone does not fix type that is too small for the intended display.
 
 After generation or a broad update, leave the user in the screen overview
 (`navigate --view editor --editorView overview`) when the work involves

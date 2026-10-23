@@ -270,7 +270,7 @@ npx skills@latest add BuilderIO/agent-native --skill assets
 | -------- | ------------------ | ----------------- |
 | `assets` | `image-generation` | 画像/ビデオの生成 |
 
-デフォルトのクライアント選択は、サポートされているすべてのローカル クライアントです。 `--client codex`、`--client claude-code`、または別の特定のターゲットを追加してセットアップを絞り込みます。インライン ホスト (ChatGPT、Claude.ai、Claude デスクトップ メイン チャット) は、チャットでピッカー/バリアント グリッドをレンダリングします。 CLI/リンク専用ホスト (Codex、Claude コード、Claude デスクトップの「コード」タブ) は、ユーザーがブラウザーで選択してハンドオフの概要を貼り付ける「…で開く →」リンクを返します。
+デフォルトのクライアント選択は、サポートされているすべてのローカル クライアントです。 `--client codex`、`--client claude-code`、または別の特定のターゲットを追加してセットアップを絞り込みます。インライン表示に対応するホスト (ChatGPT、Web・デスクトップ・モバイルの Claude チャット、Claude Desktop の Code タブ) では、ピッカーやバリアントのグリッドがチャット内に表示されます。CLI/リンク専用ホスト (Codex CLI、Claude Code のターミナル、Cowork、claude.ai の Web 版 Code) では「…で開く →」リンクが返されます。ユーザーはブラウザーで選択し、引き継ぎ用の概要をチャットに貼り付けます。 [Cowork はまだ MCP Apps への対応を宣言しておらず、同じコネクタで使用すると、コネクタを再接続するまで Chat のインラインアプリが表示されなくなることがあります。](https://github.com/anthropics/claude-code/issues/103924)
 
 Dispatch のワークスペース ゲートウェイの代わりに分離されたアプリが本当に必要な場合
 そのアプリのホストで同じコマンドを実行します:

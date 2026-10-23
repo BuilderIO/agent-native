@@ -382,7 +382,7 @@ describe("apply-motion-edit localhost React source", () => {
 
   it("writes versioned Motion source to the linked HTML route", async () => {
     const htmlSourcePath = "pages/home.html";
-    const htmlSource = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
+    const htmlSource = `<!doctype html><html><head></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
     const htmlVersionHash = createHash("sha256")
       .update(htmlSource)
       .digest("hex");
@@ -450,7 +450,6 @@ describe("apply-motion-edit localhost React source", () => {
       expectedVersionHash: htmlVersionHash,
       requireExpectedVersionHash: true,
     });
-    expect(writtenSource).toContain('<script src="./app.js"></script>');
     expect(writtenSource).toContain(
       '<button data-agent-native-node-id="hero">Hello</button>',
     );

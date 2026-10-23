@@ -33,7 +33,11 @@ jobs:
       brain_evals: ${{ steps.scope.outputs.brain_evals }}
       build: ${{ steps.scope.outputs.build }}
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
+      trusted_acceptance_apps: ${{ steps.scope.outputs.trusted_acceptance_apps }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
+      scaffold_cli: ${{ steps.scope.outputs.scaffold_cli }}
+      scaffold_workspace: ${{ steps.scope.outputs.scaffold_workspace }}
+      scaffold_workspace_apps: ${{ steps.scope.outputs.scaffold_workspace_apps }}
       builder_code_starter_scaffold: ${{ steps.scope.outputs.builder_code_starter_scaffold }}
       deploy_paths: ${{ steps.scope.outputs.deploy_paths }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
@@ -48,9 +52,14 @@ jobs:
       pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       design_canvas_e2e_diagnostic_specs: ${{ steps.scope.outputs.design_canvas_e2e_diagnostic_specs }}
+      design_canvas_broad_workflow_shards: ${{ steps.scope.outputs.design_canvas_broad_workflow_shards }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
-      slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
+      slides_caret_e2e: ${{ steps.scope.outputs.slides_caret_e2e }}
+      slides_typing_chat_e2e: ${{ steps.scope.outputs.slides_typing_chat_e2e }}
+      slides_mobile_import_e2e: ${{ steps.scope.outputs.slides_mobile_import_e2e }}
+      slides_text_surface_e2e: ${{ steps.scope.outputs.slides_text_surface_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
+      slides_authoring_matrix: ${{ steps.scope.outputs.slides_authoring_matrix }}
       slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
       changeset: ${{ steps.scope.outputs.changeset }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
@@ -297,7 +306,11 @@ jobs:
           status=0
           while IFS=$'\t' read -r name shard; do
             echo "::group::$name ($shard)"
-            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            if [[ "$name" == "slides-2" ]]; then
+              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            else
+              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            fi
             echo "::endgroup::"
           done < <(
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
@@ -423,7 +436,11 @@ jobs:
           status=0
           while IFS=$'\t' read -r name shard; do
             echo "::group::$name ($shard)"
-            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            if [[ "$name" == "slides-2" ]]; then
+              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            else
+              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            fi
             echo "::endgroup::"
           done < <(
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
@@ -580,14 +597,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard:
-          [
-            ai-sidebar-loopback,
-            music-app-workflow,
-            home-system-selection,
-            autolayout-vertical-center-trailing,
-            landing-page-build,
-          ]
+        shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_broad_workflow_shards) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -1152,11 +1162,20 @@ jobs:
         with:
           restore-dist-cache: "true"
 
-      - name: Create isolated Content row-mutation database
-        run: psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
+      - name: Create isolated Content row-mutation databases
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_block_action_test"
 
       - name: Run Content DB tests
         run: pnpm test:content-db
+
+      # Main still fails these. They report every run without failing the PR
+      # until the fix that drops their known-loss tag lands.
+      - name: Report Content DB and acceptance tests main still fails
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: pnpm test:content-db:known-loss
 
       - name: Install isolated PGlite test driver
         if: ${{ !cancelled() }}
@@ -1176,16 +1195,18 @@ jobs:
         run: |
           pnpm test:content-db-postgres
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
+          pnpm test:content-db-two-connections
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
+          CONTENT_BLOCK_ACTION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_block_action_test
 
   content-convergence-tests:
     name: Content convergence
     needs: change-scope
     if: needs.change-scope.outputs.content_convergence == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     permissions:
       contents: read
       packages: read
@@ -1242,13 +1263,14 @@ jobs:
             e2e/two-tab-convergence.spec.ts \
             e2e/chatgpt-widget-body-paint.spec.ts \
             --workers=1 \
-            --grep-invert @known-loss --output test-results/required
+            --grep-invert @known-loss --output test-results/gate-off
         env:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "off"
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
           CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/required.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-off.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       # Main still loses text in these. They report every run without failing
@@ -1260,13 +1282,118 @@ jobs:
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
             -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
-            --grep @known-loss --pass-with-no-tests --output test-results/known-loss
+            --grep @known-loss --pass-with-no-tests --output test-results/gate-off-known-loss
         env:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "off"
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
           CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/known-loss.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-off-known-loss.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      # The same scenarios on pages switched to the live-body writer (decision
+      # D2). Each one skips, with its reason, until the build has the writer
+      # flag and the per-page switch; a skip is reported, never counted a pass.
+      - name: Run Content two-tab convergence lane with the live-body gate on
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            --grep-invert @known-loss --output test-results/gate-on
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "on"
+          CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
+          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
+          CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-on.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Run Content two-tab scenarios main still loses text in, with the live-body gate on
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            --grep @known-loss --pass-with-no-tests --output test-results/gate-on-known-loss
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "on"
+          CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
+          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
+          CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-on-known-loss.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      # The stored-form acceptance checks (SF-02 to SF-12), on both sides of
+      # the gate. Each creates its own pages, so two workers share the server.
+      - name: Run Content stored-form acceptance checks
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/stored-form/ --workers=2 \
+            --grep-invert @known-loss --output test-results/stored-form-gate-off
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "off"
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-off.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Run Content stored-form checks main still fails
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/stored-form/ --workers=2 \
+            --grep @known-loss --pass-with-no-tests --output test-results/stored-form-gate-off-known-loss
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "off"
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-off-known-loss.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Run Content stored-form acceptance checks with the live-body gate on
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/stored-form/ --workers=2 \
+            --grep-invert @known-loss --output test-results/stored-form-gate-on
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "on"
+          CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
+          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test,e2e+autoz-live-body-gate-landing@content.test
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-on.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Run Content stored-form checks main still fails, with the live-body gate on
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/stored-form/ --workers=2 \
+            --grep @known-loss --pass-with-no-tests --output test-results/stored-form-gate-on-known-loss
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_LIVE_BODY_GATE: "on"
+          CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
+          AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test,e2e+autoz-live-body-gate-landing@content.test
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-on-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Summarize Content two-tab convergence
@@ -1275,8 +1402,14 @@ jobs:
         run: >-
           node --experimental-strip-types e2e/convergence-summary.ts
           "$RUNNER_TEMP/content-convergence/convergence.jsonl"
-          "$RUNNER_TEMP/content-convergence/required.json"
-          "$RUNNER_TEMP/content-convergence/known-loss.json"
+          "$RUNNER_TEMP/content-convergence/gate-off.json"
+          "$RUNNER_TEMP/content-convergence/gate-off-known-loss.json"
+          "$RUNNER_TEMP/content-convergence/gate-on.json"
+          "$RUNNER_TEMP/content-convergence/gate-on-known-loss.json"
+          "$RUNNER_TEMP/content-convergence/stored-form-gate-off.json"
+          "$RUNNER_TEMP/content-convergence/stored-form-gate-off-known-loss.json"
+          "$RUNNER_TEMP/content-convergence/stored-form-gate-on.json"
+          "$RUNNER_TEMP/content-convergence/stored-form-gate-on-known-loss.json"
           >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Content two-tab convergence report
@@ -1358,7 +1491,7 @@ jobs:
   slides-chat-e2e:
     name: Slides chat caret in Chromium
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    if: ${{ needs.change-scope.outputs.slides_caret_e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1386,7 +1519,7 @@ jobs:
   slides-chat-typing-e2e:
     name: Slides chat typing during slide editing
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    if: ${{ needs.change-scope.outputs.slides_typing_chat_e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1414,7 +1547,7 @@ jobs:
   slides-macos-caret-qa:
     name: Slides caret navigation in macOS
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    if: ${{ needs.change-scope.outputs.slides_caret_e2e == 'true' }}
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -1439,12 +1572,12 @@ jobs:
         timeout-minutes: 10
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform darwin
 
-  slides-authoring-e2e:
-    name: Slides rich-text authoring
+  slides-mobile-import-e2e:
+    name: Slides mobile PowerPoint import status
     needs: change-scope
-    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
+    if: needs.change-scope.outputs.slides_mobile_import_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -1459,67 +1592,109 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
 
-      - name: Install Playwright browsers
-        run: |
-          pnpm exec playwright install --only-shell --with-deps chromium
-          pnpm exec playwright install --with-deps webkit
-          pnpm exec playwright install --with-deps firefox
-
-      - name: Check IME Escape preserves inline slide text editing
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
 
       - name: Check mobile PowerPoint import pending status
         working-directory: templates/slides
+        timeout-minutes: 15
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
 
-      - name: Check typing fidelity across Slides text surfaces in Chromium
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+  slides-text-surface-e2e:
+    name: Slides text surfaces (${{ matrix.browser }})
+    needs: change-scope
+    if: needs.change-scope.outputs.slides_text_surface_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Check typing fidelity across Slides text surfaces in WebKit
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
 
-      - name: Check rich-text authoring parity in Slides
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
 
-      - name: Check rich-text authoring parity in Slides WebKit
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
+      - name: Install Playwright browser
+        run: |
+          if [ "${{ matrix.browser }}" = chromium ]; then
+            pnpm exec playwright install --only-shell --with-deps chromium
+          else
+            pnpm exec playwright install --with-deps "${{ matrix.browser }}"
+          fi
 
-      - name: Check rich-text authoring against the committed corpus
+      - name: Check IME Escape preserves slide text editing
+        if: matrix.browser == 'chromium'
         working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
+        timeout-minutes: 15
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
 
-      - name: Run deterministic authoring smoke in Chromium
+      - name: Check typing fidelity across Slides text surfaces
         working-directory: templates/slides
+        timeout-minutes: 20
         run: >-
-          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
-          --seed 16 --steps 80 --browser chromium
+          pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+          ${{ matrix.browser == 'webkit' && '--browser webkit' || '' }}
 
-      - name: Run absolute-layout authoring smoke in Chromium
-        working-directory: templates/slides
-        run: >-
-          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
-          --seed 2 --steps 80 --browser chromium
+  slides-authoring-image:
+    name: Slides authoring image
+    needs: change-scope
+    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: |
+            .github/actions/slides-authoring-image
+            docker/ci-slides-authoring
 
-      - name: Run deterministic authoring smoke in WebKit
-        working-directory: templates/slides
-        env:
-          SLIDES_AUTHORING_FUZZ_TRACE: "1"
-        run: >-
-          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
-          --seed 16 --steps 80 --browser webkit
+      - id: image
+        uses: ./.github/actions/slides-authoring-image
 
-      - name: Run deterministic authoring smoke in Firefox
-        working-directory: templates/slides
-        env:
-          SLIDES_AUTHORING_FUZZ_TRACE: "1"
-        run: >-
-          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
-          --seed 16 --steps 80 --browser firefox
+  slides-authoring-e2e:
+    name: Slides rich-text authoring (${{ matrix.shard }})
+    needs: [change-scope, slides-authoring-image]
+    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.slides-authoring-image.outputs.image }}
+      options: --ipc=host
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.change-scope.outputs.slides_authoring_matrix) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+          native-canvas-deps: "false"
+
+      - uses: ./.github/actions/slides-authoring-shard
+        with:
+          shard: ${{ matrix.shard }}
 
   brain-evals:
     name: Brain evals
@@ -1771,17 +1946,24 @@ jobs:
           AGENT_NATIVE_BUILD_SHA: ${{ github.sha }}
           NITRO_PRESET: netlify
         run: |
-          pnpm --filter calendar build
-          pnpm --filter content build
-          test -d templates/calendar/dist
-          test -f templates/calendar/.netlify/functions-internal/server/main.mjs
-          test -d templates/content/dist
-          test -f templates/content/.netlify/functions-internal/server/main.mjs
+          mapfile -t apps < <(jq -r '.[]' <<< '${{ needs.change-scope.outputs.trusted_acceptance_apps }}')
+          if [ "${#apps[@]}" -eq 0 ]; then
+            echo "::error::trusted acceptance was selected without an affected app."
+            exit 1
+          fi
+          for app in "${apps[@]}"; do
+            pnpm --filter "$app" build
+            test -d "templates/$app/dist"
+            test -f "templates/$app/.netlify/functions-internal/server/main.mjs"
+          done
 
   scaffold-e2e:
     name: Scaffold E2E — create + pnpm install
     needs: change-scope
-    if: needs.change-scope.outputs.scaffold == 'true'
+    if: >-
+      needs.change-scope.outputs.scaffold_cli == 'true' ||
+      needs.change-scope.outputs.scaffold_workspace == 'true' ||
+      needs.change-scope.outputs.builder_code_starter_scaffold == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1794,9 +1976,11 @@ jobs:
           restore-dist-cache: "true"
 
       - name: Headless scaffold — pnpm install + typecheck + action
+        if: needs.change-scope.outputs.scaffold_cli == 'true'
         run: pnpm --filter @agent-native/core exec vitest run src/cli/create-e2e.spec.ts
 
       - name: Headless onboarding — local core install + typecheck + action
+        if: needs.change-scope.outputs.scaffold_cli == 'true'
         env:
           AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
         run: >-
@@ -1815,11 +1999,14 @@ jobs:
           pnpm install
           pnpm typecheck
 
-      - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
+      - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install
+        if: needs.change-scope.outputs.scaffold_workspace == 'true'
         env:
           AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
         run: |
-          cd "$(mktemp -d)"
+          workspace_root="$(mktemp -d)"
+          echo "SCAFFOLD_WORKSPACE=$workspace_root/test-workspace" >> "$GITHUB_ENV"
+          cd "$workspace_root"
           node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template chat,calendar,dispatch
           cd test-workspace
           # Required package must be scaffolded
@@ -1876,10 +2063,13 @@ jobs:
             }
           '
           pnpm install
-          # Build generated apps to catch missing peer/runtime deps that
-          # `pnpm install` alone won't surface.
-          pnpm --filter ./apps/calendar build
-          pnpm --filter ./apps/dispatch build
+      - name: Build generated Calendar app
+        if: contains(fromJSON(needs.change-scope.outputs.scaffold_workspace_apps), 'calendar')
+        run: cd "$SCAFFOLD_WORKSPACE" && pnpm --filter ./apps/calendar build
+
+      - name: Build generated Dispatch app
+        if: contains(fromJSON(needs.change-scope.outputs.scaffold_workspace_apps), 'dispatch')
+        run: cd "$SCAFFOLD_WORKSPACE" && pnpm --filter ./apps/dispatch build
 
   ssr-boot-smoke:
     name: SSR cold-start smoke

@@ -403,13 +403,16 @@ Shipping does not independently take ownership of new Slack feedback. For
 feedback already owned by review-latest-feedback, keep all reactions in place:
 never remove or clean them up; add `✅` when accepted scope is complete and
 verified, and `🎫` only for distinct remaining work needing follow-up or an
-owner. Follow that skill's concise reply format: what changed, what remains,
-and for beta app fixes in an open PR, that beta should follow soon after merge.
-Do not send a routine second reply to announce merge or live beta; keep
-publisher status in the ship ledger and correct a material availability
-change. Do not send Slack replies or reactions as a routine ship step unless
-review-latest-feedback was requested or already owns the action. This does not
-widen existing write authorization.
+owner. Keep each Slack reply to one short sentence in plain, non-technical
+language, followed by the exact bot disclosure `this was sent from a bot.` Say
+what changed. If `🎫` is used, briefly name what still needs investigation or
+action and its owner when known. Do not explain absent reactions or include
+implementation, CI, or publisher details. Normal `/ship` does not monitor beta
+publication or send beta timing updates. When beta verification is explicitly
+requested or a concrete beta-specific risk applies, use `/ship-and-monitor`;
+only the assigned check owner may send a post-merge update under the [beta
+update guidance](../review-latest-feedback/references/slack-reaction-replies.md#beta-updates-for-assigned-checks).
+Keep publisher details in the ship ledger.
 
 Close linked GitHub issues as soon as their accepted fix is verified in the
 merged snapshot. The publication and runtime follow-ups belong in the ship

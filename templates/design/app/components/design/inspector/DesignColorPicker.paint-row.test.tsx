@@ -107,7 +107,7 @@ describe("paint row", () => {
   it("has Solid, Gradient, Image and Shader on the left, and no per-kind gradient icons", () => {
     renderPicker({
       supportedPaintTypes: ["solid", "linear", "radial", "image", "shader"],
-      glslShaderContext: { designId: "d1" },
+      shaderContext: { designId: "d1" },
     });
     expect(rowLabels()).toEqual(["Solid", "Gradient", "Image", "Shader"]);
     for (const kind of ["Linear", "Radial", "Angular", "Diamond"]) {
@@ -118,7 +118,7 @@ describe("paint row", () => {
   });
 
   it("keeps None reachable where a caller allows it, after the four paints", () => {
-    renderPicker({ glslShaderContext: { designId: "d1" } });
+    renderPicker({ shaderContext: { designId: "d1" } });
     expect(rowLabels()).toEqual([
       "Solid",
       "Gradient",

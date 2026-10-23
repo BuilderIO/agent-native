@@ -8,7 +8,11 @@ export const SettingsShell = lazy(() =>
     default: module.SettingsShell,
   })),
 );
-export type { SettingsShellProps } from "./SettingsShell.js";
+export type {
+  AppSettingsNavigationItem,
+  AppSettingsNavigationSection,
+  SettingsShellProps,
+} from "./SettingsShell.js";
 export { SettingsShellSkeleton } from "./SettingsShellSkeleton.js";
 export {
   canManageOrganizationPages,
@@ -22,6 +26,7 @@ export {
   sortSettingsPages,
   subscribeSettingsPages,
   unregisterSettingsPage,
+  type AppSettingsPageDefinition,
   type CoreSettingsPageId,
   type SettingsPageContext,
   type SettingsPageDefinition,

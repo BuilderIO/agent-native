@@ -214,6 +214,16 @@ export function CommentEntry({
         content: comment.content,
         threadId: comment.parent_id ? comment.thread_id : undefined,
         parentId: comment.parent_id ?? undefined,
+        // A new thread keeps what it pointed at: a Property, or text in a tab.
+        propertyId: comment.parent_id
+          ? undefined
+          : (comment.property_id ?? undefined),
+        databaseId: comment.parent_id
+          ? undefined
+          : (comment.property_database_id ?? undefined),
+        fieldId: comment.parent_id
+          ? undefined
+          : (comment.field_id ?? undefined),
         quotedText: comment.quoted_text ?? undefined,
         anchorPrefix: comment.anchor_prefix ?? undefined,
         anchorSuffix: comment.anchor_suffix ?? undefined,
@@ -234,6 +244,23 @@ export function CommentEntry({
     setEditing(false);
     requestAnimationFrame(() => menuRef.current?.focus());
   };
+  const cancel = () => {
+    // An edit on its way out keeps its draft until the save lands.
+    if (!edit.isPending) draft.discard();
+    close();
+  };
+  // Compared as a save would store them: the editor reports a mention per
+  // pill, the stored comment one per name.
+  const edited =
+    draft.draft.text.trim() !== comment.content.trim() ||
+    commentMentionsForText(
+      draft.draft.text,
+      draft.draft.mentions.map(draftMention),
+    ) !==
+      commentMentionsForText(
+        comment.content,
+        comment.mentions.map(draftMention),
+      );
   const save = async () => {
     if (!draft.draft.text.trim() || edit.isPending) return;
     const submitted = draft.draft;
@@ -445,14 +472,12 @@ export function CommentEntry({
             mentions={draft.draft.mentions}
             onMentionsChange={draft.setMentions}
             onSubmit={save}
-            onEscape={close}
+            onEscape={cancel}
+            confirmEscape={edited && !edit.isPending ? "edit" : false}
             autoFocus
             disabled={edit.isPending}
             submitLabel={t("comments.save")}
-            onCancel={() => {
-              draft.discard();
-              close();
-            }}
+            onCancel={cancel}
           />
         </div>
       ) : (

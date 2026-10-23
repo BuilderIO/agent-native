@@ -20,16 +20,12 @@ import {
   shouldShowBubbleToolbar,
   shouldShowReadOnlyCommentBubble,
 } from "./BubbleToolbar";
-import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import {
   CompatibleCode,
   NotionInlineAtom,
   NotionSpanMark,
 } from "./extensions/NotionExtensions";
-import {
-  isUserInitiatedCollaborativeEditorUpdate,
-  shouldPersistCollaborativeEditorUpdate,
-} from "./VisualEditor";
+import { isLocalEditorEdit } from "./VisualEditor";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -516,7 +512,7 @@ describe("BubbleToolbar", () => {
     );
   });
 
-  it("makes an unfocused link removal persistable through exact transaction provenance", () => {
+  it("saves a link removal made while the link input has focus", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");
     document.body.append(editorElement, toolbarElement);
@@ -540,20 +536,10 @@ describe("BubbleToolbar", () => {
     expect(document.activeElement).toBe(input);
 
     let persistenceAllowed = false;
+    let focusedWhenRemoved = true;
     editor.on("update", ({ editor: updatedEditor, transaction }) => {
-      const editorFocused = updatedEditor.isFocused;
-      const userInitiated = isUserInitiatedCollaborativeEditorUpdate({
-        editorFocused,
-        explicitUserEdit:
-          transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
-        recentUserEditIntent: false,
-        transactionUiEvent: transaction.getMeta("uiEvent"),
-      });
-      persistenceAllowed = shouldPersistCollaborativeEditorUpdate({
-        collab: true,
-        editorFocused,
-        userInitiated,
-      });
+      focusedWhenRemoved = updatedEditor.isFocused;
+      persistenceAllowed = isLocalEditorEdit(transaction);
     });
     const removeButton = [...toolbarElement.querySelectorAll("button")].find(
       (button) => button.textContent === "editor.removeLink",
@@ -561,6 +547,7 @@ describe("BubbleToolbar", () => {
     act(() => removeButton.click());
 
     expect(editor.getHTML()).not.toContain("href=");
+    expect(focusedWhenRemoved).toBe(false);
     expect(persistenceAllowed).toBe(true);
   });
 

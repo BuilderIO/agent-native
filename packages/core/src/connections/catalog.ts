@@ -19,7 +19,8 @@ export type WorkspaceConnectionTemplateUse =
   | "factory"
   | "forms"
   | "mail"
-  | "slides";
+  | "slides"
+  | "slides-2";
 
 export type WorkspaceConnectionProviderId =
   | "slack"
@@ -191,7 +192,13 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       ],
     },
     capabilities: ["search", "import", "docs"],
-    recommendedTemplateUses: ["brain", "design", "slides", "content"],
+    recommendedTemplateUses: [
+      "brain",
+      "design",
+      "slides",
+      "slides-2",
+      "content",
+    ],
   }),
   defineWorkspaceConnectionProvider({
     id: "notion",
@@ -265,6 +272,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       "brain",
       "content",
       "slides",
+      "slides-2",
       "dispatch",
       "analytics",
     ],
@@ -281,7 +289,13 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       "Google Docs files for source material, document search, and agent-assisted writing workflows.",
     credentialKeys: GOOGLE_CREDENTIAL_KEYS,
     capabilities: ["search", "import", "docs"],
-    recommendedTemplateUses: ["brain", "content", "slides", "dispatch"],
+    recommendedTemplateUses: [
+      "brain",
+      "content",
+      "slides",
+      "slides-2",
+      "dispatch",
+    ],
     oauth: googleOAuth([
       ...GOOGLE_IDENTITY_SCOPES,
       "https://www.googleapis.com/auth/documents.readonly",
@@ -307,7 +321,13 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       "Google Slides presentations for reference imports, visual context, and presentation workflows.",
     credentialKeys: GOOGLE_CREDENTIAL_KEYS,
     capabilities: ["search", "import", "docs"],
-    recommendedTemplateUses: ["brain", "content", "slides", "dispatch"],
+    recommendedTemplateUses: [
+      "brain",
+      "content",
+      "slides",
+      "slides-2",
+      "dispatch",
+    ],
     oauth: googleOAuth([
       ...GOOGLE_IDENTITY_SCOPES,
       "https://www.googleapis.com/auth/presentations.readonly",

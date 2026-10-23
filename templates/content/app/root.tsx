@@ -63,6 +63,7 @@ import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
+import { registerContentDatabaseQueryDefaults } from "./lib/content-database-query-cache";
 import { startLoadReads } from "./lib/content-landing";
 import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
 import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
@@ -402,7 +403,11 @@ function shouldHandleEditorCommandMenuShortcut(event: KeyboardEvent) {
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const [queryClient] = useState(() => {
+    const client = createAgentNativeQueryClient();
+    registerContentDatabaseQueryDefaults(client);
+    return client;
+  });
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const commandTrigger = useRef<HTMLElement | null>(null);
   const location = useLocation();

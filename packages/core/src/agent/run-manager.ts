@@ -22,7 +22,6 @@ import {
   describeErrorWithCauses,
   isProviderConnectionError,
 } from "./engine/error-detail.js";
-import { runErrorTelemetryProperties } from "./engine/error-telemetry.js";
 import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
@@ -65,6 +64,7 @@ import {
   resolveErroredRunTerminalEvent,
   setRunError,
   setRunTerminalReason,
+  setRunTerminalReasonIfStatus,
   persistRunCheckpointEvent,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
@@ -78,7 +78,8 @@ import {
   RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT,
   UNKNOWN_RUN_STATUS_ERROR_EVENT,
 } from "./run-store.js";
-import { isContinuationTerminalReason } from "./types.js";
+import { trackRunTerminal } from "./run-terminal-tracking.js";
+import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 
 export interface ActiveRun {
@@ -96,6 +97,8 @@ export interface ActiveRun {
   flushEvents?: () => Promise<void>;
   waitForPersistence?: () => Promise<void>;
   abortReason?: string;
+  abortPersistenceManaged?: boolean;
+  abortPersistencePromise?: Promise<boolean>;
   continuationTerminalEvent?: Extract<
     AgentChatEvent,
     { type: "auto_continue" } | { type: "error" }
@@ -231,6 +234,16 @@ const RECONNECTABLE_TERMINAL_RUN_STATUSES = new Set([
   "errored",
   "aborted",
 ]);
+
+function isKnownRunStatus(status: string): status is RunStatus {
+  return (
+    status === "running" ||
+    status === "completed" ||
+    status === "truncated" ||
+    status === "errored" ||
+    status === "aborted"
+  );
+}
 
 function isDuplicateSubmissionMarker(run: {
   status: string;
@@ -624,7 +637,7 @@ function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {
 }
 
 function terminalReasonForRun(
-  finalStatus: "completed" | "errored" | "aborted",
+  finalStatus: "completed" | "truncated" | "errored" | "aborted",
   terminalEvent: AgentChatEvent | null,
   abortReason: string | undefined,
   completionError: unknown,
@@ -644,6 +657,7 @@ function terminalReasonForRun(
   if (terminalEvent?.type === "error") {
     return `error:${terminalEvent.errorCode || "unknown"}`;
   }
+  if (finalStatus === "truncated") return "stream_ended";
   if (finalStatus === "aborted") return `aborted:${abortReason ?? "user"}`;
   if (completionError) return "completion_error";
   if (finalStatus === "errored") return "error:unknown";
@@ -723,42 +737,26 @@ function emitRunTerminalTrackingEvent(args: {
   } catch {
     // Metrics must never affect the agent run or its persisted status.
   }
-  const properties: Record<string, unknown> = {
-    source: "agent_run_manager",
-    run_id: args.runId,
-    thread_id: args.threadId,
-    turn_id: args.turnId,
-    status: args.status,
-    terminal_reason: args.terminalReason,
-    error_code: args.errorCode,
-    ...(args.errorCode ? runErrorTelemetryProperties(args.errorCode) : {}),
-    dispatch_mode: args.dispatchMode,
-    abort_reason: args.abortReason,
-    duration_ms: args.durationMs,
-    model: args.model,
-    engine: args.engineName,
-    attempt_count: args.attemptCount,
-  };
-  for (const key of Object.keys(properties)) {
-    if (properties[key] === undefined) delete properties[key];
-  }
-
-  try {
-    void Promise.all([
-      import("../tracking/registry.js"),
-      import("../observability/tracking-identity.js"),
-    ])
-      .then(([{ track }, { trackingIdentityProperties }]) => {
-        track(
-          "agent_run_terminal",
-          { ...properties, ...trackingIdentityProperties() },
-          { userId: args.userId },
-        );
-      })
-      .catch(() => {});
-  } catch {
-    // Tracking must never affect the agent run or its persisted status.
-  }
+  // An abort is reported by the SQL write that ended the row, which may be
+  // another process's stop; reporting it here too would double-count it.
+  if (args.status === "aborted") return;
+  void trackRunTerminal(
+    {
+      runId: args.runId,
+      threadId: args.threadId,
+      turnId: args.turnId,
+      status: args.status,
+      terminalReason: args.terminalReason,
+      errorCode: args.errorCode,
+      dispatchMode: args.dispatchMode,
+      abortReason: args.abortReason,
+      durationMs: args.durationMs,
+      model: args.model,
+      engineName: args.engineName,
+      attemptCount: args.attemptCount,
+    },
+    { userId: args.userId },
+  );
 }
 
 function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
@@ -897,6 +895,7 @@ export function startRun(
     },
   };
   let softTimedOut = false;
+  let checkpointBoundaryStarted = false;
   let resolveFinalized: () => void = () => {};
   let rejectFinalized: (reason?: unknown) => void = () => {};
   const finalized = new Promise<void>((resolve, reject) => {
@@ -975,6 +974,7 @@ export function startRun(
     options?.turnInitiator &&
     parseServiceIdentityEmail(options.turnInitiator.email),
   );
+  let servicePrincipalStartRefused = false;
   const insertRunPromise = (
     options?.runRowAlreadyInserted && !servicePrincipalRunStart
       ? Promise.resolve()
@@ -983,6 +983,9 @@ export function startRun(
         : insertRun(runId, threadId, options?.turnId)
   ).catch((error) => {
     captureRunPersistenceError(error, "insert-run");
+    if (error instanceof ServicePrincipalRefusedError) {
+      servicePrincipalStartRefused = true;
+    }
     if (
       options?.executionLease ||
       error instanceof ServicePrincipalRefusedError
@@ -1359,29 +1362,182 @@ export function startRun(
       mirrorInFlightMarker(false);
     }
   };
+  let checkpointRunBoundaryTask: Promise<void> = Promise.resolve();
   let checkpointAbortInFlight = false;
-  const checkpointRunBoundary = async (
+  let checkpointPersistenceFailed = false;
+  let checkpointStatusReadFailed = false;
+  let checkpointUnknownStatus: string | null = null;
+  let checkpointObservedTerminalStatus: Exclude<RunStatus, "running"> | null =
+    null;
+  const observeCheckpointRunStatus = (
+    persistedRun: Awaited<ReturnType<typeof getRunById>>,
+    context: "after checkpoint persistence" | "after checkpoint rejection",
+  ): "missing" | "unknown" | "running" | "terminal" => {
+    if (!persistedRun) {
+      checkpointStatusReadFailed = true;
+      console.error(`[run-manager] run row missing ${context}`, runId);
+      return "missing";
+    }
+    if (!isKnownRunStatus(persistedRun.status)) {
+      checkpointUnknownStatus = persistedRun.status;
+      return "unknown";
+    }
+    if (persistedRun.status === "running") return "running";
+
+    checkpointObservedTerminalStatus = persistedRun.status;
+    run.status = persistedRun.status;
+    if (persistedRun.status === "aborted") {
+      run.abortReason = persistedRun.terminalReason?.startsWith("aborted:")
+        ? persistedRun.terminalReason.slice("aborted:".length)
+        : undefined;
+    }
+    return "terminal";
+  };
+  let runDriverSettled = false;
+  let pendingTerminalEvent: RunEvent | null = null;
+  let persistedCheckpointTerminalEvent: RunEvent | null = null;
+  const rememberPersistedCheckpointTerminalEvent = (
+    persistedRun: Awaited<ReturnType<typeof getRunById>>,
+    checkpointEvent: AgentChatEvent,
+  ) => {
+    if (persistedRun?.status !== "truncated") return;
+    const persistedReason = persistedRun.terminalReason;
+    const persistedContinuationReason = CONTINUATION_REASONS.find(
+      (reason) => reason === persistedReason,
+    );
+    const reason =
+      persistedContinuationReason ??
+      (checkpointEvent.type === "auto_continue"
+        ? checkpointEvent.reason
+        : "stream_ended");
+    persistedCheckpointTerminalEvent = {
+      seq: peekRunEventSeq(run),
+      event: { type: "auto_continue", reason },
+    };
+  };
+  const checkpointRunBoundary = (
     event: AgentChatEvent,
-    terminalReason: string,
+    terminalReason: "no_progress" | "run_timeout",
+    diagnostic: { silentForMs?: number; lastEventType?: string },
   ): Promise<void> => {
     if (
       checkpointAbortInFlight ||
       run.status !== "running" ||
       abort.signal.aborted
     )
-      return;
+      return checkpointRunBoundaryTask;
     checkpointAbortInFlight = true;
-    try {
-      await withWorkerFence(() =>
-        persistRunCheckpointEvent(runId, event, terminalReason),
-      );
-    } catch {
-      // The abort still has to happen if the checkpoint write is rejected; the
-      // caller has already reached a server-owned chunk boundary.
-    } finally {
-      abort.abort(terminalReason);
-      checkpointAbortInFlight = false;
-    }
+    checkpointBoundaryStarted = true;
+    const task = (async () => {
+      let checkpointPersisted = false;
+      try {
+        await withWorkerFence(() =>
+          persistRunCheckpointEvent(runId, event, terminalReason),
+        );
+        checkpointPersisted = true;
+        let persistedRun: Awaited<ReturnType<typeof getRunById>>;
+        try {
+          persistedRun = await getRunById(runId);
+        } catch (error) {
+          checkpointStatusReadFailed = true;
+          console.error(
+            "[run-manager] could not confirm run status after checkpoint persistence",
+            runId,
+            error instanceof Error ? error.message : error,
+          );
+          return;
+        }
+        const checkpointStatus = observeCheckpointRunStatus(
+          persistedRun,
+          "after checkpoint persistence",
+        );
+        if (checkpointStatus !== "running") {
+          rememberPersistedCheckpointTerminalEvent(persistedRun, event);
+          return;
+        }
+        softTimedOut = true;
+        recordRunBoundaryDiagnostic(terminalReason, diagnostic, "terminal");
+        emitRunBoundaryTrackingEvent({
+          runId,
+          threadId,
+          reason: terminalReason,
+          recovered: false,
+          boundaryIndex: recoveredChunkBoundaries + 1,
+          dispatchMode: options?.dispatchMode,
+          model: options?.model,
+          engineName: options?.engineName,
+          userId: options?.userId,
+        });
+        if (!pendingTerminalEvent && run.status === "running") {
+          send(event);
+          persistedCheckpointTerminalEvent = pendingTerminalEvent;
+        }
+      } catch (error) {
+        let persistedCheckpointStatus: ReturnType<
+          typeof observeCheckpointRunStatus
+        > = "running";
+        if (
+          error instanceof AgentRunEventNotPersistedError &&
+          error.terminalRun
+        ) {
+          try {
+            const persistedRun = await getRunById(runId);
+            persistedCheckpointStatus = observeCheckpointRunStatus(
+              persistedRun,
+              "after checkpoint rejection",
+            );
+            rememberPersistedCheckpointTerminalEvent(persistedRun, event);
+          } catch (statusError) {
+            checkpointStatusReadFailed = true;
+            console.error(
+              "[run-manager] could not confirm run status after checkpoint rejection",
+              runId,
+              statusError instanceof Error ? statusError.message : statusError,
+            );
+          }
+        }
+        if (
+          !checkpointStatusReadFailed &&
+          (persistedCheckpointStatus === "terminal" ||
+            (pendingTerminalEvent && !checkpointPersisted))
+        ) {
+          softTimedOut = true;
+        } else if (
+          !checkpointStatusReadFailed &&
+          persistedCheckpointStatus !== "unknown"
+        ) {
+          checkpointPersistenceFailed = true;
+        }
+        if (
+          persistedCheckpointStatus !== "terminal" &&
+          persistedCheckpointStatus !== "unknown" &&
+          !checkpointStatusReadFailed
+        ) {
+          console.error(
+            "[run-manager] could not persist run boundary checkpoint",
+            runId,
+            error instanceof Error ? error.message : error,
+          );
+        }
+        if (
+          !pendingTerminalEvent &&
+          persistedCheckpointStatus !== "terminal" &&
+          persistedCheckpointStatus !== "unknown" &&
+          !checkpointStatusReadFailed
+        ) {
+          send({
+            type: "error",
+            error: "The agent could not save its continuation checkpoint.",
+            errorCode: "run_checkpoint_persistence_failed",
+          });
+        }
+      } finally {
+        abort.abort(run.abortReason ?? terminalReason);
+        checkpointAbortInFlight = false;
+      }
+    })();
+    checkpointRunBoundaryTask = task;
+    return task;
   };
 
   const recordRunBoundaryDiagnostic = (
@@ -1414,7 +1570,8 @@ export function startRun(
     reason: "no_progress" | "run_timeout",
     diagnostic: { silentForMs?: number; lastEventType?: string } = {},
   ) => {
-    if (run.status !== "running" || abort.signal.aborted) return;
+    if (runDriverSettled || run.status !== "running" || abort.signal.aborted)
+      return;
     const activeChunkAbort = chunkAbort;
     const canRecoverChunk =
       activeChunkAbort !== null &&
@@ -1434,22 +1591,8 @@ export function startRun(
       return;
     }
     if (chunkAbort) chunkBoundaryReason = reason;
-    softTimedOut = true;
-    recordRunBoundaryDiagnostic(reason, diagnostic, "terminal");
-    emitRunBoundaryTrackingEvent({
-      runId,
-      threadId,
-      reason,
-      recovered: false,
-      boundaryIndex: recoveredChunkBoundaries + 1,
-      dispatchMode: options?.dispatchMode,
-      model: options?.model,
-      engineName: options?.engineName,
-      userId: options?.userId,
-    });
     const event: AgentChatEvent = { type: "auto_continue", reason };
-    send(event);
-    void checkpointRunBoundary(event, reason);
+    void checkpointRunBoundary(event, reason, diagnostic);
   };
 
   const checkNoProgressBackstop = () => {
@@ -1495,6 +1638,10 @@ export function startRun(
 
   let lastAbortCheck = Date.now() - 3000;
   let consecutiveAbortCheckFailures = 0;
+  let completionInProgress = false;
+  let ownTerminalStatusEstablished = false;
+  let terminalStatusWrite: Promise<boolean> | null = null;
+  let terminalStatusWriteOutcomeUnknown = false;
   const checkSqlAbort = () => {
     const now = Date.now();
     if (now - lastAbortCheck < 3000) return;
@@ -1505,9 +1652,25 @@ export function startRun(
           abortInMemoryRun(run, state.reason ?? "user");
           return;
         }
-        if (!abort.signal.aborted) {
+        if (!abort.signal.aborted && !ownTerminalStatusEstablished) {
           const status = await getRunStatus(runId);
           if (status !== null && status !== "running") {
+            const pendingStatusWrite = terminalStatusWrite;
+            if (pendingStatusWrite) {
+              try {
+                await pendingStatusWrite;
+              } catch (error) {
+                if (!terminalStatusWriteOutcomeUnknown) throw error;
+                return;
+              }
+            }
+            if (terminalStatusWriteOutcomeUnknown) return;
+          }
+          if (
+            status !== null &&
+            status !== "running" &&
+            !ownTerminalStatusEstablished
+          ) {
             abortInMemoryRun(run, "displaced");
           }
         }
@@ -1541,7 +1704,6 @@ export function startRun(
 
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
-  let completionInProgress = false;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight) {
       heartbeatInFlight = true;
@@ -1619,8 +1781,6 @@ export function startRun(
     };
     armChunkSoftTimeout();
   }
-  let pendingTerminalEvent: RunEvent | null = null;
-
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
     const errorCode = getRunErrorCode(error);
     const engineError = error instanceof EngineError ? error : null;
@@ -1671,18 +1831,23 @@ export function startRun(
     eventData: string,
     eventAt: number,
   ): Promise<void> => {
-    if (runEvent.event.type === "tool_start") await insertRunPromise;
-    const write = () =>
+    const terminal = isTerminalRunEvent(runEvent.event);
+    const requireInserted =
       runEvent.event.type === "tool_start" ||
-      runEvent.event.type === "tool_done"
-        ? insertRunEvent(runId, runEvent.seq, eventData, {
-            eventAt,
-            toolInputSource: "execution",
-            ...(runEvent.event.type === "tool_start"
-              ? { requireInserted: true }
-              : {}),
-          })
-        : insertRunEvent(runId, runEvent.seq, eventData, { eventAt });
+      (terminal && !servicePrincipalStartRefused);
+    if (requireInserted) await insertRunPromise;
+    const write = () =>
+      insertRunEvent(runId, runEvent.seq, eventData, {
+        eventAt,
+        ...(runEvent.event.type === "tool_start" ||
+        runEvent.event.type === "tool_done"
+          ? { toolInputSource: "execution" as const }
+          : {}),
+        ...(requireInserted ? { requireInserted: true } : {}),
+        ...(runEvent.event.type === "auto_continue"
+          ? { allowContinuationTerminal: true }
+          : {}),
+      });
     return withWorkerFence(() =>
       options?.persistEvent
         ? options.persistEvent(write, {
@@ -1818,6 +1983,15 @@ export function startRun(
       event: normalizedEvent,
     };
     if (isTerminalRunEvent(event)) {
+      if (persistedCheckpointTerminalEvent) return Promise.resolve();
+      if (
+        checkpointPersistenceFailed &&
+        pendingTerminalEvent?.event.type === "error" &&
+        pendingTerminalEvent.event.errorCode ===
+          "run_checkpoint_persistence_failed"
+      ) {
+        return Promise.resolve();
+      }
       pendingTerminalEvent = runEvent;
       return Promise.resolve();
     }
@@ -1843,18 +2017,38 @@ export function startRun(
   };
 
   const runPromise = startDriver()
-    .then(() => {
+    .then(async () => {
+      runDriverSettled = true;
+      if (checkpointAbortInFlight) await checkpointRunBoundaryTask;
       settleBoundary(false);
       if (abort.signal.aborted) {
-        run.status = softTimedOut ? "completed" : "aborted";
+        if (run.status !== "aborted") {
+          run.status =
+            checkpointObservedTerminalStatus ??
+            (checkpointPersistenceFailed
+              ? "errored"
+              : softTimedOut
+                ? "completed"
+                : "aborted");
+        }
         return;
       }
       run.status = "completed";
     })
-    .catch((err) => {
+    .catch(async (err) => {
+      runDriverSettled = true;
+      if (checkpointAbortInFlight) await checkpointRunBoundaryTask;
       settleBoundary(false);
       if (abort.signal.aborted) {
-        run.status = softTimedOut ? "completed" : "aborted";
+        if (run.status !== "aborted") {
+          run.status =
+            checkpointObservedTerminalStatus ??
+            (checkpointPersistenceFailed
+              ? "errored"
+              : softTimedOut
+                ? "completed"
+                : "aborted");
+        }
         return;
       }
       run.status = "errored";
@@ -1888,8 +2082,11 @@ export function startRun(
       let eventPersistenceError: unknown = null;
       let runTerminalErrorCode: string | undefined;
       let terminalPersistenceEstablished = false;
+      let continuationStatusPersistedBeforeEvent = false;
+      let suppressContinuationEvent = false;
       try {
         await persistenceChain;
+        await run.abortPersistencePromise;
       } catch (error) {
         eventPersistenceError = error;
         if (run.status !== "aborted") {
@@ -1904,12 +2101,47 @@ export function startRun(
           };
         }
       }
+      if (checkpointStatusReadFailed || checkpointUnknownStatus !== null) {
+        const event = checkpointStatusReadFailed
+          ? RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT
+          : UNKNOWN_RUN_STATUS_ERROR_EVENT;
+        const abortAlreadyWon =
+          run.status === "aborted" && run.abortReason !== undefined;
+        if (!abortAlreadyWon) {
+          run.status = "errored";
+          if (!eventPersistenceError) {
+            pendingTerminalEvent = {
+              seq: peekRunEventSeq(run),
+              event: { ...event },
+            };
+          }
+        }
+        if (checkpointUnknownStatus !== null) {
+          console.error(
+            "[run-manager] checkpoint observed an unknown persisted run status",
+            runId,
+            checkpointUnknownStatus,
+          );
+        }
+      }
       const resolveTerminalEventForCompletion = () => {
-        if (run.status === "aborted") return null;
+        if (run.status === "aborted" && run.abortReason !== undefined)
+          return null;
         if (eventPersistenceError) {
           return pendingTerminalEvent
             ? { ...pendingTerminalEvent, seq: run.events.length }
             : null;
+        }
+        if (checkpointStatusReadFailed || checkpointUnknownStatus !== null) {
+          return pendingTerminalEvent
+            ? { ...pendingTerminalEvent, seq: peekRunEventSeq(run) }
+            : null;
+        }
+        if (persistedCheckpointTerminalEvent) {
+          return {
+            ...persistedCheckpointTerminalEvent,
+            seq: peekRunEventSeq(run),
+          };
         }
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
@@ -1924,7 +2156,11 @@ export function startRun(
       };
       let terminalEventForCompletion = resolveTerminalEventForCompletion();
       let terminalEvent = terminalEventForCompletion?.event ?? null;
-      if (onComplete) {
+      if (
+        onComplete &&
+        !checkpointStatusReadFailed &&
+        checkpointUnknownStatus === null
+      ) {
         try {
           const completionStatus =
             run.status !== "aborted" &&
@@ -1966,10 +2202,14 @@ export function startRun(
               completionError ||
               terminalEventForcesErroredStatus(terminalEvent)
             ? "errored"
-            : "completed";
+            : run.status === "truncated"
+              ? "truncated"
+              : "completed";
       run.status = finalStatus;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
+        !checkpointStatusReadFailed &&
+        checkpointUnknownStatus === null &&
         (endsAfterToolResultWithoutAssistantFinal(run) ||
           endsDuringActionPreparation(run)) &&
         (!terminalEventForCompletion ||
@@ -2000,18 +2240,109 @@ export function startRun(
           ? "truncated"
           : finalStatus;
       let volatileTerminalEvent: RunEvent | null = null;
+      const threadProjectionPending = Boolean(
+        completionError ||
+        (onComplete &&
+          (checkpointStatusReadFailed || checkpointUnknownStatus !== null)),
+      );
+      const terminalStatusOptions = {
+        ...(threadProjectionPending ? { threadProjectionPending: true } : {}),
+        ...(checkpointBoundaryStarted || persistedStatus === "truncated"
+          ? { terminalReason }
+          : {}),
+      };
       const persistTerminalStatus = () =>
-        completionError
-          ? updateRunStatusIfRunning(runId, persistedStatus, {
-              threadProjectionPending: true,
-            })
-          : updateRunStatusIfRunning(runId, persistedStatus);
-      const reconcileTerminalRun = () =>
-        completionError
-          ? reconcileTerminalRunFromEvents(runId, {
-              threadProjectionPending: true,
-            })
-          : reconcileTerminalRunFromEvents(runId);
+        Object.keys(terminalStatusOptions).length === 0
+          ? updateRunStatusIfRunning(runId, persistedStatus)
+          : updateRunStatusIfRunning(
+              runId,
+              persistedStatus,
+              terminalStatusOptions,
+            );
+      const persistOwnTerminalState = async (
+        persist: () => Promise<boolean>,
+      ) => {
+        let writeStarted = false;
+        const write = withWorkerFence(() => {
+          writeStarted = true;
+          return persist();
+        }).catch((error) => {
+          if (writeStarted) terminalStatusWriteOutcomeUnknown = true;
+          throw error;
+        });
+        terminalStatusWrite = write;
+        try {
+          const established = await write;
+          if (established && !terminalStatusWriteOutcomeUnknown) {
+            ownTerminalStatusEstablished = true;
+          }
+          return established;
+        } finally {
+          if (terminalStatusWrite === write) terminalStatusWrite = null;
+        }
+      };
+      const persistOwnTerminalStatus = () =>
+        persistOwnTerminalState(persistTerminalStatus);
+      const confirmAmbiguousTerminalStatus = async () => {
+        const persistedRun = await getRunById(runId);
+        if (persistedRun?.status !== persistedStatus) return false;
+
+        const expectedTerminalReason = terminalReason.slice(0, 200);
+        if (persistedRun.terminalReason === expectedTerminalReason) {
+          return true;
+        }
+        if (persistedRun.terminalReason) return false;
+
+        return withWorkerFence(() =>
+          setRunTerminalReasonIfStatus(
+            runId,
+            persistedStatus,
+            expectedTerminalReason,
+          ),
+        );
+      };
+      const reconcileTerminalRun = async () => {
+        let reconciled = false;
+        try {
+          reconciled = await persistOwnTerminalState(() =>
+            threadProjectionPending
+              ? reconcileTerminalRunFromEvents(runId, {
+                  threadProjectionPending: true,
+                })
+              : reconcileTerminalRunFromEvents(runId),
+          );
+        } catch (error) {
+          if (!terminalStatusWriteOutcomeUnknown) throw error;
+        }
+        if (reconciled) {
+          terminalStatusWriteOutcomeUnknown = false;
+          ownTerminalStatusEstablished = true;
+          return true;
+        }
+        if (!terminalStatusWriteOutcomeUnknown) {
+          return reconciled;
+        }
+        const confirmed = await confirmAmbiguousTerminalStatus();
+        terminalStatusWriteOutcomeUnknown = false;
+        if (confirmed) ownTerminalStatusEstablished = true;
+        return confirmed;
+      };
+      const reportTerminalStatusPersistenceError = (error: unknown) => {
+        captureError(error, {
+          route: "/_agent-native/agent-chat",
+          aiTraceId: runId,
+          tags: {
+            source: "agent-run-manager",
+            phase: "terminal-status-persistence",
+            errorCode: "run_terminal_status_persistence_failed",
+          },
+          extra: { runId, threadId, turnId: run.turnId },
+        });
+        console.error(
+          "[run-manager] terminal status persistence error:",
+          error instanceof Error ? error.message : error,
+        );
+      };
 
       if (finalStatus === "completed" || finalStatus === "errored") {
         const terminalEventToEmit: AgentChatEvent = eventPersistenceError
@@ -2035,8 +2366,37 @@ export function startRun(
                       ? "Agent response could not be saved."
                       : "Agent run ended unexpectedly",
                   };
+        if (terminalEventToEmit.type === "auto_continue") {
+          if (persistedStatus !== "truncated") {
+            suppressContinuationEvent = true;
+          } else {
+            try {
+              await insertRunPromise;
+              continuationStatusPersistedBeforeEvent =
+                await persistOwnTerminalStatus();
+              if (!continuationStatusPersistedBeforeEvent) {
+                await reconcileTerminalRun();
+                const persistedRun = await getRunById(runId);
+                continuationStatusPersistedBeforeEvent =
+                  persistedRun?.status === "truncated" &&
+                  persistedRun.terminalReason === terminalReason;
+              }
+              if (continuationStatusPersistedBeforeEvent) {
+                terminalPersistenceEstablished = true;
+              } else {
+                suppressContinuationEvent = true;
+              }
+            } catch (error) {
+              suppressContinuationEvent = true;
+              reportTerminalStatusPersistenceError(error);
+            }
+          }
+        }
         const last = run.events[run.events.length - 1];
-        if (!last || !isTerminalRunEvent(last.event)) {
+        if (
+          (!last || !isTerminalRunEvent(last.event)) &&
+          !suppressContinuationEvent
+        ) {
           const terminal: RunEvent = {
             seq: terminalEventForCompletion?.seq ?? allocateRunEventSeq(run),
             event: terminalEventToEmit,
@@ -2083,47 +2443,59 @@ export function startRun(
         if (!executionLeaseClaimFailed) mirrorInFlightMarker(false);
       }
 
-      const reportTerminalStatusPersistenceError = (error: unknown) => {
-        captureError(error, {
-          route: "/_agent-native/agent-chat",
-          aiTraceId: runId,
-          tags: {
-            source: "agent-run-manager",
-            phase: "terminal-status-persistence",
-            errorCode: "run_terminal_status_persistence_failed",
-          },
-          extra: { runId, threadId, turnId: run.turnId },
-        });
-        console.error(
-          "[run-manager] terminal status persistence error:",
-          error instanceof Error ? error.message : error,
-        );
-      };
-
-      if (executionLeaseClaimFailed) {
-        await insertRunPromise;
-        await markRunAborted(
-          runId,
-          run.abortReason ?? "execution-lease-claim-failed",
-        );
+      if (executionLeaseClaimFailed || finalStatus === "aborted") {
+        if (!executionLeaseClaimFailed && run.abortPersistenceManaged) {
+          terminalPersistenceEstablished = true;
+        } else if (
+          !executionLeaseClaimFailed &&
+          (run.abortReason === "superseded" ||
+            run.abortReason === "execution_lease_lost")
+        ) {
+          terminalPersistenceEstablished = false;
+        } else {
+          try {
+            await insertRunPromise;
+            const persistAtomicAbort = () =>
+              markRunAborted(
+                runId,
+                run.abortReason ?? "execution-lease-claim-failed",
+              );
+            const aborted = executionLeaseClaimFailed
+              ? await persistAtomicAbort()
+              : await withWorkerFence(persistAtomicAbort);
+            terminalPersistenceEstablished = aborted
+              ? true
+              : await reconcileTerminalRun();
+          } catch (error) {
+            terminalPersistenceEstablished = false;
+            reportTerminalStatusPersistenceError(error);
+            throw error;
+          }
+        }
       } else {
         try {
-          await insertRunPromise;
-          if (!terminalPersistenceError || eventPersistenceError) {
+          if (!continuationStatusPersistedBeforeEvent) {
+            await insertRunPromise;
+          }
+          if (
+            !continuationStatusPersistedBeforeEvent &&
+            (!terminalPersistenceError || eventPersistenceError)
+          ) {
             let statusUpdated = false;
             try {
-              statusUpdated = await withWorkerFence(persistTerminalStatus);
+              statusUpdated = await persistOwnTerminalStatus();
             } catch (error) {
               reportTerminalStatusPersistenceError(error);
             }
             if (statusUpdated) {
+              if (!checkpointBoundaryStarted) {
+                await withWorkerFence(() =>
+                  setRunTerminalReason(runId, terminalReason),
+                );
+              }
               terminalPersistenceEstablished = !terminalPersistenceError;
-              await withWorkerFence(() =>
-                setRunTerminalReason(runId, terminalReason),
-              );
             } else {
-              terminalPersistenceEstablished =
-                await withWorkerFence(reconcileTerminalRun);
+              terminalPersistenceEstablished = await reconcileTerminalRun();
             }
           }
         } catch (error) {
@@ -2182,7 +2554,7 @@ export function startRun(
       if (terminalPersistenceError) {
         const reconciled = eventPersistenceError
           ? false
-          : await withWorkerFence(reconcileTerminalRun);
+          : await reconcileTerminalRun();
         if (!reconciled) throw terminalPersistenceError;
         terminalPersistenceEstablished = true;
       }
@@ -2667,11 +3039,13 @@ function subscribeFromSQL(
                 const existing = await getLastTerminalRunEvent(runId).catch(
                   () => null,
                 );
+                const persistedTerminal =
+                  existing?.event.type === "auto_continue" ? null : existing;
                 const abortReason = run.terminalReason?.startsWith("aborted:")
                   ? run.terminalReason.slice("aborted:".length)
                   : undefined;
-                const terminalEvent = existing
-                  ? existing.event
+                const terminalEvent = persistedTerminal
+                  ? persistedTerminal.event
                   : terminalEventForAbortReason(abortReason);
                 try {
                   controller.enqueue(
@@ -2680,7 +3054,7 @@ function subscribeFromSQL(
                         streamEventWithIdentity(
                           runId,
                           terminalEvent,
-                          existing?.seq ?? lastSeq,
+                          persistedTerminal?.seq ?? lastSeq,
                         ),
                       )}\n\n`,
                     ),
@@ -3191,20 +3565,29 @@ export function abortRun(runId: string, reason: string = "user"): boolean {
   const run = activeRuns.get(runId);
   const abortedInMemory = abortRunInMemory(runId, reason);
   const markAborted = () => markRunAborted(runId, reason);
-  void flushRunEventsBeforeAbort(run)
+  const abortPersistence = flushRunEventsBeforeAbort(run)
     .then(markAborted, markAborted)
-    .catch((error) => {
-      captureError(error, {
-        route: "/_agent-native/agent-chat/runs/:id/abort",
-        aiTraceId: runId,
-        tags: { source: "agent-run-manager", phase: "abort-run-status" },
-        extra: { runId, threadId: run?.threadId, reason },
-      });
-      console.error(
-        "[run-manager] durable abort status write failed:",
-        error instanceof Error ? error.message : error,
-      );
-    });
+    .then(
+      (persisted) => {
+        if (run) run.abortPersistenceManaged = persisted;
+        return persisted;
+      },
+      (error) => {
+        if (run) run.abortPersistenceManaged = false;
+        captureError(error, {
+          route: "/_agent-native/agent-chat/runs/:id/abort",
+          aiTraceId: runId,
+          tags: { source: "agent-run-manager", phase: "abort-run-status" },
+          extra: { runId, threadId: run?.threadId, reason },
+        });
+        console.error(
+          "[run-manager] durable abort status write failed:",
+          error instanceof Error ? error.message : error,
+        );
+        return false;
+      },
+    );
+  if (run) run.abortPersistencePromise = abortPersistence;
   return abortedInMemory;
 }
 
@@ -3221,47 +3604,67 @@ export async function abortRunDurably(
 ): Promise<boolean> {
   const run = activeRuns.get(runId);
   const abortedInMemory = abortRunInMemory(runId, reason);
-  try {
-    const eventFlushFailure = await flushRunEventsBeforeAbort(run);
-    const abortPersisted = await markRunAborted(runId, reason);
-    if (!abortPersisted || eventFlushFailure) {
-      const persistedStatus = await getRunStatus(runId);
-      if (persistedStatus === null) {
-        // Agent Teams persists Stop intent before run registration.
-        // Workers recheck it before dispatch.
-        if (options?.allowNotStarted && !run && !eventFlushFailure)
-          return false;
-        throw new Error(
-          `Cannot confirm durable abort for missing run ${runId}`,
-        );
-      }
-      if (!abortPersisted && persistedStatus === "running") {
-        throw new Error(`Durable abort did not transition run ${runId}`);
-      }
+  const persistence = (async () => {
+    let eventFlushFailure: AgentRunEventNotPersistedError | null;
+    try {
+      eventFlushFailure = await flushRunEventsBeforeAbort(run);
+    } catch (error) {
+      if (run) run.abortPersistenceManaged = false;
+      throw error;
     }
-    if (eventFlushFailure) throw eventFlushFailure;
-  } catch (error) {
-    captureError(error, {
-      route: "/_agent-native/agent-chat/runs/:id/abort",
-      aiTraceId: runId,
-      tags: {
-        source: "agent-run-manager",
-        phase: "abort-run",
-      },
-      extra: {
-        runId,
-        threadId: activeRuns.get(runId)?.threadId,
-        reason,
-        abortedInMemory,
-      },
-    });
-    console.error(
-      "[run-manager] durable abort persistence failed:",
-      error instanceof Error ? error.message : error,
+    let abortPersistedDurably = false;
+    try {
+      const abortPersisted = await markRunAborted(runId, reason);
+      abortPersistedDurably = abortPersisted;
+      if (!abortPersisted || eventFlushFailure) {
+        const persistedStatus = await getRunStatus(runId);
+        abortPersistedDurably ||= persistedStatus === "aborted";
+        if (persistedStatus === null) {
+          // Agent Teams persists Stop intent before run registration.
+          // Workers recheck it before dispatch.
+          if (options?.allowNotStarted && !run && !eventFlushFailure)
+            return false;
+          throw new Error(
+            `Cannot confirm durable abort for missing run ${runId}`,
+          );
+        }
+        if (!abortPersisted && persistedStatus === "running") {
+          throw new Error(`Durable abort did not transition run ${runId}`);
+        }
+      }
+      if (run) run.abortPersistenceManaged = abortPersistedDurably;
+      if (eventFlushFailure) throw eventFlushFailure;
+    } catch (error) {
+      if (run) run.abortPersistenceManaged = abortPersistedDurably;
+      captureError(error, {
+        route: "/_agent-native/agent-chat/runs/:id/abort",
+        aiTraceId: runId,
+        tags: {
+          source: "agent-run-manager",
+          phase: "abort-run",
+        },
+        extra: {
+          runId,
+          threadId: activeRuns.get(runId)?.threadId,
+          reason,
+          abortedInMemory,
+        },
+      });
+      console.error(
+        "[run-manager] durable abort persistence failed:",
+        error instanceof Error ? error.message : error,
+      );
+      throw error;
+    }
+    return abortedInMemory;
+  })();
+  if (run) {
+    run.abortPersistencePromise = persistence.then(
+      () => run.abortPersistenceManaged ?? false,
+      () => run.abortPersistenceManaged ?? false,
     );
-    throw error;
   }
-  return abortedInMemory;
+  return persistence;
 }
 
 interface SafeBoundaryAbortResult {

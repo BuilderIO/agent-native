@@ -16,17 +16,41 @@ import {
   renumberDatabaseRows,
   resolveDatabaseRowsForBatch,
 } from "./_database-row-batch.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import {
   databaseItemsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
 
+/**
+ * Takes the collection, then every membership in id order. Locking only the
+ * removed memberships first would hold one ahead of a sibling with a lower id,
+ * which renumbering, restore and Blocks-field locks take in id order.
+ */
+async function lockCollectionMemberships(tx: any, databaseId: string) {
+  await lockContentDatabaseMutation(
+    tx as unknown as ReturnType<typeof getDb>,
+    databaseId,
+  );
+  await lockDatabaseMemberships(
+    tx,
+    (
+      await tx
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, databaseId))
+    ).map((item: { id: string }) => item.id),
+  );
+}
+
 export default defineAction({
   description:
     "Remove one or more page memberships from a content collection in one atomic batch without deleting the pages. Use this once for two or more selected or named rows instead of looping page operations.",
   schema: databaseRowBatchSchema,
-  run: async (args) => {
+  run: async (args, context) => {
     const db = getDb();
     const { database, rows } = await resolveDatabaseRowsForBatch(args, {
       includeTrashed: true,
@@ -39,6 +63,7 @@ export default defineAction({
       const now = new Date().toISOString();
       await withPositionLock(databaseItemsPositionScope(database.id), () =>
         db.transaction(async (tx) => {
+          await lockCollectionMemberships(tx, database.id);
           if (removedItemIds.length > 0) {
             await tx
               .delete(schema.contentDatabaseItems)
@@ -53,10 +78,13 @@ export default defineAction({
       );
       await writeAppState("refresh-signal", { ts: Date.now() });
       return {
-        ...(await getContentDatabaseResponse(database.id, {
-          limit: 100,
-          offset: 0,
-        })),
+        ...contentDatabaseResponseForCaller(
+          await getContentDatabaseResponse(database.id, {
+            limit: 100,
+            offset: 0,
+          }),
+          context,
+        ),
         removedItemIds,
         removedDocumentIds,
         removedCount: removedItemIds.length,
@@ -85,10 +113,7 @@ export default defineAction({
 
     await withPositionLock(databaseItemsPositionScope(database.id), () =>
       db.transaction(async (tx) => {
-        await lockContentDatabaseMutation(
-          tx as unknown as ReturnType<typeof getDb>,
-          database.id,
-        );
+        await lockCollectionMemberships(tx, database.id);
         await touchContentDatabase(
           tx as unknown as ReturnType<typeof getDb>,
           database.id,
@@ -207,10 +232,13 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {
-      ...(await getContentDatabaseResponse(database.id, {
-        limit: 100,
-        offset: 0,
-      })),
+      ...contentDatabaseResponseForCaller(
+        await getContentDatabaseResponse(database.id, {
+          limit: 100,
+          offset: 0,
+        }),
+        context,
+      ),
       removedItemIds,
       removedDocumentIds,
       removedCount: removedItemIds.length,

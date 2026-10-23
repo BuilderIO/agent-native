@@ -13,6 +13,7 @@ export type ContentSaveOutcome =
   | "preserved_to_history"
   | "merged"
   | "merged_with_displaced_text"
+  | "live_copy_body"
   | "refused"
   | "applied"
   | "displaced_preserved"
@@ -63,6 +64,10 @@ const reasons = new Set([
   "stale_empty_body",
   "stale_builder_image",
   "recovery_base_changed",
+  "live_copy_save_held",
+  "live_copy_save_unheld",
+  "live_copy_save_noncanonical",
+  "live_copy_save_unchecked",
   "title_base_changed",
   "body_base_changed",
   "body_revision_cas_conflict",
@@ -76,6 +81,7 @@ const reasons = new Set([
   "EDIT_MATCH_MISSING",
   "EDIT_MATCH_AMBIGUOUS",
   "EDIT_RANGES_OVERLAP",
+  "DOCUMENT_BODY_UNREPRESENTABLE",
   "DOCUMENT_BODY_NOT_EMPTY",
   "DOCUMENT_EDIT_MODE_CONFLICT",
   "LINKED_LOCAL_REVISION_PROTOCOL_UNAVAILABLE",

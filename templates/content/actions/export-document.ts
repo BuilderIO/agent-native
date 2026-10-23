@@ -36,6 +36,8 @@ const collectionSchema = z.object({
               value: z.string(),
               filterGroupId: z.string().optional(),
               parentFilterGroupId: z.string().optional(),
+              filterGroupMode: z.enum(["and", "or"]).optional(),
+              parentFilterGroupMode: z.enum(["and", "or"]).optional(),
             }),
           )
           .max(50),
@@ -190,6 +192,7 @@ export default defineAction({
           propertyId: property.definition.id,
           name: property.definition.name,
           position: property.definition.position,
+          primary: isPrimaryBlocksField(property.definition.options),
           markdown,
           identity,
         };

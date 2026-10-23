@@ -253,7 +253,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
 
     for (const label of [
       "agentPanel.toggleAgent",
-      "comments.title",
+      "comments.discussion",
       "editor.toolbar.stopSuggesting",
       "editor.toolbar.undo",
       "editor.toolbar.redo",
@@ -293,7 +293,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
 
     expect(byLabel(AI_AGENT_LABEL)).not.toBeNull();
     expect(byLabel("agentPanel.toggleAgent")).not.toBeNull();
-    expect(byLabel("comments.title")).not.toBeNull();
+    expect(byLabel("comments.discussion")).not.toBeNull();
     expect(byLabel("editor.toolbar.openInAgentNative")).toBeNull();
     const trigger = byLabel("editor.toolbar.morePageActions");
     expect(trigger?.className).toContain("h-9");

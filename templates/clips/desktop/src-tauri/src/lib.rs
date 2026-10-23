@@ -349,6 +349,7 @@ pub fn run() {
             notifications::take_pending_meeting_notification,
             notifications::notify_meeting_starting,
             notifications::dismiss_meeting_notification,
+            notifications::debug_write_snapshot,
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
             meetings_watcher::meetings_watcher_resume_polling,

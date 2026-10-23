@@ -180,6 +180,7 @@ export interface ChatThreadListPageRequest {
   query?: string;
   ownership?: ChatThreadOwnership;
   includeExternal?: boolean;
+  includeArchived?: boolean;
   includeHidden?: boolean;
   scope?: ChatThreadScope | null;
 }
@@ -267,6 +268,7 @@ async function requestChatThreadListPage(
     params.set("ownership", request.ownership);
   }
   if (request.includeExternal) params.set("includeExternal", "1");
+  if (request.includeArchived) params.set("includeArchived", "1");
   if (request.includeHidden) params.set("includeHidden", "1");
   appendChatThreadScopeParams(params, request.scope);
   const search = params.toString();

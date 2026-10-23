@@ -18,7 +18,9 @@ import {
   prepareServicePrincipalRunStart,
   recordServicePrincipalDenial,
 } from "../org/service-principal-guard.js";
+import { platformWaitUntil } from "../server/background-work.js";
 import { captureError } from "../server/capture-error.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   assertNoInlineImageBytes,
   stripInlineBytes,
@@ -51,6 +53,11 @@ import {
   AGENT_RUN_MIGRATIONS,
   AGENT_RUN_MIGRATIONS_TABLE,
 } from "./run-migrations.js";
+import { lockThreadRunSlot } from "./run-slot-lock.js";
+import {
+  trackRunTerminal,
+  type RunTerminalTrackingFields,
+} from "./run-terminal-tracking.js";
 import {
   isConsistentToolCallInputFingerprint,
   isUnavailableToolCallInput,
@@ -77,6 +84,11 @@ export const STALE_RUN_ERROR_EVENT = {
 } as const;
 
 export const STALE_RUN_TERMINAL_REASON = `error:${STALE_RUN_ERROR_EVENT.errorCode}`;
+
+const CONTINUATION_TERMINAL_EVENT_REASONS = [
+  "auto_continue",
+  ...CONTINUATION_REASONS,
+] as const;
 
 export const UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT = {
   type: "error",
@@ -1792,11 +1804,14 @@ export async function tryClaimRunSlot(
     turnInitiator?: AgentTurnInitiator;
     /** The stopped run this run continues in the same turn, and who asked. */
     continueOf?: { runId: string; trigger: ContinueTrigger };
+    /** Defer a fresh turn while an earlier accepted inbox submission is queued. */
+    hasPendingQueuedSubmission?: (tx: DbExec) => Promise<boolean>;
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<{
   claimed: boolean;
   activeRunId: string | null;
+  queuedSubmissionPending?: boolean;
   completedRunId?: string;
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
@@ -1829,10 +1844,7 @@ export async function tryClaimRunSlot(
       });
       if (denied) return { refused: denied } as const;
     }
-    await tx.execute({
-      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-      args: [`agent-native:run-slot:${threadId}`],
-    });
+    await lockThreadRunSlot(tx, threadId);
     await lockContinuationOrder(tx, threadId, turnId);
     const abortMarker = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
@@ -1861,7 +1873,6 @@ export async function tryClaimRunSlot(
     if (activeRunId) {
       return { result: { claimed: false, activeRunId } } as const;
     }
-
     if (replayCompletedTurn) {
       const latest = await tx.execute({
         sql: `SELECT id,
@@ -1900,7 +1911,6 @@ export async function tryClaimRunSlot(
         } as const;
       }
     }
-
     // Admitted under the thread's slot lock, so two tabs continuing the same
     // stop start one run and the count of continuations stays exact.
     if (continueOf) {
@@ -1967,6 +1977,16 @@ export async function tryClaimRunSlot(
           },
         } as const;
       }
+    }
+
+    if (!continueOf && (await options?.hasPendingQueuedSubmission?.(tx))) {
+      return {
+        result: {
+          claimed: false,
+          activeRunId: null,
+          queuedSubmissionPending: true,
+        },
+      } as const;
     }
 
     const continuationOrder =
@@ -2066,6 +2086,23 @@ export async function setRunTerminalReason(
     if (error instanceof ExecutionFenceError) throw error;
     // Diagnostics are best-effort; never let them break completion.
   }
+}
+
+export async function setRunTerminalReasonIfStatus(
+  runId: string,
+  expectedStatus: "completed" | "truncated" | "errored" | "aborted",
+  terminalReason: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs SET terminal_reason = ? WHERE id = ? AND status = ? AND (terminal_reason IS NULL OR terminal_reason = '')`,
+        args: [terminalReason.slice(0, 200), runId, expectedStatus],
+      }),
+    { runId },
+  );
+  return (rowsAffected ?? 0) > 0;
 }
 
 /**
@@ -2696,31 +2733,38 @@ function priorDiagStageLabel(raw: unknown): string | null {
 async function reconcileTerminalRunInRecoveryTransaction(
   tx: DbExec,
   runId: string,
-): Promise<boolean> {
+): Promise<SqlEndedRun | null> {
   const latest = await getRunEventForReconciliation(runId, tx);
-  if (!latest) return false;
+  if (!latest) return null;
   const status = terminalStatusForEvent(latest.event);
   const terminalReason = terminalReasonForEvent(latest.event);
-  if (!status || !terminalReason) return false;
+  if (!status || !terminalReason) return null;
 
-  const { rowsAffected } = await tx.execute({
+  const errorCode = errorCodeForTerminalEvent(latest.event);
+  const { rows, rowsAffected } = await tx.execute({
     sql: `UPDATE agent_runs
           SET status = ?,
               completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
               error_code = ?,
               error_detail = ?,
               terminal_reason = ?
-          WHERE id = ? AND status = 'running'`,
+          WHERE id = ? AND status = 'running'
+          ${ENDED_RUN_RETURNING}`,
     args: [
       status,
       latest.eventAt,
-      errorCodeForTerminalEvent(latest.event),
+      errorCode,
       errorDetailForTerminalEvent(latest.event),
       terminalReason,
       runId,
     ],
   });
-  return (rowsAffected ?? 0) === 1;
+  if ((rowsAffected ?? 0) !== 1) return null;
+  return {
+    runId,
+    ending: { status, terminalReason, errorCode: errorCode ?? undefined },
+    row: rows?.[0] as EndedRunRow | undefined,
+  };
 }
 
 async function reapSingleStaleRun(
@@ -2744,7 +2788,8 @@ async function reapSingleStaleRun(
           WHERE id = ?
             AND status = 'running'
             AND ${terminalRunEventExclusionSql()}
-            AND ${staleClause}`;
+            AND ${staleClause}
+          ${ENDED_RUN_RETURNING}`;
   const updateArgs = [
     STALE_RUN_ERROR_EVENT.errorCode,
     STALE_RUN_ERROR_EVENT.details,
@@ -2772,10 +2817,7 @@ async function reapSingleStaleRun(
     return { reaped: false, projectionFailed: false };
   }
   const reapResult = await client.transaction(async (tx) => {
-    await tx.execute({
-      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-      args: [`agent-native:run-slot:${runScope.thread_id}`],
-    });
+    await lockThreadRunSlot(tx, runScope.thread_id as string);
     const lease = await lockTurnExecutionLease(
       tx,
       runScope.thread_id as string,
@@ -2797,7 +2839,8 @@ async function reapSingleStaleRun(
     if (lease?.isLive && generationMatches) {
       return { reaped: false, outcome: null };
     }
-    if (await reconcileTerminalRunInRecoveryTransaction(tx, runId)) {
+    const repaired = await reconcileTerminalRunInRecoveryTransaction(tx, runId);
+    if (repaired) {
       if (generationMatches && lease) {
         await tx.execute({
           sql: `UPDATE agent_execution_leases
@@ -2815,9 +2858,9 @@ async function reapSingleStaleRun(
           args: [runId],
         });
       }
-      return { reaped: false, outcome: null };
+      return { reaped: false, outcome: null, repaired };
     }
-    const { rowsAffected } = await tx.execute({
+    const { rows, rowsAffected } = await tx.execute({
       sql: updateSql,
       args: updateArgs,
     });
@@ -2858,9 +2901,32 @@ async function reapSingleStaleRun(
         }
       }
     }
-    return { reaped, outcome };
+    return {
+      reaped,
+      outcome,
+      reapedRow: rows?.[0] as EndedRunRow | undefined,
+    };
   });
   const { reaped, outcome } = reapResult;
+  // Taken from the committed attempt: a rolled-back one ended nothing.
+  const ended: SqlEndedRun | null =
+    "repaired" in reapResult && reapResult.repaired
+      ? reapResult.repaired
+      : reaped
+        ? {
+            runId,
+            ending: reapedRunEnding({
+              source,
+              errorCode: STALE_RUN_ERROR_EVENT.errorCode,
+              terminalReason: STALE_RUN_TERMINAL_REASON,
+              recoveryOutcome: staleRunRecoveryLabel(outcome),
+            }),
+            row: "reapedRow" in reapResult ? reapResult.reapedRow : undefined,
+          }
+        : null;
+  // Handed off as soon as it commits: a sweep cut short must not lose the
+  // runs it already ended, which no later sweep can see.
+  if (ended) trackRunsEndedInSql([ended]);
 
   let forensics = "";
   let priorStageInfo = "";
@@ -2972,8 +3038,8 @@ export async function reapUnclaimedBackgroundRun(
   }
   const completedAt = Date.now();
   const cutoff = completedAt - UNCLAIMED_BACKGROUND_RUN_GRACE_MS;
-  const reaped = await client.transaction(async (tx) => {
-    const { rowsAffected } = await tx.execute({
+  const { reaped, row } = await client.transaction(async (tx) => {
+    const { rows, rowsAffected } = await tx.execute({
       sql: `UPDATE agent_runs
             SET status = 'errored',
                 completed_at = ?,
@@ -2983,7 +3049,8 @@ export async function reapUnclaimedBackgroundRun(
             WHERE id = ?
               AND status = 'running'
               AND dispatch_mode = 'background'
-              AND COALESCE(heartbeat_at, started_at) < ?`,
+              AND COALESCE(heartbeat_at, started_at) < ?
+            ${ENDED_RUN_RETURNING}`,
       args: [
         completedAt,
         UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
@@ -3001,7 +3068,7 @@ export async function reapUnclaimedBackgroundRun(
         UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT,
       );
     }
-    return updated;
+    return { reaped: updated, row: rows?.[0] as EndedRunRow | undefined };
   });
   if (reaped) {
     try {
@@ -3019,6 +3086,15 @@ export async function reapUnclaimedBackgroundRun(
         extra: { runId },
       });
     }
+    trackReapedRun(
+      runId,
+      {
+        source: "reap-unclaimed-background",
+        errorCode: UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+        terminalReason: UNCLAIMED_BACKGROUND_RUN_ERROR_EVENT.errorCode,
+      },
+      row,
+    );
   }
   return reaped;
 }
@@ -3041,19 +3117,22 @@ export async function updateRunStatus(
 export async function updateRunStatusIfRunning(
   runId: string,
   status: "completed" | "truncated" | "errored" | "aborted",
-  options: { threadProjectionPending?: boolean } = {},
+  options: { threadProjectionPending?: boolean; terminalReason?: string } = {},
 ): Promise<boolean> {
   await ensureRunTables();
+  const terminalReason = options.terminalReason?.slice(0, 200);
   const { rowsAffected } = await withFencedExecutionWrite(
     (tx) =>
       tx.execute({
         sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL,
                      thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
+                     ${terminalReason === undefined ? "" : ", terminal_reason = ?"}
               WHERE id = ? AND status = 'running'`,
         args: [
           status,
           Date.now(),
           options.threadProjectionPending === true,
+          ...(terminalReason === undefined ? [] : [terminalReason]),
           runId,
         ],
       }),
@@ -3136,11 +3215,8 @@ export async function finalizeClaimedBackgroundRunFailure(
   const expectedGeneration =
     scope.worker_generation == null ? null : String(scope.worker_generation);
 
-  return client.transaction(async (tx) => {
-    await tx.execute({
-      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-      args: [`agent-native:run-slot:${scope.thread_id}`],
-    });
+  const ended = await client.transaction(async (tx) => {
+    await lockThreadRunSlot(tx, scope.thread_id as string);
     const lease = await lockTurnExecutionLease(
       tx,
       scope.thread_id as string,
@@ -3164,7 +3240,7 @@ export async function finalizeClaimedBackgroundRunFailure(
       (run.worker_generation == null ? null : String(run.worker_generation)) !==
         expectedGeneration
     ) {
-      return false;
+      return null;
     }
     const generationMatches =
       run.worker_generation == null
@@ -3172,7 +3248,7 @@ export async function finalizeClaimedBackgroundRunFailure(
         : lease !== null &&
           lease.ownerRunId === runId &&
           String(run.worker_generation) === lease.generation;
-    if (!generationMatches) return false;
+    if (!generationMatches) return null;
 
     const updated = await tx.execute({
       sql: `UPDATE agent_runs
@@ -3180,7 +3256,8 @@ export async function finalizeClaimedBackgroundRunFailure(
                 error_detail = ?, terminal_reason = ?, dispatch_payload = NULL
             WHERE id = ? AND status = 'running'
               AND dispatch_mode = 'background-processing'
-              AND ${terminalRunEventExclusionSql()}`,
+              AND ${terminalRunEventExclusionSql()}
+            ${ENDED_RUN_RETURNING}`,
       args: [
         Date.now(),
         failure.errorCode,
@@ -3189,7 +3266,7 @@ export async function finalizeClaimedBackgroundRunFailure(
         runId,
       ],
     });
-    if ((updated.rowsAffected ?? 0) !== 1) return false;
+    if ((updated.rowsAffected ?? 0) !== 1) return null;
 
     const lastEvent = await tx.execute({
       sql: `SELECT seq FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
@@ -3210,8 +3287,19 @@ export async function finalizeClaimedBackgroundRunFailure(
     if ((inserted.rowsAffected ?? 0) !== 1) {
       throw new Error(`Failed to persist failure event for run ${runId}`);
     }
-    return true;
+    return { row: updated.rows?.[0] as EndedRunRow | undefined };
   });
+  if (!ended) return false;
+  trackRunEndedInSql(
+    runId,
+    {
+      status: "errored",
+      terminalReason: `error:${failure.errorCode}`.slice(0, 200),
+      errorCode: failure.errorCode,
+    },
+    ended.row,
+  );
+  return true;
 }
 
 export async function failRunBeforeDispatch(
@@ -3239,7 +3327,7 @@ export async function failRunBeforeDispatch(
   ) {
     return false;
   }
-  return client.transaction(async (tx) => {
+  const ended = await client.transaction(async (tx) => {
     const lease = await lockTurnExecutionLease(
       tx,
       scope.thread_id as string,
@@ -3253,7 +3341,7 @@ export async function failRunBeforeDispatch(
       | { status?: unknown; worker_generation?: number | string | null }
       | undefined;
     if (currentRun?.status !== "running") {
-      return false;
+      return null;
     }
     if (
       lease?.isLive &&
@@ -3261,13 +3349,14 @@ export async function failRunBeforeDispatch(
       (currentRun.worker_generation == null ||
         String(currentRun.worker_generation) === lease.generation)
     ) {
-      return false;
+      return null;
     }
     const updated = await tx.execute({
       sql: `UPDATE agent_runs
             SET status = 'errored', completed_at = ?, error_code = ?,
                 error_detail = ?, terminal_reason = ?, dispatch_payload = NULL
-            WHERE id = ? AND status = 'running'`,
+            WHERE id = ? AND status = 'running'
+            ${ENDED_RUN_RETURNING}`,
       args: [
         Date.now(),
         errorCode,
@@ -3276,8 +3365,22 @@ export async function failRunBeforeDispatch(
         runId,
       ],
     });
-    return (updated.rowsAffected ?? 0) === 1;
+    return (updated.rowsAffected ?? 0) === 1
+      ? { row: updated.rows?.[0] as EndedRunRow | undefined }
+      : null;
   });
+  if (!ended) return false;
+  // No run loop ever started for this row, so nothing else will report it.
+  trackRunEndedInSql(
+    runId,
+    {
+      status: "errored",
+      terminalReason: terminalReason.slice(0, 200),
+      errorCode,
+    },
+    ended.row,
+  );
+  return true;
 }
 
 /** The caller owns this claim and has not called startRun yet. */
@@ -3287,16 +3390,23 @@ export async function releaseBackgroundRunBeforeStart(
   errorDetail: string,
 ): Promise<void> {
   await ensureRunTables();
-  const { rowsAffected } = await getDbExec().execute({
+  const { rowsAffected, rows } = await getDbExec().execute({
     sql: `UPDATE agent_runs
           SET status = 'errored', completed_at = ?, error_code = ?, error_detail = ?, dispatch_payload = NULL
-          WHERE id = ? AND status = 'running' AND dispatch_mode = 'background-processing'`,
+          WHERE id = ? AND status = 'running' AND dispatch_mode = 'background-processing'
+          ${ENDED_RUN_RETURNING}`,
     args: [Date.now(), errorCode, errorDetail, runId],
   });
   if (rowsAffected !== 1)
     throw new Error(
       `Unstarted background worker ${runId} could not be released`,
     );
+  // No run loop ever started for this row, so nothing else will report it.
+  trackRunEndedInSql(
+    runId,
+    { status: "errored", terminalReason: `error:${errorCode}`, errorCode },
+    rows?.[0] as EndedRunRow | undefined,
+  );
 }
 
 export async function getRunStatus(runId: string): Promise<string | null> {
@@ -3362,7 +3472,11 @@ async function updateRunAborted(
   if (!client.transaction) {
     throw new Error("Atomic run cancellation requires transaction support");
   }
-  const abortResult = await client.transaction(async (tx) => {
+  const abortEvent = terminalEventForAbortReason(reason) as unknown as Record<
+    string,
+    unknown
+  >;
+  const commitAbort = async (tx: DbExec) => {
     await lockExecutionLeasesForRuns(tx, [runId]);
     await lockAndAssertCurrentExecutionFences(tx);
     const runResult = await tx.execute({
@@ -3408,7 +3522,7 @@ async function updateRunAborted(
       }
     }
     const result = await tx.execute({
-      sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'${requireSafeBoundary ? " AND in_flight_since IS NULL" : ""}`,
+      sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE id = ? AND status = 'running'${requireSafeBoundary ? " AND in_flight_since IS NULL" : ""} ${ENDED_RUN_RETURNING}`,
       args: [
         reason ?? "user",
         Date.now(),
@@ -3419,7 +3533,12 @@ async function updateRunAborted(
     const rowsAffected = result.rowsAffected ?? 0;
     if (rowsAffected > 0) {
       await revokeExecutionLeasesForRuns(tx, [runId]);
-      return { rowsAffected, appendTerminalEvent: true };
+      await appendAbortTerminalRunEventInTransaction(tx, runId, abortEvent);
+      return {
+        rowsAffected,
+        appendTerminalEvent: true,
+        endedRow: result.rows?.[0] as EndedRunRow | undefined,
+      };
     }
     const terminalState = await tx.execute({
       sql: `SELECT status, terminal_reason, in_flight_since FROM agent_runs WHERE id = ?`,
@@ -3432,27 +3551,26 @@ async function updateRunAborted(
           in_flight_since?: number | string | null;
         }
       | undefined;
-    return {
-      rowsAffected,
-      appendTerminalEvent:
-        terminalRun?.status === "aborted" &&
-        terminalRun.terminal_reason === `aborted:${reason ?? "user"}` &&
-        (!requireSafeBoundary || terminalRun.in_flight_since == null),
-    };
-  });
-  if (abortResult.appendTerminalEvent) {
-    try {
-      await safeAppendTerminalRunEvent(
-        runId,
-        terminalEventForAbortReason(reason) as unknown as Record<
-          string,
-          unknown
-        >,
-        "mark-aborted",
-      );
-    } catch (error) {
-      throw new AgentRunEventNotPersistedError(runId, null, true, error);
+    const appendTerminalEvent =
+      terminalRun?.status === "aborted" &&
+      terminalRun.terminal_reason === `aborted:${reason ?? "user"}` &&
+      (!requireSafeBoundary || terminalRun.in_flight_since == null);
+    if (appendTerminalEvent) {
+      await appendAbortTerminalRunEventInTransaction(tx, runId, abortEvent);
+      return { rowsAffected: 0, appendTerminalEvent: true };
     }
+    return { rowsAffected: 0, appendTerminalEvent: false };
+  };
+  const abortResult = await retryAbortTerminalEventTransaction(
+    "mark-aborted",
+    () => client.transaction!(commitAbort),
+  );
+  if (abortResult.rowsAffected > 0) {
+    trackAbortedRun(
+      runId,
+      reason ?? "user",
+      "endedRow" in abortResult ? abortResult.endedRow : undefined,
+    );
   }
   return abortResult.rowsAffected > 0 || abortResult.appendTerminalEvent;
 }
@@ -3561,12 +3679,12 @@ export async function markTurnAborted(
   if (!client.transaction) {
     throw new Error("Atomic turn cancellation requires transaction support");
   }
-  const runIds: string[] = [];
-  const outcome = await client.transaction(async (tx) => {
-    await tx.execute({
-      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
-      args: [`agent-native:run-slot:${threadId}`],
-    });
+  let abortedRows: EndedRunRow[] = [];
+  const commitAbort = async (tx: DbExec) => {
+    // A retried transaction runs this again; only the committed attempt counts.
+    abortedRows = [];
+    const runIds: string[] = [];
+    await lockThreadRunSlot(tx, threadId);
     await lockAndAssertCurrentExecutionFences(tx);
     const lease = await lockTurnExecutionLease(tx, threadId, turnId);
     if (
@@ -3589,9 +3707,10 @@ export async function markTurnAborted(
     await revokeExecutionLeasesForRuns(tx, candidateRunIds);
     if (candidateRunIds.length > 0) {
       const aborted = await tx.execute({
-        sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' RETURNING id`,
+        sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' ${ENDED_RUN_RETURNING}`,
         args: [reason, now, `aborted:${reason}`, threadId, turnId],
       });
+      abortedRows = aborted.rows as EndedRunRow[];
       runIds.push(
         ...aborted.rows
           .map((row) => String((row as { id?: unknown }).id ?? ""))
@@ -3648,6 +3767,45 @@ export async function markTurnAborted(
         return "already_terminal" as const;
       }
     }
+    const continuationRun = await tx.execute({
+      sql: `SELECT id FROM agent_runs
+            WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
+              AND status = 'truncated'
+              AND terminal_reason IN (${CONTINUATION_TERMINAL_EVENT_REASONS.map(() => "?").join(", ")})
+              AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+            ORDER BY started_at DESC LIMIT 1 FOR UPDATE`,
+      args: [threadId, turnId, ...CONTINUATION_TERMINAL_EVENT_REASONS],
+    });
+    const continuationRunId = String(
+      (continuationRun.rows[0] as { id?: unknown } | undefined)?.id ?? "",
+    );
+    if (continuationRunId) {
+      const abortedContinuation = await tx.execute({
+        sql: `UPDATE agent_runs
+              SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ?
+              WHERE id = ? AND status = 'truncated'
+                AND terminal_reason IN (${CONTINUATION_TERMINAL_EVENT_REASONS.map(() => "?").join(", ")})
+              RETURNING id`,
+        args: [
+          reason,
+          now,
+          `aborted:${reason}`,
+          continuationRunId,
+          ...CONTINUATION_TERMINAL_EVENT_REASONS,
+        ],
+      });
+      if (abortedContinuation.rows.length > 0) {
+        runIds.push(continuationRunId);
+        await revokeExecutionLeasesForRuns(tx, [continuationRunId]);
+      }
+    }
+    const abortEvent = terminalEventForAbortReason(reason) as unknown as Record<
+      string,
+      unknown
+    >;
+    for (const runId of runIds) {
+      await appendAbortTerminalRunEventInTransaction(tx, runId, abortEvent);
+    }
     await tx.execute({
       sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort'), (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
       args: [
@@ -3672,18 +3830,22 @@ export async function markTurnAborted(
       ],
     });
     return "aborted" as const;
-  });
-  await Promise.all(
-    runIds.map((runId) =>
-      safeAppendTerminalRunEvent(
-        runId,
-        terminalEventForAbortReason(reason) as unknown as Record<
-          string,
-          unknown
-        >,
-        "mark-turn-aborted",
-      ),
-    ),
+  };
+  const outcome = await retryAbortTerminalEventTransaction(
+    "mark-turn-aborted",
+    () => client.transaction!(commitAbort),
+  );
+  trackRunsEndedInSql(
+    abortedRows
+      .filter(
+        (row): row is EndedRunRow & { id: string } =>
+          typeof row.id === "string",
+      )
+      .map((row) => ({
+        runId: row.id,
+        ending: abortedRunEnding(reason),
+        row,
+      })),
   );
   return outcome;
 }
@@ -3743,12 +3905,13 @@ export async function getRunAbortState(
 function persistedRunEventData(
   eventData: string,
   inputSource?: "execution",
+  parsedEvent?: Record<string, unknown> & { type: string },
 ): string {
   const stripped = stripInlineBytesFromJson(eventData, "placeholder");
-  const original = JSON.parse(eventData);
+  const original = parsedEvent ?? JSON.parse(eventData);
   if (original.type === "approval_required") {
     return JSON.stringify({
-      ...JSON.parse(stripped),
+      ...(stripped === eventData ? original : JSON.parse(stripped)),
       approvalKey: approvalKeyForHistory(original.approvalKey),
     });
   }
@@ -3761,7 +3924,7 @@ function persistedRunEventData(
     original.inputStoredFingerprint !== undefined
   )
     return stripped;
-  const stored = JSON.parse(stripped);
+  const stored = stripped === eventData ? original : JSON.parse(stripped);
   // Only fresh execution input can establish identity; reserialization cannot recover lost arguments.
   return JSON.stringify({
     ...stored,
@@ -3803,15 +3966,26 @@ export async function insertRunEvent(
   options?: {
     toolInputSource?: "execution";
     requireInserted?: boolean;
+    allowContinuationTerminal?: boolean;
     eventAt?: number;
   },
 ): Promise<void> {
   await ensureRunTables();
+  const event = parseRunEventData(eventData, `run ${runId} sequence ${seq}`);
+  const continuationReason =
+    options?.allowContinuationTerminal &&
+    event.type === "auto_continue" &&
+    isContinuationTerminalReason(event.reason)
+      ? event.reason
+      : null;
   const storedEventData = persistedRunEventData(
     eventData,
     options?.toolInputSource,
+    event,
   );
   const eventAt = options?.eventAt ?? Date.now();
+  const resolvesCheckpoint =
+    terminalStatusForEvent(event as AgentChatEvent) !== null;
   // The reaper must wait for the marker's commit before exposing a successor.
   let result: {
     rowsAffected: number | undefined;
@@ -3821,13 +3995,46 @@ export async function insertRunEvent(
   try {
     result = await withFencedExecutionWrite(
       async (tx) => {
-        const { rowsAffected } = await tx.execute({
-          sql: options?.requireInserted
-            ? `WITH running_run AS MATERIALIZED (
-          SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
+        const writeEvent = async (writeTx: DbExec) => {
+          if (options?.allowContinuationTerminal) {
+            const runRef = await writeTx.execute({
+              sql: "SELECT thread_id FROM agent_runs WHERE id = ?",
+              args: [runId],
+            });
+            const threadId = String(
+              (runRef.rows[0] as { thread_id?: unknown } | undefined)
+                ?.thread_id ?? "",
+            );
+            if (threadId) {
+              // Serialize eligibility with turn abort's marker transaction.
+              await writeTx.execute({
+                sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+                args: [`agent-native:run-slot:${threadId}`],
+              });
+            }
+          }
+          const runAdmissionPredicate = continuationReason
+            ? `AND NOT EXISTS (
+                SELECT 1 FROM agent_runs AS aborted_turn
+                WHERE aborted_turn.thread_id = run.thread_id
+                  AND COALESCE(aborted_turn.turn_id, aborted_turn.id) = COALESCE(run.turn_id, run.id)
+                  AND aborted_turn.dispatch_mode = 'turn-abort'
+                  AND aborted_turn.status = 'aborted'
+              )
+              AND run.status = 'truncated'
+              AND run.terminal_reason = ?`
+            : "AND run.status = 'running'";
+          const runAdmissionArgs = continuationReason
+            ? [continuationReason]
+            : [];
+          const insertSql = options?.requireInserted
+            ? `WITH eligible_run AS MATERIALIZED (
+          SELECT run.id FROM agent_runs AS run
+          WHERE run.id = ? ${runAdmissionPredicate}
+          FOR UPDATE
         )
         INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
-        SELECT id, ?, ?, ? FROM running_run LIMIT 1
+        SELECT id, ?, ?, ? FROM eligible_run LIMIT 1
         ON CONFLICT (run_id, seq) DO NOTHING`
             : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
@@ -3835,45 +4042,102 @@ export async function insertRunEvent(
         SELECT 1 FROM agent_runs
         WHERE id = ? AND status <> 'running'
       )
-      ON CONFLICT (run_id, seq) DO NOTHING`,
-          args: [
-            runId,
-            seq,
-            eventAt,
-            storedEventData,
-            ...(options?.requireInserted ? [] : [runId]),
-          ],
-        });
-        if (!options?.requireInserted || rowsAffected === 1)
+      ON CONFLICT (run_id, seq) DO NOTHING`;
+          const insertArgs = options?.requireInserted
+            ? [runId, ...runAdmissionArgs, seq, eventAt, storedEventData]
+            : [runId, seq, eventAt, storedEventData, runId];
+          const { rowsAffected } = await writeTx.execute({
+            sql: insertSql,
+            args: insertArgs,
+          });
+          if (resolvesCheckpoint) {
+            let terminalPersisted = rowsAffected === 1;
+            if (!terminalPersisted) {
+              const existing = await writeTx.execute({
+                sql: "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+                args: [runId, seq],
+              });
+              terminalPersisted =
+                String(
+                  (existing.rows[0] as { event_data?: string } | undefined)
+                    ?.event_data,
+                ) === storedEventData;
+            }
+            if (terminalPersisted) {
+              // The reserved checkpoint sequence sorts after ordinary events,
+              // so an authoritative terminal event must retire it atomically.
+              await writeTx.execute({
+                sql: "DELETE FROM agent_run_events WHERE run_id = ? AND seq = ?",
+                args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+              });
+            }
+          }
+
+          if (!options?.requireInserted || rowsAffected === 1)
+            return {
+              rowsAffected,
+              terminalRun: false,
+              persistedIdentically: rowsAffected === 1,
+            };
+
+          const existing = await writeTx.execute({
+            sql: `SELECT event_at, event_data FROM agent_run_events
+              WHERE run_id = ? AND seq = ?`,
+            args: [runId, seq],
+          });
+          const existingRow = existing.rows[0] as
+            | { event_at?: number | string; event_data?: string }
+            | undefined;
+          const persistedIdentically =
+            existingRow !== undefined &&
+            Number(existingRow.event_at) === eventAt &&
+            String(existingRow.event_data) === storedEventData;
+
+          const run = await writeTx.execute({
+            sql: `SELECT run.status, run.terminal_reason,
+                       EXISTS (
+                         SELECT 1 FROM agent_runs AS aborted_turn
+                         WHERE aborted_turn.thread_id = run.thread_id
+                           AND COALESCE(aborted_turn.turn_id, aborted_turn.id) = COALESCE(run.turn_id, run.id)
+                           AND aborted_turn.dispatch_mode = 'turn-abort'
+                           AND aborted_turn.status = 'aborted'
+                       ) AS turn_aborted
+                  FROM agent_runs AS run WHERE run.id = ?`,
+            args: [runId],
+          });
+          const runRow = run.rows[0] as
+            | {
+                status?: string;
+                terminal_reason?: string | null;
+                turn_aborted?: boolean | string;
+              }
+            | undefined;
+          const status = runRow?.status;
+          const continuationTerminalEligible =
+            continuationReason !== null &&
+            status === "truncated" &&
+            runRow?.terminal_reason === continuationReason &&
+            runRow?.turn_aborted !== true &&
+            runRow?.turn_aborted !== "true";
           return {
             rowsAffected,
-            terminalRun: false,
-            persistedIdentically: rowsAffected === 1,
+            terminalRun:
+              status !== undefined &&
+              status !== "running" &&
+              !continuationTerminalEligible,
+            persistedIdentically,
           };
-
-        const existing = await tx.execute({
-          sql: `SELECT event_at, event_data FROM agent_run_events
-              WHERE run_id = ? AND seq = ?`,
-          args: [runId, seq],
-        });
-        const existingRow = existing.rows[0] as
-          | { event_at?: number | string; event_data?: string }
-          | undefined;
-        const persistedIdentically =
-          existingRow !== undefined &&
-          Number(existingRow.event_at) === eventAt &&
-          String(existingRow.event_data) === storedEventData;
-
-        const run = await tx.execute({
-          sql: "SELECT status FROM agent_runs WHERE id = ?",
-          args: [runId],
-        });
-        const status = (run.rows[0] as { status?: string } | undefined)?.status;
-        return {
-          rowsAffected,
-          terminalRun: status !== "running",
-          persistedIdentically,
         };
+
+        if (!resolvesCheckpoint || currentExecutionFence()) {
+          return writeEvent(tx);
+        }
+        if (!tx.transaction) {
+          throw new Error(
+            "Checkpoint resolution requires run event transaction support",
+          );
+        }
+        return tx.transaction(writeEvent);
       },
       { runId },
     );
@@ -3994,12 +4258,85 @@ export async function persistRunCheckpointEvent(
   event: AgentChatEvent,
   terminalReason: string,
 ): Promise<void> {
-  await insertRunEvent(
-    runId,
-    CHECKPOINT_TERMINAL_EVENT_SEQ,
-    JSON.stringify(event),
+  await ensureRunTables();
+  const storedEventData = persistedRunEventData(JSON.stringify(event));
+  const reason = terminalReason.slice(0, 200);
+  const writeCheckpoint = async (tx: DbExec) => {
+    const { rows } = await tx.execute({
+      sql: "SELECT status, terminal_reason FROM agent_runs WHERE id = ? FOR UPDATE",
+      args: [runId],
+    });
+    const run = rows[0] as
+      | { status?: string; terminal_reason?: string | null }
+      | undefined;
+    if (!run || run.status !== "running") {
+      throw new AgentRunEventNotPersistedError(
+        runId,
+        CHECKPOINT_TERMINAL_EVENT_SEQ,
+        Boolean(run),
+      );
+    }
+
+    const existing = await tx.execute({
+      sql: "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    });
+    const existingEvent = existing.rows[0] as
+      | { event_data?: string }
+      | undefined;
+    if (existingEvent) {
+      if (existingEvent.event_data !== storedEventData) {
+        throw new AgentRunEventNotPersistedError(
+          runId,
+          CHECKPOINT_TERMINAL_EVENT_SEQ,
+          true,
+        );
+      }
+    } else {
+      const inserted = await tx.execute({
+        sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT (run_id, seq) DO NOTHING`,
+        args: [
+          runId,
+          CHECKPOINT_TERMINAL_EVENT_SEQ,
+          Date.now(),
+          storedEventData,
+        ],
+      });
+      if (inserted.rowsAffected !== 1) {
+        throw new AgentRunEventNotPersistedError(
+          runId,
+          CHECKPOINT_TERMINAL_EVENT_SEQ,
+        );
+      }
+    }
+
+    const updated = await tx.execute({
+      sql: `UPDATE agent_runs SET terminal_reason = ?
+            WHERE id = ? AND status = 'running'
+              AND (terminal_reason IS NULL OR terminal_reason = '' OR terminal_reason = ?)`,
+      args: [reason, runId, reason],
+    });
+    if (updated.rowsAffected !== 1) {
+      throw new AgentRunEventNotPersistedError(
+        runId,
+        CHECKPOINT_TERMINAL_EVENT_SEQ,
+        true,
+      );
+    }
+  };
+
+  await withFencedExecutionWrite(
+    (tx) => {
+      if (currentExecutionFence()) return writeCheckpoint(tx);
+      if (!tx.transaction) {
+        throw new Error("Run checkpoint writes require transaction support");
+      }
+      return tx.transaction(writeCheckpoint);
+    },
+    { runId },
   );
-  await setRunTerminalReason(runId, terminalReason);
 }
 
 export async function getRunEventsSince(
@@ -4140,8 +4477,10 @@ export async function getLastTerminalRunEvent(
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
-    args: [runId],
+    sql: `SELECT seq, event_data FROM agent_run_events
+          WHERE run_id = ? AND seq < ?
+          ORDER BY seq DESC LIMIT 1`,
+    args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
   });
   const last = rows[0] as
     | { seq?: number | string; event_data?: string }
@@ -5051,6 +5390,223 @@ export async function ensureTerminalRunEvent(
   return appendTerminalRunEvent(runId, event);
 }
 
+/**
+ * A duplicate request, or a worker that lost its turn's execution lease, is
+ * aborted before it does any work; the run it stood in for reports the turn.
+ */
+const NOT_A_RUN_ABORT_REASONS = new Set([
+  "duplicate_submission",
+  "execution-lease-busy",
+]);
+
+function trackAbortedRun(
+  runId: string,
+  abortReason: string,
+  returnedRow: EndedRunRow | undefined,
+): void {
+  trackRunEndedInSql(runId, abortedRunEnding(abortReason), returnedRow);
+}
+
+function abortedRunEnding(abortReason: string): SqlRunEnding {
+  return {
+    status: "aborted",
+    terminalReason: `aborted:${abortReason}`,
+    abortReason,
+  };
+}
+
+/**
+ * The ended run and its turn's initiator, read in the write that ended it: a
+ * later read can find the initiator row already pruned.
+ */
+const ENDED_RUN_COLUMNS = `id, thread_id, turn_id, dispatch_mode, started_at, completed_at,
+  (SELECT principal_email FROM agent_turn_initiators i
+    WHERE i.thread_id = agent_runs.thread_id
+      AND i.turn_id = COALESCE(agent_runs.turn_id, agent_runs.id)) AS principal_email,
+  (SELECT auth_user_id FROM agent_turn_initiators i
+    WHERE i.thread_id = agent_runs.thread_id
+      AND i.turn_id = COALESCE(agent_runs.turn_id, agent_runs.id)) AS auth_user_id,
+  (SELECT is_anonymous FROM agent_turn_initiators i
+    WHERE i.thread_id = agent_runs.thread_id
+      AND i.turn_id = COALESCE(agent_runs.turn_id, agent_runs.id)) AS is_anonymous`;
+
+const ENDED_RUN_RETURNING = `RETURNING ${ENDED_RUN_COLUMNS}`;
+
+interface EndedRunRow {
+  id?: unknown;
+  thread_id?: unknown;
+  turn_id?: unknown;
+  dispatch_mode?: unknown;
+  started_at?: unknown;
+  completed_at?: unknown;
+  principal_email?: unknown;
+  auth_user_id?: unknown;
+  is_anonymous?: unknown;
+}
+
+function finiteMs(value: unknown): number | undefined {
+  if (value == null) return undefined;
+  const ms = Number(value);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/**
+ * Sends `agent_run_terminal` for a run this process ended on another
+ * process's behalf. Call it only once the reap's UPDATE has affected the run:
+ * the conditional `status = 'running'` write is what makes each run's terminal
+ * event fire once across the reaper and the run's own process.
+ *
+ * Returns synchronously; the reap never waits on tracking or sees it fail.
+ */
+function trackReapedRun(
+  runId: string,
+  reap: RunReap,
+  returnedRow: EndedRunRow | undefined,
+): void {
+  trackRunEndedInSql(runId, reapedRunEnding(reap), returnedRow);
+}
+
+interface RunReap {
+  source: string;
+  errorCode: string;
+  terminalReason: string;
+  recoveryOutcome?: string;
+}
+
+/** `recovered` and `not_background` stand alone; any other outcome declined. */
+function staleRunRecoveryLabel(
+  recovery: StaleRunRecoveryOutcome | null,
+): string | undefined {
+  if (!recovery) return undefined;
+  return recovery.outcome === "recovered" ||
+    recovery.outcome === "not_background"
+    ? recovery.outcome
+    : `declined:${recovery.outcome}`;
+}
+
+function reapedRunEnding(reap: RunReap): SqlRunEnding {
+  return {
+    status: "errored",
+    terminalReason: reap.terminalReason,
+    errorCode: reap.errorCode,
+    reap: { source: reap.source, recoveryOutcome: reap.recoveryOutcome },
+  };
+}
+
+type SqlRunEnding = Pick<
+  RunTerminalTrackingFields,
+  "status" | "terminalReason" | "errorCode" | "abortReason" | "reap"
+>;
+
+interface SqlEndedRun {
+  runId: string;
+  ending: SqlRunEnding;
+  /** The ending UPDATE's RETURNING row; without it nothing is sent. */
+  row: EndedRunRow | undefined;
+}
+
+/**
+ * Sends `agent_run_terminal` for a run a SQL write ended (a reap, stop,
+ * repair, or pre-start release),
+ * which the run's own process then cannot report: its own conditional
+ * terminal write finds no running row. Call it only for runs the ending
+ * UPDATE affected, so whichever write wins is the one that reports.
+ */
+function trackRunEndedInSql(
+  runId: string,
+  ending: SqlRunEnding,
+  returnedRow: EndedRunRow | undefined,
+): void {
+  trackRunsEndedInSql([{ runId, ending, row: returnedRow }]);
+}
+
+/** One background send for the runs one write ended. */
+function trackRunsEndedInSql(endedRuns: SqlEndedRun[]): void {
+  const runs = endedRuns.filter(
+    (run) =>
+      !run.ending.abortReason ||
+      !NOT_A_RUN_ABORT_REASONS.has(run.ending.abortReason),
+  );
+  if (runs.length === 0) return;
+  const label = () => runs.map((run) => run.runId).join(", ");
+  try {
+    // The ending request is whoever happened to sweep or stop the run: its
+    // synthetic flag, email and client platform must not decide or describe
+    // another user's run, so the send runs without them.
+    const work = Promise.resolve(
+      runWithRequestContext({ isSyntheticTraffic: false }, () =>
+        sendSqlEndedRunTerminals(runs),
+      ),
+    ).catch((error: unknown) => {
+      console.error(
+        "[run-store] agent_run_terminal was not sent for a run ended in SQL:",
+        label(),
+        error instanceof Error ? error.message : error,
+      );
+    });
+    platformWaitUntil()?.(work);
+  } catch (error) {
+    console.error(
+      "[run-store] agent_run_terminal was not sent for a run ended in SQL:",
+      label(),
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+async function sendSqlEndedRunTerminals(runs: SqlEndedRun[]): Promise<void> {
+  await Promise.all(
+    runs.map(async (run) => {
+      const row = run.row;
+      if (typeof row?.thread_id !== "string") {
+        console.error(
+          "[run-store] agent_run_terminal was not sent: ended run row is unreadable:",
+          run.runId,
+        );
+        return;
+      }
+      const startedAt = finiteMs(row.started_at);
+      const completedAt = finiteMs(row.completed_at);
+      await trackRunTerminal(
+        {
+          ...run.ending,
+          runId: run.runId,
+          threadId: row.thread_id,
+          // Same turn the initiator row and the run's own process key on.
+          turnId:
+            typeof row.turn_id === "string" && row.turn_id
+              ? row.turn_id
+              : run.runId,
+          dispatchMode:
+            typeof row.dispatch_mode === "string"
+              ? row.dispatch_mode
+              : undefined,
+          durationMs:
+            startedAt !== undefined && completedAt !== undefined
+              ? completedAt - startedAt
+              : undefined,
+        },
+        // The turn's initiator, not the request that ended the run; `track()`
+        // drops it when it is a test identity. An anonymous one is not a user.
+        row.is_anonymous === true || row.is_anonymous === "t"
+          ? undefined
+          : {
+              userId:
+                typeof row.principal_email === "string"
+                  ? row.principal_email
+                  : undefined,
+              authUserId:
+                typeof row.auth_user_id === "string"
+                  ? row.auth_user_id
+                  : undefined,
+            },
+      );
+    }),
+  );
+  const { flushTracking } = await import("../tracking/registry.js");
+  await flushTracking();
+}
+
 /** Projects a run after its stale status and terminal event committed. */
 async function finalizeStaleRun(
   runId: string,
@@ -5082,60 +5638,183 @@ async function finalizeStaleRun(
   }
 }
 
-async function appendTerminalRunEventInTransaction(
+class AbortTerminalEventWriteError extends Error {
+  readonly runId: string;
+
+  constructor(runId: string, cause: unknown) {
+    const detail = cause instanceof Error ? `: ${cause.message}` : "";
+    super(`Abort terminal event was not persisted for run ${runId}${detail}`);
+    this.name = "AbortTerminalEventWriteError";
+    this.runId = runId;
+    if (cause !== undefined) {
+      Object.defineProperty(this, "cause", {
+        value: cause,
+        configurable: true,
+      });
+    }
+  }
+}
+
+async function retryAbortTerminalEventTransaction<T>(
+  source: string,
+  transaction: () => Promise<T>,
+): Promise<T> {
+  let firstError: AbortTerminalEventWriteError;
+  try {
+    return await transaction();
+  } catch (error) {
+    if (!(error instanceof AbortTerminalEventWriteError)) throw error;
+    firstError = error;
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  try {
+    return await transaction();
+  } catch (error) {
+    if (!(error instanceof AbortTerminalEventWriteError)) throw error;
+    const cause = error.cause ?? error;
+    captureError(cause, {
+      tags: {
+        component: "agent-run-store",
+        operation: "append-terminal-event",
+        source,
+      },
+      extra: {
+        runId: error.runId,
+        eventType: "abort",
+        firstError:
+          firstError.cause instanceof Error
+            ? firstError.cause.message
+            : String(firstError.cause ?? firstError),
+      },
+    });
+    throw new AgentRunEventNotPersistedError(error.runId, null, false, cause);
+  }
+}
+
+async function appendAbortTerminalRunEventInTransaction(
   tx: DbExec,
   runId: string,
   event: Record<string, unknown>,
 ): Promise<void> {
+  try {
+    await appendTerminalRunEventInTransaction(tx, runId, event, true);
+  } catch (error) {
+    throw new AbortTerminalEventWriteError(runId, error);
+  }
+}
+
+async function appendTerminalRunEventInTransaction(
+  tx: DbExec,
+  runId: string,
+  event: Record<string, unknown>,
+  replaceExistingTerminal = false,
+): Promise<void> {
+  const eventData = stripInlineBytesFromJson(
+    JSON.stringify(event),
+    "placeholder",
+  );
   const { rows } = await tx.execute({
     sql: `SELECT seq, event_data
           FROM agent_run_events
           WHERE run_id = ?
           ORDER BY seq DESC
-          LIMIT 1`,
+          LIMIT 1 FOR UPDATE`,
     args: [runId],
   });
   const last = rows[0] as
     | { seq?: number | string; event_data?: string }
     | undefined;
+  let nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
   if (last?.event_data) {
-    let parsed: unknown;
+    let parsed: { type?: unknown; reason?: unknown } | undefined;
     try {
-      parsed = JSON.parse(last.event_data);
+      parsed = JSON.parse(last.event_data) as {
+        type?: unknown;
+        reason?: unknown;
+      };
     } catch (error) {
       throw new Error(`Run ${runId} has malformed last event data`, {
         cause: error,
       });
     }
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      terminalStatusForEvent(parsed as AgentChatEvent)
-    ) {
-      return;
+    if (parsed) {
+      const lastEventIsTerminal = Boolean(
+        terminalStatusForEvent(parsed as AgentChatEvent),
+      );
+      if (lastEventIsTerminal && last.event_data === eventData) return;
+      if (lastEventIsTerminal && !replaceExistingTerminal) return;
+      if (lastEventIsTerminal && replaceExistingTerminal) {
+        await tx.execute({
+          sql: "DELETE FROM agent_run_events WHERE run_id = ? AND seq = ?",
+          args: [runId, Number(last.seq)],
+        });
+        if (Number(last.seq) === CHECKPOINT_TERMINAL_EVENT_SEQ) {
+          const regularEvents = await tx.execute({
+            sql: `SELECT COALESCE(MAX(seq), -1) AS seq FROM agent_run_events
+                  WHERE run_id = ? AND seq < ?`,
+            args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+          });
+          nextSeq =
+            Number(
+              (regularEvents.rows[0] as { seq?: number | string } | undefined)
+                ?.seq ?? -1,
+            ) + 1;
+        } else {
+          nextSeq = Number(last.seq);
+        }
+      }
     }
   }
-  const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
   if (!Number.isSafeInteger(nextSeq)) {
     throw new Error(`Run ${runId} has no safe sequence for its terminal event`);
   }
-  const inserted = await tx.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT (run_id, seq) DO NOTHING
-          RETURNING seq`,
-    args: [
-      runId,
-      nextSeq,
-      Date.now(),
-      stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
-    ],
-  });
-  if ((inserted.rowsAffected ?? inserted.rows.length) !== 1) {
-    throw new Error(
-      `Run ${runId} terminal event sequence ${nextSeq} was not persisted`,
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const inserted = await tx.execute({
+      sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (run_id, seq) DO NOTHING
+            RETURNING seq`,
+      args: [runId, nextSeq, Date.now(), eventData],
+    });
+    if ((inserted.rowsAffected ?? inserted.rows.length) === 1) return;
+
+    const conflict = await tx.execute({
+      sql: "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      args: [runId, nextSeq],
+    });
+    const conflictingEventData = (
+      conflict.rows[0] as { event_data?: string } | undefined
+    )?.event_data;
+    if (typeof conflictingEventData !== "string") {
+      throw new Error(
+        `Run ${runId} terminal event sequence ${nextSeq} was not persisted`,
+      );
+    }
+    const conflictingEvent = parseRunEventData(
+      conflictingEventData,
+      `conflicting event at sequence ${nextSeq} for run ${runId}`,
     );
+    if (terminalStatusForEvent(conflictingEvent as AgentChatEvent)) return;
+
+    const regularEvents = await tx.execute({
+      sql: `SELECT COALESCE(MAX(seq), -1) AS seq FROM agent_run_events
+            WHERE run_id = ? AND seq < ?`,
+      args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+    });
+    nextSeq =
+      Number(
+        (regularEvents.rows[0] as { seq?: number | string } | undefined)?.seq ??
+          -1,
+      ) + 1;
+    if (!Number.isSafeInteger(nextSeq)) {
+      throw new Error(
+        `Run ${runId} has no safe sequence for its terminal event`,
+      );
+    }
   }
+  throw new Error(
+    `Run ${runId} terminal event conflicted repeatedly at sequence ${nextSeq}`,
+  );
 }
 
 async function retryPendingStaleRunThreadProjections(
@@ -5159,81 +5838,86 @@ async function retryPendingStaleRunThreadProjections(
   return { failed, truncated };
 }
 
-async function safeAppendTerminalRunEvent(
-  runId: string,
-  event: Record<string, unknown>,
-  source: string,
-): Promise<void> {
-  let firstError: unknown;
-  try {
-    await appendTerminalRunEvent(runId, event);
-    return;
-  } catch (err) {
-    firstError = err;
-  }
-  await new Promise<void>((resolve) => setTimeout(resolve, 100));
-  try {
-    await appendTerminalRunEvent(runId, event);
-  } catch (retryErr) {
-    captureError(retryErr, {
-      tags: {
-        component: "agent-run-store",
-        operation: "append-terminal-event",
-        source,
-      },
-      extra: {
-        runId,
-        eventType: typeof event.type === "string" ? event.type : "(unknown)",
-        firstError:
-          firstError instanceof Error ? firstError.message : String(firstError),
-      },
-    });
-    throw retryErr;
-  }
-}
-
 async function appendTerminalRunEvent(
   runId: string,
   event: Record<string, unknown>,
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
-    args: [runId],
-  });
-  const last = rows[0] as
-    | { seq?: number | string; event_data?: string }
-    | undefined;
-  if (last?.event_data) {
-    try {
-      const parsed = JSON.parse(last.event_data);
-      if (
-        parsed?.type === "done" ||
-        parsed?.type === "error" ||
-        parsed?.type === "missing_api_key" ||
-        parsed?.type === "loop_limit" ||
-        parsed?.type === "auto_continue"
-      ) {
-        return;
+  if (!client.transaction) {
+    throw new Error("Terminal run event writes require transaction support");
+  }
+  const storedEventData = stripInlineBytesFromJson(
+    JSON.stringify(event),
+    "placeholder",
+  );
+  await client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `SELECT seq, event_data FROM agent_run_events
+            WHERE run_id = ? ORDER BY seq DESC LIMIT 1 FOR UPDATE`,
+      args: [runId],
+    });
+    const last = rows[0] as
+      | { seq?: number | string; event_data?: string }
+      | undefined;
+    let nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
+    if (last?.event_data) {
+      const parsed = parseRunEventData(
+        last.event_data,
+        `last persisted event for run ${runId}`,
+      );
+      const lastEventIsTerminal =
+        parsed.type === "done" ||
+        parsed.type === "error" ||
+        parsed.type === "missing_api_key" ||
+        parsed.type === "loop_limit" ||
+        parsed.type === "auto_continue";
+      const replacesCheckpoint =
+        Number(last.seq) === CHECKPOINT_TERMINAL_EVENT_SEQ &&
+        parsed.type === "auto_continue" &&
+        (event.type !== "auto_continue" || parsed.reason !== event.reason);
+      if (lastEventIsTerminal && !replacesCheckpoint) return;
+      if (replacesCheckpoint) {
+        await tx.execute({
+          sql: "DELETE FROM agent_run_events WHERE run_id = ? AND seq = ?",
+          args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+        });
+        const regularEvents = await tx.execute({
+          sql: `SELECT COALESCE(MAX(seq), -1) AS seq FROM agent_run_events
+                WHERE run_id = ? AND seq < ?`,
+          args: [runId, CHECKPOINT_TERMINAL_EVENT_SEQ],
+        });
+        nextSeq =
+          Number(
+            (regularEvents.rows[0] as { seq?: number | string } | undefined)
+              ?.seq ?? -1,
+          ) + 1;
       }
-    } catch {
-      // Ignore malformed rows and append the terminal event.
     }
-  }
-  const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
-  const inserted = await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING RETURNING seq`,
-    args: [
-      runId,
-      nextSeq,
-      Date.now(),
-      stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
-    ],
+    const inserted = await tx.execute({
+      sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING RETURNING seq`,
+      args: [runId, nextSeq, Date.now(), storedEventData],
+    });
+    if (inserted.rows.length === 0) {
+      throw new Error(
+        `Run ${runId} terminal event conflicted with sequence ${nextSeq}`,
+      );
+    }
   });
-  if (inserted.rows.length === 0) {
-    throw new Error(
-      `Run ${runId} terminal event conflicted with sequence ${nextSeq}`,
-    );
+}
+
+function parseRunEventData(
+  eventData: string,
+  context: string,
+): Record<string, unknown> & { type: string } {
+  const parsed: unknown = JSON.parse(eventData);
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    typeof (parsed as { type?: unknown }).type !== "string"
+  ) {
+    throw new Error(`Run event data is malformed for ${context}`);
   }
+  return parsed as Record<string, unknown> & { type: string };
 }
