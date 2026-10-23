@@ -3,6 +3,7 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { parse, serialize, type DefaultTreeAdapterTypes } from "parse5";
 import postcss, { type Declaration } from "postcss";
 
+import { inspectEmailCssValue } from "./email-css-values.js";
 import { classifyEmailTextColor } from "./email-text-color.js";
 import { parseHubLInterpolation } from "./hubl-interpolation.js";
 
@@ -308,11 +309,34 @@ function compareSpecificity(a: Specificity, b: Specificity): number {
 
 function validateDeclaration(declaration: Declaration): void {
   const property = declaration.prop.toLowerCase();
-  const value = declaration.value.toLowerCase();
+  const value = declaration.value.trim().toLowerCase();
+  if (/[\\]/.test(property + value))
+    invalid(
+      "Escaped CSS must be replaced with plain email-safe declarations before export.",
+    );
+  const inspection = inspectEmailCssValue(declaration.value);
+  if (inspection === "invalid")
+    invalid(
+      `CSS "${property}: ${declaration.value}" contains an invalid value.`,
+    );
   if (
-    property.startsWith("--") ||
-    /var\s*\(|expression\s*\(|url\s*\(/i.test(value)
-  ) {
+    ["font", "all"].includes(property) ||
+    (property === "text-indent" &&
+      !/^[+-]?(?:0*\.)?0+(?:[a-z%]+)?$/.test(value))
+  )
+    invalid(
+      `CSS "${property}: ${declaration.value}" cannot be validated for email text visibility. Use explicit text styles (font-size, font-family, line-height) and zero text indentation.`,
+    );
+  if (
+    property === "visibility" &&
+    !["visible", "hidden", "collapse", "inherit", "unset", "initial"].includes(
+      value,
+    )
+  )
+    invalid(
+      `CSS visibility value "${declaration.value}" cannot be validated for email text visibility.`,
+    );
+  if (property.startsWith("--") || inspection === "browser") {
     invalid(
       `CSS "${property}: ${declaration.value}" requires browser behavior or background assets. Use resolved values and HTTPS <img> elements.`,
     );
@@ -328,10 +352,6 @@ function validateDeclaration(declaration: Declaration): void {
       `CSS "${property}: ${declaration.value}" is not supported for this email export. Rebuild the layout with presentation tables.`,
     );
   }
-  if (/[\\]/.test(property + value))
-    invalid(
-      "Escaped CSS must be replaced with plain email-safe declarations before export.",
-    );
 }
 
 function parseStyles(css: string) {
@@ -378,9 +398,7 @@ function mayHideText(declaration: Declaration): boolean {
     (property === "display" && value === "none") ||
     (property === "visibility" && ["hidden", "collapse"].includes(value)) ||
     (property === "opacity" && Number(value.replace(/%$/, "")) === 0) ||
-    (property === "font-size" &&
-      /^[+-]?(?:0*\.)?0+(?:[a-z%]+)?$/.test(value)) ||
-    ["all", "font"].includes(property)
+    (property === "font-size" && /^[+-]?(?:0*\.)?0+(?:[a-z%]+)?$/.test(value))
   );
 }
 

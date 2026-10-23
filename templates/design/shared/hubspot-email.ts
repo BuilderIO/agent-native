@@ -1,8 +1,38 @@
+import { parse } from "parse5";
+
 export const HUBSPOT_EMAIL_FRAME_TYPE = "hubspot-email";
 
 export function isHubSpotEmailHtml(content: string): boolean {
-  return /<meta\b(?=[^>]*\bname\s*=\s*["']agent-native:frame-type["'])(?=[^>]*\bcontent\s*=\s*["']hubspot-email["'])[^>]*>/i.test(
-    content,
+  // HubL string literals may contain HTML attribute delimiters or closing braces.
+  const document = parse(
+    content.replace(
+      /{{(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|[^'"}]|}(?!}))*}}/g,
+      "ANHUBL",
+    ),
+  );
+  const html = document.childNodes.find(
+    (node) => "tagName" in node && node.tagName === "html",
+  );
+  const head =
+    html && "childNodes" in html
+      ? html.childNodes.find(
+          (node) => "tagName" in node && node.tagName === "head",
+        )
+      : undefined;
+  return !!(
+    head &&
+    "childNodes" in head &&
+    head.childNodes.some(
+      (node) =>
+        "tagName" in node &&
+        node.tagName === "meta" &&
+        node.attrs
+          .find((attribute) => attribute.name === "name")
+          ?.value.toLowerCase() === "agent-native:frame-type" &&
+        node.attrs
+          .find((attribute) => attribute.name === "content")
+          ?.value.toLowerCase() === HUBSPOT_EMAIL_FRAME_TYPE,
+    )
   );
 }
 

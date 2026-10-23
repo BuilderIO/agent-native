@@ -6713,6 +6713,23 @@ function intentIsReadOnly(intent: ActionCallIntent | undefined): boolean {
   return intent?.valid === true && intent.readOnly === true;
 }
 
+function isBoundedTaskWait(toolName: string, input: unknown): boolean {
+  if (toolName !== "agent-teams" || !input || typeof input !== "object") {
+    return false;
+  }
+  const args = input as Record<string, unknown>;
+  // Only these operations honor the task reader's bounded wait contract.
+  return (
+    (args.action === "status" || args.action === "read-result") &&
+    typeof args.taskId === "string" &&
+    args.taskId.trim().length > 0 &&
+    typeof args.waitMs === "number" &&
+    Number.isInteger(args.waitMs) &&
+    args.waitMs > 0 &&
+    args.waitMs <= 20_000
+  );
+}
+
 function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
@@ -8722,7 +8739,10 @@ export async function runAgentLoop(opts: {
           ? actionCallIsRetrySafe(actionEntry, preparedCallArguments(intent))
           : false;
       const repeatGuardStopFromThisCall =
-        actionIsReadOnly && actionEntry?.dedupe === false
+        actionIsReadOnly &&
+        actionEntry?.dedupe === false &&
+        intent?.valid === true &&
+        isBoundedTaskWait(toolCall.name, preparedCallArguments(intent))
           ? null
           : noteRepeatedToolCall(toolCall.name, toolCall.input, toolCall.id);
       const rollbackRepeatedToolCall = () => {
@@ -14859,6 +14879,11 @@ export function createProductionAgentHandler(
           !queuedMessageClaimId &&
           !isBackgroundWorker,
         );
+        const queuedSubmissionStore = shouldPreserveQueuedOrder
+          ? await import("../chat-threads/store.js")
+          : undefined;
+        // The inbox read runs under the slot lock, but its schema must be ready first.
+        await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
           ...(turnInitiator ? { turnInitiator } : {}),
@@ -14875,13 +14900,13 @@ export function createProductionAgentHandler(
             ? { dispatchPayload: durableDispatchPayload }
             : {}),
           ...(continueOf ? { continueOf } : {}),
-          ...(shouldPreserveQueuedOrder
+          ...(queuedSubmissionStore
             ? {
-                hasPendingQueuedSubmission: async (tx) => {
-                  const { hasPendingQueuedSubmissionReceipt } =
-                    await import("../chat-threads/store.js");
-                  return hasPendingQueuedSubmissionReceipt(tx, runThreadId!);
-                },
+                hasPendingQueuedSubmission: (tx) =>
+                  queuedSubmissionStore.hasPendingQueuedSubmissionReceipt(
+                    tx,
+                    runThreadId,
+                  ),
               }
             : {}),
         });

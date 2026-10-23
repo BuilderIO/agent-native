@@ -198,11 +198,51 @@ describe("HubSpot email HTML export", () => {
     ["import", '@import "https://example.com/a.css";', "@import"],
     ["dynamic selector", ".copy:hover {color:red}", "cannot be inlined"],
     ["nested rules", ".copy { p {color:red} }", "Nested CSS"],
+    [
+      "font shorthand",
+      ".email-footer {font:0/0 Arial}",
+      "explicit text styles",
+    ],
+    ["font reset", ".email-footer {all:unset}", "explicit text styles"],
+    [
+      "offscreen text",
+      ".email-footer {text-indent:-9999px}",
+      "explicit text styles",
+    ],
+    [
+      "responsive font shorthand",
+      "@media(max-width:620px){.email-footer{font:0/0 Arial!important}}",
+      "explicit text styles",
+    ],
+    [
+      "responsive font reset",
+      "@media(max-width:620px){.email-footer{all:unset!important}}",
+      "explicit text styles",
+    ],
+    [
+      "invalid visibility",
+      ".email-footer {visibility:hidden}.email-footer p,.email-footer a {visibility:bogus}",
+      "visibility",
+    ],
   ])("rejects unsupported %s styles", (_, css, message) => {
     expect(() => prepareHubSpotEmailHtml(withContent("hello", css))).toThrow(
       message,
     );
   });
+
+  it.each([
+    'image-set("https://images.example.com/banner.png" 1x)',
+    '-webkit-image-set("https://images.example.com/banner.png" 1x)',
+  ])(
+    "rejects unchecked CSS image functions in stylesheets and inline styles (%s)",
+    (value) => {
+      for (const html of [
+        withContent("Hello", `.email-container{background-image:${value}}`),
+        withContent(`<span style='background-image:${value}'>Hello</span>`),
+      ])
+        expect(() => prepareHubSpotEmailHtml(html)).toThrow("HTTPS <img>");
+    },
+  );
 
   it.each([
     ["footer", "{{ site_settings.company_name }}", "", "company_name"],
@@ -411,8 +451,6 @@ describe("HubSpot email HTML export", () => {
     [".email-footer p", "font-size:0px!important"],
     [".email-footer a", "visibility:hidden!important"],
     [".email-footer a", "visibility:collapse!important"],
-    [".email-footer", "font:0/0 Arial!important"],
-    [".email-footer", "all:unset!important"],
   ])(
     "rejects responsive visibility changes affecting required content (%s %s)",
     (selector, css) => {
@@ -466,6 +504,14 @@ describe("HubSpot email HTML export", () => {
     expect(prepareHubSpotEmailHtml(html).html).toContain(
       ".art{display:none!important}",
     );
+  });
+
+  it("preserves explicit font properties, zero indentation, and visibility resets", () => {
+    const html = withContent(
+      "Hello",
+      ".email-footer{font-family:Arial;font-size:14px;text-indent:0px;visibility:hidden}.email-footer p,.email-footer a{visibility:initial}",
+    );
+    expect(prepareHubSpotEmailHtml(html).html).toContain("text-indent:0px");
   });
 
   it.each([
