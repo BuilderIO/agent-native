@@ -211,6 +211,7 @@ const planAgentChatOptions = {
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   frameworkTools: PLAN_FRAMEWORK_TOOLS,
   mcp: {
+    appApprovalPage: true,
     enabled: false,
     connectorCatalog: PLAN_CONNECTOR_CATALOG,
   },

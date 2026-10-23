@@ -3600,7 +3600,7 @@ export function createAgentChatPlugin(
         mountMCP(nitroApp, {
           createLocalAgentTaskClient: (event) =>
             createMcpAgentTaskClient(localA2AConfig, event),
-          appApprovalPage: true,
+          appApprovalPage: mcpOptions.appApprovalPage,
           name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,
