@@ -717,6 +717,9 @@ type DbtGuardQueryScope = {
   metricKey: string;
   querySpecKey: string;
 };
+type DbtGuardQuery = Omit<DbtGuardQueryScope, "querySpecKey"> & {
+  querySpecKey: string | null;
+};
 
 function normalizedDbtMetricName(value: unknown): string {
   return String(value ?? "")
@@ -797,10 +800,10 @@ function pairedDbtCallForResult(
   return calls.length === 1 && dbtResults.length === 1 ? calls[0] : undefined;
 }
 
-function dbtQueryScopeForResult(
+function dbtQueryForResult(
   context: AgentLoopFinalResponseGuardContext,
   resultIndex: number,
-): DbtGuardQueryScope | null {
+): DbtGuardQuery | null {
   const result = context.toolResults?.[resultIndex];
   const parsedOutput = actionSummaryRecord(result?.content);
   const call = pairedDbtCallForResult(context, resultIndex);
@@ -843,13 +846,17 @@ function dbtQueryScopeForResult(
   if (input.groupBy !== undefined && inputScope === null) return null;
   if (outputScope && inputScope && outputScope !== inputScope) return null;
   const querySpecKey = outputScope ?? inputScope;
-  return querySpecKey
-    ? {
-        metricName: String(input.metricName).trim(),
-        metricKey: inputMetricName,
-        querySpecKey,
-      }
-    : null;
+  if (
+    inputScope === null &&
+    (input.timeRange !== undefined || input.allTime !== undefined)
+  ) {
+    return null;
+  }
+  return {
+    metricName: String(input.metricName).trim(),
+    metricKey: inputMetricName,
+    querySpecKey,
+  };
 }
 
 function findDataMetricNames(result: WarehouseResult): string[] {
@@ -874,12 +881,8 @@ function findDataMetricNames(result: WarehouseResult): string[] {
   ];
 }
 
-// A failed metric query stays unresolved until a later complete success for the same
-// metric, or for a metric name that find-data returned after the failure. Another metric's
-// success does not resolve it: a value in a warehouse row could steer the agent into an
-// unrelated successful query. A failure with no metric name, such as a connection-selection
-// status, is resolved by a later complete success, since the retry it asks for is the same
-// question.
+// Query failures need matching metric and scope. A scope-less metadata page can only be
+// cleared by a complete success for that exact metric.
 function dbtFailureResolvedLater(
   context: AgentLoopFinalResponseGuardContext,
   index: number,
@@ -887,8 +890,16 @@ function dbtFailureResolvedLater(
   const results = context.toolResults ?? [];
   const metricName = dbtMetricName(results[index]?.content);
   if (metricName === UNREADABLE_DBT_PAYLOAD) return false;
-  const failedScope = dbtQueryScopeForResult(context, index);
-  if (!failedScope) return false;
+  const failedQuery = dbtQueryForResult(context, index);
+  if (!failedQuery) return false;
+  const failurePayload = readDbtPayload(results[index]?.content);
+  const isScopeLessMetadataPage =
+    failedQuery.querySpecKey === null &&
+    failurePayload !== null &&
+    failurePayload !== UNREADABLE_DBT_PAYLOAD &&
+    failurePayload.status === "metadata_truncated" &&
+    normalizedDbtMetricName(metricName) === failedQuery.metricKey;
+  if (!failedQuery.querySpecKey && !isScopeLessMetadataPage) return false;
   // find-data echoes the question as well as its candidates, so a name in the echo also
   // counts. Only a name the agent typed can appear there, not a value from the rows.
   const namesFound = new Set<string>();
@@ -906,15 +917,15 @@ function dbtFailureResolvedLater(
       continue;
     }
     const successIndex = index + 1 + offset;
-    const successScope = dbtQueryScopeForResult(context, successIndex);
-    if (
-      !successScope ||
-      successScope.querySpecKey !== failedScope.querySpecKey
-    ) {
+    const successQuery = dbtQueryForResult(context, successIndex);
+    if (!successQuery) continue;
+    if (isScopeLessMetadataPage) {
+      if (successQuery.metricKey === failedQuery.metricKey) return true;
       continue;
     }
-    const successName = successScope.metricKey;
-    if (successName === failedScope.metricKey) return true;
+    if (successQuery.querySpecKey !== failedQuery.querySpecKey) continue;
+    const successName = successQuery.metricKey;
+    if (successName === failedQuery.metricKey) return true;
     if (
       [...namesFound].some(
         (name) => normalizedDbtMetricName(name) === successName,
@@ -1160,6 +1171,266 @@ function nextIsoDate(value: string): string | null {
   return new Date(parsed + 86_400_000).toISOString().slice(0, 10);
 }
 
+type WarehouseProjection = { expression: string; alias: string | null };
+type WarehouseDateBound = {
+  expression: string;
+  operator: ">=" | ">" | "<=" | "<" | "=";
+  value: string;
+};
+
+function stripOuterSqlParentheses(value: string): string {
+  let source = value.trim();
+  while (source.startsWith("(") && source.endsWith(")")) {
+    let depth = 0;
+    let quote: "'" | '"' | "`" | null = null;
+    let wrapsWholeValue = true;
+    for (let index = 0; index < source.length; index++) {
+      const character = source[index];
+      if (quote) {
+        if (character === quote) {
+          if (source[index + 1] === quote) index++;
+          else quote = null;
+        } else if (character === "\\") {
+          index++;
+        }
+        continue;
+      }
+      if (character === "'" || character === '"' || character === "`") {
+        quote = character;
+      } else if (character === "(") {
+        depth++;
+      } else if (character === ")") {
+        depth--;
+        if (depth === 0 && index !== source.length - 1) {
+          wrapsWholeValue = false;
+          break;
+        }
+      }
+    }
+    if (!wrapsWholeValue || depth !== 0) break;
+    source = source.slice(1, -1).trim();
+  }
+  return source;
+}
+
+function isSqlKeywordAt(
+  value: string,
+  index: number,
+  keyword: string,
+): boolean {
+  const end = index + keyword.length;
+  return (
+    value.slice(index, end).toLowerCase() === keyword &&
+    (index === 0 || !/[a-z0-9_]/i.test(value[index - 1] ?? "")) &&
+    (end === value.length || !/[a-z0-9_]/i.test(value[end] ?? ""))
+  );
+}
+
+function splitSqlAnd(value: string): string[] {
+  const source = stripOuterSqlParentheses(value);
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  let betweenNeedsAnd = false;
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (quote) {
+      if (character === quote) {
+        if (source[index + 1] === quote) index++;
+        else quote = null;
+      } else if (character === "\\") {
+        index++;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === "(") {
+      depth++;
+    } else if (character === ")") {
+      depth = Math.max(0, depth - 1);
+    } else if (depth === 0 && isSqlKeywordAt(source, index, "between")) {
+      betweenNeedsAnd = true;
+      index += "between".length - 1;
+    } else if (depth === 0 && isSqlKeywordAt(source, index, "and")) {
+      if (betweenNeedsAnd) {
+        betweenNeedsAnd = false;
+      } else {
+        parts.push(source.slice(start, index).trim());
+        start = index + "and".length;
+      }
+      index += "and".length - 1;
+    }
+  }
+  parts.push(source.slice(start).trim());
+  const nonEmpty = parts.filter(Boolean);
+  return nonEmpty.length > 1
+    ? nonEmpty.flatMap((part) => splitSqlAnd(part))
+    : nonEmpty.map(stripOuterSqlParentheses);
+}
+
+function normalizedSqlExpression(value: string): string {
+  return value.replace(/[\s`"]+/g, "").toLowerCase();
+}
+
+function isWarehouseTimeExpression(value: string): boolean {
+  const identifier =
+    '(?:`?[a-z_][a-z0-9_$]*`?|"[a-z_][a-z0-9_$]*")(?:\\s*\\.\\s*(?:`?[a-z_][a-z0-9_$]*`?|"[a-z_][a-z0-9_$]*"))*';
+  return (
+    new RegExp(`^${identifier}$`, "i").test(value) ||
+    new RegExp(
+      `^(?:date|datetime|timestamp)\\s*\\(\\s*${identifier}\\s*\\)$`,
+      "i",
+    ).test(value)
+  );
+}
+
+function parseWarehouseDatePredicate(
+  predicate: string,
+): WarehouseDateBound[] | null {
+  const source = stripOuterSqlParentheses(predicate);
+  const between = source.match(
+    /^(.+?)\s+between\s+(?:date\s*)?(['"])(\d{4}-\d{2}-\d{2})\2\s+and\s+(?:date\s*)?(['"])(\d{4}-\d{2}-\d{2})\4$/i,
+  );
+  if (between) {
+    const expression = between[1]?.trim() ?? "";
+    if (!isWarehouseTimeExpression(expression)) return null;
+    return [
+      { expression, operator: ">=", value: between[3] ?? "" },
+      { expression, operator: "<=", value: between[5] ?? "" },
+    ];
+  }
+
+  const comparison = source.match(
+    /^(.+?)\s*(>=|<=|>|<|=)\s*(?:date\s*)?(['"])(\d{4}-\d{2}-\d{2})\3\s*$/i,
+  );
+  if (!comparison) return null;
+  const expression = comparison[1]?.trim() ?? "";
+  if (!isWarehouseTimeExpression(expression)) return null;
+  return [
+    {
+      expression,
+      operator: comparison[2] as WarehouseDateBound["operator"],
+      value: comparison[4] ?? "",
+    },
+  ];
+}
+
+function warehouseDateRangeMatches(
+  where: string,
+  timeRange: { startDate: string; endDate: string },
+): boolean {
+  const { startDate, endDate } = timeRange;
+  const exclusiveEnd = nextIsoDate(endDate);
+  if (!nextIsoDate(startDate) || !exclusiveEnd || startDate > endDate) {
+    return false;
+  }
+
+  const bounds: WarehouseDateBound[] = [];
+  for (const predicate of splitSqlAnd(where)) {
+    if (!/\b\d{4}-\d{2}-\d{2}\b/.test(predicate)) continue;
+    const parsed = parseWarehouseDatePredicate(predicate);
+    if (!parsed) return false;
+    bounds.push(...parsed);
+  }
+  if (bounds.length !== 2) return false;
+
+  const starts = bounds.filter(
+    ({ operator, value }) => operator === ">=" && value === startDate,
+  );
+  const ends = bounds.filter(
+    ({ operator, value }) =>
+      (operator === "<=" && value === endDate) ||
+      (operator === "<" && value === exclusiveEnd),
+  );
+  return (
+    starts.length === 1 &&
+    ends.length === 1 &&
+    normalizedSqlExpression(starts[0]?.expression ?? "") ===
+      normalizedSqlExpression(ends[0]?.expression ?? "")
+  );
+}
+
+function parseWarehouseProjection(item: string): WarehouseProjection {
+  const alias = item.match(
+    /\s+as\s+(?:`([^`]+)`|"([^"]+)"|([a-z_][a-z0-9_]*))\s*$/i,
+  );
+  return {
+    expression: alias ? item.slice(0, alias.index).trim() : item.trim(),
+    alias: alias ? (alias[1] ?? alias[2] ?? alias[3] ?? null) : null,
+  };
+}
+
+function warehouseTimeGrain(expression: string): string | null {
+  const truncation = expression
+    .trim()
+    .match(/^(?:date|datetime|timestamp)_trunc\s*\(([\s\S]*)\)$/i);
+  if (!truncation) return null;
+  const arguments_ = splitSqlList(truncation[1] ?? "");
+  if (arguments_.length !== 2) return null;
+  const grain = arguments_[1]?.replace(/`/g, "").trim().toUpperCase();
+  return [
+    "YEAR",
+    "QUARTER",
+    "MONTH",
+    "WEEK",
+    "DAY",
+    "HOUR",
+    "MINUTE",
+    "SECOND",
+  ].includes(grain ?? "")
+    ? (grain ?? null)
+    : null;
+}
+
+function warehouseGroupingMatches(
+  projections: WarehouseProjection[],
+  groups: string[],
+  requiredGroups: string[],
+): boolean {
+  if (groups.length !== requiredGroups.length) return false;
+  const usedGroups = new Set<number>();
+  const usedProjections = new Set<number>();
+  for (const required of requiredGroups) {
+    const separator = required.lastIndexOf(":");
+    if (separator < 1) return false;
+    const name = required.slice(0, separator).replace(/[^a-z0-9]/g, "");
+    const grain = required.slice(separator + 1).toUpperCase();
+    const aliases = new Set([
+      name,
+      ...(grain
+        ? [`${name}${grain.toLowerCase().replace(/[^a-z0-9]/g, "")}`]
+        : []),
+    ]);
+    const projectionIndex = projections.findIndex((projection, index) => {
+      if (usedProjections.has(index)) return false;
+      return projection.alias
+        ? aliases.has(normalizedDbtMetricName(projection.alias))
+        : !grain && normalizedDbtMetricName(projection.expression) === name;
+    });
+    if (projectionIndex < 0) return false;
+    const projection = projections[projectionIndex];
+    if (!projection) return false;
+    if (grain && warehouseTimeGrain(projection.expression) !== grain) {
+      return false;
+    }
+    const groupIndex = groups.findIndex((group, index) => {
+      if (usedGroups.has(index)) return false;
+      const normalizedGroup = normalizedSqlExpression(group);
+      return (
+        normalizedGroup === normalizedSqlExpression(projection.expression) ||
+        (projection.alias !== null &&
+          normalizedGroup === normalizedSqlExpression(projection.alias))
+      );
+    });
+    if (groupIndex < 0) return false;
+    usedGroups.add(groupIndex);
+    usedProjections.add(projectionIndex);
+  }
+  return true;
+}
+
 function warehouseQueryMatchesScope(
   query: string,
   scope: DbtGuardQueryScope,
@@ -1180,17 +1451,15 @@ function warehouseQueryMatchesScope(
     return false;
   }
   const metricKey = normalizedDbtMetricName(scope.metricName);
-  const projection = sql.match(/\bselect\b([\s\S]*?)\bfrom\b/i)?.[1];
-  if (!metricKey || !projection) return false;
-  const hasMetricAlias = splitSqlList(projection).some((item) => {
-    const alias = item.match(
-      /\bas\s+(?:`([^`]+)`|"([^"]+)"|([a-z_][a-z0-9_]*))\s*$/i,
-    );
-    return (
-      alias !== null &&
-      normalizedDbtMetricName(alias[1] ?? alias[2] ?? alias[3]) === metricKey
-    );
-  });
+  const projectionText = sql.match(/\bselect\b([\s\S]*?)\bfrom\b/i)?.[1];
+  if (!metricKey || !projectionText) return false;
+  const projections = splitSqlList(projectionText).map(
+    parseWarehouseProjection,
+  );
+  const hasMetricAlias = projections.some(
+    ({ alias }) =>
+      alias !== null && normalizedDbtMetricName(alias) === metricKey,
+  );
   if (!hasMetricAlias) return false;
 
   const groupByMatch = sql.match(
@@ -1200,71 +1469,25 @@ function warehouseQueryMatchesScope(
     if (groupByMatch) return false;
   } else {
     if (!groupByMatch) return false;
-    const groups = splitSqlList(groupByMatch[1] ?? "").map((group) =>
-      group.toLowerCase().replace(/[^a-z0-9]/g, ""),
-    );
-    if (groups.length !== querySpec.groupBy.length) return false;
-    if (
-      !querySpec.groupBy.every((required) => {
-        const separator = required.lastIndexOf(":");
-        const name = required.slice(0, separator).replace(/[^a-z0-9]/g, "");
-        const grain = required.slice(separator + 1).toLowerCase();
-        const projectionForGroup = splitSqlList(projection).find((item) => {
-          const alias = item.match(
-            /\bas\s+(?:`([^`]+)`|"([^"]+)"|([a-z_][a-z0-9_]*))\s*$/i,
-          );
-          return (
-            alias !== null &&
-            normalizedDbtMetricName(alias[1] ?? alias[2] ?? alias[3]) === name
-          );
-        });
-        return (
-          groups.some((group) => group.includes(name)) &&
-          (!grain ||
-            groups.some((group) => group.includes(grain)) ||
-            Boolean(
-              projectionForGroup &&
-              projectionForGroup
-                .replace(
-                  /\s+as\s+(?:`[^`]+`|"[^"]+"|[a-z_][a-z0-9_]*)\s*$/i,
-                  "",
-                )
-                .toLowerCase()
-                .replace(/[^a-z0-9]/g, "")
-                .includes(grain),
-            ))
-        );
-      })
-    ) {
+    const groups = splitSqlList(groupByMatch[1] ?? "");
+    if (!warehouseGroupingMatches(projections, groups, querySpec.groupBy)) {
       return false;
     }
   }
 
   if (querySpec.timeRange) {
-    const start = querySpec.timeRange.startDate;
-    const end = querySpec.timeRange.endDate;
-    const exclusiveEnd = nextIsoDate(end);
     const whereClauses = [
       ...sql.matchAll(
         /\bwhere\b([\s\S]*?)(?=\bgroup\s+by\b|\bhaving\b|\border\s+by\b|\bqualify\b|\blimit\b|\boffset\b|;|$)/gi,
       ),
     ];
-    const where = whereClauses.map((match) => match[1] ?? "").join(" ");
-    const literal = (date: string) =>
-      `(?:date\\s*)?['\"]${date.replace(/-/g, "\\-")}['\"]`;
-    const boundedRange = new RegExp(
-      `\\bbetween\\s+${literal(start)}\\s+and\\s+${literal(end)}`,
-      "i",
-    ).test(where);
-    const startBound = new RegExp(`(?:>=|>)\\s*${literal(start)}`, "i").test(
-      where,
-    );
-    const endBound = [end, exclusiveEnd]
-      .filter((date): date is string => date !== null)
-      .some((date) =>
-        new RegExp(`(?:<=|<)\\s*${literal(date)}`, "i").test(where),
-      );
-    if (!whereClauses.length || (!boundedRange && !(startBound && endBound))) {
+    if (
+      whereClauses.length !== 1 ||
+      !warehouseDateRangeMatches(
+        whereClauses[0]?.[1] ?? "",
+        querySpec.timeRange,
+      )
+    ) {
       return false;
     }
   } else if (querySpec.allTime) {
@@ -1396,8 +1619,13 @@ function warehouseReadSupportsDraft(
   const results = context.toolResults ?? [];
   const failureIndex = firstUnresolvedDbtFailureIndex(context);
   if (failureIndex === -1) return false;
-  const failedScope = dbtQueryScopeForResult(context, failureIndex);
-  if (!failedScope) return false;
+  const failedQuery = dbtQueryForResult(context, failureIndex);
+  if (!failedQuery?.querySpecKey) return false;
+  const failedScope: DbtGuardQueryScope = {
+    metricName: failedQuery.metricName,
+    metricKey: failedQuery.metricKey,
+    querySpecKey: failedQuery.querySpecKey,
+  };
   const parsedOutput = actionSummaryRecord(results[failureIndex]?.content);
   if (parsedOutput.kind !== "record") return false;
   const querySpecRecord = actionSummaryRecord(parsedOutput.record.querySpec);

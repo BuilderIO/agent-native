@@ -1331,6 +1331,53 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
+  it("withholds a disclosed figure when date bounds use different expressions", () => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(disclosed, {
+        query:
+          "SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND created_at < DATE '2026-10-01'",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+      retryMessage: expect.stringContaining("exact period and grouping"),
+    });
+  });
+
+  it.each([
+    [
+      "a strict start bound",
+      "activity_date > DATE '2026-09-01' AND activity_date <= DATE '2026-09-30'",
+    ],
+    [
+      "an inclusive day after the requested end",
+      "activity_date >= DATE '2026-09-01' AND activity_date <= DATE '2026-10-01'",
+    ],
+  ])("withholds a disclosed figure with %s", (_case, where) => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(disclosed, {
+        query: `SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts WHERE ${where}`,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+      retryMessage: expect.stringContaining("exact period and grouping"),
+    });
+  });
+
+  it("accepts inclusive-start and exclusive-next-day bounds on the same expression", () => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(disclosed, {
+        query:
+          "SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("withholds a disclosed figure when the warehouse query adds a grouping", () => {
     const result = realDataFinalGuard(
       explicitWarehouseContext(disclosed, {
@@ -1350,8 +1397,8 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       explicitWarehouseContext(disclosed, {
         groupBy: [{ name: "metric_time", grain: "WEEK" }],
         query:
-          "SELECT COUNT(DISTINCT account_id) AS active_accounts, DATE_TRUNC(activity_date, DAY) AS metric_time FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date <= DATE '2026-09-30' GROUP BY metric_time",
-        rows: [{ active_accounts: 10, metric_time: "2026-09-01" }],
+          "SELECT COUNT(DISTINCT account_id) AS active_accounts, DATE_TRUNC(activity_date, DAY) AS metric_time_week FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date <= DATE '2026-09-30' GROUP BY metric_time_week",
+        rows: [{ active_accounts: 10, metric_time_week: "2026-09-01" }],
       }),
     );
 
@@ -1359,6 +1406,21 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
       retryMessage: expect.stringContaining("exact period and grouping"),
     });
+  });
+
+  it("accepts a grouped time alias only when its expression uses the requested grain", () => {
+    const weeklyDisclosed =
+      "Active accounts in the weekly result were 10. This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(weeklyDisclosed, {
+        groupBy: [{ name: "metric_time", grain: "WEEK" }],
+        query:
+          "SELECT COUNT(DISTINCT account_id) AS active_accounts, DATE_TRUNC(activity_date, WEEK) AS metric_time_week FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01' GROUP BY metric_time_week",
+        rows: [{ active_accounts: 10, metric_time_week: "2026-09-01" }],
+      }),
+    );
+
+    expect(result).toBeNull();
   });
 
   it("withholds a disclosed figure when the matching query returns another value", () => {
@@ -1814,6 +1876,141 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(asked).toHaveLength(1);
     expect(result).toMatchObject(withheld);
   });
+
+  it("clears a scope-less metadata page after a complete success for its metric", async () => {
+    const metadataCallId = "dbt-metadata-page";
+    const successCallId = "dbt-success";
+    const { asked, result } = await judged(
+      {
+        userText: question,
+        draftText: draft,
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolCalls: [
+          {
+            toolCallId: metadataCallId,
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              nextPage: "metadata-page-2",
+            },
+          },
+          {
+            toolCallId: successCallId,
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+        ],
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            toolCallId: metadataCallId,
+            content: JSON.stringify({
+              status: "metadata_truncated",
+              metricName: "active_accounts",
+              nextPage: "metadata-page-2",
+            }),
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            toolCallId: successCallId,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "active_accounts",
+              truncated: false,
+              nextPage: null,
+              querySpec: {
+                timeRange: activeAccountsRange,
+                groupBy: [],
+              },
+              rows: [{ active_accounts: 10 }],
+            }),
+          },
+        ],
+      },
+      "YES",
+    );
+
+    expect(asked).toHaveLength(0);
+    expect(result).toBeNull();
+  });
+
+  it.each([
+    ["another metric", "signups", false],
+    ["a truncated success", "active_accounts", true],
+  ])(
+    "does not clear metadata with %s",
+    async (_case, metricName, truncated) => {
+      const metadataCallId = "dbt-metadata-page";
+      const successCallId = "dbt-success";
+      const { asked, result } = await judged(
+        {
+          userText: question,
+          draftText: draft,
+          runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+          toolCalls: [
+            {
+              toolCallId: metadataCallId,
+              name: "query-dbt-semantic-metric",
+              input: {
+                metricName: "active_accounts",
+                nextPage: "metadata-page-2",
+              },
+            },
+            {
+              toolCallId: successCallId,
+              name: "query-dbt-semantic-metric",
+              input: {
+                metricName,
+                timeRange: activeAccountsRange,
+                groupBy: [],
+              },
+            },
+          ],
+          toolResults: [
+            {
+              name: "query-dbt-semantic-metric",
+              isError: false,
+              toolCallId: metadataCallId,
+              content: JSON.stringify({
+                status: "metadata_truncated",
+                metricName: "active_accounts",
+                nextPage: "metadata-page-2",
+              }),
+            },
+            {
+              name: "query-dbt-semantic-metric",
+              isError: false,
+              toolCallId: successCallId,
+              content: JSON.stringify({
+                status: "success",
+                metricName,
+                truncated,
+                nextPage: null,
+                querySpec: {
+                  timeRange: activeAccountsRange,
+                  groupBy: [],
+                },
+                rows: [{ [metricName]: 10 }],
+              }),
+            },
+          ],
+        },
+        "YES",
+      );
+
+      expect(asked).toHaveLength(1);
+      expect(result).toMatchObject({
+        maxRetries: 1,
+        fallbackMessage: expect.stringContaining("no owner-approved figure"),
+      });
+    },
+  );
 
   it("clears a failure with no metric name once a later query succeeds", async () => {
     const connectionSelection = {
