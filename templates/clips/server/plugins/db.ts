@@ -1325,6 +1325,29 @@ export const migrations = runMigrations(
       CREATE INDEX IF NOT EXISTS recording_transcript_versions_recording_created_idx
         ON recording_transcript_versions (recording_id, created_at)`,
     },
+    {
+      version: 93,
+      name: "recording-content-bindings",
+      // Mirrors `recordingContentBindings` in server/db/schema.ts. `state` has
+      // no CHECK so later lifecycle states need no migration.
+      sql: `CREATE TABLE IF NOT EXISTS recording_content_bindings (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        content_app TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        block_id TEXT,
+        origin TEXT NOT NULL CHECK (origin IN ('upload', 'link')),
+        state TEXT NOT NULL DEFAULT 'active',
+        state_changed_at TEXT,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_content_bindings_recording_document_unique_idx
+        ON recording_content_bindings (recording_id, content_app, document_id);
+      CREATE INDEX IF NOT EXISTS recording_content_bindings_document_idx
+        ON recording_content_bindings (content_app, document_id)`,
+    },
   ]),
   { table: "clips_migrations" },
 );

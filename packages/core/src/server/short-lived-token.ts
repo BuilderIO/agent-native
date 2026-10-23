@@ -24,6 +24,15 @@ interface DecodedClaims {
   exp: number;
 }
 
+export interface ShortLivedTokenKeyOptions {
+  /**
+   * Sign or verify with this key alone, never the app's server secret, so a
+   * token minted under another key (one derived from `A2A_SECRET`, say)
+   * cannot pass. An empty key throws rather than fall back.
+   */
+  signingKey?: string;
+}
+
 export type VerifyResult =
   | { ok: true; viewerEmail?: string; agentLabel?: string }
   | { ok: false; reason: string };
@@ -50,6 +59,14 @@ function getSigningKey(): string {
   return _devSigningKey;
 }
 
+function keyFor(options: ShortLivedTokenKeyOptions | undefined): string {
+  if (options?.signingKey === undefined) return getSigningKey();
+  if (!options.signingKey) {
+    throw new Error("An explicit short-lived token signing key is empty.");
+  }
+  return options.signingKey;
+}
+
 function base64UrlEncode(buf: Buffer | string): string {
   const b = typeof buf === "string" ? Buffer.from(buf, "utf8") : buf;
   return b
@@ -64,7 +81,10 @@ function base64UrlDecode(s: string): Buffer {
   return Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64");
 }
 
-export function signShortLivedToken(claims: ShortLivedTokenClaims): string {
+export function signShortLivedToken(
+  claims: ShortLivedTokenClaims,
+  options?: ShortLivedTokenKeyOptions,
+): string {
   const ttl = claims.ttlSeconds ?? DEFAULT_TTL_SECONDS;
   const payload: DecodedClaims = {
     resourceId: claims.resourceId,
@@ -75,7 +95,7 @@ export function signShortLivedToken(claims: ShortLivedTokenClaims): string {
 
   const payloadStr = base64UrlEncode(JSON.stringify(payload));
   const sig = base64UrlEncode(
-    crypto.createHmac("sha256", getSigningKey()).update(payloadStr).digest(),
+    crypto.createHmac("sha256", keyFor(options)).update(payloadStr).digest(),
   );
   return `${payloadStr}.${sig}`;
 }
@@ -95,6 +115,7 @@ export function signShortLivedToken(claims: ShortLivedTokenClaims): string {
 export function verifyShortLivedToken(
   token: string,
   expectedResourceId: string,
+  options?: ShortLivedTokenKeyOptions,
 ): VerifyResult {
   if (typeof token !== "string" || !token.includes(".")) {
     return { ok: false, reason: "malformed" };
@@ -103,7 +124,7 @@ export function verifyShortLivedToken(
   if (!payloadStr || !sig) return { ok: false, reason: "malformed" };
 
   const expected = base64UrlEncode(
-    crypto.createHmac("sha256", getSigningKey()).update(payloadStr).digest(),
+    crypto.createHmac("sha256", keyFor(options)).update(payloadStr).digest(),
   );
 
   const sigBuf = Buffer.from(sig, "utf8");

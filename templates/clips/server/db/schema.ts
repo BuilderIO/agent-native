@@ -353,6 +353,41 @@ export const recordingBugReports = table("recording_bug_reports", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+// A Clip placed in an Agent-Native Content document. Only an `upload` binding
+// in `active` state lets the document's readers open the Clip; a `link` binding
+// grants nothing, so a pasted Clip keeps its own sharing. `state` carries no
+// CHECK constraint, so lifecycle states can be added without a migration.
+export const recordingContentBindings = table(
+  "recording_content_bindings",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    // The Content app's canonical URL, from the issuer of its A2A token.
+    contentApp: text("content_app").notNull(),
+    documentId: text("document_id").notNull(),
+    blockId: text("block_id"),
+    origin: text("origin", { enum: ["upload", "link"] }).notNull(),
+    state: text("state", { enum: ["active", "trashed"] })
+      .notNull()
+      .default("active"),
+    // Content's time for the latest state change, so a transition that
+    // arrives late cannot undo a newer one.
+    stateChangedAt: text("state_changed_at"),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (binding) => ({
+    recordingDocumentUnique: uniqueIndex(
+      "recording_content_bindings_recording_document_unique_idx",
+    ).on(binding.recordingId, binding.contentApp, binding.documentId),
+    documentIndex: index("recording_content_bindings_document_idx").on(
+      binding.contentApp,
+      binding.documentId,
+    ),
+  }),
+);
+
 export const recordingCtas = table("recording_ctas", {
   id: text("id").primaryKey(),
   recordingId: text("recording_id").notNull(),
