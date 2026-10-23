@@ -583,6 +583,56 @@ describe("SqlChart refresh feedback", () => {
     expect(extensionProps().initialHeight).toBe(180);
   });
 
+  it("starts a mounted panel that switches extension at that extension's own height", async () => {
+    const panelFor = (extensionId: string) => ({
+      id: "github-status",
+      title: "GitHub data",
+      sql: "",
+      source: "first-party" as const,
+      chartType: "extension" as const,
+      width: 3,
+      config: { extensionId },
+    });
+    const extensionProps = () =>
+      mocks.embeddedExtensionProps as {
+        extensionId?: string;
+        initialHeight?: number;
+        onReady?: () => void;
+        onHeightChange?: (height: number) => void;
+      };
+    const wrapper = () =>
+      container.querySelector<HTMLElement>("[aria-busy]") as HTMLElement;
+    const show = (extensionId: string) =>
+      act(async () => {
+        root.render(
+          <SqlChart panel={panelFor(extensionId)} dashboardId="repo-health" />,
+        );
+      });
+
+    await show("extension-1");
+    await act(async () => {
+      extensionProps().onHeightChange?.(612);
+      extensionProps().onReady?.();
+    });
+    expect(wrapper().style.minHeight).toBe("");
+
+    // Same mounted panel, new extension: it loads again from the default.
+    await show("extension-2");
+    expect(extensionProps().extensionId).toBe("extension-2");
+    expect(extensionProps().initialHeight).toBe(180);
+    expect(wrapper().getAttribute("aria-busy")).toBe("true");
+    expect(wrapper().style.minHeight).toBe("180px");
+
+    await act(async () => {
+      extensionProps().onHeightChange?.(64);
+    });
+
+    // Switching back starts at the first extension's remembered height.
+    await show("extension-1");
+    expect(extensionProps().initialHeight).toBe(612);
+    expect(wrapper().style.minHeight).toBe("612px");
+  });
+
   it("shows a readable retry action when a chart query fails", async () => {
     const panel = {
       id: "signups",

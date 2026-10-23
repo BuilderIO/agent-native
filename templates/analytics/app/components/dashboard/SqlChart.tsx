@@ -175,6 +175,7 @@ import {
   useEventMarkerGroups,
 } from "./event-markers";
 import {
+  extensionPanelHeightKey,
   initialExtensionPanelHeight,
   rememberExtensionPanelHeight,
 } from "./extension-panel-height";
@@ -1854,13 +1855,21 @@ export function SqlChart({
         </div>
       );
     }
+    const heightKey = extensionPanelHeightKey(
+      dashboardId,
+      panel.id,
+      extensionId,
+    );
+    // Keyed so a panel that switches dashboard or extension remounts at that
+    // extension's own starting height, not the previous one's.
     return (
       <DashboardExtensionPanel
+        key={heightKey}
+        heightKey={heightKey}
         extensionId={extensionId}
         panelId={panel.id}
         slotId={slotId}
         context={extensionContext}
-        dashboardId={dashboardId}
       />
     );
   }
@@ -2170,18 +2179,17 @@ function DashboardExtensionPanel({
   panelId,
   slotId,
   context,
-  dashboardId,
+  heightKey,
 }: {
   extensionId?: string;
   panelId: string;
   slotId?: string;
   context?: Record<string, unknown> | null;
-  dashboardId?: string;
+  heightKey: string;
 }) {
   const t = useT();
   const [ready, setReady] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
-  const heightKey = `${dashboardId ?? ""}:${panelId}:${extensionId ?? ""}`;
   const [initialHeight] = useState(() =>
     initialExtensionPanelHeight(heightKey),
   );
