@@ -395,6 +395,7 @@ export async function completeContentRun(
   data: {
     items?: ContentItemInput[];
     snapshots?: ContentSnapshotInput[];
+    replaceSnapshots?: boolean;
   },
   outcome: ContentRunOutcome,
 ): Promise<void> {
@@ -404,6 +405,19 @@ export async function completeContentRun(
   const snapshots = data.snapshots ?? [];
 
   await db.transaction(async (tx: any) => {
+    if (data.replaceSnapshots) {
+      await tx
+        .delete(schema.analyticsContentMetricSnapshots)
+        .where(
+          and(
+            eq(
+              schema.analyticsContentMetricSnapshots.tenantKey,
+              collection.tenantKey,
+            ),
+            eq(schema.analyticsContentMetricSnapshots.source, step),
+          ),
+        );
+    }
     for (let start = 0; start < items.length; start += WRITE_BATCH_SIZE) {
       const batch = items
         .slice(start, start + WRITE_BATCH_SIZE)

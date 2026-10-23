@@ -142,7 +142,9 @@ Metrics are `ga4_pageviews` (per blog article) and `search_console_clicks` /
 `configure-content-collection --ga4PropertyId <numeric-id>`; it never falls back
 to the shared `GA4_PROPERTY_ID` used by other dashboards. An unset property
 reports `not_configured` without querying. Changing the property starts a fresh
-90-day backfill. Pass `ga4PropertyId: null` to clear it; omitted settings keep
+90-day backfill; its first successful save replaces the previous property's
+pageview history, including dates outside that window. Failed replacements
+keep the saved history. Pass `ga4PropertyId: null` to clear it; omitted settings keep
 their saved values. Search Console data is two to three days late, so the
 newest days have no row yet; read them as still arriving. Search Console
 collection stays off until a property owner adds the service account that

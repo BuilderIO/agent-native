@@ -534,9 +534,9 @@ describe("content collection", () => {
 
   it("backfills GA4 history when the collection changes properties", async () => {
     const collection = await onlySteps({ builderBlog: true, ga4: true });
-    feed(article("a1"));
+    feed(article("a1", { publishDate: "2026-07-01T00:00:00.000Z" }));
     mocks.runFullReport.mockResolvedValueOnce([
-      ga4Row("20261001", "/blog/post-a1", 90),
+      ga4Row("20260717", "/blog/post-a1", 90),
       ga4Row("20261014", "/blog/post-a1", 4),
     ]);
     await collectContentForAllTenants({
@@ -550,8 +550,7 @@ describe("content collection", () => {
       },
     });
     mocks.runFullReport.mockResolvedValueOnce([
-      ga4Row("20261001", "/blog/post-a1", 7),
-      ga4Row("20261015", "/blog/post-a1", 2),
+      ga4Row("20261013", "/blog/post-a1", 7),
     ]);
     await collectContentForAllTenants({
       now: new Date("2026-10-16T07:00:00Z"),
@@ -563,12 +562,19 @@ describe("content collection", () => {
         dateRange: { startDate: "2026-07-18", endDate: "2026-10-15" },
       }),
     );
-    expect(await snapshots("ga4_pageviews")).toContainEqual({
+    const replaced = await snapshots("ga4_pageviews");
+    expect(replaced).toContainEqual({
       external_id: "a1",
-      metric_date: "2026-10-01",
+      metric_date: "2026-10-13",
       value: 7,
       source: "ga4",
     });
+    expect(replaced.some((row) => row.metric_date === "2026-07-17")).toBe(
+      false,
+    );
+    expect(replaced.some((row) => row.metric_date === "2026-10-14")).toBe(
+      false,
+    );
     const runs = await rows(
       "SELECT config_fingerprint FROM analytics_content_collection_runs WHERE step = 'ga4' ORDER BY window_end",
     );
@@ -579,6 +585,50 @@ describe("content collection", () => {
       runs[1]!.config_fingerprint,
     );
   });
+
+  it.each(["empty", "provider_error", "save_error"])(
+    "keeps the old GA4 series when a property replacement ends in %s",
+    async (failure) => {
+      const collection = await onlySteps({ builderBlog: true, ga4: true });
+      feed(article("a1"));
+      mocks.runFullReport.mockResolvedValueOnce([
+        ga4Row("20261014", "/blog/post-a1", 4),
+      ]);
+      await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      const previous = await snapshots("ga4_pageviews");
+      await writeContentCollection(ORG_A, {
+        enabled: true,
+        config: {
+          ...collection.config,
+          ga4: { enabled: true, propertyId: "987654321" },
+        },
+      });
+      if (failure === "provider_error") {
+        mocks.runFullReport.mockRejectedValueOnce(
+          new Error("provider unavailable"),
+        );
+      } else if (failure === "empty") {
+        mocks.runFullReport.mockResolvedValueOnce([]);
+      } else {
+        await client.exec(
+          "ALTER TABLE analytics_content_metric_snapshots ADD CONSTRAINT reject_new_ga4 CHECK (value <> 5)",
+        );
+        mocks.runFullReport.mockResolvedValueOnce([
+          ga4Row("20261015", "/blog/post-a1", 5),
+        ]);
+      }
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-16T07:00:00Z"),
+      });
+      expect(ran(summaries)[1]).toMatchObject({
+        step: "ga4",
+        status: "failed",
+      });
+      expect(await snapshots("ga4_pageviews")).toEqual(previous);
+    },
+  );
 
   it("fails a GA4 run whose property reports no blog pages instead of writing zeros", async () => {
     await onlySteps({ builderBlog: true, ga4: true });

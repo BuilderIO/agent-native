@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { runFullReport } from "../../google-analytics.js";
 import { ContentStepStop, type ContentStep } from "../step.js";
-import { listContentItems } from "../store.js";
+import { lastSucceededContentRun, listContentItems } from "../store.js";
 import { BUILDER_BLOG_ORIGIN } from "./builder-blog.js";
 import {
   collectionWindow,
@@ -36,6 +36,7 @@ export const ga4Step: ContentStep = {
     const configFingerprint = createHash("sha256")
       .update(propertyId)
       .digest("hex");
+    const previous = await lastSucceededContentRun(collection, "ga4");
     const articles = await listContentItems(collection, "builder_blog");
     if (articles.length === 0) {
       throw new ContentStepStop({
@@ -121,6 +122,8 @@ export const ga4Step: ContentStep = {
     });
     return {
       snapshots,
+      // Replace the old property's entire series only when the new report can commit.
+      replaceSnapshots: previous?.configFingerprint !== configFingerprint,
       outcome: {
         rowCount: snapshots.length,
         windowStart: window.startDate,
