@@ -62,8 +62,8 @@ const EMBEDDED_BEARER = new RegExp(
 // A line that opens another field, such as `Body: visible`.
 const FIELD_LINE = String.raw`[ \t]*["']?[\w-]+["']?[ \t]*:(?:\s|$)`;
 // What can follow a scheme as its credentials (RFC 7235): one token alone on
-// its line, or `name=value` parameters.
-const CREDENTIAL_LINE = String.raw`[ \t]*(?:[^\s"']+[ \t]*(?:\r?\n|$)|[\w!#$%&*+.^|~-]+[ \t]*=)`;
+// its line, quoted or not, or `name=value` parameters.
+const CREDENTIAL_LINE = String.raw`[ \t]*(?:["']?[^\s"']+["']?[ \t]*(?:\r?\n|$)|[\w!#$%&*+.^|~-]+[ \t]*=)`;
 // A word alone on its line (`Bearer`, `"Api-Key"`) takes the credential on
 // the next one. It can be a scheme no list names, and stopping at the newline
 // would leave the credential bare. A next line of prose, or one that opens
