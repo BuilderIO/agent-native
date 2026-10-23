@@ -23,7 +23,18 @@ For a question about something an owner-defined dbt metric measures, even withou
 
 Use `tool-search` to load `query-dbt-semantic-metric` for a matched metric and pass its exact name. Use dbt as the definition and grain source; Sigma and Amplitude are examples or cross-checks.
 
-Pass a listed `connectionId` on `connection_selection_required`. Call `get-dbt-connection` only on `connection_error` or `connection_unavailable`, and report its actual readiness or error, keeping unknown distinct from disconnected. Handle other statuses by their returned result and action guidance: use `success` rows, continue `pending` by calling again with only its returned `metricName`, `queryId`, and matching `nextPage` (do not resend the original `groupBy`, filters, or grain), and `metadata_truncated` with its `nextPage`, search `find-data` for the exact name once and retry on `not_found`, and list matches and ask which one is meant on `ambiguous_metric`. Report `no_metrics_available`, `permission_denied`, and `provider_error` as returned. For `deployment_not_ready`, `empty_semantic_manifest`, or a connection that `get-dbt-connection` reports as missing, use a warehouse path only when an independent source verifies the same measure, population, and grain, and label it as a warehouse calculation. A `not_found` result alone does not confirm a missing definition.
+Pass a listed `connectionId` on `connection_selection_required`. Call `get-dbt-connection` only on `connection_error`, `connection_unavailable`, or a connection-required error, and report its actual readiness or error, keeping unknown distinct from disconnected. Handle the other statuses:
+
+- `success`: answer from its rows. If `truncated` is true, say the figures are partial, and continue with `nextPage` only when it is present.
+- `pending`: call again with only its returned `metricName`, `queryId`, and `nextPage`. Do not resend the original `groupBy`, filters, or grain.
+- `metadata_truncated`: call again with its `metricName` and returned `nextPage`, and no query scope (no `groupBy`, `timeRange`, or `allTime`), to read the next metadata page. This is separate from the `not_found` recheck.
+- `not_found`: search `find-data` for the exact name once and retry the query. If `find-data` has no dbt entry, retry it once with concept words from the question (synonyms or likely definition terms). If still nothing, say no owner-defined metric matched, without claiming it is missing from dbt. A `not_found` result alone does not confirm a missing definition.
+- `ambiguous_metric`: list the names `find-data` returns for it and ask which one is meant.
+- `no_metrics_available`, `permission_denied`, `provider_error`: report as returned. `permission_denied` concerns the workspace dbt token, not this user.
+- `deployment_not_ready`, `empty_semantic_manifest`, or a connection that `get-dbt-connection` reports as missing: use a warehouse path only when an independent source verifies the same measure, population, and grain, and label it as a warehouse calculation.
+- Any other status: report its returned message.
+
+Name each source you use; never silently fall back to saved SQL or a warehouse query.
 
 Use the metric's returned dimensions and `queryableGranularities` for a
 breakdown. Pass exact dimension names in `groupBy`; grouped MetricFlow queries

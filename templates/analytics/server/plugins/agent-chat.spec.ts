@@ -677,7 +677,7 @@ describe("Analytics agent Plan mode policy", () => {
       "use `tool-search` to load `query-dbt-semantic-metric` with its exact name",
     );
     expect(ruleText("sources")).toContain(
-      "Call `get-dbt-connection` only for `connection_error` or `connection_unavailable`",
+      "Call `get-dbt-connection` only for `connection_error`, `connection_unavailable`, or a connection-required error",
     );
     expect(agentsGuide).toContain(
       "retry no-candidate searches once with owner terms",
@@ -687,7 +687,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(dataQueryingSkill).toContain("`no_metrics_available`");
     expect(dataQueryingSkill).toContain("`permission_denied`");
     expect(dataQueryingSkill).toContain(
-      "do not resend the original `groupBy`, filters, or grain",
+      "Do not resend the original `groupBy`, filters, or grain.",
     );
     expect(dataQueryingSkill).toContain(
       "A `not_found` result alone does not confirm a missing definition.",
@@ -702,8 +702,12 @@ describe("Analytics agent Plan mode policy", () => {
       "only dbt metric routing (its exact-name lookup and recovery) searches again",
     );
     expect(dataQueryingSkill).toContain(
-      "search `find-data` for the exact name once and retry on `not_found`",
+      "search `find-data` for the exact name once and retry the query",
     );
+    expect(dataQueryingSkill).toContain(
+      "call again with its `metricName` and returned `nextPage`",
+    );
+    expect(dataQueryingSkill).toContain("connection-required error");
     expect(readMarkdown("../../actions/bigquery.ts")).toContain(
       "For an owner-defined dbt metric question, even unnamed, follow the dbt path in `data-querying/SKILL.md` first.",
     );
