@@ -2846,6 +2846,17 @@ describe("Builder unpublished saves", () => {
     expect(publishedAfter({ effect: "save_draft", existing: "draft" })).toBe(
       "draft",
     );
+    // A reply without the state keeps what a refresh stored since the check.
+    for (const effect of ["save_draft", "update_in_place"] as const) {
+      expect(
+        publishedAfter({
+          effect,
+          existing: "published",
+          livePublished: "draft",
+          responseBody: { id: "builder-entry-1" },
+        }),
+      ).toBe("published");
+    }
   });
 
   it("takes a live write's fields out of the record, even from a response stored without live values", () => {

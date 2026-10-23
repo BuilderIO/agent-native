@@ -118,6 +118,7 @@ import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-setti
 import { assertNoActiveBuilderSourceExecutions } from "./_builder-source-execution-guard.js";
 import {
   clearBuilderStatusValues,
+  ensureBuilderStatusProperty,
   writeBuilderStatusValues,
 } from "./_builder-status-property.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
@@ -5932,6 +5933,12 @@ export async function seedMockSourceRows(args: {
   existingBuilderRows?: Map<string, ExistingBuilderSourceRowIdentity>;
   builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry>;
 }) {
+  if (args.sourceType === "builder-cms") {
+    await ensureBuilderStatusProperty({
+      sourceId: args.sourceId,
+      now: args.now,
+    });
+  }
   if (args.items.length === 0) return;
   const db = getDb();
   const rows = mockSourceRowsForSeed(args);
@@ -5941,15 +5948,14 @@ export async function seedMockSourceRows(args: {
       rows.map((row) => row.databaseItemId),
     );
     await insertMockSourceRows(tx, rows, args.now);
+    if (args.sourceType === "builder-cms") {
+      await writeBuilderStatusValues(tx, {
+        sourceId: args.sourceId,
+        rows: builderStatusRows(rows),
+        now: args.now,
+      });
+    }
   });
-  if (args.sourceType === "builder-cms") {
-    await writeBuilderStatusValues(db, {
-      sourceId: args.sourceId,
-      rows: builderStatusRows(rows),
-      now: args.now,
-      createProperty: true,
-    });
-  }
 }
 
 function builderStatusRows(
@@ -6079,6 +6085,12 @@ export async function replaceMockSourceRows(args: {
   builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry>;
   documentIds?: string[];
 }) {
+  if (args.sourceType === "builder-cms") {
+    await ensureBuilderStatusProperty({
+      sourceId: args.sourceId,
+      now: args.now,
+    });
+  }
   const db = getDb();
   const rows = mockSourceRowsForSeed(args);
   await db.transaction(async (tx) => {
@@ -6104,33 +6116,26 @@ export async function replaceMockSourceRows(args: {
     ]);
     await tx.delete(schema.contentDatabaseSourceRows).where(scope);
     await insertMockSourceRows(tx, rows, args.now);
+    const [source] = await tx
+      .select({ databaseId: schema.contentDatabaseSources.databaseId })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+    if (source) {
+      await clearBuilderStatusValues(tx, {
+        databaseId: source.databaseId,
+        documentIds: oldRows
+          .map((row) => row.documentId)
+          .filter((documentId): documentId is string => !!documentId),
+      });
+    }
     if (args.sourceType === "builder-cms") {
-      const keptDocumentIds = new Set(rows.map((row) => row.documentId));
-      const [source] = await tx
-        .select({ databaseId: schema.contentDatabaseSources.databaseId })
-        .from(schema.contentDatabaseSources)
-        .where(eq(schema.contentDatabaseSources.id, args.sourceId));
-      if (source) {
-        await clearBuilderStatusValues(tx, {
-          databaseId: source.databaseId,
-          documentIds: oldRows
-            .map((row) => row.documentId)
-            .filter(
-              (documentId): documentId is string =>
-                !!documentId && !keptDocumentIds.has(documentId),
-            ),
-        });
-      }
+      await writeBuilderStatusValues(tx, {
+        sourceId: args.sourceId,
+        rows: builderStatusRows(rows),
+        now: args.now,
+      });
     }
   });
-  if (args.sourceType === "builder-cms") {
-    await writeBuilderStatusValues(db, {
-      sourceId: args.sourceId,
-      rows: builderStatusRows(rows),
-      now: args.now,
-      createProperty: true,
-    });
-  }
 }
 
 export function sourceValuesForSeededSourceRow(args: {

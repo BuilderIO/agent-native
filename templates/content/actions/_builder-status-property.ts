@@ -131,11 +131,25 @@ async function createBuilderStatusProperty(args: {
 }
 
 /**
+ * Adds a Builder source's status property, even to a collection with no rows
+ * yet, so its first saved entry has a status. Attach and refresh call it
+ * before they store rows. It takes its own lock, so it runs outside a
+ * transaction.
+ */
+export async function ensureBuilderStatusProperty(args: {
+  sourceId: string;
+  now: string;
+}) {
+  const target = await builderStatusTarget(getDb(), args.sourceId);
+  if (!target) return null;
+  return createBuilderStatusProperty({ target, now: args.now });
+}
+
+/**
  * Writes each row's Builder status from the source values just stored for it.
  * Every path that stores a Builder row's `published`, autosave flag, or
- * unpublished-changes record calls this, or the status goes stale until the
- * next refresh. `createProperty` is for attach and refresh, which run outside
- * a transaction; inside one, rows are only updated once the property exists.
+ * unpublished-changes record calls this in the same transaction, or a write
+ * racing it can leave the status stale until the next refresh.
  */
 export async function writeBuilderStatusValues(
   db: Db,
@@ -146,7 +160,6 @@ export async function writeBuilderStatusValues(
       sourceValues: Record<string, DocumentPropertyValue> | null | undefined;
     }>;
     now: string;
-    createProperty?: boolean;
   },
 ) {
   const rows = args.rows.filter(
@@ -158,9 +171,10 @@ export async function writeBuilderStatusValues(
   if (rows.length === 0) return;
   const target = await builderStatusTarget(db, args.sourceId);
   if (!target) return;
-  const propertyId = args.createProperty
-    ? await createBuilderStatusProperty({ target, now: args.now })
-    : await existingBuilderStatusPropertyId(db, target.databaseId);
+  const propertyId = await existingBuilderStatusPropertyId(
+    db,
+    target.databaseId,
+  );
   if (!propertyId) return;
 
   const statusByDocumentId = new Map(
@@ -236,7 +250,34 @@ export async function writeBuilderStatusValues(
   }
 }
 
-/** Clears the status of rows leaving a Builder source, which no longer has one. */
+/** Drops Builder statuses from values being copied: a copy has no Builder entry. */
+export async function withoutBuilderStatusValues<
+  T extends { propertyId: string },
+>(db: Db, values: T[]) {
+  const propertyIds = [...new Set(values.map((value) => value.propertyId))];
+  const statusPropertyIds = new Set<string>();
+  for (const chunk of chunks(propertyIds, bulkChunkSizeForColumnCount(1))) {
+    const definitions = await db
+      .select({ id: schema.documentPropertyDefinitions.id })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          inArray(schema.documentPropertyDefinitions.id, chunk),
+          eq(schema.documentPropertyDefinitions.systemRole, "builder_status"),
+        ),
+      );
+    for (const definition of definitions) {
+      statusPropertyIds.add(definition.id);
+    }
+  }
+  return values.filter((value) => !statusPropertyIds.has(value.propertyId));
+}
+
+/**
+ * Clears the status of rows that left a source, unless another Builder source
+ * in the collection still has them. Call it after the source's rows or type
+ * have changed, in the same transaction.
+ */
 export async function clearBuilderStatusValues(
   db: Db,
   args: { databaseId: string; documentIds: readonly string[] },
@@ -245,15 +286,35 @@ export async function clearBuilderStatusValues(
   const propertyId = await existingBuilderStatusPropertyId(db, args.databaseId);
   if (!propertyId) return;
   for (const chunk of chunks(
-    [...args.documentIds],
+    [...new Set(args.documentIds)],
     bulkChunkSizeForColumnCount(1),
   )) {
+    const stillBuilder = await db
+      .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+      .from(schema.contentDatabaseSourceRows)
+      .innerJoin(
+        schema.contentDatabaseSources,
+        eq(
+          schema.contentDatabaseSources.id,
+          schema.contentDatabaseSourceRows.sourceId,
+        ),
+      )
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.databaseId, args.databaseId),
+          eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
+          inArray(schema.contentDatabaseSourceRows.documentId, chunk),
+        ),
+      );
+    const kept = new Set(stillBuilder.map((row) => row.documentId));
+    const cleared = chunk.filter((documentId) => !kept.has(documentId));
+    if (cleared.length === 0) continue;
     await db
       .delete(schema.documentPropertyValues)
       .where(
         and(
           eq(schema.documentPropertyValues.propertyId, propertyId),
-          inArray(schema.documentPropertyValues.documentId, chunk),
+          inArray(schema.documentPropertyValues.documentId, cleared),
         ),
       );
   }

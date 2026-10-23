@@ -443,7 +443,8 @@ function parseSourceValues(
  * The entry's publication state once the write landed. An autosave leaves the
  * entry as the live check found it; Builder's reply describes the autosave.
  * Otherwise Builder's reply wins: a draft save can land on an entry published
- * since the check.
+ * since the check. A reply without the state leaves the stored state, which a
+ * refresh may have updated since the check.
  */
 function builderCmsPublishedAfterWrite(args: {
   effect: BuilderCmsExecutionPayload["effect"];
@@ -454,11 +455,9 @@ function builderCmsPublishedAfterWrite(args: {
   if (args.effect === "unpublish" || args.effect === "create_draft") {
     return "draft";
   }
-  if (args.effect !== "autosave") {
-    const replied = builderCmsResponseValue(args.responseBody, ["published"]);
-    if (typeof replied === "string") return replied;
-  }
-  return args.livePublished ?? null;
+  if (args.effect === "autosave") return args.livePublished ?? null;
+  const replied = builderCmsResponseValue(args.responseBody, ["published"]);
+  return typeof replied === "string" ? replied : null;
 }
 
 export function builderCmsReconciledSourceValuesJson(args: {

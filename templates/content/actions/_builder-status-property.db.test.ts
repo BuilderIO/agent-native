@@ -4,7 +4,7 @@ import { join } from "node:path";
 // guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 
 import type {
   BuilderCmsSourceEntry,
@@ -12,6 +12,23 @@ import type {
   DocumentProperty,
 } from "../shared/api";
 import { BUILDER_CMS_UNPUBLISHED_CHANGES_KEY } from "./_builder-cms-unpublished-changes";
+
+const statusWrite = vi.hoisted(() => ({ nextFailure: null as Error | null }));
+vi.mock("./_builder-status-property.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_builder-status-property.js")>();
+  return {
+    ...actual,
+    async writeBuilderStatusValues(
+      ...args: Parameters<typeof actual.writeBuilderStatusValues>
+    ) {
+      const failure = statusWrite.nextFailure;
+      statusWrite.nextFailure = null;
+      if (failure) throw failure;
+      return actual.writeBuilderStatusValues(...args);
+    },
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -300,4 +317,186 @@ it("never maps the Builder status to a Builder field", async () => {
       ),
     );
   expect(author).toHaveLength(1);
+});
+
+async function storedPublished(documentId: string) {
+  const [row] = await getDb()
+    .select({
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, SOURCE_ID),
+        eq(schema.contentDatabaseSourceRows.documentId, documentId),
+      ),
+    );
+  return JSON.parse(row.sourceValuesJson).published;
+}
+
+// A save racing a refresh can only land before or after both its rows and
+// their statuses, never between them.
+it("stores a refresh's rows and their statuses together", async () => {
+  const before = await storedPublished("doc_status_live");
+  statusWrite.nextFailure = new Error("Status write failed");
+
+  await expect(
+    utils.replaceMockSourceRows({
+      sourceId: SOURCE_ID,
+      ownerEmail: OWNER,
+      sourceType: "builder-cms",
+      sourceTable: MODEL,
+      items: items(["doc_status_live"]),
+      now: NOW,
+      builderEntriesByDocumentId: new Map([
+        entry("doc_status_live", {
+          published: before === "draft" ? "published" : "draft",
+        }),
+      ]),
+      documentIds: ["doc_status_live"],
+    }),
+  ).rejects.toThrow("Status write failed");
+
+  expect(await storedPublished("doc_status_live")).toBe(before);
+  expect((await statuses()).doc_status_live).toBe(before);
+});
+
+it("adds the status property to a Builder collection with no rows yet", async () => {
+  for (const [databaseId, write] of [
+    ["db_builder_status_empty_attach", utils.replaceMockSourceRows],
+    ["db_builder_status_empty_seed", utils.seedMockSourceRows],
+  ] as const) {
+    const sourceId = `src_${databaseId}`;
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: `doc_${databaseId}`,
+        ownerEmail: OWNER,
+        title: "Empty Builder collection",
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values({
+        id: databaseId,
+        ownerEmail: OWNER,
+        documentId: `doc_${databaseId}`,
+        title: "Empty Builder collection",
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId,
+      sourceType: "builder-cms",
+      sourceName: MODEL,
+      sourceTable: MODEL,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+
+    await write({
+      sourceId,
+      ownerEmail: OWNER,
+      sourceType: "builder-cms",
+      sourceTable: MODEL,
+      items: [],
+      now: NOW,
+    });
+
+    const definitions = await getDb()
+      .select({
+        id: schema.documentPropertyDefinitions.id,
+        systemRole: schema.documentPropertyDefinitions.systemRole,
+      })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
+    expect(definitions).toEqual([
+      {
+        id: statusModule.builderStatusPropertyId(databaseId),
+        systemRole: "builder_status",
+      },
+    ]);
+  }
+});
+
+it("leaves the status off a row's copy, which has no Builder entry", async () => {
+  await getDb()
+    .insert(schema.documentPropertyValues)
+    .values({
+      id: "value_builder_status_author",
+      ownerEmail: OWNER,
+      documentId: "doc_status_live",
+      propertyId: "prop_builder_status_author",
+      valueJson: JSON.stringify("Ada"),
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+  const values = await getDb()
+    .select()
+    .from(schema.documentPropertyValues)
+    .where(eq(schema.documentPropertyValues.documentId, "doc_status_live"));
+  expect(
+    values.map((value: { propertyId: string }) => value.propertyId).sort(),
+  ).toEqual(
+    [
+      "prop_builder_status_author",
+      statusModule.builderStatusPropertyId(DATABASE_ID),
+    ].sort(),
+  );
+
+  const copied = await statusModule.withoutBuilderStatusValues(getDb(), values);
+  expect(copied.map((value) => value.propertyId)).toEqual([
+    "prop_builder_status_author",
+  ]);
+});
+
+it("clears statuses when a local source replaces the Builder one, except rows another Builder source has", async () => {
+  await getDb().insert(schema.contentDatabaseSources).values({
+    id: "src_builder_status_details",
+    ownerEmail: OWNER,
+    databaseId: DATABASE_ID,
+    sourceType: "builder-cms",
+    sourceName: MODEL,
+    sourceTable: MODEL,
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+  await getDb()
+    .insert(schema.contentDatabaseSourceRows)
+    .values({
+      id: "row_builder_status_details",
+      ownerEmail: OWNER,
+      sourceId: "src_builder_status_details",
+      databaseItemId: "item_doc_status_autosaved",
+      documentId: "doc_status_autosaved",
+      sourceRowId: "entry_builder_status_details",
+      sourceQualifiedId: `builder-cms://${MODEL}/entry_builder_status_details`,
+      sourceDisplayKey: "Autosaved entry",
+      sourceValuesJson: JSON.stringify({ published: "published" }),
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+  // Attaching a local source over the Builder one keeps its source id.
+  await getDb()
+    .update(schema.contentDatabaseSources)
+    .set({ sourceType: "mock-local", sourceTable: DATABASE_ID })
+    .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+
+  await utils.replaceMockSourceRows({
+    sourceId: SOURCE_ID,
+    ownerEmail: OWNER,
+    sourceType: "mock-local",
+    sourceTable: DATABASE_ID,
+    items: items([
+      "doc_status_live",
+      "doc_status_autosaved",
+      "doc_status_unknown",
+    ]),
+    now: NOW,
+  });
+
+  expect(await statuses()).toEqual({ doc_status_autosaved: "published" });
 });

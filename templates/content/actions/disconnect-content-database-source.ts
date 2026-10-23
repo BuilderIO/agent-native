@@ -143,14 +143,12 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
       .delete(schema.contentDatabaseSourceRows)
       .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId))
       .returning({ documentId: schema.contentDatabaseSourceRows.documentId });
-    if (source.sourceType === "builder-cms") {
-      await clearBuilderStatusValues(tx, {
-        databaseId,
-        documentIds: deletedRows
-          .map((row) => row.documentId)
-          .filter((documentId): documentId is string => !!documentId),
-      });
-    }
+    await clearBuilderStatusValues(tx, {
+      databaseId,
+      documentIds: deletedRows
+        .map((row) => row.documentId)
+        .filter((documentId): documentId is string => !!documentId),
+    });
     await tx
       .delete(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.sourceId, sourceId));

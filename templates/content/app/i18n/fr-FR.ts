@@ -284,7 +284,7 @@ const database = {
   builderEffectNewTag: "Nouveau",
   builderEffectNewSentence: "Crée une nouvelle entrée en brouillon",
   builderEffectEditTag: "Modifier",
-  builderEffectEditSentence: "Met à jour l'entrée en direct",
+  builderEffectEditSentence: "Met à jour l'entrée publiée",
   builderEffectSaveTag: "Enregistrer",
   builderEffectAutosaveSentence:
     "Enregistré, pas en ligne tant que vous ne publiez pas dans Builder",
@@ -292,7 +292,7 @@ const database = {
   builderEffectPublishTag: "Publier",
   builderEffectPublishSentence: "Publie cette entrée",
   builderEffectUnpublishTag: "Dépublier",
-  builderEffectUnpublishSentence: "Dépublie l'entrée en direct",
+  builderEffectUnpublishSentence: "Dépublie l'entrée publiée",
   publishUpdates: "Publier les mises à jour",
   writesUpdatesToLiveEntries:
     "Écrit les mises à jour dans les entrées en direct.",

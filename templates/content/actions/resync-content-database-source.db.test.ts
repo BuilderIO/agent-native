@@ -5539,8 +5539,11 @@ it("lets an empty body Builder published replace a saved body through hydration"
     createdAt: now,
     updatedAt: now,
   });
-  const { builderStatusPropertyId, writeBuilderStatusValues } =
-    await import("./_builder-status-property.js");
+  const {
+    builderStatusPropertyId,
+    ensureBuilderStatusProperty,
+    writeBuilderStatusValues,
+  } = await import("./_builder-status-property.js");
   const builderStatus = async () => {
     const [value] = await db
       .select({ valueJson: schema.documentPropertyValues.valueJson })
@@ -5562,11 +5565,11 @@ it("lets an empty body Builder published replace a saved body through hydration"
     })
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.id, "row_published_empty_body"));
+  await ensureBuilderStatusProperty({ sourceId, now });
   await writeBuilderStatusValues(db, {
     sourceId,
     rows: [{ documentId, sourceValues: JSON.parse(savedRow.sourceValuesJson) }],
     now,
-    createProperty: true,
   });
   expect(await builderStatus()).toBe("unpublished_changes");
 

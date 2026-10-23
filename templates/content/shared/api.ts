@@ -706,6 +706,8 @@ export interface ContentDatabaseMutationContract {
     type: DocumentPropertyType;
     writable: boolean;
     sourceManaged: boolean;
+    /** Set on properties Content maintains itself, such as the Builder status. */
+    systemRole: string | null;
     acceptedShape: string | null;
     options: DocumentPropertyOptions;
   }>;
