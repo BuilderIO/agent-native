@@ -953,9 +953,9 @@ function isOtherProductMergeGate(sentence, gate) {
 }
 
 const PR_REVIEW_LINKED_COMMENT_URL = String.raw`(?:\[\s*)?(?:https?:\/\/)?github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+(?:#(?:issuecomment-\d+|discussion_r\d+|pullrequestreview-\d+)|\/comments\/\d+)`;
-const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+(?:they\s+)?(?:should|need\s+to|can)\s+do|what\s+happens\s+next)`;
+const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+(?:they\s+)?should\s+do|what\s+happens\s+next)`;
 const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
-  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b(?:say|write|use)\b\s+['"“‘]?(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback\b(?:[^.!?\n]{0,80}\b(?:in|on)\s+(?:(?:the|a)\s+)?(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\b|[^.!?\n]{0,80}${PR_REVIEW_LINKED_COMMENT_URL}|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b[^.!?\n]{0,80}[.!?]\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b(?:say|write|use)\b[^.!?\n]{0,15}\b(?:in|on)\s+(?:(?:the|a)\s+)?(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\b[^.!?\n]{0,50}\b(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback\b)`,
+  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b(?:say|write|use)\b\s+['"“‘]?(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback\b(?:[^.!?\n]{0,80}\b(?:in|on)\s+(?:(?:the|a)\s+)?(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\b|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b[^.!?\n]{0,80}[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b(?:say|write|use)\b[^.!?\n]{0,15}\b(?:in|on)\s+(?:(?:the|a)\s+)?(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\b[^.!?\n]{0,50}\b(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback\b)`,
   "i",
 );
 const PR_REVIEW_AMBIGUOUS_COMMENT_RE = new RegExp(
@@ -1134,6 +1134,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     false,
     "Don't say 'I have no further feedback'. Separately, the PR comment is vague: https://github.com/BuilderIO/agent-native/pull/7629#issuecomment-6359578348.",
+  ],
+  [
+    false,
+    "Don't say 'I have no further feedback'; this PR comment link is only incidental: https://github.com/BuilderIO/agent-native/pull/7629#issuecomment-6359578348.",
   ],
   [false, "The PR reply was vague after the latest author update."],
   [false, "A PR review can be vague without requiring a follow-up."],
