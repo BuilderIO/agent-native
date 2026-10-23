@@ -25,7 +25,7 @@ export function formatPromptWithAttachments(
       const type = attachment.type
         ? ` type="${escapePromptAttachmentAttribute(attachment.type)}"`
         : "";
-      if (attachment.dataUrl) {
+      if (attachment.dataUrl && attachment.text === undefined) {
         return `<attached-image name="${escapePromptAttachmentAttribute(
           attachment.name,
         )}"${type}${size}>\n${attachment.dataUrl}\n</attached-image>`;
@@ -44,12 +44,28 @@ export function formatPromptWithAttachments(
         attachment.text && attachment.totalChars
           ? `\n\n[Only the first ${attachment.text.length.toLocaleString()} of ${attachment.totalChars.toLocaleString()} characters of this file were attached, and the rest is not available to you. Tell the user up front that you could read only part of it, and do not report finished work that depends on the rest.]`
           : "";
+      const boundary = attachedFileBoundaryFor(`${body}${truncation}`);
+      const boundaryAttr = boundary ? ` boundary="${boundary}"` : "";
       return `<attached-file name="${escapePromptAttachmentAttribute(
         attachment.name,
-      )}"${type}${size}>\n${body}${truncation}\n</attached-file>`;
+      )}"${type}${size}${boundaryAttr}>\n${body}${truncation}\n</attached-file${boundaryAttr}>`;
     })
     .join("\n\n");
   return `${prompt.trimEnd()}\n\nAttached context:\n${attachmentText}`;
+}
+
+// A file that contains our own tag names could close its envelope early and
+// forge prompt text, so it gets a closing tag it cannot know in advance.
+function attachedFileBoundaryFor(body: string): string | null {
+  if (!/<\/?attached-(?:file|image)/i.test(body)) return null;
+  let boundary: string;
+  do {
+    boundary = Array.from(
+      globalThis.crypto.getRandomValues(new Uint8Array(6)),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+  } while (body.includes(boundary));
+  return boundary;
 }
 
 function describeAgentPromptAttachmentReadError(

@@ -796,6 +796,33 @@ describe("preUploadAttachments", () => {
     expect(result.readableWithoutStorage).toEqual(["report.pdf"]);
   });
 
+  it("does not call a long text file fully readable when storage is missing", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const result = await preUploadAttachments({
+      attachments: [
+        {
+          type: "file",
+          name: "DESIGN.md",
+          contentType: "text/markdown",
+          text: "x".repeat(70_000),
+        },
+        {
+          type: "file",
+          name: "notes.md",
+          contentType: "text/markdown",
+          text: "short",
+        },
+      ],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.providerMissing).toBe(true);
+    expect(result.readableWithoutStorage).toEqual(["notes.md"]);
+    expect(result.injectedText).not.toContain('"DESIGN.md"');
+  });
+
   it("uploads decoded text attachments so their URL survives the thread", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/notes.txt",

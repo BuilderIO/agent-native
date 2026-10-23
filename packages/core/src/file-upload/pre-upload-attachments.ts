@@ -6,6 +6,10 @@ import {
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { normalizeImageMediaType } from "./attachment-bytes.js";
 import {
+  decodeTextAttachmentData,
+  MAX_INLINE_TEXT_ATTACHMENT_CHARS,
+} from "./attachment-text.js";
+import {
   classifyInlineAttachment,
   describeInlineBlockReason,
   isInlineReadableDocumentType,
@@ -93,6 +97,12 @@ function readableDocumentMediaType(
   return inferred && isInlineReadableDocumentType(inferred, att.name)
     ? inferred
     : undefined;
+}
+
+function inlineTextLength(att: AgentChatAttachment): number {
+  const decoded = decodeTextAttachmentData(att);
+  if (decoded.kind === "text") return decoded.text.length;
+  return typeof att.text === "string" ? att.text.length : 0;
 }
 
 function hasSvgFilename(name: string | undefined): boolean {
@@ -292,6 +302,9 @@ export async function preUploadAttachments(opts: {
     const label = att.name || att.type || "attachment";
     const reason = classifyInlineAttachment(att);
     if (reason === null) {
+      // A long text file shows only its head inline, and its own truncation
+      // note says so; listing it here would tell the model it has all of it.
+      if (inlineTextLength(att) > MAX_INLINE_TEXT_ATTACHMENT_CHARS) return;
       readableWithoutStorage.push(label);
     } else {
       unreadableWithoutStorage.push({ label, reason });

@@ -2140,6 +2140,34 @@ describe("buildUserContentWithAttachments", () => {
     expect(forged).not.toContain(boundary!);
   });
 
+  it("says an empty text file is empty instead of omitting it", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Use this",
+      attachments: [
+        {
+          type: "file",
+          name: "empty.md",
+          contentType: "text/markdown",
+          data: "data:text/markdown;base64,",
+        },
+        {
+          type: "file",
+          name: "bom-only.md",
+          contentType: "text/markdown",
+          data: "data:text/markdown;base64,77u/",
+        },
+      ],
+    });
+
+    const text = content[0]?.type === "text" ? content[0].text : "";
+    expect(text).toContain(
+      '<chat-attachment-note code="empty-file" name="empty.md">',
+    );
+    expect(text).toContain(
+      '<chat-attachment-note code="empty-file" name="bom-only.md">',
+    );
+  });
+
   it("reports a text file that is not valid UTF-8 as unreadable", () => {
     const content = buildUserContentWithAttachments({
       text: "Use this",

@@ -1,6 +1,8 @@
 import { parseBase64DataUrl } from "../shared/data-url.js";
 
 export const MAX_ATTACHMENT_RESOURCE_CHARS = 20 * 1024 * 1024;
+/** Most characters of one text attachment the prompt shows inline. */
+export const MAX_INLINE_TEXT_ATTACHMENT_CHARS = 60_000;
 
 const TEXT_LIKE_APPLICATION_TYPES = new Set([
   "application/javascript",
@@ -60,7 +62,12 @@ export function decodeTextAttachmentData(att: {
   data?: string;
 }): DecodedAttachmentText {
   if (typeof att.data !== "string") return { kind: "not-text" };
-  const dataUrl = parseBase64DataUrl(att.data);
+  // The shared parser rejects a zero-length body, but storage returns one
+  // for an empty file and the model should hear that it is empty.
+  const empty = att.data.match(/^data:([^;,]*)(?:;[^,]*)?;base64,$/i);
+  const dataUrl = empty
+    ? { mediaType: empty[1] ?? "", data: "" }
+    : parseBase64DataUrl(att.data);
   if (!dataUrl) return { kind: "not-text" };
   const mediaType = dataUrl.mediaType.split(";")[0]!.trim().toLowerCase();
   const untyped = !mediaType || mediaType === "application/octet-stream";

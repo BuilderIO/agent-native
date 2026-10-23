@@ -98,6 +98,7 @@ import {
 import {
   decodeTextAttachmentData,
   isSvgTextAttachment,
+  MAX_INLINE_TEXT_ATTACHMENT_CHARS,
   type TextAttachmentStorage,
   unwrapTextAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
@@ -2301,7 +2302,7 @@ const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "I stopped rather than keep retrying silently. " +
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 const MAX_INLINE_ATTACHMENT_BASE64_CHARS = MAX_INLINE_FILE_BASE64_CHARS;
-const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
+const MAX_TEXT_ATTACHMENT_CHARS = MAX_INLINE_TEXT_ATTACHMENT_CHARS;
 const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS = 80_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
@@ -2936,6 +2937,11 @@ function describeMissingAttachmentPayload(att: AgentChatAttachment): string {
   return `<chat-attachment-processing-error code="missing-payload" name="${name}"${contentType}>The attachment arrived without readable file contents or a reference. Do not infer or describe its contents. Tell the user it could not be read and ask them to attach it again.</chat-attachment-processing-error>`;
 }
 
+function describeEmptyTextAttachment(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  return `<chat-attachment-note code="empty-file" name="${name}">The attached file is empty.</chat-attachment-note>`;
+}
+
 function describeUndecodableTextAttachment(
   att: AgentChatAttachment,
   mediaType: string,
@@ -3162,7 +3168,12 @@ export function buildUserContentWithAttachments(opts: {
         attachmentCharBudget,
       );
     }
-    if (isText) continue;
+    if (isText) {
+      if (!textAttachment) {
+        textAttachments.push(describeEmptyTextAttachment(att));
+      }
+      continue;
+    }
     if (!textAttachment && typeof att.data === "string") {
       textAttachments.push(describeUnprocessedAttachment(att));
     } else if (!textAttachment && typeof uploadedUrl === "string") {
