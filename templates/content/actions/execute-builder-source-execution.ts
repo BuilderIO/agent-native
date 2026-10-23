@@ -193,6 +193,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
   readLiveEntry: (args: {
     model: string;
     entryId: string;
+    fieldPaths: readonly string[];
     expectedSourceSpace?: string | null;
     expectedSourceConnectionId?: string | null;
   }) => Promise<BuilderCmsEntryLiveState>;
@@ -661,6 +662,17 @@ function livePreflightBlockMessage(args: {
     args.liveState.blocksHash !== savedOver?.liveBlocksHash
   ) {
     return "Builder body changed since this diff was approved; refresh and re-review.";
+  }
+  // An update in place lands in whatever state the entry is in now, so a
+  // publish or unpublish in Builder would change what was approved.
+  if (args.effect === "update_in_place") {
+    const reviewedPublished = args.baselineValues?.published;
+    if (typeof reviewedPublished !== "string") {
+      return "This change has no reviewed Builder publication state; refresh and re-review.";
+    }
+    if (args.liveState.published !== reviewedPublished) {
+      return "Builder publication state changed since this diff was approved; refresh and re-review.";
+    }
   }
   if (
     isBuilderCmsUnpublishedSaveEffect(args.effect) &&
@@ -2059,6 +2071,8 @@ export async function executeBuilderSourceExecutionWithDeps(
         liveState = await deps.readLiveEntry({
           model: plan.payload.target.model,
           entryId: preflightEntryId,
+          fieldPaths: builderCmsWrittenSourceFields(plan.payload.request)
+            .fieldKeys,
           expectedSourceSpace: source.metadata.builderSpacePublicKey,
           expectedSourceConnectionId: source.metadata.connectionId,
         });

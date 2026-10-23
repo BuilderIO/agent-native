@@ -294,7 +294,7 @@ describe("Builder unpublished changes", () => {
     expect(next["data.title"]).toBe("Saved title");
   });
 
-  it("keeps the row as saved when the record cannot be read, until a save replaces it", () => {
+  it("lets Builder win and keeps the unreadable record until a save replaces it", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const existing = {
@@ -311,9 +311,12 @@ describe("Builder unpublished changes", () => {
         existing,
       });
 
-      expect(next["data.title"]).toBe("Saved title");
+      expect(next["data.title"]).toBe("Live title");
       expect(next["data.blurb"]).toBe("New Builder field");
       expect(next[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]).toBe("{not json");
+      expect(readBuilderCmsUnpublishedChanges(next)).toEqual({
+        state: "invalid",
+      });
       expect(error).toHaveBeenCalledTimes(1);
 
       expect(

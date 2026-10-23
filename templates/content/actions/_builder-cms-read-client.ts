@@ -325,16 +325,20 @@ export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
   return Array.from(fields.values()).join(",");
 }
 
-const BUILDER_CMS_METADATA_ENTRY_FIELDS = builderCmsListEntryFields();
-const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`;
-
-function applyBuilderCmsBodyEntryReadParams(url: URL, publicKey: string) {
+function applyBuilderCmsBodyEntryReadParams(
+  url: URL,
+  publicKey: string,
+  fieldPaths: readonly string[] = [],
+) {
   url.searchParams.set("apiKey", publicKey);
   url.searchParams.set("includeUnpublished", "true");
   url.searchParams.set("enrich", "true");
   url.searchParams.set("noCache", "true");
   url.searchParams.set("cachebust", String(Date.now()));
-  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+  url.searchParams.set(
+    "fields",
+    `${builderCmsListEntryFields(fieldPaths)},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`,
+  );
 }
 
 function builderContentApiHost() {
@@ -1762,6 +1766,11 @@ function builderGeneralEntryRequestFailure(error: unknown) {
 export async function readBuilderCmsEntryLiveState(args: {
   model: string;
   entryId: string;
+  /**
+   * Fields a save will write. The public-key read is projected, and a field
+   * it leaves out would read as absent from the live entry.
+   */
+  fieldPaths?: readonly string[];
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
   requireBoundOAuth?: boolean;
@@ -1834,7 +1843,7 @@ export async function readBuilderCmsEntryLiveState(args: {
     )}`,
     builderContentApiHost(),
   );
-  applyBuilderCmsBodyEntryReadParams(url, publicKey);
+  applyBuilderCmsBodyEntryReadParams(url, publicKey, args.fieldPaths);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,

@@ -239,12 +239,18 @@ export function builderSourceValuesKeepingUnpublishedChanges(args: {
 }): Record<string, DocumentPropertyValue> {
   const read = readBuilderCmsUnpublishedChanges(args.existing);
   if (read.state === "invalid" && args.existing) {
-    // Without the record, Content can't tell its saved values from Builder's
-    // live ones, so neither wins until a save writes a readable record.
+    // Without the record, Content can't tell which values it saved, so
+    // Builder's win: keeping the row's would let a later save write them over
+    // Builder edits the refreshed row no longer flags. The record stays, so
+    // the row reads as unreadable rather than as having nothing pending.
     console.error(
-      "Keeping a Builder row whose unpublished-changes record is unreadable; a save from Content replaces the record.",
+      "A Builder row's unpublished-changes record is unreadable, so Builder's values win; the next save from Content replaces the record.",
     );
-    return { ...args.incoming, ...args.existing };
+    return {
+      ...args.incoming,
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]:
+        args.existing[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY],
+    };
   }
   if (read.state !== "pending" || !args.existing) {
     return withBuilderCmsUnpublishedChanges(args.incoming, null);

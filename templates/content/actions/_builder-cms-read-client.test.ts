@@ -2611,6 +2611,52 @@ describe("Builder CMS read client", () => {
     }
   });
 
+  it("asks the public-key live read for the fields a save writes", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    // Builder leaves out every data field a projected read doesn't name.
+    const fetchImpl = vi.fn(async (input: URL) => {
+      const fields = (input.searchParams.get("fields") ?? "").split(",");
+      const data = { title: "Builder title", blurb: "Builder blurb" };
+      return new Response(
+        JSON.stringify({
+          id: "builder-entry-1",
+          published: "published",
+          lastUpdated: 1_786_000_000_000,
+          data: Object.fromEntries(
+            Object.entries(data).filter(([name]) =>
+              fields.includes(`data.${name}`),
+            ),
+          ),
+        }),
+        { status: 200 },
+      );
+    });
+
+    const live = await readBuilderCmsEntryLiveState({
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      fieldPaths: ["data.blurb", "__builder.entry.name"],
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(live.values).toMatchObject({
+      "data.title": "Builder title",
+      "data.blurb": "Builder blurb",
+    });
+    const fields =
+      fetchImpl.mock.calls[0]![0].searchParams.get("fields")!.split(",");
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        "data.blurb",
+        "data.blocks",
+        "data.blocksString",
+      ]),
+    );
+    expect(fields).not.toContain("__builder.entry.name");
+  });
+
   it("hydrates an exact entry through MCP with OAuth-only authorization", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",

@@ -582,7 +582,10 @@ describe("execute Builder source execution", () => {
 
   it("preflights update-in-place writes between the claim and the write when string baseline matches numeric live timestamp", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
-    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const builderSource = source({
+      rows: [row({ sourceValues: { published: "draft" } })],
+      changeSets: [approvedChangeSet],
+    });
     const execution = executionFor({
       source: builderSource,
       changeSet: approvedChangeSet,
@@ -603,6 +606,7 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
+      fieldPaths: ["data.title", BUILDER_CMS_ENTRY_NAME_KEY],
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
     });
@@ -618,6 +622,57 @@ describe("execute Builder source execution", () => {
     expect(claimCallOrder).toBeLessThan(readCallOrder);
     expect(readCallOrder).toBeLessThan(renewCallOrder);
     expect(renewCallOrder).toBeLessThan(writeCallOrder);
+  });
+
+  it.each([
+    {
+      name: "blocks an update in place when Builder unpublished the entry after review",
+      sourceValues: { published: "published", "data.title": "Old title" },
+      message:
+        "Builder publication state changed since this diff was approved; refresh and re-review.",
+    },
+    {
+      name: "blocks an update in place when the row has no reviewed publication state",
+      sourceValues: { "data.title": "Old title" },
+      message:
+        "This change has no reviewed Builder publication state; refresh and re-review.",
+    },
+  ])("$name", async ({ sourceValues, message }) => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      rows: [row({ sourceValues })],
+      changeSets: [approvedChangeSet],
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    // The title Content writes is unchanged, so only the publication state
+    // tells this read apart from the reviewed one.
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: true,
+        published: "draft",
+        lastUpdated: BUILDER_LAST_UPDATED_MS + 1000,
+        blocksHash: null,
+        id: "builder-entry-1",
+        values: { "data.title": "Old title" },
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+      ),
+    ).rejects.toThrow(message);
+    expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
   it("does not dispatch after preflight when another attempt reclaimed the lease", async () => {
@@ -1113,6 +1168,7 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
+      fieldPaths: ["data.title", BUILDER_CMS_ENTRY_NAME_KEY],
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
     });
