@@ -969,7 +969,9 @@ export default {
     framePresets: {
       title: "画框",
       applyToFrame: "调整为预设尺寸",
+      hubspotEmail: "HubSpot 邮件",
       categories: {
+        email: "邮件",
         phone: "手机",
         tablet: "平板",
         desktop: "桌面",
@@ -1956,6 +1958,15 @@ export default {
     pinComment: "固定评论",
     export: "出口",
     downloadHtml: "下载 HTML",
+    exportHubspotHtml: "导出 HubSpot HTML",
+    hubspotConversion: {
+      title: "转换为 HubSpot 邮件？",
+      description: "{{name}} 需要调整为邮件兼容格式。原始画框将保留。",
+      convert: "让智能体转换",
+      cancel: "取消",
+      prompt:
+        "创建此画框的 HubSpot 邮件版本，保留内容和品牌风格，并保留原始画框。验证 HTML 导出并打开新画框。",
+    },
     downloadPng: "下载 PNG",
     downloadSvg: "下载 SVG",
     downloadFigmaSvg: "下载用于 Figma 的 SVG",
@@ -2142,6 +2153,9 @@ export default {
       htmlCreateError: "无法创建 HTML 下载",
       htmlDownloaded: "HTML 已下载",
       htmlExportError: "无法导出 HTML",
+      hubspotHtmlExporting: "正在准备 HubSpot HTML…",
+      hubspotHtmlDownloaded: "已下载 HubSpot HTML",
+      hubspotHtmlExportError: "无法导出 HubSpot HTML",
       zipCreateError: "无法创建 ZIP 下载",
       zipDownloaded: "ZIP 已下载",
       zipExportError: "无法导出 ZIP",

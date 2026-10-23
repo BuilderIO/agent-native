@@ -3,6 +3,7 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { stripInlineBytes } from "@agent-native/core/shared";
+import { isHubSpotEmailHtml } from "@shared/hubspot-email";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { MotionPlaybackMode } from "@shared/motion-timeline";
 import type { InteractThemeMode } from "@shared/preview-color-scheme";
@@ -180,12 +181,17 @@ export function runPublishAgentSelectionContext({
     designTitle: design?.title ?? null,
     activeFileId: activeFile?.id ?? null,
     activeFilename: activeFile?.filename ?? null,
+    activeFrameType:
+      activeFile && isHubSpotEmailHtml(activeFile.content)
+        ? "hubspot-email"
+        : null,
     viewMode,
     zoom,
     screens: files.map((file) => ({
       id: file.id,
       filename: file.filename,
       fileType: file.fileType,
+      frameType: isHubSpotEmailHtml(file.content) ? "hubspot-email" : null,
     })),
     selectedScreenIds,
     selectedElement,

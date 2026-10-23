@@ -8721,11 +8721,10 @@ export async function runAgentLoop(opts: {
         actionEntry && intent?.valid
           ? actionCallIsRetrySafe(actionEntry, preparedCallArguments(intent))
           : false;
-      const repeatGuardStopFromThisCall = noteRepeatedToolCall(
-        toolCall.name,
-        toolCall.input,
-        toolCall.id,
-      );
+      const repeatGuardStopFromThisCall =
+        actionIsReadOnly && actionEntry?.dedupe === false
+          ? null
+          : noteRepeatedToolCall(toolCall.name, toolCall.input, toolCall.id);
       const rollbackRepeatedToolCall = () => {
         const repeatKey = toolCallCacheKey(toolCall.name, toolCall.input);
         const repeatCall = inFlightRepeatToolCalls.get(toolCall.id);

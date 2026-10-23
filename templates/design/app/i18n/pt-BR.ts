@@ -992,7 +992,9 @@ export default {
     framePresets: {
       title: "Quadro",
       applyToFrame: "Redimensionar para predefinição",
+      hubspotEmail: "E-mail do HubSpot",
       categories: {
+        email: "E-mail",
         phone: "Celular",
         tablet: "Tablet",
         desktop: "Área de trabalho",
@@ -2017,6 +2019,16 @@ export default {
     pinComment: "Fixar comentário",
     export: "Exportar",
     downloadHtml: "Baixar HTML",
+    exportHubspotHtml: "Exportar HTML do HubSpot",
+    hubspotConversion: {
+      title: "Converter para HubSpot?",
+      description:
+        "{{name}} precisa de ajustes para e-mail. O quadro original será preservado.",
+      convert: "Converter com o agente",
+      cancel: "Cancelar",
+      prompt:
+        "Crie uma versão de e-mail do HubSpot deste quadro, mantendo o conteúdo e a identidade visual e preservando o original. Valide a exportação HTML e abra o novo quadro.",
+    },
     downloadPng: "Baixar PNG",
     downloadSvg: "Baixar SVG",
     downloadFigmaSvg: "Baixar para o Figma (SVG)",
@@ -2211,6 +2223,9 @@ export default {
       htmlCreateError: "Não foi possível criar o download HTML",
       htmlDownloaded: "HTML baixado",
       htmlExportError: "Não foi possível exportar HTML",
+      hubspotHtmlExporting: "Preparando HTML do HubSpot…",
+      hubspotHtmlDownloaded: "HTML do HubSpot baixado",
+      hubspotHtmlExportError: "Não foi possível exportar o HTML do HubSpot",
       zipCreateError: "Não foi possível criar o download ZIP",
       zipDownloaded: "ZIP baixado",
       zipExportError: "Não foi possível exportar ZIP",

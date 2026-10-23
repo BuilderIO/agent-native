@@ -12,7 +12,10 @@
  * untranslated in every locale.
  */
 
+import { HUBSPOT_EMAIL_FRAME_TYPE } from "./hubspot-email.js";
+
 export type FrameSizePresetCategoryKey =
+  | "email"
   | "phone"
   | "tablet"
   | "desktop"
@@ -26,6 +29,8 @@ export interface FrameSizePreset {
   name: string;
   width: number;
   height: number;
+  frameType?: typeof HUBSPOT_EMAIL_FRAME_TYPE;
+  nameKey?: string;
 }
 
 export interface FrameSizePresetCategory {

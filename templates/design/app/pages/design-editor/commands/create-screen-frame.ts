@@ -1,5 +1,9 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import {
+  createHubSpotEmailHtml,
+  HUBSPOT_EMAIL_FRAME_TYPE,
+} from "@shared/hubspot-email";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
@@ -56,11 +60,22 @@ export function runCreateScreenFrame(
     t,
     writeFrameGeometrySnapshot,
   }: CreateScreenFrameArgs,
-  geometry: { x: number; y: number; width: number; height: number },
+  geometry: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    frameType?: typeof HUBSPOT_EMAIL_FRAME_TYPE;
+  },
 ) {
   if (!id || !canEditDesign) return;
   const filename = nextBlankScreenFilename(files);
-  const content = blankScreenHtml(prettyScreenName(filename));
+  const content =
+    geometry.frameType === HUBSPOT_EMAIL_FRAME_TYPE
+      ? createHubSpotEmailHtml({
+          title: t("editPanel.framePresets.hubspotEmail"),
+        })
+      : blankScreenHtml(prettyScreenName(filename));
   const nextGeometry = {
     x: Math.round(geometry.x),
     y: Math.round(geometry.y),
@@ -73,6 +88,7 @@ export function runCreateScreenFrame(
       filename,
       content,
       fileType: "html",
+      ...(geometry.frameType ? { frameType: geometry.frameType } : {}),
     } as any,
     {
       onSuccess: (result: any) => {

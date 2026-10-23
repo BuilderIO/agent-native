@@ -505,11 +505,7 @@ interface EditPanelProps {
   aiActions?: ReactNode;
   activeTool?: string;
   scaleToolControls?: ScaleToolControls;
-  onCreateScreenFromPreset?: (preset: {
-    name: string;
-    width: number;
-    height: number;
-  }) => void;
+  onCreateScreenFromPreset?: (preset: FrameSizePreset) => void;
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   onAlignSelection?: (
@@ -1077,6 +1073,7 @@ function ScreenSizePresetPicker({
       <PopoverContent align="end" side="left" className="w-56 p-0">
         <div className="flex max-h-80 flex-col overflow-hidden">
           <FramePresetsPanel
+            includeFrameTypes={false}
             onPick={(preset) => {
               onPick(preset);
               setOpen(false);

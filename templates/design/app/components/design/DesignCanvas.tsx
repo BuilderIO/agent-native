@@ -726,6 +726,7 @@ interface DesignCanvasProps {
   boardSurface?: boolean;
   nativeAnimationEpochMs?: number;
   fitRootBodyToFrame?: boolean;
+  screenHeightMode?: "auto" | "fixed" | "hug";
   runtimeReplacementContent?: string;
   authoredSourceContent?: string;
   runtimeReplacementKey?: string;
@@ -1510,6 +1511,7 @@ export function DesignCanvas({
   boardSurface = false,
   nativeAnimationEpochMs,
   fitRootBodyToFrame,
+  screenHeightMode,
   runtimeReplacementContent,
   authoredSourceContent,
   runtimeReplacementKey,
@@ -3633,6 +3635,7 @@ export function DesignCanvas({
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
+        heightMode: screenHeightMode,
       });
       return inlineDesignStylesheets(interactDocument, designStylesheets);
     }
@@ -3720,7 +3723,10 @@ export function DesignCanvas({
     }
     frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
-      frameDocument = appendContentSizeReporter(frameDocument);
+      frameDocument = appendContentSizeReporter(
+        frameDocument,
+        screenHeightMode,
+      );
     }
     return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
@@ -3734,6 +3740,7 @@ export function DesignCanvas({
     boardSurface,
     designStylesheets,
     fitRootBodyToFrame,
+    screenHeightMode,
     rawExternalPreviewUrl,
     isEmbeddedFrame,
     embeddedFrameBackground,

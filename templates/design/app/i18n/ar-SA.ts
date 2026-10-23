@@ -980,7 +980,9 @@ export default {
     framePresets: {
       title: "الإطار",
       applyToFrame: "تغيير الحجم إلى إعداد مسبق",
+      hubspotEmail: "بريد HubSpot الإلكتروني",
       categories: {
+        email: "البريد الإلكتروني",
         phone: "الهاتف",
         tablet: "الجهاز اللوحي",
         desktop: "سطح المكتب",
@@ -1988,6 +1990,16 @@ export default {
     pinComment: "تثبيت تعليق",
     export: "يصدّر",
     downloadHtml: "تنزيل HTML",
+    exportHubspotHtml: "تصدير HTML لـ HubSpot",
+    hubspotConversion: {
+      title: "تحويل إلى HubSpot؟",
+      description:
+        "يحتاج {{name}} إلى تعديلات ليتوافق مع البريد الإلكتروني. سيُحفظ الإطار الأصلي.",
+      convert: "التحويل باستخدام الوكيل",
+      cancel: "إلغاء",
+      prompt:
+        "أنشئ نسخة بريد إلكتروني متوافقة مع HubSpot لهذا الإطار، مع الحفاظ على محتواه وهويته البصرية والإطار الأصلي. تحقق من تصدير HTML وافتح الإطار الجديد.",
+    },
     downloadPng: "تنزيل PNG",
     downloadSvg: "تنزيل SVG",
     downloadFigmaSvg: "تنزيل لـ Figma ‏(SVG)",
@@ -2179,6 +2191,9 @@ export default {
       htmlCreateError: "تعذر إنشاء تنزيل HTML",
       htmlDownloaded: "تم تنزيل HTML",
       htmlExportError: "تعذر تصدير HTML",
+      hubspotHtmlExporting: "جارٍ إعداد HTML لـ HubSpot…",
+      hubspotHtmlDownloaded: "تم تنزيل HTML لـ HubSpot",
+      hubspotHtmlExportError: "تعذر تصدير HTML لـ HubSpot",
       zipCreateError: "تعذر إنشاء تنزيل ZIP",
       zipDownloaded: "تم تنزيل ZIP",
       zipExportError: "تعذر تصدير ZIP",

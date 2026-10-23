@@ -981,7 +981,9 @@ export default {
     framePresets: {
       title: "फ़्रेम",
       applyToFrame: "प्रीसेट आकार में बदलें",
+      hubspotEmail: "HubSpot ईमेल",
       categories: {
+        email: "ईमेल",
         phone: "फ़ोन",
         tablet: "टैबलेट",
         desktop: "डेस्कटॉप",
@@ -1993,6 +1995,15 @@ export default {
     pinComment: "टिप्पणी पिन करें",
     export: "निर्यात",
     downloadHtml: "HTML डाउनलोड करें",
+    exportHubspotHtml: "HubSpot HTML निर्यात करें",
+    hubspotConversion: {
+      title: "HubSpot के लिए बदलें?",
+      description: "{{name}} में ईमेल के अनुकूल बदलाव चाहिए। मूल फ़्रेम सुरक्षित रहेगा।",
+      convert: "एजेंट से बदलें",
+      cancel: "रद्द करें",
+      prompt:
+        "इस फ़्रेम का HubSpot ईमेल संस्करण बनाएँ, उसकी सामग्री और ब्रांडिंग बनाए रखें और मूल को सुरक्षित रखें। HTML निर्यात सत्यापित करें और नया फ़्रेम खोलें।",
+    },
     downloadPng: "PNG डाउनलोड करें",
     downloadSvg: "SVG डाउनलोड करें",
     downloadFigmaSvg: "Figma के लिए डाउनलोड करें (SVG)",
@@ -2183,6 +2194,9 @@ export default {
       htmlCreateError: "HTML डाउनलोड नहीं बनाया जा सका",
       htmlDownloaded: "HTML डाउनलोड हुआ",
       htmlExportError: "HTML निर्यात नहीं किया जा सका",
+      hubspotHtmlExporting: "HubSpot HTML तैयार किया जा रहा है…",
+      hubspotHtmlDownloaded: "HubSpot HTML डाउनलोड हुआ",
+      hubspotHtmlExportError: "HubSpot HTML निर्यात नहीं किया जा सका",
       zipCreateError: "ZIP डाउनलोड नहीं बनाया जा सका",
       zipDownloaded: "ZIP डाउनलोड हुआ",
       zipExportError: "ZIP निर्यात नहीं किया जा सका",

@@ -995,7 +995,9 @@ export default {
     framePresets: {
       title: "フレーム",
       applyToFrame: "プリセットサイズに変更",
+      hubspotEmail: "HubSpot メール",
       categories: {
+        email: "メール",
         phone: "電話",
         tablet: "タブレット",
         desktop: "デスクトップ",
@@ -2022,6 +2024,16 @@ export default {
     pinComment: "コメントをピン留め",
     export: "輸出",
     downloadHtml: "HTML をダウンロード",
+    exportHubspotHtml: "HubSpot HTML をエクスポート",
+    hubspotConversion: {
+      title: "HubSpot 用に変換しますか？",
+      description:
+        "{{name}} にはメール対応の変更が必要です。元のフレームは保持されます。",
+      convert: "エージェントで変換",
+      cancel: "キャンセル",
+      prompt:
+        "このフレームの HubSpot メール版を作成し、内容とブランドを維持して元のフレームも保持してください。HTML エクスポートを検証し、新しいフレームを開いてください。",
+    },
     downloadPng: "PNG をダウンロード",
     downloadSvg: "SVG をダウンロード",
     downloadFigmaSvg: "Figma 用にダウンロード（SVG）",
@@ -2217,6 +2229,9 @@ export default {
       htmlCreateError: "HTML ダウンロードを作成できませんでした",
       htmlDownloaded: "HTML をダウンロードしました",
       htmlExportError: "HTML をエクスポートできませんでした",
+      hubspotHtmlExporting: "HubSpot HTML を準備しています…",
+      hubspotHtmlDownloaded: "HubSpot HTML をダウンロードしました",
+      hubspotHtmlExportError: "HubSpot HTML をエクスポートできませんでした",
       zipCreateError: "ZIP ダウンロードを作成できませんでした",
       zipDownloaded: "ZIP をダウンロードしました",
       zipExportError: "ZIP をエクスポートできませんでした",
