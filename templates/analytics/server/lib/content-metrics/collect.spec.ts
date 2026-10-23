@@ -586,7 +586,7 @@ describe("content collection", () => {
     );
   });
 
-  it.each(["empty", "provider_error", "save_error"])(
+  it.each(["empty", "unmatched", "provider_error", "save_error"])(
     "keeps the old GA4 series when a property replacement ends in %s",
     async (failure) => {
       const collection = await onlySteps({ builderBlog: true, ga4: true });
@@ -598,6 +598,9 @@ describe("content collection", () => {
         now: new Date("2026-10-15T07:00:00Z"),
       });
       const previous = await snapshots("ga4_pageviews");
+      const previousRuns = await rows(
+        "SELECT config_fingerprint, window_end FROM analytics_content_collection_runs WHERE step = 'ga4' AND status = 'succeeded'",
+      );
       await writeContentCollection(ORG_A, {
         enabled: true,
         config: {
@@ -611,6 +614,10 @@ describe("content collection", () => {
         );
       } else if (failure === "empty") {
         mocks.runFullReport.mockResolvedValueOnce([]);
+      } else if (failure === "unmatched") {
+        mocks.runFullReport.mockResolvedValueOnce([
+          ga4Row("20261015", "/blog/untracked-post", 5),
+        ]);
       } else {
         await client.exec(
           "ALTER TABLE analytics_content_metric_snapshots ADD CONSTRAINT reject_new_ga4 CHECK (value <> 5)",
@@ -627,21 +634,33 @@ describe("content collection", () => {
         status: "failed",
       });
       expect(await snapshots("ga4_pageviews")).toEqual(previous);
+      expect(
+        await rows(
+          "SELECT config_fingerprint, window_end FROM analytics_content_collection_runs WHERE step = 'ga4' AND status = 'succeeded'",
+        ),
+      ).toEqual(previousRuns);
     },
   );
 
-  it("fails a GA4 run whose property reports no blog pages instead of writing zeros", async () => {
-    await onlySteps({ builderBlog: true, ga4: true });
-    feed(article("a1"));
-    mocks.runFullReport.mockResolvedValueOnce([]);
+  it.each(["empty", "unmatched"])(
+    "fails a GA4 run whose property reports %s article data instead of writing zeros",
+    async (report) => {
+      await onlySteps({ builderBlog: true, ga4: true });
+      feed(article("a1"));
+      mocks.runFullReport.mockResolvedValueOnce(
+        report === "empty"
+          ? []
+          : [ga4Row("20261014", "/blog/untracked-post", 5)],
+      );
 
-    const [, ga4] = await collectContentForAllTenants();
+      const [, ga4] = await collectContentForAllTenants();
 
-    expect(ga4).toEqual(
-      expect.objectContaining({ step: "ga4", status: "failed" }),
-    );
-    expect(await snapshots("ga4_pageviews")).toEqual([]);
-  });
+      expect(ga4).toEqual(
+        expect.objectContaining({ step: "ga4", status: "failed" }),
+      );
+      expect(await snapshots("ga4_pageviews")).toEqual([]);
+    },
+  );
 
   it("does not query the shared property when the collection has no GA4 property", async () => {
     const collection = await onlySteps({ builderBlog: true, ga4: true });

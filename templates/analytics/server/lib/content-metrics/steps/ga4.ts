@@ -89,16 +89,8 @@ export const ga4Step: ContentStep = {
       maxRows: MAX_REPORT_ROWS,
       ...(signal ? { signal } : {}),
     });
-    if (rows.length === 0) {
-      // The blog always has readers, so an empty report means the property
-      // is not the one that measures it. Recording that as a quiet window
-      // would show zeros for every article.
-      throw new Error(
-        `GA4 property ${propertyId} returned no pageviews for ${blog.hostname}${blog.pathname} between ${window.startDate} and ${window.endDate}. Check the collection's ga4PropertyId.`,
-      );
-    }
-
     const values = new DailyMetricValues();
+    let hasMatchedArticle = false;
     let lastReturnedDate: string | null = null;
     for (const row of rows) {
       const date = ga4Date(row.dimensionValues[0]!.value);
@@ -106,11 +98,18 @@ export const ga4Step: ContentStep = {
       const key = pageKey(`${blog.origin}${row.dimensionValues[1]!.value}`);
       const article = key ? byKey.get(key) : undefined;
       if (!article) continue;
+      hasMatchedArticle = true;
       values.add(
         article,
         date,
         GA4_PAGEVIEWS_METRIC,
         Number(row.metricValues[0]!.value),
+      );
+    }
+
+    if (!hasMatchedArticle) {
+      throw new Error(
+        `GA4 property ${propertyId} returned no pageviews matching collected articles for ${blog.hostname}${blog.pathname} between ${window.startDate} and ${window.endDate}. Check the collection's ga4PropertyId and article URLs.`,
       );
     }
 
