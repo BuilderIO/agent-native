@@ -565,14 +565,6 @@ function hasRunCodeDataQueryAttempt(content: string | undefined): boolean {
   );
 }
 
-// run-code reads the warehouse through its bridge and records the bridged tool name, so
-// its result is not named bigquery.
-export function hasBigQueryBridgeUse(content: unknown): boolean {
-  return getRunCodeBridgeToolNames(String(content ?? "")).some((name) =>
-    isToolName(name, "bigquery"),
-  );
-}
-
 function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
   return getRunCodeBridgeToolNames(content).some(
     (name) => isCorpusSourceActionName(name) || isCorpusCapableMcpTool(name),
