@@ -141,12 +141,8 @@ describe("Slides ChatGPT directory widget share grant", () => {
     expect(widgetReadActionArguments["list-resource-shares"]).toEqual(resource);
     expect(Object.keys(widgetReadActionArguments).sort()).toEqual([
       "get-deck",
-      "get-deck-access-status",
       "list-resource-shares",
     ]);
-    expect(widgetReadActionArguments["get-deck-access-status"]).toEqual({
-      deckId: "deckId",
-    });
     expect(widgetReadAuthenticatedActions).toEqual(["list-resource-shares"]);
     expect(widgetReadOnlyActions).toEqual(["get-deck"]);
 

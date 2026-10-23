@@ -497,7 +497,6 @@ export function selectMcpDirectoryWidgetReadActions(
 ): Record<string, ActionEntry> | undefined {
   if (!profile) return undefined;
   const names = new Set([
-    ...(profile.widgetReadPublicActions ?? []),
     ...(profile.widgetReadPrivateActions ?? []),
     ...(profile.widgetReadAuthenticatedActions ?? []),
   ]);
@@ -637,7 +636,6 @@ export function validateMcpDirectoryProfile(
     config.widgetReadActions ?? {},
   ).find(
     (name) =>
-      !widgetReadPublicActions.has(name) &&
       !widgetReadPrivateActions.has(name) &&
       !widgetReadAuthenticatedActions.has(name),
   );
@@ -676,7 +674,7 @@ export function validateMcpDirectoryProfile(
   }
 
   for (const name of widgetReadPublicActions) {
-    const entry = actions[name] ?? config.widgetReadActions?.[name];
+    const entry = actions[name];
     if (
       names.includes(name) ||
       !profile?.widgetReadActionArguments?.[name] ||
@@ -1483,7 +1481,7 @@ export async function mcpDirectoryWidgetCapabilityForTool(
       profile.widgetReadAuthenticatedActions?.includes(actionName);
     const entry =
       actions[actionName] ??
-      (scopedPublicRead || scopedPrivateRead || scopedAuthenticatedRead
+      (scopedPrivateRead || scopedAuthenticatedRead
         ? config.widgetReadActions?.[actionName]
         : undefined);
     if (
