@@ -8073,14 +8073,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 } else {
                   preserveTitleOverride(existing);
                 }
-                // A snapshot delta carries the client's cached title but never
-                // writes it, so only an override change in a delta is a rename.
+                // Content saves carry the client's cached title, which can be
+                // stale, and the store keeps the owner's title for a shared
+                // editor. Only an override change or a title-only request is a
+                // rename.
                 if (
                   titleOverrideChanged ||
-                  (!isSnapshotDelta &&
-                    ((typeof body.title === "string" &&
-                      body.title !== thread.title) ||
-                      nextTitle !== thread.title))
+                  (!hasThreadData &&
+                    typeof body.title === "string" &&
+                    body.title !== thread.title)
                 ) {
                   assertThreadOwner(thread, owner);
                 }
