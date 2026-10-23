@@ -64,19 +64,9 @@ function markOrgScopeResolutionUnavailable(event: H3Event): void {
 export async function queryOrgMembers(query: {
   sql: string;
   args: unknown[];
-}): Promise<Record<string, unknown>[] | null> {
-  try {
-    const { rows } = await getDbExec().execute(query);
-    return rows as Record<string, unknown>[];
-  } catch (err) {
-    if (
-      getRequestContext()?.a2aIdentityAssurance === "org-member" ||
-      isTransientDatabaseError(err)
-    ) {
-      throw err;
-    }
-    return null;
-  }
+}): Promise<Record<string, unknown>[]> {
+  const { rows } = await getDbExec().execute(query);
+  return rows as Record<string, unknown>[];
 }
 
 function normalizeOrgRole(value: unknown): OrgRole | null {

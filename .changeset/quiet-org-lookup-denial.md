@@ -6,4 +6,6 @@ Reject unavailable organization scope instead of treating failed membership read
 
 Keep revoked or mismatched delegated organization access a definitive authorization refusal, including MCP authentication and credential lookup wrappers. Resolve generic credentials' organization scope before provider policy checks and report failed policy or role reads as credential-store unavailability with the original cause.
 
-Keep failed non-transient credential lookups distinct from missing credentials in the secret and secret-pair wrappers, preserving the original failure. Propagate unavailable delegated membership reads through event-based organization resolution and session backfill instead of returning Personal scope. Keep authorization error classification independent of sharing database initialization.
+Keep failed non-transient credential lookups distinct from missing credentials in the secret and secret-pair wrappers, preserving the original failure. Propagate unavailable membership reads through event-based organization resolution and session backfill for ordinary and delegated requests instead of returning Personal scope. Keep authorization error classification independent of sharing database initialization.
+
+Keep the engine catalog available when current-engine discovery cannot read a provider credential, reporting an unavailable current selection with its error alongside per-provider diagnostics. Runtime engine detection and definitive authorization refusals still reject.

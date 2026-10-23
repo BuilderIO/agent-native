@@ -3629,7 +3629,10 @@ describe("server/auth", () => {
 
       const app = createMockApp();
       await autoMountAuth(app, {
-        getSession: async () => ({ email: "member@example.com" }),
+        getSession: async () => ({
+          email: "member@example.com",
+          orgId: "fixture-org",
+        }),
       });
 
       const guard = app.use.mock.calls
@@ -8992,16 +8995,19 @@ describe("server/auth", () => {
           getBetterAuthSync: () => ({
             api: {
               getSession: async () => ({
-                user: { id: "fake-auth-user", email: "delegate@example.test" },
+                user: { id: "fake-auth-user", email: "member@example.test" },
                 session: { token: "fake-session-token" },
               }),
             },
           }),
         }));
-        vi.doMock("../org/context.js", () => ({
-          resolveOrgIdForEmailViaEvent: async () => {
-            throw cause;
-          },
+        const execute = vi.fn(async ({ sql }: { sql: string }) => {
+          if (sql.includes("FROM org_members")) throw cause;
+          return { rows: [] };
+        });
+        vi.doMock("../db/client.js", async (importOriginal) => ({
+          ...(await importOriginal<typeof import("../db/client.js")>()),
+          getDbExec: () => ({ execute }),
         }));
         const { getSession } = await import("./auth.js");
         await expect(
