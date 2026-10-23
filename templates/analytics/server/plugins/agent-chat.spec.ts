@@ -2485,7 +2485,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
-  it("clears a failed metric once a later query for the same metric succeeds", async () => {
+  it("clears a failed scalar metric when a later retry omits groupBy", async () => {
     const activeSuccess = {
       toolCallId: "dbt-success",
       name: "query-dbt-semantic-metric",
@@ -2520,7 +2520,6 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
             input: {
               metricName: "active_accounts",
               timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
-              groupBy: [],
             },
           },
           {
@@ -2533,7 +2532,6 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
             input: {
               metricName: "active_accounts",
               timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
-              groupBy: [],
             },
           },
         ],
