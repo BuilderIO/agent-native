@@ -99,13 +99,16 @@ describe("npm package release workflow", () => {
       {
         type: "required_status_checks",
         parameters: {
-          required_status_checks: required.map((context) => ({ context })),
+          required_status_checks: required.map((context) => ({
+            context,
+            integration_id: null,
+          })),
         },
       },
       {
         type: "required_status_checks",
         parameters: {
-          required_status_checks: [{ context: "Build" }],
+          required_status_checks: [{ context: "Build", integration_id: null }],
         },
       },
     ]);
@@ -180,10 +183,37 @@ describe("npm package release workflow", () => {
         requiredContextsFromRules([
           {
             type: "required_status_checks",
-            parameters: { required_status_checks: [{ context: " " }] },
+            parameters: {
+              required_status_checks: [{ context: " ", integration_id: null }],
+            },
           },
         ]),
       /without a context name/,
+    );
+    assert.throws(
+      () =>
+        requiredContextsFromRules([
+          {
+            type: "required_status_checks",
+            parameters: {
+              required_status_checks: [
+                { context: "Build", integration_id: 15368 },
+              ],
+            },
+          },
+        ]),
+      /bound to GitHub App 15368.*cannot verify check provenance/,
+    );
+    assert.deepEqual(
+      requiredContextsFromRules([
+        {
+          type: "required_status_checks",
+          parameters: {
+            required_status_checks: [{ context: "Build" }],
+          },
+        },
+      ]),
+      ["Build"],
     );
 
     let now = 0;
@@ -370,10 +400,10 @@ case "$1" in
   api)
     case " $* " in
       *" --paginate --slurp "*)
-        printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build"}]}}],[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Fast tests"}]}}]]'
+        printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build","integration_id":null}]}}],[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Fast tests","integration_id":null}]}}]]'
         ;;
       *)
-        printf '%s\\n' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build"}]}}]'
+        printf '%s\\n' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build","integration_id":null}]}}]'
         ;;
     esac
     ;;
@@ -431,7 +461,7 @@ esac
       `#!/bin/sh
 case "$1" in
   api)
-    printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build"}]}}]]'
+    printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build","integration_id":null}]}}]]'
     ;;
   pr)
     calls=0
@@ -543,7 +573,9 @@ esac
           {
             type: "required_status_checks",
             parameters: {
-              required_status_checks: [{ context: "Build" }],
+              required_status_checks: [
+                { context: "Build", integration_id: null },
+              ],
             },
           },
         ],

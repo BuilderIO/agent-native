@@ -61,10 +61,26 @@ export function requiredContextsFromRules(rules: unknown): string[] {
       if (candidateCheck === null || typeof candidateCheck !== "object") {
         throw new Error("GitHub returned an invalid required check for main.");
       }
-      const check = candidateCheck as { context?: unknown };
+      const check = candidateCheck as {
+        context?: unknown;
+        integration_id?: unknown;
+      };
       if (typeof check?.context !== "string" || check.context.trim() === "") {
         throw new Error(
           "GitHub returned a required check without a context name.",
+        );
+      }
+      if (check.integration_id !== undefined && check.integration_id !== null) {
+        if (
+          !Number.isSafeInteger(check.integration_id) ||
+          (check.integration_id as number) <= 0
+        ) {
+          throw new Error(
+            `GitHub returned an invalid integration binding for required status check ${check.context}.`,
+          );
+        }
+        throw new Error(
+          `Required status check ${check.context} is bound to GitHub App ${check.integration_id}, but this gate cannot verify check provenance; refusing release PR merge.`,
         );
       }
       contexts.add(check.context);
