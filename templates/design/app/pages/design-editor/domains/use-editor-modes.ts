@@ -893,13 +893,14 @@ export function useEditorModes({
       handleCloseKeyboardShortcuts();
       return;
     }
+    if (nudgeAmountOpen) return;
     const activeElement = document.activeElement;
     keyboardShortcutsReturnFocusRef.current =
       activeElement instanceof HTMLElement ? activeElement : null;
     setMinimalUi(false);
     setUiHidden(false);
     setKeyboardShortcutsOpen(true);
-  }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen]);
+  }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen, nudgeAmountOpen]);
 
   useEffect(() => {
     if (embedded) return;
