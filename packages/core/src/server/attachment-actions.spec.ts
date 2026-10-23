@@ -54,6 +54,14 @@ const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceGetMock = vi.hoisted(() => vi.fn());
 
+const hydrateOwnedFileUrlMock = vi.hoisted(() => vi.fn());
+vi.mock("../file-upload/owned-attachment.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../file-upload/owned-attachment.js")
+  >()),
+  hydrateOwnedFileUrl: hydrateOwnedFileUrlMock,
+}));
+
 vi.mock("../resources/store.js", () => ({
   resourcePut: resourcePutMock,
   resourceList: resourceListMock,
@@ -304,6 +312,56 @@ describe("persistTextAttachmentsAsResources", () => {
     expect(resourcePutMock.mock.calls[0]?.[2]).toBe("body");
   });
 
+  it("stores a reference, not the body, for an upload already in file storage", async () => {
+    const markdown = "# Design\n" + "x".repeat(2_000_000);
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "DESIGN.md",
+          contentType: "text/markdown",
+          url: "https://storage.example.test/DESIGN.md",
+          uploadProvider: "s3",
+          data: `data:text/markdown;base64,${Buffer.from(markdown).toString("base64")}`,
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.get(0)).toMatchObject({
+      kind: "stored",
+      totalChars: markdown.length,
+    });
+    const [, , content, mimeType] = resourcePutMock.mock.calls[0]!;
+    expect(mimeType).toBe(
+      "application/vnd.agent-native.attachment-reference+json",
+    );
+    expect(JSON.parse(content)).toEqual({
+      url: "https://storage.example.test/DESIGN.md",
+      contentType: "text/markdown",
+      name: "DESIGN.md",
+    });
+  });
+
+  it("refuses to copy a large body into SQL when there is no storage URL", async () => {
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          contentType: "text/plain",
+          text: "x".repeat(1_000_001),
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.get(0)).toEqual({ kind: "failed", reason: "too-large" });
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
   it("does not store display-only attachments the prompt leaves out", async () => {
     const result = await persistTextAttachmentsAsResources({
       attachments: [
@@ -545,6 +603,52 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
       '"DESIGN.md" matches more than one attachment sent together: attachments/thread-1/mfh2a1b2-10-DESIGN.md, attachments/thread-1/mfh2a1b2-2-DESIGN.md. Call again with one of these as path.',
     );
     expect(resourceGetMock).not.toHaveBeenCalled();
+  });
+
+  it("re-reads a stored reference from file storage", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-ref", path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md" },
+    ]);
+    resourceGetMock.mockResolvedValue({
+      ...makeResource(
+        JSON.stringify({
+          url: "https://storage.example.test/DESIGN.md",
+          contentType: "text/markdown",
+          name: "DESIGN.md",
+        }),
+      ),
+      mimeType: "application/vnd.agent-native.attachment-reference+json",
+    });
+    hydrateOwnedFileUrlMock.mockResolvedValue({
+      kind: "hydrated",
+      dataUrl: `data:text/markdown;base64,${Buffer.from("A".repeat(10) + "TAIL").toString("base64")}`,
+      mediaType: "text/markdown",
+      provider: "s3",
+    });
+
+    const entries = createCoreAttachmentActionEntries();
+    const result = await entries["read-attachment"].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md", offset: "10" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(hydrateOwnedFileUrlMock).toHaveBeenCalledWith(
+      "https://storage.example.test/DESIGN.md",
+      "text/markdown",
+      "DESIGN.md",
+      expect.any(Object),
+    );
+    expect(result).toMatchObject({ content: "TAIL", totalChars: 14 });
+
+    hydrateOwnedFileUrlMock.mockResolvedValue({
+      kind: "failed",
+      code: "fetch-failed",
+    });
+    const failed = await entries["read-attachment"].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(failed.error).toContain('Could not re-read "mfh2a1b2-0-DESIGN.md"');
+    expect(failed.content).toBeUndefined();
   });
 
   it("rejects a path outside stored attachments", async () => {

@@ -162,7 +162,7 @@ export async function executeCodeAgentRun(
 
   // An SVG carries both its text and a data URL; the text is what the agent reads.
   const isImageOnly = (a: AgentPromptAttachment) =>
-    Boolean(a.dataUrl) && a.text === undefined;
+    Boolean(a.dataUrl) && a.text === undefined && !a.readError;
   const imageAttachments = rawAttachments.filter(isImageOnly);
   const textOnlyAttachments = rawAttachments.filter((a) => !isImageOnly(a));
   const executionPrompt = formatPromptWithAttachments(

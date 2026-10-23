@@ -30,11 +30,11 @@ export function formatPromptWithAttachments(
       const type = attachment.type
         ? ` type="${escapePromptAttachmentAttribute(attachment.type)}"`
         : "";
-      if (attachment.dataUrl && attachment.text === undefined) {
-        return `<attached-image name="${escapePromptAttachmentAttribute(attachment.name)}"${type}${size}>\n${attachment.dataUrl}\n</attached-image>`;
-      }
       if (attachment.readError) {
         return `<attached-file-error name="${escapePromptAttachmentAttribute(attachment.name)}" code="${attachment.readError}"${type}${size}>\n${describeAgentPromptAttachmentReadError(attachment.readError)}\n</attached-file-error>`;
+      }
+      if (attachment.dataUrl && attachment.text === undefined) {
+        return `<attached-image name="${escapePromptAttachmentAttribute(attachment.name)}"${type}${size}>\n${attachment.dataUrl}\n</attached-image>`;
       }
       const { body, usedChars } = budgetAttachedFileText(
         attachment,
@@ -151,6 +151,16 @@ export async function readAgentPromptAttachment(
       attachment.readError = "read-failed";
       return attachment;
     }
+    // Chat without file storage only sends images inline as data URLs, so an
+    // SVG keeps one even when its text is unreadable; the server then reports
+    // that instead of the send failing for want of storage.
+    if (isSvgFile(file) && file.size <= maxInlineImageBytes) {
+      try {
+        attachment.dataUrl = await readFileAsDataUrl(file);
+      } catch {
+        // coercion-ok: this is only the inline image copy; the text read below reports its own outcome.
+      }
+    }
     // File.text() replaces bad bytes with U+FFFD, which would send a mangled
     // file as if it had been read faithfully.
     let text: string;
@@ -162,15 +172,6 @@ export async function readAgentPromptAttachment(
     }
     attachment.text = text.slice(0, maxInlineTextChars);
     if (text.length > maxInlineTextChars) attachment.totalChars = text.length;
-    // Chat without file storage only sends images inline as data URLs, so an
-    // SVG keeps one; formatters prefer its text.
-    if (isSvgFile(file) && file.size <= maxInlineImageBytes) {
-      try {
-        attachment.dataUrl = await readFileAsDataUrl(file);
-      } catch {
-        // coercion-ok: the SVG text above is already attached; only the inline image copy is missing.
-      }
-    }
   } else if (file.type.startsWith("image/")) {
     try {
       if (file.size <= maxInlineImageBytes) {
@@ -197,10 +198,24 @@ function isSvgFile(file: File): boolean {
   return file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
 }
 
+const TEXT_APPLICATION_TYPES = new Set([
+  "application/javascript",
+  "application/json",
+  "application/typescript",
+  "application/x-yaml",
+  "application/xml",
+  "application/yaml",
+  "message/rfc822",
+]);
+
+// Keep in step with core's isTextLikeMimeType / isTextLikeFilename, which
+// decide what hosted chat reads as text.
 export function isInlineableAgentPromptFile(file: File): boolean {
-  if (file.type.startsWith("text/")) return true;
+  const type = file.type.split(";")[0]!.trim().toLowerCase();
+  if (type.startsWith("text/") || TEXT_APPLICATION_TYPES.has(type)) return true;
+  if (type.endsWith("+json") || type.endsWith("+xml")) return true;
   if (isSvgFile(file)) return true;
-  return /\.(cjs|css|csv|html|js|json|jsx|md|mdx|mjs|sql|svg|tsx?|txt|xml|yaml|yml)$/i.test(
+  return /\.(txt|md|markdown|mdx|csv|tsv|json|jsonl|yaml|yml|ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|c|cpp|h|cs|swift|kt|sh|bash|zsh|fish|toml|ini|cfg|conf|xml|svg|html|htm|css|scss|sass|less|sql|graphql|gql|eml)$/i.test(
     file.name,
   );
 }

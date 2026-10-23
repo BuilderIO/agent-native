@@ -2387,6 +2387,52 @@ describe("buildUserContentWithAttachments", () => {
     }
   });
 
+  it("hydrates an empty uploaded text file as empty, not a read failure", async () => {
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("", {
+            status: 200,
+            headers: { "content-type": "text/markdown" },
+          }),
+      ),
+    );
+
+    try {
+      const prepared = await preUploadAttachmentsModule.preUploadAttachments({
+        attachments: [
+          {
+            type: "file",
+            name: "empty.md",
+            contentType: "text/markdown",
+            url: "https://storage.example.test/uploads/empty.md",
+          },
+        ],
+        ownerEmail: "alice@example.com",
+        includeFiles: true,
+      });
+
+      expect(prepared.readFailures).toEqual([]);
+      const text = buildUserContentWithAttachments({
+        text: "Use this",
+        attachments: prepared.attachments,
+      })
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      expect(text).toContain(
+        '<chat-attachment-note code="empty-file" name="empty.md">',
+      );
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("hydrates JSON and YAML uploads into text", async () => {
     const bodies: Record<string, [string, string]> = {
       "https://storage.example.test/uploads/tokens.json": [

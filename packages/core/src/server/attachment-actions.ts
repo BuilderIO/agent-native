@@ -5,10 +5,16 @@ import {
   decodeTextAttachmentData,
   isTextLikeFilename,
   isTextLikeMimeType,
-  MAX_ATTACHMENT_RESOURCE_CHARS,
+  ATTACHMENT_REFERENCE_MIME_TYPE,
+  MAX_ATTACHMENT_RESOURCE_BODY_CHARS,
   type TextAttachmentStorage,
   unwrapTextAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
+import {
+  createOwnedAttachmentHydrationBudget,
+  describeOwnedFileReadFailure,
+  hydrateOwnedFileUrl,
+} from "../file-upload/owned-attachment.js";
 import { resourceGet, resourcePut, resourceList } from "../resources/store.js";
 import { getRequestUserEmail } from "./request-context.js";
 
@@ -58,6 +64,57 @@ function attachmentBatchId(): string {
   return `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
 }
 
+interface StoredAttachmentReference {
+  url: string;
+  contentType?: string;
+  name?: string;
+}
+
+/** An upload already lives in file storage, so SQL keeps only where it is. */
+function storedAttachmentReference(att: {
+  url?: string;
+  uploadProvider?: string;
+  contentType?: string;
+  name?: string;
+}): StoredAttachmentReference | null {
+  if (!att.uploadProvider || !att.url?.startsWith("https://")) return null;
+  return { url: att.url, contentType: att.contentType, name: att.name };
+}
+
+async function readStoredAttachmentReference(
+  content: string,
+): Promise<{ text: string } | { error: string }> {
+  let reference: StoredAttachmentReference;
+  try {
+    reference = JSON.parse(content) as StoredAttachmentReference;
+  } catch {
+    return { error: "the stored attachment reference is unreadable" };
+  }
+  const hydration = await hydrateOwnedFileUrl(
+    reference.url,
+    reference.contentType,
+    reference.name,
+    createOwnedAttachmentHydrationBudget(),
+  );
+  if (hydration.kind !== "hydrated") {
+    return { error: describeOwnedFileReadFailure(hydration.code) };
+  }
+  const decoded = decodeTextAttachmentData({
+    name: reference.name,
+    contentType: reference.contentType,
+    data: hydration.dataUrl,
+  });
+  if (decoded.kind !== "text") {
+    return {
+      error:
+        decoded.kind === "undecodable"
+          ? "the stored file is no longer valid UTF-8 text"
+          : "the stored file is no longer a text file",
+    };
+  }
+  return { text: unwrapTextAttachmentEnvelope(decoded.text) };
+}
+
 export async function persistTextAttachmentsAsResources(opts: {
   attachments: Array<{
     type?: string;
@@ -66,6 +123,8 @@ export async function persistTextAttachmentsAsResources(opts: {
     displayOnly?: boolean;
     text?: string;
     data?: string;
+    url?: string;
+    uploadProvider?: string;
   }>;
   threadId: string;
   ownerEmail: string | null | undefined;
@@ -88,9 +147,10 @@ export async function persistTextAttachmentsAsResources(opts: {
           : undefined;
     if (!text) continue;
 
+    const reference = storedAttachmentReference(att);
     // A partial copy would let read-attachment report "End of attachment"
     // for a file whose tail was never stored.
-    if (text.length > MAX_ATTACHMENT_RESOURCE_CHARS) {
+    if (!reference && text.length > MAX_ATTACHMENT_RESOURCE_BODY_CHARS) {
       result.set(i, { kind: "failed", reason: "too-large" });
       continue;
     }
@@ -105,11 +165,13 @@ export async function persistTextAttachmentsAsResources(opts: {
     try {
       // The resource store rejects non-URL content under an image/* type, so
       // SVG source is stored as plain text.
-      const mimeType =
-        att.contentType && !/^image\//i.test(att.contentType)
+      const mimeType = reference
+        ? ATTACHMENT_REFERENCE_MIME_TYPE
+        : att.contentType && !/^image\//i.test(att.contentType)
           ? att.contentType
           : "text/plain";
-      const resource = await resourcePut(owner, path, text, mimeType, {
+      const content = reference ? JSON.stringify(reference) : text;
+      const resource = await resourcePut(owner, path, content, mimeType, {
         createdBy: "user",
         visibility: "agent_scratch",
         threadId: opts.threadId,
@@ -280,8 +342,18 @@ export function createCoreAttachmentActionEntries(): Record<
             return { error: `Attachment resource "${name}" not found.` };
           }
 
-          const totalChars = resource.content.length;
-          const slice = resource.content.slice(offset, offset + limit);
+          let content = resource.content;
+          if (resource.mimeType === ATTACHMENT_REFERENCE_MIME_TYPE) {
+            const read = await readStoredAttachmentReference(content);
+            if ("error" in read) {
+              return {
+                error: `Could not re-read "${name}" from file storage: ${read.error}. Tell the user which part of the file you could not read before doing anything that depends on it.`,
+              };
+            }
+            content = read.text;
+          }
+          const totalChars = content.length;
+          const slice = content.slice(offset, offset + limit);
           return {
             name,
             content: slice,

@@ -1,6 +1,13 @@
 import { parseBase64DataUrl } from "../shared/data-url.js";
 
-export const MAX_ATTACHMENT_RESOURCE_CHARS = 20 * 1024 * 1024;
+/**
+ * Largest attachment body copied into SQL `resources` for `read-attachment`.
+ * Only text with no storage URL is copied; an upload keeps a reference and is
+ * re-read from storage, so large file bodies stay out of SQL.
+ */
+export const MAX_ATTACHMENT_RESOURCE_BODY_CHARS = 1_000_000;
+export const ATTACHMENT_REFERENCE_MIME_TYPE =
+  "application/vnd.agent-native.attachment-reference+json";
 /** Most characters of one text attachment the prompt shows inline. */
 export const MAX_INLINE_TEXT_ATTACHMENT_CHARS = 60_000;
 

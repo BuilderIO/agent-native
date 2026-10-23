@@ -257,6 +257,8 @@ async function readOwnedUrlBytes<
   maxInlineBytes: number;
   oversizedCode: TooLargeCode;
   accept: string;
+  /** A zero-byte body is a real empty file, not a failed read. */
+  allowEmpty?: boolean;
 }): Promise<OwnedUrlReadResult<TooLargeCode>> {
   const url = parseOwnedHttpsUrl(args.value);
   if (!url) return { kind: "failed", code: "invalid-url" };
@@ -373,6 +375,14 @@ async function readOwnedUrlBytes<
       error instanceof Error &&
       error.message === "Attachment response is empty"
     ) {
+      if (args.allowEmpty) {
+        return {
+          kind: "read",
+          bytes: new Uint8Array(0),
+          provider: provider.id,
+          responseContentType: response.headers.get("content-type"),
+        };
+      }
       return { kind: "failed", code: "empty-response" };
     }
     return { kind: "failed", code: "fetch-failed" };
@@ -448,6 +458,7 @@ export async function hydrateOwnedFileUrl(
     maxInlineBytes: isTextLikeMimeType(declaredMediaType)
       ? MAX_OWNED_TEXT_FILE_BYTES
       : MAX_OWNED_INLINE_FILE_BYTES,
+    allowEmpty: isTextLikeMimeType(declaredMediaType),
     oversizedCode: "file-too-large",
     accept:
       "application/pdf, text/*, application/json, application/xml, application/yaml, application/x-yaml, image/svg+xml, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel",

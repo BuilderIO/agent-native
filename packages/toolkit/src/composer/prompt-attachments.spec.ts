@@ -168,6 +168,41 @@ describe("prompt attachment helpers", () => {
     );
   });
 
+  it("keeps a non-UTF-8 SVG sendable inline and reports its text as unreadable", async () => {
+    const file = new File([new Uint8Array([0x3c, 0xff, 0xfe])], "logo.svg", {
+      type: "image/svg+xml",
+    });
+
+    const attachment = await readAgentPromptAttachment(file);
+
+    expect(attachment.readError).toBe("not-utf8");
+    expect(attachment.dataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    const prompt = formatPromptWithAttachments("Edit this", [attachment]);
+    expect(prompt).toContain(
+      '<attached-file-error name="logo.svg" code="not-utf8"',
+    );
+    expect(prompt).not.toContain("<attached-image");
+  });
+
+  it("reads the same text types hosted chat does", () => {
+    for (const [name, type] of [
+      ["tokens.json", "application/json"],
+      ["config.toml", ""],
+      ["script.py", ""],
+      ["schema.graphql", ""],
+      ["feed.atom", "application/atom+xml"],
+    ] as const) {
+      expect(isInlineableAgentPromptFile(new File(["x"], name, { type }))).toBe(
+        true,
+      );
+    }
+    expect(
+      isInlineableAgentPromptFile(
+        new File(["x"], "photo.png", { type: "image/png" }),
+      ),
+    ).toBe(false);
+  });
+
   it("marks text files over the read limit as too large", async () => {
     const file = new File(["hello"], "huge.md", { type: "text/markdown" });
     Object.defineProperty(file, "size", {

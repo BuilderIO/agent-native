@@ -29,17 +29,17 @@ export function formatPromptWithAttachments(
       const type = attachment.type
         ? ` type="${escapePromptAttachmentAttribute(attachment.type)}"`
         : "";
-      if (attachment.dataUrl && attachment.text === undefined) {
-        return `<attached-image name="${escapePromptAttachmentAttribute(
-          attachment.name,
-        )}"${type}${size}>\n${attachment.dataUrl}\n</attached-image>`;
-      }
       if (attachment.readError) {
         return `<attached-file-error name="${escapePromptAttachmentAttribute(
           attachment.name,
         )}" code="${attachment.readError}"${type}${size}>\n${describeAgentPromptAttachmentReadError(
           attachment.readError,
         )}\n</attached-file-error>`;
+      }
+      if (attachment.dataUrl && attachment.text === undefined) {
+        return `<attached-image name="${escapePromptAttachmentAttribute(
+          attachment.name,
+        )}"${type}${size}>\n${attachment.dataUrl}\n</attached-image>`;
       }
       const { body, usedChars } = budgetAttachedFileText(
         attachment,
