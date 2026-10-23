@@ -12,6 +12,7 @@ type WorkflowRun = {
 };
 
 type WorkflowJob = {
+  conclusion?: unknown;
   name?: unknown;
   status?: unknown;
   steps?: unknown;
@@ -22,6 +23,30 @@ type WorkflowStep = {
   name?: unknown;
   status?: unknown;
 };
+
+function isReleasePhaseJob(job: WorkflowJob, phase: "prepare" | "post-merge") {
+  const names =
+    phase === "prepare"
+      ? [
+          "Run the prepare release phase",
+          "Prepare and merge the stable package release",
+        ]
+      : [
+          "Run the post-merge release phase",
+          "Publish and deploy the merged stable release",
+        ];
+  return (
+    typeof job.name === "string" &&
+    names.some((name) => job.name === name || job.name.endsWith(` / ${name}`))
+  );
+}
+
+function phaseJobIsQueuedOrRunning(job: WorkflowJob): boolean {
+  return (
+    job.conclusion == null &&
+    ["queued", "pending", "waiting", "in_progress"].includes(String(job.status))
+  );
+}
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -132,6 +157,31 @@ export function assertReleaseCoordinatorStepActive(
       step.status === "in_progress" &&
       step.conclusion == null,
   );
+  if (activeReleaseSteps.length === 1) return;
+  if (activeReleaseSteps.length > 1) {
+    throw new Error(
+      `Expected one active release step in coordinator run ${runId}; GitHub returned ${activeReleaseSteps.length}.`,
+    );
+  }
+
+  const prepareJobs = jobs.filter((job) =>
+    isReleasePhaseJob(job as WorkflowJob, "prepare"),
+  ) as WorkflowJob[];
+  const postMergeJobs = jobs.filter((job) =>
+    isReleasePhaseJob(job as WorkflowJob, "post-merge"),
+  ) as WorkflowJob[];
+  if (prepareJobs.some(phaseJobIsQueuedOrRunning)) return;
+  const prepareSucceeded = prepareJobs.some(
+    (job) => job.status === "completed" && job.conclusion === "success",
+  );
+  if (
+    prepareSucceeded &&
+    (postMergeJobs.length === 0 ||
+      postMergeJobs.some(phaseJobIsQueuedOrRunning))
+  ) {
+    return;
+  }
+
   if (activeReleaseSteps.length === 0 && releaseSteps.length === 1) {
     throw new Error(
       `Release everything coordinator run ${runId} is no longer performing the release step.`,

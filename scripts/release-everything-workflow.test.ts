@@ -82,6 +82,8 @@ describe("release everything workflow", () => {
     const postMergeWith = postMergeJob.with as Workflow;
     const notifySteps = notifyFailureJob.steps as Workflow[];
     const failureError = String((notifySteps[0].env as Workflow).RELEASE_ERROR);
+    const slackStep = notifySteps[1];
+    const slackFallbackStep = notifySteps[2];
     const source = String((coordinator.with as Workflow).script);
 
     assert.equal(
@@ -123,6 +125,21 @@ describe("release everything workflow", () => {
     );
     assert.match(failureError, /needs\.prepare-release\.outputs\.error/);
     assert.match(failureError, /needs\.post-merge-release\.outputs\.error/);
+    assert.equal(notifySteps[0].id, "build-slack-payload");
+    assert.match(String(slackStep.if), /always\(\)/);
+    assert.match(
+      String(slackStep.if),
+      /steps\.build-slack-payload\.outcome == 'success'/,
+    );
+    assert.match(String(slackFallbackStep.if), /always\(\)/);
+    assert.match(
+      String(slackFallbackStep.if),
+      /steps\.build-slack-payload\.outcome != 'success'/,
+    );
+    assert.match(
+      String(slackFallbackStep.if),
+      /steps\.slack\.outputs\.ok != 'true'/,
+    );
   });
 
   it("reconciles ambiguous workflow dispatches without risking duplicate children", async () => {
