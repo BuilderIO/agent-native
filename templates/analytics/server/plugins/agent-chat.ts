@@ -307,7 +307,7 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
   {
     id: "references",
-    text: 'REFERENCES — The system may preload bounded dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. They supply definitions and query examples, never current values. Approved entries are canonical, unreviewed human entries unverified, AI-generated unapproved entries suggestions. If nothing fits, call `find-data` once for ranked definitions, saved query examples, and generated source metadata; only the SOURCES dbt retry searches again. Call `search-bigquery-schema` next only when exact live columns or partition metadata are still needed. The words all, total, or exact do not by themselves make a question a corpus investigation.',
+    text: 'REFERENCES — The system may preload bounded dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. They supply definitions and query examples, never current values. Approved entries are canonical, unreviewed human entries unverified, AI-generated unapproved entries suggestions. If nothing fits, call `find-data` once for ranked definitions, saved query examples, and generated source metadata; only dbt metric routing (its exact-name lookup and recovery) searches again. Call `search-bigquery-schema` next only when exact live columns or partition metadata are still needed. The words all, total, or exact do not by themselves make a question a corpus investigation.',
   },
   {
     id: "failed-calls",
