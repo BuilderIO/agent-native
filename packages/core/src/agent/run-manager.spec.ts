@@ -251,6 +251,7 @@ import { recordAgentRun } from "../observability/metrics.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/registry.js";
+import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
 import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
@@ -8817,8 +8818,58 @@ describe("run manager soft timeout", () => {
       expect(run.status).toBe("completed");
       expect(markRunAborted).not.toHaveBeenCalledWith(
         "run-finalization-lease-loss",
-        "execution-lease-lost",
+        EXECUTION_LEASE_LOST_ABORT_REASON,
       );
+    });
+
+    it("does not attempt a fenced abort after the heartbeat loses the execution lease", async () => {
+      const runId = "run-heartbeat-lease-loss";
+      let releaseTool!: () => void;
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const toolGate = new Promise<void>((resolve) => {
+        releaseTool = resolve;
+      });
+      vi.mocked(markRunAborted).mockClear();
+      vi.mocked(renewTurnExecutionLease).mockClear();
+      vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
+        Object.assign(new Error("lease taken over by a successor"), {
+          code: "stale_execution_fence",
+        }),
+      );
+
+      const run = startRun(
+        runId,
+        "thread-heartbeat-lease-loss",
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "long-running-tool",
+            id: "call-heartbeat-lease-loss",
+            input: {},
+          });
+          markStarted();
+          await toolGate;
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          noProgressTimeoutMs: 0,
+          executionLease: true,
+        },
+      );
+
+      await started;
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      expect(run.abort.signal.aborted).toBe(true);
+      expect(run.abortReason).toBe(EXECUTION_LEASE_LOST_ABORT_REASON);
+
+      releaseTool();
+      await run.finalized;
+      expect(markRunAborted).not.toHaveBeenCalledWith(runId, expect.anything());
     });
 
     it("does NOT backstop a run with an agent_call in flight (status start, no done/error yet)", async () => {

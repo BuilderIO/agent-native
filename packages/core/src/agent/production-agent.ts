@@ -7577,6 +7577,10 @@ export async function runAgentLoop(opts: {
     priorCallIdentities,
   );
   const unknownOutcomes = opts.unknownOutcomes ?? noUnknownOutcomes();
+  // A recovered retry (a team attempt after a crash, an A2A redelivery)
+  // re-plans from the task text, so a repeated write gets a new step id and
+  // only these journal entries show it may already have run. Approval
+  // continuations stay out: their paused call is interrupted by design.
   seedUnknownOutcomes(
     unknownOutcomes,
     messages,
@@ -7584,7 +7588,9 @@ export async function runAgentLoop(opts: {
     historyReadOnlyCalls,
     priorCallEffects,
     priorCallIdentities,
-    internalContinuationTurn ? (toolCallJournal?.interrupted ?? []) : [],
+    internalContinuationTurn || opts.recoverCompletedExecutionSteps === true
+      ? (toolCallJournal?.interrupted ?? [])
+      : [],
   );
   if (internalContinuationTurn) {
     for (const entry of toolCallJournal?.completed ?? []) {
