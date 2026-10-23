@@ -35,7 +35,10 @@ import {
   packageManifestVersionChange,
 } from "./release-package-version-policy.ts";
 import {
+  COORDINATED_RELEASE_CHECK_TIMEOUT_MS,
+  DEFAULT_REQUIRED_CHECK_TIMEOUT_MS,
   evaluateRequiredChecks,
+  requiredCheckTimeoutForEvent,
   requiredContextsFromRules,
   waitForRequiredChecks,
 } from "./release-required-checks.ts";
@@ -70,6 +73,10 @@ const workflow = parse(
 ) as Workflow;
 const publisherSource = readFileSync(
   "scripts/changeset-publish-sequential.ts",
+  "utf8",
+);
+const releaseEverythingWorkflowSource = readFileSync(
+  ".github/workflows/release-everything.yml",
   "utf8",
 );
 const ciLintJob = (
@@ -195,7 +202,16 @@ describe("npm package release workflow", () => {
     );
   });
 
-  it("keeps waiting beyond the release merge window for delayed required checks", async () => {
+  it("caps delayed required-check polling at the coordinator merge window", async () => {
+    assert.match(
+      releaseEverythingWorkflowSource,
+      /phaseDeadline\(210 \* 60_000\),\s*coordinatorDeadline - postMergeReserveMs/,
+    );
+    assert.equal(
+      requiredCheckTimeoutForEvent("pull_request"),
+      COORDINATED_RELEASE_CHECK_TIMEOUT_MS,
+    );
+    assert.equal(COORDINATED_RELEASE_CHECK_TIMEOUT_MS, 210 * 60_000);
     let now = 0;
     await assert.rejects(
       waitForRequiredChecks({
@@ -205,11 +221,17 @@ describe("npm package release workflow", () => {
           now += ms;
         },
         now: () => now,
+        timeoutMs: requiredCheckTimeoutForEvent("pull_request"),
         intervalMs: 60 * 60_000,
       }),
       /Timed out waiting for required release PR checks: Build \(not reported\)/,
     );
-    assert.equal(now, 240 * 60_000);
+    assert.equal(now, COORDINATED_RELEASE_CHECK_TIMEOUT_MS);
+    assert.equal(
+      requiredCheckTimeoutForEvent("workflow_dispatch"),
+      DEFAULT_REQUIRED_CHECK_TIMEOUT_MS,
+    );
+    assert.equal(DEFAULT_REQUIRED_CHECK_TIMEOUT_MS, 240 * 60_000);
   });
 
   it("stops polling when the matching release coordinator ends", async () => {

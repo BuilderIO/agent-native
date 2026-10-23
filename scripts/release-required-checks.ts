@@ -26,6 +26,14 @@ type WaitForRequiredChecksOptions = {
 };
 
 const DEFAULT_READ_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
+export const DEFAULT_REQUIRED_CHECK_TIMEOUT_MS = 240 * 60_000;
+export const COORDINATED_RELEASE_CHECK_TIMEOUT_MS = 210 * 60_000;
+
+export function requiredCheckTimeoutForEvent(eventName: string | undefined) {
+  return eventName === "pull_request"
+    ? COORDINATED_RELEASE_CHECK_TIMEOUT_MS
+    : DEFAULT_REQUIRED_CHECK_TIMEOUT_MS;
+}
 
 export function requiredContextsFromRules(rules: unknown): string[] {
   if (!Array.isArray(rules)) {
@@ -166,7 +174,7 @@ export async function waitForRequiredChecks({
   readStatuses,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now = Date.now,
-  timeoutMs = 240 * 60_000,
+  timeoutMs = DEFAULT_REQUIRED_CHECK_TIMEOUT_MS,
   intervalMs = 15_000,
   readRetryDelaysMs = DEFAULT_READ_RETRY_DELAYS_MS,
   verifyCoordinator,
@@ -349,6 +357,7 @@ async function main(): Promise<void> {
       readRequiredContexts: readCurrentContexts,
       readStatuses: readCurrentStatuses,
       verifyCoordinator,
+      timeoutMs: requiredCheckTimeoutForEvent(eventName),
     });
     if (coordinatorRunId !== undefined)
       process.stdout.write(`${coordinatorRunId}\n`);
