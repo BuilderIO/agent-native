@@ -281,7 +281,11 @@ describe("release everything workflow", () => {
     const fanoutEnd = source.indexOf("]);", fanoutStart);
     assert(fanoutStart >= 0 && fanoutEnd > fanoutStart);
     const fanout = source.slice(fanoutStart, fanoutEnd);
-    assert.equal((fanout.match(/dispatchAndWait\(/g) ?? []).length, 4);
+    assert.equal((fanout.match(/dispatchAndWait\(/g) ?? []).length, 3);
+    assert.match(fanout, /dispatchDocsAndReconcile\(\)/);
+    assert(
+      source.indexOf("async function dispatchDocsAndReconcile()") < fanoutStart,
+    );
 
     const helperStart = source.indexOf("async function dispatchAndWait(");
     const helperEnd = source.indexOf(
@@ -355,6 +359,85 @@ describe("release everything workflow", () => {
       assert.equal(failedSibling.value.run.id, 2);
       assert.match(String(failedSibling.value.error), /sibling run failed/);
     }
+  });
+
+  it("starts docs push reconciliation before sibling releases settle", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const helperStart = source.indexOf("let reconciledDocsRun = null;");
+    const fanoutStart = source.indexOf(
+      "const downstream = await Promise.allSettled([",
+      helperStart,
+    );
+    assert(helperStart >= 0 && fanoutStart > helperStart);
+    const fanoutEnd = source.indexOf("]);", fanoutStart);
+    const fanout = source.slice(fanoutStart, fanoutEnd);
+    assert.match(fanout, /dispatchDocsAndReconcile\(\)/);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const createHelpers = new AsyncFunction(
+      "dispatchAndWait",
+      "findSuccessfulDocsPushDeployment",
+      "core",
+      "siteWorkflowRef",
+      "releaseSha",
+      `${source.slice(helperStart, fanoutStart)}
+return { dispatchDocsAndReconcile, getReconciledDocsRun: () => reconciledDocsRun };`,
+    ) as (
+      dispatchAndWait: (
+        workflow: string,
+        ref: string,
+        inputs: Workflow,
+        label: string,
+        timeoutMs: number,
+      ) => Promise<Workflow>,
+      findSuccessfulDocsPushDeployment: () => Promise<Workflow | null>,
+      core: { warning: (message: string) => void },
+      siteWorkflowRef: string,
+      releaseSha: string,
+    ) => {
+      dispatchDocsAndReconcile: () => Promise<Workflow>;
+      getReconciledDocsRun: () => Workflow | null;
+    };
+
+    const reconciledRun = {
+      id: 42,
+      url: "https://github.com/BuilderIO/agent-native/actions/runs/42",
+    };
+    let reconciliationStarted = false;
+    let siblingFinished = false;
+    let finishSibling!: () => void;
+    const sibling = new Promise<void>((resolve) => {
+      finishSibling = resolve;
+    });
+    const { dispatchDocsAndReconcile, getReconciledDocsRun } =
+      await createHelpers(
+        async () => ({
+          run: {
+            id: 43,
+            url: "https://github.com/BuilderIO/agent-native/actions/runs/43",
+          },
+          error: new Error("docs workflow_dispatch failed"),
+        }),
+        async () => {
+          reconciliationStarted = true;
+          assert.equal(siblingFinished, false);
+          return reconciledRun;
+        },
+        { warning: () => {} },
+        "main",
+        "release-sha",
+      );
+
+    const docsPromise = dispatchDocsAndReconcile();
+    const downstream = Promise.allSettled([docsPromise, sibling]);
+    assert.deepEqual(await docsPromise, { run: reconciledRun, error: null });
+    assert.equal(reconciliationStarted, true);
+    assert.equal(getReconciledDocsRun(), reconciledRun);
+    assert.equal(siblingFinished, false);
+    siblingFinished = true;
+    finishSibling();
+    await downstream;
   });
 
   it("adds correlation inputs and run titles to coordinated child workflows", () => {
@@ -638,7 +721,7 @@ describe("release everything workflow", () => {
     });
   });
 
-  it("reconciles a failed docs dispatch only after a current successful main deployment", async () => {
+  it("reconciles a failed docs dispatch against a current successful main deployment", async () => {
     const source = String((coordinator.with as Workflow).script);
     const helperStart = source.indexOf("const docsDeploymentPaths = [");
     const helperEnd = source.indexOf(
@@ -878,7 +961,7 @@ return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
     );
     assert.equal(comparisons, 1);
 
-    assert.match(source, /docsResult\.value\.error/);
+    assert.match(source, /async function dispatchDocsAndReconcile\(\)/);
     assert.match(source, /index === 3 && reconciledDocsRun/);
   });
 

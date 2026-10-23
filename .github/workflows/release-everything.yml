@@ -1145,6 +1145,50 @@ jobs:
             // Downstream workflows own these reserved tags after dispatch.
             // Each child waits independently so one ambiguous dispatch cannot
             // abandon siblings that GitHub already accepted.
+            let reconciledDocsRun = null;
+            async function reconcileDocsDeploymentFailure() {
+              try {
+                reconciledDocsRun = await findSuccessfulDocsPushDeployment();
+                if (reconciledDocsRun) {
+                  core.warning(
+                    `The docs workflow_dispatch failed, but a successful main push deployment verified the current docs inputs: ${reconciledDocsRun.url}`,
+                  );
+                }
+              } catch (error) {
+                core.warning(
+                  `Could not reconcile the docs workflow_dispatch failure against a main push deployment: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+              return reconciledDocsRun;
+            }
+
+            async function dispatchDocsAndReconcile() {
+              let docsResult;
+              try {
+                docsResult = await dispatchAndWait(
+                  "deploy-docs-production.yml",
+                  siteWorkflowRef,
+                  {
+                    source_ref: releaseSha,
+                    smoke: "true",
+                  },
+                  "Agent-Native docs production site",
+                  120 * 60_000,
+                );
+              } catch (error) {
+                if (await reconcileDocsDeploymentFailure()) {
+                  return { run: reconciledDocsRun, error: null };
+                }
+                throw error;
+              }
+
+              if (!docsResult.error) return docsResult;
+              if (await reconcileDocsDeploymentFailure()) {
+                return { ...docsResult, run: reconciledDocsRun, error: null };
+              }
+              return docsResult;
+            }
+
             const downstream = await Promise.allSettled([
               publicationError
                 ? Promise.resolve(null)
@@ -1184,36 +1228,8 @@ jobs:
                 "Production site fleet",
                 120 * 60_000,
               ),
-              dispatchAndWait(
-                "deploy-docs-production.yml",
-                siteWorkflowRef,
-                {
-                  source_ref: releaseSha,
-                  smoke: "true",
-                },
-                "Agent-Native docs production site",
-                120 * 60_000,
-              ),
+              dispatchDocsAndReconcile(),
             ]);
-            let reconciledDocsRun = null;
-            const docsResult = downstream[3];
-            if (
-              docsResult.status === "rejected" ||
-              docsResult.value.error
-            ) {
-              try {
-                reconciledDocsRun = await findSuccessfulDocsPushDeployment();
-                if (reconciledDocsRun) {
-                  core.warning(
-                    `The docs workflow_dispatch failed, but a successful main push deployment verified the current docs inputs: ${reconciledDocsRun.url}`,
-                  );
-                }
-              } catch (error) {
-                core.warning(
-                  `Could not reconcile the docs workflow_dispatch failure against a main push deployment: ${error instanceof Error ? error.message : String(error)}`,
-                );
-              }
-            }
             const failures = publicationError ? [publicationError.message] : [];
             const targetLabels = [
               "Agent-Native desktop stable release",
