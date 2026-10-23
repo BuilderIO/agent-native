@@ -1164,6 +1164,10 @@ const comments = {
   proposalEditCount_other: "{{count}} संपादन",
   acceptRemaining: "शेष स्वीकार करें",
   rejectRemaining: "शेष अस्वीकार करें",
+  acceptAll: "सभी स्वीकार करें",
+  rejectAll: "सभी अस्वीकार करें",
+  suggestionReviewReadOnly:
+    "इस पेज के सुझाव केवल वही लोग स्वीकार या अस्वीकार कर सकते हैं जो इसे संपादित कर सकते हैं।",
   typeFilter: "प्रकार",
   statusFilter: "स्थिति",
   authorFilter: "व्यक्ति",

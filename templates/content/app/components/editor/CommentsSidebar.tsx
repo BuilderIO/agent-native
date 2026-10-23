@@ -3648,6 +3648,7 @@ function ProposalGroup({
     return () => observer.disconnect();
   }, [onHeightChange]);
   const pending = members.filter((member) => member.status === "pending");
+  const undecided = pending.length === totalCount;
   return (
     <div
       ref={groupRef}
@@ -3698,7 +3699,7 @@ function ProposalGroup({
             onClick={() => onDecide("accepted")}
             className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
           >
-            {t("comments.acceptRemaining")}
+            {t(undecided ? "comments.acceptAll" : "comments.acceptRemaining")}
           </button>
           <button
             type="button"
@@ -3706,7 +3707,7 @@ function ProposalGroup({
             onClick={() => onDecide("rejected")}
             className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
           >
-            {t("comments.rejectRemaining")}
+            {t(undecided ? "comments.rejectAll" : "comments.rejectRemaining")}
           </button>
         </div>
       ) : null}

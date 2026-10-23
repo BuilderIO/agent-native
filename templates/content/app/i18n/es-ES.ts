@@ -1474,6 +1474,10 @@ const comments = {
   proposalEditCount_other: "{{count}} cambios",
   acceptRemaining: "Aceptar restantes",
   rejectRemaining: "Rechazar restantes",
+  acceptAll: "Aceptar todas",
+  rejectAll: "Rechazar todas",
+  suggestionReviewReadOnly:
+    "Solo quienes pueden editar esta página pueden aceptar o rechazar sus sugerencias.",
   typeFilter: "Tipo",
   statusFilter: "Estado",
   authorFilter: "Persona",

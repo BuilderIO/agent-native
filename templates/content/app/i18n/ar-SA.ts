@@ -1189,6 +1189,10 @@ const comments = {
   proposalEditCount_other: "{{count}} تعديل",
   acceptRemaining: "قبول المتبقي",
   rejectRemaining: "رفض المتبقي",
+  acceptAll: "قبول الكل",
+  rejectAll: "رفض الكل",
+  suggestionReviewReadOnly:
+    "لا يمكن قبول اقتراحات هذه الصفحة أو رفضها إلا لمن يمكنهم تعديلها.",
   typeFilter: "النوع",
   statusFilter: "الحالة",
   authorFilter: "الشخص",

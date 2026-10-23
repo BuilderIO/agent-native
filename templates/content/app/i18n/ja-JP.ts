@@ -1189,6 +1189,10 @@ const comments = {
   proposalEditCount_other: "{{count}} 件の編集",
   acceptRemaining: "残りを承認",
   rejectRemaining: "残りを却下",
+  acceptAll: "すべて承認",
+  rejectAll: "すべて却下",
+  suggestionReviewReadOnly:
+    "このページの提案を承認または却下できるのは、このページを編集できるユーザーだけです。",
   typeFilter: "種類",
   statusFilter: "ステータス",
   authorFilter: "ユーザー",

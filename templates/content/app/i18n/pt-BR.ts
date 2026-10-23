@@ -1214,6 +1214,10 @@ const comments = {
   proposalEditCount_other: "{{count}} edições",
   acceptRemaining: "Aceitar restantes",
   rejectRemaining: "Rejeitar restantes",
+  acceptAll: "Aceitar todas",
+  rejectAll: "Rejeitar todas",
+  suggestionReviewReadOnly:
+    "Somente quem pode editar esta página pode aceitar ou rejeitar as sugestões dela.",
   typeFilter: "Tipo",
   statusFilter: "Status",
   authorFilter: "Pessoa",
