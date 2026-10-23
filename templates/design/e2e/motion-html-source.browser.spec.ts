@@ -301,6 +301,32 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       frame
         .locator("main")
         .evaluate((main) => (window as any).Alpine?.$data(main)?.open);
+    const verifyAlpineRuntime = async () => {
+      const runtimePage = await page.context().newPage();
+      try {
+        await runtimePage.goto(devServerUrl, { waitUntil: "domcontentloaded" });
+        const runtimeMain = runtimePage.locator("main");
+        const runtimeOpenState = () =>
+          runtimeMain.evaluate(
+            (main) => (window as any).Alpine?.$data(main)?.open,
+          );
+        const runtimeTarget = runtimePage.locator(`#${nodeId}`);
+        await expect.poll(runtimeOpenState, { timeout: 15_000 }).toBe(true);
+        await expect(runtimeTarget).toBeVisible();
+        await runtimePage
+          .getByRole("button", { name: "Toggle visibility", exact: true })
+          .click();
+        await expect.poll(runtimeOpenState).toBe(false);
+        await expect(runtimeTarget).toBeHidden();
+        await runtimePage
+          .getByRole("button", { name: "Toggle visibility", exact: true })
+          .click();
+        await expect.poll(runtimeOpenState).toBe(true);
+        await expect(runtimeTarget).toBeVisible();
+      } finally {
+        await runtimePage.close();
+      }
+    };
     await expect(target).toHaveText("Motion target");
     await expect(frame.locator("main")).toHaveAttribute(
       "x-data",
@@ -314,14 +340,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     );
     await expect.poll(alpineOpenState, { timeout: 15_000 }).toBe(true);
     await expect(target).toBeVisible();
-    await frame.locator("#alpine-toggle").evaluate((button) => {
-      (button as HTMLButtonElement).click();
-    });
-    await expect(target).toBeHidden();
-    await frame.locator("#alpine-toggle").evaluate((button) => {
-      (button as HTMLButtonElement).click();
-    });
-    await expect(target).toBeVisible();
+    await verifyAlpineRuntime();
 
     const initialSourceHash = createHash("sha256")
       .update(fs.readFileSync(path.join(rootPath, sourcePath), "utf8"))
@@ -494,14 +513,8 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       1,
     );
     await expect.poll(alpineOpenState, { timeout: 15_000 }).toBe(true);
-    await frame.locator("#alpine-toggle").evaluate((button) => {
-      (button as HTMLButtonElement).click();
-    });
-    await expect(target).toBeHidden();
-    await frame.locator("#alpine-toggle").evaluate((button) => {
-      (button as HTMLButtonElement).click();
-    });
     await expect(target).toBeVisible();
+    await verifyAlpineRuntime();
 
     await gotoEditor(page, designId);
     await selectHtmlNodeFromCanvas(page, screenId);
