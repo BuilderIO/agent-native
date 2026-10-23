@@ -972,7 +972,7 @@ const PR_REVIEW_NO_FEEDBACK_BRIDGE = String.raw`(?:\s+(?:with|that|to|as|me|them
 const PR_REVIEW_NO_FEEDBACK_GAP = String.raw`(?:(?!\b(?:and|but|or|while)\b)[^.!?;\n])`;
 const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as|during)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)(?:\s+(?:comment|reply|response|review|thread))?\b(?!\s+templates?\b)`;
 const PR_REVIEW_DIRECT_REPLY_CONTEXT = String.raw`\b(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)\s+(?:comment|reply|response|review|thread)\b(?!\s+templates?\b)`;
-const PR_REVIEW_AUDIENCE_CONTEXT = String.raw`(?:\b(?:(?:the|a|an|your|our|this|my)\s+)?(?:author|contributor)(?:['’]s)?\s+(?:review\s+)?(?:comment|reply|response|thread)\b|\b(?:comment|reply|response|thread)\s+(?:to|for)\s+(?:the\s+)?(?:author|contributor)\b|\b(?:(?:the|your)\s+)?review\s+thread\b)`;
+const PR_REVIEW_AUDIENCE_CONTEXT = String.raw`(?:\b(?:(?:the|a|an|your|our|this|my)\s+)?(?:PR\s+)?(?:authors?|contributors?)(?:['’]s)?(?:\s+(?:review\s+)?(?:comment|reply|response|thread))?\b|\b(?:comment|reply|response|thread)\s+(?:to|for)\s+(?:the\s+)?(?:author|contributor)\b|\b(?:(?:the|your)\s+)?review\s+thread\b)`;
 const PR_REVIEW_NO_FEEDBACK_CONTEXT = String.raw`(?:${PR_REVIEW_PR_CONTEXT}|${PR_REVIEW_DIRECT_REPLY_CONTEXT}|${PR_REVIEW_AUDIENCE_CONTEXT})`;
 const PR_REVIEW_NO_FEEDBACK_TEXT = String.raw`(?:I\s+have\s+)?no\s+(?:further|more)\s+(?:check\s+)?feedback`;
 const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
@@ -1115,6 +1115,11 @@ const PR_REVIEW_DISPOSITION_REGEX_CASES = [
     "Don't say 'no further feedback' during PR review; tell them what to do next.",
   ],
   [true, "Don't say 'I have no more feedback' on your PR."],
+  [
+    true,
+    "Don't tell the author 'I have no further feedback'; tell them what to do next.",
+  ],
+  [true, "Don't reply with 'no further feedback' to the contributor."],
   [
     true,
     "Don't end the PR reply with 'no further feedback'; say what they should do next.",

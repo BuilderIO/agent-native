@@ -461,19 +461,21 @@ code or screenshot requests. This also applies when another comment or bot
 event is newer than Steve's request; bot activity alone does not reopen the
 handoff.
 
-Do not draft a follow-up unless the author has made a substantive update since
-Steve's last message. Begin a first reply by thanking the author for the PR; if
-replying after an author update, begin by thanking them for that update. Never
-write “I have no further feedback” or another vague closing. State the
-disposition, the exact next action, and who owns it. If a product, UX, or
-app-owner decision is still needed, do not post an author-facing status
-comment or ask the author to get that review; keep the thread silent and report
-the decision gate in the recap. Never comment that a product owner needs to
-review the PR. For a contributor thread paused by an unresolved gate, a new
-internal decision does not count as an author update or authorize another reply.
-Keep the thread silent until the author makes a substantive update; then thank
-them for that update and state the resolved disposition, exact next action, and
-owner.
+On a contributor-owned PR, do not draft a follow-up unless the author has made
+a substantive update since Steve's last message. Begin a first reply by
+thanking the author for the PR; if replying after an author update, begin by
+thanking them for that update. Never write “I have no further feedback” or
+another vague closing. State the disposition, the exact next action, and who
+owns it. If a product, UX, or app-owner decision is still needed, do not post
+an author-facing status comment or ask the author to get that review; keep the
+thread silent and report the decision gate in the recap. Never comment that a
+product owner needs to review the PR. For a contributor thread paused by an
+unresolved gate, a new internal decision does not count as an author update or
+authorize another reply. Keep the thread silent until the author makes a
+substantive update; then thank them for that update and state the resolved
+disposition, exact next action, and owner. This contributor-update gate does
+not govern review feedback on the active user's own PR; follow the own-PR
+review-update rule in `ship`.
 
 If no prior Steve request is awaiting an update and this would be Steve's first
 comment on that PR, begin the draft with a warm thank-you that tags the author
