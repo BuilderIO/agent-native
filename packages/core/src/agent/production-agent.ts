@@ -5198,6 +5198,11 @@ interface UnknownOutcomes {
    * ambiguous.
    */
   uncaused: Set<string>;
+  /**
+   * Causes another source gave for a call this one counted, by its prepared
+   * arguments: they fill in that key where this source recorded none.
+   */
+  restated: Map<string, UnknownOutcomeCause>;
 }
 
 function recordUnknownCause(
@@ -5249,8 +5254,14 @@ function noteUnknownOutcome(
     if (key === undefined) continue;
     map.set(key, (map.get(key) ?? 0) + 1);
     const causeKey = `${kind}:${key}`;
-    if (cause) recordUnknownCauseBeside(outcomes, causeKey, cause);
-    else if (!describedElsewhere) markUncaused(outcomes, causeKey);
+    if (describedElsewhere) {
+      // Only its own key: a shared one may hold another call's.
+      if (cause && kind === "call") outcomes.restated.set(causeKey, cause);
+    } else if (cause) {
+      recordUnknownCauseBeside(outcomes, causeKey, cause);
+    } else {
+      markUncaused(outcomes, causeKey);
+    }
   }
 }
 
@@ -5310,6 +5321,7 @@ function noUnknownOutcomes(): UnknownOutcomes {
     unidentified: new Map(),
     causes: new Map(),
     uncaused: new Set(),
+    restated: new Map(),
   };
 }
 
@@ -5324,6 +5336,9 @@ function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
     recordUnknownCauseBeside(into, key, cause);
   }
   for (const key of from.uncaused) markUncaused(into, key);
+  for (const [key, cause] of from.restated) {
+    if (!into.causes.has(key)) into.causes.set(key, cause);
+  }
 }
 
 /**
