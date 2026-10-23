@@ -20,6 +20,7 @@ const tables = vi.hoisted(() => ({
     password: "password",
     expiresAt: "expiresAt",
     trashedAt: "trashedAt",
+    enableComments: "enableComments",
   },
   recordingShares: {},
   recordingComments: {
@@ -118,14 +119,19 @@ describe("list-notifications recording lifecycle", () => {
     });
   });
 
-  it.each(["viewer@example.com", "owner@example.com"])(
-    "preserves historical activity with comments disabled for %s",
-    async (email) => {
+  it.each([
+    { email: "viewer@example.com", expectedCount: 0 },
+    { email: "owner@example.com", expectedCount: 1 },
+  ])(
+    "applies comments-off visibility to notification history: %j",
+    async ({ email, expectedCount }) => {
       state.email = email;
       state.recording.enableComments = false;
       const result = await action.run({ days: 30, limit: 200 });
-      expect(result.items[0]?.preview).toBe("Fake discussion");
-      expect(result.count).toBe(1);
+      expect(result.count).toBe(expectedCount);
+      expect(result.items.map((item) => item.preview)).toEqual(
+        expectedCount ? ["Fake discussion"] : [],
+      );
     },
   );
 

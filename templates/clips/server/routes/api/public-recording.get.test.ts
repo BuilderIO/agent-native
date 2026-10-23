@@ -279,6 +279,43 @@ describe("/api/public-recording route", () => {
     },
   );
 
+  it.each(["owner", "viewer"])(
+    "applies owner visibility to disabled comments for %s",
+    async (role) => {
+      const recording = makeRecording({
+        password: null,
+        enableComments: false,
+      });
+      mockGetQuery.mockReturnValue({ id: "rec-1" });
+      mockGetSession.mockResolvedValue({
+        email: `${role}@example.com`,
+        orgId: "org-1",
+      });
+      mockResolveAccess.mockResolvedValue({ role, resource: recording });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([
+          [recording],
+          [],
+          [
+            {
+              id: "comment-test",
+              content: "Fake saved comment",
+              authorEmail: "author@example.com",
+              authorName: "Fake author",
+            },
+          ],
+          [],
+          [],
+          [],
+        ]),
+      );
+      const result = await handler({ setCookies: [] } as any);
+      expect(result).toMatchObject({
+        comments: role === "owner" ? [{ content: "Fake saved comment" }] : [],
+      });
+    },
+  );
+
   it("sets a protected media cookie and long fallback token after password unlock", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetDb.mockReturnValue(

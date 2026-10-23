@@ -228,6 +228,12 @@ export default defineAction({
             recordingAccess,
           ),
           lifecycleFilter,
+          userEmail
+            ? or(
+                eq(schema.recordings.enableComments, true),
+                ownerEmailMatches(schema.recordings.ownerEmail, userEmail),
+              )
+            : eq(schema.recordings.enableComments, true),
           sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )

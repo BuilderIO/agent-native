@@ -42,7 +42,6 @@ beforeEach(() => {
 describe("list-comments recording policy", () => {
   it.each([
     { role: "viewer", resource: { enableComments: false } },
-    { role: "owner", resource: { enableComments: false } },
     {
       role: "viewer",
       resource: { enableComments: true, trashedAt: "2026-10-22T12:00:00.000Z" },
@@ -67,6 +66,7 @@ describe("list-comments recording policy", () => {
   );
 
   it.each([
+    { role: "owner", resource: { enableComments: false } },
     {
       role: "owner",
       resource: { enableComments: true, trashedAt: "2026-10-22T12:00:00.000Z" },

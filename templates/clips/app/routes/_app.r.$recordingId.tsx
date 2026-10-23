@@ -35,6 +35,7 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
+import { canReadRecordingComments } from "@shared/comment-access";
 import { recordingEmbedProvider } from "@shared/embed-provider";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
 import { CLIPS_MEETINGS, CLIPS_VIDEO_EDITING } from "@shared/labs";
@@ -1198,7 +1199,16 @@ export default function RecordingPage() {
     browserDiagnostics?.summary ?? null,
     panel === "debug",
   );
-  const canComment = role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
+  const canReadComments =
+    Boolean(recording) &&
+    canReadRecordingComments({
+      enableComments: recording?.enableComments ?? false,
+      viewerIsOwner: role === "owner",
+    });
+  const canComment =
+    Boolean(recording?.enableComments) &&
+    role != null &&
+    recordingId !== VIEWER_REDESIGN_PREVIEW_ID;
   // Where the panel lands when the requested tab does not apply. Transcript is
   // the video default; a screenshot has no transcript tab at all, so it falls
   // back to the conversation, or to settings when comments are off. A viewer
@@ -1206,19 +1216,27 @@ export default function RecordingPage() {
   // comments rather than bounce between two tabs the guard below rejects.
   const defaultPanel: SidePanel = !isImage
     ? "transcript"
-    : recording && !recording.enableComments && canEdit
+    : recording && !canReadComments && canEdit
       ? "settings"
       : "comments";
   useEffect(() => {
     if (
       (!canEdit && panel === "settings") ||
       (!browserDiagnostics && panel === "debug") ||
-      (recording && !recording.enableComments && panel === "comments") ||
+      (recording && !canReadComments && panel === "comments") ||
       (isImage && panel === "transcript")
     ) {
       setPanel(defaultPanel);
     }
-  }, [browserDiagnostics, canEdit, defaultPanel, isImage, panel, recording]);
+  }, [
+    browserDiagnostics,
+    canEdit,
+    canReadComments,
+    defaultPanel,
+    isImage,
+    panel,
+    recording,
+  ]);
 
   useEffect(() => {
     const legacyAgentSidebar = searchParams.get(AGENT_SIDEBAR_QUERY_PARAM);
@@ -1239,9 +1257,7 @@ export default function RecordingPage() {
       return;
     }
     if (panelParam === "comments") {
-      setPanel(
-        recording && !recording.enableComments ? defaultPanel : "comments",
-      );
+      setPanel(recording && !canReadComments ? defaultPanel : "comments");
       if (isCompactLayout) {
         requestAnimationFrame(() => {
           commentsSectionRef.current?.scrollIntoView({ block: "start" });
@@ -1265,6 +1281,7 @@ export default function RecordingPage() {
     isCompactLayout,
     panelParam,
     recording?.enableComments,
+    canReadComments,
     searchParams,
     setSearchParams,
     setSidePanelCollapsed,
@@ -2495,7 +2512,7 @@ export default function RecordingPage() {
           sidePanelCollapsed && "lg:hidden",
         )}
       >
-        {recording.enableComments ? (
+        {canReadComments ? (
           <ViewerTabsTrigger
             value="comments"
             className="px-0 data-[state=active]:after:inset-x-0"
@@ -2600,7 +2617,7 @@ export default function RecordingPage() {
   const renderSidePanel = (compact = false) => {
     return (
       <>
-        {recording.enableComments ? (
+        {canReadComments ? (
           <TabsContent
             forceMount
             value="comments"

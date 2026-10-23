@@ -195,6 +195,7 @@ describe("CommentsPanel reply composer", () => {
     currentUserEmail = "viewer@example.com",
     comments: Comment[] = [rootComment],
     presentation: "default" | "share" | "inline" = "share",
+    enableComments = true,
   ) {
     act(() => {
       root.render(
@@ -204,8 +205,8 @@ describe("CommentsPanel reply composer", () => {
             comments={comments}
             currentMs={34_000}
             currentUserEmail={currentUserEmail}
-            enableComments
-            canComment
+            enableComments={enableComments}
+            canComment={enableComments}
             onSeek={vi.fn()}
             queryKey={["recording", "recording-1"]}
             presentation={presentation}
@@ -1303,6 +1304,62 @@ describe("CommentsPanel reply composer", () => {
     expect(icon).not.toBeNull();
     expect(svg).not.toBeNull();
     expect(container.textContent).toContain("commentsPanel.beFirst");
+  });
+
+  it.each(["reply", "edit"])(
+    "closes an open %s composer when comments are disabled",
+    async (operation) => {
+      renderPanel("author@example.com");
+      if (operation === "reply") {
+        const reply = Array.from(container.querySelectorAll("button")).find(
+          (button) => button.textContent?.trim() === "commentsPanel.reply",
+        );
+        expect(reply).toBeDefined();
+        act(() => reply!.click());
+      } else {
+        await openMenu(
+          container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]'),
+        );
+        const edit = Array.from(
+          document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find(
+          (item) => item.textContent?.trim() === "commentsPanel.editComment",
+        );
+        expect(edit).toBeDefined();
+        await act(async () => {
+          edit!.click();
+          await Promise.resolve();
+        });
+      }
+      expect(container.querySelector("textarea")).not.toBeNull();
+      renderPanel("author@example.com", [rootComment], "share", false);
+      expect(container.querySelector("textarea")).toBeNull();
+      expect(container.textContent).toContain(
+        rootComment.content.split(" https:")[0],
+      );
+    },
+  );
+
+  it("shows saved owner comments read-only when comments are disabled", () => {
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <CommentsPanel
+            recordingId="recording-1"
+            comments={[{ ...rootComment, content: "Fake saved comment" }]}
+            currentMs={34_000}
+            currentUserEmail="owner@example.com"
+            enableComments={false}
+            canComment={false}
+            onSeek={vi.fn()}
+            queryKey={["recording", "recording-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container.textContent).toContain("Fake saved comment");
+    expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+    expect(container.textContent).not.toContain("commentsPanel.reply");
   });
 
   it("renders the shared empty state icon when comments are disabled", () => {
