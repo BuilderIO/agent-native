@@ -484,6 +484,27 @@ describe("the Discussion panel", () => {
     expect(card("operation-1")).toBeNull();
   });
 
+  it("keeps a thread whose reply's save wasn't confirmed in view under any filter", () => {
+    const replied = thread("text-2", "Other line");
+    replied.comments.push({
+      ...replied.comments[0],
+      id: "optimistic-reply",
+      parent_id: replied.comments[0].id,
+      content: "Reply",
+      mutation: {
+        kind: "create",
+        status: "error",
+        operationId: "operation-2",
+        ambiguous: true,
+      },
+    });
+    threads = [...fixtureThreads, replied];
+    render();
+    act(() => replies.setHistoryFilters({ target: "page" }));
+    expect(card("text-2")).not.toBeNull();
+    expect(card("text-1")).toBeNull();
+  });
+
   it("keeps a conflict's view while someone searches, without saving over their filters", () => {
     render();
     act(() => replies.setHistoryFilters({ target: "text" }));

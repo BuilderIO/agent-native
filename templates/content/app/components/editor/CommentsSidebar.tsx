@@ -1636,16 +1636,14 @@ export function CommentsSidebar({
   const historyThreads = useMemo(() => {
     return threads.filter((thread) => {
       // A linked thread, or one just posted, shows whatever the filters say,
-      // Type included. So does one whose save wasn't confirmed: its card holds
-      // the only way to check it, and no new thread can start until then.
+      // Type included. So does one with a comment or reply whose save wasn't
+      // confirmed: its card holds the only way to check it.
       if (
         thread.threadId === selectedThreadId ||
         thread.threadId === postedThreadId ||
         thread.comments.some(
           (comment) =>
-            comment.mutation?.ambiguous &&
-            comment.mutation.kind === "create" &&
-            comment.parent_id === null,
+            comment.mutation?.ambiguous && comment.mutation.kind === "create",
         )
       )
         return true;
