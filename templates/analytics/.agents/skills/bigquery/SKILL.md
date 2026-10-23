@@ -31,7 +31,7 @@ writing the query is always faster than debugging a wrong result.
 
 Before writing SQL, use the highest-confidence source available:
 
-0. For an owner-defined dbt metric question, even unnamed, use `find-data` for its exact name, then `query-dbt-semantic-metric` with that name. Its definition outranks any table; if it is not ready, check `get-dbt-connection`.
+0. For an owner-defined dbt metric question, even unnamed, use `find-data` for its exact name, then `query-dbt-semantic-metric` with that name. Its definition outranks any table. On `connection_error` or `connection_unavailable`, check `get-dbt-connection`; handle other statuses as `data-querying/SKILL.md` lists, and use a warehouse path only for the same definition, labeled as such.
 1. `find-data` with a focused metric or entity question.
 2. Existing dashboard SQL or saved analyses that already answer the same metric.
 3. `search-bigquery-schema` metadata for exact datasets, tables, and columns.

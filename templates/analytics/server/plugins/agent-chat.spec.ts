@@ -32,6 +32,7 @@ const analysisWorkspaceSkill = readMarkdown(
 const dataQueryingSkill = readMarkdown(
   "../../.agents/skills/data-querying/SKILL.md",
 );
+const bigquerySkill = readMarkdown("../../.agents/skills/bigquery/SKILL.md");
 
 const {
   agentChatPluginOptions,
@@ -685,6 +686,15 @@ describe("Analytics agent Plan mode policy", () => {
     expect(dataQueryingSkill).toContain("`metadata_truncated`");
     expect(dataQueryingSkill).toContain("`no_metrics_available`");
     expect(dataQueryingSkill).toContain("`permission_denied`");
+    expect(dataQueryingSkill).toContain(
+      "do not resend the original `groupBy`, filters, or grain",
+    );
+    expect(dataQueryingSkill).toContain(
+      "A `not_found` result alone does not confirm a missing definition.",
+    );
+    expect(bigquerySkill).toContain(
+      "On `connection_error` or `connection_unavailable`, check `get-dbt-connection`",
+    );
   });
 
   it("routes internal usage and sibling-app questions without user-supplied SQL", () => {
