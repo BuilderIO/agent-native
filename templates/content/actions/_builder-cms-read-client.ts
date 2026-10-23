@@ -59,8 +59,6 @@ export interface BuilderCmsEntryLiveState {
   /** The entry's source values, normalized as a refresh stores them. */
   values?: Record<string, DocumentPropertyValue> | null;
   hasAutosaves?: boolean | null;
-  /** The entry's own name, which safe-model writes also send. */
-  name?: string | null;
 }
 
 export interface BuilderCmsEntryFidelitySummary {
@@ -476,7 +474,6 @@ function liveStateFromBuilderEntry(
     id,
     values: liveSourceValues(record, model),
     hasAutosaves: builderEntryHasAutosaves(record),
-    name: stringFromUnknown(record.name),
   };
 }
 

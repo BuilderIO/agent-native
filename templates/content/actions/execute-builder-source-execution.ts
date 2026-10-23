@@ -38,9 +38,11 @@ import {
   readBuilderCmsEntryLiveState,
 } from "./_builder-cms-read-client.js";
 import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
+  BUILDER_CMS_ENTRY_NAME_KEY,
   builderCmsQualifiedId,
   builderCmsReferenceIdKey,
 } from "./_builder-cms-source-adapter.js";
@@ -457,12 +459,20 @@ export function builderCmsReconciledSourceValuesJson(args: {
       next[BUILDER_CMS_BODY_SIDECARS_KEY] = bodyChange.sidecarsJson;
     }
   }
-  const requestData = args.plan.payload.request.body.data;
+  const requestBody = args.plan.payload.request.body;
+  if (typeof requestBody.name === "string") {
+    next[BUILDER_CMS_ENTRY_NAME_KEY] = requestBody.name;
+  }
+  const requestData = requestBody.data;
   if (
     requestData &&
     typeof requestData === "object" &&
     !Array.isArray(requestData)
   ) {
+    const requestBlocks = (requestData as Record<string, unknown>).blocks;
+    if (Array.isArray(requestBlocks)) {
+      next[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = requestBlocks.length;
+    }
     for (const [fieldName, value] of Object.entries(requestData)) {
       if (fieldName === "blocks") continue;
       const sourceFieldKey = `data.${fieldName}`;
@@ -568,8 +578,6 @@ function livePreflightBlockMessage(args: {
   baselineLastUpdated: string | null;
   baselineBlocksHash: string | null;
   baselineValues: Record<string, DocumentPropertyValue> | undefined;
-  /** The entry name Content had when the change was reviewed. */
-  baselineName: string | null;
   effect: BuilderCmsExecutionPayload["effect"];
   request: BuilderCmsExecutionPayload["request"];
   fieldLabel: (sourceFieldKey: string) => string;
@@ -639,20 +647,11 @@ function livePreflightBlockMessage(args: {
     if (!fieldLevel || !liveValues || bodyUnverifiable) {
       return "Builder entry changed since this diff was approved; refresh and re-review.";
     }
-    const changedFields = written.fieldKeys
-      .filter((key) => !fieldStillReviewed(key, liveValues))
-      .map(args.fieldLabel);
-    // A safe-model write also sends the entry name, taken from the title
-    // Content has, so it would overwrite a name Builder changed since.
-    const liveName = args.liveState.name?.trim() || null;
-    if (
-      written.wroteName &&
-      (!liveName || liveName !== args.baselineName?.trim())
-    ) {
-      changedFields.push("Entry name");
-    }
+    const changedFields = written.fieldKeys.filter(
+      (key) => !fieldStillReviewed(key, liveValues),
+    );
     if (changedFields.length > 0) {
-      return `${changedFields.join(", ")} changed in Builder since you edited it; refresh and re-review.`;
+      return `${changedFields.map(args.fieldLabel).join(", ")} changed in Builder since you edited it; refresh and re-review.`;
     }
   }
   if (
@@ -749,6 +748,7 @@ function builderExecutionSucceededSummary(args: {
 
 function builderSourceFieldLabel(source: ContentDatabaseSource) {
   return (sourceFieldKey: string) => {
+    if (sourceFieldKey === BUILDER_CMS_ENTRY_NAME_KEY) return "Entry name";
     const name = sourceFieldKey.replace(/^data\./, "");
     return (
       source.metadata.builderModelFields
@@ -2113,8 +2113,6 @@ export async function executeBuilderSourceExecutionWithDeps(
         baselineLastUpdated,
         baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
         baselineValues: sourceRowForChangeSet(source, changeSet)?.sourceValues,
-        baselineName:
-          sourceRowForChangeSet(source, changeSet)?.sourceDisplayKey ?? null,
         effect: plan.payload.effect,
         request: plan.payload.request,
         fieldLabel: builderSourceFieldLabel(source),

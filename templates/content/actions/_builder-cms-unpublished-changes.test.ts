@@ -4,6 +4,7 @@ import {
   BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_HAS_AUTOSAVES_KEY,
 } from "./_builder-cms-source-adapter";
 import {
@@ -16,7 +17,7 @@ import {
 } from "./_builder-cms-unpublished-changes";
 
 function saved(
-  values: Record<string, string | null>,
+  values: Record<string, string | number | null>,
   changes: {
     liveValues: Record<string, string | null>;
     liveLastUpdated?: number;
@@ -355,6 +356,35 @@ describe("Builder unpublished changes", () => {
     });
     expect(replaced[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Published body");
     expect(replaced).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+
+  it("keeps a saved body as one unit, including an empty one", () => {
+    const existing = saved(
+      {
+        published: "published",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "saved-empty-hash",
+        [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+      },
+      { liveValues: {}, liveBlocksHash: "live-hash" },
+    );
+
+    const kept = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: {
+        published: "published",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Live body",
+        [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "Live body, lossless",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "live-hash",
+        [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 3,
+      },
+      existing,
+    });
+
+    expect(kept[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("");
+    expect(kept[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).toBe("saved-empty-hash");
+    expect(kept[BUILDER_CMS_BODY_BLOCK_COUNT_KEY]).toBe(0);
+    expect(kept).not.toHaveProperty(BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY);
+    expect(kept).toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 
   it("keeps a saved body when a read hashes it differently but Builder saved nothing since", () => {

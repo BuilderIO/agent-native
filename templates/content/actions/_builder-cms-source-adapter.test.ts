@@ -4,6 +4,7 @@ import type { ContentDatabaseItem } from "../shared/api";
 import {
   BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_ENTRY_NAME_KEY,
   BUILDER_CMS_HAS_AUTOSAVES_KEY,
   buildBuilderCmsFixtureEntry,
   builderCmsQualifiedId,
@@ -221,6 +222,7 @@ describe("Builder CMS source adapter", () => {
         "data.handle": "builder-api-title",
         "data.description": "A useful field",
         lastUpdated: "2026-06-08T12:00:00.000Z",
+        [BUILDER_CMS_ENTRY_NAME_KEY]: "Fallback name",
       },
     });
   });

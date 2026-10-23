@@ -7,7 +7,12 @@ import {
   type ContentDatabaseSourceChangeSet,
 } from "../shared/api";
 import type { BuilderCmsEntryLiveState } from "./_builder-cms-read-client";
-import { BUILDER_CMS_BODY_BLOCKS_HASH_KEY } from "./_builder-cms-source-adapter";
+import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_ENTRY_NAME_KEY,
+} from "./_builder-cms-source-adapter";
 import {
   BUILDER_CMS_UNPUBLISHED_CHANGES_KEY,
   withBuilderCmsUnpublishedChanges,
@@ -558,7 +563,10 @@ describe("execute Builder source execution", () => {
               lastUpdated: BUILDER_LAST_UPDATED_MS,
               blocksHash: null,
               hasAutosaves: null,
-              values: { "data.title": "Old title" },
+              values: {
+                "data.title": "Old title",
+                [BUILDER_CMS_ENTRY_NAME_KEY]: null,
+              },
             },
           }),
         }),
@@ -2090,7 +2098,11 @@ describe("Builder unpublished saves", () => {
     overrides: Partial<ContentDatabaseSource["rows"][number]> = {},
   ) =>
     row({
-      sourceValues: { published: "published", "data.title": "Old title" },
+      sourceValues: {
+        published: "published",
+        "data.title": "Old title",
+        [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
+      },
       ...overrides,
     });
 
@@ -2123,7 +2135,13 @@ describe("Builder unpublished saves", () => {
     const deps = depsFor({
       source: builderSource,
       execution,
-      readLiveEntry: { name: "Old title", ...args.readLiveEntry },
+      readLiveEntry: {
+        ...args.readLiveEntry,
+        values: args.readLiveEntry.values && {
+          [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
+          ...args.readLiveEntry.values,
+        },
+      },
       writeResult: args.writeResult,
     });
     const run = () =>
@@ -2242,8 +2260,7 @@ describe("Builder unpublished saves", () => {
         lastUpdated: BUILDER_LAST_UPDATED_MS,
         blocksHash: null,
         id: "builder-entry-1",
-        name: "Renamed in Builder",
-        values: { "data.title": "Renamed in Builder" },
+        values: { [BUILDER_CMS_ENTRY_NAME_KEY]: "Renamed in Builder" },
       },
     });
 
@@ -2253,14 +2270,65 @@ describe("Builder unpublished saves", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
+  it("compares the entry name with Builder's name, not the article title", async () => {
+    const { deps, run } = unpublishedSave({
+      rows: [
+        publishedRow({
+          lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
+          sourceValues: {
+            published: "published",
+            "data.title": "Old title",
+            "data.blurb": "Old blurb",
+            [BUILDER_CMS_ENTRY_NAME_KEY]: "CMS internal label",
+          },
+        }),
+      ],
+      changeSet: changeSet({
+        fieldChanges: [
+          {
+            propertyId: null,
+            propertyName: "Blurb",
+            localFieldKey: "blurb",
+            sourceFieldKey: "data.blurb",
+            currentValue: "Old blurb",
+            proposedValue: "New blurb",
+          },
+        ],
+      }),
+      readLiveEntry: {
+        exists: true,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+        values: {
+          "data.blurb": "Old blurb",
+          [BUILDER_CMS_ENTRY_NAME_KEY]: "CMS internal label",
+        },
+      },
+    });
+
+    await expect(run()).resolves.toMatchObject(RESPONSE);
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
   it("treats the live value Content saved over as the value this edit was made against", async () => {
     const { deps, run } = unpublishedSave({
       rows: [
         publishedRow({
           lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
           sourceValues: withBuilderCmsUnpublishedChanges(
-            { published: "published", "data.title": "Saved title" },
-            { liveValues: { "data.title": "Live title" } },
+            {
+              published: "published",
+              "data.title": "Saved title",
+              [BUILDER_CMS_ENTRY_NAME_KEY]: "Saved title",
+            },
+            {
+              liveValues: {
+                "data.title": "Live title",
+                [BUILDER_CMS_ENTRY_NAME_KEY]: "Live title",
+              },
+            },
           ),
         }),
       ],
@@ -2270,7 +2338,10 @@ describe("Builder unpublished saves", () => {
         lastUpdated: BUILDER_LAST_UPDATED_MS,
         blocksHash: null,
         id: "builder-entry-1",
-        values: { "data.title": "Live title" },
+        values: {
+          "data.title": "Live title",
+          [BUILDER_CMS_ENTRY_NAME_KEY]: "Live title",
+        },
       },
     });
 
@@ -2303,6 +2374,7 @@ describe("Builder unpublished saves", () => {
         "data.title": "Old title",
         "data.author": "Sam Lee",
         "__agent_native_builder_reference_id:data.author": "author-1",
+        [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
       },
     });
     const live = (authorId: string): BuilderCmsEntryLiveState => ({
@@ -2342,6 +2414,7 @@ describe("Builder unpublished saves", () => {
               values: {
                 "data.author": "Sam Lee",
                 "__agent_native_builder_reference_id:data.author": "author-1",
+                [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
               },
             }),
           }),
@@ -2479,6 +2552,7 @@ describe("Builder unpublished saves", () => {
         existingSourceValuesJson: JSON.stringify({
           published: "published",
           "data.title": "Old title",
+          [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
         }),
         snapshotSourceValues: undefined,
         changeSet: approvedChangeSet,
@@ -2494,7 +2568,10 @@ describe("Builder unpublished saves", () => {
               lastUpdated: BUILDER_LAST_UPDATED_MS,
               blocksHash: null,
               hasAutosaves: null,
-              values: { "data.title": "Old title" },
+              values: {
+                "data.title": "Old title",
+                [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
+              },
             },
           },
         },
@@ -2502,10 +2579,79 @@ describe("Builder unpublished saves", () => {
     );
 
     expect(values["data.title"]).toBe("New title");
+    expect(values[BUILDER_CMS_ENTRY_NAME_KEY]).toBe("New title");
     expect(JSON.parse(values[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY])).toEqual({
-      liveValues: { "data.title": "Old title" },
+      liveValues: {
+        "data.title": "Old title",
+        [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
+      },
       liveLastUpdated: BUILDER_LAST_UPDATED_MS,
     });
+  });
+
+  it("records an empty body save as a body with no blocks", () => {
+    const approvedChangeSet = changeSet({
+      fieldChanges: [],
+      bodyChange: {
+        summary: "Builder body blocks changed.",
+        currentExcerpt: "Old body",
+        proposedExcerpt: "",
+        currentHash: "live-hash",
+        proposedHash: "empty-hash",
+        proposedContent: "",
+        proposedBlocksJson: "[]",
+        sidecarsJson: "{}",
+        warnings: [],
+      },
+    });
+    const builderSource = source({
+      rows: [publishedRow()],
+      changeSets: [approvedChangeSet],
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      pushModeConfirmation: "autosave",
+    });
+    expect(plan.payload.effect).toBe("autosave");
+
+    const values = JSON.parse(
+      builderCmsReconciledSourceValuesJson({
+        existingSourceValuesJson: JSON.stringify({
+          published: "published",
+          "data.title": "Old title",
+          [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Old body",
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "live-hash",
+          [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 2,
+        }),
+        snapshotSourceValues: undefined,
+        changeSet: approvedChangeSet,
+        plan: {
+          ...plan,
+          payload: {
+            ...plan.payload,
+            livePreflight: {
+              checkedAt: NOW,
+              exists: true,
+              id: "builder-entry-1",
+              published: "published",
+              lastUpdated: BUILDER_LAST_UPDATED_MS,
+              blocksHash: "live-hash",
+              hasAutosaves: null,
+              values: { [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title" },
+            },
+          },
+        },
+      }),
+    );
+
+    expect(values[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("");
+    expect(values[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).toBe("empty-hash");
+    expect(values[BUILDER_CMS_BODY_BLOCK_COUNT_KEY]).toBe(0);
+    expect(JSON.parse(values[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY])).toEqual(
+      expect.objectContaining({ liveBlocksHash: "live-hash" }),
+    );
   });
 
   it("takes a live write's fields out of the record, even from a response stored without live values", () => {

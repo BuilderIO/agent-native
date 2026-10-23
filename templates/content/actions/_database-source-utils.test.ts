@@ -8,6 +8,7 @@ import type {
 } from "../shared/api";
 import { builderBlocksHash } from "../shared/builder-mdx";
 import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_LAST_UPDATED_KEY,
@@ -3162,6 +3163,57 @@ describe("database source helpers", () => {
     expect(
       JSON.parse(refreshed[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY] as string),
     ).toEqual({ liveValues: {}, liveBlocksHash: "live-body-hash" });
+  });
+
+  it("lets an empty body Builder published replace a saved body on refresh", () => {
+    const existing = {
+      published: "published",
+      lastUpdated: "1000",
+      "data.title": "Same title",
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "saved-body-hash",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Saved body",
+      [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "Live body, lossless",
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+        liveValues: {},
+        liveLastUpdated: 1000,
+        liveBlocksHash: "live-body-hash",
+        liveBodyLastUpdated: 1000,
+      }),
+    };
+    const emptied = {
+      published: "published",
+      lastUpdated: "2000",
+      "data.title": "Same title",
+      [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+    };
+
+    const refreshed = sourceValuesForSeededSourceRow({
+      sourceType: "builder-cms",
+      item: item("doc-1", "Same title"),
+      sourceTable: "blog_article",
+      now: "2026-06-08T13:00:00.000Z",
+      builderEntry: {
+        id: "entry-1",
+        model: "blog_article",
+        title: "Same title",
+        urlPath: "/blog/same-title",
+        updatedAt: "2026-06-08T13:00:00.000Z",
+        sourceValues: emptied,
+      },
+      existingSourceValuesJson: JSON.stringify(existing),
+    });
+    expect(refreshed).not.toHaveProperty(BUILDER_CMS_BODY_CONTENT_KEY);
+    expect(refreshed).not.toHaveProperty(BUILDER_CMS_BODY_BLOCKS_HASH_KEY);
+    expect(refreshed).not.toHaveProperty(BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY);
+    expect(refreshed[BUILDER_CMS_BODY_BLOCK_COUNT_KEY]).toBe(0);
+    expect(refreshed).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+
+    const bodyRead = builderBodyReadSourceValues(existing, {
+      sourceValues: emptied,
+    });
+    expect(bodyRead).not.toHaveProperty(BUILDER_CMS_BODY_CONTENT_KEY);
+    expect(bodyRead).not.toHaveProperty(BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY);
+    expect(bodyRead).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 
   it("preserves a hydrated Builder body baseline across metadata-only refreshes with the same hash", () => {

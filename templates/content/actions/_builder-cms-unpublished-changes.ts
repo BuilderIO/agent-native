@@ -3,13 +3,9 @@ import type {
   DocumentPropertyValue,
 } from "../shared/api.js";
 import {
+  BUILDER_CMS_BODY_BASELINE_KEYS,
   BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
-  BUILDER_CMS_BODY_CONTENT_KEY,
-  BUILDER_CMS_BODY_LAST_UPDATED_KEY,
-  BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
-  BUILDER_CMS_BODY_READABLE_MAP_KEY,
-  BUILDER_CMS_BODY_SIDECARS_KEY,
   BUILDER_CMS_HAS_AUTOSAVES_KEY,
   BUILDER_CMS_REFERENCE_ID_KEY_PREFIX,
   builderCmsReferenceIdKey,
@@ -54,15 +50,6 @@ export type BuilderCmsEntryStatus =
   | "published"
   | "draft"
   | "unpublished_changes";
-
-const BODY_BASELINE_KEYS = [
-  BUILDER_CMS_BODY_CONTENT_KEY,
-  BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
-  BUILDER_CMS_BODY_READABLE_MAP_KEY,
-  BUILDER_CMS_BODY_SIDECARS_KEY,
-  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
-  BUILDER_CMS_BODY_LAST_UPDATED_KEY,
-];
 
 function hasKey(
   record: Record<string, unknown> | null | undefined,
@@ -316,8 +303,9 @@ export function builderSourceValuesKeepingUnpublishedChanges(args: {
     ? hasBodyRecord(recorded)
     : builderCmsBodyStillSavedOver(recorded, builder);
   if (bodyKept) {
-    for (const key of BODY_BASELINE_KEYS) {
-      if (existing[key] !== undefined) next[key] = existing[key];
+    for (const key of BUILDER_CMS_BODY_BASELINE_KEYS) {
+      if (hasKey(existing, key)) next[key] = existing[key];
+      else delete next[key];
     }
   }
   return withBuilderCmsUnpublishedChanges(next, {

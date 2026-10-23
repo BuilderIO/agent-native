@@ -12,6 +12,7 @@ import type {
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_ENTRY_NAME_KEY,
   builderCmsSourceRowIdentityState,
 } from "./_builder-cms-source-adapter.js";
 import { builderCmsPushModeForTier } from "./_builder-cms-write-settings.js";
@@ -75,7 +76,10 @@ export interface BuilderCmsLivePreflight {
   values: Record<string, DocumentPropertyValue> | null;
 }
 
-/** The source fields and body a Builder write request sends. */
+/**
+ * The source fields and body a Builder write request sends. A safe-model
+ * write also sends the entry name, so it counts as a written field.
+ */
 export function builderCmsWrittenSourceFields(
   request: BuilderCmsExecutionPayload["request"],
 ) {
@@ -85,11 +89,15 @@ export function builderCmsWrittenSourceFields(
       ? (data as Record<string, unknown>)
       : {};
   return {
-    fieldKeys: Object.keys(record)
-      .filter((name) => name !== "blocks")
-      .map((name) => `data.${name}`),
+    fieldKeys: [
+      ...Object.keys(record)
+        .filter((name) => name !== "blocks")
+        .map((name) => `data.${name}`),
+      ...(typeof request.body.name === "string"
+        ? [BUILDER_CMS_ENTRY_NAME_KEY]
+        : []),
+    ],
     wroteBody: record.blocks !== undefined,
-    wroteName: typeof request.body.name === "string",
   };
 }
 

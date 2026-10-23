@@ -89,6 +89,7 @@ import {
   type BuilderCmsReadState,
 } from "./_builder-cms-read-client.js";
 import {
+  BUILDER_CMS_BODY_BASELINE_KEYS,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_LAST_UPDATED_KEY,
@@ -97,6 +98,7 @@ import {
   BUILDER_CMS_BODY_SIDECARS_KEY,
   BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
   buildBuilderCmsFixtureEntry,
+  builderCmsBodyKnownEmpty,
   builderCmsQualifiedId,
   builderCmsReferenceIdKey,
   builderCmsReferenceIdSourceValues,
@@ -1973,10 +1975,10 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
       sourceTable: args.source.sourceTable,
       fallbackTitle: row.document.title,
     });
-    const refreshedEntry = entry
-      ? await refreshBuilderBodySourceValuesFromStoredLossless(entry)
-      : null;
-    if (!refreshedEntry) continue;
+    // An empty body has nothing to fetch; its stored lossless copy is older.
+    if (!entry || builderCmsBodyKnownEmpty(entry.sourceValues)) continue;
+    const refreshedEntry =
+      await refreshBuilderBodySourceValuesFromStoredLossless(entry);
     requests.push({
       sourceId: args.source.id,
       ownerEmail: row.item.ownerEmail,
@@ -2020,6 +2022,11 @@ export function builderBodyReadSourceValues(
     if (!Object.prototype.hasOwnProperty.call(builderValues, referenceKey)) {
       delete rowBase[referenceKey];
     }
+  }
+  // Builder's empty body has no body keys, so the row's older body would
+  // show through.
+  if (builderCmsBodyKnownEmpty(builderValues)) {
+    for (const key of BUILDER_CMS_BODY_BASELINE_KEYS) delete rowBase[key];
   }
   return builderSourceValuesKeepingUnpublishedChanges({
     incoming: { ...rowBase, ...builderValues },
@@ -2190,10 +2197,10 @@ async function processBuilderBodyHydrationJob(
       ? await refreshBuilderBodySourceValuesFromStoredLossless(rebuiltBaseEntry)
       : null;
     if (rebuiltEntry) {
-      const rebuiltValues = {
-        ...sourceValues,
-        ...rebuiltEntry.sourceValues,
-      };
+      const rebuiltValues = builderBodyReadSourceValues(
+        sourceValues,
+        rebuiltEntry,
+      );
       const rebuiltContent =
         stringSourceValue(rebuiltValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
       if (rebuiltContent.trim()) {
@@ -2267,6 +2274,9 @@ async function processBuilderBodyHydrationJob(
           entryWithBody = liveEntry;
           nextValues = liveValues;
           nextContent = liveContent;
+        } else if (builderCmsBodyKnownEmpty(liveValues)) {
+          // Content saved an empty body over the live one.
+          emptyBodyRead = { ...liveRead, state: "empty_body" };
         }
       } else {
         emptyBodyRead = liveRead;
@@ -6090,20 +6100,15 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
     existingEpoch !== null &&
     incomingEpoch === existingEpoch;
   const next = { ...args.incoming };
+  // A read without the body keeps the stored one; an empty body replaces it.
   const preserveExistingBody =
+    !builderCmsBodyKnownEmpty(args.incoming) &&
     !incomingContent?.trim() &&
     !!existingContent?.trim() &&
     (sameRemoteVersion ||
       !(incomingHash && existingHash && incomingHash !== existingHash));
   if (preserveExistingBody) {
-    for (const key of [
-      BUILDER_CMS_BODY_CONTENT_KEY,
-      BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
-      BUILDER_CMS_BODY_READABLE_MAP_KEY,
-      BUILDER_CMS_BODY_SIDECARS_KEY,
-      BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
-      BUILDER_CMS_BODY_LAST_UPDATED_KEY,
-    ]) {
+    for (const key of BUILDER_CMS_BODY_BASELINE_KEYS) {
       if (existing[key] !== undefined) {
         next[key] = existing[key];
       }
