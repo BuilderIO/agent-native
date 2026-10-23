@@ -1318,7 +1318,7 @@ return waitForReleaseMerge;`,
       "const downstream = await Promise.allSettled",
     );
     const notificationFailure = source.indexOf(
-      "if (downstreamNotificationFailureUrl)",
+      "if (downstreamNotificationFailureUrl || downstreamNotificationRecoveryError)",
       downstreamSettled,
     );
     const completionLog = source.indexOf("Release everything completed");
@@ -1350,7 +1350,7 @@ return waitForReleaseMerge;`,
     assert.match(source, /downstreamNotificationFailureUrl = recovery\.url/);
     assert.match(
       source,
-      /Production releases completed, but downstream package notifications were not delivered/,
+      /Stable npm packages were published, but downstream package notifications were not delivered/,
     );
     assert.ok(stablePublishStart >= 0);
     assert.ok(failureGate > stablePublishStart);
@@ -1359,6 +1359,150 @@ return waitForReleaseMerge;`,
     assert.ok(downstreamSettled >= 0);
     assert.ok(notificationFailure > downstreamSettled);
     assert.ok(completionLog > notificationFailure);
+  });
+
+  it("continues desktop releases when notification recovery fails after npm publication", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const stablePublishStart = source.indexOf(
+      "async function waitForStablePackagePublish",
+    );
+    const stablePublishEnd = source.indexOf(
+      "\n\nconst docsDeploymentPaths",
+      stablePublishStart,
+    );
+    const publicationStart = source.indexOf(
+      "let publicationError = null;",
+      stablePublishEnd,
+    );
+    const publicationEnd = source.indexOf(
+      "\n\nconst sitesManifest",
+      publicationStart,
+    );
+    assert.ok(stablePublishStart >= 0 && stablePublishEnd > stablePublishStart);
+    assert.ok(
+      publicationStart > stablePublishEnd && publicationEnd > publicationStart,
+    );
+
+    const mergeSha = "a".repeat(40);
+    const workflowRun = {
+      id: 42,
+      html_url: "https://github.com/BuilderIO/agent-native/actions/runs/42",
+      event: "push",
+      head_sha: mergeSha,
+    };
+    const errors: string[] = [];
+    const runScenario = new AsyncFunction(
+      "phaseDeadline",
+      "pollIntervalMs",
+      "github",
+      "owner",
+      "repo",
+      "waitForRun",
+      "requireRecoverableStablePublishFailure",
+      "getRemoteTagSha",
+      "core",
+      "recoverDownstreamNotification",
+      "sleep",
+      "releaseSha",
+      "packageRef",
+      "coreVersionChanged",
+      "workflowRef",
+      "downstreamNotificationFailureUrl",
+      "downstreamNotificationRecoveryUrl",
+      "downstreamNotificationRecoveryError",
+      `${source.slice(stablePublishStart, stablePublishEnd)}
+${source.slice(publicationStart, publicationEnd)}
+return { publicationError, siteWorkflowRef, downstreamNotificationFailureUrl, downstreamNotificationRecoveryUrl, downstreamNotificationRecoveryError };`,
+    ) as (...args: unknown[]) => Promise<{
+      publicationError: Error | null;
+      siteWorkflowRef: string;
+      downstreamNotificationFailureUrl?: string;
+      downstreamNotificationRecoveryUrl?: string;
+      downstreamNotificationRecoveryError?: Error;
+    }>;
+    const result = await runScenario(
+      (timeoutMs: number) => Date.now() + timeoutMs,
+      15_000,
+      {
+        rest: {
+          actions: {
+            listWorkflowRuns: async () => ({
+              data: { workflow_runs: [workflowRun] },
+            }),
+          },
+        },
+      },
+      "BuilderIO",
+      "agent-native",
+      async () => ({ conclusion: "failure" }),
+      async () => {},
+      async () => mergeSha,
+      {
+        warning: () => {},
+        error: (message: string) => errors.push(message),
+      },
+      async () => {
+        throw new Error("notification API unavailable");
+      },
+      async () => {},
+      mergeSha,
+      "@agent-native/core@1.2.3",
+      true,
+      "@agent-native/core@1.2.3",
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    assert.equal(result.publicationError, null);
+    assert.equal(result.siteWorkflowRef, "@agent-native/core@1.2.3");
+    assert.match(
+      result.downstreamNotificationRecoveryError?.message ?? "",
+      /notification API unavailable/,
+    );
+    assert.match(errors[0] ?? "", /continuing desktop and production releases/);
+
+    const downstreamStart = source.indexOf(
+      "const downstream = await Promise.allSettled",
+    );
+    const downstreamEnd = source.indexOf("const failures =", downstreamStart);
+    assert.ok(downstreamStart >= 0 && downstreamEnd > downstreamStart);
+    const dispatches: string[] = [];
+    const releaseDownstream = new AsyncFunction(
+      "publicationError",
+      "releaseSha",
+      "workflowRef",
+      "siteWorkflowRef",
+      "desktopVersion",
+      "clipsVersion",
+      "productionSites",
+      "dispatchAndWait",
+      "dispatchDocsAndReconcile",
+      `${source.slice(downstreamStart, downstreamEnd)}
+return downstream;`,
+    ) as (...args: unknown[]) => Promise<unknown>;
+    await releaseDownstream(
+      result.publicationError,
+      mergeSha,
+      "@agent-native/core@1.2.3",
+      result.siteWorkflowRef,
+      "1.2.3",
+      "1.2.3",
+      ["design"],
+      async (workflow: string) => {
+        dispatches.push(workflow);
+        return { run: { id: dispatches.length }, error: null };
+      },
+      async () => ({ run: { id: 4 }, error: null }),
+    );
+    assert.deepEqual(dispatches, [
+      "desktop-release.yml",
+      "clips-desktop-release.yml",
+      "deploy-production-sites-prebuilt.yml",
+    ]);
   });
 
   it("isolates stable auto-publish lanes from nightly pushes", () => {

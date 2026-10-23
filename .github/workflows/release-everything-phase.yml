@@ -72,6 +72,8 @@ jobs:
             const pollIntervalMs = 15_000;
             const reservedTags = new Map();
             let downstreamNotificationFailureUrl;
+            let downstreamNotificationRecoveryUrl;
+            let downstreamNotificationRecoveryError;
 
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             const phaseDeadline = (timeoutMs) =>
@@ -653,6 +655,7 @@ jobs:
                 releaseType: "patch",
                 redispatchDownstream: "true",
               });
+              downstreamNotificationRecoveryUrl = recovery.url;
               const completed = await waitForRun(
                 recovery,
                 "Stable downstream notification recovery",
@@ -831,7 +834,17 @@ jobs:
                     core.warning(
                       `Stable packages and their merge tag are verified; retrying the downstream notification job that did not acquire a hosted runner: ${run.html_url}`,
                     );
-                    await recoverDownstreamNotification();
+                    try {
+                      await recoverDownstreamNotification();
+                    } catch (error) {
+                      downstreamNotificationRecoveryError = error instanceof Error
+                        ? error
+                        : new Error(String(error));
+                      downstreamNotificationFailureUrl ??= downstreamNotificationRecoveryUrl;
+                      core.error(
+                        `Stable packages and their merge tag are verified, but downstream notification recovery failed; continuing desktop and production releases: ${downstreamNotificationRecoveryError.message}`,
+                      );
+                    }
                   }
                   return completed;
                 }
@@ -1318,10 +1331,16 @@ jobs:
               if (result.dispatchFailed) return "failed: dispatch";
               return result.error ? "failed" : "released";
             });
-            if (downstreamNotificationFailureUrl) {
-              failures.push(
-                `Production releases completed, but downstream package notifications were not delivered: ${downstreamNotificationFailureUrl}`,
-              );
+            if (downstreamNotificationFailureUrl || downstreamNotificationRecoveryError) {
+              if (downstreamNotificationRecoveryError) {
+                failures.push(
+                  `Stable npm packages were published, but downstream package notification recovery failed: ${downstreamNotificationRecoveryError.message}`,
+                );
+              } else {
+                failures.push(
+                  `Stable npm packages were published, but downstream package notifications were not delivered: ${downstreamNotificationFailureUrl}`,
+                );
+              }
             }
 
             const summary = core.summary
@@ -1329,6 +1348,16 @@ jobs:
               .addTable([
                 ["Target", "Result"],
                 ["npm packages", publicationError ? "failed" : `${releaseType} release published`],
+                [
+                  "Downstream package notifications",
+                  publicationError
+                    ? "skipped: npm publication failed"
+                    : downstreamNotificationRecoveryError
+                      ? `recovery failed: ${downstreamNotificationRecoveryUrl || downstreamNotificationRecoveryError.message}`
+                      : downstreamNotificationFailureUrl
+                        ? `not delivered: ${downstreamNotificationFailureUrl}`
+                        : "delivered",
+                ],
                 ["Agent-Native desktop", desktop ? `${outcomes[0]}: stable v${desktopVersion}` : outcomes[0]],
                 ["Clips desktop", clips ? `${outcomes[1]}: stable v${clipsVersion}` : outcomes[1]],
                 ["Production sites", `${outcomes[2]}: ${productionSites.length} *.agent-native.com apps`],
