@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+import { COMMENT_ACCESS_TOKEN_HEADER } from "../../../shared/comment-access";
 import { useAutoResizeCommentTextarea } from "./comment-composer";
 import { msToClock } from "./scrubber";
 
@@ -40,6 +41,8 @@ export function TimestampedCommentButton({
 }
 
 interface TimestampedCommentBarProps {
+  commentAccessToken?: string;
+  getCommentAccessToken?: () => Promise<string | null | undefined>;
   recordingId: string;
   atMs: number;
   onClose: () => void;
@@ -50,6 +53,8 @@ interface TimestampedCommentBarProps {
 }
 
 export function TimestampedCommentBar({
+  commentAccessToken,
+  getCommentAccessToken,
   recordingId,
   atMs,
   onClose,
@@ -65,7 +70,23 @@ export function TimestampedCommentBar({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   useAutoResizeCommentTextarea(textareaRef, draft, 1);
 
-  const addComment = useActionMutation("add-comment");
+  const commentAccessTokenRef = useRef<string | null | undefined>(
+    commentAccessToken,
+  );
+  useEffect(() => {
+    commentAccessTokenRef.current = commentAccessToken;
+  }, [commentAccessToken]);
+  const addComment = useActionMutation("add-comment", {
+    headers: () =>
+      commentAccessTokenRef.current
+        ? { [COMMENT_ACCESS_TOKEN_HEADER]: commentAccessTokenRef.current }
+        : undefined,
+    onMutate: async () => {
+      if (getCommentAccessToken) {
+        commentAccessTokenRef.current = await getCommentAccessToken();
+      }
+    },
+  });
 
   useEffect(() => {
     requestAnimationFrame(() => textareaRef.current?.focus());

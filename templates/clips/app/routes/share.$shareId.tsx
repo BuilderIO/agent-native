@@ -1860,6 +1860,14 @@ export default function ShareRoute() {
                     ? (() => {
                         const composer = (
                           <TimestampedCommentBar
+                            commentAccessToken={
+                              recording.commentAccessToken ?? undefined
+                            }
+                            getCommentAccessToken={
+                              recording.commentAccessToken
+                                ? getCommentAccessToken
+                                : undefined
+                            }
                             recordingId={recording.id}
                             atMs={commentAtMs}
                             draft={commentDraft}

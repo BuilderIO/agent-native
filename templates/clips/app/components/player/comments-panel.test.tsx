@@ -272,6 +272,60 @@ describe("CommentsPanel reply composer", () => {
     }
   });
 
+  it("refreshes proof before a fullscreen comment sends", async () => {
+    act(() => root.render(null));
+    actionMocks.realMutations = true;
+    onTestFinished(() => {
+      actionMocks.realMutations = false;
+    });
+    let completeRenewal!: (token: string) => void;
+    const renewal = new Promise<string>((resolve) => {
+      completeRenewal = resolve;
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify({ id: "comment-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    act(() =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TimestampedCommentBar
+            recordingId="recording-1"
+            atMs={12000}
+            draft="Fake fullscreen comment"
+            onClose={vi.fn()}
+            commentAccessToken="fake-expired-proof"
+            getCommentAccessToken={() => renewal}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    const send =
+      container.querySelector<HTMLButtonElement>("button[aria-label]");
+    expect(send).not.toBeNull();
+    await act(async () => {
+      send?.click();
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => {
+      completeRenewal("fake-fresh-proof");
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const init = fetch.mock.calls[0][1] as RequestInit;
+    expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+      "fake-fresh-proof",
+    );
+    expect(JSON.parse(String(init.body))).toEqual({
+      recordingId: "recording-1",
+      content: "Fake fullscreen comment",
+      videoTimestampMs: 12000,
+    });
+  });
+
   it("waits for pending password renewal before cancelling queries or sending a mutation", async () => {
     act(() => root.render(null));
     actionMocks.realMutations = true;
