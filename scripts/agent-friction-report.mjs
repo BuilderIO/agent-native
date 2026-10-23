@@ -711,6 +711,19 @@ const DESIGN_FEEDBACK_REGEX_CASES = [
   [false, "The design needs a little more contrast."],
 ];
 
+const PROMO_ARTWORK_READABILITY_RE =
+  /\b(?:promo(?:tional)?|social(?: media)?|(?:static\s+)?(?:ad|advert(?:isement)?|artwork|creative)|flyer|poster|banner|campaign graphic)\b[^.!?\n]{0,120}\b(?:text|type|font|headline|copy|typography|hierarchy|legibility|readability)\b[^.!?\n]{0,80}\b(?:too small|tiny|unreadable|hard to read|illegible|not legible|poorly readable|poor readability|weak hierarchy|poor hierarchy|bad hierarchy)\b|\b(?:text|type|font|headline|copy|typography|hierarchy|legibility|readability)\b[^.!?\n]{0,80}\b(?:too small|tiny|unreadable|hard to read|illegible|not legible|poorly readable|poor readability|weak hierarchy|poor hierarchy|bad hierarchy)\b[^.!?\n]{0,120}\b(?:promo(?:tional)?|social(?: media)?|(?:static\s+)?(?:ad|advert(?:isement)?|artwork|creative)|flyer|poster|banner|campaign graphic)\b|\b(?:text|type|font|headline|copy|typography|hierarchy|legibility|readability)\b[^.!?\n]{0,80}\b(?:promo(?:tional)?|social(?: media)?|(?:static\s+)?(?:ad|advert(?:isement)?|artwork|creative)|flyer|poster|banner|campaign graphic)\b[^.!?\n]{0,80}\b(?:too small|tiny|unreadable|hard to read|illegible|not legible|poorly readable|poor readability|weak hierarchy|poor hierarchy|bad hierarchy)\b/i;
+const PROMO_ARTWORK_READABILITY_REGEX_CASES = [
+  [true, "The promo artwork headline is too small to read at feed size."],
+  [true, "The social ad has tiny text and weak hierarchy."],
+  [true, "Font sizes on this flyer are illegible in the final export."],
+  [true, "The headline is unreadable in this campaign graphic."],
+  [false, "The settings UI text is too small."],
+  [false, "The Design toolbar has poor hierarchy."],
+  [false, "The promo image export is blurry."],
+  [false, "The promo art looks poor."],
+];
+
 const FEEDBACK_EYES_RE =
   /(?:\b(?:no|not|zero|without|missing)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:put|add|place|react|mark)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:remove|clear|take off)\b[^.!?]{0,80}(?:\beyes?\b|👀)[^.!?]{0,80}\b(?:confiden\w*|sure|fix\w*)\b)/i;
 
@@ -954,13 +967,16 @@ function isOtherProductMergeGate(sentence, gate) {
 
 const PR_REVIEW_LINKED_COMMENT_URL = String.raw`(?:\[\s*)?(?:https?:\/\/)?github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+(?:#(?:issuecomment-\d+|discussion_r\d+|pullrequestreview-\d+)|\/comments\/\d+)`;
 const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+(?:(?:they|the\s+author|the\s+contributor)\s+)?(?:(?:should\s+)?do|to\s+do)(?:\s+next)?|what\s+happens\s+next)`;
-const PR_REVIEW_NO_FEEDBACK_ACTION = String.raw`(?:say|saying|write|writing|use|using|tell|telling|reply|replying|post|posting|send|sending)`;
+const PR_REVIEW_NO_FEEDBACK_ACTION = String.raw`(?:say|saying|write|writing|use|using|tell|telling|reply|replying|post|posting|send|sending|end|ending|close|closing)`;
 const PR_REVIEW_NO_FEEDBACK_BRIDGE = String.raw`(?:\s+(?:with|that|to|as|me|them|someone|anyone|the\s+author|the\s+contributor|saying))?`;
 const PR_REVIEW_NO_FEEDBACK_GAP = String.raw`(?:(?!\b(?:and|but|or|while)\b)[^.!?;\n])`;
 const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as|during)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)(?:\s+(?:comment|reply|response|review|thread))?\b(?!\s+templates?\b)`;
+const PR_REVIEW_DIRECT_REPLY_CONTEXT = String.raw`\b(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)\s+(?:comment|reply|response|review|thread)\b(?!\s+templates?\b)`;
+const PR_REVIEW_AUDIENCE_CONTEXT = String.raw`(?:\b(?:(?:the|a|an|your|our|this|my)\s+)?(?:author|contributor)(?:['’]s)?\s+(?:review\s+)?(?:comment|reply|response|thread)\b|\b(?:comment|reply|response|thread)\s+(?:to|for)\s+(?:the\s+)?(?:author|contributor)\b|\b(?:(?:the|your)\s+)?review\s+thread\b)`;
+const PR_REVIEW_NO_FEEDBACK_CONTEXT = String.raw`(?:${PR_REVIEW_PR_CONTEXT}|${PR_REVIEW_DIRECT_REPLY_CONTEXT}|${PR_REVIEW_AUDIENCE_CONTEXT})`;
 const PR_REVIEW_NO_FEEDBACK_TEXT = String.raw`(?:I\s+have\s+)?no\s+(?:further|more)\s+(?:check\s+)?feedback`;
 const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
-  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_BRIDGE}\s+['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b(?:${PR_REVIEW_NO_FEEDBACK_GAP}{0,80}${PR_REVIEW_PR_CONTEXT}|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_GAP}{0,20}${PR_REVIEW_PR_CONTEXT}${PR_REVIEW_NO_FEEDBACK_GAP}{0,50}\b${PR_REVIEW_NO_FEEDBACK_TEXT}\b)`,
+  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_BRIDGE}\s+['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b(?:${PR_REVIEW_NO_FEEDBACK_GAP}{0,80}${PR_REVIEW_NO_FEEDBACK_CONTEXT}|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_GAP}{0,40}${PR_REVIEW_NO_FEEDBACK_CONTEXT}${PR_REVIEW_NO_FEEDBACK_GAP}{0,50}\b${PR_REVIEW_NO_FEEDBACK_TEXT}\b)`,
   "i",
 );
 const PR_REVIEW_AMBIGUOUS_COMMENT_CORE = String.raw`(?:\b(?:I|you|we)\b[^.!?\n]{0,30}\b(?:should|must|need to)\s+(?:never|not)\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b)`;
@@ -1099,6 +1115,19 @@ const PR_REVIEW_DISPOSITION_REGEX_CASES = [
     "Don't say 'no further feedback' during PR review; tell them what to do next.",
   ],
   [true, "Don't say 'I have no more feedback' on your PR."],
+  [
+    true,
+    "Don't end the PR reply with 'no further feedback'; say what they should do next.",
+  ],
+  [
+    true,
+    "Don't close the reply to the contributor with 'no further feedback'.",
+  ],
+  [
+    true,
+    "Don't close the review thread with 'no further feedback'; tell the author what to do next.",
+  ],
+  [false, "Don't close the Slack thread with 'no further feedback'."],
   [
     false,
     "Don't reply on the PR thread; the implementation has no further feedback.",
@@ -3855,6 +3884,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...PROMO_ARTWORK_READABILITY_REGEX_CASES.filter(
+      ([expected, message]) =>
+        PROMO_ARTWORK_READABILITY_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...FEEDBACK_EYES_REGEX_CASES.filter(
       ([expected, message]) => FEEDBACK_EYES_RE.test(message) !== expected,
     ),
@@ -3913,7 +3948,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + PROMO_ARTWORK_READABILITY_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -4310,6 +4345,14 @@ const PATTERNS = [
     fixedBy:
       "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
     re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
+  },
+  {
+    key: "promo-artwork-readability",
+    label:
+      "Had to ask for promo artwork text/hierarchy readable at delivery size",
+    fixedBy:
+      "templates/design/.agents/skills/design-generation (conditional fixed-canvas typography and intended-display-scale check; added 2026-10-23; first measurement 0 in the prior 2 weeks, with no earlier trend baseline)",
+    re: PROMO_ARTWORK_READABILITY_RE,
   },
   {
     key: "starter-patch-drift",

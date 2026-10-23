@@ -31,10 +31,11 @@ import {
 // success should finish this card's setup; a connection made long after the
 // cancel belongs to something else.
 const CANCELLED_SETUP_RECOVERY_MS = 60_000;
+// The custom-keys form finishes in another tab with no signal back, so a
+// status read on leaving or returning credits it only this long after it was
+// opened; storage set up later belongs to something else.
+const CUSTOM_KEYS_CREDIT_WINDOW_MS = 15 * 60_000;
 
-// The S3 path finishes in settings, outside this card, so only the choice is
-// recorded here; a later `recording_started.storage_connected` shows whether
-// it landed.
 function trackStorageStep(
   name:
     | "onboarding_step_viewed"
@@ -66,6 +67,8 @@ export interface StorageSetupCardProps {
    */
   recordingAttemptId?: string;
   outputId?: string;
+  /** Why the host is showing the card, recorded on every step event. */
+  setupReason?: string;
 }
 
 export function StorageSetupCard({
@@ -79,6 +82,7 @@ export function StorageSetupCard({
   connectFlow = "file_upload",
   recordingAttemptId,
   outputId,
+  setupReason,
 }: StorageSetupCardProps) {
   const t = useT();
   const storageSetupHref = useStorageSetupHref();
@@ -100,6 +104,9 @@ export function StorageSetupCard({
   const connectRequestedRef = useRef(false);
   const connectIntentExpiresAtRef = useRef<number | null>(null);
   const [stepViewId] = useState(createOnboardingCorrelationId);
+  // Fixed for the showing: the host's status can change while the card is up,
+  // and every event under one step_view_id must agree on why it showed.
+  const [viewSetupReason] = useState(setupReason);
   const stepProperties = useMemo(
     () => ({
       flow: connectSource,
@@ -108,8 +115,69 @@ export function StorageSetupCard({
         ? { recording_attempt_id: recordingAttemptId }
         : {}),
       ...(outputId ? { output_id: outputId } : {}),
+      ...(viewSetupReason ? { setup_reason: viewSetupReason } : {}),
     }),
-    [connectSource, stepViewId, recordingAttemptId, outputId],
+    [connectSource, stepViewId, recordingAttemptId, outputId, viewSetupReason],
+  );
+  const stepPropertiesRef = useRef(stepProperties);
+  stepPropertiesRef.current = stepProperties;
+  const builderHandedOffRef = useRef(false);
+  const skippedRef = useRef(false);
+  const customKeysOpenedAtRef = useRef<number | null>(null);
+  const customKeysOpenedRecently = useCallback(() => {
+    const openedAt = customKeysOpenedAtRef.current;
+    return (
+      openedAt !== null && Date.now() - openedAt <= CUSTOM_KEYS_CREDIT_WINDOW_MS
+    );
+  }, []);
+  const completionTrackedRef = useRef(false);
+  const returnReadInFlightRef = useRef(false);
+  const storageBeforeSetupRef = useRef<Promise<
+    { status: VideoStorageStatus } | { error: unknown }
+  > | null>(null);
+  const readStorageBeforeSetup = useCallback(() => {
+    storageBeforeSetupRef.current ??= fetchVideoStorageStatus({
+      timeoutMs: 10_000,
+    }).then(
+      (status) => ({ status }),
+      (error: unknown) => ({ error }),
+    );
+  }, []);
+
+  // The route hosting this card can unmount it the moment the shared storage
+  // status reads configured, before this card's poll sees it, so the unmount
+  // path below reads the status once more and records through this too.
+  // Only a change to the workspace's own storage completes this step: free
+  // hosted clips also read as configured, and own storage that was already
+  // there at the showing's first setup click was not set up by this card.
+  // The read of storage before setup must start before any setup request
+  // can, since one-request account activation can finish before a read sent
+  // with it.
+  const trackCompletedIfConfigured = useCallback(
+    (status: VideoStorageStatus) => {
+      const before = storageBeforeSetupRef.current;
+      if (status.mode !== "own" || !before || completionTrackedRef.current) {
+        return;
+      }
+      // Claimed before the wait, so reads landing together record once.
+      completionTrackedRef.current = true;
+      void before.then((read) => {
+        if ("error" in read) {
+          console.warn(
+            "[storage-setup] storage before setup could not be read:",
+            read.error,
+          );
+          return;
+        }
+        if (read.status.mode === "own" || skippedRef.current) return;
+        const methodId = status.activeProvider?.id;
+        trackStorageStep("onboarding_step_completed", {
+          ...stepPropertiesRef.current,
+          ...(methodId ? { method_id: methodId } : {}),
+        });
+      });
+    },
+    [],
   );
 
   const clearConfiguredTimeout = useCallback(() => {
@@ -177,10 +245,7 @@ export function StorageSetupCard({
           stop();
           setConnecting(false);
           setConnected(true);
-          trackStorageStep("onboarding_step_completed", {
-            ...stepProperties,
-            method_id: "builder",
-          });
+          trackCompletedIfConfigured(status);
           clearConfiguredTimeout();
           configuredTimeoutRef.current = setTimeout(() => {
             configuredTimeoutRef.current = null;
@@ -211,9 +276,9 @@ export function StorageSetupCard({
   }, [
     clearConfiguredTimeout,
     onConfigured,
-    stepProperties,
     stopVisibilityHandler,
     t,
+    trackCompletedIfConfigured,
   ]);
 
   const handleBuilderConnected = useCallback(() => {
@@ -222,6 +287,7 @@ export function StorageSetupCard({
     connectRequestedRef.current = false;
     connectIntentExpiresAtRef.current = null;
     if (expiresAt !== null && Date.now() > expiresAt) return;
+    builderHandedOffRef.current = true;
     startFileUploadPoll();
   }, [startFileUploadPoll]);
 
@@ -269,6 +335,7 @@ export function StorageSetupCard({
         setStatusIssue("connect-not-allowed");
         return;
       }
+      readStorageBeforeSetup();
       connectRequestedRef.current = true;
       connectIntentExpiresAtRef.current = null;
       setStatusIssue(null);
@@ -281,7 +348,12 @@ export function StorageSetupCard({
         scope: builderConnectionScope,
       });
     },
-    [builderConnectionScope, builderConnect.start, stepProperties],
+    [
+      builderConnectionScope,
+      builderConnect.start,
+      readStorageBeforeSetup,
+      stepProperties,
+    ],
   );
   const handleBuilderCancel = useCallback(() => {
     connectIntentExpiresAtRef.current =
@@ -290,6 +362,7 @@ export function StorageSetupCard({
   }, [builderConnect.cancel]);
   const handleSkip = useCallback(() => {
     clearConfiguredTimeout();
+    skippedRef.current = true;
     trackStorageStep("onboarding_step_skipped", {
       ...stepProperties,
     });
@@ -307,7 +380,40 @@ export function StorageSetupCard({
           )
     : null;
   const builderConnecting = builderConnect.connecting;
+  const builderConnectingRef = useRef(builderConnecting);
+  builderConnectingRef.current = builderConnecting;
   const actionConnecting = connecting || builderConnecting;
+
+  // The custom-keys form opens in another tab, and some routes keep this card
+  // mounted after it saves, so a return to this tab reads the status too.
+  useEffect(() => {
+    const readOnReturn = () => {
+      if (
+        document.hidden ||
+        !customKeysOpenedRecently() ||
+        completionTrackedRef.current ||
+        skippedRef.current ||
+        returnReadInFlightRef.current
+      ) {
+        return;
+      }
+      returnReadInFlightRef.current = true;
+      void fetchVideoStorageStatus({ timeoutMs: 10_000 })
+        .then(trackCompletedIfConfigured)
+        .catch((err) => {
+          console.warn("[storage-setup] completion check failed:", err);
+        })
+        .finally(() => {
+          returnReadInFlightRef.current = false;
+        });
+    };
+    window.addEventListener("focus", readOnReturn);
+    document.addEventListener("visibilitychange", readOnReturn);
+    return () => {
+      window.removeEventListener("focus", readOnReturn);
+      document.removeEventListener("visibilitychange", readOnReturn);
+    };
+  }, [customKeysOpenedRecently, trackCompletedIfConfigured]);
 
   useEffect(() => {
     trackStorageStep("onboarding_step_viewed", {
@@ -319,6 +425,24 @@ export function StorageSetupCard({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      // The route can unmount this card mid-setup: while the connect flow is
+      // still connecting, or after this card accepted the connect but before
+      // its storage poll saw it. After a cancel the flow keeps connecting
+      // through its popup-closed grace, so crediting then relies on that grace
+      // staying shorter than CANCELLED_SETUP_RECOVERY_MS.
+      const setupPending =
+        !completionTrackedRef.current &&
+        !skippedRef.current &&
+        (builderHandedOffRef.current ||
+          builderConnectingRef.current ||
+          customKeysOpenedRecently());
+      if (setupPending) {
+        void fetchVideoStorageStatus({ timeoutMs: 10_000 })
+          .then(trackCompletedIfConfigured)
+          .catch((err) => {
+            console.warn("[storage-setup] completion check failed:", err);
+          });
+      }
       clearConfiguredTimeout();
       if (pollRef.current) {
         clearInterval(pollRef.current);
@@ -326,7 +450,12 @@ export function StorageSetupCard({
       }
       stopVisibilityHandler();
     };
-  }, [clearConfiguredTimeout, stopVisibilityHandler]);
+  }, [
+    clearConfiguredTimeout,
+    customKeysOpenedRecently,
+    stopVisibilityHandler,
+    trackCompletedIfConfigured,
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
@@ -357,6 +486,7 @@ export function StorageSetupCard({
             cancel: undefined,
           }}
           onConnect={handleBuilderConnect}
+          onTriggerClick={readStorageBeforeSetup}
         >
           <Button
             type="button"
@@ -379,12 +509,14 @@ export function StorageSetupCard({
                 href={storageSetupHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() =>
+                onClick={() => {
+                  readStorageBeforeSetup();
+                  customKeysOpenedAtRef.current = Date.now();
                   trackStorageStep("onboarding_method_clicked", {
                     ...stepProperties,
                     method_id: "s3",
-                  })
-                }
+                  });
+                }}
               >
                 {t("storageSetup.customKeys")}
               </a>
