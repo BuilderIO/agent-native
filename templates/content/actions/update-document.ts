@@ -1262,7 +1262,7 @@ const updateDocumentAction = defineAction({
           }
           if (ctx?.caller === "frontend" && content !== undefined) {
             const [page] = await tx
-              .select(liveBodyWriterPageColumns)
+              .select(liveBodyWriterPageColumns())
               .from(schema.documents)
               .where(eq(schema.documents.id, id))
               .limit(1);

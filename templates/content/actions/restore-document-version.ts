@@ -428,6 +428,11 @@ export default defineAction({
         ownerEmail,
         body: true,
       });
+      // Access was checked before the editor flush, which can wait seconds.
+      await assertAccess("document", documentId, "editor", {
+        ...currentAccess(),
+        transaction: getDbExec(),
+      });
       const [current] = await tx
         .select()
         .from(schema.documents)
