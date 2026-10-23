@@ -1,9 +1,17 @@
 // @vitest-environment happy-dom
-import React, { act } from "react";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query";
+import React, { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { useCommentAccessRefresh } from "./use-comment-access-refresh";
+import {
+  useCommentAccessRefresh,
+  useCommentAccessToken,
+} from "./use-comment-access-refresh";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -71,5 +79,88 @@ it("refreshes when an unlocked tab becomes visible after suspension", async () =
   } finally {
     act(() => root.unmount());
     delete (document as any).visibilityState;
+  }
+});
+
+it("reuses a fresh grant and renews one that is stale, refused, or rejected", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const shareFetch = vi.fn(async () =>
+    shareFetch.mock.calls.length < 4
+      ? {
+          ok: true,
+          status: 200,
+          data: {
+            recording: {
+              commentAccessToken: `fake-proof-${shareFetch.mock.calls.length}`,
+            },
+          },
+        }
+      : { ok: false, status: 401, data: { error: "Password required" } },
+  );
+  let getToken!: (refusedToken?: string | null) => Promise<unknown>;
+  let committedToken: unknown;
+  const shareKey = ["public-recording", "fake-share"];
+  function Probe() {
+    const shareQ = useQuery({ queryKey: shareKey, queryFn: shareFetch });
+    getToken = useCommentAccessToken(shareQ, shareKey);
+    const token = shareQ.data?.data?.recording?.commentAccessToken;
+    // Declared after the hook, so it runs once the hook has recorded the grant.
+    useEffect(() => {
+      committedToken = token;
+    }, [token]);
+    return null;
+  }
+  // React Query hands new data to React on its own zero-delay timer, which can
+  // land after any single flush. vi.waitFor would advance the faked Date.
+  const waitForGrant = async (token: string) => {
+    for (let turn = 0; committedToken !== token && turn < 100; turn++) {
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    }
+    expect(committedToken).toBe(token);
+  };
+  const root = createRoot(document.createElement("div"));
+  try {
+    act(() =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      ),
+    );
+    await waitForGrant("fake-proof-1");
+    expect(shareFetch).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(Date.now() + 299_000);
+    await expect(getToken()).resolves.toBe("fake-proof-1");
+    expect(shareFetch).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(Date.now() + 1_000);
+    await act(async () => {
+      await expect(getToken()).resolves.toBe("fake-proof-2");
+    });
+    await waitForGrant("fake-proof-2");
+    expect(shareFetch).toHaveBeenCalledTimes(2);
+    await expect(getToken()).resolves.toBe("fake-proof-2");
+    expect(shareFetch).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await expect(getToken("fake-proof-2")).resolves.toBe("fake-proof-3");
+    });
+    await waitForGrant("fake-proof-3");
+    expect(shareFetch).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      await expect(getToken("fake-proof-3")).rejects.toThrow(
+        "Password required",
+      );
+    });
+    expect(shareFetch).toHaveBeenCalledTimes(4);
+  } finally {
+    act(() => root.unmount());
+    queryClient.clear();
   }
 });

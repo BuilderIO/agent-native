@@ -42,7 +42,9 @@ export function TimestampedCommentButton({
 
 interface TimestampedCommentBarProps {
   commentAccessToken?: string;
-  getCommentAccessToken?: () => Promise<string | null | undefined>;
+  getCommentAccessToken?: (
+    refusedToken?: string | null,
+  ) => Promise<string | null | undefined>;
   recordingId: string;
   atMs: number;
   onClose: () => void;
@@ -76,6 +78,11 @@ export function TimestampedCommentBar({
   useEffect(() => {
     commentAccessTokenRef.current = commentAccessToken;
   }, [commentAccessToken]);
+  const refusedCommentAccessTokenRef = useRef<string | null | undefined>(
+    undefined,
+  );
+  // Toasts do not paint over real fullscreen, so failure shows in the bar.
+  const [failed, setFailed] = useState(false);
   const addComment = useActionMutation("add-comment", {
     headers: () =>
       commentAccessTokenRef.current
@@ -83,8 +90,14 @@ export function TimestampedCommentBar({
         : undefined,
     onMutate: async () => {
       if (getCommentAccessToken) {
-        commentAccessTokenRef.current = await getCommentAccessToken();
+        commentAccessTokenRef.current = await getCommentAccessToken(
+          refusedCommentAccessTokenRef.current,
+        );
       }
+    },
+    onError: () => {
+      refusedCommentAccessTokenRef.current = commentAccessTokenRef.current;
+      setFailed(true);
     },
   });
 
@@ -95,6 +108,7 @@ export function TimestampedCommentBar({
   const submit = () => {
     const content = draft.trim();
     if (!content) return;
+    setFailed(false);
     addComment.mutate(
       { recordingId, content, videoTimestampMs: atMs },
       {
@@ -116,7 +130,10 @@ export function TimestampedCommentBar({
         <Textarea
           ref={textareaRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setFailed(false);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
@@ -132,6 +149,11 @@ export function TimestampedCommentBar({
           aria-label={t("commentsPanel.composerPlaceholder")}
           className="min-h-9 max-h-[40vh] resize-none border-0 bg-transparent px-2 py-1.5 text-base leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-sm"
         />
+        {failed ? (
+          <p role="alert" className="px-2 pb-1 text-[11px] text-destructive">
+            {t("notificationsRoute.sendFailed")}
+          </p>
+        ) : null}
         <div className="mt-1 flex items-center justify-between border-t border-border px-1 pt-1.5">
           <span className="ps-1 text-[11px] text-muted-foreground">
             {t("commentsPanel.commentAt")}{" "}

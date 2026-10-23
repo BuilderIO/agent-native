@@ -104,6 +104,13 @@ type EditState = {
   authoritativeToken?: number;
 };
 
+type SentDraft = {
+  value: string;
+  mentions: MentionEntry[];
+  atMs: number;
+  replyTo: Comment | null;
+};
+
 const defaultLens: CommentsLens = {
   selectComments: (data) =>
     (data as { comments?: Comment[] } | undefined)?.comments,
@@ -185,7 +192,9 @@ function updateReactionUsers(
 export interface CommentsPanelProps {
   recordingId: string;
   commentAccessToken?: string;
-  getCommentAccessToken?: () => Promise<string | null | undefined>;
+  getCommentAccessToken?: (
+    refusedToken?: string | null,
+  ) => Promise<string | null | undefined>;
   comments: Comment[];
   currentMs: number;
   getCurrentMs?: () => number;
@@ -224,15 +233,22 @@ export function CommentsPanel(props: CommentsPanelProps) {
   useEffect(() => {
     commentAccessTokenRef.current = props.commentAccessToken;
   }, [props.commentAccessToken]);
+  const refusedCommentAccessTokenRef = useRef<string | null | undefined>(
+    undefined,
+  );
   const commentHeaders = () =>
     commentAccessTokenRef.current
       ? { [COMMENT_ACCESS_TOKEN_HEADER]: commentAccessTokenRef.current }
       : undefined;
+  const refuseCommentAccess = () => {
+    refusedCommentAccessTokenRef.current = commentAccessTokenRef.current;
+  };
   const isSignedIn = !!currentUserEmail;
   const isSharePresentation = presentation === "share";
   const isInlinePresentation = presentation === "inline";
   const isConversationPresentation =
     isSharePresentation || isInlinePresentation;
+  const t = useT();
   const formatters = useFormatters();
   const [draft, setDraft] = useState("");
   // A comment belongs to the frame on screen when typing starts, not when it
@@ -252,6 +268,21 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [editMentions, setEditMentions] = useState<MentionEntry[]>([]);
+  // Composers clear on send, so a failed add needs what was sent to put back.
+  const sentDraftsRef = useRef(new WeakMap<object, SentDraft>());
+  const composerDraftsRef = useRef({
+    comment: draft,
+    reply: replyDraft,
+    replyTo,
+  });
+  useEffect(() => {
+    composerDraftsRef.current = { comment: draft, reply: replyDraft, replyTo };
+  }, [draft, replyDraft, replyTo]);
+  const [sendFailed, setSendFailed] = useState<"comment" | "reply" | null>(
+    null,
+  );
+  const clearSendFailed = (composer: "comment" | "reply") =>
+    setSendFailed((failed) => (failed === composer ? null : failed));
   const replyComposerRef = useRef<HTMLTextAreaElement>(null);
   const { data: mentionMembers = [] } = useMentionMembers(
     recordingId,
@@ -280,13 +311,33 @@ export function CommentsPanel(props: CommentsPanelProps) {
     });
   };
 
+  // A renewal refetches this query, so queries are cancelled only after it
+  // settles, and its response can replace the optimistic change: `show` runs
+  // again afterward and must be idempotent.
+  const prepareCommentWrite = async (show: () => void, undo: () => void) => {
+    if (props.getCommentAccessToken) {
+      const proof = props.getCommentAccessToken(
+        refusedCommentAccessTokenRef.current,
+      );
+      show();
+      try {
+        commentAccessTokenRef.current = await proof;
+      } catch (error) {
+        undo();
+        throw error;
+      }
+    }
+    await queryClient.cancelQueries({ queryKey });
+    show();
+  };
+
   const reconcileReactionMutation = (
-    ctx: CommentsMutationContext,
+    ctx: CommentsMutationContext | undefined,
     serverUsers?: string[],
     succeeded = false,
   ) => {
     if (
-      !ctx.reactionKey ||
+      !ctx?.reactionKey ||
       !ctx.operationToken ||
       !ctx.commentId ||
       !ctx.emoji
@@ -339,7 +390,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
   };
 
   const reconcileEditMutation = (
-    ctx: CommentsMutationContext,
+    ctx: CommentsMutationContext | undefined,
     data?: {
       id?: string;
       content?: string;
@@ -348,7 +399,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     },
     succeeded = false,
   ) => {
-    if (!ctx.commentId || !ctx.operationToken) return;
+    if (!ctx?.commentId || !ctx.operationToken) return;
     const state = editStatesRef.current.get(ctx.commentId);
     if (!state) return;
 
@@ -416,13 +467,32 @@ export function CommentsPanel(props: CommentsPanelProps) {
     }
   };
 
+  // Text typed, or a reply opened on another comment, since the send wins over
+  // the failed draft.
+  const restoreSentDraft = (vars: object) => {
+    const sent = sentDraftsRef.current.get(vars);
+    if (!sent) return;
+    const composer = sent.replyTo ? "reply" : "comment";
+    setSendFailed(composer);
+    const live = composerDraftsRef.current;
+    const replyingElsewhere =
+      sent.replyTo && live.replyTo && live.replyTo.id !== sent.replyTo.id;
+    if (live[composer].trim() || replyingElsewhere) return;
+    live[composer] = sent.value;
+    if (sent.replyTo) {
+      setReplyTo(sent.replyTo);
+      setReplyDraft(sent.value);
+      setReplyMentions(sent.mentions);
+    } else {
+      setDraft(sent.value);
+      setDraftAtMs(sent.atMs);
+      setDraftMentions(sent.mentions);
+    }
+  };
+
   const addComment = useActionMutation("add-comment", {
     headers: commentHeaders,
     onMutate: async (vars: any) => {
-      if (props.getCommentAccessToken) {
-        commentAccessTokenRef.current = await props.getCommentAccessToken();
-      }
-      await queryClient.cancelQueries({ queryKey });
       const tempId = makeTempId();
       const now = new Date().toISOString();
       const optimistic: Comment = {
@@ -438,11 +508,22 @@ export function CommentsPanel(props: CommentsPanelProps) {
         createdAt: now,
         updatedAt: now,
       };
-      patchComments((list) => [...list, optimistic]);
-      return { type: "add", tempId } satisfies CommentsMutationContext;
+      const context = { type: "add", tempId } satisfies CommentsMutationContext;
+      await prepareCommentWrite(
+        () =>
+          patchComments((list) =>
+            list.some((comment) => comment.id === tempId)
+              ? list
+              : [...list, optimistic],
+          ),
+        () => rollbackComments(context),
+      );
+      return context;
     },
-    onError: (_err, _vars, ctx: any) => {
+    onError: (_err, vars: any, ctx: any) => {
+      refuseCommentAccess();
       rollbackComments(ctx);
+      restoreSentDraft(vars);
     },
     onSuccess: (data: any, _vars, ctx: any) => {
       if (!ctx?.tempId || !data?.id) return;
@@ -459,12 +540,12 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const reactToComment = useActionMutation("react-to-comment", {
     headers: commentHeaders,
     onMutate: async (vars: any) => {
-      if (props.getCommentAccessToken) {
-        commentAccessTokenRef.current = await props.getCommentAccessToken();
-      }
-      await queryClient.cancelQueries({ queryKey });
       const currentUser = currentUserEmail;
       if (!currentUser) {
+        await prepareCommentWrite(
+          () => {},
+          () => {},
+        );
         return {
           type: "reaction",
           commentId: vars.commentId,
@@ -496,29 +577,35 @@ export function CommentsPanel(props: CommentsPanelProps) {
         })();
       state.latestToken = operationToken;
       state.pending.set(operationToken, { optimisticUsers });
-      patchComments((commentList) =>
-        commentList.map((comment) =>
-          comment.id === vars.commentId
-            ? {
-                ...comment,
-                emojiReactionsJson: updateReactionUsers(
-                  comment.emojiReactionsJson,
-                  vars.emoji,
-                  optimisticUsers,
-                ),
-              }
-            : comment,
-        ),
-      );
-      return {
+      const context = {
         type: "reaction",
         commentId: vars.commentId,
         emoji: vars.emoji,
         reactionKey,
         operationToken,
       } satisfies CommentsMutationContext;
+      await prepareCommentWrite(
+        () =>
+          patchComments((commentList) =>
+            commentList.map((comment) =>
+              comment.id === vars.commentId
+                ? {
+                    ...comment,
+                    emojiReactionsJson: updateReactionUsers(
+                      comment.emojiReactionsJson,
+                      vars.emoji,
+                      optimisticUsers,
+                    ),
+                  }
+                : comment,
+            ),
+          ),
+        () => reconcileReactionMutation(context, undefined, false),
+      );
+      return context;
     },
     onError: (_err, _vars, ctx: any) => {
+      refuseCommentAccess();
       reconcileReactionMutation(ctx, undefined, false);
     },
     onSuccess: (data: any, _vars: any, ctx: any) => {
@@ -536,25 +623,25 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const remove = useActionMutation("delete-comment", {
     headers: commentHeaders,
     onMutate: async (vars: any) => {
-      if (props.getCommentAccessToken) {
-        commentAccessTokenRef.current = await props.getCommentAccessToken();
-      }
-      await queryClient.cancelQueries({ queryKey });
       const current = visibleCommentsRef.current;
       const target = current.find((comment) => comment.id === vars.id);
       const removedIds = target
         ? collectCommentSubtreeIds(current, target.id)
         : new Set<string>();
       const removed = current.filter((comment) => removedIds.has(comment.id));
-      patchComments((list) => {
-        return list.filter((comment) => !removedIds.has(comment.id));
-      });
+      const withoutRemoved = (list: Comment[]) =>
+        list.filter((comment) => !removedIds.has(comment.id));
+      await prepareCommentWrite(
+        () => patchComments(withoutRemoved),
+        () => patchComments((list) => [...withoutRemoved(list), ...removed]),
+      );
       return {
         type: "remove",
         removed,
       } satisfies CommentsMutationContext;
     },
     onError: (_err, _vars, ctx: any) => {
+      refuseCommentAccess();
       rollbackComments(ctx);
     },
     onSuccess: (data: any, _vars: any, ctx: any) => {
@@ -575,10 +662,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const updateComment = useActionMutation("update-comment", {
     headers: commentHeaders,
     onMutate: async (vars: any) => {
-      if (props.getCommentAccessToken) {
-        commentAccessTokenRef.current = await props.getCommentAccessToken();
-      }
-      await queryClient.cancelQueries({ queryKey });
       const updatedAt = new Date().toISOString();
       const current = visibleCommentsRef.current.find(
         (comment) => comment.id === vars.id,
@@ -607,27 +690,33 @@ export function CommentsPanel(props: CommentsPanelProps) {
           updatedAt,
         });
       }
-      patchComments((list) =>
-        list.map((comment) =>
-          comment.id === vars.id
-            ? {
-                ...comment,
-                content: vars.content,
-                ...(vars.mentions === undefined
-                  ? {}
-                  : { mentions: displayCommentMentions(vars.mentions) }),
-                updatedAt,
-              }
-            : comment,
-        ),
-      );
-      return {
+      const context = {
         type: "update",
         commentId: vars.id,
         operationToken,
       } satisfies CommentsMutationContext;
+      await prepareCommentWrite(
+        () =>
+          patchComments((list) =>
+            list.map((comment) =>
+              comment.id === vars.id
+                ? {
+                    ...comment,
+                    content: vars.content,
+                    ...(vars.mentions === undefined
+                      ? {}
+                      : { mentions: displayCommentMentions(vars.mentions) }),
+                    updatedAt,
+                  }
+                : comment,
+            ),
+          ),
+        () => reconcileEditMutation(context, undefined, false),
+      );
+      return context;
     },
     onError: (_err, vars: any, ctx: any) => {
+      refuseCommentAccess();
       reconcileEditMutation(ctx, undefined, false);
       setEditingId(vars.id);
       setEditDraft(vars.content);
@@ -691,14 +780,22 @@ export function CommentsPanel(props: CommentsPanelProps) {
           ...mentionArgs(value, draftMentions),
           ...(currentUserName ? { authorName: currentUserName } : {}),
         };
+    sentDraftsRef.current.set(vars, {
+      value,
+      mentions: target ? replyMentions : draftMentions,
+      atMs: vars.videoTimestampMs,
+      replyTo: target,
+    });
     if (target) {
       setReplyDraft("");
       setReplyMentions([]);
       setReplyTo(null);
+      clearSendFailed("reply");
     } else {
       setDraft("");
       setDraftAtMs(null);
       setDraftMentions([]);
+      clearSendFailed("comment");
     }
     addComment.mutate(vars);
   }
@@ -752,27 +849,43 @@ export function CommentsPanel(props: CommentsPanelProps) {
     if (!value.trim()) setDraftAtMs(null);
     else if (draftAtMs === null) setDraftAtMs(getCurrentMs?.() ?? currentMs);
     setDraft(value);
+    clearSendFailed("comment");
   }
 
+  const sendFailedAlert = (
+    <p
+      role="alert"
+      className={cn(
+        "text-[11px] text-destructive",
+        isConversationPresentation ? "px-1 pt-1.5" : "px-4 pb-3",
+      )}
+    >
+      {t("notificationsRoute.sendFailed")}
+    </p>
+  );
+
   const composer = (
-    <CommentComposer
-      draft={draft}
-      currentMs={draftAtMs ?? currentMs}
-      currentUserEmail={currentUserEmail}
-      currentUserName={currentUserName}
-      isSignedIn={isSignedIn}
-      isConversationPresentation={isConversationPresentation}
-      isInlinePresentation={isInlinePresentation}
-      enableComments={enableComments}
-      canComment={canComment}
-      onDraftChange={changeDraft}
-      onMentionAdd={(mention) =>
-        setDraftMentions((current) => upsertMention(current, mention))
-      }
-      members={mentionMembers}
-      onSubmit={() => submitDraft(draft, null)}
-      onUnauthenticated={onUnauthenticated}
-    />
+    <>
+      <CommentComposer
+        draft={draft}
+        currentMs={draftAtMs ?? currentMs}
+        currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
+        isSignedIn={isSignedIn}
+        isConversationPresentation={isConversationPresentation}
+        isInlinePresentation={isInlinePresentation}
+        enableComments={enableComments}
+        canComment={canComment}
+        onDraftChange={changeDraft}
+        onMentionAdd={(mention) =>
+          setDraftMentions((current) => upsertMention(current, mention))
+        }
+        members={mentionMembers}
+        onSubmit={() => submitDraft(draft, null)}
+        onUnauthenticated={onUnauthenticated}
+      />
+      {sendFailed === "comment" ? sendFailedAlert : null}
+    </>
   );
 
   const renderCommentNode = (
@@ -822,7 +935,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
               textareaRef={replyComposerRef}
               currentUserEmail={currentUserEmail}
               currentUserName={currentUserName}
-              onDraftChange={setReplyDraft}
+              onDraftChange={(value) => {
+                setReplyDraft(value);
+                clearSendFailed("reply");
+              }}
               onMentionAdd={(mention) =>
                 setReplyMentions((current) => upsertMention(current, mention))
               }
@@ -831,9 +947,11 @@ export function CommentsPanel(props: CommentsPanelProps) {
                 setReplyDraft("");
                 setReplyMentions([]);
                 setReplyTo(null);
+                clearSendFailed("reply");
               }}
               onSubmit={() => submitDraft(replyDraft, replyTo)}
             />
+            {sendFailed === "reply" ? sendFailedAlert : null}
           </div>
         ) : null}
         {node.children.length > 0 ? (
