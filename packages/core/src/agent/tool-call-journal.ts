@@ -38,6 +38,8 @@ export interface ToolCallJournalEntry {
   argumentsHash?: string;
   /** The call settled with an outcome it could not confirm. */
   outcomeUnknown?: true;
+  /** What such a call returned, kept apart from a completed call's `result`. */
+  unknownResult?: string;
   artifacts?: ArtifactReceipt[];
   fileMutation?: AgentFileMutationProof;
   mcpApp?: AgentMcpAppPayload;
@@ -477,6 +479,7 @@ export function classifyToolCallJournal(
       if (entry) {
         if (event.outcomeUnknown === true) {
           entry.outcomeUnknown = true;
+          if (event.result) entry.unknownResult = event.result;
           if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
           queue!.push(entry);
           continue;
