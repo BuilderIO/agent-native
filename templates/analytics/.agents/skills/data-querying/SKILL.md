@@ -23,7 +23,7 @@ For a question about something an owner-defined dbt metric measures, even withou
 
 Use `tool-search` to load `query-dbt-semantic-metric` for a matched metric and pass its exact name. Use dbt as the definition and grain source; Sigma and Amplitude are examples or cross-checks.
 
-Pass a listed `connectionId` on `connection_selection_required`. Call `get-dbt-connection` only on `connection_error`, `connection_unavailable`, or a connection-required error, and report its actual readiness or error, keeping unknown distinct from disconnected. Any result that carries `queryId` and `nextPage` is resumable: call again with only its `metricName`, `queryId`, and `nextPage`, with no query scope. Resume it before other handling, whether it is `pending`, a truncated `success`, or an error status that carries them. Handle the other statuses:
+Pass a listed `connectionId` on `connection_selection_required`. Call `get-dbt-connection` only on `connection_error`, `connection_unavailable`, or a connection-required error, and report its actual readiness or error, keeping unknown distinct from disconnected. Any result that carries `queryId` and `nextPage` is resumable: call again with only its `metricName`, `queryId`, and `nextPage`, with no query scope. Resume it before other handling when it is `pending`, a truncated `success`, or a recoverable error. `permission_denied` and `deployment_not_ready` are reported as returned, never resumed. Handle the other statuses:
 
 - `success`: answer from its rows. If `truncated` is true, say the figures are partial and resume with `queryId` and `nextPage` when `nextPage` is present.
 - `pending`: resume as above. Do not resend the original `groupBy`, filters, or grain.

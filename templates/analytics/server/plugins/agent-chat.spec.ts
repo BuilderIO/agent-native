@@ -699,7 +699,7 @@ describe("Analytics agent Plan mode policy", () => {
       "stop at the mapping gap for this metric; do not fall through to steps 1–3.",
     );
     expect(ruleText("references")).toContain(
-      "only dbt metric routing (its exact-name lookup and recovery) searches again",
+      "only dbt routing searches again",
     );
     expect(dataQueryingSkill).toContain(
       "search `find-data` for the exact name once and retry the query",
@@ -713,9 +713,6 @@ describe("Analytics agent Plan mode policy", () => {
     );
     expect(dataQueryingSkill).toContain(
       "resume with `queryId` and `nextPage` when `nextPage` is present",
-    );
-    expect(readMarkdown("../../actions/bigquery.ts")).toContain(
-      "For an owner-defined dbt metric question, even unnamed, follow the dbt path in `data-querying/SKILL.md` first.",
     );
   });
 

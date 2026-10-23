@@ -590,3 +590,11 @@ WHERE o.a IS DISTINCT FROM u.b`,
     });
   });
 });
+
+describe("bigquery dbt routing", () => {
+  it("defers owner-defined dbt metric questions to the dbt path before warehouse SQL", () => {
+    expect(bigquery.description).toContain(
+      "For owner-defined dbt metric questions, follow `data-querying/SKILL.md` first; if it finds no exact name, stop at the mapping gap",
+    );
+  });
+});
