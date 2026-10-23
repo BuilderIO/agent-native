@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import { createMotionNativeStyleIdentity } from "./motion-native-style-identity";
 import {
   formatCurveAxisValue,
   formatMotionRulerTick,
@@ -1551,6 +1552,46 @@ describe("MotionDock — timeline body anatomy", () => {
       "false",
       "true",
     ]);
+  });
+
+  it("synchronizes timeline selection for two styles on one layer", async () => {
+    const scaleStyle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+      props: { type: "scaleIn", delay: 0 },
+    };
+    const nativeStyles = [sampleNativeStyle, scaleStyle];
+    const onNativeStyleSelectionChange = vi.fn();
+
+    await renderInteractive({ nativeStyles, onNativeStyleSelectionChange });
+
+    const positionRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Position"]',
+    )!;
+    const scaleRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Scale"]',
+    )!;
+    expect(positionRow.getAttribute("aria-selected")).toBe("false");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("true");
+
+    await act(async () => {
+      positionRow
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    expect(positionRow.getAttribute("aria-selected")).toBe("true");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("false");
+    expect(onNativeStyleSelectionChange).toHaveBeenCalledWith(
+      createMotionNativeStyleIdentity(sampleNativeStyle, 0),
+    );
+
+    await renderInteractive({
+      nativeStyles,
+      selectedNativeStyle: createMotionNativeStyleIdentity(scaleStyle, 1),
+    });
+    expect(positionRow.getAttribute("aria-selected")).toBe("false");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("true");
   });
 
   it("shows native style visibility/removal actions and preserves source props", async () => {

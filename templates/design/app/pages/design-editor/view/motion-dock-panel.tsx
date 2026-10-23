@@ -64,6 +64,8 @@ export function renderMotionDockPanel({
     motionSelectedTarget,
     motionNativeStyles,
     setMotionNativeStyles,
+    motionNativeStyleSelection,
+    setMotionNativeStyleSelection,
     motionAudioClips,
     motionEasingVariables,
     setMotionEasingVariables,
@@ -155,6 +157,8 @@ export function renderMotionDockPanel({
             motionTracks,
           )}
           nativeStyles={motionNativeStyles}
+          selectedNativeStyle={motionNativeStyleSelection}
+          onNativeStyleSelectionChange={setMotionNativeStyleSelection}
           audioClips={motionAudioClips}
           onAudioClipsChange={
             canWriteMotion ? handleMotionAudioClipsChange : undefined

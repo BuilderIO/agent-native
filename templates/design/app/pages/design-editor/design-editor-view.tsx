@@ -56,7 +56,7 @@ import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls"
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
-import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
+import type { MotionNativeStyleIdentity } from "@/components/design/motion-native-style-identity";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
@@ -384,6 +384,8 @@ export function renderDesignEditorView({
     motionTracks,
     motionNativeStyles,
     setMotionNativeStyles,
+    motionNativeStyleSelection,
+    setMotionNativeStyleSelection,
     motionEasingVariables,
     setMotionEasingVariables,
     motionAnimationStyles,
@@ -1780,6 +1782,8 @@ export function renderDesignEditorView({
           }
         : undefined,
     motionNativeStyles,
+    selectedMotionNativeStyle: motionNativeStyleSelection,
+    onSelectMotionNativeStyle: setMotionNativeStyleSelection,
     motionEasingVariables,
     onMotionEasingVariablesChange:
       canEditActiveVisualScreen && canWriteMotion

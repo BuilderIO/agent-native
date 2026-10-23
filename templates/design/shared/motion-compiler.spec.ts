@@ -1,3 +1,4 @@
+import postcss from "postcss";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -306,6 +307,28 @@ describe("compile — property is emitted safely", () => {
 });
 
 describe("parse — managed style fallback", () => {
+  it("inherits target timing for keyframes without local easing declarations", () => {
+    const timeline = makeTimeline("opacity");
+    const ease = "cubic-bezier(0.2, 0, 0, 1)";
+    timeline.defaultEase = ease;
+
+    const root = postcss.parse(compile(timeline).css);
+    root.walkAtRules("keyframes", (keyframes) => {
+      keyframes.walkDecls("animation-timing-function", (declaration) => {
+        declaration.remove();
+      });
+    });
+
+    expect(parse(root.toString())).toMatchObject([
+      {
+        keyframes: [
+          { t: 0, value: "0", ease },
+          { t: 1, value: "1", ease },
+        ],
+      },
+    ]);
+  });
+
   it("round-trips a one-keyframe track through managed CSS", () => {
     const timeline = makeTimeline("opacity");
     timeline.tracks[0]!.keyframes = [{ t: 0, value: "0.5", ease: "linear" }];
@@ -881,11 +904,53 @@ describe("compile — normalized SVG Path trim", () => {
     expect(parse(css)[0]?.keyframes).toEqual(timeline.tracks[0]!.keyframes);
   });
 
+  it("accepts Path keyframes that inherit the animation-level easing", () => {
+    const timeline = makeTimeline("path-trim");
+    timeline.tracks[0]!.keyframes = [
+      { t: 0, value: "0% 100%" },
+      { t: 1, value: "50% 75%" },
+    ];
+    const css = compile(timeline).css.replace(
+      /^\s*animation-timing-function:[^;]+;\s*$/gm,
+      "",
+    );
+
+    expect(parse(css)[0]?.keyframes.map(({ t, value }) => [t, value])).toEqual(
+      timeline.tracks[0]!.keyframes.map(({ t, value }) => [t, value]),
+    );
+  });
+
   it("rejects malformed semantic trim values", () => {
     const timeline = makeTimeline("path-trim");
     timeline.tracks[0]!.keyframes[1]!.value = "101% 0%";
     expect(() => compile(timeline)).toThrow(/percentages between 0 and 100/);
   });
+
+  it.each([
+    [
+      "stroke-dasharray",
+      "stroke-dasharray: 20 80;",
+      "stroke-dasharray: 21 79;",
+    ],
+    [
+      "stroke-dashoffset",
+      "stroke-dashoffset: -100;",
+      "stroke-dashoffset: -99;",
+    ],
+  ])(
+    "rejects edits to derived Path %s values",
+    (_property, original, edited) => {
+      const timeline = makeTimeline("path-trim");
+      timeline.tracks[0]!.keyframes[0]!.value = "100% 20%";
+      timeline.tracks[0]!.keyframes[1]!.value = "0% 100%";
+      const css = compile(timeline).css.replace(original, edited);
+
+      expect(css).not.toBe(compile(timeline).css);
+      expect(() => parse(css)).toThrow(
+        /path animation that cannot be read losslessly/,
+      );
+    },
+  );
 });
 
 const MAX_MOTION_TRACKS = 64;

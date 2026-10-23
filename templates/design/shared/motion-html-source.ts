@@ -5,6 +5,7 @@ import {
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { parse as parseJavaScript } from "acorn";
+import * as cssTree from "css-tree";
 import { parse, type ParserError } from "parse5";
 import postcss from "postcss";
 
@@ -26,6 +27,7 @@ import {
   type MotionCodeDocument,
 } from "./motion-code";
 import type { MotionEasingVariable } from "./motion-easing";
+import { motionNativeStylesToTracks } from "./motion-native-style-runtime";
 import {
   applyMotionPathTrimSource,
   MotionPathTrimSourceError,
@@ -44,10 +46,12 @@ import {
   type MotionTextDocument,
 } from "./motion-text-code";
 import {
+  MOTION_PROPERTY_PRESETS,
   MOTION_DEFAULT_PLAYBACK_MODE,
   parseMotionPlaybackMode,
   readTimelinePlaybackMode,
   type MotionPlaybackMode,
+  type MotionTrack,
   type MotionTimeline,
 } from "./motion-timeline";
 
@@ -401,6 +405,10 @@ function assertSafeTargetId(targetNodeId: string): void {
 function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
   const normalized = name.toLowerCase();
   return (
+    normalized === "x-html" ||
+    normalized === "v-html" ||
+    normalized === "ng-bind-html" ||
+    dynamicBoundAttributeName(normalized) === "innerhtml" ||
     ((normalized === "x-data" || normalized === "v-scope") &&
       !isStaticRuntimeScopeData(value)) ||
     isRuntimeLifecycleMutationAttribute(name) ||
@@ -408,6 +416,8 @@ function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
     normalized.startsWith("x-show.") ||
     normalized === "v-show" ||
     normalized.startsWith("v-show.") ||
+    ((normalized === "x-bind" || normalized === "v-bind") &&
+      runtimeObjectBindingHasDynamicValues(value)) ||
     normalized === ":class" ||
     normalized.startsWith(":class.") ||
     normalized === "x-bind:class" ||
@@ -426,6 +436,63 @@ function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
     normalized.startsWith("v-on:") ||
     normalized.startsWith("@")
   );
+}
+
+function runtimeObjectBindingHasDynamicValues(value: string): boolean {
+  const expression = value.trim();
+  if (!expression.startsWith("{") || !expression.endsWith("}")) return true;
+  const entries = splitStaticObjectProperties(expression.slice(1, -1).trim());
+  if (!entries) return true;
+  return entries.some((entry) => {
+    const property =
+      /^(?:([A-Za-z_$][\w$]*)|"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\s*:\s*(.+)$/s.exec(
+        entry,
+      );
+    if (!property) return true;
+    const name = (
+      property[1] ??
+      property[2] ??
+      property[3] ??
+      ""
+    ).toLowerCase();
+    return (
+      ["class", "style", "hidden", "inert", "open"].includes(name) &&
+      !isStaticRuntimeScopeValue(property[4]!.trim())
+    );
+  });
+}
+
+function runtimeObjectBindingMayWriteAttribute(
+  value: string,
+  attributeName: string,
+): boolean {
+  const expression = value.trim();
+  if (!expression.startsWith("{") || !expression.endsWith("}")) return true;
+  const entries = splitStaticObjectProperties(expression.slice(1, -1).trim());
+  if (!entries) return true;
+  return entries.some((entry) => {
+    const property =
+      /^(?:([A-Za-z_$][\w$]*)|"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\s*:\s*(.+)$/s.exec(
+        entry,
+      );
+    if (!property) return true;
+    const name = property[1] ?? property[2] ?? property[3];
+    return name?.toLowerCase() === attributeName.toLowerCase();
+  });
+}
+
+function runtimeObjectBindingHasAnyDynamicAttributes(value: string): boolean {
+  const expression = value.trim();
+  if (!expression.startsWith("{") || !expression.endsWith("}")) return true;
+  const entries = splitStaticObjectProperties(expression.slice(1, -1).trim());
+  if (!entries) return true;
+  return entries.some((entry) => {
+    const property =
+      /^(?:[A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*:\s*(.+)$/s.exec(
+        entry,
+      );
+    return !property || !isStaticRuntimeScopeValue(property[1]!.trim());
+  });
 }
 
 function isRuntimeLifecycleMutationAttribute(name: string): boolean {
@@ -838,10 +905,497 @@ const GENERATED_DESIGN_LIBRARY_SCRIPT_ATTRIBUTES = new Set([
 function writesClasses(name: string, value: string): boolean {
   const normalized = name.toLowerCase();
   return (
-    normalized === "x-bind" ||
+    ((normalized === "x-bind" || normalized === "v-bind") &&
+      runtimeObjectBindingMayWriteAttribute(value, "class")) ||
     dynamicBoundAttributeName(normalized.split(".", 1)[0]!) === "class" ||
     /\bclass(?:List|Name)\b|setAttribute\s*\(\s*["']class["']/.test(value)
   );
+}
+
+function hasRuntimeAffectedInlineCssRule(
+  nodes: readonly HtmlNode[],
+  targetNodeIds: readonly string[],
+  generatedIds: Map<number | undefined, string>,
+  motionPropertiesByTarget: ReadonlyMap<string, ReadonlySet<string>>,
+): boolean {
+  for (const node of nodes) {
+    if (
+      node.tagName !== "style" ||
+      node.insideTemplate ||
+      !isPotentialCssStyle(node)
+    ) {
+      continue;
+    }
+
+    try {
+      const stylesheet = cssTree.parse(textContent(node), {
+        context: "stylesheet",
+      });
+      let affected = false;
+      visitCssRules(
+        stylesheet as unknown as CssTreeSelectorNode,
+        false,
+        (rule) => {
+          if (affected) return;
+          const declarations = cssTreeChildren(rule.block).filter(
+            (child) => child.type === "Declaration",
+          );
+          const affectedTargets = targetNodeIds.filter((targetNodeId) => {
+            const targetProperties = motionPropertiesByTarget.get(targetNodeId);
+            return declarations.some((declaration) => {
+              const property = declaration.property
+                ? decodeMotionCssIdentifier(declaration.property).toLowerCase()
+                : undefined;
+              return (
+                property === "all" ||
+                (property !== undefined && targetProperties?.has(property))
+              );
+            });
+          });
+          if (affectedTargets.length === 0) return;
+
+          const selectorList = rule.prelude;
+          for (const selector of cssTreeChildren(selectorList)) {
+            if (selector.type !== "Selector") continue;
+            if (
+              affectedTargets.some((targetNodeId) => {
+                const target = nodes.find((candidate) =>
+                  isMotionTargetNode(
+                    candidate,
+                    new Set([targetNodeId]),
+                    generatedIds,
+                  ),
+                );
+                const canChange = Boolean(
+                  target &&
+                  selectorMayDynamicallyAffectTarget(
+                    selector,
+                    target,
+                    targetNodeId,
+                  ),
+                );
+                return canChange;
+              })
+            ) {
+              affected = true;
+              return;
+            }
+          }
+        },
+      );
+      if (affected) return true;
+    } catch {
+      if (nodes.some(hasRuntimeHtmlMutation)) return true;
+    }
+  }
+
+  return false;
+}
+
+function visitCssRules(
+  node: CssTreeSelectorNode | undefined,
+  insideKeyframes: boolean,
+  visit: (rule: CssTreeSelectorNode) => void,
+): void {
+  if (!node) return;
+  const isKeyframes =
+    node.type === "Atrule" && /^(?:-[\w]+-)?keyframes$/i.test(node.name ?? "");
+  const nestedInKeyframes = insideKeyframes || isKeyframes;
+  if (node.type === "Rule" && !insideKeyframes) visit(node);
+  for (const child of cssTreeChildren(node)) {
+    visitCssRules(child, nestedInKeyframes, visit);
+  }
+  if (node.block) visitCssRules(node.block, nestedInKeyframes, visit);
+}
+
+type CssTreeSelectorNode = {
+  type: string;
+  name?: string;
+  property?: string;
+  children?: { toArray(): CssTreeSelectorNode[] };
+  prelude?: CssTreeSelectorNode;
+  block?: CssTreeSelectorNode;
+};
+
+function cssTreeChildren(
+  node: CssTreeSelectorNode | undefined,
+): CssTreeSelectorNode[] {
+  return node?.children?.toArray() ?? [];
+}
+
+type SelectorMatch = { matches: boolean; dynamic: boolean };
+
+const DYNAMIC_BROWSER_PSEUDO_CLASSES = new Set([
+  "active",
+  "any-link",
+  "autofill",
+  "checked",
+  "default",
+  "defined",
+  "disabled",
+  "enabled",
+  "focus",
+  "focus-visible",
+  "focus-within",
+  "fullscreen",
+  "hover",
+  "indeterminate",
+  "invalid",
+  "link",
+  "modal",
+  "open",
+  "optional",
+  "out-of-range",
+  "paused",
+  "placeholder-shown",
+  "playing",
+  "popover-open",
+  "read-only",
+  "read-write",
+  "required",
+  "target",
+  "user-invalid",
+  "user-valid",
+  "valid",
+  "visited",
+]);
+
+const STRUCTURAL_BROWSER_PSEUDO_CLASSES = new Set([
+  "empty",
+  "first-child",
+  "first-of-type",
+  "last-child",
+  "last-of-type",
+  "nth-child",
+  "nth-last-child",
+  "nth-of-type",
+  "nth-last-of-type",
+  "only-child",
+  "only-of-type",
+]);
+
+function selectorMayDynamicallyAffectTarget(
+  selector: CssTreeSelectorNode,
+  target: HtmlNode,
+  targetNodeId: string,
+): boolean {
+  const compounds: CssTreeSelectorNode[][] = [[]];
+  const combinators: string[] = [];
+  for (const child of cssTreeChildren(selector)) {
+    if (child.type === "Combinator") {
+      combinators.push(child.name ?? " ");
+      compounds.push([]);
+    } else {
+      compounds[compounds.length - 1]!.push(child);
+    }
+  }
+  if (compounds.some((compound) => compound.length === 0)) return false;
+
+  let currentNodes = [target];
+  let dynamic = false;
+  for (let index = compounds.length - 1; index >= 0; index--) {
+    const matches = currentNodes.flatMap((candidate) => {
+      const match = selectorCompoundMatches(
+        candidate,
+        compounds[index]!,
+        targetNodeId,
+      );
+      return match.matches ? [{ candidate, match }] : [];
+    });
+    if (matches.length === 0) return false;
+    dynamic ||= matches.some(({ match }) => match.dynamic);
+    if (index === 0) return dynamic;
+    const combinator = combinators[index - 1] ?? " ";
+    currentNodes = matches.flatMap(({ candidate }) =>
+      selectorRelationCandidates(candidate, combinator),
+    );
+  }
+  return false;
+}
+
+function selectorCompoundMatches(
+  node: HtmlNode,
+  compound: readonly CssTreeSelectorNode[],
+  targetNodeId: string,
+): SelectorMatch {
+  if (node.tagName === "template" && isAlpineStructuralTemplate(node)) {
+    for (const contentNode of descendants(node.content)) {
+      const contentMatch = selectorCompoundMatches(
+        contentNode,
+        compound,
+        targetNodeId,
+      );
+      if (contentMatch.matches) {
+        return { matches: true, dynamic: true };
+      }
+    }
+  }
+
+  let dynamic = false;
+  for (const selector of compound) {
+    if (selector.type === "UniversalSelector") continue;
+    if (selector.type === "PseudoClassSelector") {
+      const pseudoMatch = selectorPseudoMatchesNode(
+        node,
+        selector,
+        targetNodeId,
+      );
+      if (!pseudoMatch.matches) return { matches: false, dynamic: false };
+      dynamic ||= pseudoMatch.dynamic;
+      continue;
+    }
+
+    const simple = parseMotionAuthoredCssSimpleSelector(
+      cssTree.generate(selector as never),
+    );
+    if (!simple) {
+      if (hasRuntimeMutationOnSelectorPath(node)) dynamic = true;
+      continue;
+    }
+    const selectorAttribute =
+      simple.kind === "id"
+        ? "id"
+        : simple.kind === "class"
+          ? "class"
+          : simple.kind === "attribute"
+            ? simple.name
+            : null;
+    const virtualNodeIdMatch =
+      simple.kind === "attribute" &&
+      simple.name === NODE_ID_ATTRIBUTE &&
+      simple.value === targetNodeId;
+    const staticMatch =
+      (virtualNodeIdMatch || matchesHtmlSelector(node, simple)) &&
+      (simple.kind !== "type" || node.tagName?.toLowerCase() === simple.name);
+    const dynamicMatch = Boolean(
+      selectorAttribute &&
+      node.attrs?.some(({ name, value }) =>
+        isDynamicHtmlAttribute(name, selectorAttribute, value),
+      ),
+    );
+    if (!staticMatch && !dynamicMatch)
+      return { matches: false, dynamic: false };
+    dynamic ||= dynamicMatch;
+  }
+  return { matches: true, dynamic };
+}
+
+function selectorPseudoMatchesNode(
+  node: HtmlNode,
+  pseudo: CssTreeSelectorNode,
+  targetNodeId: string,
+): SelectorMatch {
+  const name = pseudo.name?.toLowerCase() ?? "";
+  if (name === "is" || name === "where" || name === "not") {
+    const selectorList = cssTreeChildren(pseudo).find(
+      (child) => child.type === "SelectorList",
+    );
+    if (!selectorList) return { matches: true, dynamic: true };
+
+    const matches = cssTreeChildren(selectorList).map((selector) =>
+      selectorMatchesCandidate(node, selector, targetNodeId),
+    );
+    const anyMatch = matches.some((match) => match.matches);
+    const dynamic = matches.some((match) => match.dynamic);
+    if (dynamic) return { matches: true, dynamic: true };
+    return {
+      matches: name === "not" ? !anyMatch : anyMatch,
+      dynamic: false,
+    };
+  }
+
+  if (STRUCTURAL_BROWSER_PSEUDO_CLASSES.has(name)) {
+    return {
+      matches: true,
+      dynamic:
+        name === "empty"
+          ? hasAlpineContentReplacement(node)
+          : hasAlpineStructuralSibling(node),
+    };
+  }
+  if (DYNAMIC_BROWSER_PSEUDO_CLASSES.has(name)) {
+    return { matches: true, dynamic: true };
+  }
+
+  if (name === "has") {
+    const selectorList = cssTreeChildren(pseudo).find(
+      (child) => child.type === "SelectorList",
+    );
+    const nestedSelectors = selectorList ? cssTreeChildren(selectorList) : [];
+    const hasRelativeCombinator = nestedSelectors.some((selector) =>
+      cssTreeChildren(selector).some((child) => child.type === "Combinator"),
+    );
+    const dynamicNestedMatch = nestedSelectors.some((selector) => {
+      const compound = cssTreeChildren(selector);
+      if (compound.some((child) => child.type === "Combinator")) {
+        return (
+          selectorContainsDynamicPseudoState(selector) ||
+          hasRuntimeMutationInPseudoNeighborhood(node)
+        );
+      }
+      return descendants(node).some(
+        (candidate) =>
+          selectorCompoundMatches(candidate, compound, targetNodeId).dynamic,
+      );
+    });
+    const dynamicSibling =
+      hasRelativeCombinator &&
+      htmlElementSiblings(node).some(
+        (sibling) =>
+          sibling !== node &&
+          (isAlpineStructuralTemplate(sibling) ||
+            hasRuntimeAttributeMutationInSubtree(sibling)),
+      );
+    return {
+      matches: true,
+      dynamic:
+        !selectorList ||
+        dynamicNestedMatch ||
+        dynamicSibling ||
+        hasRuntimeMutationOnSelectorPath(node),
+    };
+  }
+
+  return {
+    matches: true,
+    dynamic:
+      hasRuntimeMutationOnSelectorPath(node) ||
+      hasRuntimeAttributeMutationInSubtree(node),
+  };
+}
+
+function selectorMatchesCandidate(
+  node: HtmlNode,
+  selector: CssTreeSelectorNode,
+  targetNodeId: string,
+): SelectorMatch {
+  const compound = cssTreeChildren(selector);
+  if (compound.some((child) => child.type === "Combinator")) {
+    return {
+      matches: false,
+      dynamic:
+        selectorContainsDynamicPseudoState(selector) ||
+        hasRuntimeMutationInPseudoNeighborhood(node),
+    };
+  }
+  return selectorCompoundMatches(node, compound, targetNodeId);
+}
+
+function selectorContainsDynamicPseudoState(
+  node: CssTreeSelectorNode,
+): boolean {
+  return (
+    (node.type === "PseudoClassSelector" &&
+      DYNAMIC_BROWSER_PSEUDO_CLASSES.has(node.name?.toLowerCase() ?? "")) ||
+    cssTreeChildren(node).some(selectorContainsDynamicPseudoState)
+  );
+}
+
+function hasRuntimeMutationOnSelectorPath(node: HtmlNode): boolean {
+  for (let candidate: HtmlNode | undefined = node; candidate?.tagName; ) {
+    if (hasRuntimeHtmlMutation(candidate)) return true;
+    candidate = candidate.parentNode;
+  }
+  return false;
+}
+
+function hasRuntimeMutationInPseudoNeighborhood(node: HtmlNode): boolean {
+  return (
+    hasRuntimeMutationOnSelectorPath(node) ||
+    hasRuntimeAttributeMutationInSubtree(node) ||
+    htmlElementSiblings(node).some(
+      (sibling) =>
+        sibling !== node &&
+        (isAlpineStructuralTemplate(sibling) ||
+          hasRuntimeAttributeMutationInSubtree(sibling)),
+    )
+  );
+}
+
+function selectorRelationCandidates(
+  node: HtmlNode,
+  combinator: string,
+): HtmlNode[] {
+  if (combinator === ">")
+    return node.parentNode?.tagName ? [node.parentNode] : [];
+  const siblings = htmlElementSiblings(node);
+  const index = siblings.indexOf(node);
+  if (index < 0) return [];
+  if (combinator === "+") return index > 0 ? [siblings[index - 1]!] : [];
+  if (combinator === "~") return siblings.slice(0, index).reverse();
+  const ancestors: HtmlNode[] = [];
+  for (
+    let parent = node.parentNode;
+    parent?.tagName;
+    parent = parent.parentNode
+  ) {
+    ancestors.push(parent);
+  }
+  return ancestors;
+}
+
+function htmlElementSiblings(node: HtmlNode): HtmlNode[] {
+  return (node.parentNode?.childNodes ?? [])
+    .filter((candidate) => candidate.tagName)
+    .sort(
+      (left, right) =>
+        (left.sourceCodeLocation?.startTag?.startOffset ?? -1) -
+        (right.sourceCodeLocation?.startTag?.startOffset ?? -1),
+    );
+}
+
+function isAlpineStructuralTemplate(node: HtmlNode): boolean {
+  return (
+    node.tagName === "template" &&
+    node.attrs?.some(({ name }) =>
+      /^x-(?:if|for|teleport)(?:\.|$)/i.test(name),
+    ) === true
+  );
+}
+
+function hasAlpineStructuralSibling(node: HtmlNode): boolean {
+  return (node.parentNode?.childNodes ?? []).some(
+    (sibling) => sibling !== node && isAlpineStructuralTemplate(sibling),
+  );
+}
+
+function hasAlpineContentReplacement(node: HtmlNode): boolean {
+  return (
+    node.attrs?.some(({ name }) => isAlpineContentReplacement(name)) ?? false
+  );
+}
+
+function hasRuntimeAttributeMutationInSubtree(node: HtmlNode): boolean {
+  return descendants(node).some(hasRuntimeHtmlMutation);
+}
+
+function hasRuntimeHtmlMutation(node: HtmlNode): boolean {
+  return (
+    isAlpineStructuralTemplate(node) ||
+    (node.attrs ?? []).some(({ name, value }) => {
+      const normalized = name.toLowerCase();
+      return (
+        dynamicBoundAttributeName(normalized) !== null ||
+        ((normalized === "x-bind" || normalized === "v-bind") &&
+          runtimeObjectBindingHasAnyDynamicAttributes(value)) ||
+        isRuntimeStyleMutationHandler(name, value) ||
+        isEventHandlerAttribute(name)
+      );
+    })
+  );
+}
+
+function descendants(node: HtmlNode | undefined): HtmlNode[] {
+  if (!node) return [];
+  const result: HtmlNode[] = [];
+  const pending = [...(node.childNodes ?? [])];
+  while (pending.length > 0) {
+    const candidate = pending.pop()!;
+    result.push(candidate);
+    pending.push(...(candidate.childNodes ?? []));
+    if (candidate.content) pending.push(candidate.content);
+  }
+  return result;
 }
 
 function buildsStringAtRuntime(value: string): boolean {
@@ -1010,12 +1564,27 @@ function assertExecutableScriptsSafe(
   nodes: readonly HtmlNode[],
   targetNodeIds: readonly string[],
   generatedIds: Map<number | undefined, string>,
+  motionPropertiesByTarget: ReadonlyMap<string, ReadonlySet<string>>,
 ): void {
   const alpineBootstraps = nodes.filter(isStaticAlpineBootstrapRuntime);
   const alpineBootstrap =
     alpineBootstraps.length === 1 ? alpineBootstraps[0] : undefined;
   const compilesClassesAtRuntime =
     targetNodeIds.length > 0 && nodes.some(isTailwindBrowserRuntime);
+  if (
+    hasRuntimeAffectedInlineCssRule(
+      nodes,
+      targetNodeIds,
+      generatedIds,
+      motionPropertiesByTarget,
+    )
+  ) {
+    sourceError(
+      "unsupported-target",
+      "HTML Motion targets cannot be synchronized safely while runtime HTML state can change CSS for an animated property.",
+    );
+  }
+
   for (const node of nodes) {
     if (node.insideTemplate && !isRenderedByAlpine(node)) continue;
 
@@ -2388,12 +2957,59 @@ export function instrumentMotionHtmlPreviewSource(args: {
   };
 }
 
+function motionPropertiesForTargets(
+  targetNodeIds: readonly string[],
+  motionTracks: readonly MotionTrack[],
+): Map<string, Set<string>> {
+  const propertiesByTarget = new Map<string, Set<string>>();
+  for (const targetNodeId of targetNodeIds) {
+    const properties = new Set<string>();
+    for (const track of motionTracks) {
+      if (track.enabled === false || track.targetNodeId !== targetNodeId) {
+        continue;
+      }
+      if (track.property === "path-trim") {
+        properties.add("stroke-dasharray");
+        properties.add("stroke-dashoffset");
+      } else if (
+        track.property === "translate" &&
+        track.keyframes.some((keyframe) => keyframe.motionPath)
+      ) {
+        for (const property of [
+          "offset-path",
+          "offset-anchor",
+          "offset-rotate",
+          "offset-distance",
+          "offset",
+          "translate",
+        ]) {
+          properties.add(property);
+        }
+      } else {
+        properties.add(track.property.toLowerCase());
+      }
+    }
+    if (properties.size === 0) {
+      for (const preset of MOTION_PROPERTY_PRESETS) {
+        properties.add(preset.property.toLowerCase());
+        for (const property of preset.additionalProperties ?? []) {
+          properties.add(property.toLowerCase());
+        }
+      }
+    }
+    propertiesByTarget.set(targetNodeId, properties);
+  }
+  return propertiesByTarget;
+}
+
 function assertTargetsExist(
   source: string,
   targetNodeIds: readonly string[],
   sourceFilePath?: string,
   checkExecutableScripts = true,
   checkEditSafety = true,
+  motionTracks: readonly MotionTrack[] = [],
+  rejectAllImportant = false,
 ): void {
   if (targetNodeIds.length === 0) return;
   const { nodes } = parseHtml(source);
@@ -2406,8 +3022,18 @@ function assertTargetsExist(
       target.nodeId,
     ]),
   );
+  const motionPropertiesByTarget = motionPropertiesForTargets(
+    targetNodeIds,
+    motionTracks,
+  );
   if (checkExecutableScripts) {
-    assertExecutableScriptsSafe(source, nodes, targetNodeIds, generatedIds);
+    assertExecutableScriptsSafe(
+      source,
+      nodes,
+      targetNodeIds,
+      generatedIds,
+      motionPropertiesByTarget,
+    );
   }
   const targets = new Map<string, HtmlNode[]>();
   for (const node of nodes) {
@@ -2428,7 +3054,6 @@ function assertTargetsExist(
   const generatedById = new Map(
     generatedTargets.map((target) => [target.nodeId, target.node]),
   );
-
   for (const nodeId of targetNodeIds) {
     assertSafeTargetId(nodeId);
     const matches = targets.get(nodeId) ?? [];
@@ -2504,27 +3129,43 @@ function assertTargetsExist(
         );
       }
       const inlineStyle = target.attrs?.find(({ name }) => name === "style");
-      if (inlineStyle && hasInlineMotionDeclarations(inlineStyle.value)) {
+      if (
+        inlineStyle &&
+        hasInlineMotionDeclarations(
+          inlineStyle.value,
+          motionPropertiesByTarget.get(nodeId),
+          rejectAllImportant,
+        )
+      ) {
         sourceError(
           "unsupported-target",
-          `Motion target "${nodeId}" uses style, which cannot be synchronized with CSS Motion yet.`,
+          `Motion target "${nodeId}" uses style that conflicts with CSS Motion.`,
         );
       }
     }
   }
 }
 
-function hasInlineMotionDeclarations(value: string): boolean {
+function hasInlineMotionDeclarations(
+  value: string,
+  animatedProperties: ReadonlySet<string> = new Set(),
+  rejectAllImportant = false,
+): boolean {
   const motionProperty =
     /^(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$/i;
   try {
     const declarations = postcss.parse(`.motion-target {\n${value}\n}`);
     let found = false;
     declarations.walkDecls((declaration) => {
+      const property = decodeMotionCssIdentifier(
+        declaration.prop,
+      ).toLowerCase();
       if (
-        motionProperty.test(
-          decodeMotionCssIdentifier(declaration.prop).toLowerCase(),
-        )
+        motionProperty.test(property) ||
+        (declaration.important &&
+          (property === "all"
+            ? rejectAllImportant || animatedProperties.size > 0
+            : animatedProperties.has(property)))
       ) {
         found = true;
       }
@@ -2532,8 +3173,12 @@ function hasInlineMotionDeclarations(value: string): boolean {
     return found;
   } catch {
     const withoutComments = value.replace(/\/\*[\s\S]*?\*\//g, "");
-    return /(?:^|;)\s*(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\s*:/i.test(
-      decodeMotionCssIdentifier(withoutComments),
+    const normalized = decodeMotionCssIdentifier(withoutComments);
+    return (
+      /(?:^|;)\s*(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\s*:/i.test(
+        normalized,
+      ) ||
+      (animatedProperties.size > 0 && /!\s*important\b/i.test(normalized))
     );
   }
 }
@@ -2764,10 +3409,14 @@ function hasUnresolvedStylesheet(nodes: readonly HtmlNode[]): boolean {
 
 function dynamicBoundAttributeName(attributeName: string): string | null {
   const normalized = attributeName.toLowerCase();
-  if (normalized.startsWith(":")) return normalized.slice(1);
-  for (const prefix of ["x-bind:", "v-bind:", "ng-attr-"]) {
-    if (normalized.startsWith(prefix)) return normalized.slice(prefix.length);
+  if (normalized.startsWith(":")) return normalized.slice(1).split(".", 1)[0]!;
+  for (const prefix of ["x-bind:", "v-bind:"]) {
+    if (normalized.startsWith(prefix)) {
+      return normalized.slice(prefix.length).split(".", 1)[0]!;
+    }
   }
+  if (normalized.startsWith("ng-attr-"))
+    return normalized.slice("ng-attr-".length);
   return normalized === "ng-href" ? "href" : null;
 }
 
@@ -3013,17 +3662,14 @@ function resolveAuthoredHtmlTarget(
 function isDynamicHtmlAttribute(
   name: string,
   selectorAttribute: string | null,
+  value = "",
 ): boolean {
   if (!selectorAttribute) return false;
   const normalized = name.toLowerCase();
   return (
-    normalized === "x-bind" ||
-    normalized === "v-bind" ||
-    [
-      `:${selectorAttribute}`,
-      `x-bind:${selectorAttribute}`,
-      `v-bind:${selectorAttribute}`,
-    ].includes(normalized)
+    ((normalized === "x-bind" || normalized === "v-bind") &&
+      runtimeObjectBindingMayWriteAttribute(value, selectorAttribute)) ||
+    dynamicBoundAttributeName(normalized) === selectorAttribute
   );
 }
 
@@ -3148,6 +3794,10 @@ function readSource(
     sourceFilePath,
     !options.allowUnmanagedExecutableScripts,
     !options.cleanupOnly,
+    [
+      ...(document?.tracks ?? []),
+      ...motionNativeStylesToTracks(document?.nativeStyles ?? []),
+    ],
   );
   const pathTrimmedSource = applyPathTrimTargets(
     source,
@@ -3341,7 +3991,10 @@ export function applyMotionHtmlSourceEdit(
   source = args.sourceFilePath
     ? addGeneratedHtmlNodeIds(source, args.sourceFilePath, targetNodeIds)
     : source;
-  assertTargetsExist(source, targetNodeIds);
+  assertTargetsExist(source, targetNodeIds, undefined, true, true, [
+    ...timeline.tracks,
+    ...motionNativeStylesToTracks(timeline.nativeStyles ?? []),
+  ]);
 
   const preservedAudioClips =
     currentRead.status === "valid"
@@ -3418,7 +4071,15 @@ export function inspectMotionHtmlSourceWriteCapability(args: {
     const source = args.sourceFilePath
       ? addGeneratedHtmlNodeIds(args.source, args.sourceFilePath, targetNodeIds)
       : args.source;
-    assertTargetsExist(source, targetNodeIds);
+    assertTargetsExist(
+      source,
+      targetNodeIds,
+      undefined,
+      true,
+      true,
+      read.status === "valid" ? (read.document?.tracks ?? []) : [],
+      true,
+    );
     return { status: "supported", targetNodeIds };
   } catch (error) {
     const normalized =

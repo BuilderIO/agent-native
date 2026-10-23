@@ -8,18 +8,30 @@ import {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 import { tsImport } from "tsx/esm/api";
 import { createServer, type ViteDevServer } from "vite";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_CODE_METADATA_VERSION } from "../shared/motion-code";
+import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime";
 import {
   compileMotionTextRuntime,
   injectMotionTextRuntime,
 } from "../shared/motion-text-code";
 import { e2eBaseURL } from "./base-url";
-import { appPath, enableLab, gotoEditor, selectByText } from "./helpers";
+import {
+  appPath,
+  enableLab,
+  expandAllLayers,
+  gotoEditor,
+  selectByText,
+} from "./helpers";
 
 const baseURL = e2eBaseURL();
 const sourcePath = "src/App.tsx";
@@ -34,6 +46,16 @@ let bridge: DesignConnectBridge | null = null;
 let viteChangedFiles: string[] = [];
 let restoreMotionLab: (() => Promise<void>) | null = null;
 
+async function selectReactMotionTarget(page: Page) {
+  await expandAllLayers(page);
+  const row = page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("treeitem", { name: /Motion target/ })
+    .first();
+  await row.getByRole("button", { name: "Motion target", exact: true }).click();
+  await expect(row).toHaveAttribute("aria-selected", "true");
+}
+
 function reactSource(): string {
   return `import React from "react";
 import { createRoot } from "react-dom/client";
@@ -44,6 +66,9 @@ function App() {
       <button data-agent-native-node-id="${nodeId}" id="${nodeId}">
         Motion target
       </button>
+      <div data-agent-native-node-id="motion-native-target" id="motion-native-target">
+        Native Motion target
+      </div>
     </main>
   );
 }
@@ -241,6 +266,15 @@ test.describe.serial("React Motion source browser writeback", () => {
     await expect(iframe).toBeVisible();
     let frame = iframe.contentFrame();
     const target = frame.locator(`#${nodeId}`);
+    const waitForSourcePreview = async () => {
+      const source = fs.readFileSync(path.join(rootPath, sourcePath), "utf8");
+      const hash = createHash("sha256").update(source).digest("hex");
+      await expect(target).toHaveAttribute(
+        "data-agent-native-motion-source-hash",
+        hash,
+        { timeout: 20_000 },
+      );
+    };
     await expect(target).toHaveText("Motion target");
 
     const initialSourceHash = await target.getAttribute(
@@ -475,6 +509,7 @@ test.describe.serial("React Motion source browser writeback", () => {
     expect(overlapEditResponse.ok(), await overlapEditResponse.text()).toBe(
       true,
     );
+    await waitForSourcePreview();
     await expect
       .poll(() =>
         getAction(request, "get-motion-timeline", {
@@ -506,12 +541,15 @@ test.describe.serial("React Motion source browser writeback", () => {
         response.request().method() === "POST",
       { timeout: 20_000 },
     );
-    await ignoreSpaces.check();
+    await page.getByText("Ignore spaces", { exact: true }).click();
+    await expect(ignoreSpaces).toBeChecked({ timeout: 3_000 });
     const enableIgnoreSpacesResponse = await enableIgnoreSpacesSave;
     expect(
       enableIgnoreSpacesResponse.ok(),
       await enableIgnoreSpacesResponse.text(),
     ).toBe(true);
+    await waitForSourcePreview();
+    await expect(ignoreSpaces).toBeChecked();
     await expect
       .poll(() =>
         getAction(request, "get-motion-timeline", {
@@ -526,6 +564,21 @@ test.describe.serial("React Motion source browser writeback", () => {
           },
         ],
       });
+
+    const disableIgnoreSpacesSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await ignoreSpaces.click();
+    await expect(ignoreSpaces).not.toBeChecked({ timeout: 3_000 });
+    const disableIgnoreSpacesResponse = await disableIgnoreSpacesSave;
+    expect(
+      disableIgnoreSpacesResponse.ok(),
+      await disableIgnoreSpacesResponse.text(),
+    ).toBe(true);
+    await waitForSourcePreview();
 
     await unitSelect.click();
     const wordBeforeCharacter = page.getByRole("option", {
@@ -542,6 +595,7 @@ test.describe.serial("React Motion source browser writeback", () => {
     await wordBeforeCharacter.click();
     const selectWordResponse = await selectWordSave;
     expect(selectWordResponse.ok(), await selectWordResponse.text()).toBe(true);
+    await waitForSourcePreview();
     await expect(
       page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
     ).toHaveCount(0);
@@ -580,6 +634,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       selectCharacterResponse.ok(),
       await selectCharacterResponse.text(),
     ).toBe(true);
+    await waitForSourcePreview();
     await expect(ignoreSpaces).not.toBeChecked();
     await expect
       .poll(() =>
@@ -599,13 +654,40 @@ test.describe.serial("React Motion source browser writeback", () => {
       });
 
     await unitSelect.click();
-    await expect(
-      page.getByRole("option", { name: "Line", exact: true }),
-    ).toBeVisible();
-    await page.getByRole("option", { name: "Line", exact: true }).click();
+    const lineOption = page.getByRole("option", {
+      name: "Line",
+      exact: true,
+    });
+    await expect(lineOption).toBeVisible();
+    const selectLineSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await lineOption.click();
+    const selectLineResponse = await selectLineSave;
+    expect(selectLineResponse.ok(), await selectLineResponse.text()).toBe(true);
+    await waitForSourcePreview();
     await expect(
       page.getByRole("checkbox", { name: "Ignore spaces", exact: true }),
     ).toHaveCount(0);
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            textDocument: {
+              animations: [{ unit: "line", order: "center-out" }],
+            },
+          },
+        ],
+      });
     const orderSelect = page.getByRole("combobox", {
       name: "Order",
       exact: true,
@@ -638,6 +720,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       .click();
     const orderResponse = await orderSave;
     expect(orderResponse.ok(), await orderResponse.text()).toBe(true);
+    await waitForSourcePreview();
     await expect
       .poll(() =>
         getAction(request, "get-motion-timeline", {
@@ -654,8 +737,10 @@ test.describe.serial("React Motion source browser writeback", () => {
           },
         ],
       });
-    await expect(unitSelect).toHaveAttribute("aria-expanded", "false");
+    await expect(orderSelect).toHaveText("Left to right");
+    await expect(orderSelect).toHaveAttribute("aria-expanded", "false");
     await unitSelect.click();
+    await expect(page.getByRole("listbox")).toBeVisible();
     const wordOption = page.getByRole("option", { name: "Word", exact: true });
     await expect(wordOption).toBeVisible();
     await wordOption.click();
@@ -1020,11 +1105,232 @@ test.describe.serial("React Motion source browser writeback", () => {
     });
   });
 
-  test("imports static JSX CSS into Motion and renders the saved source", async ({
+  test("round-trips direct native Position and Scale CSS edits", async ({
     page,
     request,
   }) => {
+    if (!screenId) {
+      const opened = await postAction(request, "add-localhost-screens", {
+        connectionId,
+        designId,
+        paths: ["/"],
+      });
+      screenId = opened.screens?.[0]?.id;
+    }
     if (!screenId) throw new Error("React Motion screen is not registered");
+
+    const nativeNodeId = "motion-native-target";
+    await postAction(request, "grant-localhost-write-consent", {
+      designId,
+      connectionId,
+    });
+    const sourceFilePath = path.join(rootPath, sourcePath);
+    const sourceBefore = fs.readFileSync(sourceFilePath, "utf8");
+    const sourceHash = createHash("sha256").update(sourceBefore).digest("hex");
+    const existing = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+    });
+    const currentTimeline = existing.timelines?.[0];
+    const tracks = currentTimeline?.tracks ?? [];
+    const nativeStyles = [
+      ...(currentTimeline?.nativeStyles ?? []),
+      {
+        ...createMotionNativeStyleInstance({
+          styleKey: "Position",
+          targetNodeId: nativeNodeId,
+        }),
+        sourceStyleId: "react-roundtrip-position",
+        sourceInstanceId: "react-roundtrip-position-instance",
+      },
+      {
+        ...createMotionNativeStyleInstance({
+          styleKey: "Scale",
+          targetNodeId: nativeNodeId,
+        }),
+        sourceStyleId: "react-roundtrip-scale",
+        sourceInstanceId: "react-roundtrip-scale-instance",
+      },
+    ];
+    const seeded = await postAction(request, "apply-motion-edit", {
+      designId,
+      fileId: screenId,
+      sourceRef: screenId,
+      localSource: {
+        connectionId,
+        modulePath: sourcePath,
+        moduleVersionHash: sourceHash,
+        timelineVersionHash: sourceHash,
+        renderedNodeIds: [
+          ...new Set([
+            ...tracks.map(
+              (track: { targetNodeId: string }) => track.targetNodeId,
+            ),
+            ...nativeStyles.map(
+              (style: { targetNodeId: string }) => style.targetNodeId,
+            ),
+            nativeNodeId,
+          ]),
+        ],
+      },
+      tracks,
+      nativeStyles,
+      durationMs: currentTimeline?.durationMs ?? 1000,
+      playbackMode: currentTimeline?.playbackMode ?? "once",
+      defaultEase: currentTimeline?.defaultEase ?? "linear",
+    });
+    expect(seeded).toMatchObject({
+      persisted: true,
+      sourceType: "localhost",
+      sourcePatched: true,
+    });
+
+    const seededSource = fs.readFileSync(sourceFilePath, "utf8");
+    const directSource = seededSource
+      .replace("translate: -200px 0px;", "translate: -240px 0px;")
+      .replace("scale: 1.2 1.2;", "scale: 1.5 1.5;");
+    expect(directSource).not.toBe(seededSource);
+    fs.writeFileSync(sourceFilePath, directSource);
+    const directHash = createHash("sha256").update(directSource).digest("hex");
+
+    await gotoEditor(page, designId);
+    await selectByText(page, "Native Motion target", { screenId });
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const iframe = page.locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+    );
+    const frame = iframe.contentFrame();
+    const target = frame.locator(`#${nativeNodeId}`);
+    await expect(target).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      directHash,
+      { timeout: 20_000 },
+    );
+    await expect
+      .poll(() =>
+        getAction(request, "get-motion-timeline", {
+          designId,
+          sourceRef: screenId,
+        }),
+      )
+      .toMatchObject({
+        timelines: [
+          {
+            sourceVersionHash: directHash,
+            nativeStyles: [
+              expect.objectContaining({
+                sourceStyleId: "react-roundtrip-position",
+                styleKey: "Position",
+                props: expect.objectContaining({ distance: 240 }),
+              }),
+              expect.objectContaining({
+                sourceStyleId: "react-roundtrip-scale",
+                styleKey: "Scale",
+                props: expect.objectContaining({ amount: 150 }),
+              }),
+            ],
+          },
+        ],
+      });
+
+    const durationInput = page.getByRole("textbox", {
+      name: "Duration",
+      exact: true,
+    });
+    const currentDuration = Number(await durationInput.inputValue());
+    expect(currentDuration).toBe(currentTimeline?.durationMs ?? 1000);
+    const nextDuration = currentDuration + 100;
+    const saved = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await durationInput.fill(String(nextDuration));
+    await durationInput.press("Enter");
+    const savedResponse = await saved;
+    expect(savedResponse.ok(), await savedResponse.text()).toBe(true);
+
+    const savedSource = fs.readFileSync(sourceFilePath, "utf8");
+    const savedHash = createHash("sha256").update(savedSource).digest("hex");
+    expect(savedSource).toContain("translate: -240px 0px;");
+    expect(savedSource).toContain("scale: 1.5 1.5;");
+    await expect(target).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      savedHash,
+      { timeout: 20_000 },
+    );
+    expect(
+      await getAction(request, "get-motion-timeline", {
+        designId,
+        sourceRef: screenId,
+      }),
+    ).toMatchObject({
+      timelines: [
+        {
+          sourceVersionHash: savedHash,
+          durationMs: nextDuration,
+          nativeStyles: [
+            expect.objectContaining({
+              sourceStyleId: "react-roundtrip-position",
+              styleKey: "Position",
+              props: expect.objectContaining({ distance: 240 }),
+            }),
+            expect.objectContaining({
+              sourceStyleId: "react-roundtrip-scale",
+              styleKey: "Scale",
+              props: expect.objectContaining({ amount: 150 }),
+            }),
+          ],
+        },
+      ],
+    });
+
+    await page.goto(reactDevServerUrl, { waitUntil: "load" });
+    const browserTarget = page.locator(`#${nativeNodeId}`);
+    await expect(browserTarget).toBeVisible();
+    const browserKeyframes = await browserTarget.evaluate((element) => {
+      const keyframes = element.getAnimations().flatMap((animation) => {
+        animation.pause();
+        return (
+          (animation.effect as KeyframeEffect | null)?.getKeyframes() ?? []
+        );
+      });
+      return {
+        position: keyframes
+          .map((keyframe) => keyframe.translate)
+          .filter((value): value is string => typeof value === "string"),
+        scale: keyframes
+          .map((keyframe) => keyframe.scale)
+          .filter((value): value is string => typeof value === "string"),
+      };
+    });
+    expect(browserKeyframes).toEqual({
+      position: ["-240px", "0px"],
+      scale: ["1.5", "1"],
+    });
+  });
+
+  test("preserves a static React css prop when Motion edits and reloads source", async ({
+    page,
+    request,
+  }) => {
+    if (!screenId) {
+      const opened = await postAction(request, "add-localhost-screens", {
+        connectionId,
+        designId,
+        paths: ["/"],
+      });
+      screenId = opened.screens?.[0]?.id;
+    }
+    if (!screenId) throw new Error("React Motion screen is not registered");
+
+    await postAction(request, "grant-localhost-write-consent", {
+      designId,
+      connectionId,
+    });
 
     const existing = await getAction(request, "get-motion-timeline", {
       designId,
@@ -1044,12 +1350,14 @@ test.describe.serial("React Motion source browser writeback", () => {
       }
     }
 
+    const staticCssExpression =
+      'css={{ color: "rebeccapurple", "&:hover": { color: "royalblue" }, padding: 12 }}';
     const authoredSource = `import React from "react";
 import { createRoot } from "react-dom/client";
 
 function App() {
   return (
-    <main>
+    <main style={{ marginLeft: "80px", marginTop: "80px" }}>
       <style>{\`
 #motion-target {
   color: rebeccapurple;
@@ -1065,7 +1373,7 @@ function App() {
   to { opacity: 0.9; transform: translateY(0px); }
 }
 \`}</style>
-      <button data-agent-native-node-id="motion-target" id="motion-target">
+      <button data-agent-native-node-id="motion-target" id="motion-target" ${staticCssExpression}>
         Motion target
       </button>
     </main>
@@ -1127,42 +1435,28 @@ createRoot(document.getElementById("root")!).render(<App />);
       targetNodeIds: [targetNodeId],
     });
 
-    const saved = await postAction(request, "apply-motion-edit", {
-      designId,
-      fileId: screenId,
-      sourceRef: screenId,
-      localSource: {
-        connectionId,
-        modulePath: sourcePath,
-        moduleVersionHash: sourceHash,
-        timelineVersionHash: sourceHash,
-        renderedNodeIds: [targetNodeId],
-      },
-      tracks: [
-        {
-          targetNodeId,
-          property: "opacity",
-          keyframes: [
-            { t: 0, value: "0.25", ease: "linear" },
-            { t: 0.5, value: "0.5", ease: "linear" },
-            { t: 1, value: "0.75", ease: "linear" },
-          ],
-        },
-        {
-          targetNodeId,
-          property: "transform",
-          keyframes: [
-            { t: 0, value: "translateY(12px)", ease: "linear" },
-            { t: 0.5, value: "translateY(6px)", ease: "linear" },
-            { t: 1, value: "translateY(0px)", ease: "linear" },
-          ],
-        },
-      ],
-      durationMs: 900,
-      playbackMode: "once",
-      defaultEase: "linear",
+    await gotoEditor(page, designId);
+    await selectReactMotionTarget(page);
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const durationInput = page.getByRole("textbox", {
+      name: "Duration",
+      exact: true,
     });
-    expect(saved).toMatchObject({
+    const nextDuration = Number(await durationInput.inputValue()) + 100;
+    const saveResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await durationInput.fill(String(nextDuration));
+    await durationInput.press("Enter");
+    const savedResponse = await saveResponse;
+    const savedPayload = await savedResponse.json();
+    expect(savedResponse.ok(), JSON.stringify(savedPayload)).toBe(true);
+    expect(savedPayload).toMatchObject({
       persisted: true,
       sourceType: "localhost",
       sourcePatched: true,
@@ -1175,6 +1469,7 @@ createRoot(document.getElementById("root")!).render(<App />);
     expect(savedSource).toContain("color: rebeccapurple;");
     expect(savedSource).toContain("/* Keep this authored note. */");
     expect(savedSource).toContain("data-agent-native-motion");
+    expect(savedSource).toContain(staticCssExpression);
     await expect.poll(() => viteChangedFiles).toContain(sourceFilePath);
 
     const savedHash = createHash("sha256").update(savedSource).digest("hex");
@@ -1184,30 +1479,49 @@ createRoot(document.getElementById("root")!).render(<App />);
     });
     expect(roundTrip.timelines).toHaveLength(1);
     expect(roundTrip.timelines[0]).toMatchObject({
-      durationMs: 900,
-      tracks: [
-        {
-          targetNodeId,
-          property: "opacity",
-          keyframes: [
-            { t: 0, value: "0.25", ease: "linear" },
-            { t: 0.5, value: "0.5", ease: "linear" },
-            { t: 1, value: "0.75", ease: "linear" },
-          ],
-        },
-        {
-          targetNodeId,
-          property: "transform",
-          keyframes: [
-            { t: 0, value: "translateY(12px)", ease: "linear" },
-            { t: 0.5, value: "translateY(6px)", ease: "linear" },
-            { t: 1, value: "translateY(0px)", ease: "linear" },
-          ],
-        },
-      ],
+      durationMs: nextDuration,
+      tracks: recovered.timelines[0].tracks,
       sourceVersionHash: savedHash,
     });
 
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const iframe = page.locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+    );
+    const frame = iframe.contentFrame();
+    const reloadedTarget = frame.locator(`#${targetNodeId}`);
+    await expect(reloadedTarget).toHaveText("Motion target");
+    await expect(reloadedTarget).toHaveAttribute(
+      "data-agent-native-motion-source-hash",
+      savedHash,
+    );
+    await selectReactMotionTarget(page);
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    await expect(
+      page.getByRole("textbox", { name: "Duration", exact: true }),
+    ).toHaveValue(String(nextDuration));
+    expect(fs.readFileSync(sourceFilePath, "utf8")).toContain(
+      staticCssExpression,
+    );
+    const reloadedTimeline = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+    });
+    expect(reloadedTimeline.timelines).toHaveLength(1);
+    expect(reloadedTimeline.timelines[0]).toMatchObject({
+      sourceVersionHash: savedHash,
+      durationMs: nextDuration,
+    });
+    expect(reloadedTimeline.timelines[0].tracks).toHaveLength(
+      recovered.timelines[0].tracks.length,
+    );
+    for (const [index, track] of recovered.timelines[0].tracks.entries()) {
+      expect(reloadedTimeline.timelines[0].tracks[index]).toMatchObject(track);
+    }
+
+    await page.goto(reactDevServerUrl, { waitUntil: "load" });
     const renderedTarget = page.locator(
       `[data-agent-native-node-id="${targetNodeId}"]`,
     );
@@ -1272,6 +1586,7 @@ createRoot(document.getElementById("root")!).render(<App />);
       .poll(() => viteChangedFiles.length)
       .toBeGreaterThan(viteChangesBeforeRemoval);
 
+    await page.reload({ waitUntil: "load" });
     const motionFreeTarget = page.locator(
       `[data-agent-native-node-id="${targetNodeId}"]`,
     );

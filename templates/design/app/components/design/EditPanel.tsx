@@ -242,13 +242,11 @@ import { IconText } from "./inspector/design-icons";
 import { readFillField, showsOpacity } from "./inspector/fill-field-reading";
 import { useRemoveSavedGlslShader } from "./inspector/saved-glsl-shader";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
+import type { MotionNativeStyleIdentity } from "./motion-native-style-identity";
 import { MotionAudioTracks } from "./MotionAudioTracks";
 import { MotionCodeView, type MotionCodeInput } from "./MotionCodeView";
 import { AddTrackMenu, getMotionDockPrimaryStyles } from "./MotionDock";
-import {
-  MotionNativeStyleEditor,
-  type MotionNativeStyleIdentity,
-} from "./MotionNativeStyleEditor";
+import { MotionNativeStyleEditor } from "./MotionNativeStyleEditor";
 import { MotionTextAnimationEditor } from "./MotionTextAnimationEditor";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import { requestDocumentColorCounts } from "./multi-screen/preview-parse-warmer";
@@ -521,6 +519,10 @@ interface EditPanelProps {
   onCreateMotionTrack?: (preset: MotionPropertyPreset) => void;
   onCreateMotionStyle?: (style: MotionAnimationStyle) => void;
   motionNativeStyles?: MotionNativeStyleInstance[];
+  selectedMotionNativeStyle?: MotionNativeStyleIdentity | null;
+  onSelectMotionNativeStyle?: (
+    identity: MotionNativeStyleIdentity | null,
+  ) => void;
   motionEasingVariables?: MotionEasingVariable[];
   onMotionEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
   onCreateMotionNativeStyle?: (styleKey: MotionNativeStyleKey) => void;
@@ -2230,6 +2232,8 @@ export const EditPanel = memo(function EditPanel({
   onCreateMotionNativeStyle,
   onMotionNativeStyleChange,
   onRemoveMotionNativeStyle,
+  selectedMotionNativeStyle,
+  onSelectMotionNativeStyle,
   motionAnimationStyles = [],
   motionAnimationStyleTargetTracks = [],
   onApplyMotionAnimationStyle,
@@ -3184,6 +3188,10 @@ export const EditPanel = memo(function EditPanel({
                               <MotionNativeStyleEditor
                                 styles={motionNativeStyles}
                                 targetNodeId={motionSelectedTarget.nodeId}
+                                selectedStyle={selectedMotionNativeStyle}
+                                onSelectedStyleChange={
+                                  onSelectMotionNativeStyle
+                                }
                                 isText={motionSelectedTarget.isText}
                                 disabled={motionWriteUnavailable}
                                 easingVariables={motionEasingVariables}

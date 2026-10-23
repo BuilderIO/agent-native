@@ -312,6 +312,11 @@ export function parse(css: string): MotionTrack[] {
         `Motion CSS for "${decoded.targetNodeId}" contains a path animation that cannot be read losslessly.`,
       );
     }
+    if (info?.timingFunction !== undefined) {
+      for (const keyframe of keyframes) {
+        keyframe.ease ??= info.timingFunction as MotionEase;
+      }
+    }
     const track: MotionTrack = {
       ...(decoded.id ? { id: decoded.id } : {}),
       targetNodeId: info?.targetNodeId ?? decoded.targetNodeId,
@@ -570,20 +575,79 @@ function parsePathTrimKeyframeBody(body: string): MotionKeyframe[] | null {
   let match: RegExpExecArray | null;
   while ((match = stopRe.exec(body)) !== null) {
     const content = match[2];
-    const valueMatch = /^\s*--an-motion-path-trim\s*:\s*([^;]+)\s*;/m.exec(
+    const value = singleKeyframeDeclaration(content, "--an-motion-path-trim");
+    const trim = value === null ? null : parsePathTrimValue(value);
+    const ease = singleKeyframeDeclaration(
       content,
+      "animation-timing-function",
+      true,
     );
-    if (!valueMatch || !parsePathTrimValue(valueMatch[1]!.trim())) return null;
+    if (
+      trim === null ||
+      !pathTrimDeclarationsMatch(content, trim) ||
+      (hasKeyframeDeclaration(content, "animation-timing-function") &&
+        ease === null)
+    ) {
+      return null;
+    }
     const pct = match[1];
     const t = pct === "from" ? 0 : pct === "to" ? 1 : parseFloat(pct) / 100;
-    const easeMatch = content.match(/animation-timing-function\s*:\s*([^;]+)/);
     frames.push({
       t,
-      value: valueMatch[1]!.trim(),
-      ...(easeMatch ? { ease: easeMatch[1]!.trim() as MotionEase } : {}),
+      value: value!,
+      ...(ease !== null ? { ease: ease as MotionEase } : {}),
     });
   }
   return frames.length > 0 ? frames : null;
+}
+
+function singleKeyframeDeclaration(
+  body: string,
+  property: string,
+  optional = false,
+): string | null {
+  const declarations = [
+    ...body.matchAll(
+      new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;]+)\\s*;`, "gim"),
+    ),
+  ];
+  if (declarations.length === 0 && optional) return null;
+  return declarations.length === 1 ? declarations[0]![1]!.trim() : null;
+}
+
+function hasKeyframeDeclaration(body: string, property: string): boolean {
+  return new RegExp(`(?:^|;)\\s*${property}\\s*:`, "im").test(body);
+}
+
+function pathTrimDeclarationsMatch(
+  body: string,
+  trim: { start: number; end: number },
+): boolean {
+  const dashArray = singleKeyframeDeclaration(body, "stroke-dasharray");
+  const dashOffset = singleKeyframeDeclaration(body, "stroke-dashoffset");
+  if (dashArray === null || dashOffset === null) return false;
+
+  const dashValues = dashArray.split(/\s+/).map(Number);
+  const offset = Number(dashOffset);
+  if (
+    dashValues.length !== 2 ||
+    dashValues.some((value) => !Number.isFinite(value)) ||
+    !Number.isFinite(offset)
+  ) {
+    return false;
+  }
+
+  const length =
+    trim.end >= trim.start
+      ? trim.end - trim.start
+      : 100 - trim.start + trim.end;
+  const matches = (actual: number, expected: number) =>
+    Math.abs(actual - expected) <= 0.001;
+  return (
+    matches(dashValues[0]!, length) &&
+    matches(dashValues[1]!, 100 - length) &&
+    matches(offset, -trim.start)
+  );
 }
 
 function parsePathTrimValue(
@@ -692,6 +756,7 @@ interface ParsedAnimationRuleEntry {
   targetNodeId: string;
   delayMs?: number;
   durationMs?: number;
+  timingFunction?: string;
   offsetPath?: string;
   translate?: string;
   composition?: "replace" | "add";
@@ -732,7 +797,7 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
       new RegExp(`${prop.replace(/-/g, "\\-")}\\s*:\\s*([^;]+)`),
     );
     if (!match) return [];
-    return match[1].split(",").map((part) => part.trim());
+    return splitCssValueList(match[1]);
   };
   const declarationOf = (body: string, prop: string): string | undefined => {
     const match = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`, "i").exec(
@@ -748,6 +813,7 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
     if (names.length === 0) continue;
     const durations = listOf(body, "animation-duration");
     const delays = listOf(body, "animation-delay");
+    const timingFunctions = listOf(body, "animation-timing-function");
     const compositions = listOf(body, "animation-composition");
     const iterations = listOf(body, "animation-iteration-count");
     const directions = listOf(body, "animation-direction");
@@ -778,6 +844,8 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
       if (duration !== null) entry.durationMs = duration;
       const delay = parseCssTimeMs(delays[index] ?? delays[0] ?? "");
       if (delay !== null) entry.delayMs = delay;
+      const timingFunction = timingFunctions[index] ?? timingFunctions[0];
+      if (timingFunction !== undefined) entry.timingFunction = timingFunction;
       if (byName.has(name)) {
         throw new MotionCssSourceParseError(
           `Motion CSS reuses the animation name "${name}" for multiple tracks.`,
@@ -788,6 +856,49 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
   }
 
   return { byName, playbackMode };
+}
+
+function splitCssValueList(value: string): string[] {
+  const values: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote: string | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote !== null) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")" && depth > 0) {
+      depth -= 1;
+      continue;
+    }
+    if (character === "," && depth === 0) {
+      values.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+
+  values.push(value.slice(start).trim());
+  return values.filter(Boolean);
 }
 
 function extractBlock(css: string, start: number): string | null {

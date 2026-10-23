@@ -28,6 +28,7 @@ import {
   motionNativeStyleEndTimeMs,
   motionNativeStyleWithPathTrimTrack,
   motionNativeStyleWithPositionTrack,
+  motionNativeStyleWithScaleTrack,
   motionNativeStyleTrackGroups,
   motionNativeStylesToTracks,
 } from "./motion-native-style-runtime";
@@ -558,6 +559,42 @@ export function reconcileMotionCodeDocument(
       continue;
     }
 
+    for (const projected of projection) {
+      const identifiedCandidates = projected.id
+        ? matchingTrackIndices(
+            parsedTracks,
+            (track) =>
+              track.id === projected.id &&
+              track.targetNodeId === projected.targetNodeId &&
+              track.property === projected.property,
+          ).map((index) => parsedTracks[index]!)
+        : [];
+      const candidates =
+        identifiedCandidates.length > 0
+          ? identifiedCandidates
+          : parsedTracks.filter(
+              (track) =>
+                track.targetNodeId === projected.targetNodeId &&
+                track.property === projected.property,
+            );
+      for (const candidate of candidates) {
+        const siblingCount = parsedTracks.filter(
+          (track) =>
+            track.targetNodeId === candidate.targetNodeId &&
+            track.property === candidate.property,
+        ).length;
+        const expectedComposition =
+          candidate.property === "translate" && siblingCount > 1
+            ? "add"
+            : undefined;
+        if (candidate.composition !== expectedComposition) {
+          throw invalidMotionCss(
+            `The ${style.styleKey} source animation changes composition the native style metadata cannot represent. Repair its CSS before editing it in Motion.`,
+          );
+        }
+      }
+    }
+
     const exactMatches = projection.map((projected) => {
       const identifiedMatches = projected.id
         ? matchingTrackIndices(
@@ -670,10 +707,25 @@ export function reconcileMotionCodeDocument(
     try {
       switch (style.styleKey) {
         case "Position":
-          updatedStyle = motionNativeStyleWithPositionTrack(style, sourceTrack);
+          updatedStyle = motionNativeStyleWithPositionTrack(
+            style,
+            sourceTrack,
+            timelineDuration,
+          );
+          break;
+        case "Scale":
+          updatedStyle = motionNativeStyleWithScaleTrack(
+            style,
+            sourceTrack,
+            timelineDuration,
+          );
           break;
         case "Path":
-          updatedStyle = motionNativeStyleWithPathTrimTrack(style, sourceTrack);
+          updatedStyle = motionNativeStyleWithPathTrimTrack(
+            style,
+            sourceTrack,
+            timelineDuration,
+          );
           break;
         default:
           throw new Error(
@@ -974,7 +1026,11 @@ function motionTracksMatch(
     if (
       !parsed ||
       keyframe.t !== parsed.t ||
-      keyframe.value !== parsed.value ||
+      !motionTrackValuesMatch(
+        expected.property,
+        keyframe.value,
+        parsed.value,
+      ) ||
       !motionPathsMatch(
         keyframe.motionPath,
         parsed.motionPath,
@@ -984,12 +1040,100 @@ function motionTracksMatch(
     ) {
       return false;
     }
+    if (index === expected.keyframes.length - 1) return true;
     const ease = keyframe.ease ?? defaultEase;
     const expectedEase = isMotionEaseVariableReference(ease)
       ? ease
       : motionEaseToCss(resolveMotionEase(ease, easingVariables));
     return (parsed.ease ?? "ease") === expectedEase;
   });
+}
+
+function motionTrackValuesMatch(
+  property: string,
+  expected: string,
+  actual: string,
+): boolean {
+  if (expected === actual) return true;
+
+  if (property === "translate") {
+    const expectedPosition = parseMotionPosition(expected);
+    const actualPosition = parseMotionPosition(actual);
+    return (
+      expectedPosition !== null &&
+      actualPosition !== null &&
+      expectedPosition.x === actualPosition.x &&
+      expectedPosition.y === actualPosition.y
+    );
+  }
+
+  if (property === "scale") {
+    const expectedScale = parseMotionScale(expected);
+    const actualScale = parseMotionScale(actual);
+    return (
+      expectedScale !== null &&
+      actualScale !== null &&
+      expectedScale[0] === actualScale[0] &&
+      expectedScale[1] === actualScale[1]
+    );
+  }
+
+  if (property === "path-trim") {
+    const expectedTrim = parseMotionPathTrim(expected);
+    const actualTrim = parseMotionPathTrim(actual);
+    return (
+      expectedTrim !== null &&
+      actualTrim !== null &&
+      expectedTrim[0] === actualTrim[0] &&
+      expectedTrim[1] === actualTrim[1]
+    );
+  }
+
+  if (property === "opacity") {
+    const expectedOpacity = parseMotionNumber(expected);
+    const actualOpacity = parseMotionNumber(actual);
+    return (
+      expectedOpacity !== null &&
+      actualOpacity !== null &&
+      expectedOpacity === actualOpacity
+    );
+  }
+
+  return false;
+}
+
+function parseMotionScale(value: string): [number, number] | null {
+  const parts = value.trim().split(/\s+/);
+  const number = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+  if (
+    parts.length < 1 ||
+    parts.length > 2 ||
+    parts.some((part) => !number.test(part))
+  ) {
+    return null;
+  }
+  const x = Number(parts[0]);
+  const y = parts.length === 2 ? Number(parts[1]) : x;
+  return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+}
+
+function parseMotionPathTrim(value: string): [number, number] | null {
+  const number = "((?:\\d+(?:\\.\\d*)?|\\.\\d+))";
+  const match = new RegExp(`^\\s*${number}%\\s+${number}%\\s*$`).exec(value);
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  return start >= 0 && start <= 100 && end >= 0 && end <= 100
+    ? [start, end]
+    : null;
+}
+
+function parseMotionNumber(value: string): number | null {
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim())) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function matchingTrackIndices(
