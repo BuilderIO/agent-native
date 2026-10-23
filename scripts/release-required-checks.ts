@@ -290,7 +290,8 @@ function readStatuses(prNumber: string, repo: string): RequiredCheckStatus[] {
       error && typeof error === "object" && "stderr" in error
         ? String((error as { stderr?: unknown }).stderr ?? "")
         : "";
-    if (/no checks reported/i.test(stderr)) return [];
+    if (/no (?:required )?checks reported(?: on the .+ branch)?/i.test(stderr))
+      return [];
     throw error;
   }
 }

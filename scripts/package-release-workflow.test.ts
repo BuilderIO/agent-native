@@ -398,6 +398,73 @@ esac
     }
   });
 
+  it("treats an unreported required-check set as pending", () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-checks-empty-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-status-calls.txt");
+    const ghPath = path.join(binDirectory, "gh");
+    mkdirSync(binDirectory);
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+case "$1" in
+  api)
+    printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build"}]}}]]'
+    ;;
+  pr)
+    calls=0
+    if [ -f "$GH_CALLS_FILE" ]; then calls=$(cat "$GH_CALLS_FILE"); fi
+    calls=$((calls + 1))
+    printf '%s' "$calls" > "$GH_CALLS_FILE"
+    if [ "$calls" -eq 1 ]; then
+      printf '%s\\n' "gh: no required checks reported on the 'main' branch" >&2
+      exit 1
+    fi
+    printf '%s' '[{"name":"Build","bucket":"fail"}]'
+    ;;
+  *) exit 1 ;;
+esac
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    try {
+      assert.throws(
+        () =>
+          execFileSync(
+            process.execPath,
+            [
+              "--experimental-strip-types",
+              path.resolve("scripts/release-required-checks.ts"),
+              "verify",
+              "8102",
+              "BuilderIO/agent-native",
+            ],
+            {
+              cwd: process.cwd(),
+              env: {
+                ...process.env,
+                PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+                GH_CALLS_FILE: callsPath,
+              },
+            },
+          ),
+        (error: unknown) => {
+          const commandError = error as { status?: number; stderr?: Buffer };
+          assert.equal(commandError.status, 1);
+          assert.match(
+            String(commandError.stderr),
+            /Required release PR checks are missing or pending: Build/,
+          );
+          return true;
+        },
+      );
+      assert.equal(readFileSync(callsPath, "utf8"), "1");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("waits only while the matching coordinator release step is active", () => {
     const tempRoot = mkdtempSync(
       path.join(tmpdir(), "release-coordinator-wait-"),
