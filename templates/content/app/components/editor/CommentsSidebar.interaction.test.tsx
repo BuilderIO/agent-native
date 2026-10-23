@@ -930,7 +930,7 @@ describe("comment review interactions", () => {
   });
   it("distinguishes the initial empty list from filtering", () => {
     render(null, [], "history");
-    expect(container.textContent).toContain("comments.selectTextToComment");
+    expect(container.textContent).toContain("comments.discussionEmpty");
     expect(container.textContent).not.toContain("comments.noFilteredComments");
   });
 
