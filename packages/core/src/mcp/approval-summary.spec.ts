@@ -303,6 +303,7 @@ describe("summarizeMcpApproval", () => {
         cc: "dee@example.com;\neve@example.com",
         bcc: "Team, fay@example.com",
         guests: '"Gus <gus@example.com>, hal@example.com',
+        attendees: 'O"Brien <ivy@example.com>, Ro"Ed <jo@example.com>',
       }),
       labels,
     });
@@ -315,6 +316,8 @@ describe("summarizeMcpApproval", () => {
       "fay@example.com",
       "gus@example.com",
       "hal@example.com",
+      "ivy@example.com",
+      "jo@example.com",
     ]);
   });
 

@@ -73,8 +73,7 @@ export function humanizeIdentifier(identifier: string): string {
 
 /**
  * A recipient string's parts, as it lists them: `a@x.com, "Doe, Jo" <b@x.com>`.
- * A separator inside a quoted name doesn't split it, unless a quote is left
- * open and every separator does.
+ * A separator inside a quoted name doesn't split it.
  */
 function addressParts(text: string): string[] {
   const parts: string[] = [];
@@ -96,9 +95,7 @@ function addressParts(text: string): string[] {
     }
   }
   parts.push(part);
-  return (quoted ? text.split(ADDRESS_SEPARATOR) : parts)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return parts.map((item) => item.trim()).filter(Boolean);
 }
 
 /** The address a part names, bare or after a name (`Ana <a@x.com>`). */
@@ -107,14 +104,26 @@ function partAddress(part: string): string | undefined {
   return EMAIL.test(address) ? address : undefined;
 }
 
+/**
+ * Every address a recipient string names. A part that doesn't read as one
+ * address, such as two names a stray quote joined (`O"Brien <b@x.com>,
+ * Ro"Ed <c@x.com>`), is read again split at every separator.
+ */
+function recipientAddresses(text: string): string[] {
+  return addressParts(text).flatMap((part) => {
+    const address = partAddress(part);
+    if (address) return [address];
+    return part
+      .split(ADDRESS_SEPARATOR)
+      .flatMap((piece) => partAddress(piece.trim()) ?? []);
+  });
+}
+
 function collectEmails(value: unknown, into: Set<string>, depth: number) {
   if (depth > MAX_DEPTH) return;
   if (typeof value === "string") {
     // A part that names no one, such as `Team`, hides none of the others.
-    for (const part of addressParts(value)) {
-      const address = partAddress(part);
-      if (address) into.add(address);
-    }
+    for (const address of recipientAddresses(value)) into.add(address);
     return;
   }
   if (Array.isArray(value)) {

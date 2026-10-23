@@ -59,14 +59,14 @@ const EMBEDDED_BEARER = new RegExp(
   String.raw`\b(bearer\s+)(${QUOTED_CREDENTIAL}|[^\s"',}]+)`,
   "gi",
 );
-// HTTP's registered authentication schemes, and common unregistered ones.
-const AUTH_SCHEME = String.raw`(?:basic|bearer|concealed|digest|dpop|gnap|hoba|mutual|negotiate|ntlm|oauth|privatetoken|scram-sha-(?:1|256)|vapid|token|apikey|aws4-hmac-sha256)(?![\w-])`;
-// A scheme alone on its line (`Bearer`, `Basic`) takes the credential on the
-// next one; stopping at the newline would strip the scheme the bearer pass
-// needs and leave the credential bare. Any other word is the credential
-// itself, and the next line is content a reviewer must still see.
+// A line that opens another field, such as `Body: visible`.
+const FIELD_LINE = String.raw`[ \t]*["']?[\w-]+["']?[ \t]*:(?:\s|$)`;
+// A word alone on its line (`Bearer`, `Api-Key`) takes the credential on the
+// next one. It can be a scheme no list names, and stopping at the newline
+// would leave the credential bare. A next line that opens another field is
+// content a reviewer must still see.
 const EMBEDDED_AUTHORIZATION = new RegExp(
-  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(${QUOTED_CREDENTIAL}|(?:${AUTH_SCHEME}[ \t]*\r?\n\s*)?[^\r\n]+)`,
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(${QUOTED_CREDENTIAL}|(?:[^\s"']+[ \t]*\r?\n\s*(?!${FIELD_LINE}))?[^\r\n]+)`,
   "gi",
 );
 const EMBEDDED_CREDENTIAL_FIELD = new RegExp(
