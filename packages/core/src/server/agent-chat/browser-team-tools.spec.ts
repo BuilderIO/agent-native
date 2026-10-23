@@ -365,13 +365,12 @@ describe("createTeamTools bounded task reads", () => {
     },
   );
 
-  it("observes changed task status across identical calls in one agent turn", async () => {
-    let reads = 0;
+  it("observes changed task status across identical bounded waits in one agent turn", async () => {
+    let calls = 0;
     mocks.getTask.mockImplementation(async () =>
-      ++reads < 10 ? task : { ...task, status: "completed", summary: "Clear" },
+      calls < 10 ? task : { ...task, status: "completed", summary: "Clear" },
     );
     const entry = teamTool();
-    let calls = 0;
     const observed: string[] = [];
     const engine: AgentEngine = {
       name: "test",
@@ -397,7 +396,7 @@ describe("createTeamTools bounded task reads", () => {
                 type: "tool-call",
                 id: `status-${calls}`,
                 name: "agent-teams",
-                input: { action: "status", taskId: "task-1" },
+                input: { action: "status", taskId: "task-1", waitMs: 1 },
               },
             ],
           };
@@ -419,14 +418,14 @@ describe("createTeamTools bounded task reads", () => {
       messages: [
         {
           role: "user",
-          content: [{ type: "text", text: "Check the task twice" }],
+          content: [{ type: "text", text: "Wait until the task completes" }],
         },
       ],
       actions: { "agent-teams": entry },
       send: () => {},
       signal: new AbortController().signal,
     });
-    expect(mocks.getTask).toHaveBeenCalledTimes(10);
+    expect(mocks.getTask.mock.calls.length).toBeGreaterThanOrEqual(10);
     expect(observed.map((content) => JSON.parse(content).status)).toEqual([
       ...Array(9).fill("running"),
       "completed",
