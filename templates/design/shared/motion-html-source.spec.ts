@@ -1527,6 +1527,102 @@ describe("HTML Motion source adapter", () => {
     ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
   });
 
+  it.each([
+    [
+      "a selected target's remove()",
+      `<p x-data x-text="document.querySelector('[data-agent-native-node-id=hero-title]').remove() || ''"></p>`,
+    ],
+    [
+      "Object.assign on a selected target",
+      `<p x-data x-text="Object.assign(document.querySelector('[data-agent-native-node-id=hero-title]'), { className: 'fade' }) && ''"></p>`,
+    ],
+  ])("rejects %s from a sibling", (_label, sibling) => {
+    const source = html.replace(
+      "</body>",
+      `${sibling}\n${ALPINE_CDN}\n</body>`,
+    );
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    [
+      "Object.assign on $el",
+      "<h1 data-agent-native-node-id=\"hero-title\" x-bind:title=\"Object.assign($el, { className: 'fade' }) && ''\">",
+      '<main class="card">',
+    ],
+    [
+      "a handler removing itself",
+      '<h1 data-agent-native-node-id="hero-title" onclick="this.remove()">',
+      '<main class="card">',
+    ],
+    [
+      "an ancestor removing the clicked element",
+      '<h1 data-agent-native-node-id="hero-title">',
+      '<main class="card" onclick="event.target.remove()">',
+    ],
+  ])("rejects %s on a Motion target", (_label, h1, main) => {
+    const source = html
+      .replace('<h1 data-agent-native-node-id="hero-title">', h1)
+      .replace('<main class="card">', main)
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("allows x-text on the Motion target itself, which only replaces its text", () => {
+    const source = html
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        `<h1 data-agent-native-node-id="hero-title" x-data x-text="'Hello'">`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
+  it("rejects a dynamic Tailwind arbitrary variant, which the browser runtime compiles into a rule that can reach a Motion target", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        `<nav x-data="{ on: false }" :class="on ? '[&~main_h1]:opacity-0' : ''"></nav>\n  <main class="card">`,
+      )
+      .replace("</body>", `${TAILWIND_CDN}\n${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("allows a sibling's dynamic Tailwind utilities that cannot reach another element", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        `<nav x-data="{ on: false }" :class="on ? 'shadow-md' : ''"></nav>\n  <main class="card">`,
+      )
+      .replace("</body>", `${TAILWIND_CDN}\n${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
   it("allows a $root selector whose root does not contain the Motion target", () => {
     const source = html.replace(
       "</body>",

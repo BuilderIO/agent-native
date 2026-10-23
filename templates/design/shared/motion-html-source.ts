@@ -634,6 +634,17 @@ const GENERATED_DESIGN_LIBRARY_SCRIPT_ATTRIBUTES = new Set([
   "referrerpolicy",
 ]);
 
+function isTailwindBrowserRuntime(node: HtmlNode): boolean {
+  return (
+    node.tagName === "script" &&
+    !node.insideTemplate &&
+    isGeneratedDesignLibraryScript(node) &&
+    GENERATED_DESIGN_LIBRARY_SCRIPT_URLS[0]!.test(
+      attributes(node, "src")[0]?.value.trim() ?? "",
+    )
+  );
+}
+
 function isGeneratedDesignLibraryScript(node: HtmlNode): boolean {
   if ((node.childNodes ?? []).some((child) => (child.value ?? "").trim())) {
     return false;
@@ -780,8 +791,27 @@ function assertExecutableScriptsSafe(
   targetNodeIds: readonly string[],
   generatedIds: Map<number | undefined, string>,
 ): void {
+  const compilesClassesAtRuntime =
+    targetNodeIds.length > 0 && nodes.some(isTailwindBrowserRuntime);
   for (const node of nodes) {
     if (node.insideTemplate && !isRenderedByAlpine(node)) continue;
+
+    // The Tailwind browser runtime compiles classes as they are added, and an
+    // arbitrary variant ([&~main_h1]:) can style elements other than its own.
+    const runtimeVariant =
+      compilesClassesAtRuntime &&
+      node.attrs?.find(
+        ({ name, value }) =>
+          (isAlpineExpressionAttribute(name) ||
+            isEventHandlerAttribute(name)) &&
+          /\[[^\]]*\]:/.test(value),
+      );
+    if (runtimeVariant) {
+      sourceError(
+        "unsupported-target",
+        `HTML Motion targets cannot be synchronized safely while ${runtimeVariant.name} may add a Tailwind arbitrary variant that restyles them.`,
+      );
+    }
 
     const markupSink =
       targetNodeIds.length > 0 &&
@@ -905,9 +935,11 @@ function findContentReplacement(
     current;
     current = current.parentNode
   ) {
-    const attribute = current.attrs?.find(({ name }) =>
-      isAlpineContentReplacement(name),
-    );
+    // x-text on the target only replaces its text, which CSS Motion does not
+    // depend on; Motion Text refuses dynamic text on its own.
+    const replaces =
+      current === target ? isAlpineMarkupInjection : isAlpineContentReplacement;
+    const attribute = current.attrs?.find(({ name }) => replaces(name));
     if (attribute) return { attribute, onTarget: current === target };
   }
   return undefined;
@@ -982,9 +1014,13 @@ function handlerMayMutateMotionTarget(
   ) {
     return true;
   }
+  const handlerReachesTarget = () =>
+    isMotionTargetNode(handlerNode, targetIds, generatedIds) ||
+    containsMotionTarget(handlerNode, nodes, targetIds, generatedIds);
   if (
-    DIRECT_ELEMENT_CONTENT_REPLACEMENT.test(value) &&
-    containsMotionTarget(handlerNode, nodes, targetIds, generatedIds)
+    (DIRECT_ELEMENT_CONTENT_REPLACEMENT.test(value) ||
+      (REFLECTIVE_WRITE.test(value) && SELF_REFERENCE.test(value))) &&
+    handlerReachesTarget()
   ) {
     return true;
   }
@@ -1090,6 +1126,11 @@ const CONTENT_REPLACEMENT_ACCESS = new RegExp(
 const REFLECTIVE_WRITE =
   /\b(?:Object\s*\.\s*(?:assign|defineProperty|defineProperties)|Reflect\s*\.\s*(?:set|defineProperty))\s*\(/;
 
+const REFLECTIVE_WRITE_TARGET =
+  /\b(?:Object\s*\.\s*(?:assign|defineProperty|defineProperties)|Reflect\s*\.\s*(?:set|defineProperty))\s*\(\s*$/;
+const SELF_REFERENCE =
+  /(?:\bthis\b|\$el\b|\b(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))/;
+
 function mayWriteElement(value: string): boolean {
   return (
     MUTATION_MEMBER_ACCESS_PATTERN.test(value) ||
@@ -1144,7 +1185,7 @@ const DIRECT_ELEMENT_MUTATION = new RegExp(
 );
 
 const DIRECT_ELEMENT_CONTENT_REPLACEMENT = new RegExp(
-  String.raw`(?:\bthis\b|\$el|\b(?:event|e|\$event)\s*(?:\.\s*currentTarget|\[\s*["']currentTarget["']\s*\]))\s*(?:${CONTENT_REPLACEMENT_MEMBER_ACCESS})`,
+  String.raw`(?:\bthis\b|\$el|\b(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))\s*(?:${CONTENT_REPLACEMENT_MEMBER_ACCESS})`,
   "i",
 );
 
@@ -1503,8 +1544,7 @@ function handlerSelectsAndMutatesMotionTarget(
     );
   if (
     !usesDocumentSelector ||
-    (!MUTATION_MEMBER_ACCESS_PATTERN.test(value) &&
-      !destructuredMutationCandidate)
+    (!mayWriteElement(value) && !destructuredMutationCandidate)
   )
     return false;
 
@@ -1605,6 +1645,9 @@ function selectorCallFeedsMutationSink(
 ): boolean {
   const afterCall = source.slice(callEndIndex);
   if (SELECTED_ELEMENT_MUTATION_SINK.test(afterCall)) return true;
+  if (REFLECTIVE_WRITE_TARGET.test(source.slice(0, callStartIndex))) {
+    return true;
+  }
   if (
     destructuredSelectorCallHasActualMutationSink(
       source.slice(0, callStartIndex),
