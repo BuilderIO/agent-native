@@ -919,6 +919,44 @@ describe("GitHub folder source", () => {
     }
   });
 
+  it.each([
+    [
+      "a new image file",
+      "![Chart](images/chart.png)",
+      { "docs/images/chart.png": "PNGCHART" },
+    ],
+    ["an embedded image", "![Dot](data:image/png;base64,iVBORw0KGgo=)", {}],
+  ])(
+    "uploads none of an edited file's images over a page that takes body writes through its live copy (%s)",
+    async (_, image, files) => {
+      const { database } = await linkBaseFolder();
+      const faq = (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!;
+      await liveCopyPage.putPageOnLiveCopy(faq.documentId);
+      try {
+        const uploads = github.state.uploads;
+        github.commit({
+          ...BASE_FILES,
+          ...files,
+          "docs/faq.md": `${FAQ}
+${image}
+`,
+        });
+        await expect(
+          as(() => syncFolder.run({ databaseId: database.id })),
+        ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITER_UNSUPPORTED" });
+        expect(github.state.uploads).toBe(uploads);
+        const [after] = (await liveRows(database.id)).filter(
+          (row) => row.documentId === faq.documentId,
+        );
+        expect(after).toEqual(faq);
+      } finally {
+        await liveCopyPage.turnLiveCopyFlagsOff();
+      }
+    },
+  );
+
   it("keeps a renamed file's page, and moves a deleted file's page to Trash", async () => {
     const { database } = await linkBaseFolder();
     const pages = await liveRows(database.id);
