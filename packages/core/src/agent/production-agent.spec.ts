@@ -12169,71 +12169,165 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("does not cache repeated reads when the action opts out of deduping", async () => {
-    let streamCalls = 0;
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        streamCalls += 1;
-        if (streamCalls <= 2) {
+  it.each(["status", "read-result"])(
+    "keeps bounded task %s waits fresh past the repeat threshold",
+    async (action) => {
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          streamCalls += 1;
+          if (streamCalls <= 9) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call" as const,
+                  id: `poll-${streamCalls}`,
+                  name: "agent-teams",
+                  input: { action, taskId: "task-1", waitMs: 20_000 },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "complete" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      let polls = 0;
+      const pollAction = vi.fn(async () => ({
+        status: ++polls === 9 ? "complete" : "running",
+      }));
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "wait" }] }],
+        actions: {
+          "agent-teams": {
+            ...actionEntry({
+              planMode: {
+                effect: (args) =>
+                  args.action === "status" || args.action === "read-result"
+                    ? "read"
+                    : "write",
+              },
+            }),
+            dedupe: false,
+            run: pollAction,
+          },
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(pollAction).toHaveBeenCalledTimes(9);
+      expect(JSON.stringify(events)).not.toContain(
+        "Skipped duplicate read-only",
+      );
+      const completedPoll = events.find(
+        (event) => event.type === "tool_done" && event.id === "poll-9",
+      );
+      expect(completedPoll).toBeDefined();
+      expect(JSON.parse(completedPoll.result)).toEqual({ status: "complete" });
+      expect(events).toContainEqual({ type: "text", text: "complete" });
+    },
+  );
+
+  it.each([
+    ["export-hubspot-html", { designId: "design-1", frameId: "frame-1" }],
+    ["agent-teams", { action: "status", taskId: "task-1", waitMs: 0 }],
+    ["agent-teams", { action: "read-result", taskId: "task-1" }],
+    ["agent-teams", { action: "list", waitMs: 20_000 }],
+    ["agent-teams", { action: "status", taskId: "task-1", waitMs: 20_001 }],
+  ])(
+    "stops repeated uncached %s reads without a bounded task wait (%j)",
+    async (name, input) => {
+      let streamCalls = 0;
+      const run = vi.fn(async () => "fresh result");
+      const events: any[] = [];
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(options): AsyncIterable<EngineEvent> {
+          streamCalls += 1;
+          if (isLoopBreakerCloseout(options) || streamCalls > 9) {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text" as const, text: "Finished." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+            return;
+          }
           yield {
             type: "assistant-content",
             parts: [
               {
                 type: "tool-call" as const,
-                id: `poll-${streamCalls}`,
-                name: "poll-run",
-                input: { id: "run-1" },
+                id: `read-${streamCalls}`,
+                name,
+                input,
               },
             ],
           };
           yield { type: "stop", reason: "tool_use" };
-          return;
-        }
-        yield {
-          type: "assistant-content",
-          parts: [{ type: "text" as const, text: "complete" }],
-        };
-        yield { type: "stop", reason: "end_turn" };
-      },
-    };
-    const pollAction = vi
-      .fn()
-      .mockResolvedValueOnce({ status: "running" })
-      .mockResolvedValueOnce({ status: "complete" });
-    const events: any[] = [];
-
-    await runAgentLoop({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "wait" }] }],
-      actions: {
-        "poll-run": {
-          ...actionEntry({ readOnly: true }),
-          dedupe: false,
-          run: pollAction,
         },
-      },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-    });
+      };
 
-    expect(pollAction).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
-    expect(events).toContainEqual({ type: "text", text: "complete" });
-  });
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "check" }] },
+        ],
+        actions: {
+          [name]: { ...actionEntry({ readOnly: true }), dedupe: false, run },
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+      expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+        MAX_IDENTICAL_TOOL_CALLS,
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "error" }),
+      );
+    },
+  );
 
   it("does not treat a suffix collision as the visible cached read result", () => {
     const contextMessages: EngineMessage[] = [
@@ -13456,96 +13550,6 @@ describe("runAgentLoop", () => {
         tool: "get-document",
         result: "fresh document after write",
       }),
-    );
-  });
-
-  it("stops a turn that keeps issuing the same successful tool call with identical arguments", async () => {
-    let streamCalls = 0;
-    const run = vi.fn(async () => "same answer every time");
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: false,
-      },
-      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
-        streamCalls += 1;
-        if (isLoopBreakerCloseout(options)) {
-          yield {
-            type: "assistant-content",
-            parts: [
-              {
-                type: "text" as const,
-                text: "Stopped after eight repeated reads; nothing remains.",
-              },
-            ],
-          };
-          yield { type: "stop", reason: "end_turn" };
-          return;
-        }
-        yield {
-          type: "assistant-content",
-          parts: [
-            {
-              type: "tool-call" as const,
-              id: `tool-loop-${streamCalls}`,
-              name: "spinning-read",
-              input: { q: "same" },
-            },
-          ],
-        };
-        yield { type: "stop", reason: "tool_use" };
-      },
-    };
-    const events: any[] = [];
-
-    await runAgentLoop({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: {
-        "spinning-read": {
-          ...actionEntry({ readOnly: true }),
-          dedupe: false,
-          run,
-        },
-      },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-      maxIterations: MAX_IDENTICAL_TOOL_CALLS,
-    });
-
-    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
-    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "tool_done",
-        tool: "spinning-read",
-        result: "same answer every time",
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "text",
-        text: "Stopped after eight repeated reads; nothing remains.",
-      }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "error" }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "loop_limit" }),
     );
   });
 

@@ -1,18 +1,24 @@
 ---
 name: design-generation
 description: >-
-  Generate or refine complete interactive HTML prototypes in Design. Use when
-  creating screens, variants, Alpine/Tailwind prototypes, tweaks, or visual
-  refinements from a prompt or selected design.
+  Generate or refine Design web prototypes. Use when creating screens,
+  variants, or applying visual refinements. For HubSpot email requests,
+  read hubspot-email instead.
 ---
 
 # Design Generation
 
-How to generate complete, interactive HTML prototypes using Alpine.js + Tailwind CSS (via CDN). This is the core skill for the design agent.
+Generate complete web prototypes through Design actions.
+
+## HubSpot emails
+
+For HubSpot email creation, alignment, token edits, conversion or HTML handoff,
+read `hubspot-email` before applying the web workflow below. It owns email-safe
+authoring and completion checks, which replace the web stack defaults.
 
 ## Technology Stack
 
-Every generated design uses:
+Web prototypes use:
 - **Tailwind CSS v4** — via `@tailwindcss/browser@4` CDN (NOT the old v3 CDN)
 - **Alpine.js 3.x** — via `alpinejs@3.15.11` CDN with `defer` attribute
 - **Google Fonts** — for distinctive typography (never Inter/Roboto/Arial)

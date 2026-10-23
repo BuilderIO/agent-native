@@ -1,7 +1,7 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -9,6 +9,7 @@ import type {
   CancelPreparedBuilderSourceUpdateRequest,
   CancelPreparedBuilderSourceUpdateResponse,
 } from "../shared/api.js";
+import { readBuilderExecutionPayload } from "./_builder-cms-blob-custody.js";
 import {
   CANCELLED_BUILDER_EXECUTION_SUMMARY,
   CANCELLED_BUILDER_REVIEW_NOTE_PREFIX,
@@ -45,28 +46,63 @@ function isLocalBlockedDryRun(payload: Record<string, unknown>) {
   );
 }
 
+function isLivePreflightBlocked(payload: Record<string, unknown>) {
+  const preflight = payload.livePreflight;
+  if (!preflight || typeof preflight !== "object" || Array.isArray(preflight)) {
+    return false;
+  }
+  const record = preflight as Record<string, unknown>;
+  return (
+    typeof record.checkedAt === "string" &&
+    typeof record.exists === "boolean" &&
+    (record.lastUpdated === null ||
+      typeof record.lastUpdated === "number" ||
+      typeof record.lastUpdated === "string") &&
+    (record.blocksHash === null || typeof record.blocksHash === "string")
+  );
+}
+
+function isDefinitivelyRejectedWrite(payload: Record<string, unknown>) {
+  const response = payload.response;
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    return false;
+  }
+  const record = response as Record<string, unknown>;
+  return (
+    record.ok === false &&
+    typeof record.status === "number" &&
+    Number.isInteger(record.status) &&
+    record.status >= 400 &&
+    record.status < 500
+  );
+}
+
 function assertProvablyPreDispatch(execution: {
   state: string;
   summary: string;
   payloadJson: string;
   attemptToken: string | null;
 }) {
-  if (!PRE_DISPATCH_STATES.has(execution.state)) {
+  const payload = parseExecutionPayload(execution.payloadJson);
+  const definitiveRejectedWrite =
+    (execution.state === "failed" || execution.state === "blocked") &&
+    isDefinitivelyRejectedWrite(payload);
+  if (!PRE_DISPATCH_STATES.has(execution.state) && !definitiveRejectedWrite) {
     throw new Error(
       `Cannot cancel a Builder execution in state ${execution.state}. Its outcome must be preserved.`,
     );
   }
-  if (execution.attemptToken) {
+  if (execution.attemptToken && !definitiveRejectedWrite) {
     throw new Error(
       "Cannot cancel this Builder update because a dispatch attempt was recorded.",
     );
   }
 
-  const payload = parseExecutionPayload(execution.payloadJson);
   if (
     Object.prototype.hasOwnProperty.call(payload, "response") ||
     Object.prototype.hasOwnProperty.call(payload, "dispatch")
   ) {
+    if (definitiveRejectedWrite) return;
     throw new Error(
       "Cannot cancel this Builder update because dispatch or response evidence was recorded.",
     );
@@ -74,7 +110,8 @@ function assertProvablyPreDispatch(execution: {
   if (
     execution.state === "blocked" &&
     execution.summary !== CANCELLED_BUILDER_EXECUTION_SUMMARY &&
-    !isLocalBlockedDryRun(payload)
+    !isLocalBlockedDryRun(payload) &&
+    !isLivePreflightBlocked(payload)
   ) {
     throw new Error(
       "Cannot cancel this blocked Builder update because it is not provably a local pre-dispatch block.",
@@ -111,7 +148,7 @@ function assertCanonicalClaims(
 
 export default defineAction({
   description:
-    "Cancel one exact prepared Builder update only when every execution is provably pre-dispatch. This never calls Builder or deletes audit history.",
+    "Cancel one exact prepared Builder update only when every execution never dispatched or Builder definitively rejected it. This never calls Builder or deletes audit history.",
   schema: z
     .object({
       databaseId: z.string().optional().describe("Collection ID"),
@@ -167,7 +204,7 @@ export default defineAction({
         .limit(1);
       if (!changeSet) throw new Error("Source change-set not found.");
 
-      const executions = await tx
+      const storedExecutions = await tx
         .select()
         .from(schema.contentDatabaseSourceExecutions)
         .where(
@@ -179,6 +216,24 @@ export default defineAction({
             ),
           ),
         );
+      const executions = await Promise.all(
+        storedExecutions.map(async (execution) => ({
+          ...execution,
+          storedPayloadJson: execution.payloadJson,
+          payloadJson: JSON.stringify(
+            await readBuilderExecutionPayload({
+              payloadJson: execution.payloadJson,
+              binding: {
+                ownerEmail: execution.ownerEmail,
+                sourceId: execution.sourceId,
+                changeSetId: execution.changeSetId,
+                executionId: execution.id,
+                idempotencyKey: execution.idempotencyKey,
+              },
+            }),
+          ),
+        })),
+      );
       executionIds = executions.map((execution) => execution.id);
 
       if (executions.length === 0) {
@@ -253,23 +308,40 @@ export default defineAction({
         );
       }
 
-      await tx
-        .update(schema.contentDatabaseSourceExecutions)
-        .set({
-          state: "blocked",
-          summary: CANCELLED_BUILDER_EXECUTION_SUMMARY,
-          lastError: null,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.contentDatabaseSourceExecutions.sourceId, source.id),
-            eq(
-              schema.contentDatabaseSourceExecutions.changeSetId,
-              changeSet.id,
+      for (const execution of executions) {
+        const [updated] = await tx
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: "blocked",
+            summary: CANCELLED_BUILDER_EXECUTION_SUMMARY,
+            attemptToken: null,
+            lastError: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.id, execution.id),
+              eq(schema.contentDatabaseSourceExecutions.state, execution.state),
+              eq(
+                schema.contentDatabaseSourceExecutions.payloadJson,
+                execution.storedPayloadJson,
+              ),
+              execution.attemptToken
+                ? eq(
+                    schema.contentDatabaseSourceExecutions.attemptToken,
+                    execution.attemptToken,
+                  )
+                : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
             ),
-          ),
-        );
+          )
+          .returning({ id: schema.contentDatabaseSourceExecutions.id });
+        if (!updated) {
+          fail(
+            "Cannot cancel this Builder update because an execution changed before cancellation committed.",
+            { errorCode: "builder_update_changed", statusCode: 409 },
+          );
+        }
+      }
 
       const noteSuffix = args.note?.trim() ? ` Note: ${args.note.trim()}` : "";
       await tx.insert(schema.contentDatabaseSourceChangeReviews).values({
@@ -284,10 +356,22 @@ export default defineAction({
         note: `${CANCELLED_BUILDER_REVIEW_NOTE_PREFIX} by ${actor} at ${now}.${noteSuffix}`,
         createdAt: now,
       });
-      await tx
+      const [rejectedChangeSet] = await tx
         .update(schema.contentDatabaseSourceChangeSets)
         .set({ state: "rejected", updatedAt: now })
-        .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id));
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id),
+            eq(schema.contentDatabaseSourceChangeSets.state, changeSet.state),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceChangeSets.id });
+      if (!rejectedChangeSet) {
+        fail(
+          "Cannot cancel this Builder update because its review state changed before cancellation committed.",
+          { errorCode: "builder_update_changed", statusCode: 409 },
+        );
+      }
       await tx
         .update(schema.contentDatabaseSources)
         .set({ updatedAt: now })

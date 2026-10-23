@@ -161,9 +161,23 @@ export interface DocumentUpdateRequest {
   loadedContentWasEmpty?: boolean;
 }
 
+/**
+ * The body part of a browser save on a page whose body is its live copy. The
+ * body was not written: the editor's updates reach the live copy over collab.
+ * `matchesLiveCopy` says whether every submitted, authored and snapshot body
+ * equals the body derived from the live copy at `collabVersion`.
+ */
+export interface LiveCopyBodySave {
+  status: "live_copy";
+  matchesLiveCopy: boolean;
+  bodyRevision: number;
+  collabVersion: number;
+}
+
 export interface DocumentUpdateResponse extends Document {
   urlPath: string;
   softDeletedDatabaseIds: string[];
+  bodySave?: LiveCopyBodySave;
 }
 
 export interface DocumentMoveRequest {
@@ -461,12 +475,19 @@ export type ContentDatabaseItemLeadingKind =
   | "checkbox"
   | "status";
 export type ContentDatabaseItemTitleWeight = "regular" | "medium" | "bold";
+/** What line 2 shows: a property, or the first lines of each row's page. */
+export type ContentDatabaseItemLine2Source = "property" | "page";
 
 /** Which property fills each part of a list row. */
 export interface ContentDatabaseItemLayout {
   leading: { kind: ContentDatabaseItemLeadingKind; propertyId: string | null };
   titleWeight: ContentDatabaseItemTitleWeight;
-  line2: { propertyId: string | null; lines: 1 | 2 | 3 };
+  /** A saved layout leaves `source` out when line 2 shows a property. */
+  line2: {
+    source?: ContentDatabaseItemLine2Source;
+    propertyId: string | null;
+    lines: 1 | 2 | 3;
+  };
   line3: string[];
   trailing: string[];
 }
@@ -612,6 +633,11 @@ export interface ContentDatabaseItem {
   properties: DocumentProperty[];
   workspaceFilesDatabaseId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
+  /**
+   * The first lines of the row's page as plain text. List reads include it
+   * only when a List view of the collection shows page text in line 2.
+   */
+  excerpt?: string;
   sourceRecord?: ContentDatabaseSourceRow;
   canonicalKey?: string | null;
   sourceOverlays?: ContentDatabaseSourceOverlay[];
@@ -891,6 +917,7 @@ export interface ContentDatabaseSourceExecution {
   idempotencyKey: string;
   summary: string;
   payload: Record<string, unknown>;
+  payloadUnavailable?: true;
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
@@ -977,6 +1004,7 @@ export interface ContentDatabaseSource {
     readMode?: "fixture" | "builder-api" | (string & {}) | null;
     connectionId?: string | null;
     connectionLabel?: string | null;
+    builderSpacePublicKey?: string | null;
     truthPolicy?: ContentDatabaseSourceTruthPolicy;
     syncPolicy?: "manual" | "keep_in_sync";
     liveBridgeEnabled?: boolean;
@@ -986,6 +1014,7 @@ export interface ContentDatabaseSource {
     lastReadMatchedRowCount?: number;
     lastReadLimit?: number;
     lastReadFetchedEntryCount?: number;
+    lastReadCollectionCount?: number;
     lastReadPartial?: boolean;
     lastReadHasMore?: boolean;
     lastReadNextOffset?: number;

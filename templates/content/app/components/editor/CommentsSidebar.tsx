@@ -45,7 +45,11 @@ import {
   findReplaceSuggestionSummary,
   suggestionDiffParts,
 } from "@shared/suggestion-diff";
-import type { SuggestionPresentationContext } from "@shared/suggestion-text";
+import {
+  suggestionAnchorText,
+  suggestionTextForDisplay,
+  type SuggestionPresentationContext,
+} from "@shared/suggestion-text";
 
 import {
   DropdownMenu,
@@ -126,6 +130,22 @@ import {
   type CommentAiController,
 } from "./comment-ai";
 import {
+  commentBlockKey,
+  commentStackFront,
+  commentStackKey,
+  groupCommentStacks,
+  measureCommentBlocks,
+  type CommentBlockPlacement,
+  type CommentStack,
+} from "./comment-stacks";
+import {
+  CommentStackCard,
+  CommentStackGuide,
+  CommentStackHeader,
+  CommentStackSheets,
+  CommentStackShowAll,
+} from "./CommentStack";
+import {
   ReviewAddReactionButton,
   ReviewCommentMenu,
   ReviewReactionList,
@@ -195,6 +215,20 @@ function isAmbiguousCommentCreateError(error: unknown) {
           error.message,
         ) || error.name === "AbortError")
   );
+}
+
+/** The session's name for the signed-in person's own entries, if it has one. */
+function ownAuthorName(
+  authorEmail: string | null | undefined,
+  currentUserEmail?: string,
+  currentUserName?: string,
+) {
+  const name = currentUserName?.trim();
+  return name &&
+    authorEmail &&
+    authorEmail.trim().toLowerCase() === currentUserEmail?.trim().toLowerCase()
+    ? name
+    : null;
 }
 
 function cssEscape(value: string) {
@@ -324,6 +358,26 @@ export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
  */
 export const PENDING_COMMENT_LAYOUT_ID = "pending-comment";
 const PENDING_COMMENT_CARD_ESTIMATE = 112;
+/** An open stack's Collapse row, laid out like a card above its threads. */
+const STACK_HEADER_LAYOUT_ID = "comment-stack-header";
+const STACK_HEADER_HEIGHT = 28;
+/** How long the pointer rests on a highlight before its thread comes to the front. */
+const STACK_HOVER_INTENT_MS = 180;
+const NO_BLOCKS: ReadonlyMap<string, CommentBlockPlacement> = new Map();
+const NO_TOUCHES: ReadonlyMap<string, number> = new Map();
+
+function sameBlocks(
+  left: ReadonlyMap<string, CommentBlockPlacement>,
+  right: ReadonlyMap<string, CommentBlockPlacement>,
+) {
+  if (left.size !== right.size) return false;
+  for (const [threadId, placement] of right) {
+    const prior = left.get(threadId);
+    if (prior?.key !== placement.key || prior.order !== placement.order)
+      return false;
+  }
+  return true;
+}
 
 type CommentLayoutItem<T extends ThreadLayoutIdentity> = {
   thread: T;
@@ -756,7 +810,11 @@ interface CommentsSidebarOptions {
   onActivateSuggestion?: (id: string) => void;
   onSelectedThreadChange?: (id: string | null) => void;
   onHoveredThreadChange?: (id: string | null) => void;
+  /** The thread whose highlight the pointer is on. */
+  hoveredThreadId?: string | null;
   currentUserEmail?: string;
+  /** The signed-in person's display name, for their own suggestions. */
+  currentUserName?: string;
   currentUserOrgId?: string;
   canComment?: boolean;
   canResolve?: boolean;
@@ -840,7 +898,9 @@ export function CommentsSidebar({
   onActivateSuggestion,
   onSelectedThreadChange,
   onHoveredThreadChange,
+  hoveredThreadId,
   currentUserEmail,
+  currentUserName,
   currentUserOrgId,
   canComment = true,
   canResolve = false,
@@ -1112,36 +1172,254 @@ export function CommentsSidebar({
     )
       setReplyingThreadId(selectedThreadId);
   }, [canComment, presentation, selectedThreadId, selectedThreadIsOpen]);
+
+  // In the margin, a block with two or more open threads folds into one
+  // card. Opening it lays its threads out as cards; one stack opens at once.
+  const stacksEnabled =
+    presentation === "inline" &&
+    surface === "rail" &&
+    alignToAnchors &&
+    !visibleThreadId;
+  const [threadBlocks, setThreadBlocks] = useState(NO_BLOCKS);
+  // The block a new comment's text is in, once measured; `key` is null for
+  // text in no block, such as a Property.
+  const [pendingBlock, setPendingBlock] = useState<{
+    id: symbol;
+    key: string | null;
+  } | null>(null);
+  // The open stack's threads, as last laid out. Whichever stack still holds
+  // one of them is open, so it outlasts its block key shifting and the thread
+  // it was opened on being resolved.
+  const [openStack, setOpenStack] = useState<ReadonlySet<string> | null>(null);
+  // When each thread was last touched, so a folded stack shows that one.
+  // Thread ids are unique across tabs, so a touch never crosses tabs.
+  const [stackTouches, setStackTouches] = useState(NO_TOUCHES);
+  const touchCountRef = useRef(0);
+  const touchThread = useCallback((threadId: string) => {
+    touchCountRef.current += 1;
+    const touch = touchCountRef.current;
+    setStackTouches((prev) => new Map(prev).set(threadId, touch));
+  }, []);
+  // A thread just posted is selected without moving the open stack.
+  const postedThreadIdRef = useRef<string | null>(null);
+  const focusStackKeyRef = useRef<string | null>(null);
+  const commentStacks = useMemo(
+    () => (stacksEnabled ? groupCommentStacks(openThreads, threadBlocks) : []),
+    [openThreads, stacksEnabled, threadBlocks],
+  );
+  const stackOfThread = useMemo(() => {
+    const stacks = new Map<string, CommentStack<CommentThread>>();
+    for (const stack of commentStacks) {
+      for (const member of stack.threads) stacks.set(member.threadId, stack);
+    }
+    return stacks;
+  }, [commentStacks]);
+  const stackOfThreadRef = useRef(stackOfThread);
+  stackOfThreadRef.current = stackOfThread;
+  const pendingStackKey =
+    displayedPendingComment && pendingBlock?.id === displayedPendingComment.id
+      ? pendingBlock.key
+      : undefined;
+  const openedStack = openStack
+    ? (commentStacks.find((stack) =>
+        stack.threads.some((member) => openStack.has(member.threadId)),
+      ) ?? null)
+    : null;
+  // A new comment outside the open stack folds it, as does leaving it with
+  // nothing selected.
+  const pendingFoldsOpenStack =
+    pendingStackKey !== undefined &&
+    pendingStackKey !== (openedStack?.key ?? null);
+  const expandedStack =
+    pendingFoldsOpenStack || (!selectedThreadId && !pendingComment)
+      ? null
+      : openedStack;
+  // A new comment on a folded stack opens on top of it.
+  const composingStack =
+    pendingStackKey == null || pendingStackKey === expandedStack?.key
+      ? null
+      : (commentStacks.find((stack) => stack.key === pendingStackKey) ?? null);
+
+  const openStackOn = useCallback((threadId: string) => {
+    const stack = stackOfThreadRef.current.get(threadId);
+    setOpenStack(
+      new Set(
+        stack ? stack.threads.map((member) => member.threadId) : [threadId],
+      ),
+    );
+  }, []);
+  const previousSelectionRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousSelectionRef.current;
+    previousSelectionRef.current = selectedThreadId ?? null;
+    if (!stacksEnabled || !selectedThreadId || selectedThreadId === previous)
+      return;
+    touchThread(selectedThreadId);
+    const posted = postedThreadIdRef.current === selectedThreadId;
+    postedThreadIdRef.current = null;
+    if (!posted) openStackOn(selectedThreadId);
+  }, [openStackOn, selectedThreadId, stacksEnabled, touchThread]);
+  useEffect(() => {
+    if (!openStack) return;
+    if ((!selectedThreadId && !pendingComment) || pendingFoldsOpenStack) {
+      setOpenStack(null);
+    } else if (openedStack) {
+      const members = openedStack.threads;
+      if (
+        members.length !== openStack.size ||
+        members.some((member) => !openStack.has(member.threadId))
+      )
+        setOpenStack(new Set(members.map((member) => member.threadId)));
+    } else if (
+      // A thread selected before the margin measured its block may still
+      // turn out to stack. Otherwise none of them does, and keeping them
+      // would open a stack their block forms later by itself.
+      !openThreads.some(
+        (thread) =>
+          !thread.resolved &&
+          openStack.has(thread.threadId) &&
+          !threadBlocks.has(thread.threadId),
+      )
+    ) {
+      setOpenStack(null);
+    }
+  }, [
+    openStack,
+    openThreads,
+    openedStack,
+    pendingComment,
+    pendingFoldsOpenStack,
+    selectedThreadId,
+    threadBlocks,
+  ]);
+  // A highlight click opens its stack and touches its thread, even one already
+  // selected, whose selection doesn't change.
+  useEffect(() => {
+    const container = scrollContainerRef?.current;
+    if (!stacksEnabled || !container) return;
+    const openFromHighlight = (event: MouseEvent) => {
+      const threadId = (event.target as Element | null)
+        ?.closest?.("[data-comment-thread]")
+        ?.getAttribute("data-comment-thread");
+      if (!threadId || !stackOfThreadRef.current.has(threadId)) return;
+      touchThread(threadId);
+      openStackOn(threadId);
+    };
+    container.addEventListener("click", openFromHighlight);
+    return () => container.removeEventListener("click", openFromHighlight);
+  }, [openStackOn, scrollContainerRef, stacksEnabled, touchThread]);
+  // Resting on a highlight brings its thread to the front of a folded stack;
+  // passing over one on the way to the margin doesn't.
+  useEffect(() => {
+    if (!hoveredThreadId) return;
+    const stack = stackOfThread.get(hoveredThreadId);
+    if (!stack || stack === expandedStack) return;
+    // Touching the stack's last-touched thread again would only rerun this.
+    const touch = stackTouches.get(hoveredThreadId);
+    if (
+      touch !== undefined &&
+      stack.threads.every(
+        (member) => (stackTouches.get(member.threadId) ?? 0) <= touch,
+      )
+    )
+      return;
+    const timer = setTimeout(
+      () => touchThread(hoveredThreadId),
+      STACK_HOVER_INTENT_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [
+    expandedStack,
+    hoveredThreadId,
+    stackOfThread,
+    stackTouches,
+    touchThread,
+  ]);
+  const expandedStackKey = expandedStack?.key ?? null;
+  const selectedInExpandedStack =
+    !!selectedThreadId &&
+    !!expandedStack?.threads.some(
+      (member) => member.threadId === selectedThreadId,
+    );
+  useLayoutEffect(() => {
+    if (!selectedInExpandedStack || !selectedThreadId) return;
+    const card = sidebarRef.current?.querySelector<HTMLElement>(
+      `[data-thread-card="${cssEscape(selectedThreadId)}"]`,
+    );
+    if (!card) return;
+    // Opening from the folded card removes the button that had focus.
+    const active = document.activeElement;
+    if (!active || active === document.body)
+      card.focus({ preventScroll: true });
+    const timer = setTimeout(
+      () => card.scrollIntoView?.({ block: "nearest", behavior: "smooth" }),
+      300,
+    );
+    return () => clearTimeout(timer);
+  }, [expandedStackKey, selectedInExpandedStack, selectedThreadId]);
+  const pendingInExpandedStack =
+    !!expandedStack && pendingStackKey === expandedStack.key;
+  useLayoutEffect(() => {
+    if (!pendingInExpandedStack) return;
+    // Show all, under a new comment, removes the button that had focus.
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    sidebarRef.current
+      ?.querySelector<HTMLElement>(
+        '[data-comment-pending] [contenteditable="true"]',
+      )
+      ?.focus({ preventScroll: true });
+  }, [pendingInExpandedStack]);
+  useLayoutEffect(() => {
+    const key = focusStackKeyRef.current;
+    if (key === null) return;
+    const stack = [
+      ...(sidebarRef.current?.querySelectorAll<HTMLElement>(
+        "[data-comment-stack]",
+      ) ?? []),
+    ].find((element) => element.dataset.commentStack === key);
+    const target = stack?.querySelector<HTMLElement>(
+      "[data-comment-stack-open], [data-comment-stack-show-all]",
+    );
+    if (!target) return;
+    focusStackKeyRef.current = null;
+    target.focus({ preventScroll: true });
+  });
+  const collapseStack = (stack: CommentStack<CommentThread>) => {
+    focusStackKeyRef.current = stack.key;
+    setOpenStack(null);
+    setReplyingThreadId(null);
+    onSelectedThreadChange?.(null);
+  };
+
   const historyAuthors = useMemo(() => {
     const authors = new Map<string, string>();
-    for (const suggestion of suggestions) {
-      if (suggestion.authorEmail) {
-        authors.set(
-          suggestion.authorEmail,
-          suggestion.authorEmail.split("@")[0],
-        );
-      }
-    }
-    for (const suggestion of draftSuggestions) {
-      if (suggestion.authorEmail) {
-        authors.set(
-          suggestion.authorEmail,
-          suggestion.authorEmail.split("@")[0],
-        );
-      }
-    }
+    // A name from any record outranks the email's local part from another.
+    const addAuthor = (email: string | null, name?: string | null) => {
+      if (!email) return;
+      const known =
+        name?.trim() || ownAuthorName(email, currentUserEmail, currentUserName);
+      if (known) authors.set(email, known);
+      else if (!authors.has(email)) authors.set(email, email.split("@")[0]);
+    };
+    for (const suggestion of suggestions) addAuthor(suggestion.authorEmail);
+    for (const suggestion of draftSuggestions)
+      addAuthor(suggestion.authorEmail);
     for (const thread of threads) {
       for (const comment of thread.comments) {
-        authors.set(
-          comment.author_email,
-          comment.author_name ?? comment.author_email.split("@")[0],
-        );
+        addAuthor(comment.author_email, comment.author_name);
       }
     }
     return [...authors.entries()].sort((left, right) =>
       left[1].localeCompare(right[1]),
     );
-  }, [draftSuggestions, suggestions, threads]);
+  }, [
+    currentUserEmail,
+    currentUserName,
+    draftSuggestions,
+    suggestions,
+    threads,
+  ]);
   // Suggestions edit the page body, so they sit in its tab.
   const historyBodyTabShown =
     activeHistoryTab === null || activeHistoryTab === commentTabKey(null);
@@ -1320,6 +1598,7 @@ export function CommentsSidebar({
     pendingDraft.beginSubmission(clientOperationId);
     onPendingChange(id, () => ({ submitting: true }));
     setPendingHandoff({ id, operationId: clientOperationId });
+    touchThread(`optimistic-${clientOperationId}`);
     try {
       const result = await createComment.mutateAsync({
         clientOperationId,
@@ -1343,7 +1622,11 @@ export function CommentsSidebar({
       });
       pendingDraft.finishSubmission(clientOperationId);
       setPendingHandoff(null);
+      // The new thread is its stack's front. Selecting it leaves its stack
+      // as it was, open or folded.
+      touchThread(result.threadId);
       if (pendingCommentRef.current?.id === id) {
+        postedThreadIdRef.current = result.threadId;
         onPendingDone(id, result.threadId);
       }
       return { id: result.id, threadId: result.threadId };
@@ -1465,6 +1748,22 @@ export function CommentsSidebar({
     null,
   );
   const pendingCardRef = useRef<HTMLDivElement>(null);
+  // An inline group remounts under its next card once its leading edit is
+  // decided, so whether it is open has to outlive the group.
+  const [expandedProposalIds, setExpandedProposalIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const setProposalExpanded = useCallback(
+    (proposalId: string, expanded: boolean) =>
+      setExpandedProposalIds((current) => {
+        if (current.has(proposalId) === expanded) return current;
+        const next = new Set(current);
+        if (expanded) next.add(proposalId);
+        else next.delete(proposalId);
+        return next;
+      }),
+    [],
+  );
   const inlineProposalLeaders = useMemo(() => {
     const leaders = new Map<string, string>();
     for (const proposalId of inlineProposalMembers.keys()) {
@@ -1487,18 +1786,35 @@ export function CommentsSidebar({
     proposalMemberCounts,
     threadPositions,
   ]);
+  // A folded stack is laid out as its first thread; a new comment opened on
+  // top of it takes its place.
+  const stackHiddenIds = useMemo(() => {
+    const hidden = new Set<string>();
+    for (const stack of commentStacks) {
+      if (stack === expandedStack) continue;
+      const folded =
+        stack === composingStack ? stack.threads : stack.threads.slice(1);
+      for (const member of folded) hidden.add(member.threadId);
+    }
+    return hidden;
+  }, [commentStacks, composingStack, expandedStack]);
   const layoutThreads = useMemo(
     () =>
-      inlineThreads.filter(
-        (thread) =>
-          !("suggestion" in thread) ||
-          !("proposalId" in thread.suggestion) ||
-          !thread.suggestion.proposalId ||
-          (proposalMemberCounts.get(thread.suggestion.proposalId) ?? 0) < 2 ||
-          inlineProposalLeaders.get(thread.suggestion.proposalId) ===
-            thread.threadId,
+      inlineThreads.filter((thread) =>
+        "suggestion" in thread
+          ? !("proposalId" in thread.suggestion) ||
+            !thread.suggestion.proposalId ||
+            (proposalMemberCounts.get(thread.suggestion.proposalId) ?? 0) < 2 ||
+            inlineProposalLeaders.get(thread.suggestion.proposalId) ===
+              thread.threadId
+          : !stackHiddenIds.has(thread.threadId),
       ),
-    [inlineThreads, inlineProposalLeaders, proposalMemberCounts],
+    [
+      inlineThreads,
+      inlineProposalLeaders,
+      proposalMemberCounts,
+      stackHiddenIds,
+    ],
   );
   const openThreadKey = inlineThreads
     .map(
@@ -1520,9 +1836,36 @@ export function CommentsSidebar({
   );
 
   const hasPendingComment = !!displayedPendingComment;
+  const pendingCommentId = displayedPendingComment?.id;
+  const pendingFieldId = displayedPendingComment?.fieldId ?? null;
+  const pendingOnProperty = !!displayedPendingComment?.property;
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
     setThreadPositionsMeasured(!!container);
+    const blocks =
+      stacksEnabled && container
+        ? measureCommentBlocks(container, openThreads)
+        : NO_BLOCKS;
+    setThreadBlocks((prev) => (sameBlocks(prev, blocks) ? prev : blocks));
+    if (stacksEnabled && container && pendingCommentId) {
+      const highlight = pendingOnProperty
+        ? null
+        : container.querySelector(".comment-highlight--pending");
+      const block =
+        highlight && !inHiddenBlockFieldPanel(highlight)
+          ? commentBlockKey(highlight)
+          : null;
+      // Text not drawn yet isn't known to be outside the open stack.
+      if (pendingOnProperty || highlight) {
+        const key =
+          block === null ? null : commentStackKey(pendingFieldId, block);
+        setPendingBlock((prev) =>
+          prev?.id === pendingCommentId && prev.key === key
+            ? prev
+            : { id: pendingCommentId, key },
+        );
+      }
+    }
     const layoutContainer = alignToAnchors ? sidebarRef.current : null;
     const nextPendingPosition =
       hasPendingComment && alignToAnchors
@@ -1577,7 +1920,17 @@ export function CommentsSidebar({
       }
       return positions;
     });
-  }, [alignToAnchors, hasPendingComment, inlineThreads, scrollContainerRef]);
+  }, [
+    alignToAnchors,
+    hasPendingComment,
+    inlineThreads,
+    openThreads,
+    pendingCommentId,
+    pendingFieldId,
+    pendingOnProperty,
+    scrollContainerRef,
+    stacksEnabled,
+  ]);
 
   // Measured before paint, so a card under a new id never paints unplaced.
   useLayoutEffect(() => {
@@ -1601,14 +1954,18 @@ export function CommentsSidebar({
           subtree: true,
           characterData: true,
           attributes: true,
-          attributeFilter: ["hidden"],
+          attributeFilter: ["hidden", "data-comment-thread"],
         });
       }
     } else {
+      // A posted comment's highlight can reuse the draft's span, gaining only
+      // its thread id, and a stack needs that id to place the thread.
       observer.observe(primaryBlockFieldEditor(container) ?? container, {
         childList: true,
         subtree: true,
         characterData: true,
+        attributes: true,
+        attributeFilter: ["data-comment-thread"],
       });
     }
     const resizeObserver =
@@ -1627,7 +1984,6 @@ export function CommentsSidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openThreadKey, hasPendingComment, recomputeOffsets]);
 
-  const pendingCommentId = displayedPendingComment?.id;
   useLayoutEffect(() => {
     const element = pendingCardRef.current;
     if (!element) {
@@ -1678,6 +2034,10 @@ export function CommentsSidebar({
   const activeSavedSuggestion = inlineSuggestions.find(
     (suggestion) => suggestion.id === activeSuggestionId,
   );
+  // A thread in a folded stack is laid out as the stack's card.
+  const selectedStack = selectedThreadId
+    ? stackOfThread.get(selectedThreadId)
+    : undefined;
   const selectedLayoutThreadId =
     (activeSavedSuggestion?.proposalId
       ? inlineProposalLeaders.get(activeSavedSuggestion.proposalId)
@@ -1685,7 +2045,9 @@ export function CommentsSidebar({
     inlineDraftSuggestions.find(
       (suggestion) => suggestion.id === activeSuggestionId,
     )?.threadId ??
-    selectedThreadId;
+    (selectedStack && selectedStack !== expandedStack
+      ? selectedStack.threads[0].threadId
+      : selectedThreadId);
   const restingItems = layoutCommentThreads(
     layoutThreads,
     threadPositions,
@@ -1702,32 +2064,105 @@ export function CommentsSidebar({
       : null;
   const pendingAnchorTop =
     pendingPosition?.layoutTop ?? displayedPendingComment?.offsetTop ?? 0;
-  const selectedItems = pendingLayout
-    ? layoutCommentThreads<LayoutThread | ThreadLayoutIdentity>(
-        [...layoutThreads, pendingLayout],
-        new Map(threadPositions).set(PENDING_COMMENT_LAYOUT_ID, {
-          documentTop: pendingPosition?.documentTop ?? pendingAnchorTop,
-          layoutTop: pendingAnchorTop,
-        }),
-        new Map(threadCardHeights).set(
-          PENDING_COMMENT_LAYOUT_ID,
-          pendingCardHeight ?? PENDING_COMMENT_CARD_ESTIMATE,
+  const pendingAnchor: CommentThreadPosition = {
+    documentTop: pendingPosition?.documentTop ?? pendingAnchorTop,
+    layoutTop: pendingAnchorTop,
+  };
+  // An open stack's Collapse row is laid out like a card above its first one.
+  const stackHeaderLayout: ThreadLayoutIdentity | null = expandedStack
+    ? { threadId: STACK_HEADER_LAYOUT_ID, comments: [] }
+    : null;
+  const firstStackAnchor = expandedStack
+    ? [
+        ...expandedStack.threads.map((member) =>
+          threadPositions.get(member.threadId),
         ),
-        PENDING_COMMENT_LAYOUT_ID,
+        pendingInExpandedStack ? pendingAnchor : undefined,
+      ].reduce<CommentThreadPosition | null>(
+        (first, position) =>
+          position && (!first || position.documentTop < first.documentTop)
+            ? position
+            : first,
+        null,
       )
-    : layoutCommentThreads(
-        layoutThreads,
-        threadPositions,
-        threadCardHeights,
-        selectedLayoutThreadId,
-      );
+    : null;
+  const layoutPositions = new Map(threadPositions);
+  const layoutHeights = new Map(threadCardHeights);
+  if (pendingLayout) {
+    layoutPositions.set(PENDING_COMMENT_LAYOUT_ID, pendingAnchor);
+    layoutHeights.set(
+      PENDING_COMMENT_LAYOUT_ID,
+      pendingCardHeight ?? PENDING_COMMENT_CARD_ESTIMATE,
+    );
+  }
+  if (stackHeaderLayout) {
+    if (firstStackAnchor) {
+      layoutPositions.set(STACK_HEADER_LAYOUT_ID, {
+        documentTop: firstStackAnchor.documentTop - 0.5,
+        layoutTop:
+          firstStackAnchor.layoutTop === null
+            ? null
+            : firstStackAnchor.layoutTop - STACK_HEADER_HEIGHT - 12,
+      });
+    }
+    layoutHeights.set(STACK_HEADER_LAYOUT_ID, STACK_HEADER_HEIGHT);
+  }
+  const anchoredItems = layoutCommentThreads<
+    LayoutThread | ThreadLayoutIdentity
+  >(
+    [
+      ...layoutThreads,
+      ...(pendingLayout ? [pendingLayout] : []),
+      ...(stackHeaderLayout ? [stackHeaderLayout] : []),
+    ],
+    layoutPositions,
+    layoutHeights,
+    pendingLayout ? PENDING_COMMENT_LAYOUT_ID : selectedLayoutThreadId,
+  );
+  // Keeping the selected card level with its highlight pushes the cards above
+  // it upward. Near the top of a page that would put an open stack's Collapse
+  // row and first cards above the margin, where nothing can scroll to them, so
+  // the stack starts at the top instead.
+  const stackOverflow = Math.max(
+    0,
+    -(
+      anchoredItems.find((item) => item.thread === stackHeaderLayout)?.top ?? 0
+    ),
+  );
+  const selectedItems = stackOverflow
+    ? anchoredItems.map((item) => ({ ...item, top: item.top + stackOverflow }))
+    : anchoredItems;
   const pendingTop =
     selectedItems.find((item) => item.thread === pendingLayout)?.top ??
     pendingAnchorTop;
+  const stackHeaderTop = selectedItems.find(
+    (item) => item.thread === stackHeaderLayout,
+  )?.top;
   const items = selectedItems.filter(
     (item): item is CommentLayoutItem<LayoutThread> =>
-      item.thread !== pendingLayout,
+      item.thread !== pendingLayout && item.thread !== stackHeaderLayout,
   );
+  // The guide beside an open stack spans its cards, and a new comment in it.
+  const stackSpans = expandedStack
+    ? selectedItems
+        .filter((item) =>
+          item.thread === pendingLayout
+            ? pendingInExpandedStack
+            : expandedStack.threads.some(
+                (member) => member.threadId === item.thread.threadId,
+              ),
+        )
+        .map((item) => ({
+          top: item.top,
+          bottom:
+            item.top +
+            (layoutHeights.get(item.thread.threadId) ??
+              estimateThreadCardHeight(item.thread)),
+        }))
+    : [];
+  const stackGuideTop = Math.min(...stackSpans.map((span) => span.top)) + 16;
+  const stackGuideHeight =
+    Math.max(...stackSpans.map((span) => span.bottom)) - 16 - stackGuideTop;
 
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
     if (
@@ -1773,10 +2208,39 @@ export function CommentsSidebar({
     );
   };
 
+  const renderFoldedStack = (
+    stack: CommentStack<CommentThread>,
+    layoutId: string,
+  ) => {
+    const front = commentStackFront(stack.threads, stackTouches);
+    return (
+      <CommentStackCard
+        stackKey={stack.key}
+        heightId={layoutId}
+        threads={stack.threads}
+        front={front}
+        isActive={stack.threads.some(
+          (member) => member.threadId === activeThreadId,
+        )}
+        onOpen={() => {
+          openStackOn(front.threadId);
+          onActivateThread?.(front.threadId);
+          if (canComment) setReplyingThreadId(front.threadId);
+        }}
+        onHoverChange={(hovered) =>
+          onHoveredThreadChange?.(hovered ? front.threadId : null)
+        }
+        onHeightChange={handleThreadCardHeightChange}
+        t={t}
+      />
+    );
+  };
+
   const renderCommentThread = (
     thread: CommentThread,
     marginTop = 0,
     isActive = false,
+    inStack = false,
   ) => {
     const aiRequest = commentAi
       ? latestCommentAiRequest(commentAi.requests, thread.threadId)
@@ -1984,6 +2448,7 @@ export function CommentsSidebar({
         threadActions={renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
         quote={thread.quotedText}
+        showQuote={inStack}
         propertyTarget={
           thread.property
             ? propertyThreadTarget(thread.property, documentProperties)
@@ -2097,6 +2562,7 @@ export function CommentsSidebar({
         surface={surface}
         onClose={onClose}
         currentUserEmail={currentUserEmail}
+        currentUserName={currentUserName}
         compact={compact}
         replyDrafts={replyDrafts}
         key={suggestion.id}
@@ -2144,6 +2610,8 @@ export function CommentsSidebar({
         (member) =>
           member.id === activeSuggestionId || member.id === focusSuggestionId,
       )}
+      expanded={expandedProposalIds.has(proposalId)}
+      onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
@@ -2176,6 +2644,7 @@ export function CommentsSidebar({
       surface={surface}
       onClose={onClose}
       currentUserEmail={currentUserEmail}
+      currentUserName={currentUserName}
       key={suggestion.id}
       marginTop={marginTop}
       onHeightChange={handleThreadCardHeightChange}
@@ -2443,6 +2912,18 @@ export function CommentsSidebar({
       ref={sidebarRef}
       className="relative flow-root w-full min-w-0 shrink-0 pb-16"
       data-comments-sidebar
+      onClick={(event) => {
+        // The margin's empty space is outside every card, so it folds.
+        const target = event.target as HTMLElement;
+        if (
+          expandedStack &&
+          (target === event.currentTarget ||
+            target.hasAttribute("data-comment-layout-thread") ||
+            target.dataset.commentStackState === "open" ||
+            target.hasAttribute("data-comment-stack-guide"))
+        )
+          collapseStack(expandedStack);
+      }}
     >
       {isLoading ? (
         <div className="space-y-3 px-2 pt-3" aria-hidden="true">
@@ -2454,108 +2935,143 @@ export function CommentsSidebar({
           ))}
         </div>
       ) : null}
+      {expandedStack && stackHeaderTop !== undefined ? (
+        <CommentStackHeader
+          stackKey={expandedStack.key}
+          top={stackHeaderTop}
+          onCollapse={() => collapseStack(expandedStack)}
+          t={t}
+        />
+      ) : null}
+      {expandedStack && stackSpans.length > 0 ? (
+        <CommentStackGuide top={stackGuideTop} height={stackGuideHeight} />
+      ) : null}
       {/* Pending new comment — positioned at the selection Y offset */}
       {displayedPendingComment && (
         <div
           ref={pendingCardRef}
           className={cn(
-            "overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 shadow-comment-raised",
             alignToAnchors
-              ? "absolute left-2 right-4 z-10"
+              ? composingStack
+                ? "absolute inset-x-0 z-10 pb-2"
+                : "absolute left-2 right-4 z-10"
               : surface === "popover"
                 ? "relative"
                 : "relative mx-2 mt-3",
           )}
           style={alignToAnchors ? { top: pendingTop } : undefined}
           data-comment-pending
+          data-comment-stack={composingStack?.key}
+          data-comment-stack-state={composingStack ? "composing" : undefined}
         >
-          {surface === "popover" ? (
-            <div className="flex h-12 items-center gap-1 border-b border-border/70 pe-2 ps-4">
-              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-                {t("comments.commentTitle")}
-              </span>
-              {onClose ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <CommentIconButton
-                      aria-label={t("comments.close")}
-                      onClick={handlePendingCancel}
-                    >
-                      <IconX size={18} />
-                    </CommentIconButton>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("comments.close")}</TooltipContent>
-                </Tooltip>
-              ) : null}
-            </div>
-          ) : null}
-          <div className="flex items-start gap-2.5 p-3.5">
-            <div className="flex h-9.5 shrink-0 items-center">
-              <CommentAvatar email={currentUserEmail} name={currentUserEmail} />
-            </div>
-            <div className="min-w-0 flex-1">
-              {displayedPendingComment.property ? (
-                <PropertyThreadTargetLabel
-                  className="mb-2"
-                  target={propertyThreadTarget(
-                    displayedPendingComment.property,
-                    documentProperties,
-                  )}
+          {composingStack ? <CommentStackSheets /> : null}
+          <div
+            className={cn(
+              "relative overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 shadow-comment-raised",
+              composingStack && "mx-2 mr-4",
+            )}
+          >
+            {surface === "popover" ? (
+              <div className="flex h-12 items-center gap-1 border-b border-border/70 pe-2 ps-4">
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                  {t("comments.commentTitle")}
+                </span>
+                {onClose ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <CommentIconButton
+                        aria-label={t("comments.close")}
+                        onClick={handlePendingCancel}
+                      >
+                        <IconX size={18} />
+                      </CommentIconButton>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("comments.close")}</TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="flex items-start gap-2.5 p-3.5">
+              <div className="flex h-9.5 shrink-0 items-center">
+                <CommentAvatar
+                  email={currentUserEmail}
+                  name={currentUserEmail}
                 />
-              ) : null}
-              {!pendingTargetValid && (
-                <p role="alert" className="mb-2 text-xs text-muted-foreground">
-                  {t("comments.selectTextToComment")}
-                </p>
-              )}
-              <CommentComposer
-                ref={pendingInputRef}
-                value={pendingText}
-                onChange={(text) =>
-                  onPendingChange?.(displayedPendingComment.id, () => ({
-                    text,
-                  }))
-                }
-                mentions={pendingMentions}
-                onMentionsChange={(mentions) =>
-                  onPendingChange?.(displayedPendingComment.id, () => ({
-                    mentions,
-                  }))
-                }
-                onSubmit={() => void handlePendingSubmit()}
-                onAiSubmit={
-                  commentAi && !displayedPendingComment.fieldId
-                    ? (selection) => void handlePendingAiSubmit(selection)
-                    : undefined
-                }
-                aiDraft={pendingDraft.draft.aiDraft}
-                onAiDraftChange={pendingDraft.setAiDraft}
-                aiModelStorageKey={
-                  commentAi && !displayedPendingComment.fieldId
-                    ? aiModelStorageKey
-                    : undefined
-                }
-                onCancel={handlePendingCancel}
-                onEscape={() => {
-                  if (!pendingText.trim()) handlePendingCancel();
-                }}
-                onFocus={() => {
-                  const selection = pendingInputRef.current?.getSelection();
-                  if (selection && pendingFocus)
-                    pendingFocus.current = selection;
-                }}
-                onSelectionChange={(selection) => {
-                  if (pendingFocus) pendingFocus.current = selection;
-                }}
-                onBlur={() => {
-                  if (pendingFocus) pendingFocus.current = null;
-                }}
-                placeholder={t("comments.add")}
-                submitLabel={t("comments.submit")}
-                submitDisabled={!pendingTargetValid || ambiguousCreate()}
-                disabled={pendingSubmitting}
-              />
+              </div>
+              <div className="min-w-0 flex-1">
+                {displayedPendingComment.property ? (
+                  <PropertyThreadTargetLabel
+                    className="mb-2"
+                    target={propertyThreadTarget(
+                      displayedPendingComment.property,
+                      documentProperties,
+                    )}
+                  />
+                ) : null}
+                {!pendingTargetValid && (
+                  <p
+                    role="alert"
+                    className="mb-2 text-xs text-muted-foreground"
+                  >
+                    {t("comments.selectTextToComment")}
+                  </p>
+                )}
+                <CommentComposer
+                  ref={pendingInputRef}
+                  value={pendingText}
+                  onChange={(text) =>
+                    onPendingChange?.(displayedPendingComment.id, () => ({
+                      text,
+                    }))
+                  }
+                  mentions={pendingMentions}
+                  onMentionsChange={(mentions) =>
+                    onPendingChange?.(displayedPendingComment.id, () => ({
+                      mentions,
+                    }))
+                  }
+                  onSubmit={() => void handlePendingSubmit()}
+                  onAiSubmit={
+                    commentAi && !displayedPendingComment.fieldId
+                      ? (selection) => void handlePendingAiSubmit(selection)
+                      : undefined
+                  }
+                  aiDraft={pendingDraft.draft.aiDraft}
+                  onAiDraftChange={pendingDraft.setAiDraft}
+                  aiModelStorageKey={
+                    commentAi && !displayedPendingComment.fieldId
+                      ? aiModelStorageKey
+                      : undefined
+                  }
+                  onCancel={handlePendingCancel}
+                  onEscape={() => {
+                    if (!pendingText.trim()) handlePendingCancel();
+                  }}
+                  onFocus={() => {
+                    const selection = pendingInputRef.current?.getSelection();
+                    if (selection && pendingFocus)
+                      pendingFocus.current = selection;
+                  }}
+                  onSelectionChange={(selection) => {
+                    if (pendingFocus) pendingFocus.current = selection;
+                  }}
+                  onBlur={() => {
+                    if (pendingFocus) pendingFocus.current = null;
+                  }}
+                  placeholder={t("comments.add")}
+                  submitLabel={t("comments.submit")}
+                  submitDisabled={!pendingTargetValid || ambiguousCreate()}
+                  disabled={pendingSubmitting}
+                />
+              </div>
             </div>
+            {composingStack ? (
+              <CommentStackShowAll
+                threads={composingStack.threads}
+                onOpen={() => openStackOn(composingStack.threads[0].threadId)}
+                t={t}
+              />
+            ) : null}
           </div>
         </div>
       )}
@@ -2566,26 +3082,33 @@ export function CommentsSidebar({
         const restingItem = restingItemsById.get(thread.threadId);
         const marginTop = restingItem?.marginTop ?? item.marginTop;
         const translateY = top - (restingItem?.top ?? top);
-        const card =
+        const stack =
           "suggestion" in thread
-            ? "durability" in thread.suggestion
-              ? renderDraftSuggestionCard(thread.suggestion)
-              : thread.suggestion.proposalId &&
-                  (proposalMemberCounts.get(thread.suggestion.proposalId) ??
-                    0) >= 2
-                ? renderProposalGroup(
-                    thread.suggestion.proposalId,
-                    inlineProposalMembers.get(thread.suggestion.proposalId) ?? [
-                      thread.suggestion,
-                    ],
-                    thread.threadId,
-                  )
-                : renderSuggestionCard(thread.suggestion)
-            : renderCommentThread(
-                thread,
-                0,
-                activeThreadId === thread.threadId,
-              );
+            ? undefined
+            : stackOfThread.get(thread.threadId);
+        const card =
+          stack && stack !== expandedStack
+            ? renderFoldedStack(stack, thread.threadId)
+            : "suggestion" in thread
+              ? "durability" in thread.suggestion
+                ? renderDraftSuggestionCard(thread.suggestion)
+                : thread.suggestion.proposalId &&
+                    (proposalMemberCounts.get(thread.suggestion.proposalId) ??
+                      0) >= 2
+                  ? renderProposalGroup(
+                      thread.suggestion.proposalId,
+                      inlineProposalMembers.get(
+                        thread.suggestion.proposalId,
+                      ) ?? [thread.suggestion],
+                      thread.threadId,
+                    )
+                  : renderSuggestionCard(thread.suggestion)
+              : renderCommentThread(
+                  thread,
+                  0,
+                  activeThreadId === thread.threadId,
+                  !!stack,
+                );
         // A Property thread has no highlight to lose, so it isn't one that
         // went missing.
         const lostHighlight = (candidate: (typeof items)[number]) =>
@@ -2667,6 +3190,8 @@ function ProposalGroup({
   totalCount,
   members,
   active,
+  expanded,
+  onExpandedChange,
   deciding,
   canDecide,
   onDecide,
@@ -2679,6 +3204,8 @@ function ProposalGroup({
   totalCount: number;
   members: ResourceSuggestion[];
   active: boolean;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
   deciding: boolean;
   canDecide: boolean;
   onDecide: (decision: SuggestionDecision) => void;
@@ -2686,11 +3213,10 @@ function ProposalGroup({
   children: ReactNode;
   t: ReturnType<typeof useT>;
 }) {
-  const [expanded, setExpanded] = useState(active);
   const groupRef = useRef<HTMLDivElement>(null);
   const detailsId = useId();
-  useEffect(() => {
-    if (active) setExpanded(true);
+  useLayoutEffect(() => {
+    if (active) onExpandedChange(true);
   }, [active]);
   useLayoutEffect(() => {
     const element = groupRef.current;
@@ -2714,7 +3240,7 @@ function ProposalGroup({
         type="button"
         aria-expanded={expanded}
         aria-controls={detailsId}
-        onClick={() => setExpanded((current) => !current)}
+        onClick={() => onExpandedChange(!expanded)}
         className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <IconChevronDown
@@ -2733,7 +3259,9 @@ function ProposalGroup({
           {summary}
         </span>
         <span className="shrink-0 text-muted-foreground">
-          {t("comments.proposalEditCount", { count: totalCount })}
+          {t("comments.proposalEditCount", {
+            count: pending.length || totalCount,
+          })}
         </span>
       </button>
       {expanded ? (
@@ -2796,6 +3324,19 @@ export function agentSuggestionReason(
   return reason;
 }
 
+/**
+ * A change that adds or removes a line break, or swaps one run of whitespace
+ * for another, doesn't say which lines it joins or splits, and a break alone
+ * reads as a lone "↵", so what it replaces is shown too.
+ */
+function changesLayout(removed: string, inserted: string) {
+  const before = suggestionAnchorText(removed);
+  const after = suggestionAnchorText(inserted);
+  return (
+    /\n/.test(before + after) || (/^\s+$/.test(before) && /^\s+$/.test(after))
+  );
+}
+
 function SuggestionOperationSummary({
   operations,
   expanded,
@@ -2851,6 +3392,18 @@ function SuggestionOperationSummary({
           : null;
       const hasSharedContext = diff?.some((part) => part.type === "equal");
       const richText = /[<>*_`\[\]]/.test(previousText + nextText);
+      const changed = (type: "delete" | "insert", whole: string) =>
+        diff && hasSharedContext
+          ? diff
+              .flatMap((part) => (part.type === type ? [part.text] : []))
+              .join("")
+          : whole;
+      const showReplaced =
+        expanded ||
+        changesLayout(
+          changed("delete", previousText),
+          changed("insert", nextText),
+        );
       const renderDiff = (side: "before" | "after") => {
         let offset = 0;
         const presentation =
@@ -2879,7 +3432,9 @@ function SuggestionOperationSummary({
                       to: from + part.text.length,
                     },
                   )
-                : part.text}
+                : part.type !== "equal" && /^\s+$/.test(part.text)
+                  ? suggestionTextForDisplay(part.text)
+                  : part.text}
             </span>
           );
         });
@@ -2897,7 +3452,7 @@ function SuggestionOperationSummary({
               : renderSuggestionText(nextText, nextPresentation)}
             {"”"}
           </div>
-          {expanded ? (
+          {showReplaced ? (
             <div className="text-muted-foreground">
               {t("comments.suggestionReplace")}: {"“"}
               {diff && hasSharedContext
@@ -2947,11 +3502,13 @@ function DraftSuggestionThreadView({
   surface = "rail",
   onClose,
   currentUserEmail,
+  currentUserName,
   t,
 }: {
   surface?: CommentSurface;
   onClose?: () => void;
   currentUserEmail?: string;
+  currentUserName?: string;
   marginTop?: number;
   onHeightChange: (threadId: string, height: number) => void;
   suggestion: DraftSuggestion;
@@ -2984,7 +3541,11 @@ function DraftSuggestionThreadView({
       {
         id: suggestion.id,
         author_email: suggestion.authorEmail ?? "",
-        author_name: null,
+        author_name: ownAuthorName(
+          suggestion.authorEmail,
+          currentUserEmail,
+          currentUserName,
+        ),
         created_at: suggestion.createdAt,
         content: "",
         mentions: [],
@@ -3102,11 +3663,13 @@ function SuggestionThreadView({
   surface = "rail",
   onClose,
   currentUserEmail,
+  currentUserName,
   t,
 }: {
   surface?: CommentSurface;
   onClose?: () => void;
   currentUserEmail?: string;
+  currentUserName?: string;
   compact: boolean;
   replyDrafts: ReturnType<typeof useCommentReplyDrafts>;
   marginTop?: number;
@@ -3182,6 +3745,11 @@ function SuggestionThreadView({
         author_email: suggestion.authorEmail ?? "",
         author_name:
           root?.authorName ??
+          ownAuthorName(
+            suggestion.authorEmail,
+            currentUserEmail,
+            currentUserName,
+          ) ??
           (suggestion.authorEmail ? null : suggestion.actorKind),
         created_at: suggestion.createdAt,
         content: "",
@@ -3192,6 +3760,11 @@ function SuggestionThreadView({
         author_email: comment.authorEmail ?? "",
         author_name:
           comment.authorName ??
+          ownAuthorName(
+            comment.authorEmail,
+            currentUserEmail,
+            currentUserName,
+          ) ??
           (comment.authorEmail ? null : comment.createdBy),
         created_at: comment.createdAt,
         content: comment.body,
@@ -3476,6 +4049,7 @@ function ThreadView({
   renderEntry,
   surface = "rail",
   quote,
+  showQuote = false,
   propertyTarget,
   anchorUnavailable = false,
   onClose,
@@ -3522,6 +4096,8 @@ function ThreadView({
   surface?: CommentSurface;
   /** The anchored text, shown as a quote line above the thread in the panel. */
   quote?: string | null;
+  /** Show the quote in the margin too, for a card away from its highlight. */
+  showQuote?: boolean;
   /** The Property a thread is on, shown above it on every surface. */
   propertyTarget?: PropertyThreadTarget | null;
   anchorUnavailable?: boolean;
@@ -3786,18 +4362,33 @@ function ThreadView({
             target={propertyTarget}
           />
         ) : null}
-        {isPanel && quote ? (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              if (canExpand) onExpand();
-            }}
-            className="-mb-1 line-clamp-2 border-s-2 border-border ps-2.5 text-start text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            data-comment-quote
-          >
-            {quote}
-          </button>
+        {(isPanel || showQuote) && quote ? (
+          canExpand ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onExpand();
+              }}
+              className={cn(
+                "-mb-1 border-s-2 border-border ps-2.5 text-start text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                isPanel ? "line-clamp-2" : "line-clamp-1",
+              )}
+              data-comment-quote
+            >
+              {quote}
+            </button>
+          ) : (
+            <p
+              className={cn(
+                "-mb-1 border-s-2 border-border ps-2.5 text-sm text-muted-foreground",
+                isPanel ? "line-clamp-2" : "line-clamp-1",
+              )}
+              data-comment-quote
+            >
+              {quote}
+            </p>
+          )
         ) : null}
         {anchorUnavailable ? (
           <span

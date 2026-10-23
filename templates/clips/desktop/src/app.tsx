@@ -230,7 +230,9 @@ import {
 import {
   RECORDING_SERVER_UNAVAILABLE,
   RECORDING_SESSION_EXPIRED,
+  buildVideoStorageSetupUrl,
   isStorageSetupFailureMessage,
+  onStorageSetupRequired,
 } from "./lib/recording-request";
 import {
   listenForRecordingShortcutStopAcks,
@@ -4148,7 +4150,7 @@ export function App({
     (targetServerUrl?: string) => {
       const base = (targetServerUrl?.trim() || serverUrl).replace(/\/+$/, "");
       setRecError(STORAGE_SETUP_HELP_TEXT);
-      void openExternal(`${base}/record?connectStorage=1`).catch((err) => {
+      void openExternal(buildVideoStorageSetupUrl(base)).catch((err) => {
         setRecError(
           err instanceof Error
             ? err.message
@@ -4159,6 +4161,23 @@ export function App({
     },
     [refreshVideoStorageStatus, serverUrl],
   );
+
+  useEffect(
+    () =>
+      onStorageSetupRequired(() => {
+        setRecError(STORAGE_SETUP_HELP_TEXT);
+        invoke("show_popover").catch(() => {});
+        void refreshVideoStorageStatus();
+      }),
+    [refreshVideoStorageStatus],
+  );
+
+  useEffect(() => {
+    if (videoStorageStatus !== "configured") return;
+    setRecError((message) =>
+      isStorageSetupFailureMessage(message) ? null : message,
+    );
+  }, [videoStorageStatus]);
 
   async function handleStartRecording(options?: {
     resumeCapture?: RestartHandoff;
@@ -4877,14 +4896,14 @@ export function App({
         delete next[key];
         return next;
       });
-      void openExternal(
-        `${targetServerUrl.replace(/\/+$/, "")}/record?connectStorage=1`,
-      ).catch((error) => {
-        setRecoveryActionErrors((errors) => ({
-          ...errors,
-          [key]: error instanceof Error ? error.message : String(error),
-        }));
-      });
+      void openExternal(buildVideoStorageSetupUrl(targetServerUrl)).catch(
+        (error) => {
+          setRecoveryActionErrors((errors) => ({
+            ...errors,
+            [key]: error instanceof Error ? error.message : String(error),
+          }));
+        },
+      );
     },
   };
   const pendingUploadBanner = shouldShowRecordingRecoveryBanner(
@@ -5485,6 +5504,12 @@ export function App({
           ) : (
             <div className="error-banner">{recError}</div>
           )
+        ) : null}
+        {!recError &&
+        localRecordingMode === "off" &&
+        authStatus === "authed" &&
+        videoStorageStatus === "missing" ? (
+          <StorageConnectionBanner onConnect={() => openVideoStorageSetup()} />
         ) : null}
         {cameraError && !recError ? (
           cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ||

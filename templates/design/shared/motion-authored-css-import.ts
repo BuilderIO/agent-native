@@ -34,6 +34,11 @@ export type MotionAuthoredCssTargetResolver = (
   selector: string,
 ) => MotionAuthoredCssTargetResolution;
 
+export interface MotionAuthoredCssImportOptions {
+  /** Ordered static style-block contents used to evaluate transition conflicts. */
+  transitionCssBlocks?: readonly string[];
+}
+
 export type MotionAuthoredCssSimpleSelector =
   | { kind: "type"; name: string }
   | { kind: "id"; value: string }
@@ -101,8 +106,118 @@ const SUPPORTED_PROPERTIES = new Set([
   "border-width",
   "box-shadow",
 ]);
+const BORDER_SIDE_COLOR_PROPERTIES = [
+  "border-top-color",
+  "border-right-color",
+  "border-bottom-color",
+  "border-left-color",
+];
+const BORDER_SIDE_WIDTH_PROPERTIES = [
+  "border-top-width",
+  "border-right-width",
+  "border-bottom-width",
+  "border-left-width",
+];
+const LOGICAL_BORDER_COLOR_PROPERTIES = [
+  "border-inline-color",
+  "border-block-color",
+  "border-inline-start-color",
+  "border-inline-end-color",
+  "border-block-start-color",
+  "border-block-end-color",
+];
+const LOGICAL_BORDER_WIDTH_PROPERTIES = [
+  "border-inline-width",
+  "border-block-width",
+  "border-inline-start-width",
+  "border-inline-end-width",
+  "border-block-start-width",
+  "border-block-end-width",
+];
+const BORDER_COLOR_PROPERTIES = [
+  ...BORDER_SIDE_COLOR_PROPERTIES,
+  ...LOGICAL_BORDER_COLOR_PROPERTIES,
+];
+const BORDER_WIDTH_PROPERTIES = [
+  ...BORDER_SIDE_WIDTH_PROPERTIES,
+  ...LOGICAL_BORDER_WIDTH_PROPERTIES,
+];
+const BORDER_COLOR_AND_WIDTH_PROPERTIES = [
+  "border-color",
+  "border-width",
+  ...BORDER_COLOR_PROPERTIES,
+  ...BORDER_WIDTH_PROPERTIES,
+];
+const BORDER_RADIUS_CORNER_PROPERTIES = [
+  "border-top-left-radius",
+  "border-top-right-radius",
+  "border-bottom-right-radius",
+  "border-bottom-left-radius",
+  "border-start-start-radius",
+  "border-start-end-radius",
+  "border-end-start-radius",
+  "border-end-end-radius",
+];
+const TRANSITION_SHORTHAND_TRACK_PROPERTIES: Readonly<
+  Record<string, readonly string[]>
+> = {
+  background: ["background-color"],
+  border: BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-top": [
+    "border-color",
+    "border-width",
+    "border-top-color",
+    "border-top-width",
+  ],
+  "border-right": [
+    "border-color",
+    "border-width",
+    "border-right-color",
+    "border-right-width",
+  ],
+  "border-bottom": [
+    "border-color",
+    "border-width",
+    "border-bottom-color",
+    "border-bottom-width",
+  ],
+  "border-left": [
+    "border-color",
+    "border-width",
+    "border-left-color",
+    "border-left-width",
+  ],
+  "border-color": BORDER_COLOR_PROPERTIES,
+  "border-width": BORDER_WIDTH_PROPERTIES,
+  "border-inline": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-block": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-inline-start": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-inline-end": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-block-start": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-block-end": BORDER_COLOR_AND_WIDTH_PROPERTIES,
+  "border-inline-color": BORDER_COLOR_PROPERTIES,
+  "border-block-color": BORDER_COLOR_PROPERTIES,
+  "border-inline-start-color": BORDER_COLOR_PROPERTIES,
+  "border-inline-end-color": BORDER_COLOR_PROPERTIES,
+  "border-block-start-color": BORDER_COLOR_PROPERTIES,
+  "border-block-end-color": BORDER_COLOR_PROPERTIES,
+  "border-inline-width": BORDER_WIDTH_PROPERTIES,
+  "border-block-width": BORDER_WIDTH_PROPERTIES,
+  "border-inline-start-width": BORDER_WIDTH_PROPERTIES,
+  "border-inline-end-width": BORDER_WIDTH_PROPERTIES,
+  "border-block-start-width": BORDER_WIDTH_PROPERTIES,
+  "border-block-end-width": BORDER_WIDTH_PROPERTIES,
+  "border-radius": BORDER_RADIUS_CORNER_PROPERTIES,
+};
 
 const CSS_IDENTIFIER = /^-?[_a-zA-Z][_a-zA-Z0-9-]*$/;
+const CSS_WIDE_KEYWORDS = new Set([
+  "inherit",
+  "initial",
+  "revert",
+  "revert-layer",
+  "unset",
+]);
 const RESERVED_ANIMATION_NAMES = new Set([
   "default",
   "inherit",
@@ -121,6 +236,7 @@ const RESERVED_ANIMATION_NAMES = new Set([
 export function importAuthoredCssAnimations(
   css: string,
   resolveTarget: MotionAuthoredCssTargetResolver,
+  options?: MotionAuthoredCssImportOptions,
 ): MotionAuthoredCssImportResult {
   let root: postcss.Root;
   try {
@@ -142,6 +258,7 @@ export function importAuthoredCssAnimations(
   });
 
   const reducedMotionOverrides = findReducedMotionOverrideDeclarations(root);
+
   const animationDeclarations: postcss.Declaration[] = [];
   root.walkDecls((declaration) => {
     if (
@@ -377,6 +494,62 @@ export function importAuthoredCssAnimations(
   const durationMs = motionTimelineDurationForTracks(0, tracks);
   const validation = validateTracks(tracks, durationMs);
   if (validation) return unsupported(validation);
+  const transitionCssBlocks = options?.transitionCssBlocks ?? [css];
+  if (
+    !Array.isArray(transitionCssBlocks) ||
+    !transitionCssBlocks.some((block) => block === css)
+  ) {
+    return unsupported(
+      "CSS transition analysis must include the current static style block.",
+    );
+  }
+  const transitionRoots: postcss.Root[] = [];
+  const transitionReducedMotionOverrides = new Set(reducedMotionOverrides);
+  for (const block of transitionCssBlocks) {
+    if (typeof block !== "string") {
+      return unsupported(
+        "CSS transition analysis requires static style-block contents.",
+      );
+    }
+    let transitionRoot: postcss.Root;
+    try {
+      transitionRoot = postcss.parse(block);
+    } catch {
+      return unsupported(
+        "CSS transition rules across style blocks could not be parsed safely.",
+      );
+    }
+    let hasImportedTransitionStylesheet = false;
+    transitionRoot.walkAtRules((atRule) => {
+      if (atRule.name.toLowerCase() === "import") {
+        hasImportedTransitionStylesheet = true;
+      }
+    });
+    if (hasImportedTransitionStylesheet) {
+      return unsupported(
+        "CSS transitions with unresolved @import stylesheets cannot be analyzed losslessly.",
+      );
+    }
+    for (const declaration of findReducedMotionOverrideDeclarations(
+      transitionRoot,
+    )) {
+      transitionReducedMotionOverrides.add(declaration);
+    }
+    transitionRoots.push(transitionRoot);
+  }
+
+  if (
+    hasConflictingCssTransitions(
+      transitionRoots,
+      tracks,
+      resolveTarget,
+      transitionReducedMotionOverrides,
+    )
+  ) {
+    return unsupported(
+      "CSS transitions overlap a Motion target property and cannot be synchronized with the Motion timeline.",
+    );
+  }
 
   const rangesToRemove: MotionAuthoredCssSourceRange[] = [];
   for (const [rule, declarations] of declarationsByRule) {
@@ -543,6 +716,749 @@ function isAnimationProperty(property: string): boolean {
   );
 }
 
+function isTransitionProperty(property: string): boolean {
+  const normalized = decodeMotionCssIdentifier(property).toLowerCase();
+  return (
+    normalized === "transition" ||
+    normalized.startsWith("transition-") ||
+    /^-(?:webkit|moz|ms|o)-transition(?:-|$)/.test(normalized)
+  );
+}
+
+function normalizedTransitionProperty(property: string): string {
+  return decodeMotionCssIdentifier(property)
+    .toLowerCase()
+    .replace(/^-(?:webkit|moz|ms|o)-/, "");
+}
+
+function isTransitionTimingToken(token: string): boolean {
+  return (
+    /^(?:\d+(?:\.\d*)?|\.\d+)(?:ms|s)?$/i.test(token) ||
+    /^(?:ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|allow-discrete|normal)$/i.test(
+      token,
+    )
+  );
+}
+
+function hasConflictingCssTransitions(
+  roots: readonly postcss.Root[],
+  tracks: readonly MotionTrack[],
+  resolveTarget: MotionAuthoredCssTargetResolver,
+  reducedMotionOverrides: ReadonlySet<postcss.Declaration>,
+): boolean {
+  const propertiesByTarget = new Map<string, Set<string>>();
+  for (const track of tracks) {
+    const properties = propertiesByTarget.get(track.targetNodeId) ?? new Set();
+    properties.add(track.property.toLowerCase());
+    propertiesByTarget.set(track.targetNodeId, properties);
+  }
+  const declarationsByTarget = new Map<
+    string,
+    TransitionCascadeDeclaration[]
+  >();
+  const declarationsByTargetAndState = new Map<
+    string,
+    Map<string, TransitionCascadeDeclaration[]>
+  >();
+  const declarationGroupsByTarget = new Map<string, postcss.Declaration[][]>();
+  const uncertainDeclarationsByTarget = new Map<
+    string,
+    postcss.Declaration[][]
+  >();
+  let sourceOrder = 0;
+  let conflict = false;
+
+  for (const root of roots) {
+    let rootOrder = 0;
+    root.walkRules((rule) => {
+      if (conflict) return;
+      const currentSourceOrder = sourceOrder + rootOrder++;
+      if (isInsideKeyframes(rule)) return;
+      const declarations = (rule.nodes ?? []).filter(
+        (node): node is postcss.Declaration =>
+          node.type === "decl" &&
+          isTransitionProperty(node.prop) &&
+          !reducedMotionOverrides.has(node),
+      );
+      if (declarations.length === 0) return;
+
+      for (const candidate of splitCssSelectorList(rule.selector)) {
+        const simpleSelector = transitionTargetSelector(candidate);
+        const targetNodeIds = resolveTransitionTargets(
+          candidate,
+          simpleSelector,
+          resolveTarget,
+        );
+        const matchedTargets = targetNodeIds.includes("*")
+          ? [...propertiesByTarget.keys()]
+          : targetNodeIds;
+        if (matchedTargets.length === 0) continue;
+
+        const specificity =
+          rule.parent === root && simpleSelector !== null
+            ? transitionSelectorSpecificity(candidate, simpleSelector)
+            : null;
+        const state =
+          rule.parent === root && simpleSelector !== null
+            ? transitionSelectorState(candidate, simpleSelector)
+            : null;
+
+        for (const targetNodeId of matchedTargets) {
+          const targetProperties = propertiesByTarget.get(targetNodeId);
+          if (!targetProperties) continue;
+          const declarationGroups =
+            declarationGroupsByTarget.get(targetNodeId) ?? [];
+          declarationGroups.push(declarations);
+          declarationGroupsByTarget.set(targetNodeId, declarationGroups);
+
+          // Nested conditions and selectors outside the static target subset
+          // cannot safely participate in cross-rule cascade resolution.
+          if (specificity === null || state === null) {
+            if (
+              transitionDeclarationsConflict(declarations, targetProperties)
+            ) {
+              conflict = true;
+              return;
+            }
+            const uncertainDeclarations =
+              uncertainDeclarationsByTarget.get(targetNodeId) ?? [];
+            uncertainDeclarations.push(declarations);
+            uncertainDeclarationsByTarget.set(
+              targetNodeId,
+              uncertainDeclarations,
+            );
+            continue;
+          }
+
+          const candidates = declarations.map(
+            (declaration, declarationOrder) => ({
+              declaration,
+              specificity,
+              sourceOrder: currentSourceOrder,
+              declarationOrder,
+            }),
+          );
+          const targetDeclarations =
+            declarationsByTarget.get(targetNodeId) ?? [];
+          targetDeclarations.push(...candidates);
+          declarationsByTarget.set(targetNodeId, targetDeclarations);
+
+          const states =
+            declarationsByTargetAndState.get(targetNodeId) ?? new Map();
+          const stateDeclarations = states.get(state) ?? [];
+          stateDeclarations.push(...candidates);
+          states.set(state, stateDeclarations);
+          declarationsByTargetAndState.set(targetNodeId, states);
+        }
+      }
+    });
+    if (conflict) return true;
+    sourceOrder += rootOrder;
+  }
+
+  for (const [
+    targetNodeId,
+    declarationGroups,
+  ] of uncertainDeclarationsByTarget) {
+    const properties = propertiesByTarget.get(targetNodeId);
+    if (
+      properties &&
+      transitionDeclarationGroupsConflict(
+        declarationGroupsByTarget.get(targetNodeId) ?? declarationGroups,
+        properties,
+      )
+    ) {
+      return true;
+    }
+  }
+
+  for (const [targetNodeId, states] of declarationsByTargetAndState) {
+    const properties = propertiesByTarget.get(targetNodeId);
+    if (!properties) continue;
+    for (const declarations of states.values()) {
+      if (
+        transitionDeclarationsConflict(
+          sortTransitionCascade(declarations).map((entry) => entry.declaration),
+          properties,
+        )
+      ) {
+        return true;
+      }
+    }
+
+    // Different pseudo-class states can be active together. This combined
+    // check is conservative; per-state checks above prevent one state from
+    // hiding a conflict in another state through a later override.
+    const declarations = declarationsByTarget.get(targetNodeId) ?? [];
+    if (
+      transitionDeclarationsConflict(
+        sortTransitionCascade(declarations).map((entry) => entry.declaration),
+        properties,
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+interface TransitionCascadeDeclaration {
+  declaration: postcss.Declaration;
+  specificity: readonly [number, number, number];
+  sourceOrder: number;
+  declarationOrder: number;
+}
+
+function sortTransitionCascade(
+  declarations: readonly TransitionCascadeDeclaration[],
+): TransitionCascadeDeclaration[] {
+  return [...declarations].sort((left, right) => {
+    if (left.declaration.important !== right.declaration.important) {
+      return left.declaration.important ? 1 : -1;
+    }
+    for (let index = 0; index < 3; index += 1) {
+      const difference = left.specificity[index]! - right.specificity[index]!;
+      if (difference !== 0) return difference;
+    }
+    return (
+      left.sourceOrder - right.sourceOrder ||
+      left.declarationOrder - right.declarationOrder
+    );
+  });
+}
+
+function transitionSelectorState(
+  selector: string,
+  simpleSelector: string,
+): string | null {
+  if (simpleSelector === "*") {
+    return selector.trim().slice(1).toLowerCase();
+  }
+  const trimmed = selector.trim();
+  if (!trimmed.startsWith(simpleSelector)) return null;
+  const suffix = trimmed.slice(simpleSelector.length).trim();
+  if (
+    suffix &&
+    !/^(?::[_a-zA-Z][-_a-zA-Z0-9]*(?:\([^()]*\))?)+$/.test(suffix)
+  ) {
+    return null;
+  }
+  return suffix.toLowerCase();
+}
+
+function transitionSelectorSpecificity(
+  selector: string,
+  simpleSelector: string,
+): readonly [number, number, number] | null {
+  let specificity: [number, number, number] = [0, 0, 0];
+  const simple = parseMotionAuthoredCssSimpleSelector(simpleSelector);
+  if (simple?.kind === "id") specificity[0] = 1;
+  else if (simple?.kind === "class" || simple?.kind === "attribute") {
+    specificity[1] = 1;
+  } else if (simple?.kind === "type") specificity[2] = 1;
+  else if (simpleSelector !== "*") return null;
+
+  const state = transitionSelectorState(selector, simpleSelector);
+  if (state === null || state.length === 0)
+    return state === null ? null : specificity;
+  const pseudoClasses = /:([_a-zA-Z][-_a-zA-Z0-9]*)(?:\(([^()]*)\))?/g;
+  let matched = "";
+  for (const match of state.matchAll(pseudoClasses)) {
+    matched += match[0];
+    const name = match[1]!.toLowerCase();
+    if (match[2] !== undefined) {
+      if (name !== "where") return null;
+      continue;
+    }
+    specificity[1] += 1;
+  }
+  return matched === state ? specificity : null;
+}
+
+function resolveTransitionTargets(
+  selectorText: string,
+  simpleSelector: string | null,
+  resolveTarget: MotionAuthoredCssTargetResolver,
+): string[] {
+  if (
+    /(?:^|[^\\]):{2}[_a-zA-Z]|:(?:before|after|first-line|first-letter)(?:$|[^-_a-zA-Z0-9])/i.test(
+      selectorText,
+    )
+  ) {
+    return [];
+  }
+  const selectors = simpleSelector
+    ? [simpleSelector]
+    : selectorCompoundAtoms(lastSelectorCompound(selectorText));
+  if (selectors.length === 0) return ["*"];
+  const targetNodeIds = new Set<string>();
+  for (const selector of selectors) {
+    if (selector === "*") return ["*"];
+    if (!parseMotionAuthoredCssSimpleSelector(selector)) return ["*"];
+    try {
+      const resolution = resolveTarget(selector);
+      if (!resolution || typeof resolution !== "object") return ["*"];
+      if (resolution.status === "resolved") {
+        if (
+          typeof resolution.targetNodeId !== "string" ||
+          resolution.targetNodeId.trim().length === 0
+        ) {
+          return ["*"];
+        }
+        targetNodeIds.add(resolution.targetNodeId);
+      } else if (resolution.status === "unresolved") {
+        return [];
+      } else {
+        return ["*"];
+      }
+    } catch {
+      return ["*"];
+    }
+  }
+  return [...targetNodeIds];
+}
+
+function lastSelectorCompound(selector: string): string {
+  let start = 0;
+  let parentheses = 0;
+  let brackets = 0;
+  let quote: "'" | '"' | null = null;
+  for (let index = 0; index < selector.length; index += 1) {
+    const character = selector[index]!;
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "\\") {
+      index += 1;
+    } else if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === "(") {
+      parentheses += 1;
+    } else if (character === ")") {
+      parentheses = Math.max(0, parentheses - 1);
+    } else if (character === "[") {
+      brackets += 1;
+    } else if (character === "]") {
+      brackets = Math.max(0, brackets - 1);
+    } else if (
+      parentheses === 0 &&
+      brackets === 0 &&
+      (/\s/.test(character) || ">+~".includes(character))
+    ) {
+      start = index + 1;
+    }
+  }
+  return selector.slice(start).trim();
+}
+
+function selectorCompoundAtoms(compound: string): string[] {
+  const atoms: string[] = [];
+  let index = 0;
+  while (index < compound.length) {
+    const character = compound[index]!;
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === "[") {
+      const start = index;
+      let quote: "'" | '"' | null = null;
+      index += 1;
+      while (index < compound.length) {
+        const current = compound[index]!;
+        if (quote) {
+          if (current === "\\") index += 1;
+          else if (current === quote) quote = null;
+        } else if (current === "\\") {
+          index += 1;
+        } else if (current === "'" || current === '"') {
+          quote = current;
+        } else if (current === "]") {
+          index += 1;
+          break;
+        }
+        index += 1;
+      }
+      atoms.push(compound.slice(start, index));
+      continue;
+    }
+    if (character === ":") {
+      index += compound[index + 1] === ":" ? 2 : 1;
+      while (/[_a-zA-Z0-9-]/.test(compound[index] ?? "")) index += 1;
+      if (compound[index] === "(") {
+        let depth = 0;
+        do {
+          const current = compound[index]!;
+          if (current === "\\") index += 1;
+          else if (current === "(") depth += 1;
+          else if (current === ")") depth -= 1;
+          index += 1;
+        } while (index < compound.length && depth > 0);
+      }
+      continue;
+    }
+    if (character === "#" || character === ".") {
+      const start = index++;
+      while (/[_a-zA-Z0-9-]/.test(compound[index] ?? "")) index += 1;
+      if (index > start + 1) atoms.push(compound.slice(start, index));
+      continue;
+    }
+    if (character === "*" && index === 0) {
+      atoms.push("*");
+      index += 1;
+      continue;
+    }
+    if (index === 0 && /[_a-zA-Z]/.test(character)) {
+      const start = index++;
+      while (/[_a-zA-Z0-9-]/.test(compound[index] ?? "")) index += 1;
+      atoms.push(compound.slice(start, index));
+      continue;
+    }
+    index += 1;
+  }
+  return atoms;
+}
+
+function transitionTargetSelector(selector: string): string | null {
+  const trimmed = selector.trim();
+  if (trimmed === "*") return trimmed;
+  if (
+    /(?:^|[^\\])::[_a-zA-Z]/.test(trimmed) ||
+    /:(?:before|after|first-line|first-letter)(?:$|[^-_a-zA-Z0-9])/i.test(
+      trimmed,
+    )
+  ) {
+    return null;
+  }
+  if (isStaticSimpleSelector(trimmed)) return trimmed;
+  const match = /^(.*?)(?::[_a-zA-Z][-_a-zA-Z0-9]*(?:\([^()]*\))?)+$/.exec(
+    trimmed,
+  );
+  const base = match?.[1]?.trim();
+  if (!base || (base !== "*" && !isStaticSimpleSelector(base))) return null;
+  return base;
+}
+
+function splitCssSelectorList(value: string): string[] {
+  const selectors: string[] = [];
+  let start = 0;
+  let parentheses = 0;
+  let brackets = 0;
+  let quote: "'" | '"' | null = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "\\") {
+      index += 1;
+    } else if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === "(") {
+      parentheses += 1;
+    } else if (character === ")") {
+      parentheses = Math.max(0, parentheses - 1);
+    } else if (character === "[") {
+      brackets += 1;
+    } else if (character === "]") {
+      brackets = Math.max(0, brackets - 1);
+    } else if (character === "," && parentheses === 0 && brackets === 0) {
+      selectors.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  selectors.push(value.slice(start).trim());
+  return selectors.filter(Boolean);
+}
+
+interface TransitionDeclarationEffect {
+  properties: string[];
+  propertyListMayBeInherited: boolean;
+  durations: Array<number | null>;
+  hasPropertyDeclaration: boolean;
+  hasDurationDeclaration: boolean;
+}
+
+function analyzeTransitionDeclarations(
+  declarations: readonly postcss.Declaration[],
+): TransitionDeclarationEffect | null {
+  let effectiveProperties: string[] | null = null;
+  let effectiveImportant = false;
+  let propertyListMayBeInherited = false;
+  let effectiveDurations: Array<number | null> | null = null;
+  let durationsImportant = false;
+  let hasTransitionBehavior = false;
+  let hasPropertyDeclaration = false;
+  let hasDurationDeclaration = false;
+  for (const declaration of declarations) {
+    const property = normalizedTransitionProperty(declaration.prop);
+    if (property === "transition") {
+      hasTransitionBehavior = true;
+      hasPropertyDeclaration = true;
+      hasDurationDeclaration = true;
+      if (
+        effectiveProperties === null ||
+        declaration.important ||
+        !effectiveImportant
+      ) {
+        effectiveProperties = transitionPropertyList(declaration.value, true);
+        effectiveImportant = declaration.important;
+        propertyListMayBeInherited = hasInheritedTransitionPropertyList(
+          declaration.value,
+        );
+      }
+      if (
+        effectiveDurations === null ||
+        declaration.important ||
+        !durationsImportant
+      ) {
+        effectiveDurations = parseTransitionShorthandDurations(
+          declaration.value,
+        );
+        durationsImportant = declaration.important;
+      }
+    } else if (property === "transition-property") {
+      hasTransitionBehavior = true;
+      hasPropertyDeclaration = true;
+      if (
+        effectiveProperties === null ||
+        declaration.important ||
+        !effectiveImportant
+      ) {
+        effectiveProperties = transitionPropertyList(declaration.value, false);
+        effectiveImportant = declaration.important;
+        propertyListMayBeInherited = hasInheritedTransitionPropertyList(
+          declaration.value,
+        );
+      }
+    } else if (property === "transition-duration") {
+      hasTransitionBehavior = true;
+      hasDurationDeclaration = true;
+      if (
+        effectiveDurations === null ||
+        declaration.important ||
+        !durationsImportant
+      ) {
+        effectiveDurations = parseTransitionDurationList(declaration.value);
+        durationsImportant = declaration.important;
+      }
+    } else if (property.startsWith("transition-")) {
+      hasTransitionBehavior = true;
+    }
+  }
+  if (!hasTransitionBehavior) return null;
+  return {
+    properties: effectiveProperties ?? ["*"],
+    propertyListMayBeInherited,
+    durations: effectiveDurations ?? [0],
+    hasPropertyDeclaration,
+    hasDurationDeclaration,
+  };
+}
+
+function transitionDeclarationsConflict(
+  declarations: readonly postcss.Declaration[],
+  animatedProperties: ReadonlySet<string>,
+): boolean {
+  const effect = analyzeTransitionDeclarations(declarations);
+  return effect
+    ? transitionEffectsConflict(effect, effect, animatedProperties)
+    : false;
+}
+
+function transitionDeclarationGroupsConflict(
+  declarationGroups: readonly (readonly postcss.Declaration[])[],
+  animatedProperties: ReadonlySet<string>,
+): boolean {
+  const effects = declarationGroups
+    .map(analyzeTransitionDeclarations)
+    .filter((effect): effect is TransitionDeclarationEffect => effect !== null);
+  for (const [propertyIndex, propertyEffect] of effects.entries()) {
+    if (!propertyEffect.hasPropertyDeclaration) continue;
+    for (const [durationIndex, durationEffect] of effects.entries()) {
+      if (
+        propertyIndex === durationIndex ||
+        !durationEffect.hasDurationDeclaration
+      ) {
+        continue;
+      }
+      if (
+        transitionEffectsConflict(
+          propertyEffect,
+          durationEffect,
+          animatedProperties,
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function transitionEffectsConflict(
+  propertyEffect: TransitionDeclarationEffect,
+  durationEffect: TransitionDeclarationEffect,
+  animatedProperties: ReadonlySet<string>,
+): boolean {
+  const properties = propertyEffect.properties;
+  const durations = durationEffect.durations;
+  if (
+    propertyEffect.propertyListMayBeInherited &&
+    durations.some((duration) => duration !== 0)
+  ) {
+    return true;
+  }
+  for (const animatedProperty of animatedProperties) {
+    let matchingDuration: number | null | undefined;
+    for (const [index, property] of properties.entries()) {
+      if (property === "none") continue;
+      if (!transitionPropertyOverlapsTrack(property, animatedProperty)) {
+        continue;
+      }
+      matchingDuration = durations[index % durations.length] ?? null;
+    }
+    if (matchingDuration === undefined) continue;
+    if (matchingDuration !== 0) return true;
+  }
+  return false;
+}
+
+function transitionPropertyOverlapsTrack(
+  transitionProperty: string,
+  animatedProperty: string,
+): boolean {
+  if (transitionProperty === "*" || transitionProperty === animatedProperty) {
+    return true;
+  }
+  return (
+    TRANSITION_SHORTHAND_TRACK_PROPERTIES[transitionProperty]?.includes(
+      animatedProperty,
+    ) === true ||
+    TRANSITION_SHORTHAND_TRACK_PROPERTIES[animatedProperty]?.includes(
+      transitionProperty,
+    ) === true
+  );
+}
+
+function hasInheritedTransitionPropertyList(value: string): boolean {
+  return /^(?:inherit|revert|revert-layer)$/i.test(value.trim());
+}
+
+function transitionPropertyList(value: string, shorthand: boolean): string[] {
+  const values = splitCssValueList(value);
+  if (!shorthand) {
+    return values.map((part) => {
+      const property = normalizedTransitionProperty(part.trim());
+      if (property === "none") return "none";
+      if (property === "all") return "*";
+      if (CSS_WIDE_KEYWORDS.has(property)) return "*";
+      return CSS_IDENTIFIER.test(property) || property.startsWith("--")
+        ? property
+        : "*";
+    });
+  }
+
+  return values.map((part) => {
+    const withoutFunctions = part.replace(
+      /[_a-zA-Z-][-_a-zA-Z0-9]*\([^()]*\)/g,
+      " ",
+    );
+    const identifiers = withoutFunctions.trim().split(/\s+/).filter(Boolean);
+    const candidates = identifiers
+      .map(normalizedTransitionProperty)
+      .filter(
+        (identifier) =>
+          !isTransitionTimingToken(identifier) &&
+          (CSS_IDENTIFIER.test(identifier) || identifier.startsWith("--")),
+      );
+    if (candidates.length === 1) {
+      if (candidates[0] === "none") return "none";
+      if (CSS_WIDE_KEYWORDS.has(candidates[0]!)) return "*";
+      return candidates[0] === "all" ? "*" : candidates[0]!;
+    }
+    return candidates.length === 0 && /\bnone\b/i.test(part) ? "none" : "*";
+  });
+}
+
+function parseTransitionDurationList(value: string): Array<number | null> {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "initial" || normalized === "unset") return [0];
+  if (CSS_WIDE_KEYWORDS.has(normalized)) return [null];
+  return splitCssValueList(value).map(parseTransitionDurationMs);
+}
+
+function parseTransitionShorthandDurations(
+  value: string,
+): Array<number | null> {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "initial" || normalized === "unset") return [0];
+  if (CSS_WIDE_KEYWORDS.has(normalized)) return [null];
+
+  return splitCssValueList(value).map((part) => {
+    const withoutEasingFunctions = part.replace(
+      /(?:cubic-bezier|steps|linear)\s*\([^)]*\)/gi,
+      " ",
+    );
+    if (/[_a-zA-Z-][-_a-zA-Z0-9]*\s*\(/.test(withoutEasingFunctions)) {
+      return null;
+    }
+
+    const tokens = withoutEasingFunctions.trim().split(/\s+/);
+    const times: string[] = [];
+    for (const token of tokens) {
+      if (/^[+-]?(?:\d|\.)/.test(token)) {
+        if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:ms|s)$/i.test(token)) {
+          return null;
+        }
+        times.push(token);
+      }
+    }
+    if (times.length > 2) return null;
+    if (times.length === 0) return 0;
+    return parseTransitionDurationMs(times[0]!);
+  });
+}
+
+function parseTransitionDurationMs(value: string): number | null {
+  const match = /^\+?((?:\d+(?:\.\d*)?|\.\d+))(ms|s)$/i.exec(value.trim());
+  if (!match) return null;
+  const durationMs =
+    Number(match[1]) * (match[2]!.toLowerCase() === "s" ? 1000 : 1);
+  return Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : null;
+}
+
+function splitCssValueList(value: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote: "'" | '"' | null = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth = Math.max(0, depth - 1);
+    } else if (character === "," && depth === 0) {
+      parts.push(value.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start));
+  return parts;
+}
+
 function findReducedMotionOverrideDeclarations(
   root: postcss.Root,
 ): Set<postcss.Declaration> {
@@ -567,26 +1483,40 @@ function findReducedMotionOverrideDeclarations(
 
     const declarations = rule.nodes.filter(
       (node): node is postcss.Declaration =>
-        node.type === "decl" && isAnimationProperty(node.prop),
+        node.type === "decl" &&
+        (isAnimationProperty(node.prop) || isTransitionProperty(node.prop)),
     );
-    const durations = declarations.filter(
+    const animationDeclarations = declarations.filter((declaration) =>
+      isAnimationProperty(declaration.prop),
+    );
+    const durations = animationDeclarations.filter(
       (declaration) =>
         decodeMotionCssIdentifier(declaration.prop).toLowerCase() ===
         "animation-duration",
     );
-    const iterations = declarations.filter(
+    const iterations = animationDeclarations.filter(
       (declaration) =>
         decodeMotionCssIdentifier(declaration.prop).toLowerCase() ===
         "animation-iteration-count",
     );
+    const transitionDurations = declarations.filter(
+      (declaration) =>
+        decodeMotionCssIdentifier(declaration.prop).toLowerCase() ===
+        "transition-duration",
+    );
     if (
-      declarations.length !== 2 ||
+      animationDeclarations.length !== 2 ||
       durations.length !== 1 ||
       iterations.length !== 1 ||
+      transitionDurations.length > 1 ||
+      declarations.length !== 2 + transitionDurations.length ||
       durations[0]!.important !== true ||
       !isReducedMotionDuration(durations[0]!.value) ||
       iterations[0]!.important !== true ||
-      iterations[0]!.value.trim() !== "1"
+      iterations[0]!.value.trim() !== "1" ||
+      (transitionDurations.length === 1 &&
+        (!transitionDurations[0]!.important ||
+          !isReducedMotionDuration(transitionDurations[0]!.value)))
     ) {
       return;
     }
@@ -604,9 +1534,10 @@ function isReducedMotionDuration(value: string): boolean {
   return Number.isFinite(durationMs) && durationMs >= 0 && durationMs <= 1;
 }
 
-function isInsideKeyframes(declaration: postcss.Declaration): boolean {
+function isInsideKeyframes(node: postcss.Node): boolean {
   for (
-    let parent: postcss.Node | undefined = declaration.parent;
+    let parent: postcss.Node | undefined =
+      node.type === "decl" ? node.parent : node;
     parent;
     parent = parent.parent ?? undefined
   ) {
