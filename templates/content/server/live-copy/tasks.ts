@@ -16,7 +16,13 @@ import {
   LIVE_BODY_FIELD,
   materializeLiveBody,
 } from "../../shared/live-body.js";
-import { docToNfm, nfmToDoc, parseNfmWithLosses } from "../../shared/nfm.js";
+import {
+  docToNfm,
+  nfmToDoc,
+  parseNfmWithLosses,
+  type NfmParseLoss,
+} from "../../shared/nfm.js";
+import { rebaseBodyEdit, type BodyTextRange } from "./rebase.js";
 import { CONTENT_HOLDS_BODY_TASK, type HoldsBodyResult } from "./task-names.js";
 
 // The worker half of Content's live copy: every handler here runs in the
@@ -59,6 +65,11 @@ function deriveBody(doc: Y.Doc, field: string): string | LiveCopyTaskRefusal {
   }
 }
 
+function parseLossRefusal(losses: NfmParseLoss[]): LiveCopyTaskRefusal {
+  const kinds = [...new Set(losses.map((loss) => loss.kind))].join(", ");
+  return refused("lossy", `the parser drops part of this body (${kinds})`);
+}
+
 /**
  * The tree a Markdown body becomes in the editor. A body the parser or the
  * schema cannot keep in full is refused: the live copy would keep the rest
@@ -67,10 +78,7 @@ function deriveBody(doc: Y.Doc, field: string): string | LiveCopyTaskRefusal {
 function buildBody(markdown: string): PMNode | LiveCopyTaskRefusal {
   // What the parser dropped is in neither serialization compared below.
   const { doc: parsed, losses } = parseNfmWithLosses(markdown);
-  if (losses.length > 0) {
-    const kinds = [...new Set(losses.map((loss) => loss.kind))].join(", ");
-    return refused("lossy", `the parser drops part of this body (${kinds})`);
-  }
+  if (losses.length > 0) return parseLossRefusal(losses);
   let root: PMNode;
   try {
     root = schema().nodeFromJSON(parsed);
@@ -101,6 +109,63 @@ function replaceBodyInput(
     return refused("invalid_input", "expected must be a string");
   }
   return expected === undefined ? { content } : { content, expected };
+}
+
+type BodyEdit = {
+  base: string;
+  candidate: string;
+  authored: BodyTextRange[];
+};
+
+function isTextRange(value: unknown, length: number): value is BodyTextRange {
+  const { start, end } = (value ?? {}) as Record<string, unknown>;
+  return (
+    Number.isInteger(start) &&
+    Number.isInteger(end) &&
+    0 <= (start as number) &&
+    (start as number) <= (end as number) &&
+    (end as number) <= length
+  );
+}
+
+function bodyEdit(value: unknown): BodyEdit | undefined {
+  const { base, candidate, authored } = (value ?? {}) as Record<
+    string,
+    unknown
+  >;
+  if (typeof base !== "string" || typeof candidate !== "string") {
+    return undefined;
+  }
+  if (authored === undefined) return { base, candidate, authored: [] };
+  if (
+    !Array.isArray(authored) ||
+    !authored.every((range) => isTextRange(range, base.length))
+  ) {
+    return undefined;
+  }
+  const ranges = authored
+    .map(({ start, end }) => ({ start, end }))
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  // The rebase probes each range at its offsets in base, which an
+  // overlapping range's replacement would move.
+  if (
+    ranges.some(
+      (range, index) => index > 0 && range.start < ranges[index - 1].end,
+    )
+  ) {
+    return undefined;
+  }
+  return { base, candidate, authored: ranges };
+}
+
+function rebaseBodyInput(input: unknown): BodyEdit | LiveCopyTaskRefusal {
+  return (
+    bodyEdit(input) ??
+    refused(
+      "invalid_input",
+      "expected { base, candidate } as strings, with authored? as ranges of base that don't overlap",
+    )
+  );
 }
 
 function isRefusal(value: unknown): value is LiveCopyTaskRefusal {
@@ -161,6 +226,35 @@ const liveCopyTasks = defineLiveCopyTasks({
         if (current !== parsed.expected) return refused("base_changed");
       }
       const root = buildBody(parsed.content);
+      if (isRefusal(root)) return root;
+      const fragment = doc.getXmlFragment(field);
+      const { meta } = initProseMirrorDoc(fragment, schema());
+      updateYFragment(doc, fragment, root, meta);
+    },
+
+    /**
+     * Applies the blocks `candidate` changed from `base` to the current body
+     * (`rebaseBodyEdit`), so a writer's edit keeps what tabs typed since its
+     * base. Refuses `conflict` when the edit's place in the current body is
+     * ambiguous, or when a tab changed a block the edit's `authored` ranges
+     * of `base` touch. A peer's commit that overtakes it runs it again on
+     * the peer's body.
+     */
+    "rebase-body"(doc, field, input) {
+      const edit = rebaseBodyInput(input);
+      if (isRefusal(edit)) return edit;
+      const current = deriveBody(doc, field);
+      if (isRefusal(current)) return current;
+      // The rebase keeps the candidate's blocks in their parsed form, which
+      // has already lost whatever the parse drops.
+      const { losses } = parseNfmWithLosses(edit.candidate);
+      if (losses.length > 0) return parseLossRefusal(losses);
+      const content =
+        current === edit.base
+          ? edit.candidate
+          : rebaseBodyEdit(edit.base, edit.candidate, current, edit.authored);
+      if (content === null) return refused("conflict");
+      const root = buildBody(content);
       if (isRefusal(root)) return root;
       const fragment = doc.getXmlFragment(field);
       const { meta } = initProseMirrorDoc(fragment, schema());
