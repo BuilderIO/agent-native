@@ -630,6 +630,23 @@ describe("a write whose outcome is really unknown", () => {
     });
   });
 
+  it("words a repeat neutrally when attempts of the same call disagree on why", async () => {
+    const stop = await repeatAfterStoredUnknowns(
+      [
+        { id: "first", prepared: { body: "a" }, cause: "rejection" },
+        { id: "second", prepared: { body: "a" }, cause: "unattributed" },
+      ],
+      z.object({ body: z.string() }),
+      { body: "a" },
+    );
+    expect(stop).toMatchObject({
+      blockedBy: "interruption",
+      held: expect.stringContaining(
+        "The send action has 2 earlier attempt(s) whose outcome is unknown.",
+      ),
+    });
+  });
+
   it("names no recorded cause when calls sharing its sent arguments disagree", async () => {
     // `{}` prepared as stamp 1 and stamp 2 before, and as stamp 3 now: only
     // the sent arguments match, and the two earlier calls disagree.
@@ -843,6 +860,69 @@ describe("a write whose outcome is really unknown", () => {
         type: "error",
         errorCode: "write_tool_outcome_unknown",
         blockedBy: "rejection",
+      }),
+    );
+  });
+
+  it("does not give one attempt's history cause to a cause-less sibling", async () => {
+    const input = { body: "Refund sent" };
+    const attempt = (id: string) => [
+      { type: "tool_start", id, tool: "send", input },
+      {
+        type: "tool_done",
+        id,
+        tool: "send",
+        input,
+        result: "Error running send: lost.",
+        isError: true,
+        outcomeUnknown: true,
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ];
+    currentTurnEvents.mockResolvedValue([
+      ...attempt("first"),
+      ...attempt("second"),
+    ]);
+    const run = vi.fn(async () => "sent");
+    const action = defineAction({
+      description: "Send.",
+      schema: z.object({ body: z.string() }),
+      run,
+    }) as unknown as ActionEntry;
+    const events = await runCalls({ send: action }, [{ name: "send", input }], {
+      threadId: "thread-sibling-attempts",
+      history: [
+        {
+          role: "assistant",
+          content: [{ type: "tool-call", id: "first", name: "send", input }],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "first",
+              toolName: "send",
+              content: "Error running send: Upstream rejected the request.",
+              isError: true,
+              outcome: "unknown",
+              unknownCause: "rejection",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "interruption",
       }),
     );
   });

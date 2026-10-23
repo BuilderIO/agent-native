@@ -5337,7 +5337,12 @@ function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
   }
   for (const key of from.uncaused) markUncaused(into, key);
   for (const [key, cause] of from.restated) {
-    if (!into.causes.has(key)) into.causes.set(key, cause);
+    // Only for the one call it restates: a sibling attempt under the same
+    // key may have no cause, or another.
+    const callKey = key.slice("call:".length);
+    if (!into.causes.has(key) && (into.calls.get(callKey) ?? 0) <= 1) {
+      into.causes.set(key, cause);
+    }
   }
 }
 
@@ -9930,16 +9935,19 @@ export async function runAgentLoop(opts: {
         // is every attempt the guard held back for, any of which may have
         // saved changes.
         const [specific] = repeated;
-        const blockedBy =
-          (specific
-            ? unknownOutcomes.causes.get(
-                `${specific[0]}:${repeatKeys[specific[0]]}`,
-              )
-            : undefined) ?? "interruption";
-        // Its cause speaks for the count only when every attempt counted is
-        // one under that key.
+        // `null` when attempts under the key disagree; `undefined` when none
+        // recorded a cause, which reads as an interruption.
+        const specificCause = specific
+          ? unknownOutcomes.causes.get(
+              `${specific[0]}:${repeatKeys[specific[0]]}`,
+            )
+          : undefined;
+        const blockedBy = specificCause ?? "interruption";
+        // Its cause speaks for the count only when the key has one and every
+        // attempt counted is under it.
         const causeCoversCount =
           specific !== undefined &&
+          specificCause !== null &&
           specific[1].get(repeatKeys[specific[0]]) === priorInterruptions;
         const result = unknownRepeatResult(
           toolCall.name,
