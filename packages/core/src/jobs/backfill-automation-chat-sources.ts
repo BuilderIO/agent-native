@@ -5,6 +5,7 @@ const CANDIDATES = `
     SELECT thread_id,
       lower(btrim(owner)) AS owner_email,
       count(DISTINCT NULLIF(btrim(app_id), '')) AS app_count,
+      bool_or(NULLIF(btrim(app_id), '') IS NULL) AS has_unattributed_run,
       min(NULLIF(btrim(app_id), '')) AS app_id
     FROM automation_run_history
     WHERE thread_id IS NOT NULL
@@ -16,6 +17,7 @@ const CANDIDATES = `
     WHERE t.source_app_id IS NULL
       AND lower(t.owner_email) = sources.owner_email
       AND sources.app_count = 1
+      AND NOT sources.has_unattributed_run
   )`;
 
 export interface AutomationChatSourceBackfillCounts {
@@ -51,7 +53,9 @@ export async function backfillAutomationChatSources(
             SELECT 1 FROM thread_sources sources
             WHERE sources.thread_id = t.id
               AND sources.owner_email = lower(t.owner_email)
-              AND sources.app_count > 1
+              AND (sources.app_count > 1 OR (
+                sources.app_count = 1 AND sources.has_unattributed_run
+              ))
           )) AS ambiguous_threads,
         (SELECT count(*)::int FROM chat_threads t
           WHERE t.source_app_id IS NULL AND EXISTS (

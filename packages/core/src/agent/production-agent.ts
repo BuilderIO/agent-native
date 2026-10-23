@@ -8618,6 +8618,8 @@ export async function runAgentLoop(opts: {
 
     let requestedActionStop: TerminalActionStop | null = null;
     let requestedActionStopTranscriptSent = false;
+    const approvalTranscriptCallIds = new Set<string>();
+    const sentApprovalTranscriptTexts = new Set<string>();
     let requestedConnection:
       | {
           requestId: string;
@@ -9283,18 +9285,23 @@ export async function runAgentLoop(opts: {
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
             `NOT execute — a human must approve this specific call before it ` +
             `can run. The turn is paused; do not retry.`;
-          const approvalStop = (requestedActionStop ??= {
+          requestedActionStop ??= {
             message: `Waiting for your approval to run ${toolCall.name}.`,
             errorCode: "needs-approval",
-          });
-          const transcriptText =
-            approvalStop.transcriptMessage ?? approvalStop.message;
+          };
+          const transcriptText = `Waiting for your approval to run ${toolCall.name}.`;
           // Keep the note with its tool call so the next turn can pair the result.
-          approvalCallMessage.content.push({
-            type: "text",
-            text: transcriptText,
-          });
-          await send({ type: "text", text: transcriptText });
+          if (!approvalTranscriptCallIds.has(toolCall.id)) {
+            approvalCallMessage.content.push({
+              type: "text",
+              text: transcriptText,
+            });
+            approvalTranscriptCallIds.add(toolCall.id);
+          }
+          if (!sentApprovalTranscriptTexts.has(transcriptText)) {
+            await send({ type: "text", text: transcriptText });
+            sentApprovalTranscriptTexts.add(transcriptText);
+          }
           requestedActionStopTranscriptSent = true;
           await emitToolDone({
             type: "tool_done",

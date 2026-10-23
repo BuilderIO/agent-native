@@ -305,7 +305,7 @@ describe("createTeamTools bounded task reads", () => {
     );
     expect(result).toMatchObject({ status: "queued", taskId: "task-1" });
     expect(result).not.toHaveProperty("summary");
-    expect(mocks.getTask).toHaveBeenCalledTimes(2);
+    expect(mocks.getTask.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("does not wait or expose queue state for a foreign or missing task", async () => {

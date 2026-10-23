@@ -751,7 +751,9 @@ async function accessToResource(
   const shareRole = role === "admin" && reg.canManageAccess ? "editor" : role;
   if (resource.visibility === "public" && reg.allowPublic !== false) {
     const publicRole = await publicAccessRoleForResource(reg, resource, ctx);
-    return { role: higherShareRole(publicRole, shareRole), resource };
+    const effectivePublicRole =
+      publicRole === "admin" && reg.canManageAccess ? "editor" : publicRole;
+    return { role: higherShareRole(effectivePublicRole, shareRole), resource };
   }
   if (shareRole) return { role: shareRole, resource };
   if (

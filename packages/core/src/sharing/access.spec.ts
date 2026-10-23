@@ -188,6 +188,7 @@ beforeEach(async () => {
     displayName: "QA Workspace App",
     titleColumn: "title",
     getDb: () => db,
+    publicAccessRole: "admin",
     canManageAccess: (_resource, ctx) =>
       ctx.userEmail === orgAdminEmail && ctx.orgId === orgId,
   });
@@ -244,6 +245,24 @@ describe("shareable resource access helpers", () => {
         ).resolves.toMatchObject({ ok: true });
       },
     );
+  });
+
+  it("does not let public access bypass a registration's manager policy", async () => {
+    const managedResourceType = `${resourceType}-manager-policy`;
+    await insertDoc({
+      id: "manager-policy-public-app",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(managedResourceType, "manager-policy-public-app"),
+      ).resolves.toMatchObject({ role: "editor" });
+      await expect(
+        assertAccess(managedResourceType, "manager-policy-public-app", "admin"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
   });
 
   it.each(["viewer", "editor", "admin"] as const)(

@@ -46,6 +46,7 @@ describe("automation chat source backfill", () => {
       INSERT INTO chat_threads VALUES
         ('calendar-thread', 'alice@example.com', NULL),
         ('ambiguous-thread', 'alice@example.com', NULL),
+        ('partially-attributed-thread', 'alice@example.com', NULL),
         ('already-tagged', 'alice@example.com', 'mail'),
         ('legacy-thread', 'alice@example.com', NULL),
         ('private-thread', 'bob@example.com', NULL);
@@ -54,15 +55,18 @@ describe("automation chat source backfill", () => {
         ('calendar-run-2', 'alice@example.com', 'calendar-thread', 'calendar'),
         ('ambiguous-run-1', 'alice@example.com', 'ambiguous-thread', 'calendar'),
         ('ambiguous-run-2', 'alice@example.com', 'ambiguous-thread', 'slides'),
+        ('partial-run-1', 'alice@example.com', 'partially-attributed-thread', 'calendar'),
+        ('partial-run-2', 'alice@example.com', 'partially-attributed-thread', NULL),
+        ('partial-run-3', 'alice@example.com', 'partially-attributed-thread', '   '),
         ('tagged-run', 'alice@example.com', 'already-tagged', 'calendar'),
         ('legacy-run', 'alice@example.com', 'legacy-thread', NULL),
         ('foreign-run', 'alice@example.com', 'private-thread', 'calendar');
     `);
 
     expect(await backfillAutomationChatSources(db)).toEqual({
-      untaggedAutomationThreads: 3,
+      untaggedAutomationThreads: 4,
       eligibleThreads: 1,
-      ambiguousThreads: 1,
+      ambiguousThreads: 2,
       unattributedThreads: 1,
       updatedThreads: 0,
     });
@@ -90,6 +94,11 @@ describe("automation chat source backfill", () => {
         source_app_id: null,
       },
       {
+        id: "partially-attributed-thread",
+        owner_email: "alice@example.com",
+        source_app_id: null,
+      },
+      {
         id: "private-thread",
         owner_email: "bob@example.com",
         source_app_id: null,
@@ -97,9 +106,9 @@ describe("automation chat source backfill", () => {
     ]);
 
     expect(await backfillAutomationChatSources(db, { apply: true })).toEqual({
-      untaggedAutomationThreads: 3,
+      untaggedAutomationThreads: 4,
       eligibleThreads: 1,
-      ambiguousThreads: 1,
+      ambiguousThreads: 2,
       unattributedThreads: 1,
       updatedThreads: 1,
     });
@@ -123,6 +132,11 @@ describe("automation chat source backfill", () => {
       },
       {
         id: "legacy-thread",
+        owner_email: "alice@example.com",
+        source_app_id: null,
+      },
+      {
+        id: "partially-attributed-thread",
         owner_email: "alice@example.com",
         source_app_id: null,
       },

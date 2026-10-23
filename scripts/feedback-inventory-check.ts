@@ -542,8 +542,6 @@ function validateSourceFilesInSnapshot(
   parentName: string,
   parent: Parent,
   snapshot: ThreadSnapshot | undefined,
-  sweepActorId?: string,
-  sourcePageReadAt?: number | null,
 ): void {
   if (!snapshot) {
     if (parent.ownershipSkip) return;
@@ -558,14 +556,7 @@ function validateSourceFilesInSnapshot(
     parent.ts === parent.threadParentTs
       ? snapshot.rootFiles
       : snapshot.replies.find((reply) => reply.ts === parent.ts)?.files;
-  const snapshotReply =
-    parent.ts === parent.threadParentTs
-      ? undefined
-      : snapshot.replies.find((reply) => reply.ts === parent.ts);
-  const snapshotText =
-    parent.ts === parent.threadParentTs
-      ? snapshot.rootText
-      : snapshotReply?.text;
+  const snapshotText = sourceTextFromThreadSnapshot(parent, snapshot);
   if (
     JSON.stringify(snapshotFiles ?? []) !== JSON.stringify(parent.files ?? [])
   ) {
@@ -575,95 +566,102 @@ function validateSourceFilesInSnapshot(
   }
   if (
     parent.sourceText !== undefined &&
-    // Slack search can omit the text of connector events that thread reads render.
-    parent.sourceText.trim() !== "" &&
     snapshotText !== undefined &&
     !matchesSlackMessageText(parent.sourceText, snapshotText)
   ) {
-    // A sweep-authored reply can be edited after the fixed channel scan; the
-    // complete thread read is the current text for that reply.
-    if (
-      parent.ts !== parent.threadParentTs &&
-      snapshotReply?.actorId === sweepActorId &&
-      sourcePageReadAt !== undefined &&
-      sourcePageReadAt !== null &&
-      Date.parse(snapshot.readAt) > sourcePageReadAt
-    ) {
-      return;
-    }
     throw new Error(
-      `${parentName}: threadSnapshot text must match the captured source message`,
+      `${parentName}: threadSnapshot text must match the captured source message; rescan the source after edits`,
     );
   }
+}
+
+function sourceTextFromThreadSnapshot(
+  parent: Parent,
+  snapshot: ThreadSnapshot | undefined,
+): string | undefined {
+  if (!snapshot) return undefined;
+  if (parent.ts === parent.threadParentTs) return snapshot.rootText;
+  return snapshot.replies.find((reply) => reply.ts === parent.ts)?.text;
 }
 
 function matchesSlackMessageText(
   sourceText: string,
   threadText: string,
 ): boolean {
-  const normalize = (text: string) =>
-    text
-      // Search omits the connector origin footer that thread reads append.
-      .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
-      // Search can add one or more bot disclosures and a page separator that
-      // the complete thread read does not include.
-      .replace(/\n+---\s*$/, "")
-      // Detailed reads append connector reactions and expanded app-notification previews.
-      .replace(
-        /\n+(?:Reactions: [^\n]*\n+)?App notification from App \([^)]+\):[\s\S]*$/i,
-        "",
-      )
-      // App previews can follow the connector origin footer, so strip that footer again after the preview.
-      .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
-      .replace(
-        /\n+Reactions: [a-z0-9_+.-]+\s+\(\d+\)(?:, [a-z0-9_+.-]+\s+\(\d+\))*\s*$/i,
-        "",
-      )
-      .replace(/(?:\s+[_*]?this was sent from a bot\.?[_*]?)+\s*$/i, "")
-      .replace(
-        /(^|\n)```(?:[ \t]*\r?\n[ \t]*|[ \t]+)?(?=\S)/gm,
-        (match, prefix: string, offset: number, input: string) => {
-          const fencesBefore =
-            input.slice(0, offset + prefix.length).match(/```/g)?.length ?? 0;
-          return fencesBefore % 2 === 0 ? prefix + "```" : match;
-        },
-      )
-      .replace(/`([^`\n]+)`/g, "$1")
-      // Search and thread reads differ in how they prefix Slack block quotes.
-      .replace(/^>[ \t]?/gm, "")
-      .replace(/\*([^*\n]+)\*/g, "$1")
-      .replace(/_([^_\n]+)_/g, "$1")
-      .replace(/&gt;/g, ">")
-      .replace(/&lt;/g, "<")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;|&apos;/g, "'")
-      .replace(/&amp;/g, "&")
-      // Search renders Slack user-group mentions differently from thread reads.
-      .replace(/<@([S][A-Z0-9]+)>/g, "<!subteam^$1>")
-      // Rich app blocks use a private glyph between duplicated text sections.
-      .replace(/[ \t]*[\uE000-\uF8FF][ \t]*/g, "\n")
-      .replace(/\n+/g, "\n")
-      .trim();
+  const normalize = (text: string, isThreadRead = false) => {
+    const textWithThreadPreviewRemoved = isThreadRead
+      ? text.replace(
+          /\n+(?:Reactions: [^\n]*\n+)?App notification from App \([^)]+\):[\s\S]*$/i,
+          "",
+        )
+      : text;
+    return (
+      textWithThreadPreviewRemoved
+        // Search omits the connector origin footer that thread reads append.
+        .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
+        // Search can add one or more bot disclosures and a page separator that
+        // the complete thread read does not include.
+        .replace(/\n+---\s*$/, "")
+        // App previews can follow the connector origin footer, so strip that footer again after the preview.
+        .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
+        .replace(
+          /\n+Reactions: [a-z0-9_+.-]+\s+\(\d+\)(?:, [a-z0-9_+.-]+\s+\(\d+\))*\s*$/i,
+          "",
+        )
+        .replace(/(?:\s+[_*]?this was sent from a bot\.?[_*]?)+\s*$/i, "")
+        .replace(
+          /(^|\n)```(?:[ \t]*\r?\n[ \t]*|[ \t]+)?(?=\S)/gm,
+          (match, prefix: string, offset: number, input: string) => {
+            const fencesBefore =
+              input.slice(0, offset + prefix.length).match(/```/g)?.length ?? 0;
+            return fencesBefore % 2 === 0 ? prefix + "```" : match;
+          },
+        )
+        .replace(/`([^`\n]+)`/g, "$1")
+        // Search and thread reads differ in how they prefix Slack block quotes.
+        .replace(/^>[ \t]?/gm, "")
+        .replace(/\*([^*\n]+)\*/g, "$1")
+        .replace(/_([^_\n]+)_/g, "$1")
+        .replace(/&gt;/g, ">")
+        .replace(/&lt;/g, "<")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;|&apos;/g, "'")
+        .replace(/&amp;/g, "&")
+        // Search renders Slack user-group mentions differently from thread reads.
+        .replace(/<@([S][A-Z0-9]+)>/g, "<!subteam^$1>")
+        // Rich app blocks use a private glyph between duplicated text sections.
+        .replace(/[ \t]*[\uE000-\uF8FF][ \t]*/g, "\n")
+        .replace(/\n+/g, "\n")
+        .trim()
+    );
+  };
   const normalizedThread = threadText.replace(
     /^I[’']m looking into this for you\r?\nCancel button\r?\n/i,
     "",
   );
   if (
     sourceText === threadText ||
-    normalize(sourceText) === normalize(normalizedThread)
+    normalize(sourceText) === normalize(normalizedThread, true)
   ) {
     return true;
   }
 
   const normalizedSource = normalize(sourceText);
-  const normalizedThreadText = normalize(normalizedThread);
-  const groupMention = /<!subteam\^S[A-Z0-9]+(?:\|@[^>]+)?>/gi;
+  const normalizedThreadText = normalize(normalizedThread, true);
+  const groupMention = /<!subteam\^S[A-Z0-9]+(?:\|@([^>]+))?>/gi;
   const groupHandle =
-    /(?<![\p{L}\p{N}_@.-])@?[\p{L}\p{N}_.-]+[ \t]+handle(?![\p{L}\p{N}_-])/giu;
-  const sourceGroupCount = [...normalizedSource.matchAll(groupMention)].length;
+    /(?<![\p{L}\p{N}_@.-])(@?[\p{L}\p{N}_.-]+)[ \t]+handle(?![\p{L}\p{N}_-])/giu;
+  const sourceGroups = [...normalizedSource.matchAll(groupMention)];
+  const threadGroups = [...normalizedThreadText.matchAll(groupHandle)];
   if (
-    sourceGroupCount === 0 ||
-    [...normalizedThreadText.matchAll(groupHandle)].length !== sourceGroupCount
+    sourceGroups.length === 0 ||
+    threadGroups.length !== sourceGroups.length ||
+    sourceGroups.some(
+      (group, index) =>
+        !group[1] ||
+        group[1].replace(/^@/, "").toLowerCase() !==
+          threadGroups[index]![1]!.replace(/^@/, "").toLowerCase(),
+    )
   ) {
     return false;
   }
@@ -1917,6 +1915,19 @@ function explicitlyStatesCompletion(text: string): boolean {
     .normalize("NFKC")
     .replace(/[’‘]/g, "'")
     .toLowerCase();
+  const completionWord = new RegExp(`\\b(?:${completionWords})\\b`, "i");
+  const hasInterrogativeCompletion = normalized
+    .split(/(?<=[.!?])\s+|\n+/)
+    .some((sentence) => {
+      const trimmed = sentence.trim();
+      return (
+        completionWord.test(trimmed) &&
+        (trimmed.endsWith("?") ||
+          /^(?:is|are|was|were|has|have|had|did|does|do|can|could|will|would|should|might|may)\b/i.test(
+            trimmed,
+          ))
+      );
+    });
   const postposedNegation = new RegExp(
     `\\b(?:${completionWords})\\b\\s*[.!?;,:—–-]?\\s*(?:not\\s+yet\\b|(?:no|nope)\\s*[.!?]?$)`,
     "i",
@@ -1934,7 +1945,8 @@ function explicitlyStatesCompletion(text: string): boolean {
   const retractedCompletion =
     /\b(?:actually|correction|i was wrong|that was wrong)\b[\s\S]{0,40}\b(?:no|not|isn't|is not|wasn't|was not|still open|unmerged)\b/i;
   return (
-    new RegExp(`\\b(?:${completionWords})\\b`, "i").test(normalized) &&
+    completionWord.test(normalized) &&
+    !hasInterrogativeCompletion &&
     !new RegExp(
       `\\b(?:not|never|pending|awaiting|still|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|didn't|doesn't|don't|couldn't|wouldn't|shouldn't|can't|cannot|won't|shan't)\\b.{0,40}\\b(?:${completionWords})\\b`,
       "i",
@@ -3740,14 +3752,13 @@ function validateUnreconciledTicketMark(
   }
   const status = parent.statusReply;
   const statusTs = slackTimestamp(status.ts, `${parentName}.statusReply.ts`);
-  const statusText = normalizeReplyPhrase(status.text);
   if (
-    !statusText.includes("ticket") ||
-    (!/unreconcil/i.test(status.text) &&
-      !/no separate (?:owner|reporter|human).*action/i.test(status.text))
+    !/ticket/i.test(status.text) ||
+    !explicitlyIdentifiesMissingHumanTicketAction(status.text) ||
+    !explicitlyIdentifiesMissingHumanTicketAction(status.evidence)
   ) {
     throw new Error(
-      `${parentName}: current status must explain why the retained 🎫 has no supportable human action`,
+      `${parentName}: current status and its evidence must identify the missing separate human action for the retained 🎫`,
     );
   }
   const seen = new Set<string>();
@@ -3762,10 +3773,12 @@ function validateUnreconciledTicketMark(
       timestamp >= statusTs ||
       reply?.actorId !== sweepActorId ||
       reply.kind !== "sweep" ||
-      !/ticket/i.test(reply.text)
+      !/ticket/i.test(reply.text) ||
+      !explicitlyIdentifiesMissingHumanTicketAction(reply.text) ||
+      claimsHumanTicketAction(reply.text)
     ) {
       throw new Error(
-        `${label}: evidence must be a unique earlier captured sweep reply that discusses the mark`,
+        `${label}: evidence must be a unique earlier captured sweep reply that identifies the missing separate human action`,
       );
     }
     seen.add(replyTs);
@@ -3804,13 +3817,11 @@ function validateUnreconciledCheckmarkMark(
   const statusTs = slackTimestamp(status.ts, `${parentName}.statusReply.ts`);
   if (
     !/(?:checkmark|white_check_mark|✅)/i.test(status.text) ||
-    !/unreconcil/i.test(status.text) ||
-    !/(?:not (?:a )?verified|does not establish (?:a )?verified)/i.test(
-      status.text,
-    )
+    !explicitlyIdentifiesUnverifiedScope(status.text) ||
+    !explicitlyIdentifiesUnverifiedScope(status.evidence)
   ) {
     throw new Error(
-      `${parentName}: current status must explain why the retained ✅ has no supportable verified scope`,
+      `${parentName}: current status and its evidence must identify the unverified scope for the retained ✅`,
     );
   }
   const seen = new Set<string>();
@@ -3825,15 +3836,69 @@ function validateUnreconciledCheckmarkMark(
       timestamp >= statusTs ||
       reply?.actorId !== sweepActorId ||
       reply.kind !== "sweep" ||
-      !/(?:checkmark|white_check_mark|✅)/i.test(reply.text)
+      !/(?:checkmark|white_check_mark|✅)/i.test(reply.text) ||
+      !explicitlyIdentifiesUnverifiedScope(reply.text) ||
+      claimsVerifiedScope(reply.text)
     ) {
       throw new Error(
-        `${label}: evidence must be a unique earlier captured sweep reply that discusses the mark`,
+        `${label}: evidence must be a unique earlier captured sweep reply that identifies an unverified scope`,
       );
     }
     seen.add(replyTs);
   }
   return true;
+}
+
+function explicitlyIdentifiesMissingHumanTicketAction(text: string): boolean {
+  return /\b(?:no|without|lacks?|not attached to)\b.{0,80}\b(?:owner|reporter|human)\b.{0,35}\baction\b/i.test(
+    normalizeReplyPhrase(text),
+  );
+}
+
+function claimsHumanTicketAction(text: string): boolean {
+  return splitEvidenceClauses(text).some((clause) => {
+    const normalized = normalizeReplyPhrase(clause);
+    return (
+      /\b(?:ticket|issue|action)\b.{0,40}\b(?:opened|created|filed|assigned|accepted|started|owned|taken|picked)\b/i.test(
+        normalized,
+      ) ||
+      /\b(?:opened|created|filed|assigned|accepted|started|owned|took|taken|picked)\b.{0,40}\b(?:ticket|issue|action)\b/i.test(
+        normalized,
+      )
+    );
+  });
+}
+
+function explicitlyIdentifiesUnverifiedScope(text: string): boolean {
+  const normalized = normalizeReplyPhrase(text);
+  return (
+    /\b(?:scope|disposition)\b/i.test(normalized) &&
+    (/\b(?:no|not|without|unverified)\b.{0,70}\b(?:verified|passed|fixed|completed)\b/i.test(
+      normalized,
+    ) ||
+      /\b(?:does not|doesnt|did not) establish\b.{0,70}\bverified\b/i.test(
+        normalized,
+      )) &&
+    !claimsVerifiedScope(text)
+  );
+}
+
+function claimsVerifiedScope(text: string): boolean {
+  return splitEvidenceClauses(text).some((clause) => {
+    const normalized = normalizeReplyPhrase(clause);
+    const claimsVerification =
+      /\b(?:verified|passed|fixed|completed)\b.{0,50}\b(?:scope|fix|behavior|disposition)\b/i.test(
+        normalized,
+      ) ||
+      /\b(?:scope|fix|behavior|disposition)\b.{0,50}\b(?:verified|passed|fixed|completed)\b/i.test(
+        normalized,
+      );
+    const deniesVerification =
+      /\b(?:no|not|without|unverified|does not|doesnt|did not)\b.{0,50}\b(?:verified|passed|fixed|completed)\b/i.test(
+        normalized,
+      );
+    return claimsVerification && !deniesVerification;
+  });
 }
 
 function validateHandoffTicketParity(
@@ -6393,12 +6458,64 @@ function validateSourceReceipt(
       if (
         requireSourceText &&
         (typeof parent.sourceText !== "string" ||
-          parent.sourceText !== rawTexts[rowIndex])
+          !sourceTextMatchesCapturedSearch(
+            parent,
+            rawTexts[rowIndex]!,
+            channel.threadSnapshots?.find(
+              (snapshot) => snapshot.rootTs === parent.threadParentTs,
+            ),
+          ))
       ) {
         throw new Error(
-          `${name}: source row ${rowIndex + 1} text does not match the captured Slack result; preserve the exact source text`,
+          `${name}: source row ${rowIndex + 1} text must match the captured Slack result, or replace an omitted search body with the matching full-thread text`,
         );
       }
+    }
+  }
+}
+
+function sourceTextMatchesCapturedSearch(
+  parent: Parent,
+  capturedSearchText: string,
+  snapshot: ThreadSnapshot | undefined,
+): boolean {
+  if (parent.sourceText === capturedSearchText) {
+    const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
+    return (
+      parent.sourceText.trim() !== "" ||
+      (typeof threadText === "string" && threadText.trim() === "")
+    );
+  }
+
+  const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
+  return (
+    capturedSearchText.trim() === "" &&
+    typeof parent.sourceText === "string" &&
+    parent.sourceText.trim() !== "" &&
+    typeof threadText === "string" &&
+    matchesSlackMessageText(parent.sourceText, threadText)
+  );
+}
+
+function expectFocusedFailure(
+  name: string,
+  run: () => void,
+  diagnostic: string,
+): void {
+  try {
+    run();
+    throw new Error(`self-test failed to reject ${name}`);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("self-test failed to reject")
+    ) {
+      throw error;
+    }
+    if (!(error instanceof Error) || !error.message.includes(diagnostic)) {
+      throw new Error(
+        `self-test ${name} expected diagnostic containing "${diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
+      );
     }
   }
 }
@@ -6447,9 +6564,8 @@ function validateRootClassificationText(
       `${parentName}: every classified root requires a complete thread read-back for exact source text`,
     );
   }
-  // Slack search can omit connector bodies that the complete thread read renders.
   if (
-    !(parent.sourceText.trim() === "" && snapshot.rootText.trim() !== "") &&
+    typeof parent.sourceText !== "string" ||
     !matchesSlackMessageText(parent.sourceText, snapshot.rootText)
   ) {
     throw new Error(
@@ -8862,7 +8978,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         ts: "11.000000",
         actorId: "USWEEPER",
         kind: "sweep",
-        text: "In progress: :ticket: was intended to track the internal repro.",
+        text: "The :ticket: has no separate owner or reporter action; it only labels the internal repro.",
         workflowReactionReadback: [],
         workflowReactionSummary: "none",
         workflowReactionOwners: {},
@@ -8895,6 +9011,50 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test failed to preserve a documented unreconciled ticket mark",
     );
   }
+  expectFocusedFailure(
+    "unreconciled ticket mark with conflicting human-action evidence",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        unreconciledTicketParent,
+        true,
+        false,
+        0,
+        {
+          ...unreconciledTicketSnapshot,
+          replies: [
+            {
+              ...unreconciledTicketSnapshot.replies[0]!,
+              text: "The :ticket: has no separate owner or reporter action attached; I opened a ticket for the internal repro.",
+            },
+            ...unreconciledTicketSnapshot.replies.slice(1),
+          ],
+        },
+        "USWEEPER",
+      ),
+    "identifies the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket status with only a mark mention",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            evidence: "The ticket remains on the root.",
+            text: "In progress — the retained :ticket: is unreconciled. this was sent from a bot.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "identify the missing separate human action",
+  );
 
   const unreconciledCheckmarkStatus: StatusReply = {
     ts: "22.000000",
@@ -8959,6 +9119,50 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test failed to preserve a documented unreconciled checkmark",
     );
   }
+  expectFocusedFailure(
+    "unreconciled checkmark mark with unrelated evidence",
+    () =>
+      validateUnreconciledCheckmarkMark(
+        "self-test root 20.000000",
+        unreconciledCheckmarkParent,
+        true,
+        false,
+        0,
+        {
+          ...unreconciledCheckmarkSnapshot,
+          replies: [
+            {
+              ...unreconciledCheckmarkSnapshot.replies[0]!,
+              text: "The :white_check_mark: is still present on the root.",
+            },
+            ...unreconciledCheckmarkSnapshot.replies.slice(1),
+          ],
+        },
+        "USWEEPER",
+      ),
+    "identifies an unverified scope",
+  );
+  expectFocusedFailure(
+    "unreconciled checkmark status with no scope explanation",
+    () =>
+      validateUnreconciledCheckmarkMark(
+        "self-test root 20.000000",
+        {
+          ...unreconciledCheckmarkParent,
+          statusReply: {
+            ...unreconciledCheckmarkStatus,
+            evidence: "The checkmark is unreconciled.",
+            text: "The retained :white_check_mark: is unreconciled; it is not verified. this was sent from a bot.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledCheckmarkSnapshot,
+        "USWEEPER",
+      ),
+    "identify the unverified scope",
+  );
   validateDispositionScopes(
     "self-test root 20.000000",
     unreconciledCheckmarkParent,
@@ -16057,6 +16261,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
     );
     for (const negatedCompletion of [
+      "PR #8008 merged?",
       "PR #8008 isn't merged",
       "PR #8008 hasn't been merged",
       "PR #8008 was not merged",
@@ -18169,6 +18374,150 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
     const completeSourceReceipt = sourceReceiptFor(receiptFreshInventory);
     const completeRawSourcePages = rawSourcePagesFor(completeSourceReceipt);
+    const connectorOmissionInventory: Inventory = {
+      ...receiptFreshInventory,
+      channels: receiptFreshInventory.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) =>
+            parent.ts === "10.000000"
+              ? { ...parent, sourceText: "report" }
+              : { ...parent, sourceText: "" },
+          ),
+        })),
+        threadSnapshots: [
+          ...(channel.threadSnapshots ?? []).map((snapshot) =>
+            snapshot.rootTs === "10.000000"
+              ? { ...snapshot, rootText: "report" }
+              : { ...snapshot, rootText: snapshot.rootText ?? "" },
+          ),
+          {
+            rootTs: "9.500000",
+            readAt: freshSnapshotReadAt,
+            replyCount: 0,
+            rootText: "",
+            replies: [],
+          },
+        ],
+      })),
+    };
+    const connectorOmissionReceipt = sourceReceiptFor(
+      connectorOmissionInventory,
+    );
+    const connectorOmissionRawPages = rawSourcePagesFor(
+      connectorOmissionReceipt,
+    );
+    const connectorOmissionRoot = connectorOmissionInventory.channels
+      .flatMap((channel) => channel.pages)
+      .flatMap((page) => page.parents)
+      .find((parent) => parent.ts === "10.000000");
+    if (!connectorOmissionRoot) {
+      throw new Error("self-test omission fixture lost its root row");
+    }
+    if (
+      sourceTextMatchesCapturedSearch(
+        { ...connectorOmissionRoot, sourceText: "" },
+        "",
+        undefined,
+      ) ||
+      sourceTextMatchesCapturedSearch(
+        { ...connectorOmissionRoot, sourceText: "" },
+        "",
+        {
+          rootTs: connectorOmissionRoot.threadParentTs,
+          readAt: freshSnapshotReadAt,
+          replyCount: 0,
+          replies: [],
+        },
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: empty search text requires an explicit empty root thread read",
+      );
+    }
+    const connectorOmissionRootSnapshot =
+      connectorOmissionInventory.channels[0]!.threadSnapshots!.find(
+        (snapshot) => snapshot.rootTs === connectorOmissionRoot.threadParentTs,
+      );
+    if (
+      !connectorOmissionRootSnapshot ||
+      !sourceTextMatchesCapturedSearch(
+        {
+          ...connectorOmissionRoot,
+          sourceText: "report",
+          ownershipSkip: {
+            rootTs: connectorOmissionRoot.threadParentTs,
+            reason: "foreign_workflow_mark",
+          },
+        },
+        "",
+        connectorOmissionRootSnapshot,
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed: a held source row may use matching full-thread text to establish an omitted search body",
+      );
+    }
+    validateSourceReceipt(
+      connectorOmissionInventory,
+      connectorOmissionReceipt,
+      connectorOmissionRawPages,
+      true,
+    );
+    expectFocusedFailure(
+      "empty inventory root text does not replace an omitted search body",
+      () => {
+        const emptyRootTextInventory: Inventory = {
+          ...connectorOmissionInventory,
+          channels: connectorOmissionInventory.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) =>
+                parent.ts === "10.000000"
+                  ? { ...parent, sourceText: "" }
+                  : parent,
+              ),
+            })),
+          })),
+        };
+        const receipt = sourceReceiptFor(emptyRootTextInventory);
+        validateSourceReceipt(
+          emptyRootTextInventory,
+          receipt,
+          rawSourcePagesFor(receipt),
+          true,
+        );
+      },
+      "must match the captured Slack result",
+    );
+    expectFocusedFailure(
+      "full-thread text cannot replace a non-empty captured search body",
+      () => {
+        const nonEmptyCapturedSearch = structuredClone(
+          connectorOmissionRawPages,
+        );
+        const rowIndex = nonEmptyCapturedSearch[
+          "test-channel"
+        ]![0]!.rows.findIndex((row) => row.ts === "10.000000");
+        if (rowIndex === -1) {
+          throw new Error("self-test omission fixture lost its root row");
+        }
+        nonEmptyCapturedSearch["test-channel"]![0]!.rows[rowIndex] = {
+          ...nonEmptyCapturedSearch["test-channel"]![0]!.rows[rowIndex]!,
+          text: "different channel body",
+          rawText: "different channel body",
+        };
+        validateSourceReceipt(
+          connectorOmissionInventory,
+          connectorOmissionReceipt,
+          nonEmptyCapturedSearch,
+          true,
+        );
+      },
+      "must match the captured Slack result",
+    );
     validateInventory(receiptFreshInventory, {
       requireFreshReads: true,
       sourceReceipt: completeSourceReceipt,
@@ -19059,28 +19408,6 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Feedback inventory checker self-test lost an owned root mark",
       );
     }
-    const expectFocusedFailure = (
-      name: string,
-      run: () => void,
-      diagnostic: string,
-    ): void => {
-      try {
-        run();
-        throw new Error(`self-test failed to reject ${name}`);
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          error.message.startsWith("self-test failed to reject")
-        ) {
-          throw error;
-        }
-        if (!(error instanceof Error) || !error.message.includes(diagnostic)) {
-          throw new Error(
-            `self-test ${name} expected diagnostic containing "${diagnostic}"; received "${error instanceof Error ? error.message : String(error)}"`,
-          );
-        }
-      }
-    };
     const fixedScopeSummaryDiagnostic =
       "fixed-scope status needs a concise publicEvidenceSummary from a recorded scope verification in both internal proof and reply";
     expectFocusedFailure(
@@ -19253,6 +19580,20 @@ if (args[0] === "--self-test" && args.length === 1) {
       ...heldPageRootWithoutThread,
       channels: heldPageRootWithoutThread.channels.map((channel) => ({
         ...channel,
+        threadSnapshots: [
+          ...(channel.threadSnapshots ?? []).map((snapshot) =>
+            snapshot.rootTs === "10.000000"
+              ? { ...snapshot, rootText: "" }
+              : snapshot,
+          ),
+          {
+            rootTs: "9.500000",
+            readAt: freshSnapshotReadAt,
+            replyCount: 0,
+            rootText: "",
+            replies: [],
+          },
+        ],
         pages: channel.pages.map((page) => ({
           ...page,
           parents: page.parents.map((parent) => ({
@@ -20006,6 +20347,17 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
       true,
     );
+    expectFocusedFailure(
+      "empty captured root text mismatches the complete thread read",
+      () =>
+        validateRootClassificationText(
+          "self-test classification source text",
+          { ...classificationFixture, sourceText: "" },
+          { ...ownedThreadSnapshot, rootText: "report" },
+          true,
+        ),
+      "classified source text must match the complete thread root text",
+    );
     const jiraAutomationReply = parseFormattedSlackThreadMessage(
       "From: Jira <botuser-test@slack-bots.com> (U01BOT)\nTime: 2026-10-20 00:00:00 UTC\nMessage TS: 10.100000\nCreated an issue.",
       "10.000000",
@@ -20038,7 +20390,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         "```  first line\nsecond line\n```",
       ) ||
       !matchesSlackMessageText(
-        "The search checks <@S0FAKE0001> and <@S0FAKE0002> group mentions.",
+        "The search checks <!subteam^S0FAKE0001|@demo-team> and <!subteam^S0FAKE0002|@example-crew> group mentions.",
         "The search checks demo-team handle and example-crew handle group mentions.",
       ) ||
       matchesSlackMessageText(
@@ -20046,8 +20398,24 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Status reply. this was sent from a bot.\n\n*Sent using* user text",
       ) ||
       matchesSlackMessageText(
-        "The search checks <@S0FAKE0001> and <@S0FAKE0002> group mentions.",
+        "The search checks <!subteam^S0FAKE0001|@demo-team> and <!subteam^S0FAKE0002|@example-crew> group mentions.",
         "A different search checks demo-team handle and example-crew handle group mentions.",
+      ) ||
+      matchesSlackMessageText(
+        "The search checks <!subteam^S0FAKE0001|@demo-team> group mentions.",
+        "The search checks example-crew handle group mentions.",
+      ) ||
+      matchesSlackMessageText(
+        "The search checks <@S0FAKE0001> group mentions.",
+        "The search checks demo-team handle group mentions.",
+      ) ||
+      !matchesSlackMessageText(
+        "Status reply.",
+        "Status reply.\n\nApp notification from App (Builder):\nExpanded preview.",
+      ) ||
+      matchesSlackMessageText(
+        "Status reply.\n\nApp notification from App (Builder):\nSource notification tail.",
+        "Status reply.\n\nApp notification from App (Builder):\nDifferent thread notification tail.",
       )
     ) {
       throw new Error(
@@ -20072,26 +20440,71 @@ if (args[0] === "--self-test" && args.length === 1) {
         ],
       },
     );
-    validateSourceFilesInSnapshot(
-      "sweep-authored reply edit after the fixed source scan",
-      {
-        ts: "10.100000",
-        threadParentTs: "10.000000",
-        sourceText: "Original status reply.",
-        files: [],
-      },
-      {
-        ...ownedThreadSnapshot,
-        replies: [
+    expectFocusedFailure(
+      "empty captured reply text mismatches the complete thread read",
+      () =>
+        validateSourceFilesInSnapshot(
+          "self-test empty reply source text",
           {
-            ...ownedThreadSnapshot.replies[0],
-            actorId: valid.sweepActorId,
-            text: "Edited status reply.",
+            ts: "10.100000",
+            threadParentTs: "10.000000",
+            sourceText: "",
+            files: [],
           },
-        ],
-      },
-      valid.sweepActorId,
-      Date.parse(ownedThreadReadAt) - 1,
+          ownedThreadSnapshot,
+        ),
+      "threadSnapshot text must match the captured source message",
+    );
+    expectFocusedFailure(
+      "newer sweep-authored reply cannot pass with stale source text",
+      () =>
+        validateSourceFilesInSnapshot(
+          "self-test edited reply source text",
+          {
+            ts: "10.100000",
+            threadParentTs: "10.000000",
+            sourceText: "Original status reply.",
+            files: [],
+          },
+          {
+            ...ownedThreadSnapshot,
+            readAt: new Date(
+              Date.parse(ownedThreadReadAt) + 1_000,
+            ).toISOString(),
+            replies: [
+              {
+                ...ownedThreadSnapshot.replies[0]!,
+                actorId: valid.sweepActorId,
+                text: "Edited status reply.",
+              },
+            ],
+          },
+        ),
+      "rescan the source after edits",
+    );
+    expectFocusedFailure(
+      "empty sweep-authored reply mismatch requires a source rescan",
+      () =>
+        validateSourceFilesInSnapshot(
+          "self-test empty edited reply source text",
+          {
+            ts: "10.100000",
+            threadParentTs: "10.000000",
+            sourceText: "",
+            files: [],
+          },
+          {
+            ...ownedThreadSnapshot,
+            replies: [
+              {
+                ...ownedThreadSnapshot.replies[0]!,
+                actorId: valid.sweepActorId,
+                text: "Edited status reply.",
+              },
+            ],
+          },
+        ),
+      "threadSnapshot text must match the captured source message",
     );
     validateRootClassificationText(
       "self-test classification source text",
@@ -20607,7 +21020,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 39} negative cases; 39 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 50} negative cases; 39 positive inventory cases plus 6 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
