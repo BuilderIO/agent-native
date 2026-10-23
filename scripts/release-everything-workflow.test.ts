@@ -90,6 +90,8 @@ describe("release everything workflow", () => {
     );
     assert.equal(postMergeJob.uses, prepareJob.uses);
     assert.equal(postMergeJob.needs, "prepare-release");
+    assert.equal(prepareJob.secrets, undefined);
+    assert.equal(postMergeJob.secrets, undefined);
     assert.match(
       String(postMergeWith.release_sha),
       /needs\.prepare-release\.outputs\.release_sha/,

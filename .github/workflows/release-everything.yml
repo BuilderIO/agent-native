@@ -35,7 +35,6 @@ jobs:
     with:
       phase: prepare
       release_type: ${{ inputs.releaseType || 'patch' }}
-    secrets: inherit
 
   post-merge-release:
     name: Publish and deploy the merged stable release
@@ -47,7 +46,6 @@ jobs:
       release_type: ${{ inputs.releaseType || 'patch' }}
       release_sha: ${{ needs.prepare-release.outputs.release_sha }}
       release_pr_url: ${{ needs.prepare-release.outputs.release_pr_url }}
-    secrets: inherit
 
   notify-failure:
     name: Notify on release failure
