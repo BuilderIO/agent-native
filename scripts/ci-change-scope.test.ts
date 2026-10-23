@@ -2049,12 +2049,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /templates\/design\/app\/components\/MultiScreenCanvas\.tsx/u,
   );
   for (const input of [
-    "templates/design/e2e/url-export-font.spec.ts",
-    "templates/design/e2e/single-screen-pdf-export.spec.ts",
-    "templates/design/e2e/imported-html-export.spec.ts",
-    "templates/design/e2e/private-screenshot-preview.spec.ts",
-    "templates/design/e2e/marquee-reachability.spec.ts",
-    "templates/design/e2e/ai-sidebar-reporter-path.spec.ts",
     "templates/design/e2e/helpers.ts",
     "templates/design/e2e/rails.ts",
     "templates/design/e2e/global-setup.ts",
@@ -2065,6 +2059,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       `standalone Design workflow is missing a consumed input: ${input}`,
     );
   }
+  assert.doesNotMatch(
+    designPullRequestTriggers,
+    /templates\/design\/e2e\/[^\n]*\.spec\.[jt]sx?/u,
+    "direct Design E2E spec edits must use the focused changed-spec gate",
+  );
   assert.doesNotMatch(
     designPullRequestTriggers,
     /templates\/design\/e2e\/\*\*/u,
@@ -2116,7 +2115,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designE2eWorkflow,
-    /^      - name: Run chat attachment and sizing loopback E2E\n        if: matrix\.shard == 1\n        working-directory: templates\/design\n        timeout-minutes: 21$/m,
+    /^      - name: Run chat attachment and sizing loopback E2E\n        if: \$\{\{ matrix\.shard == 1 && hashFiles\('templates\/design\/e2e\/ai-sidebar-reporter-path\.spec\.ts'\) != '' \}\}\n        working-directory: templates\/design\n        timeout-minutes: 21$/m,
     "the loopback attachment suite must budget global setup and webServer startup",
   );
   assert.match(

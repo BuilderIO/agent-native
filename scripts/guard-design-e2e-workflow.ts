@@ -83,18 +83,12 @@ assert.deepEqual(workflow.on?.pull_request?.paths, [
   "templates/design/app/components/design/multi-screen/**",
   "templates/design/app/pages/DesignEditor.tsx",
   "templates/design/app/pages/design-editor/**",
-  "templates/design/e2e/ai-sidebar-reporter-path.spec.ts",
   "templates/design/e2e/base-url.ts",
   "templates/design/e2e/global-setup.ts",
   "templates/design/e2e/global-teardown.ts",
   "templates/design/e2e/helpers.ts",
-  "templates/design/e2e/imported-html-export.spec.ts",
-  "templates/design/e2e/marquee-reachability.spec.ts",
-  "templates/design/e2e/private-screenshot-preview.spec.ts",
   "templates/design/e2e/rails.ts",
-  "templates/design/e2e/single-screen-pdf-export.spec.ts",
   "templates/design/e2e/sql-inline-bytes-scan.ts",
-  "templates/design/e2e/url-export-font.spec.ts",
   "templates/design/public/**",
   "templates/design/scripts/runtime-budget.json",
   "templates/design/scripts/runtime-budget.ts",
@@ -147,8 +141,18 @@ assert.equal(
     "mkdir -p .react-router/types",
     'base_run_id="$E2E_RUN_ID"',
     'if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then',
-    '  E2E_RUN_ID="${base_run_id}-exports" pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts',
-    '  E2E_RUN_ID="${base_run_id}-marquee" pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"',
+    "  export_specs=()",
+    "  for spec in e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts; do",
+    '    if [[ -f "$spec" ]]; then',
+    '      export_specs+=("$spec")',
+    "    fi",
+    "  done",
+    "  if (( ${#export_specs[@]} > 0 )); then",
+    '    E2E_RUN_ID="${base_run_id}-exports" pnpm exec playwright test "${export_specs[@]}"',
+    "  fi",
+    "  if [[ -f e2e/marquee-reachability.spec.ts ]]; then",
+    '    E2E_RUN_ID="${base_run_id}-marquee" pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "marquee reachability"',
+    "  fi",
     "else",
     '  E2E_RUN_ID="${base_run_id}-shard" pnpm exec playwright test --shard=${{ matrix.shard }}/16',
     "fi",
@@ -165,6 +169,10 @@ const loopbackStep = steps.find(
 );
 const loopbackTimeout = loopbackStep?.["timeout-minutes"];
 assert.equal(loopbackTimeout, 21);
+assert.equal(
+  loopbackStep?.if,
+  "${{ matrix.shard == 1 && hashFiles('templates/design/e2e/ai-sidebar-reporter-path.spec.ts') != '' }}",
+);
 assert.ok(
   typeof jobTimeout === "number" &&
     typeof shardTimeout === "number" &&
