@@ -761,7 +761,7 @@ export async function createChatScriptEntries(): Promise<
             const owner =
               getRequestRunContext()?.owner ?? getRequestUserEmail() ?? "";
             if (!owner) return "No authenticated user is available.";
-            const thread = await resolveThreadAccess(owner, id, "editor", {
+            const thread = await resolveThreadAccess(owner, id, "viewer", {
               orgId: getRequestOrgId(),
             });
             if (!thread) {
@@ -774,17 +774,23 @@ export async function createChatScriptEntries(): Promise<
                   ? args.title.replace(/\s+/g, " ").trim().slice(0, 160)
                   : "";
               if (!nextTitle) return "Missing required title.";
-              const renamed = await renameThread(id, nextTitle);
+              const renamed = await renameThread(id, nextTitle, {
+                ownerEmail: owner,
+              });
               if (!renamed) return `Chat thread "${id}" could not be renamed.`;
               return `Renamed chat "${title}" to "${nextTitle}".`;
             }
             if (args.action === "archive") {
-              const archived = await setThreadArchived(id, true);
+              const archived = await setThreadArchived(id, true, {
+                ownerEmail: owner,
+              });
               if (!archived)
                 return `Chat thread "${id}" could not be archived.`;
               return `Archived chat: ${title}`;
             }
-            const pinned = await setThreadPinned(id, args.action === "pin");
+            const pinned = await setThreadPinned(id, args.action === "pin", {
+              ownerEmail: owner,
+            });
             if (!pinned) return `Chat thread "${id}" could not be updated.`;
             return `${args.action === "pin" ? "Pinned" : "Unpinned"} chat: ${title}`;
           }

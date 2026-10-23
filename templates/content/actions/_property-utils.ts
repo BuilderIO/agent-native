@@ -982,9 +982,11 @@ export async function listPropertiesForDatabaseDocuments(
       })
     : null;
 
+  // Parsed once and shared by every row: a select's options can be large.
+  const propertyDefinitions = definitions.map(serializePropertyDefinition);
   const propertyLists = valueDocuments.map((document) => {
-    const properties = definitions.map((definition) => {
-      const propertyDefinition = serializePropertyDefinition(definition);
+    const properties = definitions.map((definition, index) => {
+      const propertyDefinition = propertyDefinitions[index]!;
       const storedValue = valueByDocumentAndProperty.get(
         propertyValueKey(document.id, definition.id),
       );

@@ -301,8 +301,10 @@ describe("content database list reads", () => {
     const rollupByTitle = Object.fromEntries(
       read.items.map((item) => [
         item.document.title,
-        item.properties.find((property) => property.definition.id === rollupId)
-          ?.value,
+        item.properties.find(
+          (property) =>
+            "propertyId" in property && property.propertyId === rollupId,
+        )?.value,
       ]),
     );
     expect(rollupByTitle).toEqual({
@@ -492,5 +494,98 @@ describe("content database list reads", () => {
     expect(
       page.items.map((item) => [item.document.title, item.excerpt]),
     ).toEqual([["Row paged 1", "Body of row 1."]]);
+  });
+
+  it("sends compact rows only to Content's frontend and callers that ask", async () => {
+    const fixture = await seedDatabase("row-shape");
+    const { contentDatabaseCompactRowsSchema, getContentDatabaseResponse } =
+      await import("./_database-utils.js");
+    const { hydrateContentDatabaseResponse } =
+      await import("../shared/database-row-properties.js");
+    const caller = (name: "mcp" | "http" | "frontend") => ({
+      caller: name,
+      userEmail: OWNER,
+    });
+    const read = (args: { compactRows?: boolean }, context = caller("mcp")) =>
+      getContentDatabaseAction.run(
+        { databaseId: fixture.databaseId, ...args },
+        context,
+      );
+    const page = (args: { compactRows?: boolean }) =>
+      queryContentDatabaseItemsAction.run(
+        { databaseId: fixture.databaseId, ...args },
+        caller("http"),
+      );
+    const [
+      agentRead,
+      frontendRead,
+      optInRead,
+      httpPage,
+      optInPage,
+      direct,
+      frontendOptOut,
+    ] = await asOwner(() =>
+      Promise.all([
+        read({}),
+        read({}, caller("frontend")),
+        read({ compactRows: true }),
+        page({}),
+        page({ compactRows: true }),
+        getContentDatabaseResponse(fixture.databaseId),
+        read({ compactRows: false }, caller("frontend")),
+      ]),
+    );
+    if (
+      !("items" in agentRead) ||
+      !("items" in frontendRead) ||
+      !("items" in optInRead) ||
+      !("items" in httpPage) ||
+      !("items" in optInPage) ||
+      !("items" in frontendOptOut)
+    ) {
+      throw new Error("Fixture read was unavailable.");
+    }
+    const rowProperties = (items: ReadonlyArray<{ properties: object[] }>) =>
+      items.flatMap((item) => item.properties);
+    const carriesDefinitions = (
+      items: ReadonlyArray<{ properties: object[] }>,
+    ) =>
+      rowProperties(items).length > 0 &&
+      rowProperties(items).every(
+        (property) => "definition" in property && !("propertyId" in property),
+      );
+    const namesPropertyIds = (items: ReadonlyArray<{ properties: object[] }>) =>
+      rowProperties(items).length > 0 &&
+      rowProperties(items).every(
+        (property) => "propertyId" in property && !("definition" in property),
+      );
+
+    // Agents, MCP, HTTP and server-side readers (view-screen, source setup)
+    // keep the full row shape by default.
+    expect(carriesDefinitions(agentRead.items)).toBe(true);
+    expect(carriesDefinitions(httpPage.items)).toBe(true);
+    expect(httpPage).not.toHaveProperty("properties");
+    expect(carriesDefinitions(direct.items)).toBe(true);
+    // Any caller that asks for full rows gets them, the frontend included.
+    expect(carriesDefinitions(frontendOptOut.items)).toBe(true);
+
+    expect(namesPropertyIds(frontendRead.items)).toBe(true);
+    expect(namesPropertyIds(optInRead.items)).toBe(true);
+    expect(namesPropertyIds(optInPage.items)).toBe(true);
+    expect(
+      optInPage.properties?.map((property) => property.definition.id),
+    ).toContain(fixture.scoreId);
+    // Putting the definitions back gives the agent's rows. (A top-level
+    // definition also spells out `icon: null`, which a row's omits.)
+    expect(hydrateContentDatabaseResponse(frontendRead).items).toMatchObject(
+      agentRead.items,
+    );
+
+    // GET actions receive the opt-in as a query string.
+    expect(contentDatabaseCompactRowsSchema.parse("true")).toBe(true);
+    expect(contentDatabaseCompactRowsSchema.parse("false")).toBe(false);
+    expect(contentDatabaseCompactRowsSchema.safeParse("ture").success).toBe(
+      false,
+    );
   });
 });

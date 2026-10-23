@@ -178,6 +178,7 @@ import {
   listThreads,
   searchThreads,
   renameThread,
+  assertThreadOwner,
   createThreadShareLink,
   getThreadByShareToken,
   getThreadShareState,
@@ -8034,6 +8035,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // Merge the incoming snapshot delta over the current SQL copy.
                 // Let updateThreadData apply delta markers to each latest
                 // revision if its compare-and-swap needs to retry.
+                let titleOverrideChanged = false;
                 if (hasThreadData) {
                   let incoming: unknown;
                   try {
@@ -8050,6 +8052,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     setResponseStatus(event, 400);
                     return { error: "Invalid threadData JSON" };
                   }
+                  titleOverrideChanged =
+                    Object.prototype.hasOwnProperty.call(
+                      incoming,
+                      "_titleOverride",
+                    ) &&
+                    (incoming as Record<string, unknown>)._titleOverride !==
+                      (existing as Record<string, unknown>)._titleOverride;
                   if (containsInlineAttachmentPayload(incoming)) {
                     setResponseStatus(event, 400);
                     return {
@@ -8082,6 +8091,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 } else {
                   preserveTitleOverride(existing);
                 }
+                // Content saves carry the client's cached title, which can be
+                // stale, and the store keeps the owner's title for a shared
+                // editor. Only an override change or a title-only request is a
+                // rename.
+                if (
+                  titleOverrideChanged ||
+                  (!hasThreadData &&
+                    typeof body.title === "string" &&
+                    body.title !== thread.title)
+                ) {
+                  assertThreadOwner(thread, owner);
+                }
                 let updated: boolean;
                 try {
                   updated = await updateThreadData(
@@ -8091,6 +8112,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     nextPreview,
                     newMessageCount,
                     {
+                      preserveCurrentTitle:
+                        thread.ownerEmail.toLowerCase() !==
+                        owner.trim().toLowerCase(),
                       preserveCurrentTitleAndPreview: isSnapshotDelta,
                       onAnnotationConflict: (conflict) =>
                         annotationConflicts.push(conflict),
@@ -8389,7 +8413,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const thread = await resolveThreadAccess(
                 owner,
                 threadId,
-                "editor",
+                "viewer",
                 { orgId },
               );
               if (!thread || !threadMatchesRequestedScope(thread)) {
@@ -8405,7 +8429,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "Title is required" };
               }
-              const renamed = await renameThread(threadId, title);
+              const renamed = await renameThread(threadId, title, {
+                ownerEmail: owner,
+              });
               if (!renamed) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -8417,7 +8443,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const thread = await resolveThreadAccess(
                 owner,
                 threadId,
-                "editor",
+                "viewer",
                 { orgId },
               );
               if (!thread || !threadMatchesRequestedScope(thread)) {
@@ -8429,7 +8455,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "pinned boolean is required" };
               }
-              const pinned = await setThreadPinned(threadId, body.pinned);
+              const pinned = await setThreadPinned(threadId, body.pinned, {
+                ownerEmail: owner,
+              });
               if (!pinned) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -8441,7 +8469,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const thread = await resolveThreadAccess(
                 owner,
                 threadId,
-                "editor",
+                "viewer",
                 { orgId },
               );
               if (!thread || !threadMatchesRequestedScope(thread)) {
@@ -8453,7 +8481,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "archived boolean is required" };
               }
-              const archived = await setThreadArchived(threadId, body.archived);
+              const archived = await setThreadArchived(
+                threadId,
+                body.archived,
+                { ownerEmail: owner },
+              );
               if (!archived) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };

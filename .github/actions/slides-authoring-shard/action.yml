@@ -1,0 +1,141 @@
+name: Run a Slides authoring shard
+description: >-
+  Run one Slides rich-text authoring shard against a shared dev server. Shared
+  by the PR job in ci.yml and the nightly run on main, so the two cannot drift
+  apart. Must run inside the image from docker/ci-slides-authoring, which
+  carries the Playwright browsers and their system libraries; the caller checks
+  out the repo and runs setup-pnpm.
+
+inputs:
+  shard:
+    description: >-
+      One of SLIDES_AUTHORING_SHARDS in scripts/ci-change-scope.ts. The
+      `--authoring` parity suite is cut into three slices per browser.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The runner resets HOME to /github/home for container steps, and Firefox
+    # refuses to start as root when $HOME belongs to another user.
+    - name: Use root's home for Firefox
+      shell: bash
+      run: echo "HOME=/root" >> "$GITHUB_ENV"
+
+    # Every command below would otherwise boot its own scratch dev server, which
+    # took 90-160s each on a CI runner. run.ts reuses SLIDES_BASE_URL when set.
+    - name: Start one Slides dev server for the shard
+      shell: bash
+      run: |
+        log="$RUNNER_TEMP/slides-shared-server.log"
+        pnpm exec tsx scripts/claude-launch.ts \
+          --name slides-edit-fidelity --dir templates/slides \
+          --env AUTH_MODE=local --env AUTH_DISABLED=true \
+          -- dev --port 8099 --inspect=0 > "$log" 2>&1 &
+        echo "$!" > "$RUNNER_TEMP/slides-shared-server.pid"
+        for _ in $(seq 1 240); do
+          if ! kill -0 "$(cat "$RUNNER_TEMP/slides-shared-server.pid")" 2>/dev/null; then
+            echo "::error::Slides dev server exited before it was ready"
+            cat "$log"
+            exit 1
+          fi
+          status="$(node -e 'fetch("http://localhost:8099/").then((r) => console.log(r.status), () => console.log(""))')"
+          if [ -n "$status" ] && [ "$status" -ge 100 ] && [ "$status" -lt 500 ]; then
+            echo "SLIDES_BASE_URL=http://localhost:8099" >> "$GITHUB_ENV"
+            echo "Slides dev server ready (HTTP $status)"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::Slides dev server did not answer within 240s"
+        cat "$log"
+        exit 1
+
+    - name: Check rich-text authoring parity in Slides (slice 1 of 3)
+      if: inputs.shard == 'chromium-1'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-shard 1/3
+
+    - name: Check rich-text authoring parity in Slides (slice 2 of 3)
+      if: inputs.shard == 'chromium-2'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-shard 2/3
+
+    - name: Check rich-text authoring parity in Slides (slice 3 of 3)
+      if: inputs.shard == 'chromium-3'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-shard 3/3
+
+    - name: Check rich-text authoring parity in Slides WebKit (slice 1 of 3)
+      if: inputs.shard == 'webkit-1'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-shard 1/3 --browser webkit
+
+    - name: Check rich-text authoring parity in Slides WebKit (slice 2 of 3)
+      if: inputs.shard == 'webkit-2'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-shard 2/3 --browser webkit
+
+    - name: Run deterministic authoring smoke in WebKit
+      if: inputs.shard == 'webkit-2'
+      shell: bash
+      working-directory: templates/slides
+      env:
+        SLIDES_AUTHORING_FUZZ_TRACE: "1"
+      run: >-
+        pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+        --seed 16 --steps 80 --browser webkit
+
+    - name: Check rich-text authoring parity in Slides WebKit (slice 3 of 3)
+      if: inputs.shard == 'webkit-3'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-shard 3/3 --browser webkit
+
+    - name: Check rich-text authoring against the committed corpus
+      if: inputs.shard == 'corpus'
+      shell: bash
+      working-directory: templates/slides
+      run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
+
+    - name: Run deterministic authoring smoke in Chromium
+      if: inputs.shard == 'fuzz'
+      shell: bash
+      working-directory: templates/slides
+      run: >-
+        pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+        --seed 16 --steps 80 --browser chromium
+
+    - name: Run absolute-layout authoring smoke in Chromium
+      if: inputs.shard == 'fuzz'
+      shell: bash
+      working-directory: templates/slides
+      run: >-
+        pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+        --seed 2 --steps 80 --browser chromium
+
+    - name: Run deterministic authoring smoke in Firefox
+      if: inputs.shard == 'fuzz'
+      shell: bash
+      working-directory: templates/slides
+      env:
+        SLIDES_AUTHORING_FUZZ_TRACE: "1"
+      run: >-
+        pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+        --seed 16 --steps 80 --browser firefox
+
+    - name: Stop the shared Slides dev server
+      if: always()
+      shell: bash
+      run: |
+        if [ -f "$RUNNER_TEMP/slides-shared-server.pid" ]; then
+          kill "$(cat "$RUNNER_TEMP/slides-shared-server.pid")" 2>/dev/null || true
+        fi
+        if [ "${{ job.status }}" != success ] && [ -f "$RUNNER_TEMP/slides-shared-server.log" ]; then
+          tail -n 200 "$RUNNER_TEMP/slides-shared-server.log"
+        fi

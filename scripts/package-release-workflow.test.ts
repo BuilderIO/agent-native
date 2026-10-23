@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
-  mkdtempSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -22,6 +22,10 @@ import {
   isAlreadyStaged,
   preparePackagesForTagging,
 } from "./changeset-publish-sequential.ts";
+import {
+  stableChangesetConfig,
+  withStableChangesetConfig,
+} from "./changeset-version-stable.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
 import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
@@ -43,14 +47,10 @@ import {
   waitForRequiredChecks,
 } from "./release-required-checks.ts";
 import {
-  gitBlobSha,
-  syncCommunityQrBlobPins,
-  syncCommunityQrCoreLock,
-} from "./sync-community-qr-core-lock.ts";
-import {
   assertCompletePullRequestFiles,
   assertCommunityQrFilePinsSynced,
   decodeGitHubContentResponse,
+  gitBlobSha,
   parseCompletePullRequestFiles,
 } from "./verify-community-qr-release-pin.ts";
 import {
@@ -879,6 +879,135 @@ esac
     assert.equal(config.snapshot?.useCalculatedVersion, true);
   });
 
+  it("links snapshot-rewritten ranges to the workspace when refreshing the lockfile", () => {
+    type Manifest = {
+      version?: string;
+      dependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+    };
+    const readManifest = (file: string) =>
+      JSON.parse(readFileSync(file, "utf8")) as Manifest;
+    const core = "@agent-native/core";
+    const coreVersion = readManifest("packages/core/package.json").version;
+    const dispatchPeer = readManifest("packages/dispatch/package.json")
+      .peerDependencies?.[core];
+    const qrRange = readManifest("templates/community/qr/package.json")
+      .dependencies?.[core];
+    assert(coreVersion && dispatchPeer && qrRange);
+
+    const dir = mkdtempSync(path.join(tmpdir(), "an-snapshot-links-"));
+    const write = (file: string, content: unknown) => {
+      const target = path.join(dir, file);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(
+        target,
+        typeof content === "string"
+          ? content
+          : `${JSON.stringify(content, null, 2)}\n`,
+      );
+    };
+    const fixtureManifest = (file: string) =>
+      readManifest(path.join(dir, file));
+
+    try {
+      write("package.json", { name: "snapshot-fixture", private: true });
+      write(
+        "pnpm-workspace.yaml",
+        "packages:\n  - packages/*\n  - templates/community/*\n",
+      );
+      write(".changeset/config.json", {
+        ...JSON.parse(readFileSync(".changeset/config.json", "utf8")),
+        changelog: false,
+        fixed: [],
+        ignore: [],
+      });
+      write(".changeset/core-patch.md", `---\n"${core}": patch\n---\n\nFix.\n`);
+      write("packages/core/package.json", { name: core, version: coreVersion });
+      write("packages/dispatch/package.json", {
+        name: "@agent-native/dispatch",
+        version: "1.0.0",
+        peerDependencies: { [core]: dispatchPeer },
+        devDependencies: { [core]: "workspace:*" },
+      });
+      write("templates/community/qr/package.json", {
+        name: "qr",
+        private: true,
+        dependencies: { [core]: qrRange },
+      });
+
+      const version = spawnSync(
+        process.execPath,
+        [
+          createRequire(import.meta.url).resolve("@changesets/cli/bin.js"),
+          "version",
+          "--snapshot",
+          "nightly",
+        ],
+        { cwd: dir, encoding: "utf8" },
+      );
+      assert.equal(version.status, 0, version.stderr);
+
+      const snapshot = fixtureManifest("packages/core/package.json").version;
+      assert.match(String(snapshot), /-nightly-/);
+      assert.equal(
+        fixtureManifest("packages/dispatch/package.json").peerDependencies?.[
+          core
+        ],
+        snapshot,
+      );
+      assert.equal(
+        fixtureManifest("templates/community/qr/package.json").dependencies?.[
+          core
+        ],
+        snapshot,
+      );
+
+      for (const [jobName, stepName] of [
+        ["publish-nightly", "Create nightly snapshot versions"],
+        ["publish-dev-snapshot", "Create dev snapshot versions"],
+      ]) {
+        const step = ((jobs[jobName] as Workflow).steps as Workflow[]).find(
+          (candidate) => candidate.name === stepName,
+        );
+        assert(step, stepName);
+        const install = String(step.run)
+          .split("\n")
+          .map((line) => line.trim())
+          .find((line) => line.startsWith("pnpm install"));
+        assert(install, stepName);
+
+        // Offline: an unpublished snapshot must resolve to the workspace.
+        rmSync(path.join(dir, "pnpm-lock.yaml"), { force: true });
+        const result = spawnSync(`${install} --offline`, {
+          cwd: dir,
+          encoding: "utf8",
+          shell: true,
+        });
+        assert.equal(
+          result.status,
+          0,
+          `${stepName}: ${result.stdout}${result.stderr}`,
+        );
+        const lock = parse(
+          readFileSync(path.join(dir, "pnpm-lock.yaml"), "utf8"),
+        ) as {
+          importers: Record<
+            string,
+            { dependencies?: Record<string, { version: string }> }
+          >;
+        };
+        assert.equal(
+          lock.importers["templates/community/qr"]?.dependencies?.[core]
+            ?.version,
+          "link:../../../packages/core",
+          stepName,
+        );
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("supports the next fixed-group Core patch without the incompatible gap release", () => {
     const corePackage = JSON.parse(
       readFileSync("packages/core/package.json", "utf8"),
@@ -1104,7 +1233,11 @@ esac
       .scripts as Record<string, string>;
     assert.equal(
       packageScripts["changeset:release-version"],
-      "pnpm changeset:version && pnpm exec tsx scripts/sync-community-qr-core-lock.ts && pnpm changelog:compact",
+      "pnpm changeset:version && pnpm changelog:compact && pnpm install --frozen-lockfile --lockfile-only --ignore-scripts",
+    );
+    assert.equal(
+      packageScripts["changeset:version"],
+      "pnpm exec tsx scripts/changeset-version-stable.ts",
     );
 
     const consume = releaseSteps.find(
@@ -1147,102 +1280,85 @@ esac
     assert(changesetsIndex < restoreIndex);
   });
 
-  it("syncs the community QR release importer to the in-repo Core package", () => {
-    const lockfile = `lockfileVersion: '9.0'
-importers:
-  templates/community/qr:
-    dependencies:
-      '@agent-native/core':
-        specifier: ^0.212.0
-        version: 0.212.0(425ad63e441766c7cc702a9e78bce500)
-      postgres:
-        specifier: ^3.4.9
-        version: 3.4.9
+  it("keeps plain internal ranges like the QR template's Core out of stable releases", async () => {
+    const { getPackages } = changesetsRequire("@manypkg/get-packages") as {
+      getPackages: (cwd: string) => Promise<unknown>;
+    };
+    const { parse: parseChangesetConfig } = changesetsRequire(
+      "@changesets/config",
+    ) as { parse: (json: unknown, packages: unknown) => unknown };
+    const assembleReleasePlan = (
+      changesetsRequire("@changesets/assemble-release-plan") as {
+        default: (
+          changesets: unknown[],
+          packages: unknown,
+          config: unknown,
+          preState: undefined,
+        ) => { releases: Array<{ name: string; type: string }> };
+      }
+    ).default;
 
-  templates/analytics:
-    dependencies: {}
-`;
+    const packages = await getPackages(process.cwd());
+    const sharedConfig = readFileSync(".changeset/config.json", "utf8");
+    const corePatch = [
+      {
+        id: "core-patch",
+        summary: "Core patch",
+        releases: [{ name: "@agent-native/core", type: "patch" }],
+      },
+    ];
+    const releasesWith = (configSource: string) =>
+      assembleReleasePlan(
+        corePatch,
+        packages,
+        parseChangesetConfig(JSON.parse(configSource), packages),
+        undefined,
+      ).releases;
 
-    const updated = syncCommunityQrCoreLock(lockfile, "^0.213.0");
-
-    assert.match(
-      updated,
-      /specifier: \^0\.213\.0\n        version: link:\.\.\/\.\.\/\.\.\/packages\/core/,
+    const stable = releasesWith(stableChangesetConfig(sharedConfig)).map(
+      (release) => release.name,
     );
-    assert.match(updated, /specifier: \^3\.4\.9\n        version: 3\.4\.9/);
-    assert.match(updated, /  templates\/analytics:\n    dependencies: \{\}/);
-    assert.equal(syncCommunityQrCoreLock(updated, "^0.213.0"), updated);
-    assert.throws(
-      () => syncCommunityQrCoreLock("importers: {}\n", "^0.213.0"),
-      /Missing templates\/community\/qr importer/,
+    const fixedGroup = (JSON.parse(sharedConfig) as { fixed: string[][] })
+      .fixed[0];
+    for (const name of fixedGroup) assert(stable.includes(name), name);
+    assert(!stable.includes("qr"));
+
+    // Without the stable override, Changesets rewrites QR's Core range in a
+    // `none` release, which breaks the lockfile and Dispatch's QR blob pins.
+    assert.equal(
+      releasesWith(sharedConfig).find((release) => release.name === "qr")?.type,
+      "none",
     );
   });
 
-  it("keeps the committed community QR importer synced with its manifest", () => {
-    const templatePackage = JSON.parse(
-      readFileSync("templates/community/qr/package.json", "utf8"),
-    ) as { dependencies?: Record<string, unknown> };
-    const coreSpecifier = templatePackage.dependencies?.["@agent-native/core"];
-    assert(typeof coreSpecifier === "string");
-
-    const lockfile = readFileSync("pnpm-lock.yaml", "utf8");
-    assert.equal(syncCommunityQrCoreLock(lockfile, coreSpecifier), lockfile);
+  it("leaves the shared Changesets config moving snapshot peer ranges", () => {
+    // Nightly and dev snapshots rewrite peers such as Dispatch's
+    // `>=0.209.1` Core range to the exact snapshot, which the range rejects.
+    const config = JSON.parse(
+      readFileSync(".changeset/config.json", "utf8"),
+    ) as Record<string, unknown>;
+    assert.notEqual(config.bumpVersionsWithWorkspaceProtocolOnly, true);
   });
 
-  it("rewrites the QR template blob pins from the files on disk", () => {
-    const source = `templatePath: "templates/other-first",
-      files: [
-        {
-          path: "package.json",
-          blobSha: "${"d".repeat(40)}",
-        },
-      ],
-    },
-    {
-      templatePath: "templates/community/qr",
-      files: [
-        {
-          path: "package.json",
-          blobSha: "${"a".repeat(40)}",
-        },
-        {
-          path: "README.md",
-          blobSha: "${"b".repeat(40)}",
-        },
-      ],
-    },
-    {
-      templatePath: "templates/other",
-      files: [
-        {
-          path: "package.json",
-          blobSha: "${"c".repeat(40)}",
-        },
-      ],
-    },`;
+  it("restores the shared Changesets config when a stable version run fails", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "changeset-config-"));
+    const configPath = path.join(dir, "config.json");
+    const original = '{\n  "baseBranch": "main"\n}\n';
+    writeFileSync(configPath, original);
 
-    const updated = syncCommunityQrBlobPins(source, (file) =>
-      file === "package.json" ? "1".repeat(40) : "2".repeat(40),
-    );
-
-    assert.match(updated, /package\.json",\n\s+blobSha: "1{40}"/);
-    assert.match(updated, /README\.md",\n\s+blobSha: "2{40}"/);
-    assert.match(updated, /blobSha: "c{40}"/);
-    assert.match(updated, /blobSha: "d{40}"/);
-    assert.equal(
-      syncCommunityQrBlobPins(updated, (file) =>
-        file === "package.json" ? "1".repeat(40) : "2".repeat(40),
-      ),
-      updated,
-    );
-    assert.throws(
-      () => syncCommunityQrBlobPins("export {};\n", () => "x"),
-      /Missing templates\/community\/qr source/,
-    );
-    assert.equal(
-      gitBlobSha(Buffer.from("hello\n")),
-      "ce013625030ba8dba906f756967f9e9ca394464a",
-    );
+    try {
+      await assert.rejects(
+        withStableChangesetConfig(() => {
+          const during = JSON.parse(readFileSync(configPath, "utf8"));
+          assert.equal(during.bumpVersionsWithWorkspaceProtocolOnly, true);
+          throw new Error("version failed");
+        }, configPath),
+        /version failed/,
+      );
+      assert.equal(readFileSync(configPath, "utf8"), original);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("accepts all synchronized community QR template pins and rejects other catalog changes", () => {
