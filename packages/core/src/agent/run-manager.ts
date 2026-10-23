@@ -1656,6 +1656,7 @@ export function startRun(
   let completionInProgress = false;
   let ownTerminalStatusEstablished = false;
   let terminalStatusWrite: Promise<boolean> | null = null;
+  let terminalStatusWriteOutcomeUnknown = false;
   const checkSqlAbort = () => {
     const now = Date.now();
     if (now - lastAbortCheck < 3000) return;
@@ -1671,6 +1672,7 @@ export function startRun(
           if (status !== null && status !== "running") {
             const pendingStatusWrite = terminalStatusWrite;
             if (pendingStatusWrite) await pendingStatusWrite;
+            if (terminalStatusWriteOutcomeUnknown) return;
           }
           if (
             status !== null &&
@@ -2268,26 +2270,50 @@ export function startRun(
       const persistOwnTerminalState = async (
         persist: () => Promise<boolean>,
       ) => {
-        const write = withWorkerFence(persist);
+        let writeStarted = false;
+        const write = withWorkerFence(() => {
+          writeStarted = true;
+          return persist();
+        });
         terminalStatusWrite = write;
         try {
           const established = await write;
           if (established) ownTerminalStatusEstablished = true;
           return established;
+        } catch (error) {
+          if (writeStarted) terminalStatusWriteOutcomeUnknown = true;
+          throw error;
         } finally {
           if (terminalStatusWrite === write) terminalStatusWrite = null;
         }
       };
       const persistOwnTerminalStatus = () =>
         persistOwnTerminalState(persistTerminalStatus);
-      const reconcileTerminalRun = () =>
-        persistOwnTerminalState(() =>
-          threadProjectionPending
-            ? reconcileTerminalRunFromEvents(runId, {
-                threadProjectionPending: true,
-              })
-            : reconcileTerminalRunFromEvents(runId),
-        );
+      const reconcileTerminalRun = async () => {
+        let reconciled = false;
+        try {
+          reconciled = await persistOwnTerminalState(() =>
+            threadProjectionPending
+              ? reconcileTerminalRunFromEvents(runId, {
+                  threadProjectionPending: true,
+                })
+              : reconcileTerminalRunFromEvents(runId),
+          );
+        } catch (error) {
+          if (!terminalStatusWriteOutcomeUnknown) throw error;
+        }
+        if (reconciled) {
+          terminalStatusWriteOutcomeUnknown = false;
+          return true;
+        }
+        if (!terminalStatusWriteOutcomeUnknown) {
+          return reconciled;
+        }
+        const status = await getRunStatus(runId);
+        terminalStatusWriteOutcomeUnknown = false;
+        if (status === persistedStatus) ownTerminalStatusEstablished = true;
+        return ownTerminalStatusEstablished;
+      };
       const reportTerminalStatusPersistenceError = (error: unknown) => {
         captureError(error, {
           route: "/_agent-native/agent-chat",
