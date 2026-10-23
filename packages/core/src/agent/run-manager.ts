@@ -2330,6 +2330,11 @@ export function startRun(
         } catch (error) {
           if (!terminalStatusWriteOutcomeUnknown) throw error;
         }
+        if (reconciled) {
+          terminalStatusWriteOutcomeUnknown = false;
+          ownTerminalStatusEstablished = true;
+          return true;
+        }
         if (!terminalStatusWriteOutcomeUnknown) {
           return reconciled;
         }

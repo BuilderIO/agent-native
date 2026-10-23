@@ -9564,6 +9564,63 @@ describe("run manager soft timeout", () => {
       );
     });
 
+    it("tracks successful reconciliation when the event-derived state differs from the manager status", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const runId = "run-tracking-reconciled-event-state";
+      const threadId = "thread-tracking-reconciled-event-state";
+      vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
+        new Error("terminal status write outcome is unknown"),
+      );
+      vi.mocked(reconcileTerminalRunFromEvents).mockImplementationOnce(
+        async () => {
+          vi.mocked(getRunById).mockResolvedValue({
+            id: runId,
+            threadId,
+            status: "completed",
+            startedAt: Date.now(),
+            errorCode: null,
+            errorDetail: null,
+            terminalReason: "done",
+          });
+          return true;
+        },
+      );
+
+      try {
+        const run = startRun(
+          runId,
+          threadId,
+          async (send) => {
+            send({ type: "done" });
+          },
+          async () => {
+            throw new Error("thread_data write failed");
+          },
+          { softTimeoutMs: 0 },
+        );
+
+        await run.finalized;
+        await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+        expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(runId, {
+          threadProjectionPending: true,
+        });
+        expect(track).toHaveBeenCalledWith(
+          "agent_run_terminal",
+          expect.objectContaining({
+            run_id: runId,
+            status: "errored",
+            terminal_reason: "completion_error",
+          }),
+          expect.anything(),
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
     it("emits exactly one agent_run_terminal event on a normal completion", async () => {
       startRun(
         "run-tracking-done",
