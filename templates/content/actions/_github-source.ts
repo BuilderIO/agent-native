@@ -1101,18 +1101,25 @@ async function storeImage(
     const provider = await asLinker(run.state, run.database.orgId, () =>
       getActiveFileUploadProviderForRequest(),
     );
-    if (provider) throw new Error("File storage didn't save the image.");
+    if (provider) return uploadFailed(run, "file storage returned no URL");
     run.storageMissing = true;
     return null;
   } catch (error) {
-    console.warn(
-      "[github-source] couldn't save an image to file storage; the next sync tries again:",
+    return uploadFailed(
+      run,
       error instanceof Error ? error.message : String(error),
     );
-    run.storageFailed = true;
-    run.uploadFailuresInARow += 1;
-    return "failed";
   }
+}
+
+function uploadFailed(run: SyncRun, reason: string): "failed" {
+  console.warn(
+    "[github-source] couldn't save an image to file storage; the next sync tries again:",
+    reason,
+  );
+  run.storageFailed = true;
+  run.uploadFailuresInARow += 1;
+  return "failed";
 }
 
 /**
