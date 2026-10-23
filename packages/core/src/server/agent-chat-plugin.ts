@@ -99,6 +99,7 @@ import {
   executeAgentToolCall,
   filterActionsByAllowedNames,
   normalizeAgentActionSurfaceResolution,
+  getActiveRunForThread,
   getActiveRunForThreadAsync,
   getJevContextCredentials,
   abortRunDurably,
@@ -8924,7 +8925,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             if (
               message.interruptActiveRun !== true &&
-              latestRunAwaitsUser(JSON.parse(thread.threadData || "{}"))
+              latestRunAwaitsUser(
+                JSON.parse(thread.threadData || "{}"),
+                getActiveRunForThread(receipt.threadId),
+              )
             ) {
               // The decision's continuation run drains this receipt when it ends.
               deferReceipt(receipt.threadId);
