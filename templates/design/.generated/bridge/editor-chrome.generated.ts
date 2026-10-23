@@ -2656,7 +2656,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           style.textContent = cssText;
           return style;
-        } catch {
+        } catch (error) {
+          if (sourceNode2 instanceof HTMLLinkElement && sourceNode2.href && error instanceof DOMException && error.name === "SecurityError") {
+            return cloneNode2;
+          }
           if (!snapshotFailures.includes("stylesheet-cssom-unavailable")) {
             snapshotFailures.push("stylesheet-cssom-unavailable");
           }
@@ -2892,12 +2895,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var resourceData = /* @__PURE__ */ new Map();
       var resourceRequests = /* @__PURE__ */ new Map();
       var totalBytes = 0;
-      var complete = true;
       var maxResourceBytes = 4e6;
       var maxTotalBytes = 8e6;
       var failures = (parsed.documentElement.getAttribute(
         "data-agent-native-export-resource-failures"
       ) || "").split(",").filter(Boolean);
+      var complete = failures.length === 0;
       function markFailure(reason) {
         complete = false;
         if (!failures.includes(reason)) failures.push(reason);
