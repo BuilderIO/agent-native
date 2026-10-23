@@ -156,7 +156,18 @@ export function preserveLiveStylesheets(
     let cssText: string;
     try {
       cssText = Array.from(sheet.cssRules, (rule) => rule.cssText).join("\n");
-    } catch {
+    } catch (error) {
+      // Cross-origin links can be fetched by the export bridge even when
+      // their no-cors stylesheet load makes CSSOM access opaque.
+      if (
+        sourceNode.localName === "link" &&
+        (sourceNode as HTMLLinkElement).href &&
+        error instanceof
+          (sourceDocument.defaultView?.DOMException ?? DOMException) &&
+        error.name === "SecurityError"
+      ) {
+        continue;
+      }
       failures.add("stylesheet-cssom-unavailable");
       continue;
     }

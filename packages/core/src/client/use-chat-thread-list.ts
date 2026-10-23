@@ -330,22 +330,34 @@ export function useChatThreadList(
           scope: options.scope,
         });
       } catch (error) {
-        if (previous)
+        // A newer refresh may have dropped a removed row because access was
+        // revoked, so the server decides whether it comes back.
+        if (hidden && !includeHidden) void refreshWithResult();
+        else if (previous)
           setState((current) =>
             current.session === session
               ? {
                   ...current,
-                  threads: [
-                    previous,
-                    ...current.threads.filter((thread) => thread.id !== id),
-                  ],
+                  threads: current.threads.map((thread) =>
+                    thread.id === id
+                      ? { ...thread, hiddenAt: previous.hiddenAt }
+                      : thread,
+                  ),
                 }
               : current,
           );
         throw error;
       }
     },
-    [apiUrl, includeHidden, options.scope, session, state.threads, update],
+    [
+      apiUrl,
+      includeHidden,
+      options.scope,
+      refreshWithResult,
+      session,
+      state.threads,
+      update,
+    ],
   );
 
   return {

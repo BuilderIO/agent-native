@@ -4288,9 +4288,15 @@ describe("useChatThreads", () => {
       scope: null,
       pinnedAt: null,
     };
+    const newerThread: ChatThreadSummary = {
+      ...sourceThread,
+      id: "thread-0",
+      title: "Newer thread",
+      updatedAt: 3,
+    };
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/chat/threads" && !init) {
-        return jsonResponse({ threads: [sourceThread] });
+        return jsonResponse({ threads: [newerThread, sourceThread] });
       }
       if (url === "/chat/threads/thread-1/hide" && init?.method === "POST") {
         return new Response(JSON.stringify({ error: "nope" }), {
@@ -4331,6 +4337,13 @@ describe("useChatThreads", () => {
       pinnedAt: null,
       updatedAt: 2,
     });
+    expect(
+      hook!.threads.find((thread) => thread.id === "thread-1")?.hiddenAt,
+    ).toBeUndefined();
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "thread-0",
+      "thread-1",
+    ]);
   });
 
   it("keeps the active thread when archive fails", async () => {

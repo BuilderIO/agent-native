@@ -214,6 +214,12 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
+const completedTurnReplay = vi.hoisted(() => ({
+  stream: null as ReadableStream<Uint8Array> | null,
+}));
+const startRunOptionsSeen = vi.hoisted(
+  () => [] as Array<{ userId?: string } | undefined>,
+);
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 const mockRunManagerFlush = vi.hoisted(() => ({
   onFlush: undefined as (() => Promise<void>) | undefined,
@@ -268,6 +274,7 @@ vi.mock("./run-manager.js", async () => {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
       const [runId, threadId, runFn, onComplete, options] = args;
+      startRunOptionsSeen.push(options);
       return actual.startRun(
         runId,
         threadId,
@@ -289,6 +296,12 @@ vi.mock("./run-manager.js", async () => {
     },
     tryClaimRunSlot: mockTryClaimRunSlot,
     getSlotHoldingRunId: mockGetSlotHoldingRunId,
+    replayCompletedTurn: (
+      ...args: Parameters<typeof actual.replayCompletedTurn>
+    ) =>
+      completedTurnReplay.stream
+        ? Promise.resolve(completedTurnReplay.stream)
+        : actual.replayCompletedTurn(...args),
   };
 });
 
@@ -4179,6 +4192,62 @@ describe("createProductionAgentHandler", () => {
         retryable: false,
       });
       expect(changedSelectorEvent.res.status).toBe(409);
+
+      // A replay names the replayed run's own turn: a drained run's turn is
+      // the queue's, and a direct start keeps the turn its request sent.
+      const replayStream = new ReadableStream<Uint8Array>({
+        start: (controller) => controller.close(),
+      });
+      const subscribeToRun = vi
+        .spyOn(runManager, "subscribeToRun")
+        .mockReturnValue(replayStream);
+      onTestFinished(() => subscribeToRun.mockRestore());
+      const getRun = vi.spyOn(runManager, "getRun");
+      onTestFinished(() => getRun.mockRestore());
+
+      readReceiptStatus.mockResolvedValueOnce({
+        state: "submitted",
+        submittedRunId: "run-drained",
+      });
+      readReceipt.mockResolvedValueOnce(receipt as never);
+      getRun.mockReturnValueOnce({ turnId: `queued-${messageId}` } as never);
+      const submittedRetryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(submittedRetryEvent),
+        ),
+      ).resolves.toBe(replayStream);
+      expect(getRun).toHaveBeenLastCalledWith("run-drained");
+      expect(submittedRetryEvent.res.headers.get("X-Dispatch-Mode")).toBe(
+        "replay",
+      );
+      expect(submittedRetryEvent.res.headers.get("X-Run-Id")).toBe(
+        "run-drained",
+      );
+      expect(submittedRetryEvent.res.headers.get("X-Turn-Id")).toBe(
+        `queued-${messageId}`,
+      );
+
+      append.mockResolvedValueOnce({
+        queuedMessages: [],
+        alreadySubmitted: true,
+        submittedRunId: "run-direct",
+        message: persistedMessage,
+      } as never);
+      getRun.mockReturnValueOnce({ turnId: "turn-direct" } as never);
+      const consumedRetryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(consumedRetryEvent),
+        ),
+      ).resolves.toBe(replayStream);
+      expect(getRun).toHaveBeenLastCalledWith("run-direct");
+      expect(consumedRetryEvent.res.headers.get("X-Run-Id")).toBe("run-direct");
+      expect(consumedRetryEvent.res.headers.get("X-Turn-Id")).toBe(
+        "turn-direct",
+      );
     } finally {
       append.mockRestore();
       readReceipt.mockRestore();
@@ -7271,6 +7340,47 @@ describe("createProductionAgentHandler", () => {
     });
   });
 
+  it("names the replayed turn on a completed-turn replay", async () => {
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Again",
+          threadId: "thread-replay",
+          turnId: "turn-finished",
+        }),
+      }),
+    );
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: null,
+      completedRunId: "run-finished",
+    } as never);
+    completedTurnReplay.stream = new ReadableStream({
+      start: (controller) => controller.close(),
+    });
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+
+      expect(response).toBe(completedTurnReplay.stream);
+      expect(event.res.headers.get("X-Dispatch-Mode")).toBe("replay");
+      expect(event.res.headers.get("X-Run-Id")).toBe("run-finished");
+      expect(event.res.headers.get("X-Turn-Id")).toBe("turn-finished");
+    } finally {
+      completedTurnReplay.stream = null;
+    }
+  });
+
   it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
     const seenActionNames: string[][] = [];
     const mcpToolName = `mcp__user_${hashEmail("alice@example.com")}_calendar__list`;
@@ -8995,6 +9105,56 @@ describe("createProductionAgentHandler", () => {
 
     expect(result).toBe(stream);
     expect(subscribeToRun).toHaveBeenCalledWith("run-already-submitted", 0);
+    expect(event.res.headers.get("X-Dispatch-Mode")).toBe("replay");
+    // The accepted run lives in another process here, so its turn is not
+    // known without a read, and the replay names none rather than guessing.
+    expect(event.res.headers.get("X-Turn-Id")).toBeNull();
+  });
+
+  it("names the accepted run's turn when a duplicate submission replays it", async () => {
+    const onRunPrepared = vi.fn(async () => ({
+      duplicateRunId: "run-already-submitted",
+    }));
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => controller.close(),
+    });
+    const subscribeToRun = vi
+      .spyOn(runManager, "subscribeToRun")
+      .mockReturnValue(stream);
+    onTestFinished(() => subscribeToRun.mockRestore());
+    const getRun = vi
+      .spyOn(runManager, "getRun")
+      .mockImplementation((runId) =>
+        runId === "run-already-submitted"
+          ? ({ turnId: "turn-accepted" } as never)
+          : null,
+      );
+    onTestFinished(() => getRun.mockRestore());
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Repeat the queued prompt",
+          turnId: "turn-retry",
+          queuedMessageId: "queued-duplicate",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(result).toBe(stream);
+    expect(event.res.headers.get("X-Run-Id")).toBe("run-already-submitted");
+    expect(event.res.headers.get("X-Turn-Id")).toBe("turn-accepted");
   });
 
   it("anchors retry deadlines to the server request time", async () => {
@@ -9120,6 +9280,7 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
+    const firstRunOption = startRunOptionsSeen.length;
     await startRun("visitor-1", undefined, "session-anonymous", true);
     expect(assertAiSetupReady).not.toHaveBeenCalled();
 
@@ -9137,6 +9298,14 @@ describe("createProductionAgentHandler", () => {
 
     await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(4));
     expect(assertAiSetupReady).toHaveBeenCalledTimes(3);
+    // An anonymous visitor's run reports no user; signed-in runs report theirs.
+    const runUserIds = startRunOptionsSeen
+      .slice(firstRunOption)
+      .map((options) => options?.userId);
+    expect(runUserIds[0]).toBeUndefined();
+    expect(runUserIds).toEqual(
+      expect.arrayContaining(["alice@example.com", "bob@example.com"]),
+    );
     const sources = onRunComplete.mock.calls.map(([, , source]) => source);
     expect(sources).toContainEqual({
       userId: "alice@example.com",
@@ -14083,7 +14252,7 @@ describe("runAgentLoop", () => {
       );
     });
 
-    it("still stops after a failed POST that may have written", async () => {
+    it("declines another POST after one that may have written, and stops an exact repeat", async () => {
       const executeRequest = vi.fn().mockResolvedValue(rejected);
       const create = (email: string) => ({
         provider: "hubspot",
@@ -14096,15 +14265,29 @@ describe("runAgentLoop", () => {
         [
           { name: "provider-api-request", input: create("a@example.com") },
           { name: "provider-api-request", input: create("b@example.com") },
+          { name: "provider-api-request", input: create("a@example.com") },
         ],
         { "provider-api-request": providerRequestAction(executeRequest) },
       );
 
       expect(executeRequest).toHaveBeenCalledTimes(1);
+      const done = events.filter(
+        (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+          event.type === "tool_done",
+      );
+      expect(done[1]).toMatchObject({
+        isError: true,
+        completedSideEffect: false,
+        result: expect.stringContaining(
+          "Not run: an earlier provider-api-request call in this turn may have already applied",
+        ),
+      });
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "error",
           errorCode: "write_tool_outcome_unknown",
+          blockedTool: "provider-api-request",
+          blockedBy: "rejection",
         }),
       );
     });
@@ -15179,7 +15362,7 @@ describe("runAgentLoop", () => {
     "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
     "'options' must be a non-empty JSON array.",
   ])(
-    "blocks a retry when a plain write handler throws without non-execution evidence (%s)",
+    "blocks a repeat when a plain write handler throws without non-execution evidence (%s)",
     async (message) => {
       const run = vi.fn(async () => {
         throw new Error(message);
@@ -15188,10 +15371,19 @@ describe("runAgentLoop", () => {
         [
           { name: "write", input: { id: "first" } },
           { name: "write", input: { id: "second" } },
+          { name: "write", input: { id: "first" } },
         ],
         { write: { ...actionEntry({ readOnly: false }), run } },
       );
       expect(run).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "write",
+          input: { id: "second" },
+          result: expect.stringContaining("Not run: an earlier write call"),
+        }),
+      );
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "tool_done",

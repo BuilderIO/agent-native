@@ -1750,7 +1750,10 @@ export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
-  /** Preserve the title and its override from each current CAS revision. */
+  /**
+   * Preserve the title and its override from each current CAS revision; a
+   * blank title still fills from the merged visible prompts.
+   */
   preserveCurrentTitle?: boolean;
   preserveCurrentTitleAndPreview?: boolean;
   trustedRunSequenceResetIds?: ReadonlySet<string>;
@@ -1872,18 +1875,18 @@ export async function updateThreadData(
         options.preserveCurrentTitleAndPreview;
       const snapshotMetaForBlankFields =
         !options.preserveCurrentMetadata &&
-        options.preserveCurrentTitleAndPreview &&
+        (options.preserveCurrentTitleAndPreview ||
+          options.preserveCurrentTitle) &&
         (!current.title.trim() || !current.preview.trim())
           ? extractThreadMeta(merged)
           : undefined;
-      const nextTitle =
-        preserveCurrentMetadata || options.preserveCurrentTitle
-          ? current.title
-          : preserveCurrentTitleAndPreview
-            ? current.title.trim()
-              ? current.title
-              : snapshotMetaForBlankFields?.title || current.title
-            : title || current.title || extractThreadMeta(merged).title;
+      const nextTitle = preserveCurrentMetadata
+        ? current.title
+        : preserveCurrentTitleAndPreview || options.preserveCurrentTitle
+          ? current.title.trim()
+            ? current.title
+            : snapshotMetaForBlankFields?.title || current.title
+          : title || current.title || extractThreadMeta(merged).title;
       const nextPreview = preserveCurrentMetadata
         ? current.preview
         : preserveCurrentTitleAndPreview

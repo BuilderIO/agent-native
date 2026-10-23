@@ -900,6 +900,39 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(1);
   });
 
+  it.each([
+    { preserveCurrentTitle: true },
+    { preserveCurrentTitle: true, preserveCurrentTitleAndPreview: true },
+  ])(
+    "fills a blank title from the first visible prompt on a shared save: %j",
+    async (options) => {
+      row!.title = "";
+      row!.thread_data = JSON.stringify({ messages: [] });
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          _titleOverride: "Editor title",
+          messages: [
+            {
+              message: {
+                id: "shared-first-prompt",
+                role: "user",
+                content: [{ type: "text", text: "Plan the launch review" }],
+              },
+              parentId: null,
+            },
+          ],
+        }),
+        "Editor title",
+        "Plan the launch review",
+        1,
+        options,
+      );
+      expect(row!.title).toBe("Plan the launch review");
+      expect(JSON.parse(row!.thread_data)._titleOverride).toBeUndefined();
+    },
+  );
+
   describe("inline attachment bytes", () => {
     const pixels = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
     const uploaded =

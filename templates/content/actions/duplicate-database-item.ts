@@ -20,7 +20,10 @@ import {
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import { assertCollectionAcceptsNewRows } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -319,11 +322,14 @@ export default defineAction({
           documentIds: [nextDocumentId],
         })
       ).items.find((item) => item.id === nextItemId);
-    return {
-      ...response,
-      duplicatedItems: duplicatedItem ? [duplicatedItem] : [],
-      duplicatedItemId: nextItemId,
-      duplicatedDocumentId: nextDocumentId,
-    };
+    return contentDatabaseResponseForCaller(
+      {
+        ...response,
+        duplicatedItems: duplicatedItem ? [duplicatedItem] : [],
+        duplicatedItemId: nextItemId,
+        duplicatedDocumentId: nextDocumentId,
+      },
+      ctx,
+    );
   },
 });
