@@ -4133,7 +4133,7 @@ function classifyHumanTicketAction(
 
   for (const clause of splitEvidenceClauses(text).flatMap((sentence) =>
     sentence.split(
-      /\b(?:but|however|whereas|while|although|though|yet|and)\b/i,
+      /,|\b(?:but|however|whereas|while|although|though|yet|and)\b/i,
     ),
   )) {
     const normalized = normalizeReplyPhrase(clause);
@@ -9542,6 +9542,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "I assigned it to Sam.",
     "The reviewer is taking on the issue.",
     "Jira automatically created a ticket and I assigned it to Sam.",
+    "Jira automatically created a ticket, I assigned it to Sam.",
   ]) {
     if (classifyHumanTicketAction(positiveAction) !== "present") {
       throw new Error(
