@@ -3839,6 +3839,14 @@ export function flattenRedundantWrappersInHtml(html: string): {
   if (pageCss.some((match) => STRUCTURAL_SELECTOR.test(match[1] ?? ""))) {
     return { content: html, removed: 0 };
   }
+  // A linked stylesheet cannot be read here, so it may hold such selectors.
+  // Font stylesheets only declare @font-face.
+  const linkedStylesheets = [...html.matchAll(/<link\b[^>]*>/gi)].filter(
+    (match) =>
+      /\brel\s*=\s*["']?stylesheet\b/i.test(match[0]) &&
+      !/\bhref\s*=\s*["']?https:\/\/fonts\.googleapis\.com\//i.test(match[0]),
+  );
+  if (linkedStylesheets.length > 0) return { content: html, removed: 0 };
   const elements = parseHtmlElements(html);
   const ranges: Array<{ start: number; end: number }> = [];
   for (const element of elements) {

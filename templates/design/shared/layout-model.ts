@@ -736,14 +736,27 @@ export function joinFlowPatch(child: LayoutNodeInput): LayoutStylePatch | null {
   if (!insetWidth && !insetHeight) return patch;
   // Clearing the insets would collapse it, and nothing says how big it was.
   if (!child.rect) return null;
-  // The measured rect is a border box; a padded content-box child would grow.
-  patch.boxSizing = "border-box";
   if (insetWidth && child.rect.width > 0) {
     patch.width = wholePx(child.rect.width);
   }
   if (insetHeight && child.rect.height > 0) {
     patch.height = wholePx(child.rect.height);
   }
+  // The measured rect is a border box, so the written size only holds under
+  // border-box sizing. That switch also reinterprets the other axis: an
+  // explicit px size there is rewritten to its rendered border box, auto
+  // sizes are unaffected, and any other declared size keeps content-box.
+  const other =
+    insetWidth && !insetHeight ? "height" : !insetWidth ? "width" : null;
+  if (other) {
+    const declared = lower(child.declaredSize?.[other] ?? styles[other]);
+    if (/^-?(?:\d+\.?\d*|\.\d+)px$/.test(declared)) {
+      patch[other] = wholePx(child.rect[other]);
+    } else if (declared && !HUG_SIZES.has(declared)) {
+      return patch;
+    }
+  }
+  patch.boxSizing = "border-box";
   return patch;
 }
 

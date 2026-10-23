@@ -75,3 +75,15 @@ describe("flattenRedundantWrappersInHtml with authored structural CSS", () => {
     expect(flattenRedundantWrappersInHtml(html).removed).toBe(1);
   });
 });
+
+describe("flattenRedundantWrappersInHtml with linked stylesheets", () => {
+  it("leaves wrappers alone when the page links a stylesheet it cannot read", () => {
+    const html = `<html><head><link rel="stylesheet" href="./site.css"></head><body><div><section>Hi</section></div></body></html>`;
+    expect(flattenRedundantWrappersInHtml(html).removed).toBe(0);
+  });
+
+  it("still flattens with only a Google Fonts stylesheet", () => {
+    const html = `<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter&display=swap"></head><body><div><section>Hi</section></div></body></html>`;
+    expect(flattenRedundantWrappersInHtml(html).removed).toBe(1);
+  });
+});
