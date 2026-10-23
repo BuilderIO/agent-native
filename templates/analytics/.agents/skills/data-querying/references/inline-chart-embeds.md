@@ -96,8 +96,8 @@ Any other `source`/`chartType` value, or a missing/blank `sql`, makes
 - `columns` — `table` chartType only: `{ key, label?, format?, linkKey?, hidden? }[]`.
   `format` is `"number"`, `"currency"`, `"percent"`, `"delta"`, `"date"`,
   `"link"`, `"text"`, or `"duration"` (seconds; sorts by the number).
-- `stacked`, `legend`, `pivot`, `limit`, `valueLabels`, `description` — see
-  `SqlPanelConfig` in `types.ts` for the full list.
+- `stacked`, `legend`, `pivot`, `limit`, `valueLabels`, `comparison`,
+  `description` — see `SqlPanelConfig` in `types.ts` for the full list.
 
 ## Encoding The `panel` Param
 

@@ -26,6 +26,10 @@ import {
   isEmptyDuration,
 } from "@shared/format-duration";
 import {
+  metricComparison,
+  type MetricComparison,
+} from "@shared/metric-comparison";
+import {
   isNumericLikeValue,
   limitChartRows,
   planPanelRender,
@@ -33,6 +37,7 @@ import {
   type ChartPointLimit,
   type HeatmapKeys,
 } from "@shared/panel-render-contract";
+import { numberTableColumns } from "@shared/table-columns";
 import {
   FUNNEL_OUTCOME_FILLS,
   FUNNEL_OUTCOME_SEGMENTS,
@@ -44,7 +49,10 @@ import {
   IconSortDescending,
   IconChevronLeft,
   IconChevronRight,
+  IconAlertCircle,
   IconAlertTriangle,
+  IconArrowDownRight,
+  IconArrowUpRight,
   IconEye,
   IconInfoCircle,
   IconPencil,
@@ -133,6 +141,7 @@ import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal"
 import { csvCell } from "@/lib/csv";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const DEFAULT_TABLE_PAGE_SIZE = 25;
 const EMPTY_DRILLDOWN_SERIES: string[] = [];
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
@@ -188,6 +197,7 @@ import {
 import { PanelFreshnessClock } from "./PanelFreshnessClock";
 
 export { limitChartRows };
+export { isNumericColumnFormat } from "@shared/table-columns";
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -250,8 +260,13 @@ function ChartResponsiveContainer({ children }: { children: ReactNode }) {
 const PARTIAL_DAY_TIME_ZONE = "America/Los_Angeles";
 const PARTIAL_DAY_DASH = "3 5";
 const PARTIAL_DAY_KEY_PREFIX = "__sql_chart_partial_day";
-const TABLE_PANEL_MIN_HEIGHT_CLASS = "min-h-[386px]";
-const TABLE_PANEL_SKELETON_ROWS = 10;
+// A table is as tall as its rows (up to TABLE_SCROLL_MAX_HEIGHT_CLASS), so
+// only its placeholder holds a height; a heatmap keeps a fixed one.
+const TABLE_PLACEHOLDER_MIN_HEIGHT_CLASS = "min-h-32";
+const TABLE_SKELETON_ROWS = 5;
+const TABLE_SCROLL_MAX_HEIGHT_CLASS = "max-h-120";
+const HEATMAP_PANEL_MIN_HEIGHT_CLASS = "min-h-[386px]";
+const HEATMAP_SKELETON_ROWS = 10;
 
 export function formatSqlChartError(error: unknown): string {
   const message =
@@ -1104,13 +1119,18 @@ function chartTypeReservesLegend(panel: SqlPanel): boolean {
   );
 }
 
-function TableLoadingSkeleton() {
+function TableLoadingSkeleton({ heatmap }: { heatmap: boolean }) {
   const columnWidths = ["w-24", "w-32", "w-20", "w-28"];
+  const rows = heatmap ? HEATMAP_SKELETON_ROWS : TABLE_SKELETON_ROWS;
 
   return (
     <div
       data-dashboard-report-loading="true"
-      className={`w-full flex-1 space-y-1 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
+      className={`w-full flex-1 space-y-1 ${
+        heatmap
+          ? HEATMAP_PANEL_MIN_HEIGHT_CLASS
+          : TABLE_PLACEHOLDER_MIN_HEIGHT_CLASS
+      }`}
     >
       <div className="relative overflow-x-auto">
         <div className="min-w-[480px]">
@@ -1119,7 +1139,7 @@ function TableLoadingSkeleton() {
               <DashboardPanelSkeleton key={index} className={`h-3 ${width}`} />
             ))}
           </div>
-          {Array.from({ length: TABLE_PANEL_SKELETON_ROWS }).map((_, row) => (
+          {Array.from({ length: rows }).map((_, row) => (
             <div
               key={row}
               className="grid h-8 grid-cols-4 items-center border-b border-border/50 px-2"
@@ -1157,7 +1177,7 @@ function SqlChartLoadingSkeleton({ panel }: { panel: SqlPanel }) {
   }
 
   if (isTableLikeChartType(panel.chartType)) {
-    return <TableLoadingSkeleton />;
+    return <TableLoadingSkeleton heatmap={panel.chartType === "heatmap"} />;
   }
 
   const reserveLegend = chartTypeReservesLegend(panel);
@@ -1931,9 +1951,11 @@ export function SqlChart({
   const isTableLike = isTableLikeChartType(panel.chartType);
   const placeholderMinH = isMetric
     ? "min-h-12"
-    : isTableLike
-      ? TABLE_PANEL_MIN_HEIGHT_CLASS
-      : "min-h-[250px]";
+    : panel.chartType === "heatmap"
+      ? HEATMAP_PANEL_MIN_HEIGHT_CLASS
+      : isTableLike
+        ? TABLE_PLACEHOLDER_MIN_HEIGHT_CLASS
+        : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
   if (showsSkeleton) {
@@ -2310,15 +2332,101 @@ function MetricRenderer({
   } else {
     raw = row[valueCol];
   }
-  const value = formatMetricValue(
-    raw,
-    panel.config?.yFormatter,
-    panel.config?.valueLabels,
-  );
+  const format = panel.config?.yFormatter;
+  const value = formatMetricValue(raw, format, panel.config?.valueLabels);
+  const comparison = metricComparison({
+    rows,
+    current: raw,
+    config: panel.config,
+    formatValue: (change) => formatMetricValue(change, format),
+  });
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-2 text-center">
       <div className="text-3xl font-bold">{value}</div>
+      {comparison ? (
+        <MetricComparisonLine comparison={comparison} format={format} />
+      ) : null}
+    </div>
+  );
+}
+
+const METRIC_COMPARISON_TONE_CLASS: Record<MetricComparison["tone"], string> = {
+  // guard:allow-raw-color — text-agent-kit-positive reads 2.8:1 on its own tint in light mode; emerald-700 and emerald-300 pass AA on theirs.
+  good: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300",
+  // guard:allow-raw-color — text-destructive reads 3.3:1 on its own tint in light mode; red-700 and red-300 pass AA on theirs.
+  bad: "bg-red-500/10 text-red-700 dark:bg-red-400/10 dark:text-red-300",
+  neutral: "text-muted-foreground ring-1 ring-inset ring-border",
+};
+
+/**
+ * The change from the period before, as a chip ("↘ 71%") and the period
+ * ("vs the 7 days before"); the previous value is in the hover text.
+ */
+function MetricComparisonLine({
+  comparison,
+  format,
+}: {
+  comparison: MetricComparison;
+  format: ChartValueFormatter | undefined;
+}) {
+  const t = useT();
+  const { change, direction, tone } = comparison;
+  const period =
+    comparison.period ?? t("sqlDashboard.metricComparisonPreviousPeriod");
+  const changeText =
+    change.kind === "none"
+      ? t("sqlDashboard.metricComparisonNoChange")
+      : change.kind === "points"
+        ? t("sqlDashboard.metricComparisonPoints", { value: change.amount })
+        : change.kind === "percent"
+          ? `${change.amount}%`
+          : change.amount;
+  const sentence = t(
+    direction === "up"
+      ? "sqlDashboard.metricComparisonUp"
+      : direction === "down"
+        ? "sqlDashboard.metricComparisonDown"
+        : "sqlDashboard.metricComparisonFlat",
+    {
+      change: changeText,
+      previous: formatMetricValue(comparison.previous, format),
+      period,
+    },
+  );
+  const description =
+    tone === "good"
+      ? t("sqlDashboard.metricComparisonBetter", { comparison: sentence })
+      : tone === "bad"
+        ? t("sqlDashboard.metricComparisonWorse", { comparison: sentence })
+        : sentence;
+  const Arrow =
+    direction === "up"
+      ? IconArrowUpRight
+      : direction === "down"
+        ? IconArrowDownRight
+        : null;
+
+  return (
+    <div
+      data-metric-comparison={tone}
+      className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-xs"
+      title={description}
+    >
+      <span className="sr-only">{description}</span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-medium tabular-nums",
+          METRIC_COMPARISON_TONE_CLASS[tone],
+        )}
+      >
+        {Arrow ? <Arrow className="h-3 w-3" /> : null}
+        {changeText}
+      </span>
+      <span aria-hidden="true" className="text-muted-foreground">
+        {t("sqlDashboard.metricComparisonVs", { period })}
+      </span>
     </div>
   );
 }
@@ -2529,44 +2637,27 @@ function isSessionColumn(key: string): boolean {
   return key === "session_id" || key === "sessionId";
 }
 
-export function isNumericColumnFormat(
-  format: ColumnFormat | undefined,
-): boolean {
-  return (
-    format === "number" ||
-    format === "currency" ||
-    format === "percent" ||
-    format === "delta" ||
-    format === "duration"
-  );
-}
-
 /**
- * Text columns that give way first in a narrow card, so numbers and dates
- * stay whole; a capped cell ends in an ellipsis and keeps its full value in a
- * hover title.
+ * The column that takes a table's spare width: the first one that is not a
+ * number or a date. In a narrow panel it gives way first, so numbers stay
+ * whole.
  */
-export function truncatedTableColumns(
+export function tableFillColumn(
   columns: TableColumnConfig[],
-  rows: Record<string, unknown>[],
-): Set<string> {
-  return new Set(
-    columns
-      .filter((col) => {
-        if (isNumericColumnFormat(col.format) || col.format === "date") {
-          return false;
-        }
-        if (col.format) return true;
-        const values = rows
-          .map((row) => row[col.key])
-          .filter((value) => value != null && value !== "");
-        return !values.length || isCategoryAxis(values);
-      })
-      .map((col) => col.key),
-  );
+  numberColumns: Set<string>,
+): string | undefined {
+  return columns.find(
+    (col) => !numberColumns.has(col.key) && col.format !== "date",
+  )?.key;
 }
 
 const MIN_TABLE_COLUMN_WIDTH = 48;
+const MIN_FILL_COLUMN_WIDTH = 96;
+const TABLE_HEAD_CELL_CLASS =
+  "sticky top-0 z-1 h-9 whitespace-nowrap border-b border-border bg-card align-middle text-xs font-medium text-muted-foreground";
+const TABLE_BODY_CELL_CLASS = "h-10 px-3 whitespace-nowrap";
+// Other text columns stop at this width and end in an ellipsis.
+const TABLE_TEXT_MAX_WIDTH_CLASS = "max-w-80";
 const COLUMN_DRAG_MIME = "application/x-analytics-table-column";
 
 // A set width must also be the cell's max-width: with max-width 0 Chrome
@@ -2751,10 +2842,7 @@ function TableRenderer({
               : "descending"
             : "none"
         }
-        style={
-          sizedColumnStyle(width) ??
-          (truncatedColumns.has(col.key) ? truncatedHeaderStyle : undefined)
-        }
+        style={columnStyle(col.key, width, "head")}
         draggable={editable && !isRenaming && resize === null}
         onDragStart={
           editable
@@ -2783,9 +2871,13 @@ function TableRenderer({
               }
             : undefined
         }
-        className={`text-left align-bottom py-1.5 px-2 font-medium text-muted-foreground ${
-          sortable ? "cursor-pointer select-none hover:text-foreground" : ""
-        } ${resizable ? "relative" : ""} ${width ? "overflow-hidden text-ellipsis whitespace-nowrap" : ""}`}
+        className={cn(
+          TABLE_HEAD_CELL_CLASS,
+          "px-3",
+          numberColumns.has(col.key) ? "text-right" : "text-left",
+          sortable && "cursor-pointer select-none hover:text-foreground",
+          resizable && "relative",
+        )}
         onClick={(event) => {
           // The second click of a double-click renames the column and must not
           // toggle the sort a second time.
@@ -2794,7 +2886,12 @@ function TableRenderer({
         }}
         title={sortable ? t("sqlDashboard.multiColumnSortHelp") : undefined}
       >
-        <span className="inline-flex items-center gap-1">
+        <span
+          className={cn(
+            "inline-flex max-w-full items-center gap-1",
+            numberColumns.has(col.key) && "flex-row-reverse",
+          )}
+        >
           {isRenaming ? (
             <Input
               autoFocus
@@ -2814,6 +2911,8 @@ function TableRenderer({
           ) : (
             <>
               <span
+                className="truncate"
+                title={label}
                 onDoubleClick={
                   editable
                     ? (event) => {
@@ -2935,7 +3034,7 @@ function TableRenderer({
 
   const [sortColumns, setSortColumns] = useState<TableSort[]>([]);
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
   const sortedRows = useMemo(() => {
     return sortable
@@ -2946,22 +3045,33 @@ function TableRenderer({
   const pageCount = Math.ceil(sortedRows.length / pageSize);
   const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
 
-  const truncatedColumns = useMemo(
-    () => truncatedTableColumns(columns, limitedRows),
+  const numberColumns = useMemo(
+    () => numberTableColumns(columns, limitedRows),
     [columns, limitedRows],
   );
-  // A max-width of 0 drops a text cell's content from its column's minimum
-  // width, so in a narrow panel text gives way and numbers keep their width.
-  // A column the user sized keeps that width instead.
-  const flexibleTextColumns = columns.filter(
-    (col) => !col.width && truncatedColumns.has(col.key),
-  ).length;
-  const truncatedHeaderStyle: CSSProperties = {
-    width: `${Math.floor(60 / Math.max(flexibleTextColumns, 1))}%`,
+  const fillKey = tableFillColumn(columns, numberColumns);
+  // The fill column's max-width of 0 drops its content from the table's
+  // minimum width, so it takes only the spare width; a width set on it (saved
+  // or the viewer's own) is its minimum. Every other column shrinks to its
+  // content (1px in an auto-layout table) or keeps its set width.
+  const columnStyle = (
+    key: string,
+    width: number | undefined,
+    part: "head" | "body",
+  ): CSSProperties => {
+    if (key === fillKey) {
+      const minWidth = Math.max(width ?? 0, MIN_FILL_COLUMN_WIDTH);
+      return part === "head" ? { minWidth } : { maxWidth: 0, minWidth };
+    }
+    return sizedColumnStyle(width) ?? { width: 1 };
   };
-  const bodyCellStyle = (col: TableColumnConfig): CSSProperties | undefined =>
-    sizedColumnStyle(col.width) ??
-    (truncatedColumns.has(col.key) ? { maxWidth: 0 } : undefined);
+  const bodyCellStyle = (col: TableColumnConfig) =>
+    columnStyle(col.key, col.width, "body");
+  const textSpanClass = (col: TableColumnConfig) =>
+    cn(
+      "block truncate",
+      col.key !== fillKey && !col.width && TABLE_TEXT_MAX_WIDTH_CLASS,
+    );
 
   const handleHeaderClick = (key: string, shiftKey: boolean) => {
     if (!sortable) return;
@@ -3033,14 +3143,18 @@ function TableRenderer({
   }, [handleCopyTable, handleExportCsv, onCopyTableChange, onExportCsvChange]);
 
   return (
-    <div className={`space-y-1 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}>
-      <div className="relative overflow-x-auto">
-        <table className="w-full text-sm">
+    <div className="space-y-1">
+      <div
+        className={`relative overflow-auto ${TABLE_SCROLL_MAX_HEIGHT_CLASS}`}
+      >
+        {/* Separate borders keep the sticky header's bottom border in place
+            while rows scroll under it. */}
+        <table className="w-full border-separate border-spacing-0 text-sm">
           <thead>
-            <tr className="border-b border-border">
+            <tr>
               {columns.map((col) => renderHeaderCell(col))}
               {hiddenColumns.length > 0 ? (
-                <th className="w-8 py-1.5 px-1">
+                <th className={cn(TABLE_HEAD_CELL_CLASS, "w-8 px-1")}>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
@@ -3074,8 +3188,10 @@ function TableRenderer({
               <tr
                 key={i}
                 className={cn(
-                  "border-b border-border/50",
-                  onRowClick && "cursor-pointer focus-visible:outline-none",
+                  "[&>td]:border-b [&>td]:border-border/50 [&:last-child>td]:border-b-0",
+                  onRowClick
+                    ? "cursor-pointer focus-visible:outline-none"
+                    : "hover:bg-muted/40",
                   isRowActive?.(row)
                     ? "bg-foreground/10"
                     : onRowClick &&
@@ -3124,7 +3240,6 @@ function TableRenderer({
               >
                 {columns.map((col) => {
                   const raw = row[col.key];
-                  const truncated = truncatedColumns.has(col.key);
                   if (col.format === "link") {
                     const formatted = formatCell(raw, col.format);
                     const href = col.linkKey
@@ -3134,7 +3249,7 @@ function TableRenderer({
                     return (
                       <td
                         key={col.key}
-                        className={`py-1.5 px-2 whitespace-nowrap${sizedColumnClass(col)}`}
+                        className={`${TABLE_BODY_CELL_CLASS}${sizedColumnClass(col)}`}
                         style={bodyCellStyle(col)}
                       >
                         {safeHref ? (
@@ -3142,30 +3257,41 @@ function TableRenderer({
                             href={safeHref}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="block truncate text-primary hover:underline"
+                            className={cn(
+                              textSpanClass(col),
+                              "text-foreground underline-offset-2 hover:underline",
+                            )}
                             title={formatted}
                           >
                             {formatted}
                           </a>
                         ) : (
-                          <span className="block truncate" title={formatted}>
+                          <span
+                            className={textSpanClass(col)}
+                            title={formatted}
+                          >
                             {formatted}
                           </span>
                         )}
                       </td>
                     );
                   }
-                  const numeric = isNumericColumnFormat(col.format);
-                  const formatted = formatCell(raw, col.format);
+                  const numeric = numberColumns.has(col.key);
+                  const formatted = formatCell(
+                    raw,
+                    !col.format && typeof raw === "number"
+                      ? "number"
+                      : col.format,
+                  );
                   const content: ReactNode =
                     col.format === "delta" ? (
                       renderDeltaCell(raw)
-                    ) : truncated ? (
-                      <span className="block truncate" title={formatted}>
+                    ) : numeric ? (
+                      formatted
+                    ) : (
+                      <span className={textSpanClass(col)} title={formatted}>
                         {formatted}
                       </span>
-                    ) : (
-                      formatted
                     );
                   const replayHref = isSessionColumn(col.key)
                     ? sessionReplayHref(row)
@@ -3173,9 +3299,11 @@ function TableRenderer({
                   return (
                     <td
                       key={col.key}
-                      className={`py-1.5 px-2 whitespace-nowrap ${
-                        numeric ? "text-right tabular-nums" : ""
-                      }${sizedColumnClass(col)}`}
+                      className={cn(
+                        TABLE_BODY_CELL_CLASS,
+                        numeric && "text-right tabular-nums",
+                        sizedColumnClass(col),
+                      )}
                       style={bodyCellStyle(col)}
                     >
                       {replayHref ? (
@@ -3194,13 +3322,17 @@ function TableRenderer({
                     </td>
                   );
                 })}
-                {hiddenColumns.length > 0 ? <td /> : null}
+                {hiddenColumns.length > 0 ? (
+                  <td className={TABLE_BODY_CELL_CLASS} />
+                ) : null}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {sortedRows.length > PAGE_SIZE_OPTIONS[0] && (
+      {/* Past one page; the smaller of the two keeps the size picker reachable
+          after choosing a page longer than the rows. */}
+      {sortedRows.length > Math.min(pageSize, DEFAULT_TABLE_PAGE_SIZE) && (
         <div className="flex items-center justify-between px-1 pt-1 border-t border-border text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             <span>{t("common.rowsPerPage")}</span>
@@ -4584,7 +4716,7 @@ function HeatmapRenderer({
   };
 
   return (
-    <div className={`${TABLE_PANEL_MIN_HEIGHT_CLASS} overflow-x-auto`}>
+    <div className={`${HEATMAP_PANEL_MIN_HEIGHT_CLASS} overflow-x-auto`}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">
@@ -4630,32 +4762,36 @@ function HeatmapRenderer({
 
 type CalloutSeverity = "info" | "warning" | "critical";
 
+// Icons are graphics, so 3:1 against the card is enough (WCAG 1.4.11); the
+// message text stays the card's own foreground.
+const CALLOUT_SEVERITY_ICONS: Record<
+  CalloutSeverity,
+  { Icon: typeof IconInfoCircle; className: string; labelKey: string }
+> = {
+  critical: {
+    Icon: IconAlertCircle,
+    className: "text-destructive",
+    labelKey: "sqlDashboard.calloutSeverityCritical",
+  },
+  warning: {
+    Icon: IconAlertTriangle,
+    className: "text-amber-600 dark:text-amber-400",
+    labelKey: "sqlDashboard.calloutSeverityWarning",
+  },
+  info: {
+    Icon: IconInfoCircle,
+    className: "text-sky-600 dark:text-sky-400",
+    labelKey: "sqlDashboard.calloutSeverityInfo",
+  },
+};
+
+/** Rows split by thin lines, each led by its severity's icon. */
 function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
+  const t = useT();
   if (rows.length === 0) return null;
 
-  const styleFor = (severity: CalloutSeverity) => {
-    if (severity === "critical") {
-      return {
-        wrapper:
-          "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
-        Icon: IconAlertTriangle,
-      };
-    }
-    if (severity === "warning") {
-      return {
-        wrapper:
-          "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-        Icon: IconAlertTriangle,
-      };
-    }
-    return {
-      wrapper: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-      Icon: IconInfoCircle,
-    };
-  };
-
   return (
-    <div className="space-y-2">
+    <ul className="divide-y divide-border/60">
       {rows.map((row, i) => {
         const sevRaw = (stringifyValue(row.severity) || "info").toLowerCase();
         const severity: CalloutSeverity =
@@ -4663,24 +4799,29 @@ function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
             ? (sevRaw as CalloutSeverity)
             : "info";
         const message = stringifyValue(row.message);
-        const { wrapper, Icon } = styleFor(severity);
+        const { Icon, className, labelKey } = CALLOUT_SEVERITY_ICONS[severity];
         return (
-          <div
+          <li
             key={i}
-            className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${wrapper}`}
+            data-callout-severity={severity}
+            className="flex items-start gap-2.5 py-2 text-sm first:pt-0.5 last:pb-0.5"
           >
-            <Icon className="h-4 w-4 mt-0.5 shrink-0" />
+            <Icon
+              role="img"
+              aria-label={t(labelKey)}
+              className={cn("mt-0.5 h-4 w-4 shrink-0", className)}
+            />
             <InlineMarkdown
               inline
               content={message}
               className="min-w-0 flex-1 break-words"
-              linkClassName="text-current underline underline-offset-2 hover:opacity-80"
+              linkClassName="text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
               renderLink={renderDashboardMarkdownLink}
             />
-          </div>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 

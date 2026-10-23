@@ -586,6 +586,56 @@ describe("unknownPanelConfigKeys on shipped panels and value shapes", () => {
     );
   });
 
+  it("accepts a metric comparison and keeps it to metric panels", () => {
+    expect(
+      unknownPanelConfigKeys(
+        stray("metric", {
+          comparison: {
+            previousKey: "last_week",
+            periodKey: "window",
+            label: "the week before",
+            better: "lower",
+          },
+        }),
+      ),
+    ).toEqual([]);
+    expect(unknownPanelConfigKeys(stray("metric", { comparison: {} }))).toEqual(
+      [],
+    );
+
+    expect(
+      unknownPanelConfigKeys(
+        stray("line", { comparison: { better: "higher" } }),
+      ).map((issue) => [issue.kind, issue.key]),
+    ).toEqual([["wrong-chart-type", "comparison"]]);
+  });
+
+  it("names what is wrong with a misshapen comparison", () => {
+    const messages = [
+      { better: "up" },
+      { previousKey: "" },
+      { previous: "last_week" },
+      "previous_value",
+    ].map((comparison) => {
+      const issues = unknownPanelConfigKeys(stray("metric", { comparison }));
+      expect(issues.map((issue) => [issue.kind, issue.key])).toEqual([
+        ["invalid-value", "comparison"],
+      ]);
+      return issues[0].message;
+    });
+
+    expect(messages[0]).toContain(
+      'config.comparison.better must be "higher", "lower" or "neither", not "up"',
+    );
+    expect(messages[1]).toContain(
+      "config.comparison.previousKey must be a non-empty string",
+    );
+    expect(messages[2]).toContain(
+      "config.comparison.previous is not a comparison option",
+    );
+    expect(messages[3]).toContain("an object with optional string previousKey");
+  });
+
   it("does not flag a misshapen value the baseline already had", () => {
     const config = { yKeys: "n" };
 
