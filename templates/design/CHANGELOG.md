@@ -15,10 +15,12 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- A Getting started checklist at the bottom of the sidebar tracks your first design, brand, sharing, teammates, and templates, and checks steps off as you finish them
 - Pulsing Border adds moving color highlights along an element’s outline, with concentrated bright cores, colored falloff, and controls for motion and shape.
 
 ### Improved
 
+- Templates now open a read-only preview from the card, and the home library shows more starters, including dashboard, messaging, task board and design studio screens.
 - Effect thumbnails now show how shaders treat the Agent-Native mark against a quiet tonal background, making their differences easier to judge.
 - Native shader previews use less GPU memory when many mesh effects are visible.
 - Pulsing Border uses the standard Linear and Angular gradient picker for its moving border colors, with up to eight editable stops and a separate Background color. Thickness sets the bright edge, Softness feathers it, Bloom adjusts glow brightness, and Glow spread sets the halo radius. Smoke, margins, offsets, and layout settings stay grouped in collapsible sections.
@@ -128,6 +130,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Design pages use localized visibility badges and a shared ownership filter.
 - Animated shader fills render together more efficiently and pause work outside the visible canvas.
 - Shader property sliders preview changes while dragging
 - Canvas selection, layer controls, text insertion, grouping, and auto-layout behave more predictably.

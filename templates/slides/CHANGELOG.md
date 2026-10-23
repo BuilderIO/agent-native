@@ -47,6 +47,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Deck lists use the shared ownership filter, and visibility badges use localized labels.
 - Contextual toolbar: the second row now changes with what is selected (text, shape, image, video, multi-select), and every state ends with an Edit with Agent button with quick picks.
 - The top bar shows a deck's privacy next to its name, Share has People and Agents tabs, and Present opens a menu to start in this tab, full screen, or Presenter View.
 
