@@ -188,6 +188,7 @@ import {
   revokeThreadShareLink,
   setThreadArchived,
   setThreadPinned,
+  setThreadHidden,
   setThreadScope,
   updateThreadData,
   withThreadDataLock,
@@ -8460,8 +8461,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               const pinned = await setThreadPinned(threadId, body.pinned, {
                 ownerEmail: owner,
+                orgId,
               });
               if (!pinned) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              return { ok: true };
+            }
+
+            if (method === "POST" && isThreadSubroute("hide")) {
+              const thread = await resolveThreadAccessScope(
+                owner,
+                threadId,
+                "viewer",
+                { orgId },
+              );
+              if (!thread || !threadMatchesRequestedScope(thread)) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              const body = await readBody(event);
+              if (typeof body?.hidden !== "boolean") {
+                setResponseStatus(event, 400);
+                return { error: "hidden boolean is required" };
+              }
+              const hidden = await setThreadHidden(threadId, body.hidden, {
+                ownerEmail: owner,
+                orgId,
+              });
+              if (!hidden) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -8622,6 +8651,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const unscopedOnly = String(query.unscoped ?? "") === "1";
             const includeExternal = String(query.includeExternal ?? "") === "1";
             const includeArchived = String(query.includeArchived ?? "") === "1";
+            const includeHidden = String(query.includeHidden ?? "") === "1";
             const ownership =
               query.ownership === undefined ? "all" : query.ownership;
             if (!isChatThreadOwnership(ownership)) {
@@ -8637,6 +8667,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   orgId,
                   includeExternal,
                   includeArchived,
+                  includeHidden,
                   sourceAppId: options?.appId ?? null,
                   ownership,
                   offset,
@@ -8649,6 +8680,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   orgId,
                   includeExternal,
                   includeArchived,
+                  includeHidden,
                   sourceAppId: options?.appId ?? null,
                   ownership,
                 });

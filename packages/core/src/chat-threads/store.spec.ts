@@ -29,6 +29,9 @@ vi.mock("../agent/run-slot-lock.js", () => ({
 // The store's widen-bigint migration reads the catalog; a recorded migration
 // surfaces that read's failure instead of swallowing it.
 function storeBootstrapResult(sql: string) {
+  if (/CREATE TABLE IF NOT EXISTS chat_thread_viewer_state/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
   if (/FROM information_schema\.columns/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
@@ -4498,12 +4501,7 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).toHaveBeenCalledTimes(3);
   });
 
-  it("refuses to pin or archive a thread for a different owner", async () => {
-    await expect(
-      setThreadPinned("thread-1", true, {
-        ownerEmail: "other@example.com",
-      }),
-    ).rejects.toBeInstanceOf(ForbiddenError);
+  it("refuses to archive a thread for a different owner", async () => {
     await expect(
       setThreadArchived("thread-1", true, {
         ownerEmail: "other@example.com",

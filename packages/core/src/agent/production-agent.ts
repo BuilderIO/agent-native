@@ -49,6 +49,7 @@ import {
   isAgentActionStopError,
   isAgentConnectionRequiredError,
   actionCallIntent,
+  ActionInputValidationError,
   type ActionExecutionOutcome,
   invocationEffect,
   runPreparedActionCall,
@@ -482,6 +483,7 @@ import {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
   RunEvent,
+  type ToolErrorClass,
 } from "./types.js";
 import {
   mergeFinalResponseGuards,
@@ -4890,6 +4892,7 @@ function* historyToolResults(
             : {}),
           readOnly: readOnlyCalls.has(callPart),
           dedupe: actions[callPart.name]?.dedupe !== false,
+          input: callPart.input,
         },
       };
     }
@@ -5150,6 +5153,9 @@ export interface TerminalActionStop {
   transcriptMessage?: string;
   errorCode?: string;
   details?: string;
+  /** For `write_tool_outcome_unknown`: the call held back, and why. */
+  blockedTool?: string;
+  blockedBy?: UnknownOutcomeCause;
 }
 
 const LOOP_BREAKER_STOP_CODES = new Set([
@@ -5164,39 +5170,75 @@ function isLoopBreakerStop(stop: TerminalActionStop): boolean {
 }
 
 /**
- * Earlier calls whose outcome is unknown, counted by tool and by the exact
- * arguments each was prepared with. Any of them holds back every later write
- * of its tool, whatever its arguments; a read only when it is prepared
- * exactly as one of them was, which a call recorded without an identity
- * never is.
+ * Earlier calls whose outcome is unknown, counted by tool, by the exact
+ * arguments each was prepared with, by the arguments the model sent, and by
+ * tool again for those recorded without an identity. A call prepared exactly
+ * as one of them was stops the turn: running it again could apply it twice.
+ * So does a write sent with the same arguments, which a default can prepare
+ * differently, and any write of a tool with an unidentified one, which it may
+ * repeat. A write of the tool with other arguments is declined, and the turn
+ * goes on.
  */
 interface UnknownOutcomes {
   tools: Map<string, number>;
   calls: Map<string, number>;
+  inputs: Map<string, number>;
+  unidentified: Map<string, number>;
+  /** By tool, what made the latest one unknown. */
+  causes: Map<string, UnknownOutcomeCause>;
 }
+
+/**
+ * `rejection`: the call failed and said so, but nothing showed it wrote
+ * nothing. `interruption`: its result never came (a timeout, a stop, a
+ * continuation boundary or a lost process).
+ */
+type UnknownOutcomeCause = "rejection" | "interruption";
 
 function noteUnknownOutcome(
   outcomes: UnknownOutcomes,
   tool: string,
   argumentsHash: string | undefined,
+  cause: UnknownOutcomeCause = "interruption",
+  input?: unknown,
 ): void {
   outcomes.tools.set(tool, (outcomes.tools.get(tool) ?? 0) + 1);
-  if (!argumentsHash) return;
+  outcomes.causes.set(tool, cause);
+  if (input !== undefined) {
+    const inputKey = toolCallCacheKey(tool, input);
+    outcomes.inputs.set(inputKey, (outcomes.inputs.get(inputKey) ?? 0) + 1);
+  }
+  if (!argumentsHash) {
+    outcomes.unidentified.set(tool, (outcomes.unidentified.get(tool) ?? 0) + 1);
+    return;
+  }
   const key = preparedToolCallKey(tool, argumentsHash);
   outcomes.calls.set(key, (outcomes.calls.get(key) ?? 0) + 1);
 }
 
+/** Why a write of a tool with an unknown earlier call did not run. */
+function unknownSiblingResult(tool: string): string {
+  return `Not run: an earlier ${tool} call in this turn may have already applied, and its result is unknown. Running ${tool} again could apply the change twice. Check the current state with a read, then tell the user what you found instead of calling ${tool} again in this turn.`;
+}
+
 function noUnknownOutcomes(): UnknownOutcomes {
-  return { tools: new Map(), calls: new Map() };
+  return {
+    tools: new Map(),
+    calls: new Map(),
+    inputs: new Map(),
+    unidentified: new Map(),
+    causes: new Map(),
+  };
 }
 
 /** Each count in `from` that is larger than the one in `into`. */
 function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
-  for (const kind of ["tools", "calls"] as const) {
+  for (const kind of ["tools", "calls", "inputs", "unidentified"] as const) {
     for (const [key, count] of from[kind]) {
       into[kind].set(key, Math.max(into[kind].get(key) ?? 0, count));
     }
   }
+  for (const [tool, cause] of from.causes) into.causes.set(tool, cause);
 }
 
 /**
@@ -5212,11 +5254,21 @@ function seedUnknownOutcomes(
   readOnlyCalls: ReadonlySet<unknown>,
   priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
   priorCallIdentities: ReadonlyMap<string, string>,
-  interrupted: readonly { tool: string; argumentsHash?: string }[],
+  interrupted: readonly {
+    tool: string;
+    argumentsHash?: string;
+    input?: unknown;
+  }[],
 ): void {
   const fromJournal = noUnknownOutcomes();
   for (const entry of interrupted) {
-    noteUnknownOutcome(fromJournal, entry.tool, entry.argumentsHash);
+    noteUnknownOutcome(
+      fromJournal,
+      entry.tool,
+      entry.argumentsHash,
+      "interruption",
+      entry.input,
+    );
   }
   mergeUnknownOutcomes(outcomes, fromJournal);
   if (!isInternalContinuationTurn(messages)) return;
@@ -5257,6 +5309,8 @@ function seedUnknownOutcomes(
         fromHistory,
         call.name,
         effect ? priorCallIdentities.get(call.identityKey ?? "") : undefined,
+        "interruption",
+        call.input,
       );
     }
   }
@@ -5304,7 +5358,13 @@ function seedUnknownOutcomes(
     }
   }
   for (const call of ambiguousUnknownCalls) {
-    noteUnknownOutcome(fromHistory, call.name, undefined);
+    noteUnknownOutcome(
+      fromHistory,
+      call.name,
+      undefined,
+      "interruption",
+      call.input,
+    );
   }
 
   mergeUnknownOutcomes(outcomes, fromHistory);
@@ -7535,25 +7595,23 @@ export async function runAgentLoop(opts: {
   if (internalContinuationTurn) {
     for (const entry of toolCallJournal?.completed ?? []) {
       if (!journalEntriesAmbiguous.has(entry.key)) continue;
-      unknownOutcomes.tools.set(
+      const seeded = noUnknownOutcomes();
+      noteUnknownOutcome(
+        seeded,
         entry.tool,
-        Math.max(unknownOutcomes.tools.get(entry.tool) ?? 0, 1),
+        entry.argumentsHash,
+        "interruption",
+        entry.input,
       );
-      if (entry.argumentsHash) {
-        const key = preparedToolCallKey(entry.tool, entry.argumentsHash);
-        unknownOutcomes.calls.set(
-          key,
-          Math.max(unknownOutcomes.calls.get(key) ?? 0, 1),
-        );
-      }
+      mergeUnknownOutcomes(unknownOutcomes, seeded);
     }
   }
-  // Names a caller shares between its own loops hold back writes, as before.
+  // Names a caller shares between its own loops carry no identity, so they
+  // hold back every write of the tool.
   for (const tool of opts.unknownWriteToolNames ?? []) {
-    unknownOutcomes.tools.set(
-      tool,
-      Math.max(unknownOutcomes.tools.get(tool) ?? 0, 1),
-    );
+    const seeded = noUnknownOutcomes();
+    noteUnknownOutcome(seeded, tool, undefined);
+    mergeUnknownOutcomes(unknownOutcomes, seeded);
   }
   const {
     sameArguments: repeatedToolErrors,
@@ -7625,6 +7683,8 @@ export async function runAgentLoop(opts: {
       error: stop.message,
       errorCode: stop.errorCode ?? "tool_failed",
       ...(stop.details ? { details: stop.details } : {}),
+      ...(stop.blockedTool ? { blockedTool: stop.blockedTool } : {}),
+      ...(stop.blockedBy ? { blockedBy: stop.blockedBy } : {}),
       recoverable: false,
     });
   };
@@ -8785,6 +8845,7 @@ export async function runAgentLoop(opts: {
       let actionInvoked = false;
       // Live once invoked, so an abandoned call still reads what ran in it.
       const actionExecutionOutcome: ActionExecutionOutcome = { refused: false };
+      let unknownOutcomeCause: UnknownOutcomeCause = "interruption";
       const ranEffect = (settled: Parameters<typeof invocationEffect>[2]) =>
         actionInvoked && actionEntry
           ? invocationEffect(actionEntry, actionExecutionOutcome, {
@@ -8803,7 +8864,13 @@ export async function runAgentLoop(opts: {
         // holds back its action's writes as a write's would.
         if (event.outcomeUnknown) {
           opts.unknownWriteToolNames?.add(toolCall.name);
-          noteUnknownOutcome(unknownOutcomes, toolCall.name, argumentsHash);
+          noteUnknownOutcome(
+            unknownOutcomes,
+            toolCall.name,
+            argumentsHash,
+            unknownOutcomeCause,
+            toolCall.input,
+          );
         }
         // A write that errored after it was invoked may still have committed,
         // retry-safe or not, so cached reads of its target are stale.
@@ -9008,6 +9075,7 @@ export async function runAgentLoop(opts: {
       const declineToolCall = (
         guidance: string,
         isError = false,
+        errorClass?: ToolErrorClass,
       ): Promise<EngineContentPart> => {
         const result = finalizeToolErrorResult(guidance);
         return (async () => {
@@ -9025,6 +9093,7 @@ export async function runAgentLoop(opts: {
             result,
             isError: true,
             completedSideEffect: false,
+            ...(errorClass ? { errorClass } : {}),
           });
           recordToolResult(result, true);
           return {
@@ -9145,6 +9214,7 @@ export async function runAgentLoop(opts: {
             toolCallTruncatedByOutputCap,
           ),
           true,
+          "input_invalid",
         );
       }
       const rawToolInputError = validateRawToolInput(
@@ -9161,6 +9231,7 @@ export async function runAgentLoop(opts: {
             toolCallTruncatedByOutputCap,
           ),
           true,
+          "input_invalid",
         );
       }
       if (!intent?.valid) {
@@ -9175,7 +9246,11 @@ export async function runAgentLoop(opts: {
           },
           intent?.error,
         );
-        return declineToolCall(thrownToolResult(intent?.error), true);
+        return declineToolCall(
+          thrownToolResult(intent?.error),
+          true,
+          "input_invalid",
+        );
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
@@ -9531,6 +9606,8 @@ export async function runAgentLoop(opts: {
         requestedActionStop ??= {
           message: result,
           errorCode: "write_tool_outcome_unknown",
+          blockedTool: toolCall.name,
+          blockedBy: "interruption",
         };
         return {
           type: "tool-result" as const,
@@ -9611,28 +9688,45 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      // An unknown write cannot become fresh work merely by rewording its
-      // arguments, or by eliding its tool pair from the replayed history. A
-      // write retry-safe for these arguments is the exception: its contract
-      // lets the model correct it and run it again.
+      // Running an unknown call again exactly as it was prepared could apply
+      // it twice. A write with no identity to compare cannot be told from a
+      // repeat, whatever its arguments, nor can one whose tool pair was
+      // elided from the replayed history.
       const priorInterruptionsBeforeStepReplay = actionIsReadOnly
         ? (unknownOutcomes.calls.get(preparedCallKey) ?? 0)
-        : actionRetrySafe
-          ? 0
-          : (unknownOutcomes.tools.get(toolCall.name) ?? 0);
+        : Math.max(
+            unknownOutcomes.calls.get(preparedCallKey) ?? 0,
+            unknownOutcomes.inputs.get(
+              toolCallCacheKey(toolCall.name, toolCall.input),
+            ) ?? 0,
+            unknownOutcomes.unidentified.get(toolCall.name) ?? 0,
+          );
       const priorInterruptions = ambiguousLegacyWrite
         ? Math.max(1, priorInterruptionsBeforeStepReplay)
         : (interruptedCallMatchesStep ||
-              (actionIsReadOnly &&
+              ((actionIsReadOnly || actionRetrySafe) &&
                 retryableInterruptedCallKeys.has(preparedCallKey))) &&
             priorInterruptionsBeforeStepReplay > 0
           ? 0
           : priorInterruptionsBeforeStepReplay;
 
+      // Another write of a tool whose earlier call may have applied could
+      // apply the same change twice, so it does not run; the turn goes on,
+      // and only an exact repeat stops it.
+      if (
+        !actionIsReadOnly &&
+        !actionRetrySafe &&
+        priorInterruptionsBeforeStepReplay === 0 &&
+        (unknownOutcomes.tools.get(toolCall.name) ?? 0) > 0
+      ) {
+        return declineToolCall(unknownSiblingResult(toolCall.name), true);
+      }
+
       if (priorInterruptions > 0) {
-        // Only a result recorded for these exact arguments is recovered. Any
-        // other leaves the earlier attempt unknown, so the call stops below
-        // instead of running again.
+        // Only a result recorded for these exact arguments is recovered, so
+        // a result found is the interrupted call's own. Any other leaves the
+        // earlier attempt unknown, so the call stops below instead of
+        // running again.
         const ledgerResult =
           !ambiguousLegacyWrite && opts.threadId && !executionStepIntent
             ? await waitForInterruptedToolLedgerEntry({
@@ -9725,6 +9819,9 @@ export async function runAgentLoop(opts: {
             `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
             `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
           errorCode: "write_tool_outcome_unknown",
+          blockedTool: toolCall.name,
+          blockedBy:
+            unknownOutcomes.causes.get(toolCall.name) ?? "interruption",
         };
         return {
           type: "tool-result" as const,
@@ -9867,6 +9964,8 @@ export async function runAgentLoop(opts: {
         // commit, so a retry-safe action stays blocked for it; an error the
         // handler returned does not.
         let toolResultLost = false;
+        // It returned an error result rather than throwing one.
+        let toolReportedError = false;
         let toolErrorCode: string | undefined;
         let toolErrorDetailsLine = "";
         let mcpApp:
@@ -10119,6 +10218,7 @@ export async function runAgentLoop(opts: {
             (mcpResult.raw as Record<string, unknown>).isError === true
           ) {
             isError = true;
+            toolReportedError = true;
           }
           mcpApp = mcpResult?.mcpApp;
           let resultForAgent: unknown = rawForAgent;
@@ -10268,6 +10368,7 @@ export async function runAgentLoop(opts: {
             throw err;
           }
           thrown = err;
+          toolReportedError = false;
           toolResultLost =
             signal.aborted ||
             isToolCallTimeoutResult(String((err as Error)?.message ?? err));
@@ -10283,9 +10384,22 @@ export async function runAgentLoop(opts: {
         const call = actionExecutionOutcome.record;
         const { effect: callEffect, changed: callChanged } = ranEffect(
           isError
-            ? { failed: { error: thrown, lost: toolResultLost } }
+            ? {
+                failed: {
+                  error: thrown,
+                  lost: toolResultLost,
+                  reported: toolReportedError,
+                },
+              }
             : { receipt },
         );
+        const toolErrorClass: ToolErrorClass | undefined = !isError
+          ? undefined
+          : thrown instanceof ActionInputValidationError
+            ? "input_invalid"
+            : callEffect === "none" && !actionIsReadOnly
+              ? "rejected"
+              : undefined;
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -10389,6 +10503,7 @@ export async function runAgentLoop(opts: {
         }
 
         toolDonePersistenceFailed = true;
+        unknownOutcomeCause = toolResultLost ? "interruption" : "rejection";
         await emitToolDone({
           type: "tool_done",
           id: toolCall.id,
@@ -10397,6 +10512,7 @@ export async function runAgentLoop(opts: {
           result,
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
+          ...(toolErrorClass ? { errorClass: toolErrorClass } : {}),
           ...(callEffect === "unknown"
             ? { outcomeUnknown: true as const }
             : isError || receipt || callEffect === "committed"

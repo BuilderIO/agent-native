@@ -29,6 +29,8 @@ export {
   ActionContractError,
   isActionContractError,
   type ActionContractErrorOptions,
+  NoWriteError,
+  isNoWriteError,
   ActionOutputContractError,
   isActionOutputContractError,
   type ActionOutputContractErrorOptions,

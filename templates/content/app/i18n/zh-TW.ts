@@ -1314,6 +1314,8 @@ const overrides = {
     githubSyncingProgress: "正在取得變更：{{done}}/{{total}} 個檔案",
     githubPicturesWaiting:
       "在工作區管理員設定好檔案儲存空間之前，部分圖片不會顯示。",
+    githubPicturesNotSaved:
+      "部分圖片未能儲存到檔案儲存空間。每次同步都會重試。",
     githubReconnect: "重新連接 GitHub",
     githubProblemConnection: "已停止更新：GitHub 需要你重新登入。",
     githubProblemForbidden:

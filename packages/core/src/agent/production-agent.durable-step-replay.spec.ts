@@ -2381,6 +2381,18 @@ describe("durable execution step replay", () => {
     tool: "create-deck",
     input: { title: "Q3 plan" },
   };
+  // A crash leaves no arguments identity, so every later write of the tool is
+  // held. A timed-out call records one, which lets a retry-safe correction
+  // through.
+  const unknownOutcomeWithIdentity: AgentChatEvent = {
+    type: "tool_done",
+    id: "call-before-crash",
+    tool: "create-deck",
+    result: "The call timed out.",
+    isError: true,
+    outcomeUnknown: true,
+    argumentsHash: "arguments-of-the-earlier-call",
+  };
   const neverReplayDeckAction = (run: () => Promise<string>) => ({
     tool: {
       description: "Create a deck",
@@ -2435,7 +2447,10 @@ describe("durable execution step replay", () => {
   });
 
   it("lets a recovered retry correct and re-run a retry-safe write", async () => {
-    durableStep.priorEvents = [crashedWriteBeforeRetry];
+    durableStep.priorEvents = [
+      crashedWriteBeforeRetry,
+      unknownOutcomeWithIdentity,
+    ];
     const actionRun = vi.fn(async () => "Deck saved");
 
     await withExecutionFence(fence, () =>
@@ -2493,6 +2508,7 @@ describe("durable execution step replay", () => {
         ...crashedWriteBeforeRetry,
         input: { title: "Q3 plan", mode: crashedMode },
       },
+      unknownOutcomeWithIdentity,
     ];
     const events: AgentChatEvent[] = [];
     await withExecutionFence(fence, () =>
@@ -2549,13 +2565,16 @@ describe("durable execution step replay", () => {
         type: "tool_done",
         id: "call-after-retry",
         isError: true,
-        result: expect.stringContaining("interrupted 1 time(s)"),
+        result: expect.stringContaining("Not run: an earlier create-deck call"),
       }),
     );
   });
 
   it("lets an internal continuation correct and re-run a retry-safe write", async () => {
-    durableStep.priorEvents = [crashedWriteBeforeRetry];
+    durableStep.priorEvents = [
+      crashedWriteBeforeRetry,
+      unknownOutcomeWithIdentity,
+    ];
     const actionRun = vi.fn(async () => "Deck saved");
 
     await withExecutionFence(fence, () =>
