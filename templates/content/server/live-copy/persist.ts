@@ -618,6 +618,13 @@ export async function persistLiveBodyConversion(
     previousLiveText,
     now,
   });
+  if (rebaseline.status === "moved") {
+    throw new LiveBodyConversionError(
+      "base_changed",
+      conversion.documentId,
+      `Suggestion ${rebaseline.ids.join(", ")} changed while page ${conversion.documentId} was being switched to its live copy.`,
+    );
+  }
   if (rebaseline.status === "blocked") {
     throw new LiveBodyConversionError(
       "rebaseline_blocked",

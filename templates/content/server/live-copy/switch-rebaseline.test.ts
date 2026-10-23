@@ -26,6 +26,30 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
 
+const suggestionRace = vi.hoisted(() => ({ amendsLeft: 0 }));
+
+vi.mock("@agent-native/core/review", async (importOriginal) => {
+  const review =
+    await importOriginal<typeof import("@agent-native/core/review")>();
+  return {
+    ...review,
+    // Another writer amends the suggestion after the conversion listed it,
+    // as amendSuggestion's update does.
+    rebaseSuggestion: async (
+      ...args: Parameters<typeof review.rebaseSuggestion>
+    ) => {
+      if (suggestionRace.amendsLeft > 0) {
+        suggestionRace.amendsLeft -= 1;
+        await args[0].execute({
+          sql: "UPDATE agent_review_suggestions SET revision = revision + 1 WHERE id = ?",
+          args: [args[1].id],
+        });
+      }
+      return review.rebaseSuggestion(...args);
+    },
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-switch-rebaseline-${process.pid}-${Date.now()}.pglite`,
@@ -437,6 +461,45 @@ describe("switching a page moves its suggestions and comment quotes onto the liv
       expect(commentAnchorHoldsOn(await comment(agentComment), tree.text)).toBe(
         true,
       );
+    });
+  });
+
+  it("converts again when a pending suggestion changes mid-switch, and answers a typed 409 when it keeps changing", async () => {
+    await asOwner(async () => {
+      const documentId = await insertPage(stored);
+      const made = await suggest(documentId, "$60", "$75");
+      const before = {
+        page: await page(documentId),
+        suggestions: await pending(documentId),
+      };
+      try {
+        suggestionRace.amendsLeft = Number.POSITIVE_INFINITY;
+        await expect(
+          setSwitch.run(
+            { id: documentId, switched: true },
+            { caller: "frontend", userEmail: ownerEmail },
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "LIVE_BODY_SWITCH_CONFLICT",
+          statusCode: 409,
+        });
+        expect(await page(documentId)).toEqual(before.page);
+        expect(await pending(documentId)).toEqual(before.suggestions);
+
+        suggestionRace.amendsLeft = 1;
+        await expect(
+          switching.switchPageToLiveCopy(documentId, { ctx }),
+        ).resolves.toEqual({ writePath: "live_copy" });
+        expect(suggestionRace.amendsLeft).toBe(0);
+      } finally {
+        suggestionRace.amendsLeft = 0;
+      }
+      const [suggestion] = await pending(documentId);
+      expect(suggestion).toMatchObject({
+        id: made.id,
+        baseRevision: (await getDocumentAction.run({ id: documentId }, ctx))
+          .revision,
+      });
     });
   });
 

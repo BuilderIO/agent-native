@@ -60,6 +60,11 @@ export type PageRebaselineReport =
         | "suggestion_structure_unsupported"
         | "comment_quote_changes";
       ids: string[];
+    }
+  | {
+      /** A pending suggestion was decided or amended after it was read. */
+      status: "moved";
+      ids: string[];
     };
 
 /**
@@ -67,6 +72,7 @@ export type PageRebaselineReport =
  * canonical body. Run it inside the conversion's transaction, holding the
  * page row, after the canonical body and its revision are known. When the
  * report is `blocked` it wrote nothing, and the conversion must roll back.
+ * When it is `moved`, the conversion must roll back and read the page again.
  *
  * Call `ensureSuggestionTables()` before opening that transaction: inside
  * one, core can't create its suggestion tables, and a database that has
@@ -201,10 +207,7 @@ export async function rebaselinePageForCanonicalBody(
       idempotencyKey: `content-canonical-rebaseline:${suggestion.id}:${suggestion.revision}:${input.canonicalRevision}`,
       reason: "content-canonical-body",
     });
-    if (!rebased)
-      throw new Error(
-        `Suggestion ${suggestion.id} changed while its page was converted`,
-      );
+    if (!rebased) return { status: "moved", ids: [suggestion.id] };
     suggestionReport.push({ id: suggestion.id, outcome: outcome.kind });
   }
 
