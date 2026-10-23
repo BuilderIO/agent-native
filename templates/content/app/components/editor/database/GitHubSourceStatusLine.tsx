@@ -150,6 +150,58 @@ export function useCheckGitHubForUpdates(source: ContentDatabaseSource) {
   };
 }
 
+/** How long a fill waits while the background sweep holds the sync. */
+const FILL_BUSY_RETRY_MS = 2_000;
+
+/**
+ * Keeps a folder filling while its collection is open: each sync starts as
+ * soon as the last returns, not at the next background sweep. It waits while
+ * the sweep holds the sync, pauses in a hidden tab, and stops once the folder
+ * is current or anything goes wrong. No toasts: the progress bar says it.
+ */
+function useKeepFilling(databaseId: string, filling: boolean) {
+  const { mutateAsync: syncNow } = useSyncGitHubFolder();
+  useEffect(() => {
+    if (!filling) return;
+    let stopped = false;
+    let running = false;
+    let timer: number | undefined;
+    const step = async () => {
+      timer = undefined;
+      if (stopped || running || document.visibilityState === "hidden") return;
+      running = true;
+      let state: SyncGitHubFolderResponse["sync"]["state"] | null = null;
+      try {
+        const { sync: result } = await syncNow({ databaseId });
+        // Pictures waiting on storage don't stop the pages filling.
+        const problem = result.problem?.code ?? "storage_unavailable";
+        if (problem === "storage_unavailable") state = result.state;
+      } catch {
+        // The status line shows what went wrong once the collection refreshes.
+      }
+      running = false;
+      if (stopped) return;
+      if (state === "busy") {
+        timer = window.setTimeout(() => void step(), FILL_BUSY_RETRY_MS);
+      } else if (state === "partial") {
+        void step();
+      } else {
+        stopped = true;
+      }
+    };
+    const resume = () => {
+      if (timer === undefined) void step();
+    };
+    void step();
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [databaseId, filling, syncNow]);
+}
+
 function DetailRow({
   label,
   children,
@@ -376,6 +428,10 @@ function GitHubStatusLineContent({
   const stops = problem ? githubProblemStopsUpdates(problem.code) : false;
   const actions = problem && stops ? problemActions(problem.code) : null;
   const syncing = !!status.pendingCommitSha && !!status.progress;
+  useKeepFilling(
+    source.databaseId,
+    syncing && (!problem || problem.code === "storage_unavailable"),
+  );
   // Pictures waiting on storage are a note, not a stop: the pages still update.
   const picturesWaiting =
     problem?.code === "storage_unavailable" || status.imagesWaiting > 0;

@@ -13,15 +13,20 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
-import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import {
+  recordCreatedDocumentsHistory,
+  recordDocumentHistoryTransition,
+} from "../server/lib/document-history.js";
 import {
   GitHubSourceDeadlineError,
   GitHubSourceError,
   readGitHubBlob,
+  readGitHubBlobTexts,
   readGitHubBranchHead,
   readGitHubDefaultBranch,
   readGitHubFolderTree,
   readGitHubRenames,
+  type GitHubRepositoryTarget,
   type GitHubTreeEntry,
 } from "../server/lib/github-source-client.js";
 import {
@@ -71,6 +76,7 @@ import {
   type DocumentPropertyOptionColor,
   type DocumentPropertyOptions,
 } from "../shared/properties.js";
+import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { mutateContentDatabaseSourceMetadata } from "./_database-source-utils.js";
@@ -84,6 +90,7 @@ import {
   type GitHubSourceState,
 } from "./_github-source-metadata.js";
 import {
+  createAppendPositionAllocator,
   databaseItemsPositionScope,
   documentsPositionScope,
   nextAppendPosition,
@@ -170,6 +177,28 @@ function decodeText(bytes: Uint8Array): string | null {
     // coercion-ok: null means not UTF-8, and the caller skips the file as "not-text".
   } catch {
     return null;
+  }
+}
+
+/**
+ * Reads files' texts in one request, by blob SHA. A failure other than the
+ * caller's time running out reads as no texts, so each file is read on its
+ * own instead, as is any file the request leaves out.
+ */
+async function readTextsTogether(
+  target: GitHubRepositoryTarget,
+  shas: string[],
+): Promise<Map<string, string>> {
+  try {
+    return await readGitHubBlobTexts(target, shas);
+  } catch (error) {
+    if (error instanceof GitHubSourceDeadlineError) throw error;
+    // coercion-ok: each file is read on its own instead.
+    console.warn(
+      "[github-source] batched read failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return new Map();
   }
 }
 
@@ -368,13 +397,17 @@ export async function previewGitHubFolder(
   }
   const sampleEntries = files.markdown.slice(0, PREVIEW_SAMPLE_FILES);
   const skipped = [...files.skipped];
+  const texts = await readTextsTogether(
+    target,
+    sampleEntries.map((entry) => entry.sha),
+  );
   const drafts = await mapLimit(
     sampleEntries,
     PREVIEW_READ_CONCURRENCY,
     async (entry) => {
-      const text = decodeText(
-        await readGitHubBlob({ ...target, sha: entry.sha }),
-      );
+      const text =
+        texts.get(entry.sha) ??
+        decodeText(await readGitHubBlob({ ...target, sha: entry.sha }));
       if (text === null) {
         skipped.push({ path: entry.path, reason: "not-text" });
         return null;
@@ -906,6 +939,8 @@ interface PlannedFile {
   renamedFrom: SourceRow | null;
   /** The file's text once read, or null when it isn't UTF-8. */
   text?: string | null;
+  /** A batched read tried the file, so it isn't asked for again. */
+  batched?: boolean;
   /** Images this sync couldn't store for the file's page. */
   imagesWaiting?: number;
 }
@@ -1073,13 +1108,17 @@ async function buildPage(run: SyncRun, relativePath: string, text: string) {
   return { draft, page, assets, imagesWaiting };
 }
 
-/** Writes the file's frontmatter into its columns; true when a value changed. */
-async function writePropertyValues(
+/**
+ * Makes the folder's columns fit a file's values: adds a column for a new
+ * key and widens one a value doesn't fit. The select options the values name
+ * are added now, or collected in `options` by a caller adding many files'.
+ */
+async function fitColumns(
   tx: Db,
   run: SyncRun,
-  documentId: string,
   values: Record<string, unknown>,
-): Promise<boolean> {
+  options?: Map<GitHubColumn, unknown[]>,
+) {
   for (const [key, value] of Object.entries(values)) {
     if (run.removedKeys.has(key) || value === null || value === undefined) {
       continue;
@@ -1097,8 +1136,46 @@ async function writePropertyValues(
     } else if (!fitsGitHubFieldType(column.type, value)) {
       await widenColumnToText(tx, column, run.now);
     }
-    await ensureOptions(tx, column, value, run.now);
+    if (options) options.set(column, [...(options.get(column) ?? []), value]);
+    else await ensureOptions(tx, column, value, run.now);
   }
+}
+
+/** A new page's property values, in its columns' current types. */
+function newPropertyValues(
+  run: SyncRun,
+  documentId: string,
+  values: Record<string, unknown>,
+) {
+  const rows: Array<typeof schema.documentPropertyValues.$inferInsert> = [];
+  for (const column of run.columns.values()) {
+    const normalized = normalizePropertyValueWithOptions(
+      column.type,
+      githubFieldPropertyInput(column.type, values[column.key]),
+      column.options,
+    );
+    if (normalized === null) continue;
+    rows.push({
+      id: nanoid(),
+      ownerEmail: run.database.ownerEmail,
+      documentId,
+      propertyId: column.propertyId,
+      valueJson: serializePropertyValue(normalized),
+      createdAt: run.now,
+      updatedAt: run.now,
+    });
+  }
+  return rows;
+}
+
+/** Writes the file's frontmatter into its columns; true when a value changed. */
+async function writePropertyValues(
+  tx: Db,
+  run: SyncRun,
+  documentId: string,
+  values: Record<string, unknown>,
+): Promise<boolean> {
+  await fitColumns(tx, run, values);
 
   const columns = [...run.columns.values()];
   if (columns.length === 0) return false;
@@ -1166,18 +1243,33 @@ function sourceRowValues(
   return JSON.stringify({ ...values, [ROW_STATE_KEY]: state });
 }
 
-async function upsertSourceRow(
-  tx: Db,
-  run: SyncRun,
-  args: {
-    rowId: string;
-    itemId: string;
-    documentId: string;
-    state: RowState;
-    values: Record<string, unknown>;
-  },
-) {
-  const values = {
+interface SourceRowArgs {
+  rowId: string;
+  itemId: string;
+  documentId: string;
+  state: RowState;
+  values: Record<string, unknown>;
+}
+
+async function upsertSourceRow(tx: Db, run: SyncRun, args: SourceRowArgs) {
+  const values = sourceRowFields(run, args);
+  await tx
+    .insert(schema.contentDatabaseSourceRows)
+    .values({
+      id: args.rowId,
+      ownerEmail: run.database.ownerEmail,
+      createdAt: run.now,
+      ...values,
+    })
+    .onConflictDoNothing();
+  await tx
+    .update(schema.contentDatabaseSourceRows)
+    .set(values)
+    .where(eq(schema.contentDatabaseSourceRows.id, args.rowId));
+}
+
+function sourceRowFields(run: SyncRun, args: SourceRowArgs) {
+  return {
     sourceId: run.sourceId,
     databaseItemId: args.itemId,
     documentId: args.documentId,
@@ -1192,19 +1284,6 @@ async function upsertSourceRow(
     lastSourceUpdatedAt: run.now,
     updatedAt: run.now,
   };
-  await tx
-    .insert(schema.contentDatabaseSourceRows)
-    .values({
-      id: args.rowId,
-      ownerEmail: run.database.ownerEmail,
-      createdAt: run.now,
-      ...values,
-    })
-    .onConflictDoNothing();
-  await tx
-    .update(schema.contentDatabaseSourceRows)
-    .set(values)
-    .where(eq(schema.contentDatabaseSourceRows.id, args.rowId));
 }
 
 type FileOutcome =
@@ -1229,6 +1308,99 @@ async function readFileText(run: SyncRun, file: PlannedFile) {
   return file.text;
 }
 
+/** Files read from GitHub in one request, at most this many and this many bytes. */
+const TEXT_BATCH_FILES = 100;
+const TEXT_BATCH_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Reads the texts of the next files in one request, so a big push reads in
+ * a few requests rather than one a file. A file the batch can't read, like
+ * one GitHub sees as binary, is read on its own when its turn comes, as is
+ * every file when the batch fails.
+ */
+async function readTextsAhead(run: SyncRun, work: PlannedFile[], from: number) {
+  const batch: PlannedFile[] = [];
+  let bytes = 0;
+  for (let index = from; index < work.length; index++) {
+    const file = work[index]!;
+    if (file.text !== undefined || file.batched) continue;
+    const size = file.entry.size ?? 0;
+    if (batch.length >= TEXT_BATCH_FILES) break;
+    if (batch.length > 0 && bytes + size > TEXT_BATCH_BYTES) break;
+    bytes += size;
+    batch.push(file);
+  }
+  if (batch.length < 2) return;
+  for (const file of batch) file.batched = true;
+  const texts = await asLinker(run.state, run.database.orgId, () =>
+    readTextsTogether(
+      {
+        owner: run.state.owner,
+        repo: run.state.repo,
+        connectionId: run.state.connectionId,
+        signal: run.signal,
+      },
+      batch.map((file) => file.entry.sha),
+    ),
+  );
+  for (const file of batch) {
+    const text = texts.get(file.entry.sha);
+    if (text !== undefined) file.text = text;
+  }
+}
+
+/** A file read and built into the page it becomes, ready to write. */
+interface BuiltFile {
+  file: PlannedFile;
+  page: Awaited<ReturnType<typeof buildPage>>["page"];
+  values: Record<string, unknown>;
+  state: RowState;
+}
+
+/**
+ * Reads a file and builds its page, copying its images into storage. A file
+ * that can't become a page comes back as the reason it's skipped.
+ */
+async function buildFile(
+  run: SyncRun,
+  file: PlannedFile,
+): Promise<BuiltFile | { skipped: GitHubSourceSkipReason }> {
+  const text = await readFileText(run, file);
+  if (text === null) return { skipped: "not-text" };
+  const { draft, page, assets, imagesWaiting } = await buildPage(
+    run,
+    file.entry.path,
+    text,
+  );
+  if (page.content.length > MAX_IMPORT_PAGE_CHARACTERS) {
+    return { skipped: "too-large" };
+  }
+  file.imagesWaiting = imagesWaiting;
+  const values = frontmatterValues(draft);
+  return {
+    file,
+    page,
+    values,
+    state: {
+      path: file.repoPath,
+      blobSha: file.entry.sha,
+      contentHash: hash(page.content),
+      metaHash: metaHash(page),
+      frontmatterId: frontmatterId(values),
+      assets,
+      ...(imagesWaiting ? { imagesWaiting } : {}),
+    },
+  };
+}
+
+/** Holds the collection's next positions while a write may append to it. */
+function withAppendPositions<T>(run: SyncRun, write: () => Promise<T>) {
+  return withPositionLock(
+    documentsPositionScope(run.database.ownerEmail, run.database.documentId),
+    () => withPositionLock(databaseItemsPositionScope(run.database.id), write),
+  );
+}
+
 /**
  * Reads one file and makes its row match it, in one transaction. A file
  * that can't become a page is skipped with its reason, and its row, if it
@@ -1238,253 +1410,355 @@ async function applyFile(
   run: SyncRun,
   file: PlannedFile,
 ): Promise<FileOutcome> {
-  const relativePath = file.entry.path;
-  const text = await readFileText(run, file);
-  if (text === null) return { skipped: "not-text" };
-  const { draft, page, assets, imagesWaiting } = await buildPage(
-    run,
-    relativePath,
-    text,
-  );
-  if (page.content.length > MAX_IMPORT_PAGE_CHARACTERS) {
-    return { skipped: "too-large" };
-  }
-  file.imagesWaiting = imagesWaiting;
-  const values = frontmatterValues(draft);
+  const built = await buildFile(run, file);
+  if ("skipped" in built) return built;
+  const { page, values, state: nextState } = built;
   const linkedRow = file.row ?? file.renamedFrom;
   const previous = linkedRow ? rowState(linkedRow) : null;
-  const nextState: RowState = {
-    path: file.repoPath,
-    blobSha: file.entry.sha,
-    contentHash: hash(page.content),
-    metaHash: metaHash(page),
-    frontmatterId: frontmatterId(values),
-    assets,
-    ...(imagesWaiting ? { imagesWaiting } : {}),
-  };
 
-  return withPositionLock(
-    documentsPositionScope(run.database.ownerEmail, run.database.documentId),
-    () =>
-      withPositionLock(databaseItemsPositionScope(run.database.id), () =>
-        run.db.transaction(async (tx: Db): Promise<FileOutcome> => {
-          await lockLinkedCollection(tx, run);
-          // A restore that released the page since this sync planned the
-          // file deleted its record; the file then gets a new page.
-          const linked =
-            linkedRow && (await recordStillLinked(tx, linkedRow))
-              ? linkedRow
-              : null;
-          if (linked) {
-            const [document] = await tx
-              .select()
-              .from(schema.documents)
-              .where(eq(schema.documents.id, linked.documentId));
-            if (document) {
-              const bodyChanged =
-                !previous ||
-                previous.contentHash !== nextState.contentHash ||
-                previous.metaHash !== nextState.metaHash;
-              const moved = document.sourcePath !== file.repoPath;
-              if (bodyChanged) {
-                const [written] = await tx
-                  .update(schema.documents)
-                  .set({
-                    title: page.title,
-                    content: page.content,
-                    bodyRevision: bodyRevisionForContent(page.content),
-                    description: page.description ?? "",
-                    icon: page.icon ?? document.icon,
-                    sourcePath: file.repoPath,
-                    sourceUpdatedAt: run.now,
-                    updatedAt: run.now,
-                  })
-                  .where(eq(schema.documents.id, document.id))
-                  .returning({ bodyRevision: schema.documents.bodyRevision });
-                if (
-                  document.title !== page.title ||
-                  document.content !== page.content
-                ) {
-                  await recordDocumentHistoryTransition({
-                    db: tx,
-                    ownerEmail: document.ownerEmail,
-                    documentId: document.id,
-                    before: {
-                      title: document.title,
-                      content: document.content,
-                    },
-                    after: { title: page.title, content: page.content },
-                    beforeBodyRevision: document.bodyRevision,
-                    afterBodyRevision: written?.bodyRevision,
-                    cause: {
-                      groupId: `github:${run.sourceId}:${run.commitSha}:${document.id}`,
-                      groupKind: "operation",
-                      actorKind: "source",
-                      actorEmail: null,
-                      origin: "github",
-                      operation: GITHUB_SYNC_OPERATION,
-                    },
-                    now: run.now,
-                  });
-                }
-              } else if (moved) {
-                await tx
-                  .update(schema.documents)
-                  .set({
-                    sourcePath: file.repoPath,
-                    sourceUpdatedAt: run.now,
-                    updatedAt: run.now,
-                  })
-                  .where(eq(schema.documents.id, document.id));
-              }
-              const valuesChanged = await writePropertyValues(
-                tx,
-                run,
-                document.id,
-                values,
-              );
-              await upsertSourceRow(tx, run, {
-                rowId: linked.id,
-                itemId: linked.databaseItemId,
+  return withAppendPositions(run, () =>
+    run.db.transaction(async (tx: Db): Promise<FileOutcome> => {
+      await lockLinkedCollection(tx, run);
+      // A restore that released the page since this sync planned the
+      // file deleted its record; the file then gets a new page.
+      const linked =
+        linkedRow && (await recordStillLinked(tx, linkedRow))
+          ? linkedRow
+          : null;
+      if (linked) {
+        const [document] = await tx
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, linked.documentId));
+        if (document) {
+          const bodyChanged =
+            !previous ||
+            previous.contentHash !== nextState.contentHash ||
+            previous.metaHash !== nextState.metaHash;
+          const moved = document.sourcePath !== file.repoPath;
+          if (bodyChanged) {
+            const [written] = await tx
+              .update(schema.documents)
+              .set({
+                title: page.title,
+                content: page.content,
+                bodyRevision: bodyRevisionForContent(page.content),
+                description: page.description ?? "",
+                icon: page.icon ?? document.icon,
+                sourcePath: file.repoPath,
+                sourceUpdatedAt: run.now,
+                updatedAt: run.now,
+              })
+              .where(eq(schema.documents.id, document.id))
+              .returning({ bodyRevision: schema.documents.bodyRevision });
+            if (
+              document.title !== page.title ||
+              document.content !== page.content
+            ) {
+              await recordDocumentHistoryTransition({
+                db: tx,
+                ownerEmail: document.ownerEmail,
                 documentId: document.id,
-                state: nextState,
-                values,
+                before: {
+                  title: document.title,
+                  content: document.content,
+                },
+                after: { title: page.title, content: page.content },
+                beforeBodyRevision: document.bodyRevision,
+                afterBodyRevision: written?.bodyRevision,
+                cause: {
+                  groupId: `github:${run.sourceId}:${run.commitSha}:${document.id}`,
+                  groupKind: "operation",
+                  actorKind: "source",
+                  actorEmail: null,
+                  origin: "github",
+                  operation: GITHUB_SYNC_OPERATION,
+                },
+                now: run.now,
               });
-              return file.renamedFrom
-                ? "renamed"
-                : bodyChanged || valuesChanged
-                  ? "updated"
-                  : "unchanged";
             }
-            // The page is gone for good (purged from Trash): the file gets a
-            // new page, and the stale row is replaced below.
+          } else if (moved) {
             await tx
-              .delete(schema.contentDatabaseSourceRows)
-              .where(eq(schema.contentDatabaseSourceRows.id, linked.id));
+              .update(schema.documents)
+              .set({
+                sourcePath: file.repoPath,
+                sourceUpdatedAt: run.now,
+                updatedAt: run.now,
+              })
+              .where(eq(schema.documents.id, document.id));
           }
-
-          let documentId = run.documentIdByPath.get(relativePath)!;
-          const [taken] = await tx
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(eq(schema.documents.id, documentId));
-          if (taken) {
-            documentId = opaqueId(
-              "content_github_page",
-              `${run.sourceId}:${file.repoPath}:${run.commitSha}`,
-            );
-            run.documentIdByPath.set(relativePath, documentId);
-          }
-          const itemId = itemIdForDocument(run, documentId);
-          const [maxDocument] = await tx
-            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-            .from(schema.documents)
-            .where(
-              and(
-                eq(schema.documents.ownerEmail, run.database.ownerEmail),
-                eq(schema.documents.parentId, run.database.documentId),
-              ),
-            );
-          const [maxItem] = await tx
-            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-            .from(schema.contentDatabaseItems)
-            .where(eq(schema.contentDatabaseItems.databaseId, run.database.id));
-          await tx.insert(schema.documents).values({
-            id: documentId,
-            spaceId: run.database.spaceId ?? run.databaseDocument.spaceId,
-            ownerEmail: run.database.ownerEmail,
-            orgId: run.database.orgId,
-            parentId: run.database.documentId,
-            title: page.title,
-            content: page.content,
-            description: page.description ?? "",
-            icon: page.icon,
-            position: nextAppendPosition(maxDocument?.max),
-            isFavorite: 0,
-            hideFromSearch: run.databaseDocument.hideFromSearch ?? 0,
-            visibility: run.databaseDocument.visibility ?? "private",
-            sourceMode: "github",
-            sourceKind: "file",
-            sourcePath: file.repoPath,
-            sourceRootPath: run.sourceTable,
-            sourceUpdatedAt: run.now,
-            createdBy: run.actor,
-            updatedBy: run.actor,
-            createdAt: run.now,
-            updatedAt: run.now,
-          });
-          await tx.insert(schema.contentDatabaseItems).values({
-            id: itemId,
-            ownerEmail: run.database.ownerEmail,
-            orgId: run.database.orgId,
-            databaseId: run.database.id,
-            documentId,
-            position: nextAppendPosition(maxItem?.max),
-            createdAt: run.now,
-            updatedAt: run.now,
-          });
-          const shares = await tx
-            .select({
-              principalType: schema.documentShares.principalType,
-              principalId: schema.documentShares.principalId,
-              role: schema.documentShares.role,
-            })
-            .from(schema.documentShares)
-            .where(
-              eq(schema.documentShares.resourceId, run.database.documentId),
-            );
-          if (shares.length > 0) {
-            await tx.insert(schema.documentShares).values(
-              shares.map((share) => ({
-                id: nanoid(),
-                resourceId: documentId,
-                principalType: share.principalType,
-                principalId: share.principalId,
-                role: share.role,
-                createdBy: run.actor,
-                createdAt: run.now,
-              })),
-            );
-          }
-          await ensureDocumentsFilesMembership(
+          const valuesChanged = await writePropertyValues(
             tx,
-            [documentId],
-            run.now,
-            run.database.ownerEmail,
+            run,
+            document.id,
+            values,
           );
-          const created = { title: page.title, content: page.content };
-          await recordDocumentHistoryTransition({
-            db: tx,
-            ownerEmail: run.database.ownerEmail,
-            documentId,
-            before: created,
-            after: created,
-            cause: {
-              groupId: `github:${run.sourceId}:${run.commitSha}:${documentId}`,
-              groupKind: "operation",
-              actorKind: "source",
-              actorEmail: null,
-              origin: "github",
-              skipBeforeCheckpoint: true,
-              operation: GITHUB_SYNC_OPERATION,
-            },
-            now: run.now,
-          });
-          await writePropertyValues(tx, run, documentId, values);
           await upsertSourceRow(tx, run, {
-            rowId: opaqueId(
-              "content_source_row",
-              `${run.sourceId}:${documentId}`,
-            ),
-            itemId,
-            documentId,
+            rowId: linked.id,
+            itemId: linked.databaseItemId,
+            documentId: document.id,
             state: nextState,
             values,
           });
-          return "created";
-        }),
-      ),
+          return file.renamedFrom
+            ? "renamed"
+            : bodyChanged || valuesChanged
+              ? "updated"
+              : "unchanged";
+        }
+        // The page is gone for good (purged from Trash): the file gets a
+        // new page, and the stale row is replaced below.
+        await tx
+          .delete(schema.contentDatabaseSourceRows)
+          .where(eq(schema.contentDatabaseSourceRows.id, linked.id));
+      }
+      await insertNewPages(tx, run, [built]);
+      return "created";
+    }),
   );
+}
+
+/** New files a sync writes in one transaction. */
+const NEW_FILE_BATCH = 50;
+
+/** A file without a page yet, which a batch can write with others like it. */
+function isNewFile(file: PlannedFile) {
+  return !file.row && !file.renamedFrom;
+}
+
+/**
+ * Builds new files' pages, then writes them together in one transaction, so
+ * a big folder's first fill doesn't spend most of its time on round trips.
+ * Returns an outcome for each file it got to, in order. Once the sync's time
+ * is up it starts no more files. When the time runs out reading one, it
+ * writes the pages before it and returns that file as `cutShort`; the files
+ * after it wait for the next sync. Any other failure while reading also
+ * writes the pages before it, then comes back as `failure`.
+ */
+async function applyNewFiles(
+  run: SyncRun,
+  files: PlannedFile[],
+): Promise<{
+  outcomes: FileOutcome[];
+  cutShort: PlannedFile | null;
+  failure: unknown;
+}> {
+  const outcomes: FileOutcome[] = [];
+  const pages: BuiltFile[] = [];
+  let cutShort: PlannedFile | null = null;
+  let failure: unknown = null;
+  for (const file of files) {
+    if (run.signal.aborted) break;
+    try {
+      const built = await buildFile(run, file);
+      outcomes.push("skipped" in built ? built : "created");
+      if (!("skipped" in built)) pages.push(built);
+    } catch (error) {
+      if (error instanceof GitHubSourceDeadlineError) cutShort = file;
+      else failure = error;
+      break;
+    }
+  }
+  if (pages.length > 0) {
+    await withAppendPositions(run, () =>
+      run.db.transaction(async (tx: Db) => {
+        await lockLinkedCollection(tx, run);
+        await insertNewPages(tx, run, pages);
+      }),
+    );
+  }
+  return { outcomes, cutShort, failure };
+}
+
+/**
+ * Writes rows a few statements at a time rather than one a row, each small
+ * enough for SQLite's cap on the values one statement carries.
+ */
+async function inStatements<T extends object>(
+  rows: T[],
+  write: (rows: T[]) => Promise<unknown>,
+) {
+  if (rows.length === 0) return;
+  const size = bulkChunkSizeForColumnCount(Object.keys(rows[0]!).length);
+  for (const chunk of chunks(rows, size)) await write(chunk);
+}
+
+/**
+ * Adds new files' pages to the collection, a statement a table rather than
+ * a statement a page: the pages and their rows, after the rows already
+ * there, the collection's shares, History's first checkpoint, the
+ * frontmatter's values, and the records that tie each page to its file. The
+ * caller's transaction holds the collection's lock.
+ */
+async function insertNewPages(tx: Db, run: SyncRun, pages: BuiltFile[]) {
+  // An id an earlier link of this folder left on a page, like one in Trash,
+  // stays that page's; the file's new page gets an id tied to this commit.
+  const wanted = pages.map(
+    ({ file }) => run.documentIdByPath.get(file.entry.path)!,
+  );
+  const taken = new Set(
+    (
+      await tx
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(inArray(schema.documents.id, wanted))
+    ).map((row: { id: string }) => row.id),
+  );
+  const documentIds = pages.map(({ file }, index) => {
+    if (!taken.has(wanted[index]!)) return wanted[index]!;
+    const id = opaqueId(
+      "content_github_page",
+      `${run.sourceId}:${file.repoPath}:${run.commitSha}`,
+    );
+    run.documentIdByPath.set(file.entry.path, id);
+    return id;
+  });
+  const itemIds = documentIds.map((id) => itemIdForDocument(run, id));
+  const [maxDocument] = await tx
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.ownerEmail, run.database.ownerEmail),
+        eq(schema.documents.parentId, run.database.documentId),
+      ),
+    );
+  const [maxItem] = await tx
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, run.database.id));
+  const documentPosition = createAppendPositionAllocator(maxDocument?.max);
+  const itemPosition = createAppendPositionAllocator(maxItem?.max);
+  await inStatements(
+    pages.map(({ file, page }, index) => ({
+      id: documentIds[index]!,
+      spaceId: run.database.spaceId ?? run.databaseDocument.spaceId,
+      ownerEmail: run.database.ownerEmail,
+      orgId: run.database.orgId,
+      parentId: run.database.documentId,
+      title: page.title,
+      content: page.content,
+      description: page.description ?? "",
+      icon: page.icon,
+      position: documentPosition(),
+      isFavorite: 0,
+      hideFromSearch: run.databaseDocument.hideFromSearch ?? 0,
+      visibility: run.databaseDocument.visibility ?? "private",
+      sourceMode: "github",
+      sourceKind: "file",
+      sourcePath: file.repoPath,
+      sourceRootPath: run.sourceTable,
+      sourceUpdatedAt: run.now,
+      createdBy: run.actor,
+      updatedBy: run.actor,
+      createdAt: run.now,
+      updatedAt: run.now,
+    })),
+    (rows) => tx.insert(schema.documents).values(rows),
+  );
+  await inStatements(
+    documentIds.map((documentId, index) => ({
+      id: itemIds[index]!,
+      ownerEmail: run.database.ownerEmail,
+      orgId: run.database.orgId,
+      databaseId: run.database.id,
+      documentId,
+      position: itemPosition(),
+      createdAt: run.now,
+      updatedAt: run.now,
+    })),
+    (rows) => tx.insert(schema.contentDatabaseItems).values(rows),
+  );
+  const shares = await tx
+    .select({
+      principalType: schema.documentShares.principalType,
+      principalId: schema.documentShares.principalId,
+      role: schema.documentShares.role,
+    })
+    .from(schema.documentShares)
+    .where(eq(schema.documentShares.resourceId, run.database.documentId));
+  await inStatements(
+    documentIds.flatMap((documentId) =>
+      shares.map((share) => ({
+        id: nanoid(),
+        resourceId: documentId,
+        principalType: share.principalType,
+        principalId: share.principalId,
+        role: share.role,
+        createdBy: run.actor,
+        createdAt: run.now,
+      })),
+    ),
+    (rows) => tx.insert(schema.documentShares).values(rows),
+  );
+  await ensureDocumentsFilesMembership(
+    tx,
+    documentIds,
+    run.now,
+    run.database.ownerEmail,
+  );
+  await recordCreatedDocumentsHistory({
+    db: tx,
+    ownerEmail: run.database.ownerEmail,
+    documents: pages.map(({ page }, index) => ({
+      documentId: documentIds[index]!,
+      title: page.title,
+      content: page.content,
+      cause: {
+        groupId: `github:${run.sourceId}:${run.commitSha}:${documentIds[index]}`,
+        groupKind: "operation",
+        actorKind: "source",
+        actorEmail: null,
+        origin: "github",
+        operation: GITHUB_SYNC_OPERATION,
+      },
+    })),
+    now: run.now,
+  });
+  // Every page's values fit the columns before any are written, and each
+  // column's new select options are added in one write.
+  const options = new Map<GitHubColumn, unknown[]>();
+  for (const { values } of pages) await fitColumns(tx, run, values, options);
+  for (const [column, values] of options) {
+    await ensureOptions(tx, column, values.flat(), run.now);
+  }
+  await inStatements(
+    pages.flatMap(({ values }, index) =>
+      newPropertyValues(run, documentIds[index]!, values),
+    ),
+    (rows) => tx.insert(schema.documentPropertyValues).values(rows),
+  );
+  const records = pages.map(({ state, values }, index) => ({
+    rowId: opaqueId(
+      "content_source_row",
+      `${run.sourceId}:${documentIds[index]}`,
+    ),
+    itemId: itemIds[index]!,
+    documentId: documentIds[index]!,
+    state,
+    values,
+  }));
+  const inserted = new Set<string>();
+  await inStatements(
+    records.map((record) => ({
+      id: record.rowId,
+      ownerEmail: run.database.ownerEmail,
+      createdAt: run.now,
+      ...sourceRowFields(run, record),
+    })),
+    async (rows) => {
+      const written = await tx
+        .insert(schema.contentDatabaseSourceRows)
+        .values(rows)
+        .onConflictDoNothing()
+        .returning({ id: schema.contentDatabaseSourceRows.id });
+      for (const row of written) inserted.add(row.id);
+    },
+  );
+  // A record an earlier link of the same page left behind is brought up to date.
+  for (const record of records) {
+    if (!inserted.has(record.rowId)) await upsertSourceRow(tx, run, record);
+  }
 }
 
 /**
@@ -1915,10 +2189,60 @@ export async function syncGitHubSource(
     readSkipsSoFar = readSkips;
     let done = 0;
     let cutShortPath: string | null = null;
-    for (const file of work) {
+    const record = (file: PlannedFile, outcome: FileOutcome) => {
+      if (typeof outcome === "string") result[outcome] += 1;
+      else
+        readSkips.push({
+          path: file.entry.path,
+          reason: outcome.skipped,
+          blobSha: file.entry.sha,
+        });
+      done += 1;
+    };
+    for (let index = 0; index < work.length; ) {
       if (outOfTime()) break;
+      const file = work[index]!;
+      // New files go in batches, unless a file that left the folder may
+      // claim one by its frontmatter id, which only reading it shows.
+      if (isNewFile(file) && goneById.size === 0) {
+        let end = index + 1;
+        while (
+          end < work.length &&
+          end - index < NEW_FILE_BATCH &&
+          isNewFile(work[end]!)
+        ) {
+          end++;
+        }
+        const batch = work.slice(index, end);
+        try {
+          await readTextsAhead(run, work, index);
+        } catch (error) {
+          // A read the deadline cut short leaves its files for the next
+          // sync, which takes the first after the rest.
+          if (error instanceof GitHubSourceDeadlineError) {
+            cutShortPath = file.repoPath;
+            break;
+          }
+          throw error;
+        }
+        const written = await applyNewFiles(run, batch);
+        written.outcomes.forEach((outcome, offset) =>
+          record(batch[offset]!, outcome),
+        );
+        index += written.outcomes.length;
+        if (written.failure) throw written.failure;
+        if (written.cutShort) {
+          cutShortPath = written.cutShort.repoPath;
+          break;
+        }
+        continue;
+      }
+      index += 1;
       let outcome: Awaited<ReturnType<typeof applyFile>>;
       try {
+        if (file.text === undefined && !file.batched) {
+          await readTextsAhead(run, work, index - 1);
+        }
         if (!file.row && !file.renamedFrom && goneById.size > 0) {
           // Only a read shows the id, so the claim waits until the file is read.
           const text = await readFileText(run, file);
@@ -1951,14 +2275,7 @@ export async function syncGitHubSource(
         }
         throw error;
       }
-      if (typeof outcome === "string") result[outcome] += 1;
-      else
-        readSkips.push({
-          path: file.entry.path,
-          reason: outcome.skipped,
-          blobSha: file.entry.sha,
-        });
-      done += 1;
+      record(file, outcome);
     }
     const remainingFiles = work.length - done;
     if (remainingFiles === 0) {

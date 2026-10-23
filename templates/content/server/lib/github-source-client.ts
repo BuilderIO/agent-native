@@ -168,7 +168,7 @@ function endedByCallerDeadline(error: unknown): boolean {
 async function githubGet(
   target: GitHubRepositoryTarget,
   path: string,
-  options: { etag?: string | null; maxBytes?: number } = {},
+  options: { etag?: string | null; maxBytes?: number; graphql?: unknown } = {},
 ): Promise<ProviderResponse> {
   // The provider client can hold a request past this signal: it waits its
   // turn under GitHub's rate limits, and identical reads in flight share one
@@ -183,9 +183,11 @@ async function githubGet(
     const ending = target.signal ? deadlineSignal(target.signal) : null;
     const request = executeGitHubSourceRequest({
       provider: "github",
-      method: "GET",
+      // A GraphQL query is a read too, sent as a POST.
+      method: options.graphql ? "POST" : "GET",
       path,
       headers: options.etag ? { "If-None-Match": options.etag } : undefined,
+      body: options.graphql,
       connectionId: target.connectionId ?? undefined,
       maxBytes: options.maxBytes,
       timeoutMs: REQUEST_TIMEOUT_MS,
@@ -479,6 +481,72 @@ export async function readGitHubFolderTree(
     });
   }
   return entries;
+}
+
+const BLOB_TEXTS_MAX_BYTES = 8 * 1024 * 1024;
+const OBJECT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+/** What GitHub puts in place of bytes that aren't UTF-8. */
+const REPLACEMENT_CHARACTER = "\uFFFD";
+
+/**
+ * Reads many text files in one request, by blob SHA. GitHub's GraphQL API
+ * counts one query as one request however many files it names, where the
+ * REST API takes a request per file. A file it sends no whole text for,
+ * because it's binary, too big for GraphQL, not UTF-8 or missing, is left
+ * out of the result, so the caller reads it on its own.
+ */
+export async function readGitHubBlobTexts(
+  target: GitHubRepositoryTarget,
+  shas: readonly string[],
+): Promise<Map<string, string>> {
+  const wanted = [...new Set(shas)].filter((sha) => OBJECT_ID.test(sha));
+  const texts = new Map<string, string>();
+  if (wanted.length === 0) return texts;
+  const fields = wanted
+    .map(
+      (sha, index) =>
+        `b${index}: object(oid: "${sha}") { ... on Blob { text isBinary isTruncated } }`,
+    )
+    .join(" ");
+  const response = await githubGet(target, "/graphql", {
+    maxBytes: BLOB_TEXTS_MAX_BYTES,
+    graphql: {
+      query: `query($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { ${fields} } }`,
+      variables: { owner: target.owner, repo: target.repo },
+    },
+  });
+  // GraphQL answers a query it can't run, like one over its own rate limit,
+  // with 200 and a list of errors instead of the repository.
+  const body = asRecord(response.json);
+  const repository = asRecord(body.data).repository;
+  if (!repository || typeof repository !== "object") {
+    const errors = Array.isArray(body.errors) ? body.errors : [];
+    const message = asRecord(errors[0]).message;
+    throw new GitHubSourceError(
+      "unavailable",
+      typeof message === "string"
+        ? `GitHub couldn't read the files together: ${message}`
+        : "GitHub couldn't read the files together.",
+      response.status,
+    );
+  }
+  const blobs = asRecord(repository);
+  wanted.forEach((sha, index) => {
+    const blob = asRecord(blobs[`b${index}`]);
+    if (
+      typeof blob.text !== "string" ||
+      blob.isBinary !== false ||
+      blob.isTruncated !== false ||
+      // GitHub swaps bytes that aren't UTF-8 for this; a read of the file's
+      // bytes decides whether it's text.
+      blob.text.includes(REPLACEMENT_CHARACTER)
+    ) {
+      return;
+    }
+    // A file's bytes decode without a leading byte order mark; so does this.
+    texts.set(sha, blob.text.replace(/^\uFEFF/, ""));
+  });
+  return texts;
 }
 
 /** Reads one file's bytes by blob SHA, which never changes for the same content. */

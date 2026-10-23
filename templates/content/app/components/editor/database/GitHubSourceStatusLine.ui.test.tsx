@@ -4,7 +4,7 @@ import type {
   ContentGitHubSourceStatus,
 } from "@shared/api";
 import { act } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SyncGitHubFolderResponse } from "@/hooks/use-github-folder";
 import { click, renderUi } from "@/test-utils/render-ui";
@@ -16,6 +16,7 @@ type MutateOptions<T> = {
 
 const sync = vi.hoisted(() => ({
   mutate: vi.fn(),
+  mutateAsync: vi.fn(),
   isPending: false,
 }));
 const unlink = vi.hoisted(() => ({
@@ -161,6 +162,8 @@ describe("GitHub source status line", () => {
   beforeEach(() => {
     sync.mutate.mockReset();
     sync.isPending = false;
+    sync.mutateAsync.mockReset();
+    sync.mutateAsync.mockReturnValue(new Promise(() => {}));
     unlink.mutate.mockReset();
     unlink.isPending = false;
     oauth.start.mockReset();
@@ -342,5 +345,180 @@ describe("GitHub source status line", () => {
       sourceType: "builder-cms",
     } as ContentDatabaseSource);
     expect(document.querySelector("[data-github-source-status]")).toBe(null);
+  });
+});
+
+describe("Filling while the collection is open", () => {
+  const filling = () =>
+    githubSource({
+      pendingCommitSha: "abcdef1234567",
+      progress: { done: 40, total: 120 },
+    });
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  }
+
+  function showTab(visibility: DocumentVisibilityState) {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibility,
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+  }
+
+  /** Lets every sync that's ready to start, start. */
+  async function settle() {
+    for (let turn = 0; turn < 5; turn++) {
+      await act(async () => {});
+    }
+  }
+
+  function expectNoToasts() {
+    expect(toasts.toast).not.toHaveBeenCalled();
+    expect(toasts.toast.success).not.toHaveBeenCalled();
+    expect(toasts.toast.error).not.toHaveBeenCalled();
+  }
+
+  beforeEach(() => {
+    sync.mutateAsync.mockReset();
+    sync.mutateAsync.mockReturnValue(new Promise(() => {}));
+    toasts.toast.mockReset();
+    toasts.toast.success.mockReset();
+    toasts.toast.error.mockReset();
+    showTab("visible");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("asks for the next part as soon as the last one comes back, without toasts", async () => {
+    sync.mutateAsync
+      .mockResolvedValueOnce(syncResult({ state: "partial", remaining: 80 }))
+      .mockResolvedValueOnce(
+        syncResult({
+          state: "partial",
+          remaining: 40,
+          problem: problem("storage_unavailable"),
+        }),
+      )
+      .mockResolvedValueOnce(syncResult({ state: "synced" }));
+    renderLine(filling());
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(3);
+    expect(sync.mutateAsync).toHaveBeenCalledWith({ databaseId: "database-1" });
+    expectNoToasts();
+  });
+
+  it.each([
+    ["the folder is current", syncResult({ state: "synced" })],
+    ["nothing changed", syncResult({ state: "unchanged" })],
+    [
+      "GitHub asked it to slow down",
+      syncResult({ state: "partial", problem: problem("rate_limited") }),
+    ],
+    [
+      "the sync failed",
+      syncResult({ state: "error", problem: problem("unavailable") }),
+    ],
+  ])("stops when %s", async (_why, result) => {
+    sync.mutateAsync.mockResolvedValue(result);
+    renderLine(filling());
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+    expectNoToasts();
+  });
+
+  it("stops when a sync throws", async () => {
+    sync.mutateAsync.mockRejectedValue(new Error("Network down"));
+    renderLine(filling());
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+    expectNoToasts();
+  });
+
+  it("waits a moment while the background sweep holds the sync", async () => {
+    vi.useFakeTimers();
+    sync.mutateAsync
+      .mockResolvedValueOnce(syncResult({ state: "busy" }))
+      .mockResolvedValueOnce(syncResult({ state: "synced" }));
+    renderLine(filling());
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_900);
+    });
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+    });
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+    expectNoToasts();
+  });
+
+  it("pauses in a hidden tab and picks up when the tab shows again", async () => {
+    const first = deferred<SyncGitHubFolderResponse>();
+    sync.mutateAsync
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce(syncResult({ state: "synced" }));
+    renderLine(filling());
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+
+    showTab("hidden");
+    await act(async () => first.resolve(syncResult({ state: "partial" })));
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+
+    showTab("visible");
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it("doesn't start in a hidden tab", async () => {
+    showTab("hidden");
+    renderLine(filling());
+    await settle();
+    expect(sync.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("stops when the collection closes", async () => {
+    const first = deferred<SyncGitHubFolderResponse>();
+    sync.mutateAsync.mockReturnValueOnce(first.promise);
+    const { rerender } = renderUi(
+      <GitHubSourceStatusLine
+        source={filling()}
+        documentId="doc-1"
+        canEdit
+        pageCount={4}
+      />,
+    );
+    await settle();
+    rerender(null);
+    await act(async () => first.resolve(syncResult({ state: "partial" })));
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a folder alone that isn't filling or that a problem stopped", async () => {
+    renderLine(githubSource());
+    renderLine(
+      githubSource({
+        pendingCommitSha: "abcdef1234567",
+        progress: { done: 40, total: 120 },
+        problem: problem("rate_limited"),
+      }),
+    );
+    await settle();
+    expect(sync.mutateAsync).not.toHaveBeenCalled();
   });
 });
