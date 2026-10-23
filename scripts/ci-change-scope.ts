@@ -316,21 +316,29 @@ export const QUERY_BUDGET_SHARD_COUNT = 2;
 // every one; a template change rebuilds only that template.
 export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
 
-// Slides authoring splits into browser shards. Shared-package changes run only
-// the first; Slides changes and full runs run all three, and the nightly run on
-// main covers the rest for shared-package changes.
+// Slides authoring splits into jobs, run inside the prebuilt image in
+// docker/ci-slides-authoring. The `--authoring` parity suite is the longest
+// single command, so each browser runs it as three slices. Shared-package
+// changes run only the Chromium jobs; Slides changes and full runs run all of
+// them, and the nightly run on main covers the rest for shared-package changes.
+export const SLIDES_AUTHORING_PR_SHARDS = [
+  "chromium-1",
+  "chromium-2",
+  "chromium-3",
+] as const;
 export const SLIDES_AUTHORING_SHARDS = [
-  "chromium-authoring",
-  "corpus-and-firefox",
-  "webkit",
+  ...SLIDES_AUTHORING_PR_SHARDS,
+  "webkit-1",
+  "webkit-2",
+  "webkit-3",
+  "corpus",
+  "fuzz",
 ] as const;
 
 export function slidesAuthoringMatrix(full: boolean): {
   include: { shard: string }[];
 } {
-  const shards = full
-    ? SLIDES_AUTHORING_SHARDS
-    : SLIDES_AUTHORING_SHARDS.slice(0, 1);
+  const shards = full ? SLIDES_AUTHORING_SHARDS : SLIDES_AUTHORING_PR_SHARDS;
   return { include: shards.map((shard) => ({ shard })) };
 }
 
@@ -1201,8 +1209,13 @@ function buildChecks(
     measuresEveryQueryBudgetApp(changedPaths) ||
     hasPath(changedPaths, "packages/creative-context/") ||
     changedQueryBudgetApps(changedPaths).length > 0;
+  const slidesAuthoringImageChanged = hasPath(
+    changedPaths,
+    "docker/ci-slides-authoring/",
+  );
   const slidesE2eChanged =
     hasPath(changedPaths, "templates/slides/") ||
+    slidesAuthoringImageChanged ||
     coreChanged ||
     toolkitChanged ||
     hasPath(changedPaths, "packages/creative-context/");
@@ -1285,7 +1298,8 @@ function buildChecks(
     pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
-    slides_authoring_full: hasPath(changedPaths, "templates/slides/"),
+    slides_authoring_full:
+      hasPath(changedPaths, "templates/slides/") || slidesAuthoringImageChanged,
     slides_oracle: changedPaths.some(isSlidesOraclePath),
     changeset: changedPaths.some(isChangesetPath),
   };

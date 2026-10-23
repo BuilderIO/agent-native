@@ -1,0 +1,33 @@
+name: Ensure the Slides authoring CI image
+description: >-
+  Publish the image the Slides authoring jobs run in, unless its tag already
+  exists, and output the reference. The tag is the hash of the Dockerfile, so
+  the image is rebuilt only when the Dockerfile changes. The caller checks out
+  docker/ci-slides-authoring and needs `packages: write`; a fork PR token
+  cannot push, so a fork that edits the Dockerfile fails here instead of
+  running against a stale image.
+
+outputs:
+  image:
+    description: Full image reference with the Dockerfile-hash tag.
+    value: ${{ steps.image.outputs.name }}
+
+runs:
+  using: composite
+  steps:
+    - id: image
+      shell: bash
+      run: echo "name=ghcr.io/builderio/agent-native-ci-slides-authoring:${{ hashFiles('docker/ci-slides-authoring/Dockerfile') }}" >> "$GITHUB_OUTPUT"
+
+    - name: Build and push the image when its tag is missing
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        if docker manifest inspect "${{ steps.image.outputs.name }}" >/dev/null 2>&1; then
+          echo "Image already published; skipping the build."
+          exit 0
+        fi
+        docker build -t "${{ steps.image.outputs.name }}" docker/ci-slides-authoring
+        docker push "${{ steps.image.outputs.name }}"

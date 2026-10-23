@@ -1571,12 +1571,42 @@ jobs:
         timeout-minutes: 10
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform darwin
 
-  slides-authoring-e2e:
-    name: Slides rich-text authoring (${{ matrix.shard }})
+  slides-authoring-image:
+    name: Slides authoring image
     needs: change-scope
     if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: |
+            .github/actions/slides-authoring-image
+            docker/ci-slides-authoring
+
+      - id: image
+        uses: ./.github/actions/slides-authoring-image
+
+  slides-authoring-e2e:
+    name: Slides rich-text authoring (${{ matrix.shard }})
+    needs: [change-scope, slides-authoring-image]
+    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.slides-authoring-image.outputs.image }}
+      options: --ipc=host
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.change-scope.outputs.slides_authoring_matrix) }}

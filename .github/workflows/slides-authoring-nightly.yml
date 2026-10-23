@@ -1,8 +1,8 @@
 name: Slides authoring nightly
 
-# PRs that change only shared packages run one Slides authoring shard. This runs
-# all three against main so a WebKit, Firefox, or corpus break from shared code
-# is caught within a day.
+# PRs that change only shared packages run the Chromium Slides authoring jobs.
+# This runs every job against main so a WebKit, Firefox, or corpus break from
+# shared code is caught within a day.
 on:
   schedule:
     - cron: "43 7 * * *"
@@ -16,14 +16,53 @@ permissions:
   contents: read
 
 jobs:
-  slides-authoring:
-    name: Slides rich-text authoring (${{ matrix.shard }})
+  slides-authoring-image:
+    name: Slides authoring image
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: |
+            .github/actions/slides-authoring-image
+            docker/ci-slides-authoring
+
+      - id: image
+        uses: ./.github/actions/slides-authoring-image
+
+  slides-authoring:
+    name: Slides rich-text authoring (${{ matrix.shard }})
+    needs: slides-authoring-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.slides-authoring-image.outputs.image }}
+      options: --ipc=host
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
-        shard: [chromium-authoring, corpus-and-firefox, webkit]
+        shard:
+          [
+            chromium-1,
+            chromium-2,
+            chromium-3,
+            webkit-1,
+            webkit-2,
+            webkit-3,
+            corpus,
+            fuzz,
+          ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 

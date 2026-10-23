@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   QUERY_BUDGET_APPS,
+  SLIDES_AUTHORING_PR_SHARDS,
   SLIDES_AUTHORING_SHARDS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
@@ -293,7 +294,7 @@ test("runs every Slides authoring shard for Slides and full runs, one for shared
     "packages/toolkit/src/app/chat/AgentKitAssistantChat.tsx",
     "packages/creative-context/src/index.ts",
   ]) {
-    assert.deepEqual(shardsFor([path]), ["chromium-authoring"], path);
+    assert.deepEqual(shardsFor([path]), [...SLIDES_AUTHORING_PR_SHARDS], path);
     assert.equal(
       classifyChangedPaths([path]).checks.slides_authoring_e2e,
       true,
@@ -320,16 +321,24 @@ test("the nightly run and the shard action cover every Slides authoring shard", 
 
   assert.match(nightly, /^\s+schedule:/mu);
   assert.doesNotMatch(nightly, /^\s+pull_request:/mu);
-  assert.match(
-    nightly,
-    new RegExp(`shard: \\[${SLIDES_AUTHORING_SHARDS.join(", ")}\\]`, "u"),
-  );
+  const nightlyShards = /shard:\s*\[([^\]]+)\]/u
+    .exec(nightly)?.[1]
+    .split(",")
+    .map((shard) => shard.trim())
+    .filter(Boolean);
+  assert.deepEqual(nightlyShards, [...SLIDES_AUTHORING_SHARDS]);
   for (const shard of SLIDES_AUTHORING_SHARDS) {
-    assert.match(action, new RegExp(`^\\s+${shard}\\) browsers=`, "mu"), shard);
     assert.match(
       action,
       new RegExp(`inputs\\.shard == '${shard}'`, "u"),
       shard,
+    );
+  }
+  // A step guarded by a shard the matrix never produces would never run.
+  for (const [, shard] of action.matchAll(/inputs\.shard == '([^']+)'/gu)) {
+    assert.ok(
+      (SLIDES_AUTHORING_SHARDS as readonly string[]).includes(shard),
+      `unknown shard ${shard}`,
     );
   }
   for (const workflow of [
@@ -340,6 +349,67 @@ test("the nightly run and the shard action cover every Slides authoring shard", 
       workflow,
       /uses: \.\/\.github\/actions\/slides-authoring-shard/u,
     );
+  }
+});
+
+test("every browser runs each slice of the authoring parity suite exactly once", () => {
+  const action = readFileSync(
+    ".github/actions/slides-authoring-shard/action.yml",
+    "utf8",
+  );
+  const slices = new Map<string, string[]>();
+  for (const [, slice, total, browser = "chromium"] of action.matchAll(
+    /run\.ts --authoring(?: --authoring-shard (\d+)\/(\d+))?(?: --browser (\w+))?$/gmu,
+  )) {
+    // A run without --authoring-shard would repeat every slice.
+    assert.ok(slice, "an unsharded --authoring run");
+    slices.set(browser, [...(slices.get(browser) ?? []), `${slice}/${total}`]);
+  }
+  assert.deepEqual(Object.fromEntries(slices), {
+    chromium: ["1/3", "2/3", "3/3"],
+    webkit: ["1/3", "2/3", "3/3"],
+  });
+});
+
+test("Slides authoring jobs run in the image keyed on its Dockerfile", () => {
+  const ci = readFileSync(".github/workflows/ci.yml", "utf8");
+  const nightly = readFileSync(
+    ".github/workflows/slides-authoring-nightly.yml",
+    "utf8",
+  );
+  for (const workflow of [ci, nightly]) {
+    assert.match(
+      workflow,
+      /uses: \.\/\.github\/actions\/slides-authoring-image/u,
+    );
+    assert.match(
+      workflow,
+      /image: \$\{\{ needs\.slides-authoring-image\.outputs\.image \}\}/u,
+    );
+    assert.match(workflow, /packages: write/u);
+  }
+  assert.match(
+    readFileSync(".github/actions/slides-authoring-image/action.yml", "utf8"),
+    /hashFiles\('docker\/ci-slides-authoring\/Dockerfile'\)/u,
+  );
+
+  // The browsers in the image are the ones the pinned Playwright expects.
+  const imageVersion = /playwright:v(\d+\.\d+\.\d+)-/u.exec(
+    readFileSync("docker/ci-slides-authoring/Dockerfile", "utf8"),
+  )?.[1];
+  const pinnedVersion = /^ {2}playwright: (\d+\.\d+\.\d+)$/mu.exec(
+    readFileSync("pnpm-workspace.yaml", "utf8"),
+  )?.[1];
+  assert.ok(imageVersion, "no Playwright tag in the Dockerfile");
+  assert.equal(imageVersion, pinnedVersion);
+
+  for (const path of [
+    "docker/ci-slides-authoring/Dockerfile",
+    "templates/slides/app/root.tsx",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_authoring_e2e, true, path);
+    assert.equal(scope.checks.slides_authoring_full, true, path);
   }
 });
 
@@ -355,9 +425,12 @@ test("retains Slides parity and corpus gates while keeping the full soak manual"
 
   assert.match(
     ciWorkflow,
-    /run: pnpm exec tsx scripts\/edit-fidelity\/run\.ts --authoring\n/u,
+    /run: pnpm exec tsx scripts\/edit-fidelity\/run\.ts --authoring --authoring-shard 1\/3\n/u,
   );
-  assert.match(ciWorkflow, /--authoring --browser webkit/u);
+  assert.match(
+    ciWorkflow,
+    /--authoring --authoring-shard 1\/3 --browser webkit/u,
+  );
   assert.match(ciWorkflow, /--authoring-corpus/u);
 
   for (const browser of ["chromium", "webkit", "firefox"]) {
@@ -3733,6 +3806,9 @@ test(
         ".github/workflows/slides-authoring-fuzz-soak.yml",
         ".github/workflows/slides-authoring-nightly.yml",
         ".github/actions/slides-authoring-shard/action.yml",
+        ".github/actions/slides-authoring-image/action.yml",
+        "docker/ci-slides-authoring/Dockerfile",
+        "pnpm-workspace.yaml",
         "templates/design/e2e/global-setup.ts",
         "templates/design/playwright.config.ts",
         "templates/design/e2e/css-style-helpers.ts",
