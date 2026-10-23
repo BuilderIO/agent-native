@@ -41,6 +41,7 @@ rawClient.transaction = async (
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
+  getScopedTransactionDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));

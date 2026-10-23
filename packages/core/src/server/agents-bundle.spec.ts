@@ -680,8 +680,11 @@ describe("readAgentsBundleFromFs", () => {
       "design-generation",
       "design-systems",
       "export-handoff",
+      "hubspot-email",
+      "hubspot-email-review",
       "visual-edit",
     ];
+    const promptBlock = generateSkillsPromptBlock(bundle);
 
     for (const name of expected) {
       const skill = runtimeSkills.find((candidate) => {
@@ -689,13 +692,9 @@ describe("readAgentsBundleFromFs", () => {
       });
       expect(skill, `expected runtime skill ${name}`).toBeDefined();
       expect(skill!.meta.description.trim()).toContain("Use when");
+      expect(promptBlock).toContain(skill!.meta.description.trim());
+      expect(promptBlock).toContain(`[skill-${name}]`);
     }
-
-    const promptBlock = generateSkillsPromptBlock(bundle);
-    expect(promptBlock).toContain("Generate or refine complete interactive");
-    expect(promptBlock).toContain("Export Design work");
-    expect(promptBlock).toContain("[skill-design-generation]");
-    expect(promptBlock).toContain("[skill-visual-edit]");
   });
 
   it("exposes build-an-app to the Chat runtime skill picker", () => {

@@ -1,5 +1,16 @@
 # @agent-native/dispatch
 
+## 0.40.39
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [838e1ae]
+- Updated dependencies
+- Updated dependencies [86429da]
+- Updated dependencies [7b293b2]
+  - @agent-native/toolkit@0.219.0
+
 ## 0.40.38
 
 ### Patch Changes
@@ -1333,11 +1344,5 @@
 ### Patch Changes
 
 - c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
-
-## 0.30.2
-
-### Patch Changes
-
-- 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

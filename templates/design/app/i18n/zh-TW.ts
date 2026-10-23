@@ -1510,7 +1510,8 @@ export default {
       size: "大小",
       sourceReadUnavailable: "Motion 無法在不改變其行為的情況下讀取此動畫。",
       sourceWriteUnavailable: "目前，Motion 程式碼只能寫入內嵌 HTML 設計。",
-      unresolvedStylesheets: "請先解決外部樣式表，再編輯或新增 Motion。",
+      unresolvedStylesheets:
+        "請先處理外部或執行期間產生的樣式，再編輯或新增 Motion。",
       sourceConflict:
         "時間軸有未儲存變更時，Motion 原始碼已變更。重新載入程式碼會捨棄這些變更並使用目前的原始碼。",
       reloadFromSource: "從程式碼重新載入",
@@ -1974,6 +1975,15 @@ export default {
     pinComment: "固定評論",
     export: "出口",
     downloadHtml: "下載 HTML",
+    exportHubspotHtml: "匯出 HubSpot HTML",
+    hubspotConversion: {
+      title: "轉換為 HubSpot 郵件？",
+      description: "{{name}} 需要調整為郵件相容格式。原始畫框將會保留。",
+      convert: "讓代理程式轉換",
+      cancel: "取消",
+      prompt:
+        "建立此畫框的 HubSpot 郵件版本，保留內容和品牌風格，並保留原始畫框。驗證 HTML 匯出並開啟新畫框。",
+    },
     downloadPng: "下載 PNG",
     downloadSvg: "下載 SVG",
     downloadFigmaSvg: "下載用於 Figma 的 SVG",
@@ -2131,6 +2141,9 @@ export default {
       htmlCreateError: "無法建立 HTML 下載",
       htmlDownloaded: "HTML 已下載",
       htmlExportError: "無法匯出 HTML",
+      hubspotHtmlExporting: "正在準備 HubSpot HTML…",
+      hubspotHtmlDownloaded: "已下載 HubSpot HTML",
+      hubspotHtmlExportError: "無法匯出 HubSpot HTML",
       zipCreateError: "無法建立 ZIP 下載",
       zipDownloaded: "ZIP 已下載",
       zipExportError: "無法匯出 ZIP",

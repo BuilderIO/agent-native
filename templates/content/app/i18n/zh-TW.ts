@@ -45,6 +45,9 @@ const comments = {
   ...commentAttributionMessagesByLocale["zh-TW"],
   selectTextToComment: "選取文字以新增留言",
   replyCount_other: "{{count}} 則回覆",
+  stackCollapse: "收合",
+  stackShowAll_other: "顯示此處的全部 {{count}} 則留言",
+  stackMore: "另 {{count}} 則",
   commentActions: "留言操作",
   checkSaved: "檢查已儲存的留言",
   edit: "編輯",
@@ -1082,6 +1085,13 @@ const overrides = {
     saveUnconfirmed: "無法確認是否已儲存。請先檢查此留言串，再重試。",
     backToList: "返回留言列表",
     cancel: "取消",
+    discardCommentQuestion: "要捨棄留言嗎？",
+    discardReplyQuestion: "要捨棄回覆嗎？",
+    discardEditQuestion: "要捨棄變更嗎？",
+    discardDescription: "你輸入的內容將會遺失。",
+    discardEditDescription: "你的留言會維持原樣。",
+    discard: "捨棄",
+    keepEditing: "繼續編輯",
     submit: "評論",
     askAi: "詢問 AI",
     aiSuggestChanges: "建議變更",
@@ -1139,6 +1149,10 @@ const overrides = {
     proposalEditCount_other: "{{count}} 項編輯",
     acceptRemaining: "接受其餘編輯",
     rejectRemaining: "拒絕其餘編輯",
+    acceptAll: "全部接受",
+    rejectAll: "全部拒絕",
+    suggestionReviewReadOnly:
+      "只有可以編輯此頁面的人才能接受或拒絕其中的建議。",
     moreActions: "更多操作",
     addReaction: "新增回應",
     markUnread: "標為未讀",
@@ -1300,6 +1314,8 @@ const overrides = {
     githubSyncingProgress: "正在取得變更：{{done}}/{{total}} 個檔案",
     githubPicturesWaiting:
       "在工作區管理員設定好檔案儲存空間之前，部分圖片不會顯示。",
+    githubPicturesNotSaved:
+      "部分圖片未能儲存到檔案儲存空間。每次同步都會重試。",
     githubReconnect: "重新連接 GitHub",
     githubProblemConnection: "已停止更新：GitHub 需要你重新登入。",
     githubProblemForbidden:

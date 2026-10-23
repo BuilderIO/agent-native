@@ -40,6 +40,7 @@ import {
 import { closeDbExec, getDbExec } from "@agent-native/core/db";
 import { eq, sql } from "drizzle-orm";
 
+import { createHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
 import {
@@ -194,6 +195,39 @@ afterAll(async () => {
 });
 
 describe("writeInlineSourceFilesBatch", () => {
+  it("rejects a batch that removes an email marker before changing any file", async () => {
+    const email = createHubSpotEmailHtml();
+    await execute("UPDATE design_files SET content = ? WHERE id = ?", [
+      email,
+      DESTINATION_ID,
+    ]);
+    await applyText(DESTINATION_ID, email);
+    const before = await persistedFiles();
+    await expect(
+      writeInlineSourceFilesBatch({
+        designId: DESIGN_ID,
+        files: [
+          {
+            file: sourceFile(SOURCE_ID, "source.html", SOURCE_BASE),
+            content: SOURCE_NEXT,
+            expectedVersionHash: sourceContentHash(SOURCE_BASE),
+          },
+          {
+            file: sourceFile(DESTINATION_ID, "destination.html", email),
+            content: email.replace(
+              '<meta name="agent-native:frame-type" content="hubspot-email">',
+              "",
+            ),
+            expectedVersionHash: sourceContentHash(email),
+          },
+        ],
+      }),
+    ).rejects.toThrow("Preserve the HubSpot email frame marker");
+    expect(await persistedFiles()).toEqual(before);
+    expect(await getText(SOURCE_ID)).toBe(SOURCE_BASE);
+    expect(await getText(DESTINATION_ID)).toBe(email);
+  });
+
   it("rolls back prepared collaboration state with the source transaction", async () => {
     await expect(
       withPreparedSourceFileMutation(SOURCE_ID, "agent", (lease) =>

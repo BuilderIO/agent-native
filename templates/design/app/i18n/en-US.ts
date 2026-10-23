@@ -1459,7 +1459,7 @@ export default {
       sourceWriteUnavailable:
         "Motion code can currently be written only to inline HTML designs.",
       unresolvedStylesheets:
-        "Resolve external stylesheets before editing or adding Motion.",
+        "Resolve external or runtime-generated styles before editing or adding Motion.",
       sourceConflict:
         "Motion source changed while this timeline had unsaved edits. Reload from code to discard those edits and use the current source.",
       reloadFromSource: "Reload from code",
@@ -1955,6 +1955,16 @@ export default {
     pinComment: "Pin comment",
     export: "Export",
     downloadHtml: "Download HTML",
+    exportHubspotHtml: "Export HubSpot HTML",
+    hubspotConversion: {
+      title: "Convert for HubSpot?",
+      description:
+        "{{name}} needs email-safe changes. The original frame will be preserved.",
+      convert: "Convert with agent",
+      cancel: "Cancel",
+      prompt:
+        "Create a HubSpot email version of this frame, keeping its content and branding and preserving the original. Validate the HTML export and open the new frame.",
+    },
     downloadPng: "Download PNG",
     downloadSvg: "Download SVG",
     downloadFigmaSvg: "Download for Figma (SVG)",
@@ -2149,6 +2159,9 @@ export default {
       htmlCreateError: "Could not create HTML download",
       htmlDownloaded: "HTML downloaded",
       htmlExportError: "Could not export HTML",
+      hubspotHtmlExporting: "Preparing HubSpot HTML…",
+      hubspotHtmlDownloaded: "HubSpot HTML downloaded",
+      hubspotHtmlExportError: "Could not export HubSpot HTML",
       zipCreateError: "Could not create ZIP download",
       zipDownloaded: "ZIP downloaded",
       zipExportError: "Could not export ZIP",

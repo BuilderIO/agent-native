@@ -2272,6 +2272,7 @@ export function renderDesignEditorView({
         editorClipboard,
         editorLayoutAndStructure,
         editorSourceAndSync,
+        editorExportAndHandoff,
         id,
         pendingVisualStyleWarningOpen,
       })}

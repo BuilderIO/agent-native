@@ -1,0 +1,77 @@
+name: Slides authoring nightly
+
+# PRs run the Slides authoring jobs only when a Slides authoring file changes,
+# so a WebKit, Firefox, corpus, or parity break introduced by shared code (core,
+# toolkit) reaches main unseen. This runs every job against main so it is caught
+# within a day.
+on:
+  schedule:
+    - cron: "43 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: slides-authoring-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  slides-authoring-image:
+    name: Slides authoring image
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: |
+            .github/actions/slides-authoring-image
+            docker/ci-slides-authoring
+
+      - id: image
+        uses: ./.github/actions/slides-authoring-image
+
+  slides-authoring:
+    name: Slides rich-text authoring (${{ matrix.shard }})
+    needs: slides-authoring-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.slides-authoring-image.outputs.image }}
+      options: --ipc=host
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          [
+            chromium-1,
+            chromium-2,
+            chromium-3,
+            webkit-1,
+            webkit-2,
+            webkit-3,
+            corpus,
+            fuzz,
+          ]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+          native-canvas-deps: "false"
+
+      - uses: ./.github/actions/slides-authoring-shard
+        with:
+          shard: ${{ matrix.shard }}

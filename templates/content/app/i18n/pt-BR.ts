@@ -134,6 +134,8 @@ const database = {
   githubSyncingProgress: "Trazendo mudanças: {{done}} de {{total}} arquivos",
   githubPicturesWaiting:
     "Algumas imagens só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
+  githubPicturesNotSaved:
+    "Algumas imagens não puderam ser salvas no armazenamento de arquivos. Cada sincronização tenta de novo.",
   githubReconnect: "Reconectar GitHub",
   githubProblemConnection:
     "Atualizações interrompidas: o GitHub precisa que você faça login de novo.",
@@ -1175,6 +1177,11 @@ const comments = {
   replyCount_one: "{{count}} resposta",
   replyCount_many: "{{count}} respostas",
   replyCount_other: "{{count}} respostas",
+  stackCollapse: "Recolher",
+  stackShowAll_one: "Mostrar {{count}} comentário aqui",
+  stackShowAll_many: "Mostrar os {{count}} comentários aqui",
+  stackShowAll_other: "Mostrar os {{count}} comentários aqui",
+  stackMore: "+{{count}} mais",
   commentActions: "Ações do comentário",
   checkSaved: "Verificar comentário salvo",
   edit: "Editar",
@@ -1209,6 +1216,10 @@ const comments = {
   proposalEditCount_other: "{{count}} edições",
   acceptRemaining: "Aceitar restantes",
   rejectRemaining: "Rejeitar restantes",
+  acceptAll: "Aceitar todas",
+  rejectAll: "Rejeitar todas",
+  suggestionReviewReadOnly:
+    "Somente quem pode editar esta página pode aceitar ou rejeitar as sugestões dela.",
   typeFilter: "Tipo",
   statusFilter: "Status",
   authorFilter: "Pessoa",
@@ -1666,6 +1677,13 @@ const overrides = {
   comments: {
     add: "Adicionar comentário...",
     cancel: "Cancelar",
+    discardCommentQuestion: "Descartar comentário?",
+    discardReplyQuestion: "Descartar resposta?",
+    discardEditQuestion: "Descartar alterações?",
+    discardDescription: "O que você escreveu será perdido.",
+    discardEditDescription: "Seu comentário vai continuar como estava.",
+    discard: "Descartar",
+    keepEditing: "Continuar editando",
     submit: "Comentar",
     askAi: "Perguntar à IA",
     aiBadge: "IA",

@@ -128,6 +128,8 @@ interface PendingSend {
   actionScope?: AgentActionScope;
   /** See `AgentChatMessage.approvedToolCalls`. */
   approvedToolCalls?: string[];
+  /** See `AssistantChatSendOptions.surface`. */
+  surface?: string;
 }
 
 /**
@@ -269,6 +271,7 @@ function deliverPendingSend(
       : {}),
     ...(send.usageLabel ? { usageLabel: send.usageLabel } : {}),
     ...(send.actionScope ? { actionScope: send.actionScope } : {}),
+    ...(send.surface ? { surface: send.surface } : {}),
     // An approval resume is a protocol continuation, not a visible prompt.
     ...(send.approvedToolCalls
       ? { approvedToolCalls: send.approvedToolCalls, hideUserMessage: true }
@@ -2408,6 +2411,7 @@ export function MultiTabAssistantChat({
         usageLabel,
         actionScope,
         approvedToolCalls,
+        surface,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -2471,6 +2475,7 @@ export function MultiTabAssistantChat({
           ? { submissionExpiresAt: parsed.submissionExpiresAt }
           : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
+        ...(surface ? { surface } : {}),
       };
       // Resolved once, up front, and carried with the send until a thread
       // exists to key it by. Applying it only when `model` matched

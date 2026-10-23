@@ -2,6 +2,10 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import {
+  discussionMessages,
+  discussionMessagesByLocale,
+} from "./discussion-messages";
 import { importMessagesByLocale } from "./import-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
@@ -135,6 +139,8 @@ const databaseMessages = {
   githubSyncingProgress: "Bringing in changes: {{done}} of {{total}} files",
   githubPicturesWaiting:
     "Some pictures won’t show until a workspace admin sets up file storage.",
+  githubPicturesNotSaved:
+    "Some pictures couldn’t be saved to file storage. Each sync tries them again.",
   githubReconnect: "Reconnect GitHub",
   githubProblemConnection:
     "Stopped updating: GitHub needs you to sign in again.",
@@ -1634,6 +1640,7 @@ const enUS = {
   },
   comments: {
     ...commentAttributionMessagesByLocale["en-US"],
+    ...discussionMessages,
     filter: "Filter",
     add: "Add a comment...",
     title: "Comments",
@@ -1645,6 +1652,14 @@ const enUS = {
     replyCount_few: "{{count}} replies",
     replyCount_many: "{{count}} replies",
     replyCount_other: "{{count}} replies",
+    stackCollapse: "Collapse",
+    stackShowAll_zero: "Show all {{count}} comments here",
+    stackShowAll_one: "Show {{count}} comment here",
+    stackShowAll_two: "Show all {{count}} comments here",
+    stackShowAll_few: "Show all {{count}} comments here",
+    stackShowAll_many: "Show all {{count}} comments here",
+    stackShowAll_other: "Show all {{count}} comments here",
+    stackMore: "+{{count}} more",
     commentActions: "Comment actions",
     checkSaved: "Check saved comment",
     edit: "Edit",
@@ -1654,6 +1669,13 @@ const enUS = {
       "Could not confirm saving. Check this thread before trying again.",
     backToList: "Back to comments",
     cancel: "Cancel",
+    discardCommentQuestion: "Discard comment?",
+    discardReplyQuestion: "Discard reply?",
+    discardEditQuestion: "Discard changes?",
+    discardDescription: "What you've written will be lost.",
+    discardEditDescription: "Your comment will stay as it was.",
+    discard: "Discard",
+    keepEditing: "Keep editing",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",
@@ -1735,6 +1757,10 @@ const enUS = {
     proposalEditCount_other: "{{count}} edits",
     acceptRemaining: "Accept remaining",
     rejectRemaining: "Reject remaining",
+    acceptAll: "Accept all",
+    rejectAll: "Reject all",
+    suggestionReviewReadOnly:
+      "Only people who can edit this page can accept or reject its suggestions.",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",
@@ -2538,6 +2564,7 @@ function mergeMessagesForLocale(
       ...base.comments,
       ...bundle.comments,
       ...bundle.reviewDiscussions,
+      ...discussionMessagesByLocale[locale],
     },
     landing: { ...base.landing, ...bundle.landing },
     root: { ...base.root, ...rawLiteralOverrides.root },

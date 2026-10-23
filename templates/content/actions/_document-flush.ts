@@ -13,6 +13,7 @@ import {
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 import { parseDocumentRevisionToken } from "../server/lib/document-revision.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import {
   DOCUMENT_FLUSH_PROTOCOL,
   flushAckKey,
@@ -53,6 +54,7 @@ export type OpenEditorFlushOutcome =
   | { clientId: number; flush: "unconfirmed"; reason: "legacy_editor" };
 export type OpenEditorFlushResult =
   | { status: "no_open_editor" }
+  | { status: "live_copy" }
   | {
       status: "flushed";
       editors: OpenEditorFlushOutcome[];
@@ -184,6 +186,17 @@ export async function flushOpenDocumentEditorToSql(args: {
     }
     const required = candidates.filter((value) => value.required);
     if (candidates.length === 0) return { status: "no_open_editor" };
+    // A switched page's body is its live copy, and each tab's commit to it
+    // already wrote SQL, so its editors never answer a body save: asking
+    // would wait out the deadline. Read only with an editor open, so a flush
+    // with none reads nothing beyond main's. A Blocks field outside the body
+    // still needs its save.
+    if (
+      !args.propertyId &&
+      (await bounded(isLiveBodyWriterPage(args.documentId)))
+    ) {
+      return { status: "live_copy" };
+    }
     if (required.length === 0) {
       const sessions = [
         ...new Set(

@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   QUERY_BUDGET_APPS,
+  SLIDES_AUTHORING_SHARDS,
   SSR_BOOT_APPS,
   classifyChangedPaths,
   shardQueryBudgetApps,
@@ -27,6 +28,7 @@ import {
   normalizeChangedPath,
   runtimeSourceChangesInTestTitledPr,
   scriptTestsForPaths,
+  slidesAuthoringMatrix,
   workspaceFiltersForPaths,
 } from "./ci-change-scope.ts";
 import {
@@ -238,41 +240,502 @@ test("selects Slides caret CI for exact package roots and Creative Context", () 
   );
 });
 
-test("selects Slides caret and authoring E2E for their dependency closure", () => {
+test("selects each Slides browser lane from its relevant runtime paths", () => {
+  const slides = classifyChangedPaths([
+    "templates/slides/app/components/editor/SlideEditor.tsx",
+  ]);
+  assert.equal(slides.checks.slides_caret_e2e, true);
+  assert.equal(slides.checks.slides_typing_chat_e2e, true);
+  assert.equal(slides.checks.slides_mobile_import_e2e, false);
+  assert.equal(slides.checks.slides_text_surface_e2e, true);
+  assert.equal(slides.checks.slides_authoring_e2e, true);
+
   for (const path of [
-    "templates/slides/app/components/editor/Editor.tsx",
     "packages/core/src/index.ts",
-    "packages/toolkit/src/app/chat/AgentKitAssistantChat.tsx",
+    "packages/core/src/agent/engine/run.ts",
     "packages/creative-context/src/index.ts",
   ]) {
     const scope = classifyChangedPaths([path]);
-    assert.equal(scope.checks.slides_chat_e2e, true, path);
-    assert.equal(scope.checks.slides_authoring_e2e, true, path);
+    assert.equal(scope.checks.slides_caret_e2e, false, path);
+    assert.equal(scope.checks.slides_typing_chat_e2e, false, path);
+    assert.equal(scope.checks.slides_mobile_import_e2e, false, path);
+    assert.equal(scope.checks.slides_text_surface_e2e, false, path);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
   }
 
-  const agentkit = classifyChangedPaths([
-    "packages/agentkit/src/client/index.ts",
+  const canvasInteractions = classifyChangedPaths([
+    "packages/toolkit/src/canvas-interactions/drag.ts",
   ]);
-  assert.equal(agentkit.checks.slides_chat_e2e, true);
-  assert.equal(agentkit.checks.slides_authoring_e2e, false);
+  assert.equal(canvasInteractions.checks.slides_caret_e2e, true);
+  assert.equal(canvasInteractions.checks.slides_typing_chat_e2e, false);
+  assert.equal(canvasInteractions.checks.slides_authoring_e2e, false);
+
+  for (const path of [
+    "packages/toolkit/src/app/chat/AgentKitAssistantChat.tsx",
+    "packages/toolkit/src/composer/PromptComposer.tsx",
+    "packages/agentkit/src/client/index.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_caret_e2e, false, path);
+    assert.equal(scope.checks.slides_typing_chat_e2e, true, path);
+    assert.equal(scope.checks.slides_mobile_import_e2e, false, path);
+    assert.equal(scope.checks.slides_text_surface_e2e, false, path);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+  }
 
   for (const path of [
     "templates/content/app/routes/index.tsx",
     "templates/chat/app/routes/index.tsx",
     "packages/core-corpus/src/index.ts",
+    "templates/slides/app/components/editor/ExportMenu.tsx",
+    "templates/slides/app/routes/settings.spec.tsx",
+    "templates/slides/app/components/editor/SlideEditor.test.tsx",
+    "templates/slides/scripts/edit-fidelity/run-options.test.ts",
+    "templates/slides/scripts/edit-fidelity/README.md",
+    "templates/slides/scripts/edit-fidelity/evidence/authoring-slash-menu.png",
+    "templates/slides/actions/export-pptx.ts",
+    "templates/slides/server/handlers/assets.ts",
   ]) {
     const scope = classifyChangedPaths([path]);
-    assert.equal(scope.checks.slides_chat_e2e, false, path);
+    assert.equal(scope.checks.slides_caret_e2e, false, path);
+    assert.equal(scope.checks.slides_typing_chat_e2e, false, path);
+    assert.equal(scope.checks.slides_mobile_import_e2e, false, path);
+    assert.equal(scope.checks.slides_text_surface_e2e, false, path);
     assert.equal(scope.checks.slides_authoring_e2e, false, path);
   }
 
+  for (const path of [
+    "templates/slides/app/pages/Index.tsx",
+    "templates/slides/app/components/editor/ImportDeckButton.tsx",
+    "templates/slides/app/components/editor/use-prompt-import.ts",
+    "templates/slides/app/hooks/use-slide-file-storage-status.ts",
+    "templates/slides/app/lib/prompt-file-uploads.ts",
+    "templates/slides/shared/upload-types.ts",
+    "packages/creative-context/src/eval/fixtures/launch-system-v1.pptx",
+    "packages/toolkit/src/ui/button.tsx",
+    "packages/toolkit/src/ui/dropdown-menu.tsx",
+    "packages/toolkit/src/ui/popover.tsx",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_caret_e2e, false, path);
+    assert.equal(scope.checks.slides_typing_chat_e2e, false, path);
+    assert.equal(scope.checks.slides_mobile_import_e2e, true, path);
+    assert.equal(
+      scope.checks.slides_text_surface_e2e,
+      path.endsWith("Index.tsx") ||
+        path.endsWith("/button.tsx") ||
+        path.endsWith("/dropdown-menu.tsx") ||
+        path.endsWith("/popover.tsx"),
+      path,
+    );
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+  }
+
+  for (const path of [
+    "templates/slides/app/components/comments/SlideCommentsPanel.tsx",
+    "templates/slides/app/components/comments/SlideCommentPins.tsx",
+    "templates/slides/app/components/deck/DeckCard.tsx",
+    "templates/slides/app/components/editor/EditorToolbar.tsx",
+    "templates/slides/app/components/editor/SpeakerNotesPanel.tsx",
+    "templates/slides/actions/add-slide-comment.ts",
+    "templates/slides/actions/delete-slide-comment.ts",
+    "templates/slides/actions/update-slide-comment.ts",
+    "templates/slides/app/hooks/use-slide-comments.ts",
+    "packages/toolkit/src/ui/avatar.tsx",
+    "packages/toolkit/src/ui/button.tsx",
+    "packages/toolkit/src/ui/dropdown-menu.tsx",
+    "packages/toolkit/src/ui/input.tsx",
+    "packages/toolkit/src/ui/popover.tsx",
+    "packages/toolkit/src/ui/textarea.tsx",
+    "packages/toolkit/src/ui/tooltip.tsx",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_caret_e2e, false, path);
+    assert.equal(scope.checks.slides_typing_chat_e2e, false, path);
+    assert.equal(
+      scope.checks.slides_mobile_import_e2e,
+      path.endsWith("/button.tsx") ||
+        path.endsWith("/dropdown-menu.tsx") ||
+        path.endsWith("/popover.tsx"),
+      path,
+    );
+    assert.equal(scope.checks.slides_text_surface_e2e, true, path);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+  }
+
+  for (const path of [
+    "packages/core/package.json",
+    "packages/core/src/client/agent-chat.ts",
+    "packages/core/src/client/agent-chat/index.ts",
+    "packages/core/src/client/app-config.ts",
+    "packages/core/src/client/api-path.ts",
+    "packages/core/src/client/application-state.ts",
+    "packages/core/src/client/agent-engine-readiness.ts",
+    "packages/core/src/client/agent-sidebar-state.ts",
+    "packages/core/src/client/browser-tab-id.ts",
+    "packages/core/src/client/chat-view-transition.ts",
+    "packages/core/src/client/chat/agentkit-agent-native.ts",
+    "packages/core/src/client/chat/agentkit-protocol.ts",
+    "packages/core/src/client/chat/assistant-chat-history-version.ts",
+    "packages/core/src/client/chat/composer-draft.ts",
+    "packages/core/src/client/chat/runtime.ts",
+    "packages/core/src/client/dynamic-suggestions.ts",
+    "packages/core/src/client/host/index.ts",
+    "packages/core/src/client/onboarding/index.ts",
+    "packages/core/src/client/use-active-agent-chat-run.ts",
+    "packages/core/src/client/use-agent-chat-context.ts",
+    "packages/core/src/client/use-agent-chat-running-threads.ts",
+    "packages/core/src/client/use-agent-chat.ts",
+    "packages/core/src/client/use-change-version.ts",
+    "packages/core/src/client/use-chat-models.ts",
+    "packages/core/src/client/use-chat-threads.ts",
+    "packages/core/src/client/use-send-to-agent-chat.ts",
+    "packages/core/src/client/use-session.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_caret_e2e, false, path);
+    assert.equal(scope.checks.slides_typing_chat_e2e, true, path);
+    assert.equal(scope.checks.slides_mobile_import_e2e, false, path);
+    assert.equal(scope.checks.slides_text_surface_e2e, false, path);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+  }
+
+  for (const path of [
+    "packages/core/src/client/hooks/index.ts",
+    "packages/core/src/client/use-action.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_caret_e2e, false, path);
+    assert.equal(scope.checks.slides_typing_chat_e2e, true, path);
+    assert.equal(scope.checks.slides_mobile_import_e2e, true, path);
+    assert.equal(scope.checks.slides_text_surface_e2e, true, path);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+  }
+
+  for (const path of [
+    "packages/agentkit/package.json",
+    "packages/toolkit/package.json",
+    "packages/agentkit/src/client/client.ts",
+    "packages/agentkit/src/client/index.ts",
+    "packages/agentkit/src/client/state.ts",
+    "packages/agentkit/src/index.ts",
+    "packages/agentkit/src/protocol/index.ts",
+    "packages/toolkit/src/app/agentkit/react/chat.tsx",
+    "packages/toolkit/src/app/agentkit/react/components.tsx",
+    "packages/toolkit/src/app/agentkit/react/composer-submission.ts",
+    "packages/toolkit/src/app/agentkit/react/context.tsx",
+    "packages/toolkit/src/app/agentkit/react/index.ts",
+    "packages/toolkit/src/app/agentkit/react/root.tsx",
+    "packages/toolkit/src/app/chat/AgentSidebar.tsx",
+    "packages/toolkit/src/app/chat/AgentSidebarPanel.tsx",
+    "packages/toolkit/src/app/chat/AgentPanel.tsx",
+    "packages/toolkit/src/app/chat/MultiTabAssistantChat.tsx",
+    "packages/toolkit/src/app/chat/AgentKitAssistantChat.tsx",
+    "packages/toolkit/src/app/chat/agentkit-chat/root.tsx",
+    "packages/toolkit/src/app/chat/agentkit-chat/history.tsx",
+    "packages/toolkit/src/app/chat/agentkit-chat/index.ts",
+    "packages/toolkit/src/app/chat/agentkit-chat/parity-renderers.tsx",
+    "packages/toolkit/src/app/chat/chat/run-recovery.tsx",
+    "packages/toolkit/src/app/chat/chat/agent-approval-card.tsx",
+    "packages/toolkit/src/app/chat/chat/markdown-renderer.tsx",
+    "packages/toolkit/src/app/chat/chat/surface-types.ts",
+    "packages/toolkit/src/app/chat/chat/tool-call-display.tsx",
+    "packages/toolkit/src/app/chat/chat/tool-integration.tsx",
+    "packages/toolkit/src/app/chat/composer/assistant-ui-recovery.tsx",
+    "packages/toolkit/src/composer/AgentComposerFrame.tsx",
+    "packages/toolkit/src/composer/PromptComposer.tsx",
+    "packages/toolkit/src/composer/TiptapComposer.tsx",
+    "packages/toolkit/src/composer/attachment-accept.ts",
+    "packages/toolkit/src/composer/context-items.ts",
+    "packages/toolkit/src/composer/draft-key.ts",
+    "packages/toolkit/src/composer/index.ts",
+    "packages/toolkit/src/composer/pasted-text.ts",
+    "packages/toolkit/src/composer/prompt-attachments.ts",
+    "packages/toolkit/src/composer/runtime-adapters.tsx",
+    "packages/toolkit/src/composer/types.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_caret_e2e, false, path);
+    assert.equal(scope.checks.slides_typing_chat_e2e, true, path);
+    assert.equal(scope.checks.slides_mobile_import_e2e, false, path);
+    assert.equal(scope.checks.slides_text_surface_e2e, false, path);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+  }
+
+  for (const path of [
+    "packages/core/src/action.ts",
+    "packages/core/src/client/chat/storage.ts",
+    "packages/toolkit/src/app/chat/chat-first/surface-panel.tsx",
+    "packages/toolkit/src/app/chat/agentkit-chat/connections.ts",
+    "packages/toolkit/src/composer/useVoiceDictation.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.slides_typing_chat_e2e,
+      false,
+      `${path} is outside the Slides chat-typing path`,
+    );
+  }
+
+  for (const path of [
+    "packages/core/src/client/api-surface.ts",
+    "packages/core/src/client/use-avatar.ts",
+    "packages/core/src/collab/types.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_caret_e2e, false, path);
+    assert.equal(scope.checks.slides_typing_chat_e2e, false, path);
+    assert.equal(scope.checks.slides_mobile_import_e2e, false, path);
+    assert.equal(scope.checks.slides_text_surface_e2e, true, path);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+  }
+
+  for (const path of [
+    "templates/slides/actions/add-slide.ts",
+    "templates/slides/app/components/editor/SlidesComposerContext.tsx",
+    "templates/slides/app/components/editor/SlidesComposerContextProvider.tsx",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+    assert.equal(
+      scope.checks.slides_typing_chat_e2e,
+      path.includes("SlidesComposerContext"),
+      path,
+    );
+  }
+
+  const corpus = classifyChangedPaths([
+    "templates/slides/scripts/edit-fidelity/corpus/pptx-imported.json",
+  ]);
+  assert.equal(corpus.checks.slides_authoring_e2e, true);
+  assert.equal(corpus.checks.slides_caret_e2e, false);
+  assert.equal(corpus.checks.slides_typing_chat_e2e, false);
+  assert.equal(corpus.checks.slides_mobile_import_e2e, false);
+  assert.equal(corpus.checks.slides_text_surface_e2e, false);
+
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
-  assert.equal(full.checks.slides_chat_e2e, true);
+  assert.equal(full.checks.slides_caret_e2e, true);
+  assert.equal(full.checks.slides_typing_chat_e2e, true);
+  assert.equal(full.checks.slides_mobile_import_e2e, true);
+  assert.equal(full.checks.slides_text_surface_e2e, true);
   assert.equal(full.checks.slides_authoring_e2e, true);
 });
 
+test("does not select Slides authoring from unrelated Core runtime changes", () => {
+  for (const path of [
+    "packages/core/src/index.ts",
+    "packages/core/src/action.ts",
+    "packages/core/src/server/request-context.ts",
+    "packages/core/src/sharing/access.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+  }
+});
+
+test("keeps the standalone Design browser workflow scoped to editor inputs", () => {
+  const workflow = readFileSync(".github/workflows/design-e2e.yml", "utf8");
+
+  assert.match(
+    workflow,
+    /templates\/design\/app\/components\/design\/design-canvas/u,
+  );
+  assert.match(workflow, /templates\/design\/app\/pages\/DesignEditor\.tsx/u);
+  assert.doesNotMatch(workflow, /packages\/core\/\*\*/u);
+  assert.doesNotMatch(workflow, /^\s+- "templates\/design\/app\/\*\*"$/mu);
+});
+
+test("keeps slow app lanes scoped on full CI tooling changes", () => {
+  for (const path of [
+    ".github/workflows/ci.yml",
+    "scripts/ci-change-scope.ts",
+    "scripts/ci-change-scope.test.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, true, path);
+    for (const check of [
+      "content",
+      "content_db",
+      "content_convergence",
+      "core_integration",
+      "plan_e2e",
+      "brain_evals",
+      "trusted_acceptance",
+      "scaffold",
+      "builder_code_starter_scaffold",
+      "deploy_paths",
+      "ssr_boot",
+      "agentkit_acceptance",
+      "neon_query_budget",
+      "neon_connection_budget",
+      "design_canvas_core_regression",
+      "design_canvas_broad_workflows",
+      "pre_auth_session_replay_e2e",
+      "slides_caret_e2e",
+      "slides_typing_chat_e2e",
+      "slides_mobile_import_e2e",
+      "slides_text_surface_e2e",
+      "slides_authoring_e2e",
+      "slides_oracle",
+    ] as const) {
+      assert.equal(scope.checks[check], false, `${path}: ${check}`);
+    }
+  }
+
+  const dependencyChange = classifyChangedPaths(["pnpm-lock.yaml"]);
+  assert.equal(dependencyChange.checks.slides_authoring_e2e, true);
+  assert.equal(dependencyChange.checks.deploy_paths, true);
+  assert.equal(dependencyChange.checks.design_canvas_core_regression, true);
+
+  assert.equal(
+    classifyChangedPaths(["unknown-root-config.ts"]).checks
+      .slides_authoring_e2e,
+    true,
+  );
+  assert.equal(classifyChangedPaths([]).checks.slides_authoring_e2e, true);
+});
+
+test("the nightly run and the shard action cover every Slides authoring shard", () => {
+  const nightly = readFileSync(
+    ".github/workflows/slides-authoring-nightly.yml",
+    "utf8",
+  );
+  const action = readFileSync(
+    ".github/actions/slides-authoring-shard/action.yml",
+    "utf8",
+  );
+
+  assert.match(nightly, /^\s+schedule:/mu);
+  assert.doesNotMatch(nightly, /^\s+pull_request:/mu);
+  const nightlyShards = /shard:\s*\[([^\]]+)\]/u
+    .exec(nightly)?.[1]
+    .split(",")
+    .map((shard) => shard.trim())
+    .filter(Boolean);
+  assert.deepEqual(nightlyShards, [...SLIDES_AUTHORING_SHARDS]);
+  for (const shard of SLIDES_AUTHORING_SHARDS) {
+    assert.match(
+      action,
+      new RegExp(`inputs\\.shard == '${shard}'`, "u"),
+      shard,
+    );
+  }
+  // A step guarded by a shard the matrix never produces would never run.
+  for (const [, shard] of action.matchAll(/inputs\.shard == '([^']+)'/gu)) {
+    assert.ok(
+      (SLIDES_AUTHORING_SHARDS as readonly string[]).includes(shard),
+      `unknown shard ${shard}`,
+    );
+  }
+  for (const workflow of [
+    nightly,
+    readFileSync(".github/workflows/ci.yml", "utf8"),
+  ]) {
+    assert.match(
+      workflow,
+      /uses: \.\/\.github\/actions\/slides-authoring-shard/u,
+    );
+  }
+});
+
+test("every browser runs each slice of the authoring parity suite exactly once", () => {
+  const action = readFileSync(
+    ".github/actions/slides-authoring-shard/action.yml",
+    "utf8",
+  );
+  const slices = new Map<string, string[]>();
+  for (const [, slice, total, browser = "chromium"] of action.matchAll(
+    /run\.ts --authoring(?: --authoring-shard (\d+)\/(\d+))?(?: --browser (\w+))?$/gmu,
+  )) {
+    // A run without --authoring-shard would repeat every slice.
+    assert.ok(slice, "an unsharded --authoring run");
+    slices.set(browser, [...(slices.get(browser) ?? []), `${slice}/${total}`]);
+  }
+  assert.deepEqual(Object.fromEntries(slices), {
+    chromium: ["1/3", "2/3", "3/3"],
+    webkit: ["1/3", "2/3", "3/3"],
+  });
+});
+
+test("Slides authoring jobs run in the image keyed on its Dockerfile", () => {
+  const ci = readFileSync(".github/workflows/ci.yml", "utf8");
+  const nightly = readFileSync(
+    ".github/workflows/slides-authoring-nightly.yml",
+    "utf8",
+  );
+  for (const workflow of [ci, nightly]) {
+    assert.match(
+      workflow,
+      /uses: \.\/\.github\/actions\/slides-authoring-image/u,
+    );
+    assert.match(
+      workflow,
+      /image: \$\{\{ needs\.slides-authoring-image\.outputs\.image \}\}/u,
+    );
+    // A job that can write the registry would let a PR overwrite the image.
+    assert.doesNotMatch(workflow, /packages: write/u);
+    assert.match(workflow, /packages: read/u);
+  }
+
+  const publisher = readFileSync(
+    ".github/workflows/slides-authoring-image.yml",
+    "utf8",
+  );
+  assert.match(publisher, /packages: write/u);
+  assert.match(publisher, /publish: "true"/u);
+  assert.match(publisher, /if: github\.ref == 'refs\/heads\/main'/u);
+  assert.match(publisher, /branches: \[main\]/u);
+  assert.doesNotMatch(publisher, /^\s+pull_request(_target)?:/mu);
+
+  // The nightly is the backstop for shared-package PRs, so its failures email.
+  const notifier = readFileSync(
+    ".github/workflows/email-workflow-failures.yml",
+    "utf8",
+  );
+  const nightlyName = /^name: (.+)$/mu.exec(nightly)?.[1];
+  assert.ok(nightlyName);
+  assert.match(notifier, new RegExp(`^\\s+- ${nightlyName}$`, "mu"));
+  assert.match(nightly, /cancel-in-progress: false/u);
+  assert.match(
+    readFileSync(".github/actions/slides-authoring-image/action.yml", "utf8"),
+    /hashFiles\('docker\/ci-slides-authoring\/Dockerfile'\)/u,
+  );
+
+  // The browsers in the image are the ones the pinned Playwright expects.
+  const imageVersion = /playwright:v(\d+\.\d+\.\d+)-/u.exec(
+    readFileSync("docker/ci-slides-authoring/Dockerfile", "utf8"),
+  )?.[1];
+  const pinnedVersion = /^ {2}playwright: (\d+\.\d+\.\d+)$/mu.exec(
+    readFileSync("pnpm-workspace.yaml", "utf8"),
+  )?.[1];
+  assert.ok(imageVersion, "no Playwright tag in the Dockerfile");
+  assert.equal(imageVersion, pinnedVersion);
+
+  // What the job executes: the image and the actions that run the shards.
+  for (const path of [
+    "docker/ci-slides-authoring/Dockerfile",
+    ".github/actions/slides-authoring-image/action.yml",
+    ".github/actions/slides-authoring-shard/action.yml",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.slides_authoring_e2e,
+      true,
+      path,
+    );
+  }
+});
+
+test("a selected Slides authoring run includes every job", () => {
+  assert.deepEqual(
+    slidesAuthoringMatrix().include.map((entry) => entry.shard),
+    [...SLIDES_AUTHORING_SHARDS],
+  );
+});
+
 test("retains Slides parity and corpus gates while keeping the full soak manual", () => {
-  const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const ciWorkflow = readFileSync(
+    ".github/actions/slides-authoring-shard/action.yml",
+    "utf8",
+  );
   const soakWorkflow = readFileSync(
     ".github/workflows/slides-authoring-fuzz-soak.yml",
     "utf8",
@@ -280,9 +743,12 @@ test("retains Slides parity and corpus gates while keeping the full soak manual"
 
   assert.match(
     ciWorkflow,
-    /run: pnpm exec tsx scripts\/edit-fidelity\/run\.ts --authoring\n/u,
+    /run: pnpm exec tsx scripts\/edit-fidelity\/run\.ts --authoring --authoring-shard 1\/3\n/u,
   );
-  assert.match(ciWorkflow, /--authoring --browser webkit/u);
+  assert.match(
+    ciWorkflow,
+    /--authoring --authoring-shard 1\/3 --browser webkit/u,
+  );
   assert.match(ciWorkflow, /--authoring-corpus/u);
 
   for (const browser of ["chromium", "webkit", "firefox"]) {
@@ -315,7 +781,7 @@ test("fails closed for empty and unknown root change sets", () => {
   assert.equal(empty.full, true);
   assert.equal(empty.checks.build, true);
 
-  const unknown = classifyChangedPaths(["scripts/new-ci-tool.ts"]);
+  const unknown = classifyChangedPaths(["new-root-config.ts"]);
   assert.equal(unknown.docsOnly, false);
   assert.equal(unknown.full, true);
   for (const enabled of Object.values(unknown.checks)) {
@@ -397,16 +863,60 @@ test("runs guards for a docs-app cache-header change", () => {
 
 test("runs cold-request query budgets for framework and template changes", () => {
   const core = classifyChangedPaths(["packages/core/src/db/client.ts"]);
+  const coreRequestPaths = [
+    "packages/core/src/server/auth.ts",
+    "packages/core/src/server/core-routes-plugin.ts",
+    "packages/core/src/server/framework-request-context.ts",
+    "packages/core/src/server/framework-request-handler.ts",
+    "packages/core/src/server/poll.ts",
+  ];
+  const coreConfig = classifyChangedPaths([
+    "packages/core/src/app-config/analytics.ts",
+  ]);
+  const coreTest = classifyChangedPaths([
+    "packages/core/src/db/client.spec.ts",
+  ]);
+  const unrelatedCore = classifyChangedPaths([
+    "packages/core/src/agent/engine/run.ts",
+  ]);
   const creativeContext = classifyChangedPaths([
     "packages/creative-context/src/jobs/server-worker.ts",
+  ]);
+  const creativeContextTest = classifyChangedPaths([
+    "packages/creative-context/src/jobs/server-worker.test.ts",
   ]);
   const template = classifyChangedPaths([
     "templates/forms/actions/list-forms.ts",
   ]);
+  const templateCss = classifyChangedPaths(["templates/forms/app/global.css"]);
+  const templateSvg = classifyChangedPaths([
+    "templates/forms/app/components/logo.svg",
+  ]);
+  const templateTest = classifyChangedPaths([
+    "templates/forms/actions/list-forms.spec.ts",
+  ]);
+  const templateDocs = classifyChangedPaths(["templates/forms/README.md"]);
+  const templateDocsWithUnrelatedCore = classifyChangedPaths([
+    "templates/forms/README.md",
+    "packages/core/src/feature-flags/registry.ts",
+  ]);
+  const budgetScriptTest = classifyChangedPaths([
+    "scripts/neon-query-budget.spec.ts",
+  ]);
+  const budgetScript = classifyChangedPaths(["scripts/neon-query-budget.ts"]);
   const docs = classifyChangedPaths(["docs/guide.md"]);
 
   assert.equal(core.checks.neon_query_budget, true);
+  for (const path of coreRequestPaths) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.neon_query_budget, true, path);
+    assert.deepEqual(scope.queryBudgetApps, [...QUERY_BUDGET_APPS], path);
+  }
+  assert.equal(coreConfig.checks.neon_query_budget, true);
+  assert.equal(coreTest.checks.neon_query_budget, false);
+  assert.equal(unrelatedCore.checks.neon_query_budget, false);
   assert.equal(creativeContext.checks.neon_query_budget, true);
+  assert.equal(creativeContextTest.checks.neon_query_budget, false);
   assert.deepEqual(creativeContext.queryBudgetApps, [
     "analytics",
     "assets",
@@ -415,7 +925,42 @@ test("runs cold-request query budgets for framework and template changes", () =>
     "slides",
   ]);
   assert.equal(template.checks.neon_query_budget, true);
+  assert.equal(templateCss.checks.neon_query_budget, false);
+  assert.equal(templateSvg.checks.neon_query_budget, false);
+  assert.equal(templateTest.checks.neon_query_budget, false);
+  assert.equal(templateDocs.checks.neon_query_budget, false);
+  assert.equal(templateDocsWithUnrelatedCore.checks.neon_query_budget, false);
+  assert.equal(budgetScriptTest.checks.neon_query_budget, false);
+  assert.equal(budgetScript.checks.neon_query_budget, true);
   assert.equal(docs.checks.neon_query_budget, false);
+});
+
+test("selects Content parity for the Core contracts its tests import", () => {
+  for (const path of [
+    "packages/core/src/action.ts",
+    "packages/core/src/db/client.ts",
+    "packages/core/src/eval/index.ts",
+    "packages/core/src/private-blob/index.ts",
+    "packages/core/src/server/request-context.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.content,
+      true,
+      `${path} must select Content parity`,
+    );
+  }
+
+  for (const path of [
+    "packages/core/src/agent/engine/run.ts",
+    "packages/core/src/db/client.spec.ts",
+    "packages/core/src/feature-flags/registry.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.content,
+      false,
+      `${path} must not select Content parity`,
+    );
+  }
 });
 
 test("measures only the changed templates for a template-only change", () => {
@@ -429,9 +974,13 @@ test("measures only the changed templates for a template-only change", () => {
   assert.deepEqual(scope.queryBudgetApps, ["forms", "mail"]);
 });
 
-test("measures every template for Core and budget changes, and Creative Context consumers", () => {
+test("measures every template for database runtime and budget changes, and Creative Context consumers", () => {
   const core = classifyChangedPaths([
     "packages/core/src/db/client.ts",
+    "templates/forms/actions/list-forms.ts",
+  ]);
+  const unrelatedCore = classifyChangedPaths([
+    "packages/core/src/agent/engine/run.ts",
     "templates/forms/actions/list-forms.ts",
   ]);
   const creativeContext = classifyChangedPaths([
@@ -441,6 +990,7 @@ test("measures every template for Core and budget changes, and Creative Context 
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
 
   assert.deepEqual(core.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+  assert.deepEqual(unrelatedCore.queryBudgetApps, ["forms"]);
   assert.equal(creativeContext.checks.neon_query_budget, true);
   assert.deepEqual(creativeContext.queryBudgetApps, [
     "analytics",
@@ -508,8 +1058,14 @@ test("skips cold-request query budgets for full tooling and instruction changes"
   assert.equal(scope.checks.neon_query_budget, false);
 });
 
-test("runs the connection budget only for core changes", () => {
+test("runs the connection budget only for Core database changes", () => {
   const core = classifyChangedPaths(["packages/core/src/db/client.ts"]);
+  const coreTest = classifyChangedPaths([
+    "packages/core/src/db/client.spec.ts",
+  ]);
+  const unrelatedCore = classifyChangedPaths([
+    "packages/core/src/agent/engine/run.ts",
+  ]);
   const template = classifyChangedPaths([
     "templates/forms/actions/list-forms.ts",
   ]);
@@ -520,6 +1076,8 @@ test("runs the connection budget only for core changes", () => {
   ]);
 
   assert.equal(core.checks.neon_connection_budget, true);
+  assert.equal(coreTest.checks.neon_connection_budget, false);
+  assert.equal(unrelatedCore.checks.neon_connection_budget, false);
   assert.equal(template.checks.neon_query_budget, true);
   assert.equal(template.checks.neon_connection_budget, false);
   assert.equal(full.checks.neon_connection_budget, true);
@@ -533,21 +1091,143 @@ test("checks the Builder Code starter scaffold for core and Chat changes", () =>
   ]);
   const core = classifyChangedPaths(["packages/core/src/cli/create.ts"]);
   const chat = classifyChangedPaths(["templates/chat/app/routes/_index.tsx"]);
+  const unrelatedCore = classifyChangedPaths([
+    "packages/core/src/feature-flags/registry.ts",
+  ]);
+  const unrelatedCoreTemplate = classifyChangedPaths([
+    "packages/core/src/templates/factory/.agents/skills/review-prs/SKILL.md",
+  ]);
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
   const tooling = classifyChangedPaths(["scripts/agent-friction-report.mjs"]);
 
   assert.equal(template.full, false);
   assert.equal(template.checks.scaffold, true);
   assert.equal(template.checks.builder_code_starter_scaffold, true);
+  assert.equal(core.checks.scaffold, true);
   assert.equal(core.checks.builder_code_starter_scaffold, true);
+  for (const path of [
+    "packages/core/src/cli/setup-agents.ts",
+    "packages/core/src/cli/skills.ts",
+    "packages/core/src/cli/tar-command.ts",
+    "packages/core/src/cli/template-layer.ts",
+    "packages/core/src/cli/templates-meta.ts",
+    "packages/core/src/cli/upgrade.ts",
+    "packages/core/src/cli/workspace-skill-policy.ts",
+    "packages/core/src/cli/workspace-yaml.ts",
+    "packages/core/src/cli/workspacify.ts",
+    "packages/core/src/agent/engine/ai-sdk-engine.ts",
+    "packages/core/src/shared/workspace-app-id.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.scaffold, true, path);
+    assert.equal(scope.scaffoldCli, true, path);
+    assert.equal(scope.checks.builder_code_starter_scaffold, false, path);
+  }
+  assert.equal(unrelatedCore.checks.scaffold, false);
+  assert.equal(unrelatedCore.checks.builder_code_starter_scaffold, false);
+  assert.equal(unrelatedCoreTemplate.checks.scaffold, true);
+  assert.equal(unrelatedCoreTemplate.scaffoldCli, false);
+  assert.equal(unrelatedCoreTemplate.scaffoldWorkspace, false);
+  assert.equal(
+    unrelatedCoreTemplate.checks.builder_code_starter_scaffold,
+    false,
+  );
   const forms = classifyChangedPaths(["templates/forms/actions/list-forms.ts"]);
 
   assert.equal(chat.checks.scaffold, true);
   assert.equal(chat.checks.builder_code_starter_scaffold, true);
+  const chatTest = classifyChangedPaths([
+    "templates/chat/actions/hello.spec.ts",
+  ]);
+  assert.equal(chatTest.checks.scaffold, false);
+  assert.equal(chatTest.checks.builder_code_starter_scaffold, false);
+  assert.equal(chatTest.checks.agentkit_acceptance, false);
+  assert.equal(chat.checks.scaffold, true);
+  assert.equal(chat.scaffoldCli, true);
+  assert.equal(chat.scaffoldWorkspace, true);
+  assert.deepEqual(chat.scaffoldWorkspaceApps, []);
+  const workspaceTemplate = classifyChangedPaths([
+    "packages/core/src/templates/workspace-root/package.json",
+  ]);
+  assert.equal(workspaceTemplate.scaffoldWorkspace, true);
+  assert.deepEqual(workspaceTemplate.scaffoldWorkspaceApps, [
+    "calendar",
+    "dispatch",
+  ]);
+  const headlessTemplate = classifyChangedPaths([
+    "packages/core/src/templates/headless/AGENTS.md",
+  ]);
+  assert.equal(headlessTemplate.scaffoldCli, true);
+  assert.deepEqual(
+    classifyChangedPaths(["templates/calendar/app/components/EventCard.tsx"])
+      .scaffoldWorkspaceApps,
+    ["calendar"],
+  );
+  assert.deepEqual(
+    classifyChangedPaths(["packages/dispatch/src/index.ts"])
+      .scaffoldWorkspaceApps,
+    ["dispatch"],
+  );
+  assert.deepEqual(
+    classifyChangedPaths(["packages/scheduling/src/index.ts"])
+      .scaffoldWorkspaceApps,
+    ["calendar"],
+  );
+  assert.deepEqual(
+    classifyChangedPaths(["packages/core/src/cli/create-workspace.ts"])
+      .scaffoldWorkspaceApps,
+    ["calendar", "dispatch"],
+  );
   assert.equal(forms.checks.builder_code_starter_scaffold, false);
   assert.equal(full.checks.builder_code_starter_scaffold, true);
   assert.equal(tooling.full, true);
-  assert.equal(tooling.checks.builder_code_starter_scaffold, true);
+  assert.equal(tooling.checks.builder_code_starter_scaffold, false);
+
+  const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+  const scaffoldJobStart = workflow.indexOf("  scaffold-e2e:\n");
+  const scaffoldJobEnd = workflow.indexOf(
+    "\n  ssr-boot-smoke:",
+    scaffoldJobStart,
+  );
+  const scaffoldJob = workflow.slice(scaffoldJobStart, scaffoldJobEnd);
+  assert.match(scaffoldJob, /outputs\.scaffold_cli/u);
+  assert.match(scaffoldJob, /outputs\.scaffold_workspace/u);
+  assert.match(scaffoldJob, /outputs\.builder_code_starter_scaffold/u);
+  assert.doesNotMatch(scaffoldJob, /outputs\.scaffold ==/u);
+});
+
+test("scopes trusted acceptance to production Content and Calendar inputs", () => {
+  for (const path of [
+    "templates/content/actions/update-document.ts",
+    "templates/calendar/app/components/EventCard.tsx",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.trusted_acceptance, true);
+  }
+
+  assert.deepEqual(
+    classifyChangedPaths(["templates/content/actions/update-document.ts"])
+      .trustedAcceptanceApps,
+    ["content"],
+  );
+  assert.deepEqual(
+    classifyChangedPaths(["templates/calendar/app/components/EventCard.tsx"])
+      .trustedAcceptanceApps,
+    ["calendar"],
+  );
+  assert.deepEqual(
+    classifyChangedPaths(["pnpm-lock.yaml"]).trustedAcceptanceApps,
+    ["calendar", "content"],
+  );
+
+  for (const path of [
+    "templates/content/app/routes/page.test.tsx",
+    "templates/content/docs/authoring.md",
+    "templates/calendar/app/components/EventCard.test.tsx",
+    "templates/dispatch/actions/create-app.ts",
+    "packages/dispatch/src/index.ts",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.trusted_acceptance, false);
+  }
 });
 
 test("smokes only the changed SSR templates for a template-only change", () => {
@@ -558,25 +1238,67 @@ test("smokes only the changed SSR templates for a template-only change", () => {
   const unsmoked = classifyChangedPaths([
     "templates/forms/actions/list-forms.ts",
   ]);
+  const docs = classifyChangedPaths(["templates/clips/README.md"]);
+  const e2e = classifyChangedPaths([
+    "templates/content/e2e/chatgpt-widget-body-paint.spec.ts",
+  ]);
 
   assert.equal(scope.full, false);
   assert.equal(scope.checks.ssr_boot, true);
   assert.deepEqual(scope.ssrBootApps, ["clips"]);
   assert.equal(unsmoked.checks.ssr_boot, false);
   assert.deepEqual(unsmoked.ssrBootApps, []);
+  assert.equal(docs.checks.ssr_boot, false);
+  assert.deepEqual(docs.ssrBootApps, []);
+  assert.equal(e2e.checks.ssr_boot, false);
+  assert.deepEqual(e2e.ssrBootApps, []);
 });
 
 test("smokes every SSR template when a shared package or CI changes", () => {
   const toolkit = classifyChangedPaths([
-    "packages/toolkit/src/index.ts",
+    "packages/toolkit/src/app/providers/AppProviders.tsx",
     "templates/plan/app/root.tsx",
   ]);
+  const unrelatedToolkit = classifyChangedPaths([
+    "packages/toolkit/src/canvas-interactions/drag.ts",
+    "templates/plan/app/root.tsx",
+  ]);
+  const toolkitTest = classifyChangedPaths([
+    "packages/toolkit/src/app/providers/AppProviders.spec.tsx",
+  ]);
+  const unrelatedCore = classifyChangedPaths([
+    "packages/core/src/feature-flags/registry.ts",
+  ]);
+  const coreClientRuntime = classifyChangedPaths([
+    "packages/core/src/client/agent-provider-catalog.ts",
+  ]);
+  const unrelatedCoreClient = classifyChangedPaths([
+    "packages/core/src/client/use-active-agent-chat-run.ts",
+  ]);
+  const coreTest = classifyChangedPaths([
+    "packages/core/src/server/request-context.spec.ts",
+  ]);
+  const otelTest = classifyChangedPaths(["packages/otel/src/index.test.ts"]);
   const otel = classifyChangedPaths(["packages/otel/src/index.ts"]);
+  const ssrHarness = classifyChangedPaths(["scripts/ssr-boot-smoke.mjs"]);
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
 
   assert.deepEqual(toolkit.ssrBootApps, [...SSR_BOOT_APPS]);
+  assert.deepEqual(unrelatedToolkit.ssrBootApps, ["plan"]);
+  assert.equal(unrelatedToolkit.checks.ssr_boot, true);
+  assert.equal(toolkitTest.checks.ssr_boot, false);
+  assert.deepEqual(toolkitTest.ssrBootApps, []);
+  assert.equal(unrelatedCore.checks.ssr_boot, false);
+  assert.deepEqual(unrelatedCore.ssrBootApps, []);
+  assert.equal(coreClientRuntime.checks.ssr_boot, true);
+  assert.deepEqual(coreClientRuntime.ssrBootApps, [...SSR_BOOT_APPS]);
+  assert.equal(unrelatedCoreClient.checks.ssr_boot, false);
+  assert.deepEqual(unrelatedCoreClient.ssrBootApps, []);
+  assert.equal(coreTest.checks.ssr_boot, false);
+  assert.equal(otelTest.checks.ssr_boot, false);
   assert.equal(otel.checks.ssr_boot, true);
   assert.deepEqual(otel.ssrBootApps, [...SSR_BOOT_APPS]);
+  assert.deepEqual(ssrHarness.ssrBootApps, [...SSR_BOOT_APPS]);
   assert.equal(full.full, true);
   assert.deepEqual(full.ssrBootApps, [...SSR_BOOT_APPS]);
 });
@@ -633,7 +1355,7 @@ test("routes Design pin attestation inputs to core regression", () => {
     {
       path: "scripts/design-e2e-regression-pin-identities.ts",
       full: true,
-      broad: true,
+      broad: false,
     },
     {
       path: "scripts/guard-design-e2e-regression-pins.ts",
@@ -643,7 +1365,7 @@ test("routes Design pin attestation inputs to core regression", () => {
     {
       path: "scripts/design-e2e-regression-pins.ts",
       full: true,
-      broad: true,
+      broad: false,
     },
   ];
 
@@ -683,6 +1405,13 @@ test("routes Design pin attestation inputs to core regression", () => {
   ]);
   assert.equal(config.checks.design_canvas_core_regression, true);
   assert.equal(config.checks.design_canvas_broad_workflows, true);
+  assert.deepEqual(config.designCanvasBroadWorkflowShards, [
+    "ai-sidebar-loopback",
+    "music-app-workflow",
+    "home-system-selection",
+    "landing-page-build",
+    "autolayout-vertical-center-trailing",
+  ]);
   assert.deepEqual(config.designCanvasE2eSpecs, []);
   assert.deepEqual(config.designCanvasE2eDiagnosticSpecs, []);
 
@@ -696,15 +1425,19 @@ test("routes Design pin attestation inputs to core regression", () => {
 });
 
 test("routes shared Design E2E support modules and keeps dedicated lanes", () => {
-  for (const path of [
-    "templates/design/e2e/helpers.ts",
-    "templates/design/e2e/rails.ts",
-    "templates/design/e2e/interact-helpers.ts",
-    "templates/design/e2e/startup-child.ts",
+  for (const { path, core } of [
+    { path: "templates/design/e2e/helpers.ts", core: true },
+    { path: "templates/design/e2e/rails.ts", core: false },
+    { path: "templates/design/e2e/interact-helpers.ts", core: false },
+    { path: "templates/design/e2e/startup-child.ts", core: false },
   ]) {
     const scope = classifyChangedPaths([path]);
-    assert.equal(scope.checks.design_canvas_core_regression, true, path);
-    assert.equal(scope.checks.design_canvas_broad_workflows, true, path);
+    assert.equal(scope.checks.design_canvas_core_regression, core, path);
+    assert.equal(
+      scope.checks.design_canvas_broad_workflows,
+      scope.designCanvasBroadWorkflowShards.length > 0,
+      path,
+    );
     assert.ok(scope.designCanvasE2eSpecs.length > 0, path);
     assert.deepEqual(
       scope.designCanvasE2eDiagnosticSpecs,
@@ -752,7 +1485,6 @@ test("selects focused Design core regression for its runtime dependencies", () =
     "templates/design/e2e/interaction-oversized-nested.spec.ts",
     "templates/design/e2e/interaction-alt-drag-duplicate.spec.ts",
     "templates/design/e2e/css-style-helpers.ts",
-    "templates/design/e2e/interaction-selection.spec.ts",
     "templates/design/e2e/z-order-behavior.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
     "templates/design/e2e/responsive-overview-regressions.spec.ts",
@@ -761,15 +1493,22 @@ test("selects focused Design core regression for its runtime dependencies", () =
     "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
     "templates/design/e2e/drag-and-drop.auto-layout.spec.ts",
     "templates/design/e2e/cross-screen-auto-layout.spec.ts",
-    "packages/core/src/index.ts",
-    "packages/toolkit/src/index.ts",
-    "packages/creative-context/src/index.ts",
   ]) {
     assert.equal(
       classifyChangedPaths([path]).checks.design_canvas_core_regression,
       true,
       path,
     );
+  }
+
+  for (const path of [
+    "templates/design/e2e/overview-wheel-zoom.spec.ts",
+    "templates/design/e2e/position-alignment.spec.ts",
+    "templates/design/e2e/drag-and-drop.drag-feedback.spec.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.design_canvas_core_regression, false, path);
+    assert.deepEqual(scope.designCanvasE2eSpecs, [path]);
   }
 
   for (const path of [
@@ -783,6 +1522,13 @@ test("selects focused Design core regression for its runtime dependencies", () =
     "templates/design/app/i18n-keyboard-shortcuts.ts",
     "templates/design/app/assets/icon.ts",
     "templates/design/public/favicon.svg",
+    "packages/core/src/index.ts",
+    "packages/toolkit/src/index.ts",
+    "packages/creative-context/src/index.ts",
+    "packages/core/src/file-upload/registry.ts",
+    "packages/core/src/agent/production-agent.ts",
+    "packages/toolkit/src/app/chat/chat/run-recovery.tsx",
+    "packages/agentkit/src/protocol/agui.ts",
   ]) {
     assert.equal(
       classifyChangedPaths([path]).checks.design_canvas_core_regression,
@@ -791,32 +1537,40 @@ test("selects focused Design core regression for its runtime dependencies", () =
     );
   }
 
-  for (const path of [
-    "templates/design/e2e/overview-wheel-zoom.spec.ts",
-    "templates/design/e2e/position-alignment.spec.ts",
-    "templates/design/e2e/drag-and-drop.drag-feedback.spec.ts",
-    "templates/design/e2e/ai-sidebar-reporter-path.spec.ts",
-    "packages/core/src/file-upload/registry.ts",
-    "packages/core/src/agent/production-agent.ts",
-    "packages/toolkit/src/app/chat/chat/run-recovery.tsx",
-    "packages/agentkit/src/protocol/agui.ts",
-  ]) {
+  for (const path of []) {
     const scope = classifyChangedPaths([path]);
-    assert.equal(scope.checks.design_canvas_core_regression, true, path);
+    assert.equal(scope.checks.design_canvas_core_regression, false, path);
+    assert.deepEqual(scope.designCanvasE2eSpecs, [path]);
   }
 
-  assert.deepEqual(
-    classifyChangedPaths([
-      "templates/design/e2e/position-alignment.spec.ts",
-      "templates/design/e2e/inspector-styles.spec.ts",
+  const aiSidebar = classifyChangedPaths([
+    "templates/design/e2e/ai-sidebar-reporter-path.spec.ts",
+  ]);
+  assert.equal(aiSidebar.checks.design_canvas_core_regression, false);
+  assert.deepEqual(aiSidebar.designCanvasBroadWorkflowShards, [
+    "ai-sidebar-loopback",
+  ]);
+
+  const directAndDependencySpecs = classifyChangedPaths([
+    "templates/design/e2e/position-alignment.spec.ts",
+    "templates/design/e2e/inspector-styles.spec.ts",
+    "templates/design/e2e/fixture.test.tsx",
+    "templates/design/app/components/design/EditPanel.tsx",
+  ]);
+  assert.ok(
+    directAndDependencySpecs.designCanvasE2eSpecs.includes(
       "templates/design/e2e/fixture.test.tsx",
-      "templates/design/app/components/design/EditPanel.tsx",
-    ]).designCanvasE2eSpecs,
-    [
-      "templates/design/e2e/fixture.test.tsx",
+    ),
+  );
+  assert.ok(
+    directAndDependencySpecs.designCanvasE2eSpecs.includes(
       "templates/design/e2e/inspector-styles.spec.ts",
+    ),
+  );
+  assert.ok(
+    directAndDependencySpecs.designCanvasE2eSpecs.includes(
       "templates/design/e2e/position-alignment.spec.ts",
-    ],
+    ),
   );
 
   const fourDesignSpecs = [
@@ -839,7 +1593,8 @@ test("selects focused Design core regression for its runtime dependencies", () =
     ...fourDesignSpecs,
     "templates/design/e2e/interaction-pan-zoom-mouse.spec.ts",
   ]);
-  assert.equal(broadDesignScope.checks.design_canvas_core_regression, true);
+  assert.equal(broadDesignScope.checks.design_canvas_core_regression, false);
+  assert.equal(broadDesignScope.checks.design_canvas_broad_workflows, false);
   assert.equal(broadDesignScope.designCanvasE2eSpecCount, 5);
   assert.deepEqual(
     broadDesignScope.designCanvasE2eSpecs,
@@ -863,7 +1618,7 @@ test("selects focused Design core regression for its runtime dependencies", () =
   assert.equal(
     classifyChangedPaths([".github/workflows/ci.yml"]).checks
       .design_canvas_core_regression,
-    true,
+    false,
   );
   assert.equal(
     classifyChangedPaths(["docs/guide.md"]).checks
@@ -898,7 +1653,8 @@ test("routes CSS style helper changes to its exact importing specs", () => {
 
     const scope = classifyChangedPaths([helperPath], [], fixtureRoot);
     assert.equal(scope.checks.design_canvas_core_regression, true);
-    assert.equal(scope.checks.design_canvas_broad_workflows, true);
+    assert.equal(scope.checks.design_canvas_broad_workflows, false);
+    assert.deepEqual(scope.designCanvasBroadWorkflowShards, []);
     assert.deepEqual(scope.designCanvasE2eSpecs, routedSpecs);
     assert.deepEqual(scope.designCanvasE2eDiagnosticSpecs, routedSpecs);
     assert.equal(scope.designCanvasE2eSpecCount, routedSpecs.length);
@@ -1316,39 +2072,55 @@ test("routes direct Design specs before source-graph discovery", () => {
   }
 });
 
-test("Design core and broad selectors cover the same on/off/full inputs", () => {
+test("Design core and broad selectors stay independently scoped", () => {
   const cases = [
     {
       name: "selected Design runtime",
-      paths: ["templates/design/shared/canvas-math.ts"],
-      expected: true,
+      paths: ["templates/design/app/components/MultiScreenCanvas.tsx"],
+      core: true,
+      broad: false,
     },
     {
       name: "unrelated workspace",
       paths: ["templates/calendar/app/routes/index.tsx"],
-      expected: false,
+      core: false,
+      broad: false,
     },
-    { name: "full run", paths: [], expected: true },
+    { name: "full run", paths: [], core: true, broad: true },
     {
       name: "CI tooling-only full run",
       paths: ["scripts/ci-change-scope.ts"],
-      expected: true,
+      core: false,
+      broad: false,
     },
   ];
 
-  for (const { name, paths, expected } of cases) {
+  for (const { name, paths, core, broad } of cases) {
     const scope = classifyChangedPaths(paths);
     assert.equal(
       scope.checks.design_canvas_core_regression,
-      expected,
+      core,
       `${name}: core`,
     );
     assert.equal(
       scope.checks.design_canvas_broad_workflows,
-      expected,
+      broad,
       `${name}: broad`,
     );
   }
+
+  const homeSelection = classifyChangedPaths([
+    "templates/design/e2e/home-system-selection.spec.ts",
+  ]);
+  assert.deepEqual(homeSelection.designCanvasBroadWorkflowShards, [
+    "home-system-selection",
+  ]);
+  assert.deepEqual(
+    classifyChangedPaths([
+      "templates/design/app/components/design/EditPanel.document-colors.test.tsx",
+    ]).designCanvasBroadWorkflowShards,
+    [],
+  );
 });
 
 test("the Design interaction gate runs the bounded regression acceptance cases", () => {
@@ -1415,6 +2187,48 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /^    timeout-minutes: 90$/m,
     "the standalone Design job must cover the shard, loopback setup, and artifacts",
   );
+  const designPullRequestTriggers =
+    designE2eWorkflow.split(/^  schedule:/mu)[0];
+  assert.match(
+    designPullRequestTriggers,
+    /templates\/design\/app\/components\/MultiScreenCanvas\.tsx/u,
+  );
+  for (const input of [
+    "templates/design/e2e/helpers.ts",
+    "templates/design/e2e/rails.ts",
+    "templates/design/e2e/global-setup.ts",
+    "templates/design/scripts/design-export-validation/corpus/**",
+  ]) {
+    assert.ok(
+      designPullRequestTriggers.includes(input),
+      `standalone Design workflow is missing a consumed input: ${input}`,
+    );
+  }
+  assert.doesNotMatch(
+    designPullRequestTriggers,
+    /templates\/design\/e2e\/[^\n]*\.spec\.[jt]sx?/u,
+    "direct Design E2E spec edits must use the focused changed-spec gate",
+  );
+  assert.doesNotMatch(
+    designPullRequestTriggers,
+    /templates\/design\/e2e\/\*\*/u,
+    "unrelated Design E2E specs must not start the fixed expensive PR suites",
+  );
+  assert.doesNotMatch(
+    designPullRequestTriggers,
+    /templates\/design\/\*\*/u,
+    "the standalone Design browser workflow must ignore unrelated docs, evals, and metadata",
+  );
+  assert.doesNotMatch(
+    designPullRequestTriggers,
+    /packages\/(?:core|toolkit|agentkit|creative-context|recap-cli)\//u,
+    "the standalone Design browser workflow must not run for arbitrary shared-package changes",
+  );
+  assert.doesNotMatch(
+    designPullRequestTriggers,
+    /\.github\/workflows\/design-e2e\.yml/u,
+    "editing the standalone Design workflow must not start its 90-minute browser job",
+  );
   const runShardStep =
     designE2eWorkflow.match(
       /^      - name: Run shard\n([\s\S]*?)(?=^      - name:)/m,
@@ -1446,7 +2260,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     designE2eWorkflow,
-    /^      - name: Run chat attachment and sizing loopback E2E\n        if: matrix\.shard == 1\n        working-directory: templates\/design\n        timeout-minutes: 21$/m,
+    /^      - name: Run chat attachment and sizing loopback E2E\n        if: \$\{\{ matrix\.shard == 1 && hashFiles\('templates\/design\/e2e\/ai-sidebar-reporter-path\.spec\.ts'\) != '' \}\}\n        working-directory: templates\/design\n        timeout-minutes: 21$/m,
     "the loopback attachment suite must budget global setup and webServer startup",
   );
   assert.match(
@@ -1932,19 +2746,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "screen-history-2",
     "screen-history-3",
   ]);
-  const broadMatrix = broadJob.match(/shard:\s*\[([^\]]+)\]/)?.[1];
-  assert.ok(broadMatrix, "broad workflow matrix must declare its shard list");
-  const broadShardEntries = broadMatrix
-    .split(",")
-    .map((shard) => shard.trim())
-    .filter(Boolean);
-  assert.deepEqual(broadShardEntries, [
-    "ai-sidebar-loopback",
-    "music-app-workflow",
-    "home-system-selection",
-    "autolayout-vertical-center-trailing",
-    "landing-page-build",
-  ]);
+  assert.match(
+    broadJob,
+    /shard: \$\{\{ fromJSON\(needs\.change-scope\.outputs\.design_canvas_broad_workflow_shards\) \}\}/u,
+    "broad workflow matrix must use the selected shard list",
+  );
   assert.doesNotMatch(
     regressionCases,
     /e2e\/[^\s:]+\.spec\.ts:\d+/,
@@ -2674,12 +3480,37 @@ test("selects the pre-auth replay browser smoke for its runtime paths", () => {
   assert.equal(smokeOnly.checks.pre_auth_session_replay_e2e, true);
 });
 
-test("a deleted Design E2E path runs the focused interaction suite", () => {
-  const scope = classifyChangedPaths([
+test("a deleted Design E2E path runs only changed-spec diagnostics", () => {
+  const scope = classifyChangedPaths(
+    ["templates/design/e2e/removed-by-this-change.spec.ts"],
+    [],
+    process.cwd(),
+    ["templates/design/e2e/removed-by-this-change.spec.ts"],
+  );
+
+  assert.equal(scope.checks.design_canvas_core_regression, false);
+  assert.equal(scope.checks.design_canvas_broad_workflows, false);
+  assert.deepEqual(scope.designCanvasBroadWorkflowShards, []);
+  assert.deepEqual(scope.designCanvasE2eSpecs, [
     "templates/design/e2e/removed-by-this-change.spec.ts",
   ]);
 
-  assert.equal(scope.checks.design_canvas_core_regression, true);
+  const fullRunWithDeletedShard = classifyChangedPaths(
+    ["pnpm-lock.yaml"],
+    [],
+    process.cwd(),
+    ["templates/design/e2e/home-system-selection.spec.ts"],
+  );
+  assert.equal(
+    fullRunWithDeletedShard.checks.design_canvas_broad_workflows,
+    true,
+  );
+  assert.deepEqual(fullRunWithDeletedShard.designCanvasBroadWorkflowShards, [
+    "ai-sidebar-loopback",
+    "music-app-workflow",
+    "landing-page-build",
+    "autolayout-vertical-center-trailing",
+  ]);
 });
 
 test("a non-empty selector with only deleted specs resolves to a no-op", () => {
@@ -2860,7 +3691,10 @@ test("routes the long music-app workflow from its exact changed spec path", () =
     "templates/design/e2e/interaction-responsive-music-app.spec.ts";
   const musicAppScope = classifyChangedPaths([musicAppPath]);
   assert.deepEqual(musicAppScope.designCanvasE2eSpecs, [musicAppPath]);
-  assert.equal(musicAppScope.checks.design_canvas_core_regression, true);
+  assert.equal(musicAppScope.checks.design_canvas_core_regression, false);
+  assert.deepEqual(musicAppScope.designCanvasBroadWorkflowShards, [
+    "music-app-workflow",
+  ]);
 
   const selectedMusicApp = resolveDesignE2ESpecs(
     JSON.stringify([musicAppPath]),
@@ -3032,11 +3866,21 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "templates/content/e2e/server-identity.ts",
     "templates/content/e2e/stored-form/editor-mounts-once.spec.ts",
     "templates/content/acceptance/known-loss.ts",
+    "templates/content/actions/get-trashed-document.ts",
+    "templates/content/actions/list-comments.ts",
+    "templates/content/actions/list-document-history.ts",
+    "templates/content/actions/list-document-versions.ts",
+    "templates/content/actions/list-documents.ts",
+    "templates/content/actions/permanently-delete-document.ts",
+    "templates/content/actions/plan-content-trash-purge.ts",
+    "templates/content/actions/restore-document-version.ts",
     "packages/core/src/appearance/theme-family.ts",
     "packages/core/src/application-state/emitter.ts",
+    "packages/core/src/client/application-state.ts",
     "packages/core/src/collab/client.ts",
     "packages/core/src/collab/routes.ts",
     "packages/core/src/client/client-status-requests.ts",
+    "packages/core/src/client/hooks/index.ts",
     "packages/core/src/client/theme.ts",
     "packages/core/src/client/use-db-sync.ts",
     "packages/core/src/client/use-session.ts",
@@ -3050,6 +3894,7 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "packages/core/src/server/collab-plugin.ts",
     "packages/core/src/server/core-routes-plugin.ts",
     "packages/core/src/server/auth.ts",
+    "packages/core/src/server/action-discovery.ts",
     "packages/core/src/server/embed-route.ts",
     "packages/core/src/server/embed-session.ts",
     "packages/core/src/server/http-route.ts",
@@ -3089,6 +3934,8 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "templates/content/shared/nfm.spec.ts",
     "templates/content/app/i18n/en-US.ts",
     "templates/content/app/i18n-data.ts",
+    "templates/content/app/routes/settings.tsx",
+    "templates/content/server/lib/slack-notifications.ts",
     "templates/content/e2e/sidebar-delete.spec.ts",
     "templates/content/evals/editing.eval.ts",
     "templates/content/docs/product/capabilities/content.author.document-editor.md",
@@ -3115,11 +3962,13 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     );
   }
 
-  for (const path of [".github/workflows/ci.yml", "pnpm-lock.yaml"]) {
-    const scope = classifyChangedPaths([path]);
-    assert.equal(scope.full, true, path);
-    assert.equal(scope.checks.content_convergence, true, path);
-  }
+  const ciWorkflow = classifyChangedPaths([".github/workflows/ci.yml"]);
+  assert.equal(ciWorkflow.full, true);
+  assert.equal(ciWorkflow.checks.content_convergence, false);
+
+  const dependencyChange = classifyChangedPaths(["pnpm-lock.yaml"]);
+  assert.equal(dependencyChange.full, true);
+  assert.equal(dependencyChange.checks.content_convergence, true);
 
   for (const path of [
     "scripts/guard-e2e-harness.mjs",
@@ -3138,7 +3987,9 @@ test("scopes Content DB tests to Content and shared database runtime changes", (
   for (const path of [
     "templates/content/actions/update-document.ts",
     "templates/content/server/db/schema.ts",
-    "templates/content/app/routes/page.$id.tsx",
+    "templates/content/actions/update-document.db.test.ts",
+    "templates/content/acceptance/one-stored-form.db.test.ts",
+    "scripts/test-content-database-lock-pglite.mjs",
     "packages/core/src/application-state/store.ts",
     "packages/core/src/db/client.ts",
     "packages/core/src/db/migrations.ts",
@@ -3153,6 +4004,14 @@ test("scopes Content DB tests to Content and shared database runtime changes", (
   }
 
   for (const path of [
+    "templates/content/actions/connect-notion-status.ts",
+    "templates/content/actions/list-documents.ts",
+    "templates/content/app/routes/page.$id.tsx",
+    "templates/content/app/routes/page.$id.test.tsx",
+    "templates/content/actions/connect-notion-status.test.ts",
+    "templates/content/actions/_database-row-mutation.widget-scope.spec.ts",
+    "templates/content/e2e/two-tab-convergence.spec.ts",
+    "templates/content/docs/product/capabilities/content.author.document-editor.md",
     "packages/core/src/db/client.spec.ts",
     "packages/core/src/server/request-context.spec.ts",
     "packages/core/src/onboarding/workspace-services.ts",
@@ -3183,15 +4042,19 @@ test("scopes Content DB tests to Content and shared database runtime changes", (
   assert.equal(pr7825.checks.content_db, false);
   assert.equal(pr7825.checks.content_convergence, false);
 
-  for (const path of [".github/workflows/ci.yml", "pnpm-lock.yaml"]) {
-    const scope = classifyChangedPaths([path]);
-    assert.equal(scope.full, true, path);
-    assert.equal(scope.checks.content_db, true, path);
-  }
+  const ciWorkflow = classifyChangedPaths([".github/workflows/ci.yml"]);
+  assert.equal(ciWorkflow.full, true);
+  assert.equal(ciWorkflow.checks.content_db, false);
+
+  const dependencyChange = classifyChangedPaths(["pnpm-lock.yaml"]);
+  assert.equal(dependencyChange.full, true);
+  assert.equal(dependencyChange.checks.content_db, true);
 });
 
 test("runs shared coverage when core changes", () => {
-  const scope = classifyChangedPaths(["packages/core/src/agent/engine/run.ts"]);
+  const scope = classifyChangedPaths([
+    "packages/core/src/feature-flags/registry.ts",
+  ]);
 
   assert.equal(scope.full, false);
   assert.deepEqual(scope.workspaceFilters, [
@@ -3202,16 +4065,130 @@ test("runs shared coverage when core changes", () => {
     "...{packages/core}",
     "!./community-templates/**",
   ]);
-  assert.equal(scope.checks.content, true);
+  assert.equal(scope.checks.content, false);
   assert.equal(scope.checks.content_db, false);
   assert.equal(scope.checks.content_convergence, false);
-  assert.equal(scope.checks.core_integration, true);
-  assert.equal(scope.checks.plan_e2e, true);
-  assert.equal(scope.checks.brain_evals, true);
-  assert.equal(scope.checks.scaffold, true);
-  assert.equal(scope.checks.ssr_boot, true);
-  assert.equal(scope.checks.trusted_acceptance, true);
-  assert.equal(scope.checks.agentkit_acceptance, true);
+  assert.equal(scope.checks.core_integration, false);
+  assert.equal(scope.checks.plan_e2e, false);
+  assert.equal(scope.checks.brain_evals, false);
+  assert.equal(scope.checks.scaffold, false);
+  assert.equal(scope.checks.ssr_boot, false);
+  assert.equal(scope.checks.trusted_acceptance, false);
+  assert.equal(scope.checks.builder_code_starter_scaffold, false);
+  assert.equal(scope.checks.deploy_paths, false);
+  assert.equal(scope.checks.agentkit_acceptance, false);
+  assert.equal(scope.checks.neon_query_budget, false);
+  assert.equal(scope.checks.slides_caret_e2e, false);
+  assert.equal(scope.checks.slides_typing_chat_e2e, false);
+  assert.equal(scope.checks.slides_authoring_e2e, false);
+  assert.equal(scope.checks.slides_oracle, false);
+});
+
+test("selects Core integration E2E for its runtime dependencies and specs", () => {
+  for (const path of [
+    "packages/core/src/agent/engine/translate-ai-sdk.ts",
+    "packages/core/src/db/client.ts",
+    "packages/core/src/scripts/db/postgres-client.ts",
+    "packages/core/src/server/core-routes-plugin.ts",
+    "packages/core/src/server/action-routes.ts",
+    "packages/core/src/server/embedded.ts",
+    "packages/core/src/extensions/session-replay-iframe.ts",
+    "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
+    "packages/core/src/server/embedded.integration.spec.ts",
+    "templates/analytics/scripts/journey-capture-iframe-audit.ts",
+    "templates/design/app/components/templates/TemplatePreview.tsx",
+    "templates/design/shared/design-template-presets/social-story.ts",
+    "packages/toolkit/src/app/extensions/AgentNativeExtensionFrame.tsx",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.core_integration,
+      true,
+      `${path} must select Core integration E2E`,
+    );
+  }
+
+  for (const path of [
+    "packages/core/src/feature-flags/registry.ts",
+    "packages/core/src/localization/server.spec.ts",
+    "packages/toolkit/src/index.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.core_integration,
+      false,
+      `${path} must not select Core integration E2E`,
+    );
+  }
+});
+
+test("selects Plan E2E only for its direct template and Core dependencies", () => {
+  for (const path of [
+    "templates/plan/actions/create-visual-recap.ts",
+    "templates/plan/actions/create-visual-recap.e2e.spec.ts",
+    "templates/plan/server/db/schema.ts",
+    "templates/plan/server/lib/local-identity.ts",
+    "packages/core/src/index.ts",
+    "packages/core/src/action.ts",
+    "packages/core/src/blocks/server.ts",
+    "packages/core/src/server/request-context.ts",
+    "packages/core/src/sharing/access.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.plan_e2e,
+      true,
+      `${path} must select Plan E2E`,
+    );
+  }
+
+  for (const path of [
+    "templates/plan/app/routes/index.tsx",
+    "templates/plan/actions/create-visual-plan.ts",
+    "packages/core/src/agent/engine/run.ts",
+    "packages/core/src/server/request-context.spec.ts",
+    "packages/core/src/feature-flags/registry.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.plan_e2e,
+      false,
+      `${path} must not select Plan E2E`,
+    );
+  }
+});
+
+test("selects Brain evals only for Core code in its runtime dependency surface", () => {
+  for (const path of [
+    "templates/brain/actions/run-demo-eval.ts",
+    "templates/brain/actions/run-retrieval-eval.ts",
+    "templates/brain/server/lib/demo.ts",
+    "templates/brain/server/lib/search.ts",
+    "packages/core/src/action.ts",
+    "packages/core/src/db/client.ts",
+    "packages/core/src/search/index.ts",
+    "packages/core/src/search-utils/normalize.ts",
+    "packages/core/src/server/agent-discovery.ts",
+    "packages/core/src/server/request-context.ts",
+    "packages/core/src/sharing/access.ts",
+    "packages/core/src/workspace-connections/store.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.brain_evals,
+      true,
+      `${path} must select Brain evals`,
+    );
+  }
+
+  for (const path of [
+    "templates/brain/app/routes/index.tsx",
+    "templates/brain/actions/list-workspace-records.ts",
+    "packages/core/src/agent/engine/run.ts",
+    "packages/core/src/server/request-context.spec.ts",
+    "packages/core/src/feature-flags/registry.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.brain_evals,
+      false,
+      `${path} must not select Brain evals`,
+    );
+  }
 });
 
 test("selects standalone AgentKit acceptance only for its production surface", () => {
@@ -3221,8 +4198,16 @@ test("selects standalone AgentKit acceptance only for its production surface", (
     "packages/agentkit/src/client/index.ts",
     "packages/agentkit/src/adapters/http.ts",
     "packages/agentkit/src/conformance/index.ts",
-    "packages/agentkit/src/react/components.tsx",
+    "packages/toolkit/src/app/agentkit/react/components.tsx",
+    "packages/toolkit/src/app/chat/AgentKitAssistantChat.tsx",
     "packages/core/src/client/chat/agentkit-protocol.ts",
+    "packages/core/src/client/agent-chat/send.ts",
+    "packages/core/src/agent/engine/run.ts",
+    "packages/core/src/cli/create.ts",
+    "packages/core/src/server/action-routes.ts",
+    "packages/core/src/server/auth.ts",
+    "packages/core/src/server/request-context.ts",
+    "packages/core/src/templates/chat/app/routes/_index.tsx",
     "packages/toolkit/src/composer/PromptComposer.tsx",
     "packages/shared-app-config/templates.ts",
     "templates/chat/app/routes/_index.tsx",
@@ -3244,6 +4229,16 @@ test("selects standalone AgentKit acceptance only for its production surface", (
       .agentkit_acceptance,
     false,
   );
+  assert.equal(
+    classifyChangedPaths(["packages/core/src/server/request-context.spec.ts"])
+      .checks.agentkit_acceptance,
+    false,
+  );
+  assert.equal(
+    classifyChangedPaths(["packages/core/src/feature-flags/registry.ts"]).checks
+      .agentkit_acceptance,
+    false,
+  );
 });
 
 test("fails closed to AgentKit acceptance for unknown and empty scopes", () => {
@@ -3261,7 +4256,8 @@ test("selects the deploy-path check for what a standalone Chat app installs", ()
     "packages/agentkit/src/index.ts",
     "packages/shared-app-config/templates.ts",
     "packages/otel/src/index.ts",
-    "packages/recap-cli/src/index.ts",
+    "packages/core/src/cli/create.ts",
+    "packages/core/src/server/action-routes.ts",
     "templates/chat/app/routes/_index.tsx",
   ]) {
     assert.equal(
@@ -3274,6 +4270,9 @@ test("selects the deploy-path check for what a standalone Chat app installs", ()
   for (const path of [
     "templates/calendar/app/routes/index.tsx",
     "packages/dispatch/src/index.ts",
+    "packages/core/src/feature-flags/registry.ts",
+    "packages/recap-cli/src/index.ts",
+    "packages/toolkit/src/canvas-interactions/drag.ts",
   ]) {
     assert.equal(
       classifyChangedPaths([path]).checks.deploy_paths,
@@ -3475,6 +4474,14 @@ test("selects deploy alert regression when the canary workflow changes", () => {
   ]);
 });
 
+test("selects the release workflow test when the publish workflow changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/auto-publish.yml"]);
+
+  assert.deepEqual(scope.scriptTests, [
+    "scripts/package-release-workflow.test.ts",
+  ]);
+});
+
 test("runs the change-scope test when the selector or its test changes", () => {
   for (const path of [
     "scripts/ci-change-scope.ts",
@@ -3485,8 +4492,8 @@ test("runs the change-scope test when the selector or its test changes", () => {
     assert.equal(scope.full, true, path);
     assert.deepEqual(scope.scriptTests, ["scripts/ci-change-scope.test.ts"]);
     if (path === "scripts/ci-change-scope.ts") {
-      assert.equal(scope.checks.neon_query_budget, true);
-      assert.deepEqual(scope.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+      assert.equal(scope.checks.neon_query_budget, false);
+      assert.deepEqual(scope.queryBudgetApps, []);
     }
   }
 });
@@ -3654,6 +4661,14 @@ test(
         "scripts/design-e2e-regression-pins.ts",
         "scripts/design-e2e-spec-selection.ts",
         ".github/workflows/ci.yml",
+        ".github/workflows/slides-authoring-nightly.yml",
+        ".github/workflows/slides-authoring-image.yml",
+        ".github/workflows/email-workflow-failures.yml",
+        ".github/actions/slides-authoring-shard/action.yml",
+        ".github/actions/slides-authoring-image/action.yml",
+        "docker/ci-slides-authoring/Dockerfile",
+        "pnpm-workspace.yaml",
+
         ".github/workflows/design-e2e.yml",
         ".github/workflows/slides-authoring-fuzz-soak.yml",
         "templates/design/e2e/global-setup.ts",
