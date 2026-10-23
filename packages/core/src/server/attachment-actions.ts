@@ -119,7 +119,11 @@ function storedAttachmentReference(
   if (!att.uploadProvider || !att.url?.startsWith("https://")) return null;
   return {
     url: att.url,
-    contentType: att.contentType,
+    // The re-read decides "text" from this type, so a generic upload type
+    // that was classified by filename must not be stored as-is.
+    contentType: isTextLikeMimeType(att.contentType)
+      ? att.contentType
+      : "text/plain",
     name: att.name,
     ...(unwrapEnvelope ? { unwrapEnvelope: true as const } : {}),
   };

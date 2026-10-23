@@ -53,8 +53,13 @@ export function unwrapTextAttachmentEnvelope(text: string): string {
   return match ? match[1] : text;
 }
 
-const BASE64_PAYLOAD =
-  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+// A flat character class, not a repeated group: V8 recurses per group
+// repetition and overflows the stack on multi-megabyte payloads.
+const BASE64_CHARS = /^[A-Za-z0-9+/]*={0,2}$/;
+
+function isBase64Payload(data: string): boolean {
+  return data.length % 4 === 0 && BASE64_CHARS.test(data);
+}
 
 export type DecodedAttachmentText =
   | { kind: "text"; text: string }
@@ -92,7 +97,7 @@ export function decodeTextAttachmentData(att: {
   if (!textLike) return { kind: "not-text" };
   // Buffer.from skips characters that are not base64, so a corrupt payload
   // would otherwise decode to plausible text.
-  if (!BASE64_PAYLOAD.test(dataUrl.data)) {
+  if (!isBase64Payload(dataUrl.data)) {
     return {
       kind: "undecodable",
       mediaType: mediaType || "unknown",

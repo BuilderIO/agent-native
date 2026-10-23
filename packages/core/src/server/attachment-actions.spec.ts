@@ -345,6 +345,27 @@ describe("persistTextAttachmentsAsResources", () => {
     });
   });
 
+  it("stores a text type in the reference when the upload type was generic", async () => {
+    await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "deploy.sh",
+          contentType: "application/octet-stream",
+          url: "https://storage.example.test/deploy.sh",
+          uploadProvider: "s3",
+          data: `data:application/octet-stream;base64,${Buffer.from("echo hi").toString("base64")}`,
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(JSON.parse(resourcePutMock.mock.calls[0]![2])).toMatchObject({
+      contentType: "text/plain",
+    });
+  });
+
   it("refuses to copy a large body into SQL when there is no storage URL", async () => {
     const result = await persistTextAttachmentsAsResources({
       attachments: [
