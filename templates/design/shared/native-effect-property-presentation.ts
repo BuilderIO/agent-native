@@ -44,6 +44,36 @@ const pixels = (step = 0.1): NativeEffectPropertyPresentation => ({
   step,
 });
 
+const pulsingBorderV3Presentation = {
+  roundness: percent,
+  thickness: percent,
+  softness: percent,
+  intensity: percent,
+  bloom: percent,
+  spots: count,
+  spotSize: percent,
+  pulse: percent,
+  smoke: percent,
+  smokeSize: percent,
+  margin: percent,
+  marginLeft: percent,
+  marginRight: percent,
+  marginTop: percent,
+  marginBottom: percent,
+  scale: multiplier,
+  rotation: { displayScale: 1, unit: "°", step: 1 },
+  offsetX: percent,
+  offsetY: percent,
+  originX: percent,
+  originY: percent,
+  worldWidth: pixels(1),
+  worldHeight: pixels(1),
+} satisfies Record<string, NativeEffectPropertyPresentation>;
+const pulsingBorderGlowPresentation = {
+  ...pulsingBorderV3Presentation,
+  glowSpread: percent,
+};
+
 const foldedMeshNumeric: Readonly<
   Record<string, NativeEffectPropertyPresentation>
 > = {
@@ -436,6 +466,9 @@ export const NATIVE_EFFECT_PROPERTY_PRESENTATIONS: Readonly<
     intensity: percent,
     movement: percent,
   },
+  "an-native-pulsing-border@3": pulsingBorderV3Presentation,
+  "an-native-pulsing-border@4": pulsingBorderGlowPresentation,
+  "an-native-pulsing-border@5": pulsingBorderGlowPresentation,
   "an-native-color-panels@1": {
     detail: count,
     softness: percent,

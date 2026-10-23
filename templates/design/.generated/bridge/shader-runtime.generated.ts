@@ -21,14 +21,15 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
     const EFFECT_VALUES_ATTR = "data-an-shader-effect-uniforms";
     const ERROR_ATTR = "data-an-shader-error";
     const CANVAS_ATTR = "data-an-shader-canvas";
-    const PREVIEW_DEF_ID = "__an-shader-preview";
     const MAX_MOUNTS = 8;
     const VERT_SRC = "attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0.0,1.0);}";
     const registry = {};
     const mounts = [];
     let rafId = null;
+    let lastFrameTs = null;
     let needsRender = false;
     let scanTimer = null;
+    let viewScale = 1;
     function nowMs() {
       return W.performance && W.performance.now ? W.performance.now() : Date.now();
     }
@@ -87,7 +88,6 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
         const text = s.textContent || "";
         const prev = registry[id];
         if (prev && prev.domText === text) continue;
-        if (prev && prev.volatile && prev.domText === void 0) continue;
         const parsed = parseBlock(text);
         registry[id] = {
           name: s.getAttribute("data-shader-name") || id,
@@ -171,12 +171,12 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
         mount.canvas.parentNode.removeChild(mount.canvas);
       }
     }
-    function ensureMount(el, defId, mode, overrides, preview) {
+    function ensureMount(el, defId, mode, overrides) {
       const def = registry[defId];
       if (!def || !def.glsl) return null;
       for (let i = 0; i < mounts.length; i++) {
         const existing = mounts[i];
-        if (existing.el === el && existing.preview === preview && existing.mode === mode) {
+        if (existing.el === el && existing.mode === mode) {
           if (existing.defId === defId) {
             existing.values = resolveValues(def, overrides);
             requestRender();
@@ -260,7 +260,6 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
         defId,
         mode,
         values: resolveValues(def, overrides),
-        preview,
         visible: true
       };
       mounts.push(mount);
@@ -288,9 +287,10 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
       const rect = el.getBoundingClientRect();
       const wCss = Math.max(1, Math.round(rect.width));
       const hCss = Math.max(1, Math.round(rect.height));
-      const dpr = Math.min(2, W.devicePixelRatio || 1);
-      const wPx = Math.max(1, Math.round(wCss * dpr));
-      const hPx = Math.max(1, Math.round(hCss * dpr));
+      const deviceRatio = Math.min(2, W.devicePixelRatio || 1);
+      const ratio = Math.max(Math.min(1, deviceRatio), deviceRatio * viewScale);
+      const wPx = Math.max(1, Math.round(wCss * ratio));
+      const hPx = Math.max(1, Math.round(hCss * ratio));
       if (canvas.width !== wPx || canvas.height !== hPx) {
         canvas.width = wPx;
         canvas.height = hPx;
@@ -322,8 +322,15 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
-    function frame() {
+    function frame(ts) {
       rafId = null;
+      if (typeof ts === "number") {
+        if (ts === lastFrameTs) {
+          startLoop();
+          return;
+        }
+        lastFrameTs = ts;
+      }
       const t = (nowMs() - t0) / 1e3;
       const animate = !reducedMotion && !document.hidden;
       for (let i = mounts.length - 1; i >= 0; i--) {
@@ -376,8 +383,7 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
             el,
             fillId,
             "fill",
-            parseOverrides(el, VALUES_ATTR),
-            false
+            parseOverrides(el, VALUES_ATTR)
           );
           if (fillMount) seen.push(fillMount);
         }
@@ -386,15 +392,13 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
             el,
             effectId,
             "effect",
-            parseOverrides(el, EFFECT_VALUES_ATTR),
-            false
+            parseOverrides(el, EFFECT_VALUES_ATTR)
           );
           if (effectMount) seen.push(effectMount);
         }
       }
       for (let k = mounts.length - 1; k >= 0; k--) {
         const mount = mounts[k];
-        if (mount.preview) continue;
         if (seen.indexOf(mount) === -1) unmount(mount);
       }
       startLoop();
@@ -406,86 +410,9 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
         scan();
       }, 100);
     }
-    function resolveTarget(target) {
-      if (target && target.selector) {
-        try {
-          const hit = document.querySelector(target.selector);
-          if (hit) return hit;
-        } catch (_err) {
-        }
-      }
-      if (target && target.nodeId) {
-        const byId = document.querySelector(
-          '[data-agent-native-node-id="' + String(target.nodeId).replace(/"/g, '\\\\"') + '"]'
-        );
-        if (byId) return byId;
-      }
-      return null;
-    }
-    function applyPreview(target, def, mode) {
-      clearPreview();
-      const el = resolveTarget(target || {});
-      if (!el || !def || typeof def.glsl !== "string") return false;
-      const resolvedMode = mode === "effect" ? "effect" : "fill";
-      registry[PREVIEW_DEF_ID] = {
-        name: (def.name || "Preview") + "",
-        mode: resolvedMode,
-        glsl: def.glsl,
-        uniforms: def.uniforms || {},
-        volatile: true
-      };
-      const mount = ensureMount(
-        el,
-        PREVIEW_DEF_ID,
-        resolvedMode,
-        def.values || null,
-        true
-      );
-      return !!mount;
-    }
-    function clearPreview() {
-      for (let i = mounts.length - 1; i >= 0; i--) {
-        if (mounts[i].preview) unmount(mounts[i]);
-      }
-      delete registry[PREVIEW_DEF_ID];
-    }
-    function setUniform(filter, name, value) {
-      const f = filter || {};
-      for (let i = 0; i < mounts.length; i++) {
-        const mount = mounts[i];
-        if (f.preview !== void 0 && mount.preview !== !!f.preview) continue;
-        if (f.shaderId && mount.defId !== f.shaderId) continue;
-        if (f.nodeId) {
-          const nid = mount.el.getAttribute("data-agent-native-node-id");
-          if (nid !== f.nodeId) continue;
-        }
-        mount.values[name] = value;
-      }
-      requestRender();
-    }
-    function updateShader(id, patch) {
-      const def = registry[id];
-      if (!def || !patch) return;
-      let recompile = false;
-      if (typeof patch.glsl === "string" && patch.glsl !== def.glsl) {
-        def.glsl = patch.glsl;
-        recompile = true;
-      }
-      if (patch.uniforms && typeof patch.uniforms === "object") {
-        def.uniforms = patch.uniforms;
-      }
-      def.volatile = true;
-      if (recompile) invalidateMountsFor(id);
-      scan();
-      requestRender();
-    }
     W.__anShaders = {
       version: 1,
-      scan,
-      applyPreview,
-      clearPreview,
-      setUniform,
-      updateShader
+      scan
     };
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", function() {
@@ -496,6 +423,17 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
     }
     document.addEventListener("visibilitychange", function() {
       if (!document.hidden) requestRender();
+    });
+    W.addEventListener("message", function(event) {
+      if (W.parent === W || event.source !== W.parent) return;
+      const data = event.data;
+      if (!data || data.type !== "set-editor-chrome-scale") return;
+      const scale = Math.max(Number(data.scaleX) || 0, Number(data.scaleY) || 0);
+      if (!(scale > 0)) return;
+      const next = Math.min(1, Math.ceil(scale * 8) / 8);
+      if (next === viewScale) return;
+      viewScale = next;
+      requestRender();
     });
     try {
       new MutationObserver(function() {

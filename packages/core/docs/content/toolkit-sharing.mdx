@@ -138,66 +138,46 @@ tokens that back agent-readable public surfaces.
 
 ## Shared chat history {#shared-chat-history}
 
-`@agent-native/toolkit/chat-history` renders the chat sidebar. Core supplies the
-rows and Toolkit renders them, so an app can show My chats and Shared with you
-as separate sections. See [Sharing & Privacy](/docs/sharing#shared-chats) for
-the `ownership` filter and the `ownerEmail` and `accessBasis` fields.
-
-`<ChatHistoryRail>` accepts `sections` as well as a flat `items` list. Each
-section previews five rows and has its own **Show all** and **Show less**
-control, loading, error, and empty states, and optional load-more:
+`@agent-native/toolkit/chat-history` provides the presentational rail. For an app sidebar backed by Core chat ownership and lifecycle behavior, use the focused adapter at `@agent-native/toolkit/app/chat/ownership-history`:
 
 ```tsx
-import { ChatHistoryRail } from "@agent-native/toolkit/chat-history";
-import { useChatThreadList } from "@agent-native/core/client";
+import {
+  ownDraftRows,
+  OwnershipChatHistoryRail,
+  useOwnershipChatHistory,
+} from "@agent-native/toolkit/app/chat/ownership-history";
+import { useChatThreads } from "@agent-native/core/client/agent-chat";
 
-const mine = useChatThreadList({ ownership: "mine" });
-const shared = useChatThreadList({ ownership: "shared" });
+const { threads, isNewThread, pinThread, renameThread, archiveThread } =
+  useChatThreads(undefined, CHAT_STORAGE_KEY, null, { autoCreate: false });
 
-<ChatHistoryRail
+const history = useOwnershipChatHistory({
+  apiUrl,
+  scope: { type: "workspace", id: workspaceId },
+  activeId: activeThreadId,
+  pinned: true,
+  localMineRows: ownDraftRows({ threads, isNewThread }),
+  mutations: {
+    pin: pinThread,
+    rename: renameThread,
+    archive: archiveThread,
+  },
+});
+
+<OwnershipChatHistoryRail
+  {...history}
+  activeId={activeThreadId}
   onNewChat={startChat}
-  railLabels={{
-    newChat: t("newChat"),
-    showMore: t("showMore"),
-    showLess: t("showLess"),
-    sections: {
-      showAll: t("showAll"),
-      showLess: t("showLess"),
-      loadMore: t("loadMore"),
-      loadingMore: t("loadingMore"),
-      retry: t("retry"),
-    },
-  }}
-  sections={[
-    { id: "mine", label: t("myChats"), items: toItems(mine.threads) },
-    {
-      id: "shared",
-      label: t("sharedWithYou"),
-      items: toItems(shared.threads),
-      hasMore: shared.hasMore,
-      loadingMore: shared.loadingMore,
-      onLoadMore: shared.loadMore,
-      loading: shared.loading,
-      error: shared.error ? t("loadFailed") : undefined,
-      onRetry: shared.refresh,
-    },
-  ]}
+  onSelect={selectThread}
+  showNewChat={false}
 />;
 ```
 
-With `sections`, `railLabels.sections` is required and has no defaults. Pass
-`showAll`, `showLess`, `loadMore`, `loadingMore`, and `retry` as translated text,
-and override them per section with `section.labels` when needed.
+`useOwnershipChatHistory()` requests owned and shared rows from Core before paging. It keeps owner and access basis on shared rows. When pinned grouping is enabled with `pinned: true`, it separates pinned chats from the viewer's other owned chats. Started drafts are not inferred automatically. If the app has local lifecycle data, pass `localMineRows: ownDraftRows({ threads, isNewThread })` to include started drafts proven to belong to the current user. The rail previews five rows in each section, supports Show all and independent paging, and keeps loaded rows visible when a section request fails. Retry preserves local changes until a successful authoritative refresh can reconcile them.
 
-Show all reveals the rows already loaded. When the server has more, a disclosed
-section also offers Load more. A failed load shows above the rows that already
-loaded, so it never reads as an empty section.
+The adapter supplies localized section labels. `railLabels` may override `newChat`, `showMore`, or `showLess` individually. `onNewChat` and `onSelect` are required. Pass `activeId` to both the hook and rail. Mutation callbacks return `Promise<boolean>` so failed writes can roll back without navigating away from the active chat.
 
-Rows can show who owns a chat and why the viewer can see it. Set `ownerLabel`,
-`accessLabel`, and `accessBasis` on a `ChatHistoryItem`. The app passes
-translated text, because the Toolkit list ships none. Shared rows should show a
-direct grant over organization access when both apply, which is how Core
-reports `accessBasis`.
+For custom layouts, use `chatThreadToHistoryItem()` to convert a Core row and `ownDraftRows()` to derive eligible started drafts. `ChatHistoryRail` remains available when an app already owns its data and lifecycle logic. See [Sharing & Privacy](/docs/sharing#shared-chats) for ownership filters and access fields.
 
 ## What's next
 

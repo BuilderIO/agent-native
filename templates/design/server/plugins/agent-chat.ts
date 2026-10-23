@@ -137,7 +137,6 @@ const DESIGN_EDIT_TOOLS = new Set([
   "apply-component-prop-edit",
   "apply-design-token-edit",
   "apply-motion-edit",
-  "apply-shader-fill",
   "apply-tweaks",
   "apply-visual-edit",
   "create-file",
@@ -163,7 +162,6 @@ const DESIGN_FILE_TARGET_TOOLS = new Set([
   "apply-a11y-fix",
   "apply-component-prop-edit",
   "apply-motion-edit",
-  "apply-shader-fill",
   "apply-visual-edit",
   "delete-file",
   "detach-component-instance",
@@ -329,6 +327,8 @@ When a user message begins with [Reprompt selection], the design must remain unc
 When a user message begins with [Selection question], answer about the captured element and selected subtree without changing the design. You may use read-only actions when more context is needed, but do not call any content-writing action. If the user actually intended an edit, explain that they can choose Preview change from the composer mode menu and resend.
 
 When the user asks for a new design and the current navigation view is list, settings, design-systems, or otherwise has no designId, create a new design first. Do not reuse, delete screens from, or edit a previous design unless the user explicitly names that design or the current navigation state is an editor/present view with that designId.
+
+For HubSpot email creation, alignment, token edits, conversion or HTML handoff, read hubspot-email; it owns the email workflow and replaces web defaults.
 
 App and website UI is responsive by default when the user does not specify exact pixel dimensions. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Static artwork such as ads, banners, social posts, thumbnails, email headers, flyers, and posters uses one fixed canvas with no mobile or tablet frames, including on follow-up edits and resizes; each additional size or version is its own exact-size call. Honor exact pixel dimensions and platform presets in the original request. Desktop is the default primary artboard for responsive UI; use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. Keep each generation action prompt to one distinct exact size; make separate calls scoped to each screen when a request includes different sizes. For responsive UI, inspect desktop and mobile screenshots and correct overflow or broken reflow. For fixed artwork, inspect one screenshot at the requested canvas size.
 

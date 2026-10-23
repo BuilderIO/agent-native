@@ -29,6 +29,8 @@ import {
 } from "../server/source-workspace.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
+import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
+import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import {
   applySourceContentPatch,
@@ -441,6 +443,13 @@ export default defineAction({
             contentPatch && expectedVersionHash
               ? contentFromPatch(liveContent, expectedVersionHash, contentPatch)
               : requestedContent;
+          assertHubSpotEmailFrameContent({
+            content: content ?? liveContent,
+            fileType: fileType ?? persistedFile.fileType ?? "html",
+            previousContent: isHubSpotEmailHtml(liveContent)
+              ? liveContent
+              : persistedFile.content,
+          });
           if (content !== undefined) {
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,

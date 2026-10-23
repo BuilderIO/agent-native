@@ -783,6 +783,9 @@ const messages: ToolkitAgentChatTranslation = {
   "history.ownedBy": "所有者: {{name}}",
   "history.accessDirect": "共有されたチャット",
   "history.accessOrganization": "組織と共有",
+  "history.copyLink": "リンクをコピー",
+  "history.linkCopied": "リンクをコピーしました",
+  "history.copyLinkFailed": "リンクをコピーできませんでした",
   "integrations.availableSection": "利用可能な連携",
   "integrations.connectedSection": "接続済み",
   "integrations.goToApiKeys": "API キーへ移動",
@@ -1537,6 +1540,8 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.workedFor": "{{duration}} 作業しました",
   "widget.chart": "チャート",
   "widget.chartActions": "チャート操作",
+  "widget.chartRowsOmitted":
+    "このグラフには、利用可能な行の一部のみが表示されます。",
   "widget.dataSources": "データソース",
   "widget.tableActions": "テーブル操作",
   "widget.dataChart": "データチャート",

@@ -145,15 +145,15 @@ Design は外部接続なしでも完全に動作します。接続プロンプ�
 
 ### モーションとシェーダー
 
-| Action                   | 何をするか                                                |
-| ------------------------ | --------------------------------------------------------- |
-| `get-motion-timeline`    | 要素のモーション タイムラインを読み取る                   |
-| `apply-motion-edit`      | モーション タイムラインにキーフレームを追加または編集する |
-| `remove-motion-timeline` | モーション タイムラインを削除する                         |
-| `apply-shader`           | シェーダー エフェクトを適用する                           |
-| `apply-shader-fill`      | シェーダーを塗りとして適用する                            |
-| `preview-shader-fill`    | シェーダーの塗りを適用する前にプレビューする              |
-| `get-shader`             | シェーダーの現在のパラメーターを読み取る                  |
+| Action                   | 何をするか                                                 |
+| ------------------------ | ---------------------------------------------------------- |
+| `get-motion-timeline`    | 要素のモーション タイムラインを読み取る                    |
+| `apply-motion-edit`      | モーション タイムラインにキーフレームを追加または編集する  |
+| `remove-motion-timeline` | モーション タイムラインを削除する                          |
+| `get-shader`             | ネイティブ定義と保存済みのエフェクトマニフェストを確認する |
+| `edit-native-shader`     | ネイティブエフェクトを適用、編集、承認、削除する           |
+
+ネイティブ WebGPU エフェクトは WGSL を使用します。カスタム作成では `edit-native-shader` の `define-definition` で保存し、`get-shader` で保存済みの `executionHash` を取得し、その `expectedExecutionHash` で `approve-definition` を実行してから、正確な定義 ID とバージョンで `apply` を実行します。編集には `designId`、`fileId`、現在の `expectedVersionHash` が必要です。書き込みのたびにハッシュを再取得します。CPU のスキーマ検証は GPU コードをコンパイルしないため、Design のプレビューを確認してください。以前に保存された GLSL エフェクトは引き続き描画および削除できます。
 
 ### 品質 {#quality}
 

@@ -1766,6 +1766,30 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
   return pruneClaimedQueuedMessages(normalized);
 }
 
+function reconcileDirectSubmissionQueue(repo: any, userCustom: unknown): any {
+  if (
+    !userCustom ||
+    typeof userCustom !== "object" ||
+    Array.isArray(userCustom)
+  ) {
+    return repo;
+  }
+  const messageId = (userCustom as Record<string, unknown>).agentKitMessageId;
+  if (
+    typeof messageId !== "string" ||
+    !Array.isArray(repo?.queuedMessages) ||
+    !repo.queuedMessages.some(
+      (message: unknown) =>
+        message &&
+        typeof message === "object" &&
+        (message as Record<string, unknown>).id === messageId,
+    )
+  ) {
+    return repo;
+  }
+  return claimQueuedMessage(repo, messageId);
+}
+
 export function applySubmittedUserMessage(
   repo: any,
   userMessage: UserMessage,
@@ -1821,7 +1845,10 @@ export function applySubmittedUserMessage(
       );
     });
   if (wasDirectlySubmitted) {
-    return { status: "already_submitted", repo };
+    return {
+      status: "already_submitted",
+      repo: reconcileDirectSubmissionQueue(repo, userCustom),
+    };
   }
   if (
     userCustom &&
@@ -1841,7 +1868,13 @@ export function applySubmittedUserMessage(
     }
   }
   if (!queuedMessage) {
-    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
+    return {
+      status: "submitted",
+      repo: upsertUserMessage(
+        reconcileDirectSubmissionQueue(repo, userCustom),
+        userMessage,
+      ),
+    };
   }
   if (hasClaimedQueuedMessage(repo, queuedMessage.id)) {
     return { status: "already_claimed" };
@@ -3952,9 +3985,9 @@ export function mergeThreadDataForClientSave(
       }
     }
   }
-  // Queue mutations are the only writer of the queue and opt out here. Any
-  // other save carries a queue it read earlier, and letting that copy win drops
-  // a promotion claim or an append that landed in between.
+  // Queue mutations own the queue; a submitted-message marker can remove its
+  // matching row. Other saves carry a queue they read earlier, and letting
+  // that copy win drops a promotion claim or an append that landed in between.
   if (preserveExistingQueuedMessages) {
     if (existingNormalized?.queuedMessages !== undefined) {
       merged.queuedMessages = existingNormalized.queuedMessages;

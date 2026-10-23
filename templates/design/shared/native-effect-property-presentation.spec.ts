@@ -190,6 +190,8 @@ describe("native effect display units", () => {
     ["folded-mesh", 2, "foldConcentrationZ", 0.5, 50, "%"],
     ["folded-mesh", 2, "glowAmount", 0.45, 45, "%"],
     ["folded-mesh", 2, "glowSpread", 0.45, 45, "%"],
+    ["pulsing-border", 4, "glowSpread", 0.15, 15, "%"],
+    ["pulsing-border", 5, "glowSpread", 0.15, 15, "%"],
     ["folded-mesh", 2, "glowFocus", 0.5, 50, "%"],
     ["folded-mesh", 2, "lineDensity", 300, 300, ""],
     ["folded-mesh", 2, "lineThickness", 0.5, 50, "%"],

@@ -129,6 +129,7 @@ export type EffectProperty = (
       max?: number;
       step?: number;
       displayScale?: number;
+      defaultFrom?: string;
       group?: string;
       unit?: string;
       rebuild?: boolean;
@@ -226,6 +227,27 @@ export type EffectValue =
   | EffectPaint
   | EffectTextureRef
   | null;
+
+export function resolvedEffectPropertyValue(
+  definition: EffectDefinition,
+  params: Record<string, EffectValue>,
+  name: string,
+): EffectValue {
+  const property = definition.properties[name];
+  if (!property) throw new TypeError(`Unknown effect property ${name}`);
+  if (Object.prototype.hasOwnProperty.call(params, name)) return params[name];
+  if (property.type === "float" && property.defaultFrom) {
+    const source = definition.properties[property.defaultFrom];
+    if (!source || source.type !== "float")
+      throw new TypeError(
+        `Invalid effect property default source ${property.defaultFrom}`,
+      );
+    return Object.prototype.hasOwnProperty.call(params, property.defaultFrom)
+      ? params[property.defaultFrom]!
+      : source.default;
+  }
+  return property.default;
+}
 
 export type EffectInputBinding =
   | {
@@ -833,9 +855,9 @@ function validateValue(
       break;
     }
     case "paint":
-      if (!isEffectPaint(value, prop.maxCount))
+      if (!isEffectPaint(value, prop.maxCount, prop.allowedKinds))
         errors.push(
-          `property "${name}" needs a solid paint or a supported spatial gradient with 2–${prop.maxCount} normalized stops`,
+          `property "${name}" needs an allowed paint with 2–${prop.maxCount} normalized gradient stops`,
         );
       break;
     case "texture":
@@ -1280,6 +1302,25 @@ function validateProperties(
         `${prefix} property "${name}" displayScale must be positive and finite`,
       );
     }
+    if ("defaultFrom" in prop && prop.defaultFrom !== undefined) {
+      const source =
+        typeof prop.defaultFrom === "string"
+          ? properties[prop.defaultFrom]
+          : undefined;
+      if (
+        prop.type !== "float" ||
+        typeof prop.defaultFrom !== "string" ||
+        !record(source) ||
+        source.type !== "float" ||
+        source.defaultFrom !== undefined ||
+        !finite(source.default) ||
+        (finite(prop.min) && (!finite(source.min) || source.min < prop.min)) ||
+        (finite(prop.max) && (!finite(source.max) || source.max > prop.max))
+      )
+        errors.push(
+          `${prefix} property "${name}" has an invalid default source`,
+        );
+    }
     if (
       prop.type === "enum" &&
       (!Array.isArray(prop.options) ||
@@ -1302,6 +1343,7 @@ function validateProperties(
             "label",
             "default",
             "maxCount",
+            "allowedKinds",
             "group",
             "rebuild",
             "visibleWhen",
@@ -1310,6 +1352,20 @@ function validateProperties(
       )
     )
       errors.push(`${prefix} property "${name}" paint has unknown fields`);
+    if (
+      prop.type === "paint" &&
+      prop.allowedKinds !== undefined &&
+      (!Array.isArray(prop.allowedKinds) ||
+        prop.allowedKinds.length < 1 ||
+        prop.allowedKinds.length > 5 ||
+        !Array.from(prop.allowedKinds).every((kind) =>
+          ["solid", "linear", "radial", "angular", "diamond"].includes(kind),
+        ) ||
+        new Set(prop.allowedKinds).size !== prop.allowedKinds.length)
+    )
+      errors.push(
+        `${prefix} property "${name}" needs distinct allowed paint kinds`,
+      );
     if (
       prop.type === "color-array" ||
       prop.type === "color-ramp" ||
@@ -3198,7 +3254,7 @@ export function packNativeProperties(
   const layout = planNativePropertyLayout(definition);
   for (const [name, prop] of Object.entries(definition.properties)) {
     if (prop.type === "texture") continue;
-    const value = params[name] ?? prop.default;
+    const value = resolvedEffectPropertyValue(definition, params, name);
     const offset = layout.offsets[name]!;
     if (prop.type === "float" || prop.type === "int")
       packed[offset] = value as number;

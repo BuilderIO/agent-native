@@ -511,6 +511,31 @@ async function readProviderProof(page: Page): Promise<ProviderProof> {
   return (await response.json()) as ProviderProof;
 }
 
+function fingerprintRoutedImageAttachment(
+  attachment: Record<string, unknown>,
+  url: string,
+): string {
+  const rawMediaType = attachment.contentType ?? attachment.mediaType;
+  const mediaType =
+    typeof rawMediaType === "string"
+      ? rawMediaType.split(";", 1)[0]?.trim().toLowerCase()
+      : undefined;
+  const identity = {
+    ...(mediaType && mediaType !== "image" ? { contentType: mediaType } : {}),
+    name: typeof attachment.name === "string" ? attachment.name : "",
+    type: "image",
+    url,
+  };
+  const canonicalIdentity = JSON.stringify(
+    Object.fromEntries(
+      Object.entries(identity).sort(([left], [right]) =>
+        left < right ? -1 : left > right ? 1 : 0,
+      ),
+    ),
+  );
+  return createHash("sha256").update(canonicalIdentity).digest("hex");
+}
+
 async function routeImageAsOwnedStorageUrl(
   page: Page,
   name: string,
@@ -536,6 +561,9 @@ async function routeImageAsOwnedStorageUrl(
     const body = request.postDataJSON() as {
       attachments?: Array<Record<string, unknown>>;
       images?: string[];
+      submissionPayload?: {
+        requestAttachments?: Array<Record<string, unknown>>;
+      };
     };
     const attachment = body.attachments?.find(
       (candidate) =>
@@ -601,6 +629,16 @@ async function routeImageAsOwnedStorageUrl(
       : (attachment.url ?? attachment.referenceUrl);
     if (typeof url !== "string" || !url.startsWith("https://")) {
       throw new Error(`${name} has no owned HTTPS reference URL.`);
+    }
+    const requestAttachmentIdentity =
+      body.submissionPayload?.requestAttachments?.find(
+        (identity) => identity.name === name,
+      );
+    if (requestAttachmentIdentity) {
+      requestAttachmentIdentity.fingerprint = fingerprintRoutedImageAttachment(
+        attachment,
+        url,
+      );
     }
     delete attachment.data;
     delete attachment.referenceUrl;

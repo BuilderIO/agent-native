@@ -683,6 +683,32 @@ describe("optimistic document titles", () => {
     expect(database.items[0].document.title).toBe("a");
   });
 
+  it("rebuilds a row's excerpt from a saved body, even an empty one", () => {
+    const row = (id: string, excerpt?: string) => ({
+      id: `item-${id}`,
+      databaseId: "notes",
+      position: 0,
+      document: { ...doc(id, null), content: "" },
+      properties: [],
+      ...(excerpt === undefined ? {} : { excerpt }),
+    });
+    const database = { items: [row("a", "Old text."), row("b")] } as any;
+
+    const rewritten = patchDocumentInDatabaseCache(database, "a", {
+      content: "New **text**.",
+    });
+    expect(rewritten?.items[0].excerpt).toBe("New text.");
+    expect(
+      patchDocumentInDatabaseCache(rewritten, "a", { content: "" })?.items[0]
+        .excerpt,
+    ).toBe("");
+    // A row read without excerpts stays without one.
+    expect(
+      patchDocumentInDatabaseCache(database, "b", { content: "Body." })
+        ?.items[1],
+    ).not.toHaveProperty("excerpt");
+  });
+
   it("updates every sidebar-facing cache before the save round trip", () => {
     const queryClient = new QueryClient();
     const databaseKey = [

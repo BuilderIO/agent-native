@@ -16,6 +16,21 @@ export function commentThreadFieldId(
   return thread.field?.fieldId ?? null;
 }
 
+/**
+ * The threads the margin shows with one tab open: that tab's and the
+ * Property threads. A page without tabs shows them all.
+ */
+export function commentRailThreads<
+  T extends Pick<CommentThread, "field" | "property">,
+>(threads: readonly T[], openFieldId: string | null): T[] {
+  if (openFieldId === null && !threads.some((thread) => thread.field)) {
+    return threads as T[];
+  }
+  return threads.filter(
+    (thread) => thread.property || commentThreadFieldId(thread) === openFieldId,
+  );
+}
+
 /** A key for a tab that a Map or a filter can hold: "" is the page body. */
 export function commentTabKey(fieldId: string | null): string {
   return fieldId ?? "";

@@ -1,12 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
-  MAX_AGENT_REQUEST_ATTACHMENTS,
+  parseQueueMessageInput,
+  persistableFilePart,
+  fingerprintAgentSubmissionAttachment,
+  submissionAttachmentsMatch,
+  type AgentQueuedMessage,
+  type AgentRequestAttachment,
+  type AgentRunOptions,
+  type AgentSubmissionReference,
   type AgentSubmissionPayload,
   type AgentSuggestion,
+  type FilePart,
 } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -100,6 +109,7 @@ import {
   type OwnedImageReadFailureCode,
 } from "../file-upload/owned-attachment.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
+import { uploadFile } from "../file-upload/registry.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
 import {
   derivedTool,
@@ -1145,6 +1155,54 @@ function runSlotBusy(
     retryable: true,
     activeRunId,
   };
+}
+
+function queuedSubmissionResponse(
+  event: Parameters<typeof setResponseStatus>[0],
+  message: AgentQueuedMessage,
+  activeRunId?: string | null,
+) {
+  setResponseStatus(event, 202);
+  setResponseHeader(event, "Content-Type", "application/json");
+  return {
+    state: "queued" as const,
+    message,
+    ...(activeRunId ? { activeRunId } : {}),
+  };
+}
+
+const QUEUED_REASONING_EFFORTS = new Set<
+  NonNullable<AgentRunOptions["reasoningEffort"]>
+>(["none", "minimal", "low", "medium", "high", "xhigh"]);
+
+function effectiveQueuedRunOptions(
+  options: AgentRunOptions | undefined,
+  model: unknown,
+  effort: unknown,
+  mode: AgentExecutionMode | undefined,
+): AgentRunOptions | undefined {
+  const effective = options ? { ...options } : undefined;
+  let result = effective;
+  if (typeof model === "string" && model.trim()) {
+    result ??= {};
+    result.model = model;
+  }
+  if (
+    typeof effort === "string" &&
+    QUEUED_REASONING_EFFORTS.has(
+      effort as NonNullable<AgentRunOptions["reasoningEffort"]>,
+    )
+  ) {
+    result ??= {};
+    result.reasoningEffort = effort as NonNullable<
+      AgentRunOptions["reasoningEffort"]
+    >;
+  }
+  if (mode !== undefined) {
+    result ??= {};
+    result.mode = mode;
+  }
+  return result;
 }
 
 /**
@@ -6655,6 +6713,23 @@ function intentIsReadOnly(intent: ActionCallIntent | undefined): boolean {
   return intent?.valid === true && intent.readOnly === true;
 }
 
+function isBoundedTaskWait(toolName: string, input: unknown): boolean {
+  if (toolName !== "agent-teams" || !input || typeof input !== "object") {
+    return false;
+  }
+  const args = input as Record<string, unknown>;
+  // Only these operations honor the task reader's bounded wait contract.
+  return (
+    (args.action === "status" || args.action === "read-result") &&
+    typeof args.taskId === "string" &&
+    args.taskId.trim().length > 0 &&
+    typeof args.waitMs === "number" &&
+    Number.isInteger(args.waitMs) &&
+    args.waitMs > 0 &&
+    args.waitMs <= 20_000
+  );
+}
+
 function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
@@ -6864,6 +6939,44 @@ function notifyModelInputObserver(
   } catch {
     // coercion-ok: observer failures cannot change agent execution.
   }
+}
+
+export type QueuedRunInterruptBoundaryResult = "none" | "aborted" | "pending";
+
+export function createRunSafeBoundaryGuards(input: {
+  signal: AbortSignal;
+  flushEvents: () => Promise<void>;
+  interruptRequestedAtBoundary: () => Promise<QueuedRunInterruptBoundaryResult>;
+}): {
+  beforeModelDispatch: BeforeModelDispatch;
+  beforeWrite: () => Promise<void>;
+} {
+  return {
+    beforeModelDispatch: async <T>(dispatch: () => T) => {
+      await input.flushEvents();
+      const interruptResult = await input.interruptRequestedAtBoundary();
+      if (input.signal.aborted || interruptResult !== "none") {
+        return { started: false as const };
+      }
+      return { started: true as const, value: dispatch() };
+    },
+    beforeWrite: async () => {
+      await input.flushEvents();
+      const interruptResult = await input.interruptRequestedAtBoundary();
+      if (input.signal.aborted || interruptResult !== "none") {
+        throw new Error("Run aborted at a safe boundary");
+      }
+    },
+  };
+}
+
+export async function confirmQueuedRunInterrupt(input: {
+  abort: () => Promise<boolean>;
+  defer: () => Promise<unknown>;
+}): Promise<Exclude<QueuedRunInterruptBoundaryResult, "none">> {
+  if (await input.abort()) return "aborted";
+  await input.defer();
+  return "pending";
 }
 
 export async function runAgentLoop(opts: {
@@ -8625,11 +8738,13 @@ export async function runAgentLoop(opts: {
         actionEntry && intent?.valid
           ? actionCallIsRetrySafe(actionEntry, preparedCallArguments(intent))
           : false;
-      const repeatGuardStopFromThisCall = noteRepeatedToolCall(
-        toolCall.name,
-        toolCall.input,
-        toolCall.id,
-      );
+      const repeatGuardStopFromThisCall =
+        actionIsReadOnly &&
+        actionEntry?.dedupe === false &&
+        intent?.valid === true &&
+        isBoundedTaskWait(toolCall.name, preparedCallArguments(intent))
+          ? null
+          : noteRepeatedToolCall(toolCall.name, toolCall.input, toolCall.id);
       const rollbackRepeatedToolCall = () => {
         const repeatKey = toolCallCacheKey(toolCall.name, toolCall.input);
         const repeatCall = inFlightRepeatToolCalls.get(toolCall.id);
@@ -11366,8 +11481,138 @@ interface AdmittedQueuedMessagePromotion {
   text: string;
   attachments?: unknown[];
   requestAttachments?: Record<string, unknown>[];
+  references?: AgentSubmissionReference[];
   metadata?: Record<string, unknown>;
-  options?: Record<string, unknown>;
+  options?: AgentRunOptions;
+}
+
+interface QueueableAttachments {
+  attachments: FilePart[];
+  requestAttachments: AgentRequestAttachment[];
+}
+
+function requestAttachmentIndexes(
+  submission: AgentSubmissionPayload,
+  attachments: AgentChatAttachment[],
+): Set<number> | null {
+  const unmatched = new Set(attachments.map((_, index) => index));
+  for (const identity of submission.attachments ?? []) {
+    const match = [...unmatched].find(
+      (index) =>
+        fingerprintAgentSubmissionAttachment(attachments[index], "file") ===
+        identity.fingerprint,
+    );
+    if (match === undefined) return null;
+    unmatched.delete(match);
+  }
+
+  const requestIndexes = new Set<number>();
+  for (const identity of submission.requestAttachments ?? []) {
+    const match = [...unmatched].find(
+      (index) =>
+        attachments[index]?.type === "image" &&
+        fingerprintAgentSubmissionAttachment(attachments[index], "image") ===
+          identity.fingerprint,
+    );
+    if (match === undefined) return null;
+    unmatched.delete(match);
+    requestIndexes.add(match);
+  }
+  return requestIndexes;
+}
+
+async function queueableAttachments(
+  attachments: AgentChatAttachment[],
+  ownerEmail: string | null,
+  requestAttachmentIndexes: ReadonlySet<number>,
+): Promise<QueueableAttachments | null> {
+  const files: FilePart[] = [];
+  const requestFiles: AgentRequestAttachment[] = [];
+  for (const [index, attachment] of attachments.entries()) {
+    if (attachment.displayOnly === true) continue;
+    if (
+      attachment.type !== "image" &&
+      attachment.type !== "file" &&
+      attachment.type !== "document"
+    ) {
+      return null;
+    }
+    if (typeof attachment.name !== "string") {
+      return null;
+    }
+    const record = attachment as AgentChatAttachment & {
+      id?: unknown;
+      fileId?: unknown;
+      storageUploadFailed?: unknown;
+    };
+    const mediaType =
+      typeof attachment.contentType === "string" && attachment.contentType
+        ? attachment.contentType
+        : typeof attachment.mediaType === "string"
+          ? attachment.mediaType
+          : undefined;
+    const inlineData =
+      typeof attachment.data === "string"
+        ? attachment.data
+        : typeof attachment.text === "string"
+          ? `data:${mediaType ?? "text/plain"};base64,${Buffer.from(attachment.text, "utf8").toString("base64")}`
+          : typeof attachment.url === "string" &&
+              attachment.url.startsWith("data:")
+            ? attachment.url
+            : undefined;
+    let part = persistableFilePart({
+      type: "file",
+      name: attachment.name,
+      ...(mediaType ? { mediaType } : {}),
+      ...(typeof attachment.url === "string" ? { url: attachment.url } : {}),
+      ...(typeof record.fileId === "string"
+        ? { fileId: record.fileId }
+        : typeof record.id === "string"
+          ? { fileId: record.id }
+          : {}),
+    });
+    if (
+      !part.fileId &&
+      inlineData &&
+      (!part.url || !record.uploadProvider || record.storageUploadFailed)
+    ) {
+      const parsedData = parseBase64DataUrl(inlineData);
+      if (parsedData) {
+        const uploaded = await uploadFile({
+          data: new Uint8Array(Buffer.from(parsedData.data, "base64")),
+          filename: attachment.name,
+          mimeType: mediaType ?? parsedData.mediaType,
+          ownerEmail: ownerEmail ?? undefined,
+        });
+        if (uploaded) {
+          attachment.url = uploaded.url;
+          attachment.uploadProvider = uploaded.provider;
+          part = persistableFilePart({
+            type: "file",
+            name: attachment.name,
+            ...(mediaType ? { mediaType } : {}),
+            url: uploaded.url,
+          });
+        }
+      }
+    }
+    if (requestAttachmentIndexes.has(index)) {
+      if (!part.url || !hasDurableAttachmentUrl(part.url)) return null;
+      const referenceUrl = attachment.referenceUrl;
+      if (referenceUrl && !hasDurableAttachmentUrl(referenceUrl)) return null;
+      requestFiles.push({
+        type: "image",
+        name: attachment.name,
+        ...(mediaType ? { contentType: mediaType } : {}),
+        url: part.url,
+        ...(referenceUrl ? { referenceUrl } : {}),
+      });
+      continue;
+    }
+    if (!part.url && !part.fileId) return null;
+    files.push(part);
+  }
+  return { attachments: files, requestAttachments: requestFiles };
 }
 
 function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
@@ -11379,9 +11624,7 @@ function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
 function validateQueuedPromotionRequestAttachments(
   value: unknown,
 ): Record<string, unknown>[] | null {
-  if (!Array.isArray(value) || value.length > MAX_AGENT_REQUEST_ATTACHMENTS) {
-    return null;
-  }
+  if (!Array.isArray(value)) return null;
 
   let totalDataChars = 0;
   const attachments: Record<string, unknown>[] = [];
@@ -11438,7 +11681,8 @@ function validateQueuedPromotionRequestAttachments(
   return attachments;
 }
 
-async function readAdmittedQueuedMessagePromotion(opts: {
+/** @internal exported for unit tests only */
+export async function readAdmittedQueuedMessagePromotion(opts: {
   ownerEmail: string | null;
   orgId: string | null;
   threadId?: string;
@@ -11517,6 +11761,9 @@ async function readAdmittedQueuedMessagePromotion(opts: {
   const options = hasOwn(queuedMessage, "options")
     ? queuedMessage.options
     : undefined;
+  const references = hasOwn(queuedMessage, "references")
+    ? queuedMessage.references
+    : undefined;
   if (
     (attachments !== undefined && !Array.isArray(attachments)) ||
     (Array.isArray(attachments) &&
@@ -11529,16 +11776,25 @@ async function readAdmittedQueuedMessagePromotion(opts: {
     (metadata !== undefined &&
       (!metadata || typeof metadata !== "object" || Array.isArray(metadata))) ||
     (options !== undefined &&
-      (!options || typeof options !== "object" || Array.isArray(options)))
+      (!options || typeof options !== "object" || Array.isArray(options))) ||
+    (references !== undefined && !Array.isArray(references))
   ) {
     return null;
   }
+  parseQueueMessageInput(
+    { ...queuedMessage, threadId: opts.threadId },
+    "queuedMessagePromotion",
+    { allowLegacyQueueCount: true },
+  );
 
   return {
     id: messageId,
     text: queuedMessage.text,
     ...(Array.isArray(attachments) ? { attachments } : {}),
     ...(requestAttachments ? { requestAttachments } : {}),
+    ...(Array.isArray(references)
+      ? { references: references as AgentSubmissionReference[] }
+      : {}),
     ...(metadata ? { metadata: metadata as Record<string, unknown> } : {}),
     ...(options ? { options: options as Record<string, unknown> } : {}),
   };
@@ -11644,6 +11900,7 @@ export function queuedPromotionAttachments(
         : {}),
       ...(data ? { data } : {}),
       ...(imageUrl ? { url: imageUrl } : {}),
+      ...(referenceUrl ? { referenceUrl } : {}),
       ...(fileId ? { id: fileId } : {}),
     } as AgentChatAttachment;
     const replacementIndex =
@@ -12358,6 +12615,7 @@ export function createProductionAgentHandler(
       model: submittedModel,
       engine: submittedEngine,
       effort: submittedEffort,
+      options: submittedRunOptions,
       browserTabId,
       scope,
       harness: submittedHarness,
@@ -12372,6 +12630,12 @@ export function createProductionAgentHandler(
     let requestModel = submittedModel;
     let requestEngine = submittedEngine;
     let requestEffort = submittedEffort;
+    let requestOptions =
+      submittedRunOptions &&
+      typeof submittedRunOptions === "object" &&
+      !Array.isArray(submittedRunOptions)
+        ? (submittedRunOptions as AgentRunOptions)
+        : undefined;
     let internalContinuation = submittedInternalContinuation;
     let requestHarness = submittedHarness;
     let requestSkipPendingSelectionContext = skipPendingSelectionContext;
@@ -12436,7 +12700,68 @@ export function createProductionAgentHandler(
         setResponseStatus(event, 400);
         return { error: "submissionPayload does not match this message" };
       }
-      submissionPayload = candidate;
+      let validatedSubmissionPayload: AgentSubmissionPayload | undefined;
+      try {
+        validatedSubmissionPayload = parseQueueMessageInput(
+          {
+            threadId: candidate.threadId,
+            id: candidate.id,
+            text: candidate.text,
+            submissionPayload: candidate,
+          },
+          "submissionPayload",
+        ).submissionPayload;
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid submissionPayload" };
+      }
+      if (!validatedSubmissionPayload) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid submissionPayload" };
+      }
+      submissionPayload = validatedSubmissionPayload;
+      if (
+        validatedSubmissionPayload.text !==
+          (typeof message === "string" ? message : "") ||
+        !isDeepStrictEqual(
+          validatedSubmissionPayload.references ?? [],
+          submittedReferences,
+        ) ||
+        !isDeepStrictEqual(
+          validatedSubmissionPayload.options ?? {},
+          requestOptions ?? {},
+        )
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "submissionPayload does not match this message" };
+      }
+    }
+    let requestMode: AgentExecutionMode =
+      body.mode === "plan" || requestOptions?.mode === "plan" ? "plan" : "act";
+    requestOptions = effectiveQueuedRunOptions(
+      requestOptions,
+      requestModel,
+      requestEffort,
+      body.mode !== undefined || requestOptions?.mode !== undefined
+        ? requestMode
+        : undefined,
+    );
+    if (submissionPayload) {
+      const metadata =
+        submissionPayload.metadata === undefined && requestEngine === undefined
+          ? undefined
+          : {
+              ...submissionPayload.metadata,
+              ...(requestEngine === undefined ? {} : { engine: requestEngine }),
+            };
+      submissionPayload = {
+        ...submissionPayload,
+        ...(requestOptions === undefined ? {} : { options: requestOptions }),
+        ...(metadata === undefined ? {} : { metadata }),
+      };
+      requestMetadata = normalizeSubmissionDeadlineMetadata(
+        submissionPayload.metadata,
+      );
     }
 
     const backgroundRunMarker =
@@ -12559,7 +12884,6 @@ export function createProductionAgentHandler(
       requestRunCtx.chatScope = requestChatScope;
       requestRunCtx.isBackgroundWorker = isBackgroundWorker;
     }
-    let requestMode: AgentExecutionMode = body.mode === "plan" ? "plan" : "act";
     const hasMessageText =
       typeof message === "string" && message.trim().length > 0;
     let hasAttachments = Array.isArray(attachments) && attachments.length > 0;
@@ -12569,6 +12893,20 @@ export function createProductionAgentHandler(
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
+    const submissionAttachmentsAreConsistent =
+      submissionPayload !== undefined &&
+      submissionAttachmentsMatch(submissionPayload, requestAttachments);
+    if (submissionPayload && !submissionAttachmentsAreConsistent) {
+      setResponseStatus(event, 400);
+      return { error: "submissionPayload does not match this message" };
+    }
+    const submissionRequestAttachmentIndexes = submissionPayload
+      ? requestAttachmentIndexes(submissionPayload, requestAttachments)
+      : new Set<number>();
+    if (!submissionRequestAttachmentIndexes) {
+      setResponseStatus(event, 400);
+      return { error: "submissionPayload does not match this message" };
+    }
     let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
     let requestDisplayMessage = displayMessage;
     let requestContext = buildRecentUserRequestContext({
@@ -12588,6 +12926,244 @@ export function createProductionAgentHandler(
           anonymous: runRequestContext?.agentRunAnonymous === true,
         }
       : undefined;
+    const busySubmissionQueueEligible = Boolean(
+      submissionPayload &&
+      agentKitMessageId &&
+      threadId &&
+      ownerEmail &&
+      !internalContinuation &&
+      !continueOf &&
+      !queuedMessageId &&
+      !queuedMessageClaimId &&
+      !isBackgroundWorker &&
+      submittedInternalContinuation !== true &&
+      typeof requestedAutoContinueOfRunId !== "string" &&
+      typeof requestedContinueOfRunId !== "string" &&
+      !hasOwn(body, "approvedToolCalls") &&
+      !hasOwn(body, "approvedToolCallAskIds") &&
+      !hasOwn(body, "resume"),
+    );
+    const busySubmissionAttachmentsAreQueueable = requestAttachments.every(
+      (attachment) =>
+        attachment.displayOnly === true ||
+        ((attachment.type === "image" ||
+          attachment.type === "file" ||
+          attachment.type === "document") &&
+          typeof attachment.name === "string"),
+    );
+    const tryAdmitBusySubmission = async (): Promise<unknown | null> => {
+      if (
+        !submissionPayload ||
+        !agentKitMessageId ||
+        !threadId ||
+        !ownerEmail ||
+        internalContinuation ||
+        continueOf ||
+        queuedMessageId ||
+        queuedMessageClaimId ||
+        isBackgroundWorker ||
+        submittedInternalContinuation === true ||
+        typeof requestedAutoContinueOfRunId === "string" ||
+        typeof requestedContinueOfRunId === "string" ||
+        hasOwn(body, "approvedToolCalls") ||
+        hasOwn(body, "approvedToolCallAskIds") ||
+        hasOwn(body, "resume")
+      ) {
+        return null;
+      }
+
+      const { resolveThreadAccess } = await import("../chat-threads/store.js");
+      const accessibleThread = await resolveThreadAccess(
+        ownerEmail,
+        threadId,
+        "editor",
+        { orgId: getRequestOrgId() ?? undefined },
+      );
+      if (!accessibleThread) {
+        setResponseStatus(event, 404);
+        return { error: "Thread not found" };
+      }
+      const attachmentsForQueue = await queueableAttachments(
+        requestAttachments,
+        ownerEmail,
+        submissionRequestAttachmentIndexes,
+      );
+      if (!attachmentsForQueue) {
+        if (
+          requestAttachments.some(
+            (attachment) =>
+              attachment.displayOnly !== true &&
+              (attachment.type === "image" ||
+                attachment.type === "file" ||
+                attachment.type === "document"),
+          )
+        ) {
+          setResponseStatus(event, 503);
+          return {
+            error: "The attachment could not be saved for later delivery",
+            code: "queued_attachment_reference_unavailable",
+            retryable: true,
+          };
+        }
+        return null;
+      }
+      const queueText =
+        typeof message === "string" && message.trim()
+          ? message
+          : "Use the attached context.";
+      let parsedMessage: ReturnType<typeof parseQueueMessageInput>;
+      try {
+        parsedMessage = parseQueueMessageInput(
+          {
+            threadId,
+            id: agentKitMessageId,
+            text: queueText,
+            ...(attachmentsForQueue.attachments.length
+              ? { attachments: attachmentsForQueue.attachments }
+              : {}),
+            ...(attachmentsForQueue.requestAttachments.length
+              ? { requestAttachments: attachmentsForQueue.requestAttachments }
+              : {}),
+            ...(submittedReferences.length
+              ? { references: submittedReferences }
+              : {}),
+            ...(requestMetadata ? { metadata: requestMetadata } : {}),
+            ...(requestOptions ? { options: requestOptions } : {}),
+            ...(submissionPayload.interruptActiveRun === true
+              ? { interruptActiveRun: true }
+              : {}),
+          },
+          "agentChatSubmission",
+        );
+      } catch {
+        setResponseStatus(event, 400);
+        return {
+          error: "This submission cannot be saved for later delivery",
+          code: "queued_submission_invalid",
+          retryable: false,
+        };
+      }
+      if (!parsedMessage.text.trim()) {
+        setResponseStatus(event, 400);
+        return {
+          error: "This submission cannot be saved for later delivery",
+          code: "queued_submission_invalid",
+          retryable: false,
+        };
+      }
+
+      const { mutateThreadQueuedMessages, QueuedSubmissionAdmissionError } =
+        await import("../chat-threads/store.js");
+      const requestContext = getRequestContext();
+      const actor = {
+        email: requestContext?.userEmail ?? ownerEmail,
+        ...(requestContext?.authUserId
+          ? { authUserId: requestContext.authUserId }
+          : {}),
+        ...(requestContext?.identityAuthenticatedAtMs !== undefined
+          ? {
+              identityAuthenticatedAtMs:
+                requestContext.identityAuthenticatedAtMs,
+            }
+          : {}),
+        ...(requestContext?.userName ? { name: requestContext.userName } : {}),
+        orgId: requestContext?.orgId ?? null,
+        orgScope: requestContext?.orgScope ?? null,
+        anonymous: requestContext?.agentRunAnonymous === true,
+      };
+      const queuedMessage: AgentQueuedMessage = {
+        ...parsedMessage,
+        id: agentKitMessageId,
+        threadId,
+        createdAt: new Date().toISOString(),
+        ...(attachmentsForQueue.attachments.length
+          ? { attachments: attachmentsForQueue.attachments }
+          : {}),
+        ...(attachmentsForQueue.requestAttachments.length
+          ? { requestAttachments: attachmentsForQueue.requestAttachments }
+          : {}),
+      };
+      let result;
+      try {
+        result = await mutateThreadQueuedMessages(
+          threadId,
+          {
+            type: "append",
+            message: queuedMessage,
+            hashInput: submissionPayload,
+          },
+          { actor },
+        );
+      } catch (error) {
+        if (!(error instanceof QueuedSubmissionAdmissionError)) throw error;
+        setResponseStatus(event, 409);
+        return {
+          error: "This message ID is no longer available for submission",
+          code: error.code,
+          retryable: false,
+        };
+      }
+      if (!result) return null;
+      if (result.receiptUnavailable) {
+        setResponseStatus(event, 503);
+        return {
+          error: "The queued submission receipt could not be saved",
+          code: "queued_submission_receipt_unavailable",
+          retryable: true,
+        };
+      }
+      if (result.receiptConflict) {
+        setResponseStatus(event, 409);
+        return {
+          error: "This message ID was already used for a different submission",
+          code: "queued_message_id_conflict",
+          retryable: false,
+        };
+      }
+      if (result.submissionExpired) {
+        setResponseStatus(event, 409);
+        return {
+          error: "This submission expired before it could be queued",
+          code: "submission_expired",
+          retryable: false,
+        };
+      }
+      if (result.alreadySubmitted && result.submittedRunId) {
+        const stream = subscribeToRun(result.submittedRunId, 0);
+        if (!stream) {
+          setResponseStatus(event, 503);
+          return {
+            error: "The accepted submission run is no longer replayable",
+            code: "queued_message_run_unavailable",
+            retryable: true,
+          };
+        }
+        setResponseHeader(event, "Content-Type", "text/event-stream");
+        setResponseHeader(event, "Cache-Control", "no-cache");
+        setResponseHeader(event, "Connection", "keep-alive");
+        setResponseHeader(event, "X-Run-Id", result.submittedRunId);
+        setResponseHeader(event, "X-Dispatch-Mode", "replay");
+        return stream;
+      }
+      if (!result.message) {
+        setResponseStatus(event, 503);
+        return {
+          error: "The queued submission receipt could not be read",
+          code: "queued_submission_receipt_unavailable",
+          retryable: true,
+        };
+      }
+      return queuedSubmissionResponse(
+        event,
+        {
+          ...result.message,
+          id: agentKitMessageId,
+          threadId,
+          createdAt: result.message.createdAt ?? queuedMessage.createdAt,
+        } as AgentQueuedMessage,
+        await getSlotHoldingRunId(threadId),
+      );
+    };
     if (
       submissionPayload &&
       ownerEmail &&
@@ -12599,6 +13175,7 @@ export function createProductionAgentHandler(
     ) {
       const {
         getQueuedSubmissionReceipt,
+        getQueuedSubmissionReceiptStatus,
         hashQueuedSubmissionPayload,
         resolveThreadAccess,
       } = await import("../chat-threads/store.js");
@@ -12640,8 +13217,26 @@ export function createProductionAgentHandler(
             retryable: false,
           };
         }
-        if (receipt.state === "submitted") {
-          if (!receipt.submittedRunId) {
+        let receiptState = receipt.state;
+        let submittedRunId = receipt.submittedRunId;
+        if (receipt.state === "queued") {
+          const status = await getQueuedSubmissionReceiptStatus(
+            threadId,
+            receipt.messageId,
+          );
+          if (!status) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The queued submission receipt could not be read",
+              code: "queued_submission_receipt_unavailable",
+              retryable: true,
+            };
+          }
+          receiptState = status.state;
+          submittedRunId = status.submittedRunId;
+        }
+        if (receiptState === "submitted") {
+          if (!submittedRunId) {
             setResponseStatus(event, 503);
             return {
               error: "The accepted submission has no replayable run",
@@ -12649,7 +13244,7 @@ export function createProductionAgentHandler(
               retryable: true,
             };
           }
-          const stream = subscribeToRun(receipt.submittedRunId, 0);
+          const stream = subscribeToRun(submittedRunId, 0);
           if (!stream) {
             setResponseStatus(event, 503);
             return {
@@ -12661,12 +13256,31 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Content-Type", "text/event-stream");
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
-          setResponseHeader(event, "X-Run-Id", receipt.submittedRunId);
+          setResponseHeader(event, "X-Run-Id", submittedRunId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return stream;
         }
-        if (receipt.state === "queued") {
-          return runSlotBusy(event, null);
+        if (receiptState === "queued") {
+          if (!receipt.message) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The queued submission receipt has no replayable message",
+              code: "queued_submission_receipt_unavailable",
+              retryable: true,
+            };
+          }
+          return queuedSubmissionResponse(
+            event,
+            {
+              ...receipt.message,
+              id: receipt.messageId,
+              threadId,
+              createdAt:
+                receipt.message.createdAt ??
+                new Date(receipt.createdAt).toISOString(),
+            } as AgentQueuedMessage,
+            await getSlotHoldingRunId(threadId),
+          );
         }
         setResponseStatus(event, 409);
         return {
@@ -12819,6 +13433,11 @@ export function createProductionAgentHandler(
         retryable: false,
       };
     }
+    const isAuthorizedApprovalContinuation = Boolean(
+      submittedInternalContinuation === true &&
+      requestedApprovedToolCallAskIds?.length &&
+      resolvedApprovalTurnId,
+    );
     // The continuation marker is client-controlled. Defer setup admission only
     // for automatic successors when the named stop and turn can be checked
     // under the run-slot lock. A user's manual Continue starts new work and
@@ -12859,7 +13478,8 @@ export function createProductionAgentHandler(
         admittedQueuedMessage.requestAttachments,
       );
       hasAttachments = requestAttachments.length > 0;
-      requestReferences = [];
+      requestReferences = admittedQueuedMessage.references ?? [];
+      requestOptions = promotionOptions;
       requestHistory = [];
       requestStructuredHistory = undefined;
       internalContinuation = false;
@@ -12895,6 +13515,7 @@ export function createProductionAgentHandler(
       mutableBody.history = requestHistory;
       delete mutableBody.structuredHistory;
       mutableBody.metadata = requestMetadata;
+      mutableBody.options = requestOptions;
       mutableBody.model = requestModel;
       if (requestEngine === undefined) {
         delete mutableBody.engine;
@@ -12908,7 +13529,6 @@ export function createProductionAgentHandler(
       delete mutableBody.continueOfRunId;
       delete mutableBody.harness;
       delete mutableBody.parentId;
-      delete mutableBody.options;
       delete mutableBody.skipPendingSelectionContext;
     }
     const recordUnstartedTurn = async (failure: {
@@ -12997,6 +13617,14 @@ export function createProductionAgentHandler(
       }
     }
     setupMark("aiGate");
+    if (hasOwn(body, "queuedMessageClaimId") && !admittedQueuedMessage) {
+      setResponseStatus(event, 409);
+      return {
+        error: "This queued message can no longer be promoted",
+        code: "queued_message_claim_invalid",
+        retryable: false,
+      };
+    }
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -13214,6 +13842,27 @@ export function createProductionAgentHandler(
     }
     workerStep("db_request_ctx");
 
+    if (
+      hasAttachments &&
+      threadId &&
+      !isBackgroundWorker &&
+      requestAttachments.some(
+        (attachment) =>
+          attachment.displayOnly !== true &&
+          (attachment.type === "image" ||
+            attachment.type === "file" ||
+            attachment.type === "document"),
+      )
+    ) {
+      const activeRunId = await getSlotHoldingRunId(threadId);
+      if (
+        activeRunId &&
+        (!busySubmissionQueueEligible || !busySubmissionAttachmentsAreQueueable)
+      ) {
+        return runSlotBusy(event, activeRunId);
+      }
+    }
+
     workerStep("attach_start");
     if (
       hasAttachments &&
@@ -13223,13 +13872,6 @@ export function createProductionAgentHandler(
           (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
-      // A busy thread refuses this message (409) and the client sends it again
-      // once the thread frees up; uploading first would store every
-      // attachment again on each refusal.
-      if (threadId && !isBackgroundWorker) {
-        const activeRunId = await getSlotHoldingRunId(threadId);
-        if (activeRunId) return runSlotBusy(event, activeRunId);
-      }
       try {
         attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
         const preUpload = await preUploadAttachments({
@@ -13251,6 +13893,14 @@ export function createProductionAgentHandler(
         requestMessage = requestMessage
           ? `${requestMessage}\n\n${describeAttachmentPreUploadWarning()}`
           : describeAttachmentPreUploadWarning();
+      }
+      if (threadId && !isBackgroundWorker) {
+        const activeRunId = await getSlotHoldingRunId(threadId);
+        if (activeRunId) {
+          const queued = await tryAdmitBusySubmission();
+          if (queued !== null) return queued;
+          return runSlotBusy(event, activeRunId);
+        }
       }
     }
 
@@ -14222,6 +14872,18 @@ export function createProductionAgentHandler(
       }
       let slot;
       try {
+        const runThreadId = threadId;
+        const shouldPreserveQueuedOrder = Boolean(
+          !isAuthorizedApprovalContinuation &&
+          !queuedMessageId &&
+          !queuedMessageClaimId &&
+          !isBackgroundWorker,
+        );
+        const queuedSubmissionStore = shouldPreserveQueuedOrder
+          ? await import("../chat-threads/store.js")
+          : undefined;
+        // The inbox read runs under the slot lock, but its schema must be ready first.
+        await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
           ...(turnInitiator ? { turnInitiator } : {}),
@@ -14238,6 +14900,15 @@ export function createProductionAgentHandler(
             ? { dispatchPayload: durableDispatchPayload }
             : {}),
           ...(continueOf ? { continueOf } : {}),
+          ...(queuedSubmissionStore
+            ? {
+                hasPendingQueuedSubmission: (tx) =>
+                  queuedSubmissionStore.hasPendingQueuedSubmissionReceipt(
+                    tx,
+                    runThreadId,
+                  ),
+              }
+            : {}),
         });
       } catch (error) {
         await setupResumeClaim?.release();
@@ -14274,6 +14945,13 @@ export function createProductionAgentHandler(
       }
       if (!slot.claimed) {
         await setupResumeClaim?.release();
+        if (slot.queuedSubmissionPending) {
+          const queued = await tryAdmitBusySubmission();
+          if (queued !== null) return queued;
+          return runSlotBusy(event, null);
+        }
+        const queued = await tryAdmitBusySubmission();
+        if (queued !== null) return queued;
         return runSlotBusy(event, slot.activeRunId);
       }
       foregroundRunRowInserted = true;
@@ -14994,6 +15672,90 @@ export function createProductionAgentHandler(
           rawSend(event);
           updateTrackedProgressFromEvent(event);
         };
+        const interruptQueuedRunAtBoundary =
+          async (): Promise<QueuedRunInterruptBoundaryResult> => {
+            if (!threadId) return "none";
+            const {
+              clearQueuedSubmissionInterruptRun,
+              listQueuedSubmissionReceipts,
+              mutateThreadQueuedMessages,
+              recordQueuedSubmissionInterruptRun,
+              retryQueuedSubmissionReceipt,
+            } = await import("../chat-threads/store.js");
+            const pending = await listQueuedSubmissionReceipts({
+              limit: 25,
+              threadId,
+              interruptActiveRun: true,
+            });
+            for (const receipt of pending) {
+              if (receipt.message?.interruptActiveRun !== true) continue;
+              const claimId = randomUUID();
+              let claimed = false;
+              try {
+                const claim = await mutateThreadQueuedMessages(threadId, {
+                  type: "claimFromInbox",
+                  receipt,
+                  claimId,
+                });
+                if (!claim?.claimedMessage) continue;
+                claimed = true;
+                if (
+                  receipt.interruptRunId &&
+                  receipt.interruptRunId !== runId
+                ) {
+                  const { getRunById } = await import("./run-store.js");
+                  const interruptedRun = await getRunById(
+                    receipt.interruptRunId,
+                  );
+                  if (interruptedRun?.status === "running") continue;
+                  const cleared = await clearQueuedSubmissionInterruptRun({
+                    threadId,
+                    messageId: receipt.messageId,
+                    runId: receipt.interruptRunId,
+                    claimId,
+                  });
+                  if (!cleared) continue;
+                }
+                if (
+                  !(await recordQueuedSubmissionInterruptRun({
+                    threadId,
+                    messageId: receipt.messageId,
+                    runId,
+                    claimId,
+                  }))
+                ) {
+                  continue;
+                }
+                const aborted = await confirmQueuedRunInterrupt({
+                  abort: () => abortRunAtSafeBoundaryDurably(runId, "user"),
+                  defer: () =>
+                    retryQueuedSubmissionReceipt(
+                      threadId,
+                      receipt.messageId,
+                      Date.now() + 10_000,
+                      { claimId },
+                    ),
+                });
+                if (aborted === "pending") return "pending";
+              } finally {
+                if (claimed) {
+                  await mutateThreadQueuedMessages(threadId, {
+                    type: "release",
+                    messageId: receipt.messageId,
+                    claimId,
+                  });
+                }
+              }
+              return "aborted";
+            }
+            return "none";
+          };
+        const { beforeModelDispatch, beforeWrite } =
+          createRunSafeBoundaryGuards({
+            signal,
+            flushEvents: control.flushEvents,
+            interruptRequestedAtBoundary: interruptQueuedRunAtBoundary,
+          });
 
         if (selfChainBudget?.skipToBoundary) {
           await recordRunDiagnostic(
@@ -15120,7 +15882,8 @@ export function createProductionAgentHandler(
                   threadId: effectiveThreadId,
                   turnId: effectiveTurnId,
                   durableStepIdForToolCall: namespacedDurableStepId,
-                  beforeWrite: control.flushEvents,
+                  beforeModelDispatch,
+                  beforeWrite,
                   unknownOutcomes,
                   internalContinuation,
                   ...(shouldRecoverCompletedExecutionSteps
@@ -15323,7 +16086,8 @@ export function createProductionAgentHandler(
             : {}),
           systemSections: contextXraySystemSections,
           actions: requestActions,
-          beforeWrite: control.flushEvents,
+          beforeModelDispatch,
+          beforeWrite,
           unknownOutcomes,
           internalContinuation,
           send,

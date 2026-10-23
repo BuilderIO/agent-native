@@ -47,6 +47,8 @@ const filterSchema = z
     value: z.string(),
     filterGroupId: z.string().optional(),
     parentFilterGroupId: z.string().optional(),
+    filterGroupMode: z.enum(["and", "or"]).optional(),
+    parentFilterGroupMode: z.enum(["and", "or"]).optional(),
   })
   .strict();
 

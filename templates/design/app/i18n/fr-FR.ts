@@ -239,6 +239,23 @@ export default {
     expandSidebar: "Développer la barre latérale",
     collapseSidebar: "Réduire la barre latérale",
   },
+  gettingStarted: {
+    title: "Premiers pas",
+    progress: "{{completeCount}} sur {{totalCount}} terminées",
+    collapse: "Réduire",
+    expand: "Développer",
+    completed: "Terminé",
+    loadError: "Impossible de charger votre liste",
+    retry: "Réessayer",
+    steps: {
+      createDesign: "Créez votre premier design",
+      addBrand: "Ajoutez votre marque",
+      useRealData: "Utilisez vos données réelles",
+      shareFeedback: "Partagez pour recueillir des retours",
+      inviteTeammate: "Invitez un collègue",
+      saveTemplate: "Enregistrez un design comme modèle",
+    },
+  },
   settings: {
     agentTitle: "Gérer l’agent",
     agentDescription:
@@ -549,8 +566,6 @@ export default {
       addRecordRow: "Ajouter {{item}}",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "Supprimer {{item}} {{index}}",
-      codeHint:
-        "Le code source GLSL est enregistré dans le HTML de cet écran — ouvrez le panneau Code pour le modifier.",
       selectElementFirst: "Sélectionnez d'abord un élément d'écran",
       selectCanvasElementFirst:
         "Sélectionnez d'abord un élément sur le canevas",
@@ -612,6 +627,7 @@ export default {
           transform: "Transformation",
           shape: "Forme",
           surface: "Surface",
+          offset: "Décalage",
         },
         properties: {
           thickness: "Épaisseur",
@@ -717,6 +733,27 @@ export default {
           feather: "Adoucissement",
           colorAttenuation: "Fondu des couleurs",
           focus: "Focus",
+          colors: "Couleurs",
+          roundness: "Arrondi",
+          aspectRatio: "Rapport largeur/hauteur",
+          bloom: "Halo",
+          spots: "Taches",
+          spotSize: "Taille des taches",
+          pulse: "Pulsation",
+          smoke: "Fumée",
+          smokeSize: "Taille de la fumée",
+          margin: "Marge",
+          marginLeft: "Marge gauche",
+          marginRight: "Marge droite",
+          marginTop: "Marge supérieure",
+          marginBottom: "Marge inférieure",
+          fit: "Ajustement",
+          offsetX: "Décalage X",
+          offsetY: "Décalage Y",
+          originX: "Origine X",
+          originY: "Origine Y",
+          worldWidth: "Largeur du monde",
+          worldHeight: "Hauteur du monde",
         },
         options: {
           linear: "linéaire",
@@ -727,6 +764,11 @@ export default {
           clamp: "limiter",
           repeat: "répéter",
           mirror: "miroir",
+          auto: "automatique",
+          square: "carré",
+          none: "aucun",
+          contain: "contenir",
+          cover: "couvrir",
         },
         presets: {
           "an-preset-catalog-gradient-field-1": "Horizon de marée",
@@ -1373,7 +1415,7 @@ export default {
       sourceWriteUnavailable:
         "Pour le moment, le code Motion ne peut être écrit que dans des designs HTML intégrés.",
       unresolvedStylesheets:
-        "Résolvez les feuilles de style externes avant de modifier ou d’ajouter des animations.",
+        "Résolvez les styles externes ou générés à l’exécution avant de modifier ou d’ajouter Motion.",
       sourceConflict:
         "La source Motion a changé alors que cette timeline contenait des modifications non enregistrées. Rechargez le code pour les abandonner et utiliser la source actuelle.",
       reloadFromSource: "Recharger le code",
@@ -2006,6 +2048,16 @@ export default {
     pinComment: "Épingler un commentaire",
     export: "Exporter",
     downloadHtml: "Télécharger HTML",
+    exportHubspotHtml: "Exporter le HTML HubSpot",
+    hubspotConversion: {
+      title: "Convertir pour HubSpot ?",
+      description:
+        "{{name}} nécessite des adaptations pour les e-mails. Le cadre original sera conservé.",
+      convert: "Convertir avec l’agent",
+      cancel: "Annuler",
+      prompt:
+        "Crée une version e-mail HubSpot de ce cadre en gardant son contenu et son identité visuelle, et en préservant l’original. Valide l’export HTML et ouvre le nouveau cadre.",
+    },
     downloadPng: "Télécharger PNG",
     downloadSvg: "Télécharger SVG",
     downloadFigmaSvg: "Télécharger pour Figma (SVG)",
@@ -2202,6 +2254,9 @@ export default {
       htmlCreateError: "Impossible de créer le téléchargement HTML",
       htmlDownloaded: "HTML téléchargé",
       htmlExportError: "Impossible d’exporter HTML",
+      hubspotHtmlExporting: "Préparation du HTML HubSpot…",
+      hubspotHtmlDownloaded: "HTML HubSpot téléchargé",
+      hubspotHtmlExportError: "Impossible d’exporter le HTML HubSpot",
       zipCreateError: "Impossible de créer le téléchargement ZIP",
       zipDownloaded: "ZIP téléchargé",
       zipExportError: "Impossible d’exporter ZIP",

@@ -273,16 +273,6 @@ describe("a paint that is not a color", () => {
     expect(colorInput()).toBeNull();
   });
 
-  it("names a shader after the shader on the element", () => {
-    mount({
-      value: "#ff9a9e",
-      paintType: "shader",
-      glslShaderContext: { designId: "d1" },
-      paintLabel: "Mesh Gradient",
-    });
-    expect(text()).toBe("Mesh Gradient100%");
-  });
-
   it("has no field to type into: the whole row opens the picker", () => {
     paint("linear");
     expect(

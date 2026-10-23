@@ -1619,7 +1619,10 @@ const updateDocumentAction = defineAction({
               if (
                 intentMerge ||
                 (useBodyRevisionCas && lockedContentChanged) ||
-                (useDocumentCas && !liveCopyBodySave)
+                // Peers' live-copy commits move updatedAt, so on a live-copy
+                // save the snapshot guards only the fields it still writes.
+                (useDocumentCas &&
+                  (!liveCopyBodySave || lockedDocumentFieldsChanged))
               ) {
                 const rows = await tx
                   .update(schema.documents)
