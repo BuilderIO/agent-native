@@ -319,6 +319,33 @@ describe("comment stacks in the margin", () => {
     expect(open.getAttribute("aria-label")).toBe("comments.stackShowAll:4");
   });
 
+  it("describes a folded stack to screen readers, though its preview is inert", () => {
+    render();
+    const description = document.getElementById(
+      openButton("d").getAttribute("aria-describedby")!,
+    )!;
+    // An inert node describes nothing, so the description lives outside the
+    // preview, hidden from sight rather than from assistive technology.
+    expect(description.closest("[inert]")).toBeNull();
+    expect(description.hidden).toBe(true);
+    expect([...description.children].map((line) => line.textContent)).toEqual([
+      "quote d",
+      "lee",
+      "Comment d",
+      "ada",
+      "jo",
+      "sam",
+      "comments.stackMore:3",
+    ]);
+
+    act(() => harness.select("b"));
+    act(() => collapseButton()!.click());
+    expect(
+      document.getElementById(openButton("b").getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toContain("comments.replyCount:1");
+  });
+
   it("shows a front thread's reply count", () => {
     render();
     act(() => harness.select("b"));
@@ -359,6 +386,33 @@ describe("comment stacks in the margin", () => {
     act(() => harness.hover(null));
     await wait(220);
     expect(margin()[0]).toBe("stack:b");
+  });
+
+  it("keeps the default front in front once the pointer has rested on it", async () => {
+    render();
+    act(() => harness.hover("d"));
+    await wait(220);
+    act(() => harness.hover(null));
+    // A reply elsewhere would otherwise make another thread the newest.
+    const replied = thread("a", [
+      "2026-10-20T09:00:00Z",
+      "2026-10-20T14:00:00Z",
+    ]);
+    render(THREADS.map((item) => (item.threadId === "a" ? replied : item)));
+    expect(margin()[0]).toBe("stack:d");
+  });
+
+  it("stacks a thread whose highlight gains its id after the thread arrives", async () => {
+    // A posted comment's highlight can reuse the draft's span.
+    render([...THREADS, thread("late", ["2026-10-20T15:00:00Z"])]);
+    expect(margin()).not.toContain("stack:late");
+    act(() =>
+      scroll
+        .querySelector('[data-slot="solo"]')!
+        .setAttribute("data-comment-thread", "late"),
+    );
+    await wait(60);
+    expect(margin()).toEqual(["stack:d", "stack:late", "stack:l2", "l3"]);
   });
 
   it("opens from its card, laying the block's threads out in document order", () => {
@@ -566,6 +620,39 @@ describe("comment stacks in the margin", () => {
         .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')!
         .click(),
     );
+    expect(margin()[0]).toBe("stack:new");
+  });
+
+  it("puts a clicked highlight's thread in front, even one already selected", async () => {
+    render();
+    markPending("intro");
+    act(() => harness.comment({ quotedText: "and more", offsetTop: 0 }));
+    await wait(60);
+    actions.create.mockImplementation(async () => {
+      const slot = scroll.querySelector('[data-slot="intro"]')!;
+      slot.className = "";
+      slot.setAttribute("data-comment-thread", "new");
+      render([...THREADS, thread("new", [new Date().toISOString()])]);
+      return { id: "new-0", threadId: "new" };
+    });
+    await setRichEditorValue(
+      richEditor(container.querySelector("[data-comment-pending]")!)!,
+      "Selected, and still folded",
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')!
+        .click(),
+    );
+    act(() => harness.hover("a"));
+    await wait(220);
+    act(() => harness.hover(null));
+    expect(margin()[0]).toBe("stack:a");
+
+    act(() =>
+      scroll.querySelector<HTMLElement>('[data-comment-thread="new"]')!.click(),
+    );
+    act(() => collapseButton()!.click());
     expect(margin()[0]).toBe("stack:new");
   });
 

@@ -1273,7 +1273,8 @@ export function CommentsSidebar({
     pendingFoldsOpenStack,
     selectedThreadId,
   ]);
-  // A highlight click opens its stack, even on the thread already selected.
+  // A highlight click opens its stack and touches its thread, even one already
+  // selected, whose selection doesn't change.
   useEffect(() => {
     const container = scrollContainerRef?.current;
     if (!stacksEnabled || !container) return;
@@ -1281,21 +1282,26 @@ export function CommentsSidebar({
       const threadId = (event.target as Element | null)
         ?.closest?.("[data-comment-thread]")
         ?.getAttribute("data-comment-thread");
-      if (threadId && stackOfThreadRef.current.has(threadId))
-        openStackOn(threadId);
+      if (!threadId || !stackOfThreadRef.current.has(threadId)) return;
+      touchThread(threadId);
+      openStackOn(threadId);
     };
     container.addEventListener("click", openFromHighlight);
     return () => container.removeEventListener("click", openFromHighlight);
-  }, [openStackOn, scrollContainerRef, stacksEnabled]);
+  }, [openStackOn, scrollContainerRef, stacksEnabled, touchThread]);
   // Resting on a highlight brings its thread to the front of a folded stack;
   // passing over one on the way to the margin doesn't.
   useEffect(() => {
     if (!hoveredThreadId) return;
     const stack = stackOfThread.get(hoveredThreadId);
     if (!stack || stack === expandedStack) return;
+    // Touching the stack's last-touched thread again would only rerun this.
+    const touch = stackTouches.get(hoveredThreadId);
     if (
-      commentStackFront(stack.threads, stackTouches).threadId ===
-      hoveredThreadId
+      touch !== undefined &&
+      stack.threads.every(
+        (member) => (stackTouches.get(member.threadId) ?? 0) <= touch,
+      )
     )
       return;
     const timer = setTimeout(
@@ -1929,14 +1935,18 @@ export function CommentsSidebar({
           subtree: true,
           characterData: true,
           attributes: true,
-          attributeFilter: ["hidden"],
+          attributeFilter: ["hidden", "data-comment-thread"],
         });
       }
     } else {
+      // A posted comment's highlight can reuse the draft's span, gaining only
+      // its thread id, and a stack needs that id to place the thread.
       observer.observe(primaryBlockFieldEditor(container) ?? container, {
         childList: true,
         subtree: true,
         characterData: true,
+        attributes: true,
+        attributeFilter: ["data-comment-thread"],
       });
     }
     const resizeObserver =

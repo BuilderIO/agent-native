@@ -1,6 +1,6 @@
 import type { useT } from "@agent-native/core/client/i18n";
 import { IconChevronUp } from "@tabler/icons-react";
-import { forwardRef, useEffect, useRef, type ReactNode } from "react";
+import { forwardRef, useEffect, useId, useRef, type ReactNode } from "react";
 
 import type { CommentThread } from "@/hooks/use-comments";
 import { cn } from "@/lib/utils";
@@ -32,8 +32,8 @@ export function CommentStackSheets() {
   );
 }
 
-/** The first authors of a stack's threads, without repeats. */
-function StackAvatars({ threads }: { threads: readonly CommentThread[] }) {
+/** The first authors of a stack's threads, without repeats: email, name. */
+function stackAuthors(threads: readonly CommentThread[]) {
   const authors = new Map<string, string>();
   for (const thread of threads) {
     const first = thread.comments[0];
@@ -41,9 +41,13 @@ function StackAvatars({ threads }: { threads: readonly CommentThread[] }) {
     authors.set(first.author_email, first.author_name ?? first.author_email);
     if (authors.size === 3) break;
   }
+  return [...authors];
+}
+
+function StackAvatars({ threads }: { threads: readonly CommentThread[] }) {
   return (
     <span className="flex -space-x-1">
-      {[...authors].map(([email, name]) => (
+      {stackAuthors(threads).map(([email, name]) => (
         <CommentAvatar
           key={email}
           email={email}
@@ -133,6 +137,7 @@ export function CommentStackCard({
   t: Translate;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const descriptionId = useId();
   const timestamp = useCommentTimestamp();
   useEffect(() => {
     const element = ref.current;
@@ -146,6 +151,9 @@ export function CommentStackCard({
     return () => observer.disconnect();
   }, [heightId, onHeightChange]);
   const first = front.comments[0];
+  const firstName = first
+    ? (first.author_name ?? first.author_email.split("@")[0])
+    : null;
   const replies = front.comments.length - 1;
   const others = threads.filter((thread) => thread !== front);
   return (
@@ -167,6 +175,9 @@ export function CommentStackCard({
             : "group-hover/stack:-translate-x-2 group-hover/stack:shadow-comment-emphasis group-focus-within/stack:-translate-x-2 group-focus-within/stack:shadow-comment-emphasis motion-reduce:group-hover/stack:translate-x-0 motion-reduce:group-focus-within/stack:translate-x-0",
         )}
       >
+        {/* Inert keeps the preview's links out of reach, and leaves it out of
+            the open button's description too; the hidden copy below is
+            what a screen reader hears. */}
         <div inert className="grid grid-cols-1 gap-3.5 px-4 pb-3.5 pt-3.5">
           {front.quotedText ? (
             <p className="-mb-1 line-clamp-1 border-s-2 border-border ps-2.5 text-sm text-muted-foreground">
@@ -181,7 +192,7 @@ export function CommentStackCard({
                   name={first.author_name ?? first.author_email}
                 />
               }
-              name={first.author_name ?? first.author_email.split("@")[0]}
+              name={firstName}
               timestamp={{
                 ...timestamp(first.created_at),
                 dateTime: first.created_at,
@@ -201,11 +212,28 @@ export function CommentStackCard({
         <div inert className={footerClass} data-comment-stack-footer>
           <CommentStackMore threads={others} t={t} />
         </div>
+        <div hidden id={descriptionId} data-comment-stack-description>
+          {front.quotedText ? <p>{front.quotedText}</p> : null}
+          {first ? (
+            <>
+              <p>{firstName}</p>
+              <p>{renderCommentBody(first.content, first.mentions)}</p>
+            </>
+          ) : null}
+          {replies > 0 ? (
+            <p>{t("comments.replyCount", { count: replies })}</p>
+          ) : null}
+          {stackAuthors(others).map(([email, name]) => (
+            <p key={email}>{name}</p>
+          ))}
+          <p>{t("comments.stackMore", { count: others.length })}</p>
+        </div>
         <button
           type="button"
           className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           aria-expanded={false}
           aria-label={t("comments.stackShowAll", { count: threads.length })}
+          aria-describedby={descriptionId}
           onClick={(event) => {
             event.stopPropagation();
             onOpen();
