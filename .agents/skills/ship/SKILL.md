@@ -61,8 +61,10 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   its fix or terminal disposition. Begin by thanking them for that update; if
   they have not made a new substantive review update since the last reply, do
   not reply again to the same feedback. Add a concise top-level recap when
-  feedback appears only in a review body. If the disposition depends on an
-  unresolved decision, keep the thread silent until the decision is made.
+  feedback appears only in a review body. If disposition depends on an
+  unresolved decision, leave the item active and the thread silent; it is
+  neither fixed nor skipped while that gate is open. Once resolved, record the
+  terminal disposition, and reply only to a new substantive reviewer update.
 - Before asking for any approval during a resumed shipment, inspect the
   current task transcript for the user's authorization. Record its exact PR,
   repository, branch, and allowed endpoint there once; reuse it across replies,

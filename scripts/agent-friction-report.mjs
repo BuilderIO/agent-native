@@ -981,8 +981,9 @@ const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
   "i",
 );
 const PR_REVIEW_AMBIGUOUS_COMMENT_CORE = String.raw`(?:\b(?:I|you|we)\b[^.!?\n]{0,30}\b(?:should|must|need to)\s+(?:never|not)\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b)`;
+const PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE = String.raw`(?:\b(?:tell|say|state|name|explain)\s+(?:(?:the|this|their|our|your)\s+)?(?:PR\s+)?(?:author|contributor|them)\b[^.!?\n]{0,80}\b${PR_REVIEW_NEXT_ACTION_CUE}\b|\b${PR_REVIEW_NEXT_ACTION_CUE}\b[^.!?\n]{0,80}\b(?:PR\s+)?(?:author|contributor)\b)`;
 const PR_REVIEW_AMBIGUOUS_COMMENT_RE = new RegExp(
-  String.raw`(?:${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}[^.!?\n]{0,100}\b${PR_REVIEW_NEXT_ACTION_CUE}\b|\b${PR_REVIEW_NEXT_ACTION_CUE}\b[^.!?\n]{0,100}${PR_REVIEW_AMBIGUOUS_COMMENT_CORE})`,
+  String.raw`(?:${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}[^.!?\n]{0,100}\b${PR_REVIEW_NEXT_ACTION_CUE}\b|\b${PR_REVIEW_NEXT_ACTION_CUE}\b[^.!?\n]{0,100}${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}|${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}[^.!?\n]{0,80}[.!?]\s*[^.!?\n]{0,80}${PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE}|${PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE}[^.!?\n]{0,80}[.!?]\s*[^.!?\n]{0,80}${PR_REVIEW_AMBIGUOUS_COMMENT_CORE})`,
   "i",
 );
 const PR_REVIEW_AMBIGUOUS_LINKED_COMMENT_RE = new RegExp(
@@ -1170,6 +1171,16 @@ const PR_REVIEW_DISPOSITION_REGEX_CASES = [
     "I should never leave the PR comment ambiguous about the next action.",
   ],
   [true, "Don't leave the PR reply vague; tell the author what to do next."],
+  [true, "Don't leave the PR reply vague. Tell the author what to do next."],
+  [
+    true,
+    "Tell the PR author what they should do next. Don't leave the PR reply vague.",
+  ],
+  [
+    false,
+    "Don't leave the PR reply vague. The next action is updating the docs.",
+  ],
+  [false, "Don't leave the PR reply vague. Tell support what to do next."],
   [
     false,
     "The template says don't leave the PR comment vague when documenting the artifact.",
