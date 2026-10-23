@@ -23,6 +23,7 @@ export {
   formatWallTime,
   zoneOffsetMinutes,
 } from "../mcp/approval-time.js";
+export { describeFieldValue } from "../mcp/approval-summary.js";
 export type {
   McpApprovalRequester,
   McpApprovalView,

@@ -3,6 +3,7 @@ import { redactedArgsWereCut } from "../audit/redact.js";
 import type { McpApprovalMessages } from "../localization/mcp-approval-messages.js";
 import {
   formatApprovalTime,
+  formatTimeZoneName,
   formatWallTime,
   isTimeZone,
   readApprovalTime,
@@ -25,6 +26,10 @@ export interface McpApprovalField {
    * action declares nothing, so the page never shows it as the reader's time.
    */
   wallTime?: { at: number; zone: "none" | "calendar" };
+  /** Set when `value` is one of the schema's choices: that choice in words. */
+  choice?: string;
+  /** Set when `value` is a time zone, to show by its name in the reader's language. */
+  timeZone?: string;
 }
 
 /**
@@ -36,7 +41,11 @@ export interface McpApprovalSummary {
   title: string;
   /** Every email address the call names under a recipient-like argument. */
   recipients: string[];
-  /** Every argument, each value whole. */
+  /**
+   * Every argument, each value whole, except one the summary already shows:
+   * a list of addresses `recipients` holds, or a zone a time below shows.
+   * `details` keeps them.
+   */
   fields: McpApprovalField[];
   /** The stored arguments, indented; undefined unless `stored`. */
   details: string | undefined;
@@ -55,6 +64,7 @@ const RECIPIENT_KEY =
 const EMAIL = /^[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[^\s@<>(),;:]+$/;
 const ADDRESS_SEPARATOR = /[,;\n]/;
 const NAMED_ADDRESS = /^[^<>]*<([^<>]+)>$/;
+const TIME_ZONE_KEY = /time_?zone$|^tz$/i;
 // Stored arguments are no deeper (`audit/redact.ts`).
 const MAX_DEPTH = 6;
 // The in-client prompt is a short text; it says what it leaves out.
@@ -119,6 +129,73 @@ function recipientAddresses(text: string): string[] {
   });
 }
 
+/**
+ * Whether `value` is nothing but bare addresses, which `recipients` lists
+ * whole: strings, or objects such as `{ email }` that hold nothing else.
+ */
+function isOnlyAddresses(value: unknown): boolean {
+  const items = Array.isArray(value) ? value : [value];
+  const bare = (item: unknown) => {
+    if (typeof item !== "string") return false;
+    const parts = addressParts(item);
+    return parts.length > 0 && parts.every((part) => EMAIL.test(part));
+  };
+  return (
+    items.length > 0 &&
+    items.every((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return bare(item);
+      }
+      const values = Object.values(item);
+      return values.length === 1 && bare(values[0]);
+    })
+  );
+}
+
+interface ChoiceSchema {
+  enum?: unknown[];
+  const?: unknown;
+  title?: unknown;
+  description?: unknown;
+  oneOf?: ChoiceSchema[];
+  anyOf?: ChoiceSchema[];
+  items?: ChoiceSchema;
+}
+
+/**
+ * `value` in words when the argument's schema lists it as a choice: the
+ * choice's own title or description, or else the value itself split into
+ * words. A value with no lowercase letter (`USD`) stays as written.
+ */
+function choiceText(
+  value: unknown,
+  schema: ChoiceSchema | undefined,
+): string | undefined {
+  if (!schema) return undefined;
+  if (Array.isArray(value)) {
+    const words = value.map((item) => choiceText(item, schema.items));
+    return words.length > 0 && words.every((word) => word !== undefined)
+      ? words.join(", ")
+      : undefined;
+  }
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  for (const option of [...(schema.oneOf ?? []), ...(schema.anyOf ?? [])]) {
+    if (option.const === value) {
+      const label = [option.title, option.description].find(
+        (text): text is string => typeof text === "string" && !!text.trim(),
+      );
+      if (label) return label.trim();
+    }
+    const nested = choiceText(value, option);
+    if (nested !== undefined) return nested;
+  }
+  return schema.enum?.includes(value) &&
+    typeof value === "string" &&
+    /[a-z]/.test(value)
+    ? humanizeIdentifier(value)
+    : undefined;
+}
+
 function collectEmails(value: unknown, into: Set<string>, depth: number) {
   if (depth > MAX_DEPTH) return;
   if (typeof value === "string") {
@@ -156,7 +233,7 @@ function findRecipients(value: unknown, into: Set<string>, depth: number) {
 function zoneArgument(
   key: string,
   args: Record<string, unknown>,
-): string | undefined {
+): { key: string; zone: string } | undefined {
   const start = key.replace(/^end/i, (end) =>
     end[0] === "E" ? "Start" : "start",
   );
@@ -173,7 +250,7 @@ function zoneArgument(
     "time_zone",
   ]) {
     const zone = args[candidate];
-    if (isTimeZone(zone)) return zone;
+    if (isTimeZone(zone)) return { key: candidate, zone };
   }
   return undefined;
 }
@@ -257,24 +334,37 @@ export function summarizeMcpApproval(input: {
   const properties = entry?.tool.parameters?.properties ?? {};
   const fields: McpApprovalField[] = [];
   if (args && typeof args === "object" && !Array.isArray(args)) {
-    for (const [key, value] of Object.entries(args)) {
+    const record = args as Record<string, unknown>;
+    const times = new Map<string, McpApprovalTime>();
+    const zonesShown = new Set<string>();
+    for (const [key, value] of Object.entries(record)) {
+      if (typeof value !== "string") continue;
+      const zone = zoneArgument(key, record);
+      const time = readApprovalTime(value, zone?.zone);
+      if (!time) continue;
+      times.set(key, time);
+      if (zone) zonesShown.add(zone.key);
+    }
+    for (const [key, value] of Object.entries(record)) {
+      if (zonesShown.has(key)) continue;
+      if (RECIPIENT_KEY.test(key) && isOnlyAddresses(value)) continue;
       const readable = readableValue(value, labels);
       if (readable === undefined || readable === "") continue;
-      const schemaTitle = (properties[key] as { title?: unknown } | undefined)
-        ?.title;
-      const zone = zoneArgument(key, args as Record<string, unknown>);
-      const time =
-        typeof value === "string" ? readApprovalTime(value, zone) : undefined;
+      const schema = properties[key] as
+        | (ChoiceSchema & { title?: unknown })
+        | undefined;
+      const time = times.get(key);
       // A time its own zone can't place, such as one in a DST gap, is not a
       // time with no zone: it stays as written.
       const wall =
-        typeof value === "string" && !time && !zone
+        typeof value === "string" && !time && !zoneArgument(key, record)
           ? readWallTime(value)
           : undefined;
+      const choice = choiceText(value, schema);
       fields.push({
         label:
-          typeof schemaTitle === "string" && schemaTitle.trim()
-            ? schemaTitle.trim()
+          typeof schema?.title === "string" && schema.title.trim()
+            ? schema.title.trim()
             : humanizeIdentifier(key),
         value: readable,
         ...(time ? { time } : {}),
@@ -285,6 +375,10 @@ export function summarizeMcpApproval(input: {
                 zone: entry?.zonelessTimes === "calendar" ? "calendar" : "none",
               },
             }
+          : {}),
+        ...(choice !== undefined && choice !== readable ? { choice } : {}),
+        ...(TIME_ZONE_KEY.test(key) && isTimeZone(value)
+          ? { timeZone: value }
           : {}),
       });
     }
@@ -325,6 +419,18 @@ export function describeApprovalTime(
     "{time}",
     formatApprovalTime(time.at, time.zone, input.locale, style),
   )})`;
+}
+
+/** A field that names no time, as a person reads it. */
+export function describeFieldValue(
+  field: McpApprovalField,
+  locale: string,
+): string {
+  if (field.choice !== undefined) return field.choice;
+  if (field.timeZone !== undefined) {
+    return formatTimeZoneName(field.timeZone, locale);
+  }
+  return field.value;
 }
 
 /** A wall time as written, with how the action reads its missing zone. */
@@ -391,7 +497,7 @@ export function mcpApprovalPromptText(input: {
     }
     let shortened = false;
     for (const field of summary.fields.slice(0, PROMPT_MAX_FIELDS)) {
-      let value = field.value;
+      let value = describeFieldValue(field, locale);
       if (field.time) {
         value = describeApprovalTime(field.time, {
           readerZone,

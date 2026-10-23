@@ -113,6 +113,14 @@ function text(): string {
   return (container.textContent ?? "").replace(/ /g, " ");
 }
 
+/** Each summary row as its label and value. */
+function facts(): [string, string][] {
+  return [...container.querySelectorAll("dt")].map((label) => [
+    label.textContent ?? "",
+    (label.nextElementSibling?.textContent ?? "").replace(/ /g, " "),
+  ]);
+}
+
 function button(name: string): HTMLButtonElement {
   const found = [...container.querySelectorAll("button")].find(
     (element) => element.textContent?.trim() === name,
@@ -163,18 +171,20 @@ describe("a pending review", () => {
     await renderPage();
 
     const page = text();
-    expect(page).toContain("Create event");
+    expect(container.querySelector("h1")?.textContent).toBe(
+      "Claude Code wants to create event",
+    );
     expect(page).toContain("ana@example.com");
     expect(page).toContain("bo@example.com");
-    expect(page).toContain("Design review");
-    expect(page).toContain(
-      "Thu, Oct 22, 5:00 PM EDT (Thu, Oct 22, 2:00 PM PDT as requested)",
-    );
-    expect(page).toContain(
-      "Thu, Oct 22, 2:30 PM (in the calendar's time zone)",
-    );
-    expect(page).toContain("Requested through");
-    expect(page).toContain("Claude Code, connected Oct 1, 2026");
+    expect(facts()).toEqual([
+      ["Connected", "Oct 1, 2026"],
+      ["Title", "Design review"],
+      [
+        "Start",
+        "Thu, Oct 22, 5:00 PM EDT (Thu, Oct 22, 2:00 PM PDT as requested)",
+      ],
+      ["End", "Thu, Oct 22, 2:30 PM (in the calendar's time zone)"],
+    ]);
     expect(page).toContain("Decide by 12:10 PM EDT.");
     expect(document.title).toBe("Approve Create event?");
     expect(document.activeElement?.tagName).toBe("MAIN");
@@ -247,6 +257,102 @@ describe("a pending review", () => {
     expect(button("Ablehnen")).toBeTruthy();
     expect(document.title).toBe("Termin erstellen genehmigen?");
   });
+
+  it.each([
+    [
+      "Claude Code",
+      "en-US",
+      "Create event",
+      "Claude Code wants to create event",
+    ],
+    [null, "en-US", "Create event", "An unnamed app wants to create event"],
+    [undefined, "en-US", "RSVP to event", "Your agent wants to RSVP to event"],
+    [
+      "{action} $& Bot",
+      "en-US",
+      "Create event",
+      "{action} $& Bot wants to create event",
+    ],
+    [
+      "Claude Code",
+      "de-DE",
+      "Termin erstellen",
+      "Claude Code möchte Termin erstellen ausführen",
+    ],
+  ] as const)(
+    "leads with who asks and for what (client %j, %s)",
+    async (name, locale, title, heading) => {
+      serve(() =>
+        respond(
+          200,
+          pendingView({
+            requester:
+              name === undefined ? undefined : { name, connectedAt: null },
+            locale,
+            summary: { ...pendingView().summary, title },
+          }),
+        ),
+      );
+
+      await renderPage();
+
+      expect(container.querySelector("h1")?.textContent).toBe(heading);
+    },
+  );
+
+  it("keeps each address whole, breaking a line only after its @, and copies it as written", async () => {
+    const cc = "Bo <bo-smith@example.com>, cy-jones@example.co.uk";
+    serve(() =>
+      respond(
+        200,
+        pendingView({
+          summary: {
+            ...pendingView().summary,
+            recipients: ["ana-maria.long-name@example.com"],
+            fields: [{ label: "Cc", value: cc }],
+            details: `{\n  "cc": "${cc}"\n}`,
+          },
+        }),
+      ),
+    );
+
+    await renderPage();
+
+    const unbroken = (element: Element) =>
+      [...element.querySelectorAll(".whitespace-nowrap")].map(
+        (part) => part.textContent,
+      );
+    const recipient = container.querySelector("li")!.lastElementChild!;
+    expect(recipient.textContent).toBe("ana-maria.long-name@example.com");
+    expect(unbroken(recipient)).toEqual([
+      "ana-maria.long-name@",
+      "example.com",
+    ]);
+    expect(recipient.querySelectorAll("wbr")).toHaveLength(1);
+
+    const value = container.querySelector("dd:last-of-type")!;
+    expect(value.textContent).toBe(cc);
+    expect(unbroken(value)).toEqual([
+      "bo-smith@",
+      "example.com",
+      "cy-jones@",
+      "example.co.uk",
+    ]);
+    await click("Details");
+    expect(container.querySelector("pre")?.textContent).toBe(
+      `{\n  "cc": "${cc}"\n}`,
+    );
+  });
+
+  it("draws Approve in the theme's text color, which no theme dims", async () => {
+    serve(() => respond(200, pendingView()));
+
+    await renderPage();
+
+    expect(button("Approve").className).toContain(
+      "bg-foreground text-background",
+    );
+  });
 });
 
 describe("deciding", () => {
@@ -264,6 +370,11 @@ describe("deciding", () => {
     expect(text()).toContain(
       "Approved. Go back to your agent and ask it to try again before 12:10 PM EDT.",
     );
+    expect(
+      [...container.querySelectorAll("p")].map((line) =>
+        line.textContent?.replace(/ /g, " "),
+      ),
+    ).toContain("Design review · Thu, Oct 22, 5:00 PM EDT");
     expect(() => button("Approve")).toThrow();
     expect(document.activeElement?.tagName).toBe("MAIN");
 

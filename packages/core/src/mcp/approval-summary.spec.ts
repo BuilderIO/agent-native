@@ -5,11 +5,13 @@ import { MCP_APPROVAL_MESSAGES } from "../localization/mcp-approval-messages.js"
 import { storedApprovalArguments } from "./approval-store.js";
 import {
   describeApprovalTime,
+  describeFieldValue,
   mcpApprovalPromptText,
   summarizeMcpApproval,
 } from "./approval-summary.js";
 import {
   formatApprovalTime,
+  formatTimeZoneName,
   isTimeZone,
   readApprovalTime,
   readWallTime,
@@ -111,6 +113,16 @@ describe("approval times", () => {
     );
   });
 
+  it("names a zone as a person says it", () => {
+    expect(formatTimeZoneName("America/Los_Angeles", "en-US", EVENT_AT)).toBe(
+      "Pacific Time",
+    );
+    expect(formatTimeZoneName("UTC", "en-US", EVENT_AT)).toBe(
+      "Coordinated Universal Time",
+    );
+    expect(formatTimeZoneName("-07:00", "en-US", EVENT_AT)).toBe("UTC-07:00");
+  });
+
   it("adds the call's own time only when its zone is a different offset", () => {
     const time = { at: EVENT_AT, zone: "America/Los_Angeles" };
     expect(
@@ -140,7 +152,21 @@ describe("approval times", () => {
 describe("summarizeMcpApproval", () => {
   it("builds the summary from stored arguments and the action's own definition", () => {
     const summary = summarizeMcpApproval({
-      entry: entry(),
+      entry: entry({
+        tool: {
+          description: "Create an event",
+          parameters: {
+            type: "object",
+            properties: {
+              title: { type: "string", title: "Event title" },
+              sendUpdates: {
+                type: "string",
+                enum: ["all", "externalOnly", "none"],
+              },
+            },
+          },
+        },
+      }),
       actionName: "create-event",
       argumentsJson: JSON.stringify({
         title: "Design review",
@@ -163,15 +189,132 @@ describe("summarizeMcpApproval", () => {
         value: "2026-10-22T14:00:00",
         time: { at: EVENT_AT, zone: "America/Los_Angeles" },
       },
-      { label: "Start time zone", value: "America/Los_Angeles" },
       {
         label: "Attendees",
         value: '{"email":"dana@example.com","displayName":"Dana"}',
       },
       { label: "Account email", value: "me@example.com" },
-      { label: "Send updates", value: "all" },
+      { label: "Send updates", value: "all", choice: "All" },
       { label: "All day", value: "No" },
     ]);
+  });
+
+  it("leaves out a field the summary already shows, and keeps one that says more", () => {
+    const summary = summarizeMcpApproval({
+      entry: undefined,
+      actionName: "send-email",
+      argumentsJson: JSON.stringify({
+        to: "ana@example.com, Bo <bo@example.com>",
+        cc: ["cy@example.com", { email: "dee@example.com" }],
+        attendees: [{ email: "eve@example.com", optional: true }],
+        start: "2026-10-22T14:00:00",
+        startTimeZone: "America/Los_Angeles",
+        timeZone: "America/New_York",
+      }),
+      labels,
+    });
+    expect(summary.recipients).toEqual([
+      "ana@example.com",
+      "bo@example.com",
+      "cy@example.com",
+      "dee@example.com",
+      "eve@example.com",
+    ]);
+    expect(summary.fields).toEqual([
+      { label: "To", value: "ana@example.com, Bo <bo@example.com>" },
+      {
+        label: "Attendees",
+        value: '{"email":"eve@example.com","optional":true}',
+      },
+      {
+        label: "Start",
+        value: "2026-10-22T14:00:00",
+        time: { at: EVENT_AT, zone: "America/Los_Angeles" },
+      },
+      {
+        label: "Time zone",
+        value: "America/New_York",
+        timeZone: "America/New_York",
+      },
+    ]);
+    expect(summary.details).toContain('"cc"');
+    expect(summary.details).toContain('"startTimeZone"');
+  });
+
+  it("says a choice in words, with the schema's own title for it when there is one", () => {
+    const summary = summarizeMcpApproval({
+      entry: entry({
+        tool: {
+          description: "Create an event",
+          parameters: {
+            type: "object",
+            properties: {
+              sendUpdates: {
+                type: "string",
+                enum: ["all", "externalOnly", "none"],
+              },
+              visibility: {
+                oneOf: [
+                  { const: "default", title: "Calendar default" },
+                  { const: "private", description: "Only you" },
+                ],
+              },
+              priority: {
+                anyOf: [
+                  { type: "string", enum: ["high_priority", "low"] },
+                  { type: "null" },
+                ],
+              },
+              days: {
+                type: "array",
+                items: { type: "string", enum: ["monday", "friday"] },
+              },
+              currency: { type: "string", enum: ["USD", "EUR"] },
+            },
+          },
+        },
+      }),
+      actionName: "create-event",
+      argumentsJson: JSON.stringify({
+        sendUpdates: "externalOnly",
+        visibility: "private",
+        priority: "high_priority",
+        days: ["monday", "friday"],
+        currency: "USD",
+        note: "all",
+      }),
+      labels,
+    });
+    expect(summary.fields.map((field) => field.choice)).toEqual([
+      "External only",
+      "Only you",
+      "High priority",
+      "Monday, Friday",
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("reads a field's choice or zone in words, and any other value as written", () => {
+    expect(
+      describeFieldValue(
+        { label: "Send updates", value: "all", choice: "All" },
+        "en-US",
+      ),
+    ).toBe("All");
+    expect(
+      describeFieldValue(
+        {
+          label: "Time zone",
+          value: "America/Los_Angeles",
+          timeZone: "America/Los_Angeles",
+        },
+        "en-US",
+      ),
+    ).toBe("Pacific Time");
+    expect(
+      describeFieldValue({ label: "Title", value: "Design review" }, "en-US"),
+    ).toBe("Design review");
   });
 
   it("reads an end with no zone of its own in its start's zone, as a calendar does", () => {
@@ -245,7 +388,11 @@ describe("summarizeMcpApproval", () => {
       }).fields,
     ).toEqual([
       { label: "Start", value: "2026-03-08T02:30:00" },
-      { label: "Start time zone", value: "America/New_York" },
+      {
+        label: "Start time zone",
+        value: "America/New_York",
+        timeZone: "America/New_York",
+      },
     ]);
   });
 
@@ -286,8 +433,8 @@ describe("summarizeMcpApproval", () => {
     });
 
     expect(summary.recipients).toEqual(to);
-    expect(summary.fields).toHaveLength(22);
-    expect(summary.fields[1]).toEqual({
+    expect(summary.fields).toHaveLength(21);
+    expect(summary.fields[0]).toEqual({
       label: "Body",
       value: body,
     });
@@ -390,9 +537,43 @@ describe("mcpApprovalPromptText", () => {
         "Event title: Design review",
         "Start: Thu, Oct 22, 5:00 PM EDT (Thu, Oct 22, 2:00 PM UTC-07:00 as requested)",
         "End: Thu, Oct 22, 2:30 PM (in the calendar's time zone)",
-        "Attendees: dana@example.com",
       ].join("\n"),
     );
+  });
+
+  it("says a choice or a zone in words, as the page does", () => {
+    const words = summarizeMcpApproval({
+      entry: entry({
+        tool: {
+          description: "Create an event",
+          parameters: {
+            type: "object",
+            properties: {
+              sendUpdates: { type: "string", enum: ["all", "none"] },
+            },
+          },
+        },
+      }),
+      actionName: "create-event",
+      argumentsJson: JSON.stringify({
+        sendUpdates: "all",
+        timeZone: "America/Los_Angeles",
+      }),
+      labels,
+    });
+    expect(
+      mcpApprovalPromptText({
+        summary: words,
+        priorRun: undefined,
+        messages: en,
+        locale: "en-US",
+        readerZone: undefined,
+        mode: "form",
+        reviewUrl: REVIEW_URL,
+      })
+        .split("\n")
+        .slice(1),
+    ).toEqual(["Send updates: All", "Time zone: Pacific Time"]);
   });
 
   it("shows a prior run in the call's own zone when the reader's zone isn't known", () => {
@@ -470,10 +651,10 @@ describe("mcpApprovalPromptText", () => {
       expect(lines[1]).toBe(`Reaches: ${people(20).join(", ")} and 7 more`);
       expect(lines[2]).toBe(`Body: ${body.slice(0, 280)}…`);
       expect(lines.filter((line) => line.startsWith("Option"))).toHaveLength(
-        10,
+        11,
       );
       expect(lines.slice(-3)).toEqual([
-        "Fields not shown here: 3",
+        "Fields not shown here: 2",
         "Long values are shortened here.",
         seeAll,
       ]);
@@ -511,7 +692,6 @@ describe("mcpApprovalPromptText", () => {
       expect(lines).toEqual([
         "Send email needs your approval before it runs. Check what it will do, then choose Approve or Deny.",
         `Reaches: ${people(3).join(", ")}`,
-        `To: ${people(3).join(", ")}`,
         "Subject: Hi",
       ]);
     });

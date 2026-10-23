@@ -164,6 +164,24 @@ function offsetLabel(minutes: number): string {
   return `UTC${sign}${hours}:${String(absolute % 60).padStart(2, "0")}`;
 }
 
+/** A zone from `isTimeZone` by its name in `locale`, such as "Pacific Time". */
+export function formatTimeZoneName(
+  zone: string,
+  locale: string,
+  at = Date.now(),
+): string {
+  if (FIXED_OFFSET.test(zone)) return offsetLabel(zoneOffsetMinutes(at, zone));
+  const nameIn = (timeZoneName: "longGeneric" | "long") =>
+    new Intl.DateTimeFormat(locale, { timeZone: zone, timeZoneName })
+      .formatToParts(new Date(at))
+      .find((part) => part.type === "timeZoneName")?.value;
+  const generic = nameIn("longGeneric");
+  // A zone with no generic name gets an offset ("GMT+00:00"); UTC has a
+  // long name that says more.
+  if (generic && !/^(?:GMT|UTC)(?:[+-]|$)/.test(generic)) return generic;
+  return nameIn("long") ?? generic ?? zone;
+}
+
 /**
  * `at` as the reader sees it in `zone`, with the zone named. `time` is a
  * time of day; `date-time` adds the day; `date` is the day alone.

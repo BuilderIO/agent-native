@@ -59,6 +59,7 @@ import {
   type McpApprovalRecord,
 } from "./approval-store.js";
 import {
+  describeFieldValue,
   describeWallTime,
   mcpApprovalPromptText,
   summarizeMcpApproval,
@@ -431,7 +432,7 @@ function renderPage(input: {
               )
             : field.wallTime
               ? escapeHtml(describeWallTime(field.wallTime, locale, messages))
-              : escapeHtml(field.value)
+              : escapeHtml(describeFieldValue(field, locale))
         }</dd>`,
     )
     .join("");

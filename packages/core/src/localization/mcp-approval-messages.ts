@@ -39,6 +39,9 @@ export interface McpApprovalMessages {
   requestedThrough: string;
   connectedClient: string;
   unnamedClient: string;
+  clientWantsTo: string;
+  agentWantsTo: string;
+  connected: string;
   requestedAs: string;
   prompt: string;
   promptLink: string;
@@ -101,6 +104,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "Requested through",
     connectedClient: "{client}, connected {time}",
     unnamedClient: "An unnamed app",
+    clientWantsTo: "{client} wants to {action}",
+    agentWantsTo: "Your agent wants to {action}",
+    connected: "Connected",
     requestedAs: "{time} as requested",
     prompt:
       "{action} needs your approval before it runs. Check what it will do, then choose Approve or Deny.",
@@ -158,6 +164,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "请求来源",
     connectedClient: "{client}，连接于 {time}",
     unnamedClient: "未命名的应用",
+    clientWantsTo: "{client} 想要运行 {action}",
+    agentWantsTo: "你的智能体想要运行 {action}",
+    connected: "连接时间",
     requestedAs: "请求中为 {time}",
     prompt:
       "{action} 需要你的批准才能运行。请查看它将执行的操作，然后选择“批准”或“拒绝”。",
@@ -213,6 +222,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "請求來源",
     connectedClient: "{client}，連線於 {time}",
     unnamedClient: "未命名的應用程式",
+    clientWantsTo: "{client} 想要執行 {action}",
+    agentWantsTo: "你的代理想要執行 {action}",
+    connected: "連線時間",
     requestedAs: "請求中為 {time}",
     prompt:
       "{action} 需要你的核准才能執行。請查看它將執行的動作，然後選擇「核准」或「拒絕」。",
@@ -275,6 +287,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "Solicitado a través de",
     connectedClient: "{client}, conectado el {time}",
     unnamedClient: "Una aplicación sin nombre",
+    clientWantsTo: "{client} quiere ejecutar {action}",
+    agentWantsTo: "Tu agente quiere ejecutar {action}",
+    connected: "Conectado",
     requestedAs: "{time} según la solicitud",
     prompt:
       "{action} necesita tu aprobación para ejecutarse. Comprueba lo que hará y elige Aprobar o Denegar.",
@@ -340,6 +355,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "Demandé via",
     connectedClient: "{client}, connecté le {time}",
     unnamedClient: "Une application sans nom",
+    clientWantsTo: "{client} veut exécuter {action}",
+    agentWantsTo: "Votre agent veut exécuter {action}",
+    connected: "Connecté",
     requestedAs: "{time} dans la demande",
     prompt:
       "{action} a besoin de votre approbation pour s'exécuter. Vérifiez ce qu'elle va faire, puis choisissez Approuver ou Refuser.",
@@ -407,6 +425,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "Angefragt über",
     connectedClient: "{client}, verbunden am {time}",
     unnamedClient: "Eine unbenannte App",
+    clientWantsTo: "{client} möchte {action} ausführen",
+    agentWantsTo: "Dein Agent möchte {action} ausführen",
+    connected: "Verbunden",
     requestedAs: "{time} laut Anfrage",
     prompt:
       "{action} braucht deine Genehmigung, bevor es ausgeführt wird. Prüfe, was passiert, und wähle dann Genehmigen oder Ablehnen.",
@@ -471,6 +492,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "リクエスト元",
     connectedClient: "{client}（{time} に接続）",
     unnamedClient: "名前のないアプリ",
+    clientWantsTo: "{client} が {action} を実行しようとしています",
+    agentWantsTo: "エージェントが {action} を実行しようとしています",
+    connected: "接続日",
     requestedAs: "リクエストでは {time}",
     prompt:
       "{action} を実行するには承認が必要です。内容を確認してから、「承認」または「拒否」を選んでください。",
@@ -534,6 +558,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "요청 경로",
     connectedClient: "{client}, {time}에 연결됨",
     unnamedClient: "이름 없는 앱",
+    clientWantsTo: "{client}이(가) {action}을(를) 실행하려고 합니다",
+    agentWantsTo: "에이전트가 {action}을(를) 실행하려고 합니다",
+    connected: "연결일",
     requestedAs: "요청상 {time}",
     prompt:
       "{action}을(를) 실행하려면 승인이 필요합니다. 수행할 작업을 확인한 다음 승인 또는 거부를 선택하세요.",
@@ -598,6 +625,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "Solicitado por meio de",
     connectedClient: "{client}, conectado em {time}",
     unnamedClient: "Um app sem nome",
+    clientWantsTo: "{client} quer executar {action}",
+    agentWantsTo: "Seu agente quer executar {action}",
+    connected: "Conectado",
     requestedAs: "{time} na solicitação",
     prompt:
       "{action} precisa da sua aprovação para ser executado. Confira o que ele vai fazer e escolha Aprovar ou Negar.",
@@ -661,6 +691,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "इसके ज़रिए अनुरोध किया गया",
     connectedClient: "{client}, {time} को कनेक्ट किया गया",
     unnamedClient: "बिना नाम का ऐप",
+    clientWantsTo: "{client} {action} चलाना चाहता है",
+    agentWantsTo: "आपका एजेंट {action} चलाना चाहता है",
+    connected: "कनेक्ट किया गया",
     requestedAs: "अनुरोध में {time}",
     prompt:
       "{action} चलाने से पहले आपकी मंज़ूरी चाहिए। देखें कि यह क्या करेगा, फिर मंज़ूरी दें या अस्वीकार करें चुनें।",
@@ -722,6 +755,9 @@ export const MCP_APPROVAL_MESSAGES: Record<
     requestedThrough: "مطلوب عبر",
     connectedClient: "{client}، تم الاتصال في {time}",
     unnamedClient: "تطبيق بلا اسم",
+    clientWantsTo: "يريد {client} تشغيل {action}",
+    agentWantsTo: "يريد وكيلك تشغيل {action}",
+    connected: "تاريخ الاتصال",
     requestedAs: "{time} حسب الطلب",
     prompt:
       "يحتاج {action} إلى موافقتك قبل تشغيله. تحقق مما سيفعله، ثم اختر موافقة أو رفض.",

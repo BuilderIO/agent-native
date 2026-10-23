@@ -1,5 +1,6 @@
 import { useOptionalLocale } from "@agent-native/core/client/i18n";
 import {
+  describeFieldValue,
   fetchMcpApproval,
   formatApprovalTime,
   formatWallTime,
@@ -312,16 +313,19 @@ function ReviewSkeleton() {
   );
 }
 
-/** Fills `{client}`, `{email}` and `{app}`, and puts `time` where `{time}` was. */
+type FillKey = "client" | "email" | "app" | "action";
+
+/** Fills `{client}`, `{email}`, `{app}` and `{action}`, and puts `time` where `{time}` was. */
 function fill(
   message: string,
-  values: Partial<Record<"client" | "email" | "app", string>>,
+  values: Partial<Record<FillKey, string>>,
   time?: ReactNode,
 ): ReactNode {
+  // One pass, so a value that reads like a placeholder stays as written.
   const text = (part: string) =>
-    Object.entries(values).reduce(
-      (filled, [key, value]) => filled.replace(`{${key}}`, value),
-      part,
+    part.replace(
+      /\{(client|email|app|action)\}/g,
+      (token, key: FillKey) => values[key] ?? token,
     );
   // Split first, so a client named "{time}" stays a name.
   const [before, ...after] = message.split("{time}");
@@ -333,6 +337,67 @@ function fill(
       {text(after.join("{time}"))}
     </>
   );
+}
+
+/**
+ * Who asks, and for what. Action titles are English in sentence case, and
+ * only the English copy runs one into a sentence, so only there does its
+ * first word lose its capital: "wants to create event", but "RSVP" stays.
+ */
+function RequestHeading({
+  view,
+  messages,
+}: {
+  view: McpApprovalView;
+  messages: McpApprovalMessages;
+}) {
+  const { title } = view.summary;
+  const action = view.locale.startsWith("en")
+    ? title.replace(/^\p{Lu}(?=\p{Ll}*(?:\s|$))/u, (first) =>
+        first.toLowerCase(),
+      )
+    : title;
+  return (
+    <h1 className="text-xl font-semibold leading-snug text-balance [overflow-wrap:anywhere]">
+      {view.requester
+        ? fill(messages.clientWantsTo, {
+            client: view.requester.name ?? messages.unnamedClient,
+            action,
+          })
+        : fill(messages.agentWantsTo, { action })}
+    </h1>
+  );
+}
+
+// An address inside text: what `approval-summary.ts` reads as one, minus the
+// quotes and brackets around it in JSON.
+const ADDRESS_IN_TEXT = /[^\s@<>(),;:"'[\]{}]+@[^\s@<>(),;:"'[\]{}]+\.[\w-]+/g;
+
+/**
+ * `text` with each email address whole: a line may break after an address's
+ * "@" and nowhere else in it, so one address never reads as two. The breaks
+ * add no characters, so copying the text copies the addresses unchanged.
+ */
+function KeepAddresses({ text }: { text: string }) {
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(ADDRESS_IN_TEXT)) {
+    const start = match.index;
+    const domain = start + match[0].lastIndexOf("@") + 1;
+    parts.push(
+      text.slice(last, start),
+      <span key={start} className="whitespace-nowrap">
+        {text.slice(start, domain)}
+      </span>,
+      <wbr key={`${start}:break`} />,
+      <span key={`${start}:domain`} className="whitespace-nowrap">
+        {text.slice(domain, start + match[0].length)}
+      </span>,
+    );
+    last = start + match[0].length;
+  }
+  parts.push(text.slice(last));
+  return <>{parts}</>;
 }
 
 function readerZone(view: McpApprovalView): string {
@@ -400,7 +465,7 @@ function FieldValue({
       </>
     );
   }
-  return <>{field.value}</>;
+  return <KeepAddresses text={describeFieldValue(field, view.locale)} />;
 }
 
 type DecidedState = Exclude<McpApprovalViewState, "pending">;
@@ -465,9 +530,7 @@ function Review({
   return (
     <>
       <div className="p-6">
-        <h1 className="text-xl font-semibold leading-snug text-balance [overflow-wrap:anywhere]">
-          {summary.title}
-        </h1>
+        <RequestHeading view={view} messages={messages} />
       </div>
       <CardContent className="flex flex-col gap-5">
         {view.state !== "pending" ? (
@@ -538,7 +601,10 @@ function Review({
               {saving === "deny" ? <Spinner aria-hidden="true" /> : null}
               {messages.deny}
             </Button>
+            {/* The chat's approval card's Approve: a theme's primary can be a
+                mid gray in dark mode, which reads as disabled. */}
             <Button
+              className="bg-foreground text-background hover:bg-foreground/90"
               disabled={saving !== null || stuck}
               onClick={() => void decide("approve")}
             >
@@ -577,21 +643,75 @@ function Outcome({
         )}
         aria-hidden="true"
       />
-      <p className="text-base font-medium leading-relaxed">
-        {fill(
-          messages[state],
-          {},
-          <ApprovalTime
-            at={view.expiresAt}
-            style="time"
-            view={view}
-            messages={messages}
-          />,
-        )}
-      </p>
+      <div className="flex min-w-0 flex-col gap-1">
+        <p className="text-base font-medium leading-relaxed">
+          {fill(
+            messages[state],
+            {},
+            <ApprovalTime
+              at={view.expiresAt}
+              style="time"
+              view={view}
+              messages={messages}
+            />,
+          )}
+        </p>
+        <RequestLine view={view} messages={messages} />
+      </div>
     </div>
   );
 }
+
+const REQUEST_LINE_MAX = 80;
+
+/**
+ * The request in one line, from its first short text and its first time, so
+ * a reader with several reviews open knows which this one was. A grant keeps
+ * its arguments only while it can still run, so a final one has none.
+ */
+function RequestLine({
+  view,
+  messages,
+}: {
+  view: McpApprovalView;
+  messages: McpApprovalMessages;
+}) {
+  const { fields } = view.summary;
+  const named = fields.find(
+    (field) =>
+      !field.time &&
+      !field.wallTime &&
+      field.choice === undefined &&
+      field.timeZone === undefined &&
+      field.value !== messages.yes &&
+      field.value !== messages.no &&
+      field.value.length <= REQUEST_LINE_MAX &&
+      !field.value.includes("\n"),
+  );
+  const timed = fields.find((field) => field.time || field.wallTime);
+  if (!named && !timed) return null;
+  return (
+    <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
+      {named ? <KeepAddresses text={named.value} /> : null}
+      {named && timed ? " · " : null}
+      {timed?.time ? (
+        <ApprovalTime
+          at={timed.time.at}
+          style="date-time"
+          view={view}
+          messages={messages}
+        />
+      ) : timed?.wallTime ? (
+        formatWallTime(timed.wallTime.at, view.locale)
+      ) : null}
+    </p>
+  );
+}
+
+// A sans font's widest average glyph, with room to spare, and the smallest
+// size an address is still easy to read at.
+const ADDRESS_EM_PER_CHAR = 0.6;
+const ADDRESS_MIN_PX = 11;
 
 function Recipients({
   recipients,
@@ -601,6 +721,18 @@ function Recipients({
   messages: McpApprovalMessages;
 }) {
   if (recipients.length === 0) return null;
+  // An address breaks only after its "@", so the longest name (or domain)
+  // has to fit on one line: the list's text shrinks until it does, and only
+  // a name too long even at the floor scrolls.
+  const longest = Math.max(
+    ...recipients.flatMap((email) => {
+      const domain = email.lastIndexOf("@") + 1;
+      return [domain, email.length - domain];
+    }),
+  );
+  const fit = `min(1em, max(${ADDRESS_MIN_PX}px, calc(100cqi / ${(
+    longest * ADDRESS_EM_PER_CHAR
+  ).toFixed(2)})))`;
   return (
     <section className="rounded-lg border border-border p-4">
       <h2 className="text-xs font-medium text-muted-foreground">
@@ -609,14 +741,16 @@ function Recipients({
       <ul className="mt-2 flex flex-col gap-2">
         {recipients.map((email) => (
           <li key={email} className="flex min-w-0 items-center gap-2.5">
-            <Avatar className="size-7">
+            <Avatar className="hidden size-7 shrink-0 sm:flex">
               <AvatarFallback className="text-xs">
                 {email.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-            <span className="min-w-0 font-medium [overflow-wrap:anywhere]">
-              {email}
-            </span>
+            <div className="@container min-w-0 flex-1 text-sm font-medium sm:text-base">
+              <span className="block overflow-x-auto" style={{ fontSize: fit }}>
+                <KeepAddresses text={email} />
+              </span>
+            </div>
           </li>
         ))}
       </ul>
@@ -631,25 +765,20 @@ function Facts({
   view: McpApprovalView;
   messages: McpApprovalMessages;
 }) {
-  const { requester, summary } = view;
-  if (!requester && summary.fields.length === 0) return null;
-  const client = requester?.name ?? messages.unnamedClient;
+  const { summary } = view;
+  // The heading names the client; this says when the reader connected it.
+  const connectedAt = view.requester?.connectedAt ?? null;
+  if (connectedAt === null && summary.fields.length === 0) return null;
   return (
     <dl className="grid grid-cols-1 gap-x-6 text-sm sm:grid-cols-[max-content_minmax(0,1fr)] sm:gap-y-1.5">
-      {requester ? (
-        <Fact label={messages.requestedThrough}>
-          {requester.connectedAt === null
-            ? client
-            : fill(
-                messages.connectedClient,
-                { client },
-                <ApprovalTime
-                  at={requester.connectedAt}
-                  style="date"
-                  view={view}
-                  messages={messages}
-                />,
-              )}
+      {connectedAt !== null ? (
+        <Fact label={messages.connected}>
+          <ApprovalTime
+            at={connectedAt}
+            style="date"
+            view={view}
+            messages={messages}
+          />
         </Fact>
       ) : null}
       {summary.fields.map((field, index) => (
@@ -665,7 +794,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="mb-2 whitespace-pre-wrap [overflow-wrap:anywhere] sm:mb-0">
+      <dd className="mb-2 min-w-0 overflow-x-auto whitespace-pre-wrap [overflow-wrap:anywhere] sm:mb-0">
         {children}
       </dd>
     </>
@@ -706,7 +835,7 @@ function Details({
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2">
         <pre className="max-h-[40vh] overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs leading-relaxed [overflow-wrap:anywhere]">
-          {summary.details ?? ""}
+          <KeepAddresses text={summary.details ?? ""} />
         </pre>
       </CollapsibleContent>
     </Collapsible>

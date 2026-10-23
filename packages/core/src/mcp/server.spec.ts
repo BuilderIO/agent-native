@@ -6066,7 +6066,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         message: [
           "Send email a besoin de votre approbation pour s'exécuter. Vérifiez ce qu'elle va faire, puis choisissez Approuver ou Refuser.",
           "Destinataires: ana@example.com, bo@example.com",
-          "To: ana@example.com, bo@example.com",
           "Subject: Hi",
         ].join("\n"),
         requestedSchema: {
