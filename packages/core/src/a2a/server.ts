@@ -61,6 +61,8 @@ import {
 } from "./task-store.js";
 import type { A2AConfig, AgentSkill } from "./types.js";
 
+const A2A_TOKEN_ALGORITHMS = ["HS256"];
+
 let _warnedUnauthA2A = false;
 function warnA2AUnauthOnce(): void {
   if (_warnedUnauthA2A) return;
@@ -407,7 +409,7 @@ export async function diagnoseA2ATokenFailure(
   }
   const secret = readDeployCredentialEnv("A2A_SECRET")?.trim();
 
-  const options: jose.JWTVerifyOptions = {};
+  const options: jose.JWTVerifyOptions = { algorithms: A2A_TOKEN_ALGORITHMS };
   if (typeof claims.aud !== "undefined") {
     const audience = expectedJwtAudience(event);
     if (!audience) return "audience-unresolvable";
@@ -521,7 +523,9 @@ async function verifyA2ATokenInternal(
     return { payload: { email: null, orgDomain: null } };
   }
 
-  const verifyOptions: jose.JWTVerifyOptions = { algorithms: ["HS256"] };
+  const verifyOptions: jose.JWTVerifyOptions = {
+    algorithms: A2A_TOKEN_ALGORITHMS,
+  };
   if (hasAudience) {
     // Fail closed: the token was minted for a specific audience, but this
     // receiver can't derive its own expected audience (no APP_URL/URL and no
