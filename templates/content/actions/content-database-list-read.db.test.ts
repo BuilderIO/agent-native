@@ -516,23 +516,32 @@ describe("content database list reads", () => {
         { databaseId: fixture.databaseId, ...args },
         caller("http"),
       );
-    const [agentRead, frontendRead, optInRead, httpPage, optInPage, direct] =
-      await asOwner(() =>
-        Promise.all([
-          read({}),
-          read({}, caller("frontend")),
-          read({ compactRows: true }),
-          page({}),
-          page({ compactRows: true }),
-          getContentDatabaseResponse(fixture.databaseId),
-        ]),
-      );
+    const [
+      agentRead,
+      frontendRead,
+      optInRead,
+      httpPage,
+      optInPage,
+      direct,
+      frontendOptOut,
+    ] = await asOwner(() =>
+      Promise.all([
+        read({}),
+        read({}, caller("frontend")),
+        read({ compactRows: true }),
+        page({}),
+        page({ compactRows: true }),
+        getContentDatabaseResponse(fixture.databaseId),
+        read({ compactRows: false }, caller("frontend")),
+      ]),
+    );
     if (
       !("items" in agentRead) ||
       !("items" in frontendRead) ||
       !("items" in optInRead) ||
       !("items" in httpPage) ||
-      !("items" in optInPage)
+      !("items" in optInPage) ||
+      !("items" in frontendOptOut)
     ) {
       throw new Error("Fixture read was unavailable.");
     }
@@ -557,6 +566,8 @@ describe("content database list reads", () => {
     expect(carriesDefinitions(httpPage.items)).toBe(true);
     expect(httpPage).not.toHaveProperty("properties");
     expect(carriesDefinitions(direct.items)).toBe(true);
+    // Any caller that asks for full rows gets them, the frontend included.
+    expect(carriesDefinitions(frontendOptOut.items)).toBe(true);
 
     expect(namesPropertyIds(frontendRead.items)).toBe(true);
     expect(namesPropertyIds(optInRead.items)).toBe(true);

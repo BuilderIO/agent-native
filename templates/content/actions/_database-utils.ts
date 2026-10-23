@@ -1492,18 +1492,18 @@ export async function getContentDatabaseResponse(
  * Whether a Collection read or write sends compact rows. A compact row names
  * each Property by `propertyId`, and the response sends each definition once,
  * in `properties`; otherwise a select's options repeat in every row, which on
- * a large Collection runs to megabytes per page. Content's own frontend always
- * gets compact rows: the server answers a tab on an older client
- * compatibility version with a 409, so every frontend call comes from a
- * client whose query cache puts the definitions back. Agents, MCP and HTTP
- * callers keep rows that carry their definitions unless they pass
- * `compactRows`.
+ * a large Collection runs to megabytes per page. Content's own frontend gets
+ * compact rows unless it passes `compactRows: false`: the server answers a tab
+ * on an older client compatibility version with a 409, so every frontend call
+ * comes from a client whose query cache puts the definitions back. Agents, MCP
+ * and HTTP callers keep rows that carry their definitions unless they pass
+ * `compactRows: true`.
  */
 export function compactContentDatabaseRowsFor(
   context: Pick<ActionRunContext, "caller"> | undefined,
   compactRows?: boolean,
 ): boolean {
-  return compactRows === true || context?.caller === "frontend";
+  return compactRows ?? context?.caller === "frontend";
 }
 
 /** A Collection read or write result, in the row shape its caller reads. */
