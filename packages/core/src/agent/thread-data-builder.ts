@@ -2562,6 +2562,25 @@ function latestSnapshotRun(runs: unknown): AgentRunSnapshot | undefined {
   }, undefined);
 }
 
+/**
+ * The Core turn ends at an approval or input pause, but the protocol run still
+ * owns the thread until the user answers, so queued follow-ups must wait.
+ *
+ * The run manager marks a run finished before its completion hook saves this
+ * snapshot, so pass the thread's in-memory run to see a pause not yet saved.
+ */
+export function latestRunAwaitsUser(
+  repo: any,
+  finishedRun?: ThreadSuggestionRun | null,
+): boolean {
+  const folded =
+    finishedRun && finishedRun.status !== "running"
+      ? foldThreadRunSuggestions(repo, finishedRun)
+      : repo;
+  const status = latestSnapshotRun(folded?.agentKit?.runs)?.status;
+  return status === "awaiting_approval" || status === "awaiting_input";
+}
+
 function isTerminalRunStatus(status: unknown): boolean {
   return (
     status === "completed" || status === "failed" || status === "cancelled"

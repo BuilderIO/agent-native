@@ -27,6 +27,7 @@ const inboxHarness = vi.hoisted(() => ({
     call: number;
   } | null,
   activeRun: null as Record<string, unknown> | null,
+  memoryRun: null as Record<string, unknown> | null,
   afterInterruptRunRecorded: null as (() => Promise<void>) | null,
   safeAbort: null as
     | ((runId: string, reason: string) => Promise<boolean>)
@@ -178,6 +179,11 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
       }
       return {};
     },
+    getActiveRunForThread: vi.fn((threadId: string) =>
+      inboxHarness.memoryRun?.threadId === threadId
+        ? inboxHarness.memoryRun
+        : null,
+    ),
     getActiveRunForThreadAsync: vi.fn(async (threadId: string) => {
       if (inboxHarness.failActiveRunCheckThreadId === threadId) {
         inboxHarness.failActiveRunCheckThreadId = null;
@@ -326,10 +332,12 @@ import { getRunById } from "../agent/run-store.js";
 import {
   createThread,
   getQueuedSubmissionReceipt,
+  getThread,
   listQueuedSubmissionReceipts,
   markQueuedSubmissionSubmitted,
   mutateThreadQueuedMessages,
   retryQueuedSubmissionReceipt,
+  updateThreadData,
 } from "../chat-threads/store.js";
 import { closeDbExec, getDbExec } from "../db/client.js";
 import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
@@ -380,6 +388,7 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.admissionFailure = null;
     inboxHarness.failReceiptRead = null;
     inboxHarness.activeRun = null;
+    inboxHarness.memoryRun = null;
     inboxHarness.afterInterruptRunRecorded = null;
     inboxHarness.safeAbort = null;
     inboxHarness.durableAbort = null;
@@ -1620,6 +1629,142 @@ describe("queued submission inbox recurring sweep", () => {
         submitted: 0,
         failed: 0,
       },
+    });
+    expect(inboxHarness.admissions).toHaveLength(1);
+  }, 20_000);
+
+  it("holds a queued follow-up until the thread's pending approval is decided", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    const writeLatestRun = async (id: string, status: string) => {
+      const thread = await getThread(threadId);
+      const repo = JSON.parse(thread?.threadData || "{}");
+      const runs = repo.agentKit?.runs ?? [];
+      repo.agentKit = {
+        ...repo.agentKit,
+        runs: [
+          ...runs,
+          {
+            id,
+            threadId,
+            status,
+            startedAt: new Date(Date.now() + runs.length).toISOString(),
+            lastSequence: 1,
+          },
+        ],
+      };
+      await updateThreadData(threadId, JSON.stringify(repo), "Thread", "", 0);
+    };
+    await writeLatestRun("run-paused", "awaiting_approval");
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: "Queued follow-up" },
+      },
+      { actor },
+    );
+    inboxHarness.admit = async () => {
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const runId = `run-${messageId}`;
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return runId;
+    };
+    const sweep = await createSweepHandler();
+
+    const pausedResponse = await sweep();
+    expect(pausedResponse.status).toBe(200);
+    await expect(pausedResponse.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: { scanned: 1, claimed: 0, submitted: 0 },
+    });
+    expect(inboxHarness.admissions).toHaveLength(0);
+    expect(await getQueuedSubmissionReceipt(threadId, messageId)).toMatchObject(
+      { state: "queued" },
+    );
+
+    await writeLatestRun("run-approval-continuation", "completed");
+    const resumedResponse = await sweep();
+    expect(resumedResponse.status).toBe(200);
+    await expect(resumedResponse.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: { scanned: 1, claimed: 1, submitted: 1 },
+    });
+    expect(inboxHarness.admissions).toHaveLength(1);
+  }, 20_000);
+
+  it("holds a queued follow-up while a finished run's approval pause is not yet saved", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const messageId = `queued-${randomUUID()}`;
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: "Queued follow-up" },
+      },
+      { actor },
+    );
+    inboxHarness.memoryRun = {
+      runId: "run-paused",
+      threadId,
+      turnId: "turn-paused",
+      startedAt: Date.now(),
+      status: "completed",
+      events: [
+        {
+          seq: 0,
+          event: {
+            type: "approval_required",
+            toolCallId: "tool-approval",
+            tool: "send-email",
+          },
+        },
+        { seq: 1, event: { type: "done" } },
+      ],
+    };
+    inboxHarness.admit = async () => {
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const runId = `run-${messageId}`;
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return runId;
+    };
+    const sweep = await createSweepHandler();
+
+    const pausedResponse = await sweep();
+    expect(pausedResponse.status).toBe(200);
+    await expect(pausedResponse.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: { scanned: 1, claimed: 0, submitted: 0 },
+    });
+    expect(inboxHarness.admissions).toHaveLength(0);
+
+    inboxHarness.memoryRun = null;
+    const resumedResponse = await sweep();
+    await expect(resumedResponse.json()).resolves.toMatchObject({
+      queuedSubmissionDrain: { scanned: 1, claimed: 1, submitted: 1 },
     });
     expect(inboxHarness.admissions).toHaveLength(1);
   }, 20_000);
