@@ -1475,10 +1475,7 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   const entryWithStoredValues = {
     ...liveEntry,
     title: liveEntry.title || args.fallbackTitle,
-    sourceValues: {
-      ...sourceValues,
-      ...liveEntry.sourceValues,
-    },
+    sourceValues: builderReadOverValues(sourceValues, liveEntry.sourceValues),
   };
   const refreshedEntry = await withBuilderBodySourceValues(
     entryWithStoredValues,
@@ -2006,6 +2003,23 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
  * this, so none of them overwrites Content's unpublished saves with the live
  * values Builder still returns.
  */
+/**
+ * `base` with a Builder read laid over it. Builder's empty body has no body
+ * keys, so an older body in `base` would show through.
+ */
+function builderReadOverValues(
+  base: Record<string, DocumentPropertyValue>,
+  read: Record<string, DocumentPropertyValue>,
+) {
+  const next = { ...base, ...read };
+  if (builderCmsBodyKnownEmpty(read)) {
+    for (const key of BUILDER_CMS_BODY_BASELINE_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(read, key)) delete next[key];
+    }
+  }
+  return next;
+}
+
 export function builderBodyReadSourceValues(
   rowValues: Record<string, DocumentPropertyValue>,
   entry: Pick<BuilderCmsSourceEntry, "sourceValues" | "rawEntry">,
@@ -2023,13 +2037,8 @@ export function builderBodyReadSourceValues(
       delete rowBase[referenceKey];
     }
   }
-  // Builder's empty body has no body keys, so the row's older body would
-  // show through.
-  if (builderCmsBodyKnownEmpty(builderValues)) {
-    for (const key of BUILDER_CMS_BODY_BASELINE_KEYS) delete rowBase[key];
-  }
   return builderSourceValuesKeepingUnpublishedChanges({
-    incoming: { ...rowBase, ...builderValues },
+    incoming: builderReadOverValues(rowBase, builderValues),
     existing: rowValues,
     incomingFilledFromRow: true,
     builderValues,
@@ -2066,10 +2075,10 @@ async function processBuilderBodyHydrationJob(
     preloaded?.bodyEntry?.id === entry.id
       ? {
           ...preloaded.bodyEntry,
-          sourceValues: {
-            ...entry.sourceValues,
-            ...preloaded.bodyEntry.sourceValues,
-          },
+          sourceValues: builderReadOverValues(
+            entry.sourceValues,
+            preloaded.bodyEntry.sourceValues,
+          ),
         }
       : entry;
   let activeSourceEntryJson = row.sourceEntryJson;
@@ -2185,7 +2194,14 @@ async function processBuilderBodyHydrationJob(
     BuilderLiveBodyReadResult,
     { state: "empty_body" | "not_found" }
   > | null = null;
-  if (!nextContent.trim()) {
+  if (builderCmsBodyKnownEmpty(nextValues)) {
+    // The stored lossless copy is an older body than this empty one.
+    emptyBodyRead = {
+      state: "empty_body",
+      entry: { ...entryWithBody, sourceValues: nextValues },
+      providerStatus: "http_200",
+    };
+  } else if (!nextContent.trim()) {
     const rebuiltBaseEntry = sourceRow
       ? builderEntryFromSourceRow({
           row: sourceRow,
@@ -2276,151 +2292,166 @@ async function processBuilderBodyHydrationJob(
           nextContent = liveContent;
         } else if (builderCmsBodyKnownEmpty(liveValues)) {
           // Content saved an empty body over the live one.
-          emptyBodyRead = { ...liveRead, state: "empty_body" };
+          emptyBodyRead = {
+            ...liveRead,
+            state: "empty_body",
+            entry: { ...liveEntry, sourceValues: liveValues },
+          };
         }
+      } else if (liveRead.state === "empty_body") {
+        emptyBodyRead = {
+          ...liveRead,
+          entry: {
+            ...liveRead.entry,
+            sourceValues: builderBodyReadSourceValues(
+              sourceValues,
+              liveRead.entry,
+            ),
+          },
+        };
       } else {
         emptyBodyRead = liveRead;
       }
     }
-    if (!nextContent.trim()) {
-      const attempts = row.attempts;
-      await db.transaction(async (tx) => {
-        const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
-          row,
-          activeSourceEntryJson,
-        );
-        const markPendingIfReplaced = async () => {
-          const [replacedByNewerJob] = await tx
-            .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
-            .from(schema.contentDatabaseBodyHydrationQueue)
-            .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
-          if (!replacedByNewerJob) return;
-          await tx
-            .update(schema.contentDatabaseItems)
-            .set({
-              bodyHydrationStatus: "pending",
-              bodyHydrationAttemptedAt: now,
-              bodyHydrationError: null,
-              updatedAt: now,
-            })
-            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-        };
-        if (emptyBodyRead?.state === "empty_body") {
-          const [deleted] = await tx
-            .delete(schema.contentDatabaseBodyHydrationQueue)
-            .where(queueRowCas)
-            .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-          if (!deleted) {
-            await markPendingIfReplaced();
-            return;
-          }
-          await tx
-            .update(schema.contentDatabaseSourceRows)
-            .set({
-              sourceValuesJson: JSON.stringify(
-                builderBodyReadSourceValues(sourceValues, emptyBodyRead.entry),
-              ),
-              lastSyncedAt: now,
-              lastSourceUpdatedAt: emptyBodyRead.entry.updatedAt ?? now,
-              updatedAt: now,
-            })
-            .where(
-              and(
-                eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-                eq(
-                  schema.contentDatabaseSourceRows.databaseItemId,
-                  row.databaseItemId,
-                ),
-              ),
-            );
-          await tx
-            .update(schema.contentDatabaseItems)
-            .set({
-              bodyHydrationStatus: "hydrated",
-              bodyHydrationAttemptedAt: now,
-              bodyHydrationError: null,
-              bodyHydrationVersion: builderBodyHydrationVersion(
-                emptyBodyRead.entry,
-              ),
-              bodyHydrationReason: "empty_body",
-              bodyHydrationProviderStatus: emptyBodyRead.providerStatus,
-              bodyHydrationAttemptCount: attempts,
-              bodyHydrationRetryable: 0,
-              updatedAt: now,
-            })
-            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-          return;
-        }
-        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
-          const [deleted] = await tx
-            .delete(schema.contentDatabaseBodyHydrationQueue)
-            .where(queueRowCas)
-            .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-          if (!deleted) {
-            await markPendingIfReplaced();
-            return;
-          }
-          const reason =
-            emptyBodyRead?.state === "not_found"
-              ? "not_found"
-              : "conversion_failed";
-          await tx
-            .update(schema.contentDatabaseItems)
-            .set({
-              bodyHydrationStatus: "error",
-              bodyHydrationAttemptedAt: now,
-              bodyHydrationError:
-                reason === "not_found"
-                  ? "Builder no longer returns this source entry. Refresh the source or retry after restoring access."
-                  : reason === "conversion_failed"
-                    ? "Content could not construct a Builder body from the retained source record. Refresh the source to recover the authoritative body."
-                    : null,
-              bodyHydrationVersion:
-                builderBodyUnavailableVersion(entryWithBody),
-              bodyHydrationReason: reason,
-              bodyHydrationProviderStatus: emptyBodyRead
-                ? emptyBodyRead.providerStatus
-                : "local_source_record",
-              bodyHydrationAttemptCount: attempts,
-              bodyHydrationRetryable: reason === "not_found" ? 1 : 0,
-              updatedAt: now,
-            })
-            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-          return;
-        }
-        const [stillOwnsQueueRow] = await tx
-          .update(schema.contentDatabaseBodyHydrationQueue)
-          .set({
-            lastAttemptedAt: null,
-            lastError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
-            nextAttemptAt: builderBodyHydrationNextAttemptAt(attempts, now),
-            updatedAt: now,
-          })
-          .where(queueRowCas)
-          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-        if (!stillOwnsQueueRow) {
-          await markPendingIfReplaced();
-          return;
-        }
+  }
+  if (emptyBodyRead || !nextContent.trim()) {
+    const attempts = row.attempts;
+    await db.transaction(async (tx) => {
+      const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
+        row,
+        activeSourceEntryJson,
+      );
+      const markPendingIfReplaced = async () => {
+        const [replacedByNewerJob] = await tx
+          .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+          .from(schema.contentDatabaseBodyHydrationQueue)
+          .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
+        if (!replacedByNewerJob) return;
         await tx
           .update(schema.contentDatabaseItems)
           .set({
             bodyHydrationStatus: "pending",
             bodyHydrationAttemptedAt: now,
-            bodyHydrationError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
-            bodyHydrationReason:
-              emptyBodyRead?.state === "not_found" ? "not_found" : null,
-            bodyHydrationProviderStatus: emptyBodyRead
-              ? emptyBodyRead.providerStatus
-              : null,
-            bodyHydrationAttemptCount: attempts,
-            bodyHydrationRetryable: 1,
+            bodyHydrationError: null,
             updatedAt: now,
           })
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-      });
-      return;
-    }
+      };
+      if (emptyBodyRead?.state === "empty_body") {
+        const [deleted] = await tx
+          .delete(schema.contentDatabaseBodyHydrationQueue)
+          .where(queueRowCas)
+          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+        if (!deleted) {
+          await markPendingIfReplaced();
+          return;
+        }
+        // The next refresh compares the version with the row as written.
+        const writtenEntry = {
+          ...emptyBodyRead.entry,
+          updatedAt: emptyBodyRead.entry.updatedAt ?? now,
+        };
+        await tx
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify(writtenEntry.sourceValues),
+            lastSyncedAt: now,
+            lastSourceUpdatedAt: writtenEntry.updatedAt,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+              eq(
+                schema.contentDatabaseSourceRows.databaseItemId,
+                row.databaseItemId,
+              ),
+            ),
+          );
+        await tx
+          .update(schema.contentDatabaseItems)
+          .set({
+            bodyHydrationStatus: "hydrated",
+            bodyHydrationAttemptedAt: now,
+            bodyHydrationError: null,
+            bodyHydrationVersion: builderBodyHydrationVersion(writtenEntry),
+            bodyHydrationReason: "empty_body",
+            bodyHydrationProviderStatus: emptyBodyRead.providerStatus,
+            bodyHydrationAttemptCount: attempts,
+            bodyHydrationRetryable: 0,
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+        return;
+      }
+      if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+        const [deleted] = await tx
+          .delete(schema.contentDatabaseBodyHydrationQueue)
+          .where(queueRowCas)
+          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+        if (!deleted) {
+          await markPendingIfReplaced();
+          return;
+        }
+        const reason =
+          emptyBodyRead?.state === "not_found"
+            ? "not_found"
+            : "conversion_failed";
+        await tx
+          .update(schema.contentDatabaseItems)
+          .set({
+            bodyHydrationStatus: "error",
+            bodyHydrationAttemptedAt: now,
+            bodyHydrationError:
+              reason === "not_found"
+                ? "Builder no longer returns this source entry. Refresh the source or retry after restoring access."
+                : reason === "conversion_failed"
+                  ? "Content could not construct a Builder body from the retained source record. Refresh the source to recover the authoritative body."
+                  : null,
+            bodyHydrationVersion: builderBodyUnavailableVersion(entryWithBody),
+            bodyHydrationReason: reason,
+            bodyHydrationProviderStatus: emptyBodyRead
+              ? emptyBodyRead.providerStatus
+              : "local_source_record",
+            bodyHydrationAttemptCount: attempts,
+            bodyHydrationRetryable: reason === "not_found" ? 1 : 0,
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+        return;
+      }
+      const [stillOwnsQueueRow] = await tx
+        .update(schema.contentDatabaseBodyHydrationQueue)
+        .set({
+          lastAttemptedAt: null,
+          lastError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
+          nextAttemptAt: builderBodyHydrationNextAttemptAt(attempts, now),
+          updatedAt: now,
+        })
+        .where(queueRowCas)
+        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+      if (!stillOwnsQueueRow) {
+        await markPendingIfReplaced();
+        return;
+      }
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "pending",
+          bodyHydrationAttemptedAt: now,
+          bodyHydrationError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
+          bodyHydrationReason:
+            emptyBodyRead?.state === "not_found" ? "not_found" : null,
+          bodyHydrationProviderStatus: emptyBodyRead
+            ? emptyBodyRead.providerStatus
+            : null,
+          bodyHydrationAttemptCount: attempts,
+          bodyHydrationRetryable: 1,
+          updatedAt: now,
+        })
+        .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+    });
+    return;
   }
   const documentContent =
     preloaded?.documentContent != null
@@ -2701,10 +2732,10 @@ async function preparePristineBuilderBodyHydration(args: {
   const entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
     await withBuilderBodySourceValues({
       ...bodyEntry,
-      sourceValues: {
-        ...queuedEntry.sourceValues,
-        ...bodyEntry.sourceValues,
-      },
+      sourceValues: builderReadOverValues(
+        queuedEntry.sourceValues,
+        bodyEntry.sourceValues,
+      ),
     }),
   );
   const nextValues = builderBodyReadSourceValues(sourceValues, entryWithBody);
