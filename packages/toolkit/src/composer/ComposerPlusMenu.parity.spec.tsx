@@ -71,7 +71,10 @@ afterEach(() => {
 async function settle() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
-async function mount(props: Partial<PromptComposerProps> = {}) {
+async function mount(
+  props: Partial<PromptComposerProps> = {},
+  settleAfterRender = true,
+) {
   const composerRef = React.createRef<TiptapComposerHandle>();
   const onSubmit = vi.fn();
   await act(async () => {
@@ -92,7 +95,7 @@ async function mount(props: Partial<PromptComposerProps> = {}) {
         />
       </ComposerRuntimeAdaptersProvider>,
     );
-    await settle();
+    if (settleAfterRender) await settle();
   });
   return { composerRef, onSubmit };
 }
@@ -788,10 +791,18 @@ describe("shared default action preservation", () => {
     const input = container.querySelector<HTMLInputElement>(
       'input[accept=".md,text/markdown"]',
     )!;
-    act(() => input.dispatchEvent(new Event("cancel")));
-    await mount({ disabled: true });
+    vi.useFakeTimers();
+    try {
+      act(() => input.dispatchEvent(new Event("cancel")));
+      await mount({ disabled: true }, false);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
 
-    expect(document.querySelector("[role=menu] form")).toBeNull();
-    expect(labels()).not.toContain("Upload skill file");
+      expect(document.querySelector("[role=menu] form")).toBeNull();
+      expect(labels()).not.toContain("Upload skill file");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
