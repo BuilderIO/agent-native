@@ -36,22 +36,22 @@ const MODEL_DIR = path.join(REPO_ROOT, "verification", "execution-lease");
 const MANIFEST_PATH = path.join(MODEL_DIR, "manifest.json");
 const TOOLS_DIR = path.join(REPO_ROOT, ".tmp", "tla");
 
-interface CoveredFunction {
-  file: string;
-  name: string;
-  sha256: string;
-}
+/** A named function, or the text from one exact anchor through the next. */
+type CoveredCode = { file: string; sha256: string } & (
+  | { name: string }
+  | { from: string; to: string }
+);
 
 interface Manifest {
   spec: string;
   tlaTools: { version: string; url: string; sha256: string };
   /** Configs of the current code; each must pass. */
   checks: { config: string }[];
-  /** Deliberately broken variants; each must still fail. */
-  mutations: { config: string; breaks: string }[];
-  /** Known bugs in the current code; each must keep failing until fixed. */
-  findings: { config: string; finding: string }[];
-  coverage: { syncCommit: string; functions: CoveredFunction[] };
+  /** Deliberately broken variants; each must still violate `invariant`. */
+  mutations: { config: string; invariant: string; breaks: string }[];
+  /** Known bugs in the current code; each must keep violating `invariant`. */
+  findings: { config: string; invariant: string; finding: string }[];
+  coverage: { syncCommit: string; code: CoveredCode[] };
 }
 
 class CouldNotRun extends Error {}
@@ -108,7 +108,7 @@ async function ensureTlaTools(tools: Manifest["tlaTools"]): Promise<string> {
 
 type TlcOutcome =
   | { kind: "pass"; summary: string }
-  | { kind: "violation"; summary: string; trace: string };
+  | { kind: "violation"; invariant: string; summary: string; trace: string };
 
 function runTlc(java: string, jar: string, spec: string, config: string) {
   const metadir = path.join(REPO_ROOT, ".tmp", "tlc-states");
@@ -146,6 +146,7 @@ function runTlc(java: string, jar: string, spec: string, config: string) {
     const traceStart = output.indexOf("Error: The behavior up to this point");
     return {
       kind: "violation",
+      invariant: violated[1]!,
       summary: `${violated[1]} violated (${summary})`,
       trace: traceStart >= 0 ? output.slice(traceStart) : output,
     } satisfies TlcOutcome;
@@ -178,20 +179,43 @@ function functionNodes(source: ts.SourceFile, name: string): ts.Node[] {
   return matches;
 }
 
-function hashFunction(file: string, name: string): string {
-  const absolute = path.join(REPO_ROOT, file);
+function describeCovered(entry: CoveredCode): string {
+  return "name" in entry ? entry.name : `region from "${entry.from}"`;
+}
+
+function coveredText(entry: CoveredCode): string {
+  const absolute = path.join(REPO_ROOT, entry.file);
   if (!existsSync(absolute)) {
-    throw new CouldNotRun(`covered file ${file} no longer exists`);
+    throw new CouldNotRun(`covered file ${entry.file} no longer exists`);
   }
   const text = readFileSync(absolute, "utf8");
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-  const matches = functionNodes(source, name);
+  if (!("name" in entry)) {
+    const start = text.indexOf(entry.from);
+    const end = start < 0 ? -1 : text.indexOf(entry.to, start);
+    if (start < 0 || end < 0 || text.indexOf(entry.from, start + 1) >= 0) {
+      throw new CouldNotRun(
+        `covered ${describeCovered(entry)} in ${entry.file} is missing or not unique; update its anchors`,
+      );
+    }
+    return text.slice(start, end + entry.to.length);
+  }
+  const source = ts.createSourceFile(
+    entry.file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const matches = functionNodes(source, entry.name);
   if (matches.length !== 1) {
     throw new CouldNotRun(
-      `covered function ${name} in ${file} matched ${matches.length} declarations; the coverage record must name exactly one`,
+      `covered function ${entry.name} in ${entry.file} matched ${matches.length} declarations; the coverage record must name exactly one`,
     );
   }
-  return createHash("sha256").update(matches[0]!.getText(source)).digest("hex");
+  return matches[0]!.getText(source);
+}
+
+function hashCovered(entry: CoveredCode): string {
+  return createHash("sha256").update(coveredText(entry)).digest("hex");
 }
 
 function updateCoverage(manifest: Manifest): void {
@@ -200,14 +224,29 @@ function updateCoverage(manifest: Manifest): void {
     encoding: "utf8",
   }).trim();
   manifest.coverage.syncCommit = head;
-  manifest.coverage.functions = manifest.coverage.functions.map((entry) => ({
+  manifest.coverage.code = manifest.coverage.code.map((entry) => ({
     ...entry,
-    sha256: hashFunction(entry.file, entry.name),
+    sha256: hashCovered(entry),
   }));
   writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(
-    `Recorded ${manifest.coverage.functions.length} covered functions at ${head.slice(0, 12)}.`,
+    `Recorded ${manifest.coverage.code.length} covered code entries at ${head.slice(0, 12)}.`,
   );
+}
+
+function expectViolation(
+  outcome: TlcOutcome,
+  expected: { config: string; invariant: string },
+): string | null {
+  if (
+    outcome.kind === "violation" &&
+    outcome.invariant === expected.invariant
+  ) {
+    return null;
+  }
+  const got =
+    outcome.kind === "violation" ? `${outcome.invariant} instead` : "a pass";
+  return `${expected.config} should violate ${expected.invariant} but gave ${got}`;
 }
 
 async function main(): Promise<number> {
@@ -219,12 +258,12 @@ async function main(): Promise<number> {
   }
 
   const problems: string[] = [];
-  const drifted = manifest.coverage.functions.filter(
-    (entry) => hashFunction(entry.file, entry.name) !== entry.sha256,
+  const drifted = manifest.coverage.code.filter(
+    (entry) => hashCovered(entry) !== entry.sha256,
   );
   for (const entry of drifted) {
     problems.push(
-      `covered code changed since ${manifest.coverage.syncCommit.slice(0, 12)}: ${entry.file} ${entry.name}`,
+      `covered code changed since ${manifest.coverage.syncCommit.slice(0, 12)}: ${entry.file} ${describeCovered(entry)}`,
     );
   }
 
@@ -242,18 +281,20 @@ async function main(): Promise<number> {
     for (const mutation of manifest.mutations) {
       const outcome = runTlc(java, jar, manifest.spec, mutation.config);
       console.log(`${mutation.config}: ${outcome.kind} (${outcome.summary})`);
-      if (outcome.kind !== "violation") {
+      const problem = expectViolation(outcome, mutation);
+      if (problem) {
         problems.push(
-          `${mutation.config} no longer fails, so the check cannot catch: ${mutation.breaks}`,
+          `${problem}, so the check may no longer catch: ${mutation.breaks}`,
         );
       }
     }
     for (const finding of manifest.findings) {
       const outcome = runTlc(java, jar, manifest.spec, finding.config);
       console.log(`${finding.config}: ${outcome.kind} (${outcome.summary})`);
-      if (outcome.kind !== "violation") {
+      const problem = expectViolation(outcome, finding);
+      if (problem) {
         problems.push(
-          `${finding.config} no longer reproduces (${finding.finding}); if the code was fixed, move it to checks and update NOTES.md`,
+          `${problem} (${finding.finding}); if the code was fixed, move it to checks and update NOTES.md`,
         );
       }
     }
@@ -267,7 +308,7 @@ async function main(): Promise<number> {
   for (const problem of problems) console.error(`  ${problem}`);
   if (drifted.length > 0) {
     console.error(
-      "\nRe-read the drifted functions against verification/execution-lease, update the model if the protocol changed, then run with --update-coverage.",
+      "\nRe-read the drifted code against verification/execution-lease, update the model if the protocol changed, then run with --update-coverage.",
     );
   }
   return 1;

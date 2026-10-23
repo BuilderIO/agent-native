@@ -48,9 +48,11 @@ pnpm verify:execution-lease
 
 ## When your change touches covered code
 
-`manifest.json` lists the covered functions with a hash of each, recorded at
-`coverage.syncCommit`. If you edit one, the runner fails with "covered code
-changed".
+`manifest.json` lists the covered code with a hash of each entry, recorded at
+`coverage.syncCommit`: named functions, plus anchored regions (`from`/`to`
+exact strings) for logic that lives inside a large closure. If you edit one,
+the runner fails with "covered code changed"; if an anchor no longer matches
+exactly once, it exits 2 until you update the anchors.
 
 1. Find the function's model action in the NOTES.md map and re-read both.
 2. If the protocol changed, change the action so it matches the code. Keep one

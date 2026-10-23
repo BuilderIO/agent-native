@@ -15,39 +15,46 @@
   ],
   "mutations": [
     {
-      "config": "mutations/a-dispatch-without-owner-guard.cfg",
-      "breaks": "markAgentExecutionStepDispatched without both the fence and its run_id/generation guard"
+      "config": "mutations/a-dispatch-without-fence.cfg",
+      "invariant": "P1",
+      "breaks": "markAgentExecutionStepDispatched without the fence (ownership clause kept)"
     },
     {
       "config": "mutations/b-replay-dispatched-never-step.cfg",
+      "invariant": "P8",
       "breaks": "beginAgentExecutionStep replaying a dispatched never step"
     },
     {
       "config": "mutations/c-effect-before-dispatch-commit.cfg",
+      "invariant": "P8",
       "breaks": "the action starting before markAgentExecutionStepDispatched commits"
     },
     {
       "config": "mutations/d-claim-ignores-live-owner.cfg",
+      "invariant": "ClaimRespectsLiveOwner",
       "breaks": "claimExecutionLease taking a live lease from a running owner"
     },
     {
       "config": "mutations/e-fence-check-then-act.cfg",
+      "invariant": "P1",
       "breaks": "a fenced write whose lease check commits before the write"
     }
   ],
   "findings": [
     {
       "config": "findings/F2-prune-under-live-lease.cfg",
+      "invariant": "P8",
       "finding": "F2: the retention prune deletes step rows without checking the lease"
     },
     {
       "config": "findings/F3-policy-flip-forgets-dispatch.cfg",
+      "invariant": "P8Strict",
       "finding": "F3: re-adopting a dispatched retry-safe step forgets it was dispatched"
     }
   ],
   "coverage": {
-    "syncCommit": "38ce309e5da9e876759d8103120a0a19d31242e9",
-    "functions": [
+    "syncCommit": "d19f2ae73c5866dd311586199bb7236c95c5d73e",
+    "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "claimExecutionLease",
@@ -182,6 +189,32 @@
         "file": "packages/core/src/jobs/background-automation-runner.ts",
         "name": "confirmAutomationWork",
         "sha256": "0214bfb2dfb7efd2738142d3b7d8c638f00845ab476e5d9674d21c1e106b204a"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "from": "const executionFence = currentExecutionFence();",
+        "to": "? await beginAgentExecutionStep(executionStepIntent)",
+        "sha256": "33f555f580487826c05b7efc449557e398f4b1d98f601771f2c5e07e27fbcb04"
+      },
+      {
+        "file": "packages/core/src/agent/execution-fence.ts",
+        "name": "currentExecutionFence",
+        "sha256": "f54805df3cedab016973ab4fad116c994552c4fd3addcaaf5ead86791a821275"
+      },
+      {
+        "file": "packages/core/src/agent/execution-fence.ts",
+        "name": "currentExecutionFenceForScope",
+        "sha256": "544d3dd795a9538eae2883d3bbbb1f4a88e5b43f8b5731a17649aaeb36de5ccc"
+      },
+      {
+        "file": "packages/core/src/agent/execution-fence.ts",
+        "name": "withExecutionFence",
+        "sha256": "00170c8d69bdd2aa4004597d3690c70ff39b5395ea1556b6d93f8ab227afae25"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "lockTurnExecutionLease",
+        "sha256": "f1590e82518b6b5419ba87ef17676852255e77232bb602a057f1b34d4787940f"
       }
     ]
   }

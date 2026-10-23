@@ -40,26 +40,29 @@ Helper invariants, checked in the same runs:
 
 ## Results at 38ce309e5da9
 
-| Config                                                                         | Result                          | Distinct states | Time  |
-| ------------------------------------------------------------------------------ | ------------------------------- | --------------- | ----- |
-| `ExecutionLease.cfg` (policy `never`, prune on)                                | pass                            | 38,030          | 5 s   |
-| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely)               | pass                            | 1,883,858       | 183 s |
-| `mutations/a` dispatch with neither the fence nor the run_id/generation clause | P1 violated                     | 169             | 2 s   |
-| `mutations/b` begin replays a dispatched never step                            | P8 violated                     | 7,621           | 3 s   |
-| `mutations/c` action starts before the dispatch commits                        | P8 violated                     | 2,070           | 4 s   |
-| `mutations/d` claim takes a live lease from a running owner                    | ClaimRespectsLiveOwner violated | 16              | 2 s   |
-| `mutations/e` fence check commits before the write                             | P1 violated                     | 148             | 3 s   |
-| `findings/F2` prune reaches a turn that still sees work                        | P8 violated                     | 53,075          | 9 s   |
-| `findings/F3` policy flip after a retry-safe dispatch                          | P8Strict violated               | 883,076         | 75 s  |
+| Config                                                           | Result                          | Distinct states | Time  |
+| ---------------------------------------------------------------- | ------------------------------- | --------------- | ----- |
+| `ExecutionLease.cfg` (policy `never`, prune on)                  | pass                            | 38,030          | 5 s   |
+| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely) | pass                            | 1,883,858       | 183 s |
+| `mutations/a` dispatch without the fence (ownership clause kept) | P1 violated                     | 144             | 4 s   |
+| `mutations/b` begin replays a dispatched never step              | P8 violated                     | 7,445           | 4 s   |
+| `mutations/c` action starts before the dispatch commits          | P8 violated                     | 2,634           | 3 s   |
+| `mutations/d` claim takes a live lease from a running owner      | ClaimRespectsLiveOwner violated | 16              | 2 s   |
+| `mutations/e` fence check commits before the write               | P1 violated                     | 146             | 2 s   |
+| `findings/F2` prune reaches a turn that still sees work          | P8 violated                     | 52,839          | 6 s   |
+| `findings/F3` policy flip after a retry-safe dispatch            | P8Strict violated               | 880,137         | 60 s  |
 
+Each mutation and finding config checks only the invariant it is meant to
+break, and the runner requires that exact invariant to be the one violated.
 Times are from a loaded laptop; the policy-flip check took 100 s on a quieter
 run.
 
 Observations:
 
-- The `run_id`/`generation` clause of `markAgentExecutionStepDispatched` and
-  the fence are each enough on their own to keep P8 and P1; removing only the
-  clause keeps both properties. Keep both as defence in depth.
+- In `markAgentExecutionStepDispatched`, the fence alone keeps P8 and P1. The
+  `run_id`/`generation` clause alone keeps P8 but not P1: without the fence, a
+  worker whose lease lapsed can still mark its own prepared row dispatched
+  (mutation a). Keep both.
 - `withFencedExecutionWrite` writes without a fence when there is no execution
   fence in async context (`execution-fence.ts:157-161`), and inside a scoped
   transaction it commits with the caller (`:168-170`). No current step-journal
@@ -181,3 +184,5 @@ cites the lines it models.
 | `insertRun`, `tryClaimRunSlot`, `attemptStaleRunRecovery`                                                  | `InsertRun`                                                                 |
 | `pruneAndRollUpPrunedRunOutcomes`                                                                          | `PruneRun`, `PruneStep`, `PruneLease`                                       |
 | `agent/production-agent.ts` `invokeAction`, `jobs/background-automation-runner.ts` `confirmAutomationWork` | `MarkDispatched` before `Effect`                                            |
+| `agent/production-agent.ts` step-intent region (fence lookup through `beginAgentExecutionStep`)            | `BeginStep` preconditions: intent only under a fence, policy per run        |
+| `currentExecutionFence`, `currentExecutionFenceForScope`, `withExecutionFence`, `lockTurnExecutionLease`   | `Current`, `Claim`, reaper and abort lease locks                            |
