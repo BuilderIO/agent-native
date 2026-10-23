@@ -1441,6 +1441,200 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
   });
+
+  it("withholds a draft after a run-code BigQuery read whose output cannot be parsed", () => {
+    const runCodeWarehouse = {
+      name: "run-code",
+      isError: false,
+      content: 'result: {"accounts":["Acme"]}\nbridgeToolsUsed: bigquery',
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: "Acme had the most active accounts last month.",
+        toolResults: [
+          {
+            ...dbtNotFound,
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          runCodeWarehouse,
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+  });
+
+  it("withholds a disclosed warehouse figure when the BigQuery read returned no rows", () => {
+    const emptyRead = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({ rows: [], totalRows: 0 }),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Show the active accounts figure from BigQuery.",
+        draftText: disclosed,
+        toolResults: [dbtNotFound, emptyRead],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+    expect(result?.exhaustedDraftPrefix).toBeUndefined();
+  });
+
+  it("keeps a failed metric unresolved when a later query succeeds for another metric", () => {
+    const signupsSuccess = {
+      name: "query-dbt-semantic-metric",
+      isError: false,
+      content: JSON.stringify({
+        status: "success",
+        metricName: "signups",
+        querySpec: {
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+          groupBy: [],
+        },
+        rows: [{ signups: 3 }],
+      }),
+    };
+    const warehouseRows = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({
+        rows: [{ account: "Acme" }, { account: "Globex" }],
+      }),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: "Acme and Globex led active accounts last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolResults: [
+          {
+            ...dbtNotFound,
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          warehouseRows,
+          signupsSuccess,
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+  });
+
+  it("clears a failure with no metric name once a later query succeeds", () => {
+    const connectionSelection = {
+      name: "query-dbt-semantic-metric",
+      isError: false,
+      content: JSON.stringify({ status: "connection_selection_required" }),
+    };
+    const warehouseRows = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({
+        rows: [{ account: "Acme" }, { account: "Globex" }],
+      }),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Which accounts were active last month?",
+        draftText: "Acme and Globex were active last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolResults: [connectionSelection, warehouseRows, dbtSuccess],
+      }),
+    );
+
+    // The date-range check on this fixture is a separate guard; this case proves only
+    // that the warehouse fallback does not engage after the retry succeeds.
+    expect(result).not.toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+  });
+
+  it("clears a failed metric once a later query for the same metric succeeds", () => {
+    const activeSuccess = {
+      name: "query-dbt-semantic-metric",
+      isError: false,
+      content: JSON.stringify({
+        status: "success",
+        metricName: "active_accounts",
+        querySpec: {
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+          groupBy: [],
+        },
+        rows: [{ active_accounts: 2 }],
+      }),
+    };
+    const warehouseRows = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({
+        rows: [{ account: "Acme" }, { account: "Globex" }],
+      }),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: "Active accounts were 2 last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolCalls: [
+          {
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+              groupBy: [],
+            },
+          },
+          {
+            name: "bigquery",
+            input: { sql: "SELECT account FROM accounts" },
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+              groupBy: [],
+            },
+          },
+        ],
+        toolResults: [
+          {
+            ...dbtNotFound,
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          warehouseRows,
+          activeSuccess,
+        ],
+      }),
+    );
+
+    // The date-range check on this fixture is a separate guard; this case proves only
+    // that the warehouse fallback does not engage once the same metric has succeeded.
+    expect(result).not.toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+    expect(JSON.stringify(result ?? null)).not.toContain(
+      "Do not use BigQuery rows",
+    );
+  });
 });
 
 describe("realDataFinalGuard", () => {

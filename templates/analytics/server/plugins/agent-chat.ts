@@ -59,6 +59,7 @@ import {
   hasOverstatedCoverageConfidenceClaim,
   looksLikeCoverageSensitiveAnalyticsRequest,
   bigQueryRowValues,
+  hasBigQueryBridgeUse,
   looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
   isNonDataTurn,
@@ -588,27 +589,74 @@ function isNamedTool(name: unknown, target: string): boolean {
   );
 }
 
+function dbtMetricName(content: unknown): string | null {
+  try {
+    const parsed = JSON.parse(String(content ?? "")) as {
+      metricName?: unknown;
+    };
+    return typeof parsed.metricName === "string" ? parsed.metricName : null;
+  } catch {
+    return null;
+  }
+}
+
+// A failed metric query stays unresolved until a later successful query for the same
+// metric. Another metric's success does not resolve it: a value in a warehouse row could
+// steer the agent into an unrelated successful query. A failure with no metric name, such
+// as a connection-selection status, can only be resolved by a later success, since the
+// retry it asks for is the same question.
+function dbtFailureResolvedLater(
+  results: NonNullable<AgentLoopFinalResponseGuardContext["toolResults"]>,
+  index: number,
+): boolean {
+  const metricName = dbtMetricName(results[index]?.content);
+  return results
+    .slice(index + 1)
+    .some(
+      (result) =>
+        isNamedTool(result.name, DBT_QUERY_TOOL) &&
+        result.isError !== true &&
+        !dbtQueryDidNotComplete(result) &&
+        (metricName === null || dbtMetricName(result.content) === metricName),
+    );
+}
+
+// The warehouse reads after the first unresolved dbt failure. A read made before the
+// failure is not counted: that answer was for another purpose, not this metric.
 function dbtFailureWarehouseResults(
   context: AgentLoopFinalResponseGuardContext,
 ): NonNullable<AgentLoopFinalResponseGuardContext["toolResults"]> | null {
   const results = context.toolResults ?? [];
-  let latestDbtIndex = -1;
-  results.forEach((result, index) => {
-    if (isNamedTool(result.name, DBT_QUERY_TOOL)) latestDbtIndex = index;
-  });
-  if (
-    latestDbtIndex === -1 ||
-    !dbtQueryDidNotComplete(results[latestDbtIndex])
-  ) {
-    return null;
-  }
+  const failureIndex = results.findIndex(
+    (result, index) =>
+      isNamedTool(result.name, DBT_QUERY_TOOL) &&
+      dbtQueryDidNotComplete(result) &&
+      !dbtFailureResolvedLater(results, index),
+  );
+  if (failureIndex === -1) return null;
   const warehouseResults = results.filter(
     (result, index) =>
-      index > latestDbtIndex &&
-      isNamedTool(result.name, "bigquery") &&
-      result.isError !== true,
+      index > failureIndex &&
+      result.isError !== true &&
+      (isNamedTool(result.name, "bigquery") ||
+        (isNamedTool(result.name, "run-code") &&
+          hasBigQueryBridgeUse(result.content))),
   );
   return warehouseResults.length > 0 ? warehouseResults : null;
+}
+
+// A disclosed figure is released only when a warehouse read returned rows to support it.
+function warehouseReadHasRows(
+  warehouseResults: NonNullable<
+    AgentLoopFinalResponseGuardContext["toolResults"]
+  >,
+): boolean {
+  return warehouseResults.some((result) => {
+    const rows = bigQueryRowValues(result.content);
+    return (
+      rows !== null && rows.length > 0 && !hasPartialBigQueryResult([result])
+    );
+  });
 }
 
 function wordsOf(text: string): string {
@@ -697,7 +745,14 @@ function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
     DBT_FALLBACK_SOURCE.test(context.text) &&
     DBT_FALLBACK_NOT_APPROVED.test(context.text) &&
     !claimsApproval(context.text);
-  if (disclosed) return null;
+  if (disclosed) {
+    if (warehouseReadHasRows(warehouseResults)) return null;
+    return {
+      retryMessage: DBT_FALLBACK_BLOCK_RETRY,
+      fallbackMessage: DBT_FALLBACK_WITHHELD,
+      maxRetries: 1,
+    };
+  }
   return {
     retryMessage: `Before finalizing, state in your answer that the figure is warehouse-derived from BigQuery and is not the owner-approved Semantic Layer definition, because the dbt metric query did not complete. Keep the rest of the answer.`,
     fallbackMessage: DBT_FALLBACK_WITHHELD,
