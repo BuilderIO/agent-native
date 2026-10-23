@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconInfoCircle, IconX } from "@tabler/icons-react";
+import { IconX } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -40,34 +40,51 @@ export function NudgeAmountDialog({
 }: NudgeAmountDialogProps) {
   const t = useT();
 
-  const field = (key: keyof NudgeAmounts, labelKey: string) => (
-    <label className="flex items-center justify-between gap-3 text-sm text-foreground">
-      <span>{t(labelKey)}</span>
-      <span className="flex items-center gap-2">
-        <Input
-          data-nudge-amount={key}
-          type="number"
-          size="sm"
-          min={MIN_NUDGE_AMOUNT}
-          max={MAX_NUDGE_AMOUNT}
-          value={nudgeAmounts[key]}
-          onChange={(event) =>
-            onNudgeAmountsChange({
-              ...nudgeAmounts,
-              [key]: normalizeNudgeAmount(
-                event.target.value,
-                nudgeAmounts[key],
-              ),
-            })
-          }
-          className="w-20 text-end text-sm md:text-sm"
-        />
-        <span className="w-4 text-muted-foreground">
-          {t("designEditor.keyboardShortcuts.nudgeAmount.unit")}
+  const field = (key: keyof NudgeAmounts) => {
+    const descriptionId = `nudge-amount-${key}-description`;
+    return (
+      <div className="flex items-center justify-between gap-3 text-sm text-foreground">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <label htmlFor={`nudge-amount-${key}`} className="cursor-default">
+              {t(`designEditor.keyboardShortcuts.nudgeAmount.${key}`)}
+            </label>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="start" className="max-w-64">
+            {t(`designEditor.keyboardShortcuts.nudgeAmount.${key}Description`)}
+          </TooltipContent>
+        </Tooltip>
+        <span id={descriptionId} className="sr-only">
+          {t(`designEditor.keyboardShortcuts.nudgeAmount.${key}Description`)}
         </span>
-      </span>
-    </label>
-  );
+        <span className="flex items-center gap-2">
+          <Input
+            id={`nudge-amount-${key}`}
+            aria-describedby={descriptionId}
+            data-nudge-amount={key}
+            type="number"
+            size="sm"
+            min={MIN_NUDGE_AMOUNT}
+            max={MAX_NUDGE_AMOUNT}
+            value={nudgeAmounts[key]}
+            onChange={(event) =>
+              onNudgeAmountsChange({
+                ...nudgeAmounts,
+                [key]: normalizeNudgeAmount(
+                  event.target.value,
+                  nudgeAmounts[key],
+                ),
+              })
+            }
+            className="w-20 text-end text-sm md:text-sm"
+          />
+          <span className="w-4 text-muted-foreground">
+            {t("designEditor.keyboardShortcuts.nudgeAmount.unit")}
+          </span>
+        </span>
+      </div>
+    );
+  };
 
   return (
     <Dialog
@@ -96,33 +113,9 @@ export function NudgeAmountDialog({
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
         <div className="flex items-center justify-between ps-4 pe-2 pt-3">
-          <div className="flex items-center gap-1.5">
-            <DialogTitle className="text-sm font-semibold leading-none">
-              {t("designEditor.keyboardShortcuts.nudgeAmount.title")}
-            </DialogTitle>
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t(
-                      "designEditor.keyboardShortcuts.nudgeAmount.title",
-                    )}
-                    className="rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <IconInfoCircle className="size-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent
-                  side="bottom"
-                  align="start"
-                  className="max-w-64 whitespace-pre-line"
-                >
-                  {t("designEditor.keyboardShortcuts.nudgeAmount.description")}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
+          <DialogTitle className="text-sm font-semibold leading-none">
+            {t("designEditor.keyboardShortcuts.nudgeAmount.title")}
+          </DialogTitle>
           <DialogClose asChild>
             <Button
               type="button"
@@ -134,10 +127,12 @@ export function NudgeAmountDialog({
             </Button>
           </DialogClose>
         </div>
-        <div className="flex flex-col gap-3 px-4 py-4">
-          {field("small", "designEditor.keyboardShortcuts.nudgeAmount.small")}
-          {field("big", "designEditor.keyboardShortcuts.nudgeAmount.big")}
-        </div>
+        <TooltipProvider delayDuration={200}>
+          <div className="flex flex-col gap-3 px-4 py-4">
+            {field("small")}
+            {field("big")}
+          </div>
+        </TooltipProvider>
         <div className="flex justify-end border-t border-border p-3">
           <DialogClose asChild>
             <Button type="button" size="sm">

@@ -1883,8 +1883,10 @@ export default {
         unit: "px",
         close: "이동 간격 닫기",
         done: "완료",
-        description:
-          "작은 이동 - 화살표 키를 사용할 때 오브젝트가 이동하는 픽셀 수를 설정합니다.\n큰 이동 - Shift + 화살표 키를 사용할 때 오브젝트가 이동하는 픽셀 수를 설정합니다.",
+        smallDescription:
+          "화살표 키를 사용할 때 오브젝트가 이동하는 픽셀 수를 설정합니다.",
+        bigDescription:
+          "Shift + 화살표 키를 사용할 때 오브젝트가 이동하는 픽셀 수를 설정합니다.",
       },
       keys: {
         or: "또는",

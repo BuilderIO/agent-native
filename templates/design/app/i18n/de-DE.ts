@@ -1910,8 +1910,10 @@ export default {
         unit: "px",
         close: "Verschiebeschrittweite schließen",
         done: "Fertig",
-        description:
-          "Kleiner Schritt - Legt fest, um wie viele Pixel ein Objekt mit den Pfeiltasten verschoben wird.\nGroßer Schritt - Legt fest, um wie viele Pixel ein Objekt mit Umschalt + Pfeiltasten verschoben wird.",
+        smallDescription:
+          "Legt fest, um wie viele Pixel ein Objekt mit den Pfeiltasten verschoben wird.",
+        bigDescription:
+          "Legt fest, um wie viele Pixel ein Objekt mit Umschalt + Pfeiltasten verschoben wird.",
       },
       keys: {
         or: "oder",

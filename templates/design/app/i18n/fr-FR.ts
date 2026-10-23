@@ -1911,8 +1911,10 @@ export default {
         unit: "px",
         close: "Fermer la valeur de déplacement",
         done: "Terminé",
-        description:
-          "Petit déplacement - Définit le nombre de pixels dont un objet se déplace avec les flèches.\nGrand déplacement - Définit le nombre de pixels dont un objet se déplace avec Maj + flèches.",
+        smallDescription:
+          "Définit le nombre de pixels dont un objet se déplace avec les flèches.",
+        bigDescription:
+          "Définit le nombre de pixels dont un objet se déplace avec Maj + flèches.",
       },
       keys: {
         or: "ou",

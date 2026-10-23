@@ -2232,8 +2232,8 @@ export default {
         unit: "px",
         close: "關閉微調距離",
         done: "完成",
-        description:
-          "小距離 - 設定使用方向鍵時物件移動的像素數。\n大距離 - 設定使用 Shift + 方向鍵時物件移動的像素數。",
+        smallDescription: "設定使用方向鍵時物件移動的像素數。",
+        bigDescription: "設定使用 Shift + 方向鍵時物件移動的像素數。",
       },
       keys: {
         or: "或",

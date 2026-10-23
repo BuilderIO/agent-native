@@ -1903,8 +1903,10 @@ export default {
         unit: "px",
         close: "Cerrar cantidad de desplazamiento",
         done: "Listo",
-        description:
-          "Desplazamiento pequeño - Define cuántos píxeles se mueve un objeto al usar las flechas.\nDesplazamiento grande - Define cuántos píxeles se mueve un objeto al usar Mayús + flechas.",
+        smallDescription:
+          "Define cuántos píxeles se mueve un objeto al usar las flechas.",
+        bigDescription:
+          "Define cuántos píxeles se mueve un objeto al usar Mayús + flechas.",
       },
       keys: {
         or: "o",

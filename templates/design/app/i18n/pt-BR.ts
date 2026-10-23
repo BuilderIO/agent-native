@@ -1897,8 +1897,10 @@ export default {
         unit: "px",
         close: "Fechar distância de deslocamento",
         done: "Concluído",
-        description:
-          "Deslocamento pequeno - Define quantos pixels um objeto se move ao usar as setas.\nDeslocamento grande - Define quantos pixels um objeto se move ao usar Shift + setas.",
+        smallDescription:
+          "Define quantos pixels um objeto se move ao usar as setas.",
+        bigDescription:
+          "Define quantos pixels um objeto se move ao usar Shift + setas.",
       },
       keys: {
         or: "ou",

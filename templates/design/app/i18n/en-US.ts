@@ -1818,8 +1818,10 @@ export default {
         unit: "px",
         close: "Close nudge amount",
         done: "Done",
-        description:
-          "Small nudge - Sets the number of pixels an object is moved when using arrow keys.\nBig nudge - Sets the number of pixels an object is moved when using shift + arrow keys.",
+        smallDescription:
+          "Sets the number of pixels an object is moved when using arrow keys.",
+        bigDescription:
+          "Sets the number of pixels an object is moved when using shift + arrow keys.",
       },
       keys: {
         or: "or",
