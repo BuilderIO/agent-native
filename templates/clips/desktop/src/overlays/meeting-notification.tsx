@@ -35,6 +35,9 @@ interface NotificationData {
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
   autoStart?: boolean;
+  // Set by Rust when debug_enabled() is on (see debug.rs); release processes
+  // can enable snapshot IPC by setting CLIPS_DEBUG or DEBUG.
+  debugSnapshots?: boolean;
 }
 
 interface TranscriptionStatusPayload {
@@ -75,6 +78,46 @@ function resizeNotificationWindow(expanded: boolean, recovery = false) {
     .catch((err) => {
       console.warn("[clips-meeting-notif] resize failed", err);
     });
+}
+
+// Debug-only: the Rust command writes this to the app log folder and is a
+// no-op unless debug logging is on, so the card's on-screen state can be read
+// back without screen capture.
+function writeDebugSnapshot(reason: string, data: NotificationData) {
+  const el = document.querySelector<HTMLElement>(".meeting-notification");
+  const rect = el?.getBoundingClientRect() ?? null;
+  const style = el ? getComputedStyle(el) : null;
+  const hit = rect
+    ? document.elementFromPoint(
+        rect.x + rect.width / 2,
+        rect.y + rect.height / 2,
+      )
+    : null;
+  invoke("debug_write_snapshot", {
+    name: "meeting-notif-dom",
+    payload: {
+      reason,
+      at: new Date().toISOString(),
+      meetingId: data.meetingId,
+      hasElement: el !== null,
+      rect: rect && { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+      opacity: style?.opacity ?? null,
+      display: style?.display ?? null,
+      visibility: style?.visibility ?? null,
+      documentVisibility: document.visibilityState,
+      viewport: {
+        w: window.innerWidth,
+        h: window.innerHeight,
+        dpr: window.devicePixelRatio,
+      },
+      hitTestInsideCard: hit
+        ? Boolean(hit.closest(".meeting-notification"))
+        : null,
+      hitTestTag: hit?.tagName ?? null,
+    },
+  }).catch((err) => {
+    console.warn("[clips-meeting-notif] debug snapshot failed", err);
+  });
 }
 
 function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
@@ -251,9 +294,14 @@ export function MeetingNotification() {
     const win = getCurrentWindow();
     if (data) {
       win.show().catch(() => {});
-    } else {
-      win.hide().catch(() => {});
+      // Cleanup cancels the timer when the card changes, so a snapshot can
+      // only describe the card it was scheduled for.
+      const timer = window.setTimeout(() => {
+        if (data.debugSnapshots) writeDebugSnapshot("shown", data);
+      }, 250);
+      return () => window.clearTimeout(timer);
     }
+    win.hide().catch(() => {});
   }, [data]);
 
   useEffect(() => {

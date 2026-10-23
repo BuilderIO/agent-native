@@ -696,24 +696,25 @@ function WorkspaceResources() {
 
 ## Other Public UI {#other-ui}
 
-| Area           | APIs                                                                           | Import path                                |
-| -------------- | ------------------------------------------------------------------------------ | ------------------------------------------ |
-| Agent page     | `<AgentTabsPage>`                                                              | `@agent-native/toolkit/app/agent-page`     |
-| Blocks UI      | `BlockView`, `SchemaBlockEditor`, `BlockRegistryProvider`                      | `@agent-native/toolkit/app/blocks`         |
-| Canvas         | `DrawOverlay`, `CanvasCommentPins`                                             | `@agent-native/toolkit/canvas-annotations` |
-| Chat history   | `ChatHistoryList`, `ChatHistoryRail`                                           | `@agent-native/toolkit/chat-history`       |
-| Data grid      | `<DataGrid>`                                                                   | `@agent-native/toolkit/data-grid`          |
-| Dashboard      | `DataTable`, `DateRangePicker`, `GenericChartPanel`, `MetricCard`, `StatsCard` | `@agent-native/toolkit/dashboard`          |
-| Sharing        | `<ShareButton>`, `<ShareDialog>`                                               | `@agent-native/toolkit/app/sharing`        |
-| Sharing UI     | `<VisibilityBadge>`                                                            | `@agent-native/toolkit/sharing`            |
-| Notifications  | `<NotificationsBell>`                                                          | `@agent-native/toolkit/app/notifications`  |
-| Progress       | `<RunsTray>`                                                                   | `@agent-native/toolkit/app/progress`       |
-| Run registry   | Run types and server registry functions                                        | `@agent-native/core/progress`              |
-| Onboarding     | `useOnboarding()`, onboarding panel hooks                                      | `@agent-native/core/client/onboarding`     |
-| Observability  | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                                 | `@agent-native/toolkit/app/observability`  |
-| Resources UI   | `<ResourcesPanel>`, `<ResourceTree>`, `<ResourceEditor>`                       | `@agent-native/toolkit/app/resources`      |
-| Resource hooks | Resource data hooks                                                            | `@agent-native/core/client/resources`      |
-| Rich editor    | `<SharedRichEditor>`, slash commands, block node hooks                         | `@agent-native/toolkit/editor`             |
+| Area            | APIs                                                                           | Import path                                        |
+| --------------- | ------------------------------------------------------------------------------ | -------------------------------------------------- |
+| Agent page      | `<AgentTabsPage>`                                                              | `@agent-native/toolkit/app/agent-page`             |
+| Blocks UI       | `BlockView`, `SchemaBlockEditor`, `BlockRegistryProvider`                      | `@agent-native/toolkit/app/blocks`                 |
+| Canvas          | `DrawOverlay`, `CanvasCommentPins`                                             | `@agent-native/toolkit/canvas-annotations`         |
+| Chat history    | `ChatHistoryList`, `ChatHistoryRail`                                           | `@agent-native/toolkit/chat-history`               |
+| Owned chat rail | `useOwnershipChatHistory()`, `OwnershipChatHistoryRail`                        | `@agent-native/toolkit/app/chat/ownership-history` |
+| Data grid       | `<DataGrid>`                                                                   | `@agent-native/toolkit/data-grid`                  |
+| Dashboard       | `DataTable`, `DateRangePicker`, `GenericChartPanel`, `MetricCard`, `StatsCard` | `@agent-native/toolkit/dashboard`                  |
+| Sharing         | `<ShareButton>`, `<ShareDialog>`                                               | `@agent-native/toolkit/app/sharing`                |
+| Sharing UI      | `<VisibilityBadge>`                                                            | `@agent-native/toolkit/sharing`                    |
+| Notifications   | `<NotificationsBell>`                                                          | `@agent-native/toolkit/app/notifications`          |
+| Progress        | `<RunsTray>`                                                                   | `@agent-native/toolkit/app/progress`               |
+| Run registry    | Run types and server registry functions                                        | `@agent-native/core/progress`                      |
+| Onboarding      | `useOnboarding()`, onboarding panel hooks                                      | `@agent-native/core/client/onboarding`             |
+| Observability   | `<ObservabilityDashboard>`, `<ThumbsFeedback>`                                 | `@agent-native/toolkit/app/observability`          |
+| Resources UI    | `<ResourcesPanel>`, `<ResourceTree>`, `<ResourceEditor>`                       | `@agent-native/toolkit/app/resources`              |
+| Resource hooks  | Resource data hooks                                                            | `@agent-native/core/client/resources`              |
+| Rich editor     | `<SharedRichEditor>`, slash commands, block node hooks                         | `@agent-native/toolkit/editor`                     |
 
 ## One-Off Text Completion {#one-off-text-completion}
 

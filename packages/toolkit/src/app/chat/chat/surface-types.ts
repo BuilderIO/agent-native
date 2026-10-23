@@ -27,6 +27,7 @@ import type { ExportedMessageRepository } from "@assistant-ui/react";
 import type * as React from "react";
 
 import type { AgentKitWorkedForSummaryRenderProps } from "../../agentkit/react/context.js";
+import type { AgentChatDataChartLayout } from "../../agentkit/react/data-chart-layout.js";
 import type { AgentMessageContentOrderResolver } from "../../agentkit/react/message-content-order.js";
 import type {
   AgentChatTranscriptLayout,
@@ -61,6 +62,8 @@ export interface AssistantChatSendOptions {
   approvedToolCalls?: string[];
   /** Send as a protocol continuation that stays out of visible history. */
   hideUserMessage?: boolean;
+  /** The app surface this send came from, reported with the turn's analytics. */
+  surface?: string;
 }
 
 export type AssistantChatSubmitResult =
@@ -244,6 +247,8 @@ export interface AssistantChatProps {
   emptyStateFooter?: React.ReactNode;
   /** Optional transcript geometry. Omitted values keep the shared defaults. */
   transcriptLayout?: AgentChatTranscriptLayout;
+  /** Optional sizing and typography for built-in chat data charts. */
+  dataChartLayout?: AgentChatDataChartLayout;
   /** Optional elapsed-work row geometry. Omitted values keep the shared defaults. */
   workedForRowLayout?: AgentChatWorkedForRowLayout;
   /** Optional duration text for the shared completed-work row. */

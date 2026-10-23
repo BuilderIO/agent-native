@@ -28,6 +28,10 @@ import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import {
+  decodeMotionPrototypeTransitionAttribute,
+  type MotionPrototypeTransitionDecodeResult,
+} from "@shared/motion-prototype-transition";
+import {
   appendPenNode,
   clonePenPath,
   closePenPath,
@@ -79,6 +83,7 @@ import {
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
+import { useCanvasLoadOutcome } from "@/lib/canvas-load-outcome";
 import {
   resolveDesktopDesignSnapshotLayer,
   useDesktopDesignNativePreview,
@@ -725,6 +730,7 @@ interface DesignCanvasProps {
   boardSurface?: boolean;
   nativeAnimationEpochMs?: number;
   fitRootBodyToFrame?: boolean;
+  screenHeightMode?: "auto" | "fixed" | "hug";
   runtimeReplacementContent?: string;
   authoredSourceContent?: string;
   runtimeReplacementKey?: string;
@@ -950,7 +956,12 @@ interface DesignCanvasProps {
   repromptDraftRequest?: RepromptDraftRequest | null;
   onRepromptDraftConsumed?: (nonce: number) => void;
   nodeRewriteCanvasTarget?: boolean;
-  onPrototypeNavigate?: (screen: string, href: string) => void;
+  onPrototypeNavigate?: (
+    screen: string,
+    href: string,
+    transition: MotionPrototypeTransitionDecodeResult,
+    sourceFrame: HTMLIFrameElement,
+  ) => void;
   motionTracks?: MotionTrackWire[];
   motionEasingVariables?: MotionEasingVariable[];
   motionDefaultEase?: string;
@@ -1509,6 +1520,7 @@ export function DesignCanvas({
   boardSurface = false,
   nativeAnimationEpochMs,
   fitRootBodyToFrame,
+  screenHeightMode,
   runtimeReplacementContent,
   authoredSourceContent,
   runtimeReplacementKey,
@@ -2336,6 +2348,12 @@ export function DesignCanvas({
   const liveEditRestartAttemptRef = useRef(0);
   const liveEditSameInstanceElapsedMsRef = useRef(0);
   const liveEditSameInstanceDelayRef = useRef(LIVE_EDIT_READY_TIMEOUT_MS);
+  // Snapshots and localhost or Fusion previews may never report ready; timing
+  // them would count a missing bridge as a stalled load.
+  const markCanvasLoadReady = useCanvasLoadOutcome({
+    designId,
+    measure: !snapshotOnly && (sourceType ?? "inline") === "inline",
+  });
   const liveEditSameInstanceRearmTimerRef = useRef<number | undefined>(
     undefined,
   );
@@ -3626,6 +3644,7 @@ export function DesignCanvas({
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
+        heightMode: screenHeightMode,
       });
       return inlineDesignStylesheets(interactDocument, designStylesheets);
     }
@@ -3713,7 +3732,10 @@ export function DesignCanvas({
     }
     frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
-      frameDocument = appendContentSizeReporter(frameDocument);
+      frameDocument = appendContentSizeReporter(
+        frameDocument,
+        screenHeightMode,
+      );
     }
     return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
@@ -3727,6 +3749,7 @@ export function DesignCanvas({
     boardSurface,
     designStylesheets,
     fitRootBodyToFrame,
+    screenHeightMode,
     rawExternalPreviewUrl,
     isEmbeddedFrame,
     embeddedFrameBackground,
@@ -4614,6 +4637,7 @@ export function DesignCanvas({
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
         onBridgeReady?.();
+        markCanvasLoadReady();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         flushPendingOneShotMessages();
       }
@@ -4741,6 +4765,7 @@ export function DesignCanvas({
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
+        markCanvasLoadReady();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         if (shouldRefreshRuntimeLayerSnapshot) {
           refreshRuntimeLayerSnapshotAfterReady();
@@ -5766,9 +5791,16 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "prototype-navigate") {
+        const sourceFrame = iframeRef.current;
+        if (!sourceFrame || sourceFrame.contentWindow !== e.source) return;
+        const transition = decodeMotionPrototypeTransitionAttribute(
+          e.data.transition,
+        );
         onPrototypeNavigate?.(
           String(e.data.screen || ""),
           String(e.data.href || ""),
+          transition,
+          sourceFrame,
         );
         return;
       }
@@ -6225,6 +6257,7 @@ export function DesignCanvas({
       bridgeReadyRef.current = true;
       editorChromeReadyRef.current = true;
       onBridgeReady?.();
+      markCanvasLoadReady();
       refreshRuntimeLayerSnapshotAfterReady();
       flushPendingOneShotMessages();
     }
@@ -8507,6 +8540,7 @@ export function DesignCanvas({
                 ? ""
                 : undefined,
             }}
+            data-an-prototype-preview={interactMode ? "" : undefined}
             data-screen-iframe-id={
               boardSurface
                 ? undefined

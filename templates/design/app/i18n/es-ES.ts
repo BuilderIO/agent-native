@@ -238,6 +238,23 @@ export default {
     expandSidebar: "Expandir barra lateral",
     collapseSidebar: "Contraer barra lateral",
   },
+  gettingStarted: {
+    title: "Primeros pasos",
+    progress: "{{completeCount}} de {{totalCount}} completados",
+    collapse: "Contraer",
+    expand: "Expandir",
+    completed: "Completado",
+    loadError: "No se pudo cargar tu lista",
+    retry: "Reintentar",
+    steps: {
+      createDesign: "Crea tu primer diseño",
+      addBrand: "Añade tu marca",
+      useRealData: "Usa tus datos reales",
+      shareFeedback: "Comparte para recibir comentarios",
+      inviteTeammate: "Invita a un compañero",
+      saveTemplate: "Guarda un diseño como plantilla",
+    },
+  },
   settings: {
     agentTitle: "Gestionar agente",
     agentDescription:
@@ -1396,7 +1413,7 @@ export default {
       sourceWriteUnavailable:
         "Por ahora, el código de movimiento solo se puede escribir en diseños HTML integrados.",
       unresolvedStylesheets:
-        "Resuelve las hojas de estilo externas antes de editar o añadir Motion.",
+        "Resuelve los estilos externos o generados en tiempo de ejecución antes de editar o añadir Motion.",
       sourceConflict:
         "El código de Motion cambió mientras esta línea de tiempo tenía cambios sin guardar. Recarga el código para descartar esos cambios y usar la fuente actual.",
       reloadFromSource: "Volver a cargar el código",
@@ -2023,6 +2040,16 @@ export default {
     pinComment: "Fijar comentario",
     export: "Exportar",
     downloadHtml: "Descargar HTML",
+    exportHubspotHtml: "Exportar HTML de HubSpot",
+    hubspotConversion: {
+      title: "¿Convertir para HubSpot?",
+      description:
+        "{{name}} necesita cambios para ser compatible con correo. Se conservará el marco original.",
+      convert: "Convertir con el agente",
+      cancel: "Cancelar",
+      prompt:
+        "Crea una versión de correo de HubSpot de este marco, manteniendo su contenido y marca y conservando el original. Valida la exportación HTML y abre el nuevo marco.",
+    },
     downloadPng: "Descargar PNG",
     downloadSvg: "Descargar SVG",
     downloadFigmaSvg: "Descargar para Figma (SVG)",
@@ -2219,6 +2246,9 @@ export default {
       htmlCreateError: "No se pudo crear la descarga HTML",
       htmlDownloaded: "HTML descargado",
       htmlExportError: "No se pudo exportar HTML",
+      hubspotHtmlExporting: "Preparando HTML de HubSpot…",
+      hubspotHtmlDownloaded: "HTML de HubSpot descargado",
+      hubspotHtmlExportError: "No se pudo exportar el HTML de HubSpot",
       zipCreateError: "No se pudo crear la descarga ZIP",
       zipDownloaded: "ZIP descargado",
       zipExportError: "No se pudo exportar ZIP",

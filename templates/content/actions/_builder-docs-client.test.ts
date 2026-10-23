@@ -150,6 +150,10 @@ vi.mock("@agent-native/core/collab", () => ({
   hasCollabState: collabStateMock.hasCollabState,
   loadAwarenessRowsStrict: collabStateMock.loadAwarenessRowsStrict,
 }));
+vi.mock("../server/lib/live-body-writer.js", async (original) => ({
+  ...(await original<typeof import("../server/lib/live-body-writer.js")>()),
+  isLiveBodyWriterPage: async () => false,
+}));
 
 vi.mock("@agent-native/core/application-state", () => ({
   appStateCompareAndSet: appStateMock.appStateCompareAndSet,
@@ -634,6 +638,7 @@ describe("Builder docs DB-backed source", () => {
     expect(result.executed).toBe(true);
     expect(builderWriteMock.executeBuilderCmsWrite).toHaveBeenCalledWith(
       expect.objectContaining({
+        legacyOnly: true,
         request: expect.objectContaining({
           method: "PATCH",
           body: {

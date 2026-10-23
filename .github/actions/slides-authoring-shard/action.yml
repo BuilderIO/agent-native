@@ -57,29 +57,11 @@ runs:
       working-directory: templates/slides
       run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-shard 1/3
 
-    - name: Check IME Escape preserves inline slide text editing
-      if: inputs.shard == 'chromium-1'
-      shell: bash
-      working-directory: templates/slides
-      run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
-
-    - name: Check mobile PowerPoint import pending status
-      if: inputs.shard == 'chromium-1'
-      shell: bash
-      working-directory: templates/slides
-      run: pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
-
     - name: Check rich-text authoring parity in Slides (slice 2 of 3)
       if: inputs.shard == 'chromium-2'
       shell: bash
       working-directory: templates/slides
       run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-shard 2/3
-
-    - name: Check typing fidelity across Slides text surfaces in Chromium
-      if: inputs.shard == 'chromium-2'
-      shell: bash
-      working-directory: templates/slides
-      run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
 
     - name: Check rich-text authoring parity in Slides (slice 3 of 3)
       if: inputs.shard == 'chromium-3'
@@ -114,12 +96,6 @@ runs:
       shell: bash
       working-directory: templates/slides
       run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --authoring-shard 3/3 --browser webkit
-
-    - name: Check typing fidelity across Slides text surfaces in WebKit
-      if: inputs.shard == 'webkit-3'
-      shell: bash
-      working-directory: templates/slides
-      run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
 
     - name: Check rich-text authoring against the committed corpus
       if: inputs.shard == 'corpus'

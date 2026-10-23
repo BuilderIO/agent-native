@@ -201,6 +201,26 @@ describe("agentEngineStatusUrlForChatApi", () => {
 });
 
 describe("createHttpAgentChatRuntime", () => {
+  it("sends the configured request turn id with the default request body", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done", reason: "complete" }]));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      requestTurnId: () => "turn-continued",
+    });
+
+    const session = await runtime.createSession({ id: "thread-1" });
+    const turn = await session.startTurn({ prompt: "Go on" });
+    await drain(turn.events);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).turnId).toBe(
+      "turn-continued",
+    );
+    expect(turn.requestTurnId).toBe("turn-continued");
+  });
+
   it("posts turns, streams runtime events, exposes run id, and cancels", async () => {
     const fetchMock = vi
       .fn()

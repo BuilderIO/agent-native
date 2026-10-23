@@ -367,6 +367,7 @@ import {
 import { NativeWorkerHostError } from "./native-worker-host";
 import {
   NativeWorkerSceneHost,
+  NativeWorkerSceneSourceError,
   type NativeWorkerSceneEntry,
 } from "./native-worker-scene-host";
 
@@ -1204,6 +1205,8 @@ class NativeShaderRuntime {
   private workerPreviewBase: EffectInstance | null = null;
   private legacyDraftSession = false;
   private workerCapabilityBlocked = false;
+  private workerRootSourceBlocked = false;
+  private workerSourceRetryTimer = 0;
   private workerRecoveryAttempts = 0;
   private workerRecoveryQueued = false;
   private cameraReportedState = "idle";
@@ -5201,6 +5204,88 @@ class NativeShaderRuntime {
     );
   }
 
+  private hasWorkerPresentationToRetire(): boolean {
+    return Boolean(
+      this.retiringWorkerScene || this.mounts.size || this.scenePresentation,
+    );
+  }
+
+  private prepareWorkerSceneCommit(): void {
+    if (this.retiringWorkerScene) {
+      this.retiringWorkerScene.dispose({ preservePresentationState: true });
+      this.retiringWorkerScene = null;
+    }
+    for (const [id, mount] of this.mounts) {
+      this.unmount(mount);
+      this.mounts.delete(id);
+    }
+    if (this.scenePresentation) this.releaseScenePresentation();
+  }
+
+  private onWorkerSceneFailure = (error: Error): void => {
+    const code =
+      error instanceof NativeWorkerSceneSourceError
+        ? error.captureFailure.code
+        : error instanceof NativeSourceError ||
+            error instanceof NativeWorkerHostError
+          ? error.code
+          : "worker-scene-failed";
+    if (
+      error instanceof NativeWorkerSceneSourceError ||
+      [
+        "worker-continuous-source-unsupported",
+        "worker-unavailable",
+        "gpu-unavailable",
+        "canvas-unavailable",
+      ].includes(code)
+    ) {
+      if (error instanceof NativeWorkerSceneSourceError) {
+        this.workerRootSourceBlocked = true;
+        clearTimeout(this.workerSourceRetryTimer);
+        this.workerSourceRetryTimer = 0;
+      } else this.workerCapabilityBlocked = true;
+      queueMicrotask(() => this.requestScan());
+    }
+    if (
+      [
+        "gpu-device-lost",
+        "gpu-uncaptured-error",
+        "worker-failed",
+        "worker-init-timeout",
+      ].includes(code) &&
+      this.workerRecoveryAttempts < 2 &&
+      !this.workerRecoveryQueued
+    ) {
+      this.workerRecoveryAttempts += 1;
+      this.workerRecoveryQueued = true;
+      queueMicrotask(() => {
+        const failed = this.workerScene;
+        if (failed?.committedScene()) {
+          this.retiringWorkerScene?.dispose();
+          this.retiringWorkerScene = failed;
+          failed.holdLastFrame();
+        } else failed?.dispose();
+        if (this.workerScene === failed) this.workerScene = null;
+        this.workerRecoveryQueued = false;
+        window.setTimeout(
+          () => this.requestScan(),
+          100 * this.workerRecoveryAttempts,
+        );
+      });
+    }
+    this.issue(code, error.message);
+    for (const entry of this.workerEntries) {
+      const status = this.workerScene?.committedScene() ? "last-good" : "error";
+      entry.target.setAttribute("data-an-native-status", status);
+      entry.target.setAttribute("data-an-native-error", code);
+      this.postStatus(entry.instance.id, entry.instance.nodeId, status, {
+        code,
+        message: error.message,
+        instanceId: entry.instance.id,
+      });
+    }
+  };
+
   private scanOnce = async (): Promise<void> => {
     if (this.disposed) return;
     if (this.running) await this.running;
@@ -5549,6 +5634,7 @@ class NativeShaderRuntime {
       this.dynamicRangeRequested === "sdr" &&
       !this.legacyDraftSession &&
       !this.workerCapabilityBlocked &&
+      !this.workerRootSourceBlocked &&
       !window.frameElement?.hasAttribute(
         "data-native-catalog-preview-renderer",
       ) &&
@@ -5597,20 +5683,6 @@ class NativeShaderRuntime {
           },
           (_publication, message) => {
             this.workerRecoveryAttempts = 0;
-            if (this.retiringWorkerScene) {
-              this.retiringWorkerScene.dispose({
-                preservePresentationState: true,
-              });
-              this.retiringWorkerScene = null;
-            }
-            if (this.mounts.size || this.scenePresentation) {
-              for (const [id, mount] of this.mounts) {
-                this.unmount(mount);
-                this.mounts.delete(id);
-              }
-              if (this.scenePresentation) this.releaseScenePresentation();
-              this.workerScene?.setEntries(this.workerEntries);
-            }
             if (message.contentChanged)
               for (const committed of message.committedInstances) {
                 const entry = this.workerEntries.find(
@@ -5624,69 +5696,7 @@ class NativeShaderRuntime {
                   );
               }
           },
-          (error) => {
-            const code =
-              error instanceof NativeSourceError ||
-              error instanceof NativeWorkerHostError
-                ? error.code
-                : "worker-scene-failed";
-            if (
-              [
-                "worker-continuous-source-unsupported",
-                "worker-unavailable",
-                "gpu-unavailable",
-                "canvas-unavailable",
-              ].includes(code)
-            ) {
-              this.workerCapabilityBlocked = true;
-              queueMicrotask(() => this.requestScan());
-            }
-            if (
-              [
-                "gpu-device-lost",
-                "gpu-uncaptured-error",
-                "worker-failed",
-                "worker-init-timeout",
-              ].includes(code) &&
-              this.workerRecoveryAttempts < 2 &&
-              !this.workerRecoveryQueued
-            ) {
-              this.workerRecoveryAttempts += 1;
-              this.workerRecoveryQueued = true;
-              queueMicrotask(() => {
-                const failed = this.workerScene;
-                if (failed?.committedScene()) {
-                  this.retiringWorkerScene?.dispose();
-                  this.retiringWorkerScene = failed;
-                  failed.holdLastFrame();
-                } else failed?.dispose();
-                if (this.workerScene === failed) this.workerScene = null;
-                this.workerRecoveryQueued = false;
-                window.setTimeout(
-                  () => this.requestScan(),
-                  100 * this.workerRecoveryAttempts,
-                );
-              });
-            }
-            this.issue(code, error.message);
-            for (const entry of this.workerEntries) {
-              const status = this.workerScene?.committedScene()
-                ? "last-good"
-                : "error";
-              entry.target.setAttribute("data-an-native-status", status);
-              entry.target.setAttribute("data-an-native-error", code);
-              this.postStatus(
-                entry.instance.id,
-                entry.instance.nodeId,
-                status,
-                {
-                  code,
-                  message: error.message,
-                  instanceId: entry.instance.id,
-                },
-              );
-            }
-          },
+          this.onWorkerSceneFailure,
           nativePresentationTargetLayout,
           () => {
             this.refreshPreviewViewport();
@@ -5706,6 +5716,8 @@ class NativeShaderRuntime {
             compact: this.previewPolicy.isOverviewCompact(),
           }),
           () => this.clockOrigin,
+          () => this.hasWorkerPresentationToRetire(),
+          () => this.prepareWorkerSceneCommit(),
         );
         this.workerScene.setVisible(
           document.visibilityState !== "hidden" &&
@@ -20540,6 +20552,30 @@ class NativeShaderRuntime {
             "composition-instance-stale",
             "The requested native scene differs from the worker preview.",
           );
+        const committedScene = workerScene.committedScene();
+        const presentedInstances = new Map(
+          committedScene?.scene.instances.map((instance) => [
+            instance.id,
+            instance,
+          ]),
+        );
+        if (
+          !committedScene ||
+          presentedInstances.size !== committedScene.scene.instances.length ||
+          committedScene.scene.instances.some((instance) => {
+            const current = this.workerEntries.find(
+              (entry) => entry.instance.id === instance.id,
+            );
+            return (
+              !current ||
+              JSON.stringify(current.instance) !== JSON.stringify(instance)
+            );
+          })
+        )
+          throw new NativeSourceError(
+            "composition-instance-stale",
+            "The committed worker scene differs from its authored effects.",
+          );
         const timeSeconds = this.currentTime();
         const exported = await workerScene.captureExportScene({
           cropRect: region.region,
@@ -20565,7 +20601,14 @@ class NativeShaderRuntime {
               ))) ||
           exported.width !== region.width ||
           exported.height !== region.height ||
-          exported.rgba.byteLength !== region.width * region.height * 4
+          exported.rgba.byteLength !== region.width * region.height * 4 ||
+          exported.committedInstances.length !== presentedInstances.size ||
+          new Set(
+            exported.committedInstances.map((instance) => instance.instanceId),
+          ).size !== exported.committedInstances.length ||
+          exported.committedInstances.some(
+            (instance) => !presentedInstances.has(instance.instanceId),
+          )
         )
           throw new NativeSourceError(
             "composition-preview-stale",
@@ -20604,7 +20647,7 @@ class NativeShaderRuntime {
             };
           }),
         );
-        if (committedInstances.length !== this.workerEntries.length)
+        if (committedInstances.length !== presentedInstances.size)
           throw new NativeSourceError(
             "composition-instance-stale",
             "The worker still omitted a native effect.",
@@ -22674,6 +22717,15 @@ class NativeShaderRuntime {
         record.target !== this.runtimeScript &&
         !isNativeSourceOmittedMutation(record),
     );
+    if (this.workerRootSourceBlocked && authoredRecords.length) {
+      clearTimeout(this.workerSourceRetryTimer);
+      this.workerSourceRetryTimer = window.setTimeout(() => {
+        this.workerSourceRetryTimer = 0;
+        if (this.disposed || !this.workerRootSourceBlocked) return;
+        this.workerRootSourceBlocked = false;
+        this.requestScan();
+      }, 100);
+    }
     if (this.compositionAbort && authoredRecords.length)
       this.compositionAbort.abort(
         new NativeSourceError(
@@ -22902,6 +22954,7 @@ class NativeShaderRuntime {
       this.previewHostParent = null;
       window.removeEventListener("message", this.onMessage);
       clearTimeout(this.rescanTimer);
+      clearTimeout(this.workerSourceRetryTimer);
       clearTimeout(this.deviceRetryTimer);
       if (
         this.scenePresentation &&

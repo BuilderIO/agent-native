@@ -1,3 +1,4 @@
+import { openConsentSettings } from "@agent-native/core/client/consent";
 import {
   useActionMutation,
   useActionQuery,
@@ -579,6 +580,13 @@ function PrivacySettings() {
                   {t("settings.privacyRequestError")}
                 </p>
               )}
+              <button
+                type="button"
+                onClick={openConsentSettings}
+                className="block text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              >
+                {t("consentBanner.cookieSettings")}
+              </button>
               <a
                 href={docsUrl("privacy-and-data-rights")}
                 target="_blank"

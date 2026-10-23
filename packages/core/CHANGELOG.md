@@ -51,6 +51,66 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.219.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- bf92e9d: Restrict A2A bearer token verification and failure diagnostics to the supported HS256 signing algorithm.
+
+  Report unsupported signing algorithms as a distinct diagnostic cause.
+
+- 9701c0d: Hold route module preloads until 4 seconds after the page's load event, so Safari no longer logs "preloaded using link preload but not used" for every warmed route. Meanwhile, module files are fetched into the HTTP cache, so early clicks still skip the network. Hovering, touching or focusing a link still preloads it right away, and data warmup still starts right away.
+- 619ddc8: A run that finishes no longer marks itself aborted as "displaced" when the periodic abort check reads its own completed status mid-finalization. Delegated A2A calls no longer report a successful specialist run as "aborted before completion".
+- Updated dependencies
+  - @agent-native/agentkit@0.219.0
+  - @agent-native/recap-cli@0.5.88
+
+## 0.218.0
+
+### Minor Changes
+
+- fc038a0: Add opt-in transcript positioning and chart presentation controls to shared chat, including regular tool-call renderers.
+
+### Patch Changes
+
+- 84e4b2e: Exclude the Chat sidebar regression test when deriving the Builder Code starter, which replaces that sidebar, so newly scaffolded apps typecheck without orphan imports.
+- 84e4b2e: Add a result-bearing chat-list refresh method so ownership-aware adapters can preserve local rows and changes after failed or superseded refreshes.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.218.0
+  - @agent-native/recap-cli@0.5.87
+
+## 0.217.0
+
+### Patch Changes
+
+- 6c3f3cb: Let each command menu add ordered app commands, nested pages, selected-row previews, filter launchers, no-match suggestions, and an embedded chat slot without replacing the shared menu. Apps can also choose a shared wide dialog, supply search and empty states, report when dynamic result components contain rows, control selection and result placement, and opt into custom footer content or portal containers.
+- 78abb26: Request Builder content API scopes and expose the selected OAuth connection identity for source-bound content access.
+- b07c13b: `describe-workspace-apps` now shows each app's authored "when to use" guidance, so the agent sees the same text the ranking matched on. Workspace usage tools now say plainly that they have no customer data and point to the app's own customer or billing actions or the owning app, instead of leading with the owner/admin permission rule.
+- Release all public npm packages with a patch version bump.
+- 642114a: Sign workspace-app user assertions with the deployment A2A secret so Dispatch preserves user identity.
+- Updated dependencies
+  - @agent-native/agentkit@0.217.0
+  - @agent-native/recap-cli@0.5.86
+
+## 0.216.0
+
+### Patch Changes
+
+- b28df00: Agent chat now validates durable queued submission receipts against the original session and message identity, preserves retry context after an unreadable acknowledgement, and prevents attachment payloads from being admitted under a mismatched receipt. Queued follow-ups keep their attachment references, drain at completed-turn boundaries, and expose terminal receipt states so mobile turns can settle when admission expires or is blocked.
+- b28df00: Preserve accepted inbox order, bounded retry behavior, effective run settings, and inline attachment identity when Agent-Native chat submissions are queued or promoted.
+- b28df00: Bound queued submission drain recovery retries and block receipts after the retry limit.
+- b28df00: Keep receipt-backed queue promotion under the durable inbox retry policy and report cancellation failures without marking queued mobile turns stopped.
+- Release all public npm packages with a patch version bump.
+- b28df00: Stopping a promoted queued chat message now cancels its submitted run durably, while stopping during promotion prevents that receipt from being submitted.
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies
+  - @agent-native/agentkit@0.216.0
+  - @agent-native/recap-cli@0.5.85
+
 ## 0.215.0
 
 ### Minor Changes
@@ -4314,44 +4374,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
-
-## 0.168.12
-
-### Patch Changes
-
-- 51b31ed: Format localized core documentation after the release sync.
-
-## 0.168.11
-
-### Patch Changes
-
-- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
-
-## 0.168.10
-
-### Patch Changes
-
-- d9b6279: Fix desktop Google sign-in against a local dev server. `X-Agent-Native-Desktop-Verifier` is now in the shared CORS allow-header list used by every preflight short-circuit (the Tauri dev renderer origin `http://localhost:1420` is answered by the dev server, which never reached the auth CORS handler that already allowed the header), and a localhost origin receives `Access-Control-Allow-Credentials` when `NODE_ENV === "development"` so the desktop app's credentialed calls work locally. Production credential rules are unchanged.
-
-## 0.168.9
-
-### Patch Changes
-
-- e5e6934: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
-- e5e6934: Cache 404 and 410 SSR shells with the same public CDN policy as 200 shells. They previously carried `no-cache`, so every dead link, stale bookmark, renamed slug and crawler miss re-invoked the render function — the same URL cost a full cold render on every request. Netlify runs one request per container, so those invocations drew from the account-wide concurrency pool other sites share. 5xx stays uncacheable, and 401/403 are deliberately excluded.
-- e5e6934: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
-
-  The callback returns an identical error page for a wrong client secret and a
-  stale authorization code, so a broken credential is invisible from outside
-  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
-  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
-  a transport failure is never reported as valid — plus whether the deploy
-  carries two credential pairs naming different Google clients.
-
-- e5e6934: Keep desktop app chat immediately available while app tabs load, and allow hosts to start fresh chat threads without restoring history on mount.
-- dd80d09: Keep the full workspace credential workflow reachable from the redesigned integrations catalog.
-- 127606d: Sync localized overview documentation with the current English guides.
-- e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
-- e5e6934: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

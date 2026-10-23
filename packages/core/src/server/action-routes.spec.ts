@@ -3193,6 +3193,7 @@ describe("mountActionRoutes", () => {
     async function callReadRoute(
       access: "allowed" | "denied" | "unavailable" | "not-configured",
       caller: "session" | "adapter",
+      unavailableReason = "registry-http-error",
     ) {
       vi.resetModules();
       const workspaceAccess = vi.fn(async () =>
@@ -3201,10 +3202,11 @@ describe("mountActionRoutes", () => {
           : access === "unavailable"
             ? {
                 status: "unavailable",
-                reason: "registry-http-error",
-                upstreamStatus: 401,
+                reason: unavailableReason,
+                ...(unavailableReason === "registry-http-error"
+                  ? { upstreamStatus: 401, detail: "Unauthorized" }
+                  : {}),
                 audience: "https://slides.agent-native.test/dispatch",
-                detail: "Unauthorized",
               }
             : true,
       );
@@ -3321,6 +3323,22 @@ describe("mountActionRoutes", () => {
         upstreamStatus: 401,
         audience: "https://slides.agent-native.test/dispatch",
         detail: "Unauthorized",
+      });
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("answers 503 when the organization secret lookup fails", async () => {
+      const { event, result, run } = await callReadRoute(
+        "unavailable",
+        "session",
+        "org-a2a-secret-lookup-failed",
+      );
+
+      expect(event._status).toBe(503);
+      expect(result).toEqual({
+        error: "Workspace app access is temporarily unavailable.",
+        code: "org-a2a-secret-lookup-failed",
+        audience: "https://slides.agent-native.test/dispatch",
       });
       expect(run).not.toHaveBeenCalled();
     });

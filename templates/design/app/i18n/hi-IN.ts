@@ -232,6 +232,23 @@ export default {
     expandSidebar: "साइडबार फैलाएं",
     collapseSidebar: "साइडबार समेटें",
   },
+  gettingStarted: {
+    title: "शुरुआत करें",
+    progress: "{{totalCount}} में से {{completeCount}} पूरे",
+    collapse: "छोटा करें",
+    expand: "बड़ा करें",
+    completed: "पूरा हुआ",
+    loadError: "चेकलिस्ट लोड नहीं हो सकी",
+    retry: "फिर कोशिश करें",
+    steps: {
+      createDesign: "अपना पहला डिज़ाइन बनाएँ",
+      addBrand: "अपना ब्रांड जोड़ें",
+      useRealData: "अपना असली डेटा इस्तेमाल करें",
+      shareFeedback: "फ़ीडबैक के लिए शेयर करें",
+      inviteTeammate: "टीम के किसी सदस्य को आमंत्रित करें",
+      saveTemplate: "डिज़ाइन को टेम्पलेट के रूप में सेव करें",
+    },
+  },
   settings: {
     agentTitle: "एजेंट प्रबंधित करें",
     agentDescription:
@@ -1377,7 +1394,7 @@ export default {
       sourceWriteUnavailable:
         "अभी Motion कोड केवल इनलाइन HTML डिज़ाइन में लिखा जा सकता है।",
       unresolvedStylesheets:
-        "Motion में बदलाव करने या जोड़ने से पहले बाहरी स्टाइलशीट हल करें।",
+        "Motion में बदलाव करने या जोड़ने से पहले बाहरी या रनटाइम पर बने स्टाइल हल करें।",
       sourceConflict:
         "इस टाइमलाइन में बिना सहेजे बदलाव होने के दौरान Motion स्रोत बदल गया। उन बदलावों को छोड़कर मौजूदा स्रोत इस्तेमाल करने के लिए कोड फिर से लोड करें।",
       reloadFromSource: "कोड फिर से लोड करें",
@@ -1993,6 +2010,15 @@ export default {
     pinComment: "टिप्पणी पिन करें",
     export: "निर्यात",
     downloadHtml: "HTML डाउनलोड करें",
+    exportHubspotHtml: "HubSpot HTML निर्यात करें",
+    hubspotConversion: {
+      title: "HubSpot के लिए बदलें?",
+      description: "{{name}} में ईमेल के अनुकूल बदलाव चाहिए। मूल फ़्रेम सुरक्षित रहेगा।",
+      convert: "एजेंट से बदलें",
+      cancel: "रद्द करें",
+      prompt:
+        "इस फ़्रेम का HubSpot ईमेल संस्करण बनाएँ, उसकी सामग्री और ब्रांडिंग बनाए रखें और मूल को सुरक्षित रखें। HTML निर्यात सत्यापित करें और नया फ़्रेम खोलें।",
+    },
     downloadPng: "PNG डाउनलोड करें",
     downloadSvg: "SVG डाउनलोड करें",
     downloadFigmaSvg: "Figma के लिए डाउनलोड करें (SVG)",
@@ -2183,6 +2209,9 @@ export default {
       htmlCreateError: "HTML डाउनलोड नहीं बनाया जा सका",
       htmlDownloaded: "HTML डाउनलोड हुआ",
       htmlExportError: "HTML निर्यात नहीं किया जा सका",
+      hubspotHtmlExporting: "HubSpot HTML तैयार किया जा रहा है…",
+      hubspotHtmlDownloaded: "HubSpot HTML डाउनलोड हुआ",
+      hubspotHtmlExportError: "HubSpot HTML निर्यात नहीं किया जा सका",
       zipCreateError: "ZIP डाउनलोड नहीं बनाया जा सका",
       zipDownloaded: "ZIP डाउनलोड हुआ",
       zipExportError: "ZIP निर्यात नहीं किया जा सका",

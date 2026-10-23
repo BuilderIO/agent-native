@@ -1,5 +1,48 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.343
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [bf92e9d]
+- Updated dependencies [9701c0d]
+- Updated dependencies [619ddc8]
+  - @agent-native/core@0.219.0
+
+## 0.1.342
+
+### Patch Changes
+
+- Updated dependencies [84e4b2e]
+- Updated dependencies [84e4b2e]
+- Updated dependencies
+- Updated dependencies [fc038a0]
+  - @agent-native/core@0.218.0
+
+## 0.1.341
+
+### Patch Changes
+
+- Updated dependencies [6c3f3cb]
+- Updated dependencies [78abb26]
+- Updated dependencies [b07c13b]
+- Updated dependencies
+- Updated dependencies [642114a]
+  - @agent-native/core@0.217.0
+
+## 0.1.340
+
+### Patch Changes
+
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies
+- Updated dependencies [b28df00]
+  - @agent-native/core@0.216.0
+
 ## 0.1.339
 
 ### Patch Changes
@@ -2370,40 +2413,5 @@
 
 - Updated dependencies [f2f60b9]
   - @agent-native/core@0.168.13
-
-## 0.1.243
-
-### Patch Changes
-
-- Updated dependencies [51b31ed]
-  - @agent-native/core@0.168.12
-
-## 0.1.242
-
-### Patch Changes
-
-- Updated dependencies [dc0978d]
-  - @agent-native/core@0.168.11
-
-## 0.1.241
-
-### Patch Changes
-
-- Updated dependencies [d9b6279]
-  - @agent-native/core@0.168.10
-
-## 0.1.240
-
-### Patch Changes
-
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-- Updated dependencies [dd80d09]
-- Updated dependencies [127606d]
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-  - @agent-native/core@0.168.9
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

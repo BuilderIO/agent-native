@@ -610,6 +610,8 @@ export interface AgentPanelProps extends Omit<
   /** Hide the default page title menu while keeping the shared page actions. */
   showPageTitleMenu?: boolean;
   pageHeaderLeadingSlot?: React.ReactNode;
+  /** Override the shared page header share button's icon and label contents. */
+  pageHeaderShareTriggerContent?: React.ReactNode;
   /** Render host page actions alongside Share, with the active chat controls. */
   pageToolbarSlot?:
     | React.ReactNode
@@ -809,6 +811,7 @@ function AgentPanelInner({
   showPageHeaderWhenEmpty = false,
   showPageTitleMenu = true,
   pageHeaderLeadingSlot,
+  pageHeaderShareTriggerContent,
   pageToolbarSlot,
   onPageHeaderVisibilityChange,
   chatOnly = false,
@@ -1836,9 +1839,17 @@ function AgentPanelInner({
                       resourceTitle={activeTab.label || t("agentPanel.chat")}
                       shareUrl={getChatThreadShareUrl(activeTab.id)}
                       triggerContent={
-                        <IconShare3 size={15} aria-hidden="true" />
+                        pageHeaderShareTriggerContent ?? (
+                          <IconShare3 size={15} aria-hidden="true" />
+                        )
                       }
-                      triggerClassName="size-8 p-0 border-0 bg-transparent shadow-none hover:bg-accent/60"
+                      triggerClassName={cn(
+                        "h-8 border-0 bg-transparent shadow-none hover:bg-accent/60",
+                        pageHeaderShareTriggerContent === undefined ||
+                          pageHeaderShareTriggerContent === null
+                          ? "size-8 p-0"
+                          : "w-auto px-2",
+                      )}
                     />
                   ) : null}
                   {toolbarSlot}
@@ -1869,6 +1880,7 @@ function AgentPanelInner({
       headerMenuOpen,
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,
+      pageHeaderShareTriggerContent,
       pageToolbarSlot,
       pendingHeaderOverlayRef,
       setHeaderMenuOpen,
@@ -1953,7 +1965,7 @@ function AgentPanelInner({
               return (
                 <div
                   key={tab.id}
-                  className="agent-tab-group relative flex shrink-0 items-center"
+                  className="agent-tab-group relative flex min-w-[56px] max-w-[150px] shrink items-center"
                 >
                   <div
                     role="tab"
@@ -1969,7 +1981,7 @@ function AgentPanelInner({
                       switchMode("chat");
                     })}
                     className={cn(
-                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
+                      "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
                       isActive
                         ? "bg-accent text-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2092,7 +2104,7 @@ function AgentPanelInner({
                     return (
                       <div
                         key={tab.id}
-                        className="agent-tab-group relative shrink-0"
+                        className="agent-tab-group relative min-w-[56px] max-w-[150px] shrink"
                       >
                         <div
                           role="button"
@@ -2103,7 +2115,7 @@ function AgentPanelInner({
                             setActiveTabId(tab.id),
                           )}
                           className={cn(
-                            "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
+                            "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
                             isActive
                               ? "bg-accent text-foreground"
                               : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2196,7 +2208,7 @@ function AgentPanelInner({
                               return (
                                 <div
                                   key={tab.id}
-                                  className="agent-tab-group relative shrink-0"
+                                  className="agent-tab-group relative min-w-[56px] max-w-[150px] shrink"
                                 >
                                   <div
                                     role="button"
@@ -2207,7 +2219,7 @@ function AgentPanelInner({
                                       setActiveTabId(tab.id),
                                     )}
                                     className={cn(
-                                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
+                                      "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
                                       isActive
                                         ? "bg-accent text-foreground"
                                         : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2326,7 +2338,7 @@ function AgentPanelInner({
                         {childTabs.map((tab) => (
                           <div
                             key={tab.id}
-                            className="agent-tab-group relative shrink-0"
+                            className="agent-tab-group relative min-w-[48px] max-w-[140px] shrink"
                           >
                             <div
                               role="button"
@@ -2341,7 +2353,7 @@ function AgentPanelInner({
                                 setActiveTabId(tab.id),
                               )}
                               className={cn(
-                                "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer min-w-[48px] max-w-[140px]",
+                                "agent-tab relative flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
                                 tab.id === activeTabId
                                   ? "bg-accent text-foreground"
                                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
