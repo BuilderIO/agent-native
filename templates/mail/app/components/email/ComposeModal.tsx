@@ -217,6 +217,8 @@ interface ComposeModalProps {
   // Replaces the send, undo, and schedule toasts, so a caller that shows
   // progress itself never shows it twice.
   onSendProgress?: (progress: ComposeSendProgress) => void;
+  // Holds Send and Send later, e.g. until a reply's thread is known.
+  sendDisabled?: boolean;
 }
 
 function shouldStartComposeExpanded(initialExpanded: boolean) {
@@ -241,6 +243,7 @@ export function ComposeModal({
   onInitialExpandedConsumed,
   presentation = "window",
   onSendProgress,
+  sendDisabled = false,
 }: ComposeModalProps) {
   const t = useT();
   const formatters = useFormatters();
@@ -427,7 +430,9 @@ export function ComposeModal({
     ).some((input) => input.value.trim().length > 0);
 
   const handleSend = async (explicitlyMarkDone = false) => {
-    if (!activeDraft || !activeId || schedulingRef.current) return;
+    if (!activeDraft || !activeId || schedulingRef.current || sendDisabled) {
+      return;
+    }
     if (sendingIdsRef.current.has(activeId)) return;
     if (hasUncommittedRecipientText()) {
       toast.error(t("mail.toasts.finishRecipientInput"));
@@ -567,7 +572,9 @@ export function ComposeModal({
   }, [hasActiveDraft, minimized, onRegisterComposeCommands]);
 
   const handleSendLater = async (runAt: number) => {
-    if (!activeDraft || !activeId || schedulingRef.current) return;
+    if (!activeDraft || !activeId || schedulingRef.current || sendDisabled) {
+      return;
+    }
     if (hasUncommittedRecipientText()) {
       toast.error(t("mail.toasts.finishRecipientInput"));
       return;
@@ -1305,6 +1312,7 @@ export function ComposeModal({
                 onSendLater={handleSendLater}
                 open={scheduleOpen}
                 onOpenChange={setScheduleOpen}
+                disabled={sendDisabled}
                 isSending={sendEmail.isPending}
                 isScheduling={scheduleEmail.isPending}
               />

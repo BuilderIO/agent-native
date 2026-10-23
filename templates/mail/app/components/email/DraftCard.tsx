@@ -227,6 +227,7 @@ export function DraftCard({ draftId }: { draftId: string }) {
             onNewDraft={noop}
             onFlush={compose.flush}
             onSendProgress={handleSendProgress}
+            sendDisabled={thread.lookupPending}
           />
         </div>
       </>
@@ -300,19 +301,30 @@ function useDraftThread(draft: ComposeState | null, accounts: MailAccount[]) {
   const threadAccount = accountEmail === "local" ? undefined : accountEmail;
   const knownThreadId = draft?.replyToThreadId;
   // Agents often pass only the message they answer, so look up its thread.
-  const email = useEmail(
-    replyToId && !knownThreadId ? replyToId : undefined,
-    accountEmail,
-  );
+  const lookupId = replyToId && !knownThreadId ? replyToId : undefined;
+  const email = useEmail(lookupId, accountEmail);
+  // Send waits for the lookup, and its first answer sticks, so a reply's
+  // thread can't change while it's being scheduled.
+  const lookupKey =
+    lookupId && accountEmail ? `${accountEmail}\n${lookupId}` : null;
+  const [settledLookup, setSettledLookup] = useState<{
+    key: string;
+    threadId?: string;
+  } | null>(null);
+  const lookup = settledLookup?.key === lookupKey ? settledLookup : null;
+  if (lookupKey && !lookup && (email.data || email.isError)) {
+    setSettledLookup({ key: lookupKey, threadId: email.data?.threadId });
+  }
+  const lookupPending = Boolean(lookupKey && !lookup);
   const resolvedThreadId = replyToId
-    ? (knownThreadId ?? email.data?.threadId)
+    ? (knownThreadId ?? lookup?.threadId)
     : undefined;
   // A thread often shares its first message's ID, which is worth trying for
-  // the conversation when the lookup can't run. The draft never gets it, since
-  // a reply sent into the wrong thread is worse than one Gmail threads itself.
+  // the conversation when the lookup fails or can't run. The draft never gets
+  // it, since a reply sent into the wrong thread is worse than one Gmail
+  // threads itself.
   const threadId =
-    resolvedThreadId ??
-    (replyToId && (email.isError || !accountEmail) ? replyToId : undefined);
+    resolvedThreadId ?? (replyToId && !lookupPending ? replyToId : undefined);
 
   // The thread cache reports no errors and refetches a failed thread on every
   // render, so the card catches the failure and stops asking.
@@ -342,6 +354,7 @@ function useDraftThread(draft: ComposeState | null, accounts: MailAccount[]) {
   return {
     wanted: Boolean(replyToId),
     resolvedThreadId,
+    lookupPending,
     subject: messages[0]?.subject,
     messages,
     loading,

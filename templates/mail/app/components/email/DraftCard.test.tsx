@@ -41,6 +41,7 @@ const composeProps = vi.hoisted(() => ({
     activeDraft: ComposeState | null;
     onDiscard: (id: string) => void;
     onSendProgress: (progress: ComposeSendProgress) => void;
+    sendDisabled?: boolean;
   },
 }));
 
@@ -280,6 +281,28 @@ describe("DraftCard", () => {
       "agent@example.com",
     );
     expect(composeProps.current?.activeDraft?.replyToThreadId).toBe("thread-1");
+    expect(composeProps.current?.sendDisabled).toBe(false);
+  });
+
+  it("holds Send until it knows the reply's thread", () => {
+    mockCompose.drafts = [{ ...replyDraft, replyToThreadId: undefined }];
+    const { rerender } = render(<DraftCard draftId="reply-draft" />);
+
+    // A reply scheduled now would go out without its thread.
+    expect(composeProps.current?.sendDisabled).toBe(true);
+    expect(mockUseThreadMessages).toHaveBeenLastCalledWith(
+      undefined,
+      "agent@example.com",
+    );
+
+    mockUseEmail.mockReturnValue({
+      data: { threadId: "thread-1" },
+      isError: false,
+    });
+    rerender(<DraftCard draftId="reply-draft" />);
+
+    expect(composeProps.current?.sendDisabled).toBe(false);
+    expect(composeProps.current?.activeDraft?.replyToThreadId).toBe("thread-1");
   });
 
   it("stops asking for a thread it can't read", async () => {
@@ -408,13 +431,22 @@ describe("DraftCard", () => {
   it("keeps a reply in its own thread when the lookup fails", () => {
     mockCompose.drafts = [{ ...replyDraft, replyToThreadId: undefined }];
     mockUseEmail.mockReturnValue({ data: undefined, isError: true });
-    render(<DraftCard draftId="reply-draft" />);
+    const { rerender } = render(<DraftCard draftId="reply-draft" />);
 
     // The message ID is only a guess at the thread, good for showing it.
     expect(mockUseThreadMessages).toHaveBeenLastCalledWith(
       "message-6",
       "agent@example.com",
     );
+    expect(composeProps.current?.activeDraft?.replyToThreadId).toBeUndefined();
+    expect(composeProps.current?.sendDisabled).toBe(false);
+
+    // A later answer can't move a reply that may already be scheduled.
+    mockUseEmail.mockReturnValue({
+      data: { threadId: "thread-1" },
+      isError: false,
+    });
+    rerender(<DraftCard draftId="reply-draft" />);
     expect(composeProps.current?.activeDraft?.replyToThreadId).toBeUndefined();
   });
 

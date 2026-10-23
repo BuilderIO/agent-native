@@ -1683,7 +1683,7 @@ describe("ComposeModal scheduling", () => {
     expect(onDiscard).not.toHaveBeenCalled();
   });
 
-  it("closes a card draft whose thread turns up while scheduling", async () => {
+  it("leaves a card draft retargeted to another thread while scheduling open", async () => {
     let resolveSchedule!: (value: unknown) => void;
     mockScheduleEmail.mockReturnValue(
       new Promise((resolve) => {
@@ -1705,20 +1705,7 @@ describe("ComposeModal scheduling", () => {
       onFlush: vi.fn(),
       onSendProgress,
     };
-    const unthreaded = { ...replyDraft, replyToThreadId: undefined };
     const { getByRole, rerender } = render(
-      <ComposeModal
-        {...props}
-        drafts={[unthreaded]}
-        activeId={unthreaded.id}
-        activeDraft={unthreaded}
-      />,
-    );
-
-    fireEvent.click(getByRole("button", { name: "Schedule send" }));
-    fireEvent.click(getByRole("button", { name: "Schedule later" }));
-    // The card's thread lookup returns while the schedule is in flight.
-    rerender(
       <ComposeModal
         {...props}
         drafts={[replyDraft]}
@@ -1726,16 +1713,61 @@ describe("ComposeModal scheduling", () => {
         activeDraft={replyDraft}
       />,
     );
+
+    fireEvent.click(getByRole("button", { name: "Schedule send" }));
+    fireEvent.click(getByRole("button", { name: "Schedule later" }));
+    // An agent moves the draft to another thread while the schedule is in
+    // flight, so the scheduled copy isn't the draft anymore.
+    const retargeted = { ...replyDraft, replyToThreadId: "other-thread" };
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[retargeted]}
+        activeId={retargeted.id}
+        activeDraft={retargeted}
+      />,
+    );
     resolveSchedule({});
 
-    await vi.waitFor(() => expect(onDiscard).toHaveBeenCalled());
-    expect(onDiscard).toHaveBeenCalledTimes(1);
-    expect(onDiscard).toHaveBeenCalledWith(replyDraft.id);
-    expect(onSendProgress).toHaveBeenCalledTimes(1);
-    expect(onSendProgress).toHaveBeenCalledWith({
-      status: "scheduled",
-      runAt: expect.any(Number),
-    });
-    expect(mockToast).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith("mail.sendLater.scheduledFor"),
+    );
+    expect(mockScheduleEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "source-thread" }),
+    );
+    expect(onSendProgress).not.toHaveBeenCalled();
+    expect(onDiscard).not.toHaveBeenCalled();
+  });
+
+  it("holds Send and scheduling while sending is disabled", () => {
+    const onStageForSend = vi.fn();
+    const { getByRole } = render(
+      <ComposeModal
+        presentation="card"
+        sendDisabled
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={onStageForSend}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onSendProgress={vi.fn()}
+      />,
+    );
+    const sendButton = getByRole("button", { name: "mail.compose.send" });
+
+    expect(sendButton.hasAttribute("disabled")).toBe(true);
+    expect(
+      getByRole("button", { name: "Schedule send" }).hasAttribute("disabled"),
+    ).toBe(true);
+    fireEvent.keyDown(sendButton, { key: "Enter", metaKey: true });
+    expect(onStageForSend).not.toHaveBeenCalled();
+    expect(mockSendEmailAsync).not.toHaveBeenCalled();
   });
 });
