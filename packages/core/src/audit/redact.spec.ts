@@ -67,6 +67,18 @@ describe("redactArgsToJson", () => {
       "Authorization:\n  Bearer fake-token\nBody: visible",
       "Authorization:\n  [redacted]\nBody: visible",
     ],
+    [
+      "Authorization: Bearer\nfake-token\nBody: visible",
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
+      "Authorization: Basic\r\n  ZmFrZTpmYWtl\r\nBody: visible",
+      "Authorization: [redacted]\r\nBody: visible",
+    ],
+    [
+      "Authorization:\nContent-Type: application/json\nBody: visible",
+      "Authorization:\n[redacted]\nBody: visible",
+    ],
     ["password:\nfake-phrase\nvisible", "password:\n[redacted]\nvisible"],
     ["token=\nfake-value next=visible", "token=\n[redacted] next=visible"],
     [

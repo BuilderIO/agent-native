@@ -141,7 +141,7 @@ export function declaredLinkOrigin(
   return (
     declared[0] ??
     publicOrigins[0] ??
-    (inbound ? undefined : [...configured][0])
+    (requestOrigin ? undefined : [...configured][0])
   );
 }
 

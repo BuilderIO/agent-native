@@ -59,8 +59,11 @@ const EMBEDDED_BEARER = new RegExp(
   String.raw`\b(bearer\s+)(${QUOTED_CREDENTIAL}|[^\s"',}]+)`,
   "gi",
 );
+// A scheme alone on its line (`Bearer`, `Basic`) takes the credential on the
+// next one; stopping at the newline would strip the scheme the bearer pass
+// needs and leave the credential bare.
 const EMBEDDED_AUTHORIZATION = new RegExp(
-  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(${QUOTED_CREDENTIAL}|[^\r\n]+)`,
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(${QUOTED_CREDENTIAL}|(?:[\w-]+[ \t]*\r?\n\s*)?[^\r\n]+)`,
   "gi",
 );
 const EMBEDDED_CREDENTIAL_FIELD = new RegExp(

@@ -26,6 +26,7 @@ import {
 import { stripAppBasePath } from "../server/app-base-path.js";
 import {
   getBrowserCookieSession,
+  getBrowserSessionConfigurationError,
   getConfiguredLoginHtml,
   registerAuthPublicPaths,
 } from "../server/auth.js";
@@ -548,9 +549,14 @@ export async function handleMcpApprovalRequest(
       acceptLanguage: getRequestHeader(event, "accept-language"),
     });
     const messages = mcpApprovalMessagesForLocale(locale);
+    // Custom auth without the cookie-only hook never has a session here, so
+    // its login page would only bring the reader back to this one.
+    const configurationError = getBrowserSessionConfigurationError();
     if (method === "GET" && !wantsJson(event)) {
       setPageHeaders(event);
-      const loginPage = getConfiguredLoginHtml(event);
+      const loginPage = configurationError
+        ? null
+        : getConfiguredLoginHtml(event);
       if (loginPage) {
         return new Response(loginPage.html, {
           status: loginPage.status,
@@ -559,10 +565,15 @@ export async function handleMcpApprovalRequest(
       }
       setResponseStatus(event, 401);
       setResponseHeader(event, "content-type", "text/html; charset=utf-8");
-      return renderNotice(locale, messages.signInToReview);
+      return renderNotice(
+        locale,
+        configurationError
+          ? messages.signInUnavailable
+          : messages.signInToReview,
+      );
     }
     setResponseStatus(event, 401);
-    return { error: messages.signInToReview };
+    return { error: configurationError ?? messages.signInToReview };
   }
   const owner: McpApprovalReader = {
     appId: app.appId,

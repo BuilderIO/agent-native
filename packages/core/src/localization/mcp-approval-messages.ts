@@ -31,6 +31,7 @@ export interface McpApprovalMessages {
   saving: string;
   saveFailed: string;
   signInToReview: string;
+  signInUnavailable: string;
   pageOutOfDate: string;
   yes: string;
   no: string;
@@ -86,6 +87,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "Saving…",
     saveFailed: "Your decision wasn't saved. Try again.",
     signInToReview: "Sign in to review this request.",
+    signInUnavailable:
+      "This app can't confirm your sign-in on this page. Ask whoever runs it to set up browser sign-in for approvals.",
     pageOutOfDate: "This page is out of date. Reload it and decide again.",
     yes: "Yes",
     no: "No",
@@ -136,6 +139,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "正在保存…",
     saveFailed: "你的决定未能保存。请重试。",
     signInToReview: "请登录以审核此请求。",
+    signInUnavailable:
+      "此应用无法在此页面确认你的登录状态。请让应用的管理者为批准设置浏览器登录。",
     pageOutOfDate: "此页面已过期。请重新加载后再做决定。",
     yes: "是",
     no: "否",
@@ -185,6 +190,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "正在儲存…",
     saveFailed: "你的決定未能儲存。請再試一次。",
     signInToReview: "請登入以審核此請求。",
+    signInUnavailable:
+      "此應用程式無法在此頁面確認你的登入狀態。請讓應用程式的管理者為核准設定瀏覽器登入。",
     pageOutOfDate: "此頁面已過期。請重新載入後再做決定。",
     yes: "是",
     no: "否",
@@ -239,6 +246,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "Guardando…",
     saveFailed: "No se guardó tu decisión. Inténtalo de nuevo.",
     signInToReview: "Inicia sesión para revisar esta solicitud.",
+    signInUnavailable:
+      "Esta aplicación no puede confirmar tu inicio de sesión en esta página. Pide a quien la administra que configure el inicio de sesión en el navegador para las aprobaciones.",
     pageOutOfDate:
       "Esta página está desactualizada. Vuelve a cargarla y decide de nuevo.",
     yes: "Sí",
@@ -296,6 +305,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "Enregistrement…",
     saveFailed: "Votre décision n’a pas été enregistrée. Réessayez.",
     signInToReview: "Connectez-vous pour examiner cette demande.",
+    signInUnavailable:
+      "Cette application ne peut pas confirmer votre connexion sur cette page. Demandez à la personne qui la gère de configurer la connexion du navigateur pour les approbations.",
     pageOutOfDate:
       "Cette page n’est plus à jour. Rechargez-la et décidez à nouveau.",
     yes: "Oui",
@@ -355,6 +366,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saveFailed:
       "Deine Entscheidung wurde nicht gespeichert. Versuche es erneut.",
     signInToReview: "Melde dich an, um diese Anfrage zu prüfen.",
+    signInUnavailable:
+      "Diese App kann deine Anmeldung auf dieser Seite nicht bestätigen. Wende dich an die Person, die sie betreibt, damit sie die Browser-Anmeldung für Genehmigungen einrichtet.",
     pageOutOfDate:
       "Diese Seite ist nicht mehr aktuell. Lade sie neu und entscheide erneut.",
     yes: "Ja",
@@ -411,6 +424,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "保存しています…",
     saveFailed: "決定を保存できませんでした。もう一度お試しください。",
     signInToReview: "このリクエストを確認するにはサインインしてください。",
+    signInUnavailable:
+      "このアプリは、このページでサインインを確認できません。アプリの管理者に、承認用のブラウザーサインインを設定するよう依頼してください。",
     pageOutOfDate:
       "このページは古くなっています。再読み込みしてから、もう一度決定してください。",
     yes: "はい",
@@ -466,6 +481,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "저장 중…",
     saveFailed: "결정이 저장되지 않았습니다. 다시 시도하세요.",
     signInToReview: "이 요청을 검토하려면 로그인하세요.",
+    signInUnavailable:
+      "이 앱은 이 페이지에서 로그인 상태를 확인할 수 없습니다. 앱 관리자에게 승인용 브라우저 로그인을 설정해 달라고 요청하세요.",
     pageOutOfDate:
       "이 페이지는 최신 상태가 아닙니다. 새로고침한 후 다시 결정하세요.",
     yes: "예",
@@ -522,6 +539,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "Salvando…",
     saveFailed: "Sua decisão não foi salva. Tente novamente.",
     signInToReview: "Entre para revisar esta solicitação.",
+    signInUnavailable:
+      "Este app não consegue confirmar seu login nesta página. Peça a quem administra o app para configurar o login pelo navegador para aprovações.",
     pageOutOfDate:
       "Esta página está desatualizada. Recarregue-a e decida novamente.",
     yes: "Sim",
@@ -578,6 +597,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "सहेजा जा रहा है…",
     saveFailed: "आपका फ़ैसला सहेजा नहीं गया। फिर से कोशिश करें।",
     signInToReview: "इस अनुरोध की समीक्षा करने के लिए साइन इन करें।",
+    signInUnavailable:
+      "यह ऐप इस पेज पर आपके साइन इन की पुष्टि नहीं कर सकता। ऐप चलाने वाले व्यक्ति से मंज़ूरी के लिए ब्राउज़र साइन इन सेट करने को कहें।",
     pageOutOfDate: "यह पेज पुराना हो गया है। इसे फिर से लोड करें और दोबारा फ़ैसला करें।",
     yes: "हां",
     no: "नहीं",
@@ -632,6 +653,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "جارٍ الحفظ…",
     saveFailed: "لم يتم حفظ قرارك. حاول مرة أخرى.",
     signInToReview: "سجّل الدخول لمراجعة هذا الطلب.",
+    signInUnavailable:
+      "لا يستطيع هذا التطبيق تأكيد تسجيل دخولك في هذه الصفحة. اطلب من مسؤول التطبيق إعداد تسجيل الدخول عبر المتصفح للموافقات.",
     pageOutOfDate: "هذه الصفحة قديمة. أعد تحميلها واتخذ قرارك مرة أخرى.",
     yes: "نعم",
     no: "لا",

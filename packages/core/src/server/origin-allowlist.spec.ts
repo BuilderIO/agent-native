@@ -137,6 +137,7 @@ describe("declaredLinkOrigin", () => {
   it("never hands a configured loopback origin to a public request", () => {
     vi.stubEnv("BETTER_AUTH_URL", "http://127.0.0.1:8080");
     expect(declaredLinkOrigin("https://tunnel.example.com")).toBeUndefined();
+    expect(declaredLinkOrigin("https://bad host")).toBeUndefined();
     expect(declaredLinkOrigin("http://localhost:3000")).toBe(
       "http://localhost:3000",
     );
