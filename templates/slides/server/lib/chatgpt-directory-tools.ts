@@ -57,6 +57,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   widgetReadActionArguments: {
     // The ticketed get-deck path normalizes duplicate IDs in memory only.
     "get-deck": { id: "deckId", deckId: "deckId" },
+    "get-deck-access-status": { deckId: "deckId" },
     "list-resource-shares": {
       resourceType: "resourceType",
       resourceId: "deckId",
@@ -91,6 +92,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     },
   },
   widgetReadOnlyActions: ["get-deck"],
+  widgetReadPublicActions: ["get-deck-access-status"],
   widgetReadAuthenticatedActions: ["list-resource-shares"],
   keyToolNames: [
     "list-decks",
