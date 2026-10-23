@@ -10753,7 +10753,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         label.style.cssText = "position:absolute;margin:0;padding:0;border:0;background:transparent;max-width:" + placement.maxWidth + "px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:auto;cursor:default;text-align:left;font:500 " + fontSize + "px/" + labelHeight + "px ui-sans-serif,system-ui,-apple-system,sans-serif;left:" + placement.left + "px;top:" + placement.top + "px;height:" + labelHeight + "px;color:" + (placement.selected ? "var(--design-editor-accent-color)" : FRAME_LABEL_IDLE_COLOR);
         label.addEventListener("mousedown", function(event) {
           event.stopPropagation();
-          if (!isLayerInteractionBlocked(placement.frame)) {
+          if (!interactionMode && !isLayerInteractionBlocked(placement.frame)) {
             beginPotentialShieldDrag(event, placement.frame);
           }
         });

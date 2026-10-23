@@ -13358,7 +13358,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           : FRAME_LABEL_IDLE_COLOR);
       label.addEventListener("mousedown", function (event) {
         event.stopPropagation();
-        if (!isLayerInteractionBlocked(placement.frame)) {
+        if (!interactionMode && !isLayerInteractionBlocked(placement.frame)) {
           beginPotentialShieldDrag(event, placement.frame);
         }
       });

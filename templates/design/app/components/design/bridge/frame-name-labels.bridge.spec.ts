@@ -45,7 +45,7 @@ async function frameLabelTexts(
   }
 }
 
-async function dragFrameByLabel(browser: Browser) {
+async function dragFrameByLabel(browser: Browser, interact = false) {
   const page = await browser.newPage();
   try {
     await page.setContent(content);
@@ -54,6 +54,17 @@ async function dragFrameByLabel(browser: Browser) {
     });
     const label = page.locator("[data-agent-native-frame-label]");
     await label.waitFor();
+    if (interact) {
+      await page.evaluate(() =>
+        window.postMessage(
+          { type: "set-interaction-mode", interact: true },
+          "*",
+        ),
+      );
+      await page.waitForFunction(() =>
+        document.documentElement.hasAttribute("data-agent-native-interact"),
+      );
+    }
     const frame = page.locator('[data-agent-native-node-id="draft-frame-1"]');
     const before = await frame.boundingBox();
     const box = await label.boundingBox();
@@ -123,6 +134,22 @@ describe("editor chrome frame name labels", () => {
       await browser.close();
     }
   });
+
+  it(
+    "leaves a board frame in place when its label is dragged in interaction mode",
+    {
+      timeout: 60_000,
+    },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const { before, during } = await dragFrameByLabel(browser, true);
+        expect(during).toEqual(before);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 
   it(
     "labels a top-level board frame but nothing inside a screen document",
