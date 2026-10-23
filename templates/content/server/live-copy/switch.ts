@@ -1,9 +1,11 @@
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
+  LiveCopyError,
   mutateLiveCopy,
   readLiveCopy,
   seedLiveCopy,
 } from "@agent-native/core/collab";
+import { getDbExec } from "@agent-native/core/db";
 import { ensureSuggestionTables } from "@agent-native/core/review";
 import { eq } from "drizzle-orm";
 
@@ -16,8 +18,10 @@ import {
   type LiveBodyWriterGate,
 } from "../lib/live-body-writer.js";
 import { CONTENT_LIVE_COPY_EDITS, contentLiveCopy } from "./binding.js";
+import { liveBodySwitchBlockers } from "./eligibility.js";
 import {
   LiveBodyConversionError,
+  liveBodySwitchIneligible,
   persistLiveBodyConversion,
 } from "./persist.js";
 import { withLiveBodyConversion } from "./write-cause.js";
@@ -44,13 +48,17 @@ async function readPage(documentId: string) {
  * Switches a page to its live copy: makes the live copy hold the stored body
  * (seeding it, or editing it to match, so open editors merge rather than
  * reload), then marks the page switched in the same commit. The stored body
- * wins over Yjs-only edits, so switch a page before an editor binds to it.
+ * wins over Yjs-only edits, so switch a page before an editor binds to it;
+ * with `keepLiveEdits`, a live copy that holds text the stored body lacks
+ * refuses the switch with `live_edits` instead.
  * Throws `LiveBodyConversionError` `flag_off` unless both flags are on for
- * the page's owner, and `base_changed` when the body keeps moving.
+ * the page's owner, `ineligible` while a writer that reaches the page can't
+ * write through the live copy (`liveBodySwitchBlockers`), and
+ * `base_changed` when the body keeps moving.
  */
 export async function switchPageToLiveCopy(
   documentId: string,
-  options: { ctx?: ActionRunContext } = {},
+  options: { ctx?: ActionRunContext; keepLiveEdits?: true } = {},
 ): Promise<LiveBodyWriterGate> {
   for (let attempt = 0; attempt < CONVERSION_ATTEMPTS; attempt += 1) {
     const page = await readPage(documentId);
@@ -58,6 +66,11 @@ export async function switchPageToLiveCopy(
     assertSourceAllowsPageEdit(page);
     const gate = await liveBodyWriterGate(documentId);
     if (gate.writePath === "live_copy") return gate;
+    const blockers = await liveBodySwitchBlockers(getDbExec(), documentId);
+    if (blockers === undefined)
+      return { writePath: "legacy", reason: "no_page" };
+    if (blockers.length > 0)
+      throw liveBodySwitchIneligible(documentId, blockers);
     if (!(await liveBodyWriterFlagsOn(page))) {
       throw new LiveBodyConversionError(
         "flag_off",
@@ -78,7 +91,10 @@ export async function switchPageToLiveCopy(
           if (live.kind === "live") {
             await mutateLiveCopy(contentLiveCopy, documentId, {
               edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
-              input: { content: page.content },
+              input: {
+                content: page.content,
+                ...(options.keepLiveEdits ? { keepLiveEdits: true } : {}),
+              },
               // An edit that changes nothing commits no live copy, so the
               // binding's persist does not run; switch the page here.
               persist: async (tx, change) => {
@@ -112,6 +128,17 @@ export async function switchPageToLiveCopy(
         error.code === "base_changed"
       ) {
         continue;
+      }
+      if (
+        error instanceof LiveCopyError &&
+        error.code === "build_refused" &&
+        error.reason === "live_edits"
+      ) {
+        throw new LiveBodyConversionError(
+          "live_edits",
+          documentId,
+          `Page ${documentId}'s live copy holds text its stored body lacks, so it wasn't switched.`,
+        );
       }
       throw error;
     }

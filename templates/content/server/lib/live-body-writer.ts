@@ -7,6 +7,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 
 import {
+  LIVE_BODY_BACKFILL_FLAG,
   LIVE_BODY_SHADOW_FLAG,
   LIVE_BODY_WRITER_FLAG,
 } from "../../shared/feature-flags.js";
@@ -210,6 +211,27 @@ export async function liveBodyWriterFlagsOn(
     ),
   );
   return writer && shadow;
+}
+
+/**
+ * The backfill flag and both of the writer's, for the page's owner and org:
+ * whether the page may be switched without a manual switch. Reads the
+ * backfill flag first, since it is off for nearly every page. Throws like the
+ * gate.
+ */
+export async function liveBodyBackfillFlagsOn(
+  row: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">,
+  options: { transaction?: DbExec } = {},
+): Promise<boolean> {
+  if (
+    !(await flagOnForPage(
+      LIVE_BODY_BACKFILL_FLAG.key,
+      row,
+      options.transaction,
+    ))
+  )
+    return false;
+  return liveBodyWriterFlagsOn(row, options);
 }
 
 async function flagOnForPage(

@@ -156,6 +156,10 @@ Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 
 Some pages take body writes through their live copy, the copy open tabs edit.
+Only pages Content owns outright take it: a page linked to a local file,
+Notion, GitHub or Builder, a shared copy of a local file, and a row of a
+collection someone made stay on the legacy writer. Every page is also a row of
+its space's Files collection, which doesn't count.
 `edit-document` writes those bodies, except on a page linked to a local file.
 That edit and other writers, such as `update-document --content`, a property or
 collection block stored in the body, row migrations, and local-folder, Notion,

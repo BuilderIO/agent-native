@@ -41,6 +41,10 @@ import {
   type PageRebaselineReport,
 } from "../lib/suggestion-rebaseline.js";
 import { liveCopyAnchorText } from "./anchor-text.js";
+import {
+  liveBodySwitchBlockers,
+  type LiveBodySwitchBlocker,
+} from "./eligibility.js";
 import { drizzleOverExec } from "./exec-db.js";
 import {
   currentContentBodyWriteCause,
@@ -84,6 +88,8 @@ export function persistedContentBodyCommit(
 export type LiveBodyConversionErrorCode =
   | "base_changed"
   | "flag_off"
+  | "ineligible"
+  | "live_edits"
   | "rebaseline_blocked";
 
 export class LiveBodyConversionError extends Error {
@@ -96,10 +102,26 @@ export class LiveBodyConversionError extends Error {
       Extract<PageRebaselineReport, { status: "blocked" }>,
       "status"
     >,
+    /** For `ineligible`: why writers that reach the page can't take its live copy. */
+    readonly blockers?: LiveBodySwitchBlocker[],
   ) {
     super(message);
     this.name = "LiveBodyConversionError";
   }
+}
+
+/** The refusal of a switch while writers that reach the page can't route. */
+export function liveBodySwitchIneligible(
+  documentId: string,
+  blockers: LiveBodySwitchBlocker[],
+): LiveBodyConversionError {
+  return new LiveBodyConversionError(
+    "ineligible",
+    documentId,
+    `Page ${documentId} can't take body writes through its live copy while writers that reach it can't (${blockers.join(", ")}).`,
+    undefined,
+    blockers,
+  );
 }
 
 // A typing session sends a commit every few hundred milliseconds. History
@@ -593,6 +615,12 @@ export async function persistLiveBodyConversion(
     );
   }
   assertEditablePage(page);
+  // Again under the page lock: a link or membership may have landed since the
+  // switch checked.
+  const blockers = await liveBodySwitchBlockers(tx, conversion.documentId);
+  if (blockers?.length) {
+    throw liveBodySwitchIneligible(conversion.documentId, blockers);
+  }
   const previousLiveText = await liveCopyAnchorText(tx, conversion.documentId);
   const now = new Date().toISOString();
   const committed = await writeBody({
