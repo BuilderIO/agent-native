@@ -32,11 +32,13 @@ export interface BuilderCmsUnpublishedChanges {
    * read older than this was made before that save.
    */
   liveLastUpdated?: number | string;
-  /**
-   * The live body's blocks hash when Content last saved a body over it;
-   * absent when that live body was empty.
-   */
+  /** The live body's blocks hash when Content last saved a body over it. */
   liveBlocksHash?: string;
+  /**
+   * Builder returned an empty body when Content last saved a body over it.
+   * With neither this nor a hash, the live check didn't read the body.
+   */
+  liveBodyEmpty?: true;
   /** Builder's lastUpdated when Content last saved a body over it. */
   liveBodyLastUpdated?: number | string;
 }
@@ -134,8 +136,16 @@ export function readBuilderCmsUnpublishedChanges(
   ) {
     return { state: "invalid" };
   }
-  const { liveBlocksHash, liveLastUpdated, liveBodyLastUpdated } = record;
+  const {
+    liveBlocksHash,
+    liveBodyEmpty,
+    liveLastUpdated,
+    liveBodyLastUpdated,
+  } = record;
   if (liveBlocksHash !== undefined && typeof liveBlocksHash !== "string") {
+    return { state: "invalid" };
+  }
+  if (liveBodyEmpty !== undefined && liveBodyEmpty !== true) {
     return { state: "invalid" };
   }
   if (
@@ -150,13 +160,18 @@ export function readBuilderCmsUnpublishedChanges(
       liveValues: liveValues as Record<string, DocumentPropertyValue>,
       ...(liveLastUpdated !== undefined ? { liveLastUpdated } : {}),
       ...(liveBlocksHash ? { liveBlocksHash } : {}),
+      ...(liveBodyEmpty ? { liveBodyEmpty } : {}),
       ...(liveBodyLastUpdated !== undefined ? { liveBodyLastUpdated } : {}),
     },
   };
 }
 
 function hasBodyRecord(changes: BuilderCmsUnpublishedChanges) {
-  return !!changes.liveBlocksHash || changes.liveBodyLastUpdated !== undefined;
+  return (
+    !!changes.liveBlocksHash ||
+    !!changes.liveBodyEmpty ||
+    changes.liveBodyLastUpdated !== undefined
+  );
 }
 
 export function withBuilderCmsUnpublishedChanges(
@@ -207,7 +222,9 @@ export function builderCmsBodyStillSavedOver(
   if (!readHash && builderValues[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] !== 0) {
     return true;
   }
-  if (readHash === (changes.liveBlocksHash ?? null)) return true;
+  if (readHash ? readHash === changes.liveBlocksHash : changes.liveBodyEmpty) {
+    return true;
+  }
   const recordedEpoch = epochMs(changes.liveBodyLastUpdated);
   return (
     recordedEpoch !== null &&
@@ -345,6 +362,8 @@ export function builderCmsUnpublishedChangesAfterWrite(args: {
   live: {
     values: Record<string, DocumentPropertyValue> | null;
     blocksHash: string | null;
+    /** Builder returned an empty body, unlike a read that left it out. */
+    bodyEmpty?: boolean;
     lastUpdated: number | string | null;
   };
 }): BuilderCmsUnpublishedChanges | null {
@@ -355,6 +374,7 @@ export function builderCmsUnpublishedChangesAfterWrite(args: {
   const liveValues = { ...current.liveValues };
   let liveLastUpdated = current.liveLastUpdated;
   let liveBlocksHash = current.liveBlocksHash;
+  let liveBodyEmpty = current.liveBodyEmpty;
   let liveBodyLastUpdated = current.liveBodyLastUpdated;
   if (args.effect === "autosave") {
     const live = args.live.values;
@@ -379,6 +399,7 @@ export function builderCmsUnpublishedChangesAfterWrite(args: {
     liveLastUpdated = args.live.lastUpdated ?? undefined;
     if (args.wroteBody) {
       liveBlocksHash = args.live.blocksHash ?? undefined;
+      liveBodyEmpty = !liveBlocksHash && args.live.bodyEmpty ? true : undefined;
       liveBodyLastUpdated = args.live.lastUpdated ?? undefined;
     }
   } else {
@@ -388,6 +409,7 @@ export function builderCmsUnpublishedChangesAfterWrite(args: {
     }
     if (args.wroteBody) {
       liveBlocksHash = undefined;
+      liveBodyEmpty = undefined;
       liveBodyLastUpdated = undefined;
     }
   }
@@ -395,6 +417,7 @@ export function builderCmsUnpublishedChangesAfterWrite(args: {
     liveValues,
     ...(liveLastUpdated !== undefined ? { liveLastUpdated } : {}),
     ...(liveBlocksHash ? { liveBlocksHash } : {}),
+    ...(liveBodyEmpty ? { liveBodyEmpty } : {}),
     ...(liveBodyLastUpdated !== undefined ? { liveBodyLastUpdated } : {}),
   };
 }

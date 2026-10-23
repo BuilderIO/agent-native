@@ -563,7 +563,62 @@ describe("Builder unpublished changes", () => {
     });
   });
 
-  it("tracks a body saved over an empty live body by Builder's update time", () => {
+  it("keeps a body saved over an empty live body while Builder's body stays empty", () => {
+    const changes = builderCmsUnpublishedChangesAfterWrite({
+      existing: { published: "published" },
+      effect: "autosave",
+      writtenFieldKeys: [],
+      wroteBody: true,
+      live: {
+        values: {},
+        blocksHash: null,
+        bodyEmpty: true,
+        lastUpdated: 1000,
+      },
+    });
+    expect(changes).toEqual({
+      liveValues: {},
+      liveLastUpdated: 1000,
+      liveBodyEmpty: true,
+      liveBodyLastUpdated: 1000,
+    });
+    const existing = withBuilderCmsUnpublishedChanges(
+      {
+        published: "published",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Saved body",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "saved-hash",
+      },
+      changes,
+    );
+    expect(readBuilderCmsUnpublishedChanges(existing)).toEqual({
+      state: "pending",
+      changes,
+    });
+
+    // Builder saved another field since, and its body is still empty.
+    const stillEmpty = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: {
+        published: "published",
+        lastUpdated: 2000,
+        [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+      },
+      existing,
+    });
+    expect(stillEmpty[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
+
+    const published = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: {
+        published: "published",
+        lastUpdated: 2000,
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Published body",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "published-hash",
+      },
+      existing,
+    });
+    expect(published[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Published body");
+  });
+
+  it("tracks a body saved over one the live check didn't read by Builder's update time", () => {
     const changes = builderCmsUnpublishedChangesAfterWrite({
       existing: { published: "published" },
       effect: "autosave",
@@ -585,11 +640,27 @@ describe("Builder unpublished changes", () => {
       changes,
     );
 
-    const stillEmpty = builderSourceValuesKeepingUnpublishedChanges({
-      incoming: { published: "published", lastUpdated: 1000 },
+    const unchanged = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: {
+        published: "published",
+        lastUpdated: 1000,
+        [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+      },
       existing,
     });
-    expect(stillEmpty[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
+    expect(unchanged[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
+
+    // The body Content saved over is unknown, so an empty one Builder saved
+    // later replaces Content's.
+    const emptied = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: {
+        published: "published",
+        lastUpdated: 2000,
+        [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+      },
+      existing,
+    });
+    expect(emptied).not.toHaveProperty(BUILDER_CMS_BODY_CONTENT_KEY);
 
     const published = builderSourceValuesKeepingUnpublishedChanges({
       incoming: {

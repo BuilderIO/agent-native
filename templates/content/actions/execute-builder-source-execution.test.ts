@@ -562,6 +562,7 @@ describe("execute Builder source execution", () => {
               published: "published",
               lastUpdated: BUILDER_LAST_UPDATED_MS,
               blocksHash: null,
+              bodyEmpty: false,
               hasAutosaves: null,
               values: {
                 "data.title": "Old title",
@@ -673,6 +674,58 @@ describe("execute Builder source execution", () => {
       ),
     ).rejects.toThrow(message);
     expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("records that the live body was empty, unlike a read that left it out", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "autosave" });
+    const builderSource = source({
+      rows: [
+        row({
+          sourceValues: { published: "published", "data.title": "Old title" },
+        }),
+      ],
+      changeSets: [approvedChangeSet],
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: true,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+        values: {
+          "data.title": "Old title",
+          [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+        },
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).resolves.toMatchObject(RESPONSE);
+
+    expect(deps.reconcileWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          payload: expect.objectContaining({
+            livePreflight: expect.objectContaining({ bodyEmpty: true }),
+          }),
+        }),
+      }),
+    );
   });
 
   it("does not dispatch after preflight when another attempt reclaimed the lease", async () => {

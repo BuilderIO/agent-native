@@ -510,6 +510,7 @@ export function builderCmsReconciledSourceValuesJson(args: {
         live: {
           values: livePreflight?.values ?? null,
           blocksHash: livePreflight?.blocksHash ?? null,
+          bodyEmpty: livePreflight?.bodyEmpty === true,
           lastUpdated: livePreflight?.lastUpdated ?? null,
         },
       }),
@@ -707,6 +708,7 @@ function builderCmsLivePreflightRecord(args: {
     published: args.liveState.published,
     lastUpdated: args.liveState.lastUpdated,
     blocksHash: args.liveState.blocksHash,
+    bodyEmpty: liveValues?.[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] === 0,
     hasAutosaves: args.liveState.hasAutosaves ?? null,
     values: liveValues
       ? Object.fromEntries(

@@ -2618,7 +2618,11 @@ describe("Builder CMS read client", () => {
     // Builder leaves out every data field a projected read doesn't name.
     const fetchImpl = vi.fn(async (input: URL) => {
       const fields = (input.searchParams.get("fields") ?? "").split(",");
-      const data = { title: "Builder title", blurb: "Builder blurb" };
+      const data = {
+        title: "Builder title",
+        blurb: "Builder blurb",
+        blocks: [],
+      };
       return new Response(
         JSON.stringify({
           id: "builder-entry-1",
@@ -2644,6 +2648,8 @@ describe("Builder CMS read client", () => {
     expect(live.values).toMatchObject({
       "data.title": "Builder title",
       "data.blurb": "Builder blurb",
+      // An empty body Builder returned, which the save records as such.
+      "__builder.body.blockCount": 0,
     });
     const fields =
       fetchImpl.mock.calls[0]![0].searchParams.get("fields")!.split(",");

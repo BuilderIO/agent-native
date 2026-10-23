@@ -71,6 +71,8 @@ export interface BuilderCmsLivePreflight {
   published: string | null;
   lastUpdated: number | string | null;
   blocksHash: string | null;
+  /** Builder returned an empty body, unlike a read that left the body out. */
+  bodyEmpty?: boolean;
   hasAutosaves: boolean | null;
   /** Live values of the fields this write sends; null when Builder did not return them. */
   values: Record<string, DocumentPropertyValue> | null;
