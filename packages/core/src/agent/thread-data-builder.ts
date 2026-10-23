@@ -44,8 +44,12 @@ import type {
 } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
-import { isContinuationTerminalReason } from "./types.js";
-import type { AgentChatAttachment, RunEvent } from "./types.js";
+import { isContinuationTerminalReason, isUnknownWriteCause } from "./types.js";
+import type {
+  AgentChatAttachment,
+  RunEvent,
+  UnknownWriteCause,
+} from "./types.js";
 
 interface ContentPart {
   type: string;
@@ -61,7 +65,7 @@ interface ContentPart {
   approvalPause?: true;
   approvalAskId?: string;
   outcome?: "unknown";
-  unknownCause?: "rejection" | "interruption";
+  unknownCause?: UnknownWriteCause;
   completedSideEffect?: boolean;
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
@@ -508,10 +512,7 @@ export function buildAssistantMessage(
         if (event.outcomeUnknown === true) {
           part.outcome = "unknown";
           explicitUnknownOutcomes.add(part);
-          if (
-            event.unknownCause === "rejection" ||
-            event.unknownCause === "interruption"
-          ) {
+          if (isUnknownWriteCause(event.unknownCause)) {
             part.unknownCause = event.unknownCause;
           }
         }
@@ -1201,7 +1202,7 @@ function replayedToolResult(part: {
     // A part whose result never came was interrupted, whatever it recorded.
     ...(unknown &&
     part.result !== undefined &&
-    (part.unknownCause === "rejection" || part.unknownCause === "interruption")
+    isUnknownWriteCause(part.unknownCause)
       ? { unknownCause: part.unknownCause }
       : {}),
   };

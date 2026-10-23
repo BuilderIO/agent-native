@@ -80,7 +80,12 @@ import {
 } from "./run-store.js";
 import { trackRunTerminal } from "./run-terminal-tracking.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
-import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
+import type {
+  AgentChatEvent,
+  RunEvent,
+  RunStatus,
+  UnknownWriteCause,
+} from "./types.js";
 
 export interface ActiveRun {
   runId: string;
@@ -723,7 +728,7 @@ function emitRunTerminalTrackingEvent(args: {
   userId?: string;
   attemptCount?: number;
   blockedTool?: string;
-  blockedBy?: "rejection" | "interruption";
+  blockedBy?: UnknownWriteCause;
 }): void {
   try {
     recordAgentRun({
@@ -2086,7 +2091,7 @@ export function startRun(
       let eventPersistenceError: unknown = null;
       let runTerminalErrorCode: string | undefined;
       let runTerminalBlockedTool: string | undefined;
-      let runTerminalBlockedBy: "rejection" | "interruption" | undefined;
+      let runTerminalBlockedBy: UnknownWriteCause | undefined;
       let terminalPersistenceEstablished = false;
       let continuationStatusPersistedBeforeEvent = false;
       let suppressContinuationEvent = false;
@@ -2523,7 +2528,7 @@ export function startRun(
             errorCode?: string;
             details?: string;
             blockedTool?: string;
-            blockedBy?: "rejection" | "interruption";
+            blockedBy?: UnknownWriteCause;
           };
           if (ev.type === "missing_api_key") {
             errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;

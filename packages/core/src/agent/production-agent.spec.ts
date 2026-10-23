@@ -20120,7 +20120,7 @@ describe("runAgentLoop", () => {
         }
       }
 
-      expect(text).toContain("could not recover its result");
+      expect(text).toContain("without confirming whether it saved changes");
       expect(ran).toEqual(["check", "other"]);
     } finally {
       findProfile.mockRestore();

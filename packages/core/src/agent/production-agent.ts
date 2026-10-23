@@ -484,6 +484,7 @@ import {
   AgentChatStructuredMessage,
   RunEvent,
   type ToolErrorClass,
+  type UnknownWriteCause,
 } from "./types.js";
 import {
   mergeFinalResponseGuards,
@@ -5206,12 +5207,7 @@ function unknownOutcomeKeys(
   };
 }
 
-/**
- * `rejection`: the call failed and said so, but nothing showed it wrote
- * nothing. `interruption`: its result never came (a timeout, a stop, a
- * continuation boundary or a lost process).
- */
-type UnknownOutcomeCause = "rejection" | "interruption";
+type UnknownOutcomeCause = UnknownWriteCause;
 
 function noteUnknownOutcome(
   outcomes: UnknownOutcomes,
@@ -5245,15 +5241,13 @@ function unknownRepeatResult(
   const happened =
     cause === "rejection"
       ? `failed${count} without confirming whether it saved changes`
-      : `was interrupted${count}`;
-  const outcome =
-    times === undefined
-      ? "its result is unknown"
-      : "I could not recover its result";
-  const joined =
-    cause === "interruption" && times === undefined ? " and " : ", and ";
+      : cause === "unattributed"
+        ? `ran${count}, but I could not confirm what it changed`
+        : times === undefined
+          ? "was interrupted and its result is unknown"
+          : `was interrupted${count}, and I could not recover its result`;
   return (
-    `The ${tool} action ${happened}${joined}${outcome}. ` +
+    `The ${tool} action ${happened}. ` +
     "I stopped without running it again. Check whether it completed before asking me to retry."
   );
 }
@@ -9853,19 +9847,19 @@ export async function runAgentLoop(opts: {
             content: result,
           };
         }
-        // The most specific key matched speaks for the call; a broader one
-        // can name a different call that shares it.
+        // The most specific key matched speaks for the call, its cause and
+        // its count; a broader one can name a different call that shares it.
+        const [specific] = repeated;
         const blockedBy =
-          (repeated[0]
+          (specific
             ? unknownOutcomes.causes.get(
-                `${repeated[0][0]}:${repeatKeys[repeated[0][0]]}`,
+                `${specific[0]}:${repeatKeys[specific[0]]}`,
               )
             : undefined) ?? "interruption";
-        const result = unknownRepeatResult(
-          toolCall.name,
-          blockedBy,
-          priorInterruptions,
-        );
+        const attempts = specific
+          ? (specific[1].get(repeatKeys[specific[0]]) ?? priorInterruptions)
+          : priorInterruptions;
+        const result = unknownRepeatResult(toolCall.name, blockedBy, attempts);
         await send({
           type: "tool_start",
           id: toolCall.id,
@@ -9884,7 +9878,7 @@ export async function runAgentLoop(opts: {
         recordToolResult(result, true);
         requestedActionStop ??= {
           message:
-            `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
+            `I stopped before running ${toolCall.name} again. ${attempts === 1 ? "An earlier attempt" : `${attempts} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
             `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
           errorCode: "write_tool_outcome_unknown",
           blockedTool: toolCall.name,
@@ -10570,13 +10564,11 @@ export async function runAgentLoop(opts: {
         }
 
         toolDonePersistenceFailed = true;
-        // A call that returned, but whose effect cannot be attributed, was
-        // neither rejected nor interrupted.
         unknownOutcomeCause = toolResultLost
           ? "interruption"
           : isError
             ? "rejection"
-            : undefined;
+            : "unattributed";
         await emitToolDone({
           type: "tool_done",
           id: toolCall.id,

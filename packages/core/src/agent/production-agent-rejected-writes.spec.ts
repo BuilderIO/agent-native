@@ -607,6 +607,7 @@ describe("a write whose outcome is really unknown", () => {
     expect(stop).toMatchObject({
       errorCode: "write_tool_outcome_unknown",
       blockedBy: "interruption",
+      error: expect.stringContaining("An earlier attempt may have"),
     });
   });
 
@@ -656,7 +657,7 @@ describe("a write whose outcome is really unknown", () => {
     );
   });
 
-  it("gives no cause to a call that returned with an effect it cannot attribute", async () => {
+  it("names an unattributed cause for a call that returned with an effect it cannot attribute", async () => {
     const action = defineAction({
       description: "Send.",
       schema: z.object({ body: z.string() }),
@@ -669,11 +670,24 @@ describe("a write whose outcome is really unknown", () => {
     } as unknown as ActionEntry;
     const events = await runCalls({ send: wrapped }, [
       { name: "send", input: { body: "a" } },
+      { name: "send", input: { body: "a" } },
     ]);
 
-    expect(toolDones(events)[0]).toMatchObject({ outcomeUnknown: true });
+    expect(toolDones(events)[0]).toMatchObject({
+      outcomeUnknown: true,
+      unknownCause: "unattributed",
+    });
     expect(toolDones(events)[0]?.isError).toBeUndefined();
-    expect(toolDones(events)[0]?.unknownCause).toBeUndefined();
+    expect(toolDones(events)[1]?.result).toContain(
+      "The send action ran 1 time(s), but I could not confirm what it changed.",
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "unattributed",
+      }),
+    );
   });
 
   it("still reads a plain handler failure as possibly written", async () => {
