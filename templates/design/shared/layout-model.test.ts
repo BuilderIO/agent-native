@@ -834,7 +834,7 @@ describe("joinFlowPatch", () => {
               position: "absolute",
               left: "0",
               right: "0",
-              height: "10%",
+              height: "10vh",
               ...extraStyles,
             },
             box,
@@ -843,6 +843,30 @@ describe("joinFlowPatch", () => {
       );
       expect(patch).toMatchObject({ width: "320px", boxSizing: "border-box" });
       expect(patch).not.toHaveProperty("height");
+    },
+  );
+
+  it.each(["10%", "calc(100% - 20px)", "var(--bar-height)"])(
+    "refuses %s on the other axis even under border-box, since flow resolves it against the parent's content box",
+    (height) => {
+      expect(
+        joinFlowPatch(
+          child(
+            "bar",
+            { x: 0, y: 180, width: 320, height: 20 },
+            {
+              styles: {
+                position: "absolute",
+                left: "0",
+                right: "0",
+                height,
+                boxSizing: "border-box",
+              },
+              box: { sizing: "border-box", edges: { width: 0, height: 0 } },
+            },
+          ),
+        ),
+      ).toBeNull();
     },
   );
 

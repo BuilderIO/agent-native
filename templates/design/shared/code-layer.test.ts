@@ -5828,7 +5828,7 @@ describe("autoLayout keeps children's rendered geometry", () => {
   it("keeps a relative height when the measured box model says border-box sizing leaves it alone", () => {
     const html =
       `<div data-agent-native-node-id="frame" style="position: relative; width: 320px; height: 200px">` +
-      `<div data-agent-native-node-id="bar" style="position: absolute; left: 0; right: 0; top: 0; height: 10%"></div>` +
+      `<div data-agent-native-node-id="bar" style="position: absolute; left: 0; right: 0; top: 0; height: 10vh"></div>` +
       `</div>`;
     const rect = { x: 0, y: 0, width: 320, height: 20 };
     const enable = (box?: {
@@ -5850,7 +5850,7 @@ describe("autoLayout keeps children's rendered geometry", () => {
     );
     expect(unpadded).not.toMatch(/position:\s*absolute/);
     expect(unpadded).toMatch(/width:\s*320px/);
-    expect(unpadded).toMatch(/height:\s*10%/);
+    expect(unpadded).toMatch(/height:\s*10vh/);
 
     // Unmeasured, the child may be padded, so it stays where it is.
     expect(styleOf(enable().content, "bar")).toMatch(/position:\s*absolute/);
