@@ -46,6 +46,10 @@ const setupGateMocks = vi.hoisted(() => ({
   requireAgentChatAiSetup: vi.fn(async (..._args: unknown[]) => undefined),
 }));
 
+const queueDrainHarness = vi.hoisted(() => ({
+  schedule: vi.fn(),
+}));
+
 const handlerHarness = vi.hoisted(() => ({
   options: [] as Array<{
     actions: Record<string, unknown>;
@@ -166,6 +170,11 @@ vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./agent-chat-ai-setup.js")>()),
   requireAgentChatAiSetup: (...args: unknown[]) =>
     setupGateMocks.requireAgentChatAiSetup(...args),
+}));
+
+vi.mock("./queued-submission-inbox-drain.js", () => ({
+  scheduleQueuedSubmissionInboxDrain: (...args: unknown[]) =>
+    queueDrainHarness.schedule(...args),
 }));
 
 import {
@@ -311,6 +320,7 @@ beforeEach(() => {
   threadStoreMocks.updateThreadData.mockResolvedValue(true);
   runStoreMocks.listRunsForThread.mockReset();
   runStoreMocks.listRunsForThread.mockResolvedValue([]);
+  queueDrainHarness.schedule.mockReset();
   mocks.getSession.mockResolvedValue(null);
   mocks.getWorkspaceAppProfile.mockReset().mockResolvedValue(null);
   mocks.loadAgentsBundle.mockResolvedValue({
@@ -716,6 +726,13 @@ describe("agent chat queued-message route", () => {
       }),
       expect.any(Object),
     );
+    expect(queueDrainHarness.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId,
+        turnContinues: false,
+        drain: expect.any(Function),
+      }),
+    );
   });
 
   it("requires AI setup before claiming a queued prompt for dispatch", async () => {
@@ -1001,6 +1018,27 @@ describe("agent chat thread list route", () => {
     );
   });
 
+  it("passes archived-thread inclusion to both list and search", async () => {
+    threadStoreMocks.listThreads.mockResolvedValue([]);
+    threadStoreMocks.searchThreads.mockResolvedValue([]);
+
+    const listResponse = await getThreads("?includeArchived=1");
+    expect(listResponse.status).toBe(200);
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({ includeArchived: true }),
+    );
+
+    const searchResponse = await getThreads("?includeArchived=1&q=plan");
+    expect(searchResponse.status).toBe(200);
+    expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      "plan",
+      51,
+      expect.objectContaining({ includeArchived: true }),
+    );
+  });
+
   it("reports no more rows when the page is not over-full", async () => {
     threadStoreMocks.listThreads.mockResolvedValue([summary("a")]);
     const response = await getThreads("?ownership=mine&limit=2");
@@ -1117,14 +1155,23 @@ describe("agent chat thread list route", () => {
       if (mode === "list") {
         expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
           "user@example.test",
-          expect.objectContaining({ ownership: "all", limit: 51, offset: 0 }),
+          expect.objectContaining({
+            ownership: "all",
+            limit: 51,
+            offset: 0,
+            includeArchived: false,
+          }),
         );
       } else {
         expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
           "user@example.test",
           "plan",
           51,
-          expect.objectContaining({ ownership: "all", offset: 0 }),
+          expect.objectContaining({
+            ownership: "all",
+            offset: 0,
+            includeArchived: false,
+          }),
         );
       }
     });

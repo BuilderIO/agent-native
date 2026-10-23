@@ -292,6 +292,7 @@ function renderDataWidget(context: ToolRendererContext) {
         <LazyDataChartWidget
           chart={result.chartSeries}
           display={result.display}
+          layout={context.dataChartLayout}
         />
       </Suspense>
     );
@@ -299,7 +300,10 @@ function renderDataWidget(context: ToolRendererContext) {
   if (widget === DATA_INSIGHTS_WIDGET) {
     return (
       <Suspense fallback={<BuiltinToolRendererSkeleton />}>
-        <LazyDataInsightsWidget result={result} />
+        <LazyDataInsightsWidget
+          result={result}
+          layout={context.dataChartLayout}
+        />
       </Suspense>
     );
   }

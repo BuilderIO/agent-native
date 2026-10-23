@@ -1,9 +1,11 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { compareAndSetAppState } from "@agent-native/core/application-state";
+import { compareAndSetManyAppState } from "@agent-native/core/application-state";
 
 import { parseEffectsFromHtml } from "../shared/native-effects.js";
 import {
   NATIVE_LOCAL_EXPORT_PENDING_MS,
+  NATIVE_RENDER_CONTEXT_LEDGER_KEY,
+  nativeLocalExportRevisionKey,
   nativeLocalExportRequestSchema,
   nativeRenderContextSchema,
   nativeLocalExportStateKey,
@@ -13,10 +15,11 @@ import {
   assertNativeLocalExportEditor,
   expireNativeLocalExportState,
   readNativeLocalExportState,
+  readNativeLocalExportRevision,
   readNativeLocalExportVersion,
   requireNativeLocalExportTabId,
 } from "./_native-local-export-server.js";
-import { resolveNativeRenderContextTarget } from "./_native-render-contexts.js";
+import { readNativeRenderContextSnapshot } from "./_native-render-contexts.js";
 
 export default defineAction({
   mcpAnnotations: {
@@ -35,10 +38,18 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async ({ targetTabId, ...args }) => {
-    const tabId = targetTabId
-      ? await resolveNativeRenderContextTarget(args.designId, targetTabId)
-      : requireNativeLocalExportTabId();
+    const tabId = targetTabId ?? requireNativeLocalExportTabId();
     if (!targetTabId) await assertNativeLocalExportEditor(args.designId);
+    const snapshot = await readNativeRenderContextSnapshot(
+      args.designId,
+      tabId,
+    );
+    const context = snapshot.contexts.find((entry) => entry.tabId === tabId);
+    if (targetTabId && !context)
+      fail("No live matching Design editor context was found.", {
+        errorCode: "native_export_context_not_found",
+        statusCode: 404,
+      });
     const liveSource = await readNativeLocalExportVersion(
       args.designId,
       args.fileId,
@@ -62,6 +73,7 @@ export default defineAction({
     const current = rawCurrent
       ? await expireNativeLocalExportState(rawCurrent)
       : null;
+    const revision = await readNativeLocalExportRevision(args.designId, tabId);
     if (
       current?.status === "pending" ||
       current?.status === "running" ||
@@ -78,11 +90,25 @@ export default defineAction({
       schemaVersion: 1,
       requestId: crypto.randomUUID(),
       tabId,
+      ...(context?.documentId ? { targetDocumentId: context.documentId } : {}),
       status: "pending",
       issuedAt: now,
       expiresAt: now + NATIVE_LOCAL_EXPORT_PENDING_MS,
     };
-    if (!(await compareAndSetAppState(key, current, request)))
+    const committed = await compareAndSetManyAppState([
+      {
+        key: NATIVE_RENDER_CONTEXT_LEDGER_KEY,
+        expectedValue: snapshot.rawLedger,
+        nextValue: snapshot.rawLedger ?? { schemaVersion: 1, contexts: [] },
+      },
+      {
+        key: nativeLocalExportRevisionKey(args.designId, tabId),
+        expectedValue: revision,
+        nextValue: { schemaVersion: 1, revision: crypto.randomUUID() },
+      },
+      { key, expectedValue: current, nextValue: request },
+    ]);
+    if (!committed)
       fail("The local export request changed concurrently. Retry.", {
         errorCode: "native_export_request_conflict",
         statusCode: 409,

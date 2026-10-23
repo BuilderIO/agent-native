@@ -47,6 +47,12 @@ import React, {
   useRef,
 } from "react";
 
+import type { AgentChatDataChartLayout } from "../../agentkit/react/data-chart-layout.js";
+import {
+  workedForRowChevronStyle,
+  workedForRowSummaryStyle,
+  type AgentChatWorkedForRowLayout,
+} from "../../agentkit/react/transcript-layout.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { FileStorageSetupPopover } from "../FileStorageSetupPopover.js";
@@ -73,7 +79,10 @@ import {
   IntegrationToolBadge,
   resolveToolIntegration,
 } from "./tool-integration.js";
-import { resolveToolRenderer } from "./tool-render-registry.js";
+import {
+  resolveToolRenderer,
+  type ToolRendererContext,
+} from "./tool-render-registry.js";
 import {
   isBuiltinDataWidgetActionRenderer,
   isBuiltinWorkspaceFileResult,
@@ -630,6 +639,7 @@ export function ToolCallDisplay({
   argsText,
   args,
   result,
+  status,
   mcpApp,
   chatUI,
   isRunning,
@@ -641,12 +651,16 @@ export function ToolCallDisplay({
   repeatCount,
   isLatestRunning = isRunning,
   isActiveTail,
+  workedForRowLayout,
+  dataChartLayout,
+  formatWorkedForDuration,
 }: {
   toolName: string;
   toolCallId?: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
+  status?: ToolRendererContext["status"];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
@@ -662,6 +676,9 @@ export function ToolCallDisplay({
   };
   repeatCount?: number;
   isActiveTail?: boolean;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
   /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
 }) {
@@ -738,6 +755,7 @@ export function ToolCallDisplay({
       argsText={argsText}
       args={args}
       result={result}
+      status={status}
       mcpApp={mcpApp}
       chatUI={chatUI}
       isRunning={effectiveIsRunning}
@@ -748,6 +766,9 @@ export function ToolCallDisplay({
       approval={approval}
       repeatCount={repeatCount}
       context={builderContext}
+      workedForRowLayout={workedForRowLayout}
+      dataChartLayout={dataChartLayout}
+      formatWorkedForDuration={formatWorkedForDuration}
     />,
   );
 }
@@ -760,6 +781,7 @@ function ToolCallDisplayGeneric({
   argsText,
   args,
   result,
+  status,
   mcpApp,
   chatUI,
   isRunning,
@@ -770,12 +792,16 @@ function ToolCallDisplayGeneric({
   approval,
   repeatCount,
   context,
+  workedForRowLayout,
+  dataChartLayout,
+  formatWorkedForDuration,
 }: {
   toolName: string;
   toolCallId?: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
+  status?: ToolRendererContext["status"];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
@@ -791,6 +817,9 @@ function ToolCallDisplayGeneric({
   };
   repeatCount?: number;
   context?: string;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
@@ -902,8 +931,10 @@ function ToolCallDisplayGeneric({
     args,
     resultText: result,
     resultJson: parsedResult,
+    status,
     isRunning,
     isActiveTail,
+    dataChartLayout,
     ...(typeof toolCallId === "string"
       ? { widgetId: `${toolCallId}:chat-ui` }
       : {}),
@@ -974,6 +1005,8 @@ function ToolCallDisplayGeneric({
             ? structuredMeta.agentDurationMs
             : agentActivity?.durationMs
         }
+        workedForRowLayout={workedForRowLayout}
+        formatWorkedForDuration={formatWorkedForDuration}
       />
     );
   }
@@ -1142,6 +1175,8 @@ function AgentCallCell({
   isError,
   errorText,
   durationMs,
+  workedForRowLayout,
+  formatWorkedForDuration,
 }: {
   agentName: string;
   toolCallId?: string;
@@ -1152,6 +1187,8 @@ function AgentCallCell({
   isError: boolean;
   errorText?: string;
   durationMs?: number;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
@@ -1274,7 +1311,11 @@ function AgentCallCell({
             (isRunning ? (
               workContent
             ) : (
-              <WorkedForSummary durationMs={durationMs}>
+              <WorkedForSummary
+                durationMs={durationMs}
+                layout={workedForRowLayout}
+                formatWorkedForDuration={formatWorkedForDuration}
+              >
                 {workContent}
               </WorkedForSummary>
             ))}
@@ -1822,12 +1863,16 @@ export function WorkedForSummary({
   defaultOpen = false,
   autoCollapse = false,
   children,
+  layout,
+  formatWorkedForDuration,
 }: {
   durationMs?: number | null;
   isRunning?: boolean;
   defaultOpen?: boolean;
   autoCollapse?: boolean;
   children: React.ReactNode;
+  layout?: AgentChatWorkedForRowLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
   const formatDuration = useLocalizedWorkedDuration();
@@ -1845,7 +1890,7 @@ export function WorkedForSummary({
     ? t("agentChat.status.working")
     : durationMs != null && durationMs >= 1000
       ? t("agentChat.tool.workedFor", {
-          duration: formatDuration(durationMs),
+          duration: (formatWorkedForDuration ?? formatDuration)(durationMs),
         })
       : t("agentChat.tool.worked");
 
@@ -1855,17 +1900,20 @@ export function WorkedForSummary({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="agent-kit-density flex items-center gap-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
+        className="agent-kit-density flex w-full items-center gap-1 rounded-lg p-3 text-start text-muted-foreground transition-colors hover:text-foreground"
+        style={workedForRowSummaryStyle(layout)}
       >
+        <IconChevronRight
+          aria-hidden="true"
+          className={cn(
+            "size-4 shrink-0 transition-transform rtl:-scale-x-100",
+            open && "rotate-90 rtl:-rotate-90",
+          )}
+          style={workedForRowChevronStyle(layout)}
+        />
         <span className={cn(isRunning && "agent-running-shimmer")}>
           {label}
         </span>
-        <IconChevronRight
-          className={cn(
-            "size-3.5 shrink-0 transition-transform",
-            open && "rotate-90",
-          )}
-        />
       </button>
       <AnimatedCollapse open={open}>
         <WorkSummaryContentContext.Provider value>

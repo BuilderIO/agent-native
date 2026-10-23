@@ -24,11 +24,27 @@ import {
   validateReusableWorkflowPermissions,
   validateProductionSiteConcurrency,
 } from "./guard-netlify-prebuilt-workflow.ts";
+import { netlifyApiErrorLabel } from "./netlify-api-error.ts";
 import { resolveNetlifyMigrationUrl } from "./netlify-migration-url.ts";
 import { previewEligibleSiteNames } from "./netlify-pr-preview-targets.ts";
 import { resolveNetlifyBuildEnvironment } from "./netlify-prebuilt-build.ts";
 
 type Workflow = Record<string, unknown>;
+
+const NETLIFY_NOT_FOUND_ERROR_PATTERN =
+  "^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found[[:space:]]*$";
+
+const isNetlifyNotFoundError = (message: string): boolean => {
+  try {
+    execFileSync("grep", ["-Eq", NETLIFY_NOT_FOUND_ERROR_PATTERN], {
+      input: message,
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const readWorkflow = (path: string): Workflow =>
   parse(readFileSync(path, "utf8")) as Workflow;
@@ -1432,7 +1448,11 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(betaMigration?.run), /netlify api getEnvVars/);
     assert.match(String(betaMigration?.run), /netlify api getSiteDatabase/);
     assert.match(String(betaMigration?.run), /BETA_DATABASE_URL_SECRET/);
-    assert.match(String(betaMigration?.run), /brain\|factory/);
+    assert.doesNotMatch(String(betaMigration?.run), /relying on the strict/);
+    assert.match(
+      String(betaMigration?.run),
+      /refusing to publish without migrating/,
+    );
     assert.match(String(betaMigration?.run), /@agent-native\/docs/);
     assert.match(String(betaMigration?.run), /migrate:production/);
     const validation = (
@@ -2142,6 +2162,81 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("falls back to a production database variable only when Netlify returns 404", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+    const environmentLookup = build.indexOf("netlify api getEnvVars");
+    const databaseLookup = build.indexOf("if netlify api getSiteDatabase");
+    const notFoundCheck = build.indexOf(
+      "if ! grep -Eq '^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found",
+    );
+    const fallbackLookup = build.indexOf(
+      "BUILD_CONTEXT=production node --experimental-strip-types scripts/netlify-migration-url.ts",
+    );
+
+    assert.ok(environmentLookup >= 0 && environmentLookup < databaseLookup);
+    assert.ok(databaseLookup < notFoundCheck && notFoundCheck < fallbackLookup);
+    assert.match(build, /scope.*builds/);
+    assert.match(build, /::add-mask::\$build_database_url/);
+    assert.match(build, /database_response_file.*database_error_file/);
+    assert.ok(build.includes(`grep -Eq '${NETLIFY_NOT_FOUND_ERROR_PATTERN}'`));
+    assert.match(build, /database_error_file/);
+    assert.match(build, /database_response_file/);
+    assert.match(build, /JSONHTTPError: Not Found/);
+    assert.equal(
+      isNetlifyNotFoundError("  ›   JSONHTTPError: Not Found\n"),
+      true,
+    );
+    assert.equal(
+      isNetlifyNotFoundError("› JSONHTTPError: Unauthorized (HTTP 401)\n"),
+      false,
+    );
+    assert.equal(
+      isNetlifyNotFoundError("› JSONHTTPError: Forbidden (HTTP 403)\n"),
+      false,
+    );
+    assert.equal(
+      isNetlifyNotFoundError(
+        "› JSONHTTPError: Internal Server Error\nNot Found\n",
+      ),
+      false,
+    );
+    for (const [message, label] of [
+      [
+        "› JSONHTTPError: Unauthorized\nrequest token=secret-value",
+        "HTTP 401 Unauthorized",
+      ],
+      [
+        "› JSONHTTPError: Forbidden\nresponse body contains secret-value",
+        "HTTP 403 Forbidden",
+      ],
+      [
+        "› JSONHTTPError: Internal Server Error\nsecret-value",
+        "HTTP 500 Internal Server Error",
+      ],
+    ]) {
+      assert.equal(netlifyApiErrorLabel(message), label);
+      assert.doesNotMatch(netlifyApiErrorLabel(message), /secret-value/);
+    }
+    assert.equal(
+      netlifyApiErrorLabel("› JSONHTTPError: Custom failure\nsecret-value"),
+      "unclassified API error",
+    );
+    assert.match(build, /scripts\/netlify-api-error\.ts/);
+    assert.match(build, /\$database_error_label/);
+    assert.doesNotMatch(build, /cat "\$database_error_file"\s*$/m);
+  });
+
   it("keeps Analytics migrations on its app-scoped database URL", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -2346,7 +2441,30 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(migration, /inputs\.target == 'production'/);
     assert.match(migration, /inputs\.deploy_mode == 'production'/);
     assert.match(migration, /source_template == 'crm'/);
-    assert.match(migration, /getSiteDatabase/);
+    const databaseLookup = migration.indexOf("if netlify api getSiteDatabase");
+    const notFoundCheck = migration.indexOf(
+      "if ! grep -Eq '^[[:space:]]*›[[:space:]]+JSONHTTPError: Not Found",
+    );
+    const environmentLookup = migration.indexOf("netlify api getEnvVars");
+    const fallbackLookup = migration.lastIndexOf(
+      'BUILD_CONTEXT="$BUILD_CONTEXT" node --experimental-strip-types scripts/netlify-migration-url.ts',
+    );
+    assert.ok(
+      databaseLookup >= 0 &&
+        databaseLookup < notFoundCheck &&
+        notFoundCheck < environmentLookup &&
+        environmentLookup < fallbackLookup,
+    );
+    assert.match(migration, /scope.*builds/);
+    assert.ok(
+      migration.includes(`grep -Eq '${NETLIFY_NOT_FOUND_ERROR_PATTERN}'`),
+    );
+    assert.match(migration, /migration_error_file/);
+    assert.match(migration, /migration_response_file/);
+    assert.match(migration, /scripts\/netlify-api-error\.ts/);
+    assert.match(migration, /\$migration_error_label/);
+    assert.match(migration, /JSONHTTPError: Not Found/);
+    assert.match(migration, /::add-mask::\$migration_database_url/);
     assert.match(migration, /role.*netlifydb_owner/);
     assert.match(migration, /netlify-migration-url\.ts/);
     assert.match(migration, /pnpm --filter crm migrate:production/);

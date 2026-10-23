@@ -23,7 +23,7 @@ import { forwardRef } from "react";
 
 import { toast } from "../../../../hooks/use-toast.js";
 import type {
-  DataWidgetAction,
+  DataWidgetChartAction,
   DataWidgetActionIcon,
   DataWidgetDataSource,
   DataWidgetDisplay,
@@ -82,12 +82,15 @@ const WidgetActionLink = forwardRef<
     label: string;
     className: string;
     icon?: DataWidgetActionIcon;
+    iconOnly?: boolean;
   }
->(function WidgetActionLink({ href, label, className, icon }, ref) {
+>(function WidgetActionLink({ href, label, className, icon, iconOnly }, ref) {
   return (
     <a
       ref={ref}
       href={href}
+      aria-label={iconOnly ? label : undefined}
+      title={iconOnly ? label : undefined}
       onClick={(event) => {
         if (
           event.defaultPrevented ||
@@ -109,7 +112,7 @@ const WidgetActionLink = forwardRef<
       }}
       className={className}
     >
-      <span className="truncate">{label}</span>
+      <span className={iconOnly ? "sr-only" : "truncate"}>{label}</span>
       {icon === "explore" ? (
         <IconCompass aria-hidden="true" className="size-3.5 shrink-0" />
       ) : icon === "camera" ? (
@@ -144,8 +147,8 @@ export function DataWidgetDisplayControls({
   kind = "chart",
 }: {
   display?: DataWidgetDisplay;
-  chartActions?: DataWidgetAction[];
-  variant?: "primary" | "secondary";
+  chartActions?: DataWidgetChartAction[];
+  variant?: "primary" | "secondary" | "quiet";
   kind?: "chart" | "table";
 }) {
   const t = useT();
@@ -194,6 +197,13 @@ export function DataWidgetDisplayControls({
       key: action.id ?? `copy-${index}`,
     });
   }
+  const directActions = actions.filter(
+    (item): item is Extract<PreparedDisplayAction, { type: "link" }> =>
+      item.type === "link" && item.action.presentation === "icon",
+  );
+  const overflowActions = actions.filter(
+    (item) => item.type !== "link" || item.action.presentation !== "icon",
+  );
   const actionsLabel =
     kind === "table"
       ? t("agentChat.widget.tableActions", { defaultValue: "Table actions" })
@@ -209,24 +219,36 @@ export function DataWidgetDisplayControls({
           className={
             variant === "secondary"
               ? "inline-flex max-w-44 items-center gap-1.5 truncate rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground no-underline hover:bg-muted hover:no-underline"
-              : "inline-flex max-w-44 items-center gap-1.5 truncate rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground no-underline hover:bg-primary/90 hover:no-underline"
+              : variant === "quiet"
+                ? "inline-flex max-w-44 items-center gap-1.5 truncate rounded-sm px-1 py-0.5 text-[11px] font-medium text-muted-foreground no-underline hover:bg-muted hover:text-foreground hover:no-underline"
+                : "inline-flex max-w-44 items-center gap-1.5 truncate rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground no-underline hover:bg-primary/90 hover:no-underline"
           }
         />
       ) : null}
-      {actions.length > 0 ? (
+      {directActions.map((item) => (
+        <WidgetActionLink
+          key={item.key}
+          href={item.href}
+          label={item.action.label}
+          icon={item.action.icon}
+          iconOnly
+          className={`inline-flex ${variant === "quiet" ? "size-7" : "size-8"} shrink-0 items-center justify-center rounded-md ${variant === "quiet" ? "" : "border border-border"} text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+        />
+      ))}
+      {overflowActions.length > 0 ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
               aria-label={actionsLabel}
               title={actionsLabel}
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={`inline-flex ${variant === "quiet" ? "size-7" : "size-8"} shrink-0 items-center justify-center rounded-md ${variant === "quiet" ? "" : "border border-border"} text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
             >
               <IconDotsVertical aria-hidden="true" className="size-4" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {actions.map((item) =>
+            {overflowActions.map((item) =>
               item.type === "copy" ? (
                 <DropdownMenuItem
                   key={item.key}

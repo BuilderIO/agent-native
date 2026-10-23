@@ -43,6 +43,10 @@ Agent-Native CLI가 이미 있는 프로젝트 안에서는 `agent-native skills
 
 브라우저 호스트에서는 skill이 Agent-Native Dispatch MCP 커넥터(`https://dispatch.agent-native.com/mcp`, OAuth)를 필요로 하며 해당 커넥터의 `start-workspace-app-creation` 액션을 호출합니다. 호스트는 앱을 실행하거나 검사할 수 없으므로, Dispatch가 반환한 브랜치가 빌드될 때까지 보고서는 보류 또는 미검증 상태로 남습니다. skill은 Dispatch가 실제로 반환한 내용만 보고하며 브랜치 URL을 지어내지 않습니다. ChatGPT 프로젝트나 MCP만 노출하는 호스트에서는 skill 지침을 프로젝트 지침이나 지식 파일에 넣으세요.
 
+## 로컬 사전 요구 사항
+
+로컬 호스트에서는 시작하기 전에 Node.js 22.22.0 이상(npm 및 npx 포함)과 pnpm을 설치하세요. 브라우저 호스트는 Dispatch를 사용하며 이 명령을 실행하지 않습니다.
+
 ## 소스 {#sources}
 
 - **스레드.** 가장 최근의 구체적이고 반복 가능한 작업이 제품이 됩니다.

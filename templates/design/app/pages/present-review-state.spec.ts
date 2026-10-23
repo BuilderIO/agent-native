@@ -110,6 +110,7 @@ vi.mock("@/components/visual-editor/ReviewCanvasPins", () => ({
 
 vi.mock("../components/design/design-canvas/local-runtime", () => ({
   withLocalRuntimes: (html: string) => html,
+  withNativeShaderRuntime: (html: string) => html,
 }));
 
 import Present from "./Present";

@@ -43,6 +43,10 @@ Un host se considera local cuando tiene un directorio de trabajo real, un termin
 
 En un host de navegador, la skill requiere el conector MCP de Agent-Native Dispatch (`https://dispatch.agent-native.com/mcp`, OAuth) y llama a su acción `start-workspace-app-creation`. El host no puede ejecutar ni inspeccionar la app, por lo que el informe queda pendiente o sin verificar hasta que se compile la rama que devuelve Dispatch. La skill informa de lo que Dispatch realmente devolvió y nunca inventa la URL de una rama. Para un Proyecto de ChatGPT, o cualquier host que solo exponga MCP, pon las instrucciones de la skill en las instrucciones del Proyecto o en los archivos de conocimiento.
 
+## Requisitos locales
+
+En un host local, instala Node.js 22.22.0 o posterior (que incluye npm y npx) y pnpm antes de empezar. Los hosts de navegador usan Dispatch y no ejecutan estos comandos.
+
 ## Fuentes {#sources}
 
 - **Hilos.** El último trabajo concreto y repetible es el producto.

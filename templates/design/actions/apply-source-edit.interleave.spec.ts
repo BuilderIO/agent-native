@@ -411,7 +411,9 @@ import {
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
 import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
+import { createHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
+import applySourceEditAction from "./apply-source-edit.js";
 import updateFileAction from "./update-file.js";
 
 function buildDoc(bodyExtra = ""): string {
@@ -479,6 +481,82 @@ beforeEach(() => {
 });
 
 describe("HTML integrity write boundary", () => {
+  it("rejects removing an email frame marker through apply-source-edit without changing live or stored content", async () => {
+    const before = createHubSpotEmailHtml();
+    seedFile(before);
+    await applyText(FILE_ID, before);
+    const live = await readLiveSourceFile(currentFileRef());
+    await expect(
+      applySourceEditAction.run({
+        designId: DESIGN_ID,
+        fileId: FILE_ID,
+        expectedVersionHash: live.versionHash,
+        edit: {
+          kind: "exact-replace",
+          search:
+            '<meta name="agent-native:frame-type" content="hubspot-email">',
+          replace: "",
+        },
+      }),
+    ).rejects.toThrow("Preserve the HubSpot email frame marker");
+    expect(currentFileRef().content).toBe(before);
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(before);
+  });
+
+  it.each(["shared source", "update-file"])(
+    "%s rejects a live no-op that would lose the persisted email frame type",
+    async (writer) => {
+      const before = createHubSpotEmailHtml();
+      seedFile(before);
+      const unmarked = before.replace(
+        '<meta name="agent-native:frame-type" content="hubspot-email">',
+        "",
+      );
+      await applyText(FILE_ID, unmarked);
+      const live = await readLiveSourceFile(currentFileRef());
+      await expect(
+        writer === "shared source"
+          ? writeInlineSourceFile({
+              designId: DESIGN_ID,
+              file: currentFileRef(),
+              content: live.content,
+              expectedVersionHash: live.versionHash,
+            })
+          : updateFileAction.run({
+              id: FILE_ID,
+              content: live.content,
+              expectedVersionHash: live.versionHash,
+            }),
+      ).rejects.toThrow("Preserve the HubSpot email frame marker");
+      expect(currentFileRef().content).toBe(before);
+      expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
+        unmarked,
+      );
+    },
+  );
+
+  it("persists an ordinary source edit through apply-source-edit", async () => {
+    const before = buildDoc();
+    const live = await readLiveSourceFile(currentFileRef());
+    const result = await applySourceEditAction.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      expectedVersionHash: live.versionHash,
+      edit: {
+        kind: "exact-replace",
+        search: "Hello world",
+        replace: "Hello again",
+      },
+    });
+    expect(result.changed).toBe(true);
+    expect(currentFileRef().content).toBe(
+      before.replace("Hello world", "Hello again"),
+    );
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
+      currentFileRef().content,
+    );
+  });
+
   it("rejects malformed managed-style source and leaves live + SQL content unchanged", async () => {
     const before = buildDoc();
     const live = await readLiveSourceFile(currentFileRef());
@@ -960,7 +1038,7 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
     // duplicated-document corruption this bug produced needed a client-side
     // untracked full ydoc.transact rewrite racing a diff-based server write
     // (reproduced separately against the real ydoc-manager — see
-    // GlslShaderPanel.tsx's write-race guard, which closes that exact path)
+    // shader-source-coordination.ts's write lock, which closes that path)
     // rather than two diff-based server writes. This assertion is the
     // documented, always-true floor: never corrupt, regardless of document
     // size or which write wins.
@@ -1015,7 +1093,7 @@ describe("apply-source-edit / update-file cross-pipeline interleave", () => {
     // push its own raw ydoc rewrite at all: DesignEditor.tsx's
     // commitVisualStyles now checks isShaderWriteInFlight(fileId) and defers
     // via waitForShaderWriteToSettle(fileId) BEFORE computing clientUpdate
-    // in the first place (see GlslShaderPanel.tsx), so in the real app this
+    // in the first place (see shader-source-coordination.ts), so in the real app this
     // clientUpdate is never built from the stale pre-shader base to begin
     // with — this test's job is only to prove the merge really would
     // corrupt the document if that guard were bypassed or removed.

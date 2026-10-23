@@ -29,25 +29,6 @@ function isUsableZoomSnapshot(
   );
 }
 
-export function expectedCanvasScaleAtZoomPercent(
-  currentScale: number | null,
-  currentZoomPercent: number,
-  targetZoomPercent: number,
-): number | null {
-  if (
-    currentScale === null ||
-    !Number.isFinite(currentScale) ||
-    currentScale <= 0 ||
-    !Number.isFinite(currentZoomPercent) ||
-    currentZoomPercent <= 0 ||
-    !Number.isFinite(targetZoomPercent) ||
-    targetZoomPercent <= 0
-  ) {
-    return null;
-  }
-  return (currentScale * targetZoomPercent) / currentZoomPercent;
-}
-
 async function beforeDeadline<T>(
   run: () => Promise<T>,
   timeoutMs: number,
@@ -98,8 +79,12 @@ export async function readStableZoomUntilAvailable(
   wait: (milliseconds: number) => Promise<unknown>,
   deadline: number,
   cleanup: () => Promise<unknown>,
-  now = Date.now,
+  options: {
+    matches?: (snapshot: StableZoomSnapshot) => boolean;
+    now?: () => number;
+  } = {},
 ): Promise<StableZoomSnapshot | null> {
+  const now = options.now ?? Date.now;
   let previous: StableZoomSnapshot | null = null;
   let stableReads = 0;
   while (now() < deadline) {
@@ -110,7 +95,10 @@ export async function readStableZoomUntilAvailable(
     );
     if (result.timedOut) return null;
     const snapshot = result.value;
-    if (!isUsableZoomSnapshot(snapshot)) {
+    if (
+      !isUsableZoomSnapshot(snapshot) ||
+      (options.matches && !options.matches(snapshot))
+    ) {
       previous = null;
       stableReads = 0;
     } else if (

@@ -310,6 +310,9 @@ const STATIC_BUILTIN_VERSIONS = new Set([
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
+  "an-native-folded-mesh@1",
+  "an-native-folded-mesh@2",
+  "an-native-folded-mesh@3",
   "an-native-liquid-metal@1",
   "an-native-liquid-metal@2",
   "an-native-liquid-metal@3",
@@ -337,6 +340,9 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-perlin-noise@1",
   "an-native-simplex-noise@1",
   "an-native-pulsing-border@1",
+  "an-native-pulsing-border@3",
+  "an-native-pulsing-border@4",
+  "an-native-pulsing-border@5",
   "an-native-color-panels@1",
   "an-native-smoke-ring@1",
   "an-native-god-rays@1",

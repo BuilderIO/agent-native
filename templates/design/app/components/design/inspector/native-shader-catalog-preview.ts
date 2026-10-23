@@ -11,10 +11,23 @@ import {
 } from "@shared/native-effects";
 import { planNativeInputResources } from "@shared/native-input-resources";
 
+import {
+  connectNativePreviewSurface,
+  prepareNativePreviewSurface,
+} from "@/components/design/design-canvas/native-preview-surface";
 import { encodeStraightRgbaPng } from "@/pages/design-editor/native-png-encoding";
 
+import {
+  nativeShaderCatalogFillFrame,
+  nativeShaderCatalogFixture,
+  nativeShaderCatalogLogo,
+} from "./native-shader-catalog-fixture";
+
 export const NATIVE_CATALOG_PREVIEW_WIDTH = 160;
-export const NATIVE_CATALOG_PREVIEW_HEIGHT = 100;
+export const NATIVE_CATALOG_PREVIEW_HEIGHT = 120;
+const PIXEL_RATIO = 2;
+const PREVIEW_PIXEL_WIDTH = NATIVE_CATALOG_PREVIEW_WIDTH * PIXEL_RATIO;
+const PREVIEW_PIXEL_HEIGHT = NATIVE_CATALOG_PREVIEW_HEIGHT * PIXEL_RATIO;
 const COLUMNS = 4;
 const MAX_ITEMS = 16;
 const TIMEOUT_MS = 15_000;
@@ -34,7 +47,7 @@ type PreviewRuntime = {
     fps: 60;
     sourceContract: "declarative-only";
     viewport: { width: number; height: number };
-    pixelRatio: 1;
+    pixelRatio: 2;
     signal: AbortSignal;
     timeoutMs: number;
   }): Promise<Pixels>;
@@ -54,14 +67,6 @@ export function partitionNativeCatalogPreviewBatch<T>(
     batches.push(definitions.slice(index, index + MAX_ITEMS));
   return batches;
 }
-
-// guard:allow-raw-color — thumbnail source paint is a fixed fixture, independent of editor theme tokens.
-const SOURCE_FIXTURE =
-  '<div style="position:absolute;inset:0;background:lightgray">' +
-  '<div style="position:absolute;left:10px;top:11px;width:81px;height:78px;border-radius:12px;background:steelblue"></div>' +
-  '<div style="position:absolute;left:91px;top:9px;width:58px;height:58px;border-radius:29px;background:coral"></div>' +
-  '<div style="position:absolute;left:0;top:66px;width:160px;height:8px;background:white;transform:rotate(-20deg)"></div>' +
-  "</div>";
 
 export function createNativeCatalogPreviewScene(
   definitions: readonly EffectDefinition[],
@@ -132,14 +137,18 @@ export function createNativeCatalogPreviewScene(
       (input) =>
         input.kind === "builtin" && input.source === "receiver-geometry",
     );
-    const shape = receiverGeometry
-      ? "inset:12px;border-radius:20px"
-      : "inset:0";
-    const target = `<div data-agent-native-node-id="catalog-target-${index}" style="position:absolute;${shape}">${placement === "layer" ? SOURCE_FIXTURE : ""}</div>`;
-    return `<div style="position:absolute;left:${(index % COLUMNS) * NATIVE_CATALOG_PREVIEW_WIDTH}px;top:${Math.floor(index / COLUMNS) * NATIVE_CATALOG_PREVIEW_HEIGHT}px;width:${NATIVE_CATALOG_PREVIEW_WIDTH}px;height:${NATIVE_CATALOG_PREVIEW_HEIGHT}px;overflow:hidden">${placement === "backdrop" ? SOURCE_FIXTURE : ""}${target}</div>`;
+    const art =
+      receiverGeometry || placement !== "fill"
+        ? nativeShaderCatalogFixture(index, !receiverGeometry)
+        : "";
+    const target = receiverGeometry
+      ? placement === "fill"
+        ? nativeShaderCatalogFillFrame(index)
+        : nativeShaderCatalogLogo(index)
+      : `<div data-agent-native-node-id="catalog-target-${index}" style="position:absolute;inset:0;overflow:hidden">${placement === "layer" ? art : ""}</div>`;
+    return `<div style="position:absolute;left:${(index % COLUMNS) * NATIVE_CATALOG_PREVIEW_WIDTH}px;top:${Math.floor(index / COLUMNS) * NATIVE_CATALOG_PREVIEW_HEIGHT}px;width:${NATIVE_CATALOG_PREVIEW_WIDTH}px;height:${NATIVE_CATALOG_PREVIEW_HEIGHT}px;overflow:hidden">${receiverGeometry || placement === "backdrop" ? art : ""}${target}</div>`;
   });
-  // guard:allow-raw-color — a neutral CSS canvas background makes source-processing thumbnail captures opaque.
-  const html = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:${width}px;height:${height}px;overflow:hidden;background:white}*{box-sizing:border-box}</style></head><body>${cards.join("")}</body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:${width}px;height:${height}px;overflow:hidden;background:white}*{box-sizing:border-box}svg[data-catalog-art]{display:block;width:100%;height:100%;overflow:hidden}svg[data-agent-native-node-id]{position:absolute;left:29px;top:26px;width:102px;height:59px;overflow:hidden}</style></head><body>${cards.join("")}</body></html>`;
   return {
     html: writeEffectsToHtml(html, {
       schemaVersion: 2,
@@ -155,8 +164,8 @@ export function cropNativeCatalogPreview(
   pixels: Pixels,
   index: number,
 ): { width: number; height: number; rgba: Uint8Array } {
-  const left = (index % COLUMNS) * NATIVE_CATALOG_PREVIEW_WIDTH;
-  const top = Math.floor(index / COLUMNS) * NATIVE_CATALOG_PREVIEW_HEIGHT;
+  const left = (index % COLUMNS) * PREVIEW_PIXEL_WIDTH;
+  const top = Math.floor(index / COLUMNS) * PREVIEW_PIXEL_HEIGHT;
   if (
     !Number.isInteger(index) ||
     index < 0 ||
@@ -164,23 +173,21 @@ export function cropNativeCatalogPreview(
     pixels.alpha !== "straight" ||
     pixels.colorSpace !== "srgb" ||
     pixels.rgba.byteLength !== pixels.width * pixels.height * 4 ||
-    left + NATIVE_CATALOG_PREVIEW_WIDTH > pixels.width ||
-    top + NATIVE_CATALOG_PREVIEW_HEIGHT > pixels.height
+    left + PREVIEW_PIXEL_WIDTH > pixels.width ||
+    top + PREVIEW_PIXEL_HEIGHT > pixels.height
   )
     throw new Error("native-catalog-preview-pixels-invalid");
-  const rgba = new Uint8Array(
-    NATIVE_CATALOG_PREVIEW_WIDTH * NATIVE_CATALOG_PREVIEW_HEIGHT * 4,
-  );
-  for (let row = 0; row < NATIVE_CATALOG_PREVIEW_HEIGHT; row += 1) {
+  const rgba = new Uint8Array(PREVIEW_PIXEL_WIDTH * PREVIEW_PIXEL_HEIGHT * 4);
+  for (let row = 0; row < PREVIEW_PIXEL_HEIGHT; row += 1) {
     const start = ((top + row) * pixels.width + left) * 4;
     rgba.set(
-      pixels.rgba.subarray(start, start + NATIVE_CATALOG_PREVIEW_WIDTH * 4),
-      row * NATIVE_CATALOG_PREVIEW_WIDTH * 4,
+      pixels.rgba.subarray(start, start + PREVIEW_PIXEL_WIDTH * 4),
+      row * PREVIEW_PIXEL_WIDTH * 4,
     );
   }
   return {
-    width: NATIVE_CATALOG_PREVIEW_WIDTH,
-    height: NATIVE_CATALOG_PREVIEW_HEIGHT,
+    width: PREVIEW_PIXEL_WIDTH,
+    height: PREVIEW_PIXEL_HEIGHT,
     rgba,
   };
 }
@@ -231,7 +238,6 @@ async function capturePreviews(
       throw new Error("native-catalog-preview-definition-unapproved");
   }
   const scene = createNativeCatalogPreviewScene(definitions, placement);
-  const { ensureNativeShaderRuntime } = await import("@shared/shader-fills");
   signal.throwIfAborted();
   const frame = document.createElement("iframe");
   frame.setAttribute("sandbox", "allow-scripts allow-same-origin");
@@ -247,7 +253,15 @@ async function capturePreviews(
       { once: true },
     );
   });
-  frame.srcdoc = ensureNativeShaderRuntime(scene.html);
+  const prepared = prepareNativePreviewSurface({
+    html: scene.html,
+    sandbox: "allow-scripts allow-same-origin",
+    profile: "catalog",
+    approvedHashes,
+    initialPixelRatio: PIXEL_RATIO,
+  });
+  frame.srcdoc = prepared.html;
+  const disconnect = connectNativePreviewSurface(frame, prepared);
   document.body.append(frame);
   let runtime: PreviewRuntime | undefined;
   try {
@@ -270,11 +284,14 @@ async function capturePreviews(
       fps: 60,
       sourceContract: "declarative-only",
       viewport: { width: scene.width, height: scene.height },
-      pixelRatio: 1,
+      pixelRatio: PIXEL_RATIO,
       signal,
       timeoutMs: TIMEOUT_MS,
     });
-    if (pixels.width !== scene.width || pixels.height !== scene.height)
+    if (
+      pixels.width !== scene.width * PIXEL_RATIO ||
+      pixels.height !== scene.height * PIXEL_RATIO
+    )
       throw new Error("native-catalog-preview-viewport-mismatch");
     const entries = await Promise.all(
       definitions.map(
@@ -297,6 +314,7 @@ async function capturePreviews(
       if (runtime)
         await bounded(runtime.dispose(), new AbortController().signal);
     } finally {
+      disconnect();
       frame.remove();
     }
   }
