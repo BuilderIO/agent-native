@@ -662,6 +662,20 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       readPaths(source, "docsDeploymentPaths"),
       readPaths(freshnessActionScript, "docsPaths"),
     );
+    const docsDeploymentPaths = readPaths(source, "docsDeploymentPaths");
+    assert.deepEqual(
+      ((docsWorkflow.on as Workflow).push as Workflow).paths,
+      docsDeploymentPaths,
+    );
+    assert.ok(
+      [
+        "scripts/netlify-prebuilt-build.ts",
+        "scripts/netlify-api-error.ts",
+        "scripts/check-function-size-baseline.mjs",
+        "scripts/ssr-boot-smoke.mjs",
+        "scripts/check-production-cache-contract.mjs",
+      ].every((file) => docsDeploymentPaths.includes(file)),
+    );
     assert.match(
       source,
       /dispatchAndWait\(\s*"deploy-docs-production\.yml",\s*siteWorkflowRef/,
