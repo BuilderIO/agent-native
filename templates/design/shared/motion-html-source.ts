@@ -617,8 +617,8 @@ function srcdocContainsExecutableContentOrNestedFrame(value: string): boolean {
 
 // Every generated design loads these two from jsDelivr. Neither touches a
 // Motion target by itself: Tailwind only reads classes already in the
-// markup, and Alpine acts only through x- directives, which the attribute
-// checks above already refuse when they could change a target. Any other
+// markup, and Alpine acts only through its directives, which the checks
+// below refuse when they could change, replace or restyle a target. Any other
 // script, or these URLs with inline code, extra attributes or a query, is
 // still unknown code and stays refused.
 const GENERATED_DESIGN_LIBRARY_SCRIPT_URLS = [
@@ -781,10 +781,22 @@ function assertExecutableScriptsSafe(
   generatedIds: Map<number | undefined, string>,
 ): void {
   for (const node of nodes) {
-    if (node.insideTemplate) continue;
+    if (node.insideTemplate && !isRenderedByAlpine(node)) continue;
 
+    const markupSink =
+      targetNodeIds.length > 0 &&
+      node.attrs?.find(({ name }) => isAlpineMarkupInjection(name));
+    if (markupSink) {
+      sourceError(
+        "unsupported-target",
+        `HTML Motion targets cannot be synchronized safely while ${markupSink.name} may inject a stylesheet.`,
+      );
+    }
+
+    // A template is never rendered, so nothing fires its event handlers.
     const targetMutatingHandler = node.attrs?.find(
       ({ name, value }) =>
+        !(node.tagName === "template" && isEventHandlerAttribute(name)) &&
         (isEventHandlerAttribute(name) ||
           isRuntimeLifecycleMutationAttribute(name) ||
           isAlpineExpressionAttribute(name)) &&
@@ -846,6 +858,59 @@ function assertExecutableScriptsSafe(
   }
 }
 
+// Alpine clones x-if and x-for template content into the live document, so
+// what it renders runs like any other markup.
+function isRenderedByAlpine(node: HtmlNode): boolean {
+  for (let current = node.parentNode; current; current = current.parentNode) {
+    if (
+      current.tagName === "template" &&
+      current.attrs?.some(({ name }) => /^x-(?:if|for)$/i.test(name))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isAlpineMarkupInjection(name: string): boolean {
+  const directive = name.toLowerCase().split(".", 1)[0]!;
+  return (
+    directive === "x-html" ||
+    ["innerhtml", "outerhtml"].includes(
+      dynamicBoundAttributeName(directive) ?? "",
+    )
+  );
+}
+
+function isAlpineContentReplacement(name: string): boolean {
+  const directive = name.toLowerCase().split(".", 1)[0]!;
+  return (
+    directive === "x-text" ||
+    isAlpineMarkupInjection(directive) ||
+    ["textcontent", "innertext"].includes(
+      dynamicBoundAttributeName(directive) ?? "",
+    )
+  );
+}
+
+function findContentReplacement(
+  target: HtmlNode,
+):
+  | { attribute: { name: string; value: string }; onTarget: boolean }
+  | undefined {
+  for (
+    let current: HtmlNode | undefined = target;
+    current;
+    current = current.parentNode
+  ) {
+    const attribute = current.attrs?.find(({ name }) =>
+      isAlpineContentReplacement(name),
+    );
+    if (attribute) return { attribute, onTarget: current === target };
+  }
+  return undefined;
+}
+
 function isRuntimeEventHandler(name: string): boolean {
   const normalized = name.toLowerCase();
   return (
@@ -904,6 +969,17 @@ function handlerMayMutateMotionTarget(
   if (mayMutateThroughAlternateDomRoot(value, nodes, targetIds, generatedIds)) {
     return true;
   }
+  if (
+    alpineMagicMayMutateMotionTarget(
+      value,
+      handlerNode,
+      nodes,
+      targetIds,
+      generatedIds,
+    )
+  ) {
+    return true;
+  }
   const directTargetMutation =
     DIRECT_ELEMENT_MUTATION.test(value) || handlerTargetAliasMayMutate(value);
   if (
@@ -936,6 +1012,59 @@ function handlerMayMutateMotionTarget(
     targetIds,
     generatedIds,
   );
+}
+
+// $root and $refs hand an expression elements it never selects, so the
+// selector checks cannot see them reach a Motion target. Both resolve
+// through the Alpine roots around the expression, and an expression with
+// no root around it is never evaluated.
+function alpineMagicMayMutateMotionTarget(
+  value: string,
+  handlerNode: HtmlNode,
+  nodes: readonly HtmlNode[],
+  targetIds: ReadonlySet<string>,
+  generatedIds: Map<number | undefined, string>,
+): boolean {
+  if (!MUTATION_MEMBER_ACCESS_PATTERN.test(value)) return false;
+  const roots = alpineRoots(handlerNode);
+  if (roots.length === 0) return false;
+  const reachesTarget = (node: HtmlNode) =>
+    isMotionTargetNode(node, targetIds, generatedIds) ||
+    containsMotionTarget(node, nodes, targetIds, generatedIds);
+
+  if (/\$root\b/.test(value) && reachesTarget(roots[0]!)) return true;
+
+  const refs =
+    /\$refs\b(?:\s*\??\.\s*([A-Za-z_$][\w$]*)|\s*\[\s*(["'])([^"']*)\2\s*\])?/g;
+  for (const match of value.matchAll(refs)) {
+    const name = match[1] ?? match[3];
+    const referenced = nodes.filter(
+      (node) =>
+        roots.includes(alpineRoots(node)[0]!) &&
+        attributes(node, "x-ref").some(
+          ({ value: ref }) => name === undefined || ref === name,
+        ),
+    );
+    if (referenced.some(reachesTarget)) return true;
+  }
+  return false;
+}
+
+function alpineRoots(node: HtmlNode): HtmlNode[] {
+  const roots: HtmlNode[] = [];
+  for (
+    let current: HtmlNode | undefined = node;
+    current;
+    current = current.parentNode
+  ) {
+    if (
+      attributes(current, "x-data").length > 0 ||
+      attributes(current, "x-init").length > 0
+    ) {
+      roots.push(current);
+    }
+  }
+  return roots;
 }
 
 const MUTATION_MEMBER_ACCESS = String.raw`(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute(?:NS)?\s*\(|removeAttribute\s*\(|toggleAttribute\s*\(|animate\s*\()|\[\s*["'](?:style|classList|className|setAttribute(?:NS)?|removeAttribute|toggleAttribute|animate)["']\s*\]`;
@@ -1024,7 +1153,7 @@ function mayMutateThroughAlternateDomRoot(
   targetIds: ReadonlySet<string>,
   generatedIds: Map<number | undefined, string>,
 ): boolean {
-  const root = String.raw`(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))`;
+  const root = String.raw`(?:this|\$el|\$root|\$refs\s*(?:\??\.\s*[A-Za-z_$][\w$]*|\[[^\]]*\])|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))`;
   const selectorNames = String.raw`querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName)`;
   const selectorCalls = new RegExp(
     String.raw`(?<![\w$])${root}\s*(?:\.\s*(?:ownerDocument)|\.\s*getRootNode\s*\(\s*\)|\[\s*["'](?:ownerDocument|getRootNode)["']\s*\](?:\s*\(\s*\))?)\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
@@ -2033,6 +2162,14 @@ function assertTargetsExist(
         sourceError(
           "unsupported-target",
           `Motion target "${nodeId}" ${runtimeScope}, whose runtime expression cannot be proven free of style mutations.`,
+        );
+      }
+      const contentReplacement = findContentReplacement(target);
+      if (contentReplacement) {
+        const { attribute, onTarget } = contentReplacement;
+        sourceError(
+          "unsupported-target",
+          `Motion target "${nodeId}" ${onTarget ? "uses" : "has an ancestor using"} ${attribute.name}, which replaces its content when Alpine runs.`,
         );
       }
       const inlineStyle = target.attrs?.find(({ name }) => name === "style");
