@@ -1726,6 +1726,21 @@ describe("HTML Motion source adapter", () => {
     ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
   });
 
+  it("rejects a class joined from component state that may spell a Tailwind arbitrary variant", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        `<nav x-data="{ b: ']:opacity-0', a: '[&~main_h1' }" :class="a + b"></nav>\n  <main class="card">`,
+      )
+      .replace("</body>", `${TAILWIND_CDN}\n${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
   it("allows a sibling's dynamic Tailwind utilities that cannot reach another element", () => {
     const source = html
       .replace(

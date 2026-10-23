@@ -847,7 +847,7 @@ function writesClasses(name: string, value: string): boolean {
 function buildsStringAtRuntime(value: string): boolean {
   return (
     /`[^`]*\$\{/.test(value) ||
-    /["'`]\s*\+|\+\s*["'`]/.test(value) ||
+    /\+/.test(value) ||
     /\bfromCharCode\b|\.\s*(?:join|concat|replace(?:All)?|repeat)\s*\(/.test(
       value,
     )
