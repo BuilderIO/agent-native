@@ -12,7 +12,10 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import {
+  assertLegacyBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import {
   GitHubSourceDeadlineError,
@@ -98,6 +101,7 @@ type DocumentRow = typeof schema.documents.$inferSelect;
 type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
 
 export const GITHUB_SYNC_OPERATION = "sync-github-source";
+const GITHUB_BODY_WRITER = { operation: "GitHub folder sync" };
 /** How long a running sync holds its lease; longer than any sync's budget. */
 const SYNC_LEASE_MS = 2 * 60 * 1000;
 /** Files previewed before linking, enough to see the frontmatter's shape. */
@@ -951,10 +955,12 @@ function folderRelative(run: SyncRun, repoPath: string) {
 /**
  * Copies one image into Content's file storage. `"no-storage"` means none is
  * set up, so the page leaves the image out until a later sync can store it.
+ * `beforeUpload` runs before each copy the sync can't take back.
  */
 async function uploadAsset(
   run: SyncRun,
   request: ImportAssetRequest,
+  beforeUpload: () => Promise<void>,
 ): Promise<{ sha: string; url: string } | "no-storage" | null> {
   if (request.kind === "data-url") {
     if (!isImportImageMediaType(request.mediaType)) return null;
@@ -964,6 +970,7 @@ async function uploadAsset(
     const cached = run.assetUrlBySha.get(sha);
     if (cached) return { sha, url: cached };
     if (run.storageMissing) return "no-storage";
+    await beforeUpload();
     const extension = request.mediaType.split("/")[1]?.split("+")[0] ?? "img";
     const uploaded = await asLinker(run.state, run.database.orgId, () =>
       uploadFile({
@@ -989,6 +996,7 @@ async function uploadAsset(
   const cached = run.assetUrlBySha.get(entry.sha);
   if (cached) return { sha: entry.sha, url: cached };
   if (run.storageMissing) return "no-storage";
+  await beforeUpload();
   const data = await asLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
       owner: run.state.owner,
@@ -1019,7 +1027,12 @@ async function uploadAsset(
  * uses, with images copied into Content storage and links to other files in
  * the folder pointing at their pages.
  */
-async function buildPage(run: SyncRun, relativePath: string, text: string) {
+async function buildPage(
+  run: SyncRun,
+  relativePath: string,
+  text: string,
+  beforeUpload: () => Promise<void>,
+) {
   const draft = parseMarkdownImport({
     sourcePath: relativePath,
     text,
@@ -1046,7 +1059,7 @@ async function buildPage(run: SyncRun, relativePath: string, text: string) {
   const urls = new Map<string, string>();
   let imagesWaiting = 0;
   for (const [key, request] of requests) {
-    const uploaded = await uploadAsset(run, request);
+    const uploaded = await uploadAsset(run, request, beforeUpload);
     if (uploaded === "no-storage") imagesWaiting += 1;
     if (!uploaded || uploaded === "no-storage") continue;
     urls.set(key, uploaded.url);
@@ -1241,17 +1254,26 @@ async function applyFile(
   const relativePath = file.entry.path;
   const text = await readFileText(run, file);
   if (text === null) return { skipped: "not-text" };
+  const linkedRow = file.row ?? file.renamedFrom;
+  // An upload can't roll back with the write, so a page the write would refuse
+  // refuses before the first one. The write still checks the page under its
+  // lock, since it can switch in between.
+  let uploadsAllowed: Promise<void> | undefined;
+  const beforeUpload = () =>
+    (uploadsAllowed ??= linkedRow
+      ? assertLegacyBodyWriter(linkedRow.documentId, GITHUB_BODY_WRITER)
+      : Promise.resolve());
   const { draft, page, assets, imagesWaiting } = await buildPage(
     run,
     relativePath,
     text,
+    beforeUpload,
   );
   if (page.content.length > MAX_IMPORT_PAGE_CHARACTERS) {
     return { skipped: "too-large" };
   }
   file.imagesWaiting = imagesWaiting;
   const values = frontmatterValues(draft);
-  const linkedRow = file.row ?? file.renamedFrom;
   const previous = linkedRow ? rowState(linkedRow) : null;
   const nextState: RowState = {
     path: file.repoPath,
@@ -1288,7 +1310,7 @@ async function applyFile(
               const moved = document.sourcePath !== file.repoPath;
               if (bodyChanged) {
                 const legacy = await lockLegacyBodyWrites(tx, [document.id], {
-                  operation: "GitHub folder sync",
+                  ...GITHUB_BODY_WRITER,
                   content: page.content,
                 });
                 const [written] = await tx
