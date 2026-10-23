@@ -727,6 +727,9 @@ export async function resolveOrgIdForEmail(
   email: string,
 ): Promise<string | null> {
   const resolution = await resolveOrgScopeForEmail(email);
+  if (resolution.status === "unknown") {
+    throw new Error("Organization scope is unavailable");
+  }
   return resolution.status === "organization" ? resolution.orgId : null;
 }
 

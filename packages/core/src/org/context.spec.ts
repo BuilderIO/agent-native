@@ -1303,11 +1303,16 @@ describe("resolveOrgIdForEmail", () => {
     expect(mockExecute.mock.calls[0][0].args).toEqual(["mixed@case.com"]);
   });
 
-  it("returns null on a DB error (missing tables) rather than throwing", async () => {
-    mockExecute.mockRejectedValueOnce(
-      new Error('relation "org_members" does not exist'),
+  it.each([
+    new Error('relation "org_members" does not exist'),
+    Object.assign(new Error("permission denied for table org_members"), {
+      code: "42501",
+    }),
+  ])("throws when organization scope is unavailable: %s", async (error) => {
+    mockExecute.mockRejectedValueOnce(error);
+    await expect(resolveOrgIdForEmail("a@b.com")).rejects.toThrow(
+      "Organization scope is unavailable",
     );
-    expect(await resolveOrgIdForEmail("a@b.com")).toBeNull();
   });
 
   it("throws when org_members is unreadable, so callers cannot mistake it for 'no org'", async () => {
