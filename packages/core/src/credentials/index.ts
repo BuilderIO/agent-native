@@ -10,7 +10,7 @@ import {
   readAppSecret,
   type SecretRef,
 } from "../secrets/storage.js";
-import { assertCredentialStoreReadable } from "../server/credential-provider.js";
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   isPersonalCredentialScope,
   readsOrgCredentialFirst,
@@ -22,6 +22,7 @@ import {
 } from "../server/personal-provider-key-policy.js";
 import { getRequestContext } from "../server/request-context.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
+import { ForbiddenError } from "../sharing/errors.js";
 
 const SETTING_PREFIX = "credential:";
 
@@ -193,14 +194,22 @@ export async function resolveCredentialForScope(
 async function resolveEffectiveOrgId(
   ctx: CredentialContext,
 ): Promise<{ orgId: string | null; lookupFailed: boolean; cause?: unknown }> {
-  if (ctx.orgId) return { orgId: ctx.orgId, lookupFailed: false };
   try {
+    const delegated =
+      getRequestContext()?.a2aIdentityAssurance === "org-member";
+    if (ctx.orgId && !delegated)
+      return { orgId: ctx.orgId, lookupFailed: false };
     const { resolveOrgIdForEmail } = await import("../org/context.js");
+    const orgId = await resolveOrgIdForEmail(ctx.userEmail);
+    if (delegated && ctx.orgId && ctx.orgId !== orgId) {
+      throw new ForbiddenError();
+    }
     return {
-      orgId: await resolveOrgIdForEmail(ctx.userEmail),
+      orgId,
       lookupFailed: false,
     };
   } catch (cause) {
+    if (cause instanceof ForbiddenError) throw cause;
     return { orgId: null, lookupFailed: true, cause };
   }
 }
@@ -236,15 +245,26 @@ export async function resolveCredentialDetailed(
 ): Promise<ResolvedCredential | undefined> {
   if (!ctx?.userEmail) return undefined;
 
+  if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
+  const orgLookup = await resolveEffectiveOrgId(ctx);
+  if (orgLookup.lookupFailed) {
+    throw new CredentialStoreUnavailableError(orgLookup.cause);
+  }
+  const { orgId } = orgLookup;
+
   // Stored but unused while the org restricts a member's provider keys.
-  const personalRestricted =
-    ctx.credentialScope !== "org" &&
-    isPersonalProviderPolicyKey(key) &&
-    (await isPersonalProviderKeyUseRestricted(
-      ctx.orgId
-        ? { email: ctx.userEmail, orgId: ctx.orgId }
-        : { email: ctx.userEmail },
-    ));
+  let personalRestricted = false;
+  if (ctx.credentialScope !== "org" && isPersonalProviderPolicyKey(key)) {
+    try {
+      personalRestricted = await isPersonalProviderKeyUseRestricted({
+        email: ctx.userEmail,
+        orgId,
+      });
+    } catch (cause) {
+      if (cause instanceof ForbiddenError) throw cause;
+      throw new CredentialStoreUnavailableError(cause);
+    }
+  }
 
   let personal: ResolvedCredential | undefined;
   if (ctx.credentialScope !== "org" && !personalRestricted) {
@@ -254,11 +274,6 @@ export async function resolveCredentialDetailed(
     if (value) personal = { value, scope: "user", scopeId: ctx.userEmail };
   }
 
-  if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
-  const orgLookup = await resolveEffectiveOrgId(ctx);
-  // Before the personal answer: without the org, an owner's role is unknown.
-  assertCredentialStoreReadable(orgLookup);
-  const { orgId } = orgLookup;
   // An owner or admin runs on the organization's credential ahead of their own.
   if (personal && !(await readsOrgCredentialFirst(orgId, ctx.userEmail))) {
     return personal;

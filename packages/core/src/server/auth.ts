@@ -4758,9 +4758,7 @@ async function backfillSessionOrg(
 ): Promise<AuthSession> {
   if (session.orgId || hasExplicitPersonalOrgScope(event)) return session;
   const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
-  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email).catch(
-    () => null,
-  );
+  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email);
   return orgId ? { ...session, orgId } : session;
 }
 
