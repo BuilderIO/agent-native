@@ -59,7 +59,6 @@ import {
   isSafeNoDataAnalyticsResponse,
   hasOverstatedCoverageConfidenceClaim,
   looksLikeCoverageSensitiveAnalyticsRequest,
-  bigQueryRowValues,
   looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
   isNonDataTurn,
@@ -705,16 +704,6 @@ function isCompleteDbtSuccess(result: {
     Array.isArray(payload.rows) &&
     payload.rows.length > 0
   );
-}
-
-const UNREADABLE_JSON = Symbol("unreadable json");
-
-function parseJsonContent(content: unknown): unknown {
-  try {
-    return JSON.parse(String(content ?? "")) as unknown;
-  } catch {
-    return UNREADABLE_JSON;
-  }
 }
 
 type DbtGuardQueryScope = {
