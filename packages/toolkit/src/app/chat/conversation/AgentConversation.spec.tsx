@@ -116,7 +116,9 @@ describe("AgentConversationMessageView", () => {
       id: "example-renderer",
       match: "example-tool",
       Component: ({ context }) => (
-        <div data-testid="example-renderer">{context.resultText}</div>
+        <div data-testid="example-renderer">
+          Custom renderer: {context.resultText}
+        </div>
       ),
     });
     act(() =>
@@ -143,6 +145,10 @@ describe("AgentConversationMessageView", () => {
     );
     expect(container.querySelector('[data-testid="example-renderer"]')).toBe(
       null,
+    );
+    expect(container.textContent).not.toContain("Custom renderer:");
+    expect(container.querySelector("pre span")?.textContent).toBe(
+      "Example Document failed.",
     );
     expect(
       container.querySelector("pre span")?.hasAttribute("data-an-mask"),

@@ -417,7 +417,7 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
     resultJson: tool.resultJson ?? resultJson,
     status:
       tool.state === "errored"
-        ? "failed"
+        ? undefined
         : tool.state === "activity"
           ? "running"
           : tool.state,
