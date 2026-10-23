@@ -58,5 +58,6 @@ export async function resolveExportImageSource(
   if (!Number.isFinite(density) || density <= 0) {
     throw new Error("Responsive export image dimensions are unavailable.");
   }
+  image.removeAttribute("src");
   image.setAttribute("srcset", `${source} ${density}x`);
 }

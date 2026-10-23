@@ -944,6 +944,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     if (!Number.isFinite(density) || density <= 0) {
       throw new Error("Responsive export image dimensions are unavailable.");
     }
+    image.removeAttribute("src");
     image.setAttribute("srcset", \`\${source} \${density}x\`);
   }
 
@@ -1069,6 +1070,41 @@ export const editorChromeBridgeScript: string = `"use strict";
     if (context.margins.some((margin) => margin !== 0)) return true;
     const inFlow = context.position !== "absolute" && context.position !== "fixed";
     return inFlow && isAutoLayoutDisplay(context.parentDisplay);
+  }
+
+  // shared/srcset.ts
+  function parseSrcset(value) {
+    const candidates = [];
+    let position = 0;
+    while (position < value.length) {
+      while (position < value.length && /[\\s,]/.test(value[position]))
+        position += 1;
+      if (position >= value.length) break;
+      const urlStart = position;
+      while (position < value.length && !/\\s/.test(value[position]))
+        position += 1;
+      let url = value.slice(urlStart, position);
+      const hasTrailingSeparator = url.endsWith(",");
+      while (url.endsWith(",")) url = url.slice(0, -1);
+      let descriptor = "";
+      if (!hasTrailingSeparator) {
+        while (position < value.length && /\\s/.test(value[position]))
+          position += 1;
+        const descriptorStart = position;
+        let parentheses = 0;
+        while (position < value.length) {
+          const character = value[position];
+          if (character === "(") parentheses += 1;
+          if (character === ")" && parentheses > 0) parentheses -= 1;
+          if (character === "," && parentheses === 0) break;
+          position += 1;
+        }
+        descriptor = value.slice(descriptorStart, position).trim();
+        if (value[position] === ",") position += 1;
+      }
+      if (url) candidates.push({ url, descriptor });
+    }
+    return candidates;
   }
 
   // shared/text-layer-rule.ts
@@ -3322,15 +3358,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       for (var imageIndex = 0; imageIndex < imageNodes.length; imageIndex += 1) {
         var image = imageNodes[imageIndex];
-        var attribute = image.hasAttribute("src") ? "src" : image.hasAttribute("href") ? "href" : "xlink:href";
-        var source = image.getAttribute(attribute);
+        var markedResponsiveImage = image.localName === "img" && image.hasAttribute("data-agent-native-export-image-natural-width");
+        var responsiveSrcset = markedResponsiveImage && !image.hasAttribute("src") ? parseSrcset(image.getAttribute("srcset") || "")[0] : null;
+        var attribute = responsiveSrcset ? "srcset" : image.hasAttribute("src") ? "src" : image.hasAttribute("href") ? "href" : "xlink:href";
+        var source = responsiveSrcset ? responsiveSrcset.url : image.getAttribute(attribute);
         if (!source) {
-          markFailure("image-unavailable");
+          if (markedResponsiveImage) markFailure("image-unavailable");
           continue;
         }
         var dataSource = /^(?:data|about):/i.test(source) ? source : await resourceDataUrl(source, document.baseURI);
-        if (dataSource) image.setAttribute(attribute, dataSource);
-        else markFailure("image-fetch");
+        if (dataSource) {
+          image.setAttribute(
+            attribute,
+            responsiveSrcset ? \`\${dataSource} \${responsiveSrcset.descriptor}\` : dataSource
+          );
+        } else markFailure("image-fetch");
         if (image.localName === "img") {
           try {
             if (dataSource) {

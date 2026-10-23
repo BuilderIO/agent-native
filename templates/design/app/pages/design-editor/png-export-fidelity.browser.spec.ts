@@ -184,6 +184,17 @@ it.each([
     redHeight: 25,
   },
   {
+    name: "an empty inline SVG image reference",
+    width: 400,
+    height: 200,
+    frameHeight: 200,
+    runtime: true,
+    content:
+      '<style>html,body{margin:0}</style><svg width="100" height="50"><image href="" width="100" height="50"/><rect width="100" height="50" fill="red"/></svg>',
+    redWidth: 100,
+    redHeight: 50,
+  },
+  {
     name: "frame taller than the loaded document",
     width: 1000,
     height: 200,
@@ -246,6 +257,9 @@ it.each([
     await page.waitForFunction(
       () => typeof (window as any).__exportSnapshot === "string",
     );
+    expect(
+      await page.evaluate(() => (window as any).__exportSnapshot),
+    ).not.toContain("data-agent-native-export-resource-failures");
     await page.evaluate(async (width) => {
       const original = document.querySelector("iframe")!;
       const replacement = document.createElement("iframe");
@@ -503,10 +517,20 @@ it("waits for a loading width-described image and refreshes its runtime snapshot
     const source = snapshot.querySelector("img")!;
     const image = new Image();
     image.srcset = source.srcset;
-    image.src = source.src;
     await image.decode();
     return image.naturalWidth;
   });
+  expect(
+    await page.evaluate(() => {
+      const source = new DOMParser()
+        .parseFromString((window as any).__snapshots.at(-1), "text/html")
+        .querySelector("img");
+      return {
+        hasSrc: source?.hasAttribute("src"),
+        hasSrcset: source?.hasAttribute("srcset"),
+      };
+    }),
+  ).toEqual({ hasSrc: false, hasSrcset: true });
   expect(width).toBe(100);
   expect(errors).toEqual([]);
   await browser.close();
