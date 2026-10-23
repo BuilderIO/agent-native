@@ -2348,15 +2348,18 @@ export function CommentsSidebar({
     });
   }, [inlineThreads]);
 
+  // The panel lists resolved threads too, so a link to one keeps it selected
+  // there; it lets go once the thread is gone.
+  const selectableThreads = presentation === "history" ? threads : openThreads;
   useEffect(() => {
     if (
       selectedThreadId &&
-      !openThreads.some((thread) => thread.threadId === selectedThreadId)
+      !selectableThreads.some((thread) => thread.threadId === selectedThreadId)
     ) {
       onSelectedThreadChange?.(null);
       setReplyingThreadId(null);
     }
-  }, [onSelectedThreadChange, selectedThreadId, openThreads]);
+  }, [onSelectedThreadChange, selectedThreadId, selectableThreads]);
 
   const hasContent =
     presentation === "history"

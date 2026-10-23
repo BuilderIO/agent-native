@@ -124,6 +124,8 @@ let highlights: {
 } = { visible: true };
 // The page the panel measures highlights in. Empty, it measures nothing.
 const page: { current: HTMLDivElement | null } = { current: null };
+// Hears the panel let go of the selected thread.
+let onSelectedThreadChange: ((threadId: string | null) => void) | undefined;
 
 function Owner({
   presentation,
@@ -139,6 +141,7 @@ function Owner({
       documentId="fixture"
       threads={threads}
       selectedThreadId={selected}
+      onSelectedThreadChange={onSelectedThreadChange}
       currentUserEmail={USER}
       canComment
       canResolve
@@ -172,6 +175,7 @@ describe("the Discussion panel", () => {
     page.current?.remove();
     page.current = null;
     threads = fixtureThreads;
+    onSelectedThreadChange = undefined;
     queryClient.clear();
     window.localStorage.clear();
   });
@@ -402,6 +406,20 @@ describe("the Discussion panel", () => {
     act(() => replies.setHistoryFilters({ kind: "suggestions" }));
     expect(card("text-1")).not.toBeNull();
     expect(card("page-1")).toBeNull();
+  });
+
+  it("keeps a linked resolved thread selected, and in view under the default Open filter", () => {
+    onSelectedThreadChange = vi.fn();
+    threads = [fixtureThreads[0], { ...fixtureThreads[1], resolved: true }];
+    render("history", "text-1");
+    expect(card("text-1")).not.toBeNull();
+    expect(card("page-1")).not.toBeNull();
+    expect(onSelectedThreadChange).not.toHaveBeenCalled();
+
+    // It lets go once the thread is gone.
+    threads = [fixtureThreads[0]];
+    render("history", "text-1");
+    expect(onSelectedThreadChange).toHaveBeenCalledWith(null);
   });
 
   it("keeps a page comment in view after posting it under a filter that hides it, until the filters change", async () => {
