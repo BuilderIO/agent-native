@@ -8,7 +8,11 @@ import {
   unregisterTrackingProvider,
 } from "../tracking/registry.js";
 import type { TrackingEvent } from "../tracking/types.js";
-import { detectVendorClient, readClientInfoFromRequest } from "./analytics.js";
+import {
+  detectVendorClient,
+  readClientInfoFromRequest,
+  vendorForRedirectHost,
+} from "./analytics.js";
 import { createMCPServerForRequest, type MCPConfig } from "./build-server.js";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -179,9 +183,17 @@ describe("client identification", () => {
     expect(detectVendorClient(undefined, "cursor-mcp/0.4")).toBe("cursor");
     expect(detectVendorClient("some-unknown-host")).toBeUndefined();
     expect(detectVendorClient(undefined, undefined)).toBeUndefined();
-    expect(detectVendorClient(undefined, undefined, "chatgpt.com")).toBe(
-      "openai",
-    );
+  });
+
+  it("credits a redirect host only for a whole known domain", () => {
+    expect(vendorForRedirectHost("chatgpt.com")).toBe("openai");
+    expect(vendorForRedirectHost("chat.openai.com")).toBe("openai");
+    expect(vendorForRedirectHost("CLAUDE.AI")).toBe("claude");
+    expect(vendorForRedirectHost("openai.evil.example")).toBeUndefined();
+    expect(vendorForRedirectHost("chatgpt.com.evil.example")).toBeUndefined();
+    expect(vendorForRedirectHost("notchatgpt.com")).toBeUndefined();
+    expect(vendorForRedirectHost("localhost")).toBeUndefined();
+    expect(vendorForRedirectHost(undefined)).toBeUndefined();
   });
 
   it("reads the client's own name and version from per-request _meta", () => {

@@ -956,9 +956,10 @@ async function handleAuthorize(
       });
     }
     const loginPage = getConfiguredLoginHtml(event);
-    if (loginPage) {
-      // An open is a page actually served; the consent POST is the same visit
-      // continuing, not a second open.
+    // Only the real sign-in page (200) is a login wall; 503 is the deploy's
+    // setup-required page. The consent POST is the same visit continuing, not
+    // a second open.
+    if (loginPage?.status === 200) {
       if (method === "GET") trackAuthorizeStage("opened", analyticsInput);
       trackAuthorizeStage("login_wall", analyticsInput);
     }

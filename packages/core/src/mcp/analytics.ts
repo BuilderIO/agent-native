@@ -67,6 +67,25 @@ export function detectVendorClient(
   return undefined;
 }
 
+// Redirect hosts are client-supplied, so a vendor is credited only for the host
+// itself or a subdomain of it; a substring match would credit
+// `openai.evil.example`.
+const REDIRECT_HOST_VENDORS: Array<[domain: string, vendor: string]> = [
+  ["chatgpt.com", "openai"],
+  ["openai.com", "openai"],
+  ["claude.ai", "claude"],
+];
+
+export function vendorForRedirectHost(
+  host: string | undefined,
+): string | undefined {
+  const name = host?.toLowerCase();
+  if (!name) return undefined;
+  return REDIRECT_HOST_VENDORS.find(
+    ([domain]) => name === domain || name.endsWith(`.${domain}`),
+  )?.[1];
+}
+
 export function readClientInfoFromRequest(
   request: McpRequestLike | undefined,
 ): {
@@ -101,11 +120,9 @@ function captureParameters(): boolean {
 }
 
 function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
-  const vendor = detectVendorClient(
-    ctx.clientName,
-    ctx.clientUserAgent,
-    ctx.redirectHost,
-  );
+  const vendor =
+    detectVendorClient(ctx.clientName, ctx.clientUserAgent) ??
+    vendorForRedirectHost(ctx.redirectHost);
   return {
     $mcp_source: ctx.source,
     $mcp_server_name: ctx.serverName,

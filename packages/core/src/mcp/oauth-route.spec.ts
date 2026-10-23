@@ -1093,14 +1093,15 @@ describe("MCP OAuth route", () => {
     async function openAuthorize(
       query: Record<string, string> = {},
       resource = "https://mail.agent-native.com/mcp/directory",
+      connector = { name: "ChatGPT", redirect: chatgptRedirect },
     ) {
       const client = await (
         await handleMcpOAuth(
           event({
             method: "POST",
             body: {
-              client_name: "ChatGPT",
-              redirect_uris: [chatgptRedirect],
+              client_name: connector.name,
+              redirect_uris: [connector.redirect],
             } as any,
           }),
           "/register",
@@ -1109,7 +1110,7 @@ describe("MCP OAuth route", () => {
       const params = {
         response_type: "code",
         client_id: client.client_id,
-        redirect_uri: chatgptRedirect,
+        redirect_uri: connector.redirect,
         resource,
         code_challenge: challenge(verifier),
         code_challenge_method: "S256",
@@ -1195,6 +1196,42 @@ describe("MCP OAuth route", () => {
 
       expect(response.status).toBe(401);
       expect(authorizeFunnelCalls()).toEqual([]);
+    });
+
+    it("counts nothing for the deploy's setup-required page", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      getConfiguredLoginHtmlMock.mockReturnValueOnce({
+        html: "<p>Setup required</p>",
+        status: 503,
+      });
+      const { response } = await openAuthorize();
+
+      expect(response.status).toBe(503);
+      expect(authorizeFunnelCalls()).toEqual([]);
+    });
+
+    it("takes the vendor from a known redirect host when the client name says nothing", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      await openAuthorize({}, undefined, {
+        name: "Connector",
+        redirect: chatgptRedirect,
+      });
+
+      expect(authorizeFunnelCalls()[0][1]).toMatchObject({
+        $mcp_vendor_client: "openai",
+      });
+    });
+
+    it("does not credit a vendor to a look-alike redirect host", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      await openAuthorize({}, undefined, {
+        name: "Connector",
+        redirect: "https://openai.evil.example/cb",
+      });
+
+      const props = authorizeFunnelCalls()[0][1];
+      expect(props.$mcp_redirect_host).toBe("openai.evil.example");
+      expect(props.$mcp_vendor_client).toBeUndefined();
     });
 
     it("counts nothing when a signed-in visitor is redirected with an error", async () => {
