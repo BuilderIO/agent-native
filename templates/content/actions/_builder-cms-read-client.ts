@@ -230,6 +230,7 @@ const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
   "published",
   "lastUpdated",
   "createdDate",
+  "meta.hasAutosaves",
   "data.title",
   "data.handle",
   "data.url",
@@ -275,7 +276,8 @@ function normalizeBuilderCmsListFieldPath(fieldPath: string) {
   }
   if (
     normalized.includes(".") &&
-    !normalized.toLowerCase().startsWith("data.")
+    !lower.startsWith("data.") &&
+    !BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS.has(lower)
   ) {
     return null;
   }

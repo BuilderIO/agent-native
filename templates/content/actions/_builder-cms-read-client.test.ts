@@ -151,6 +151,8 @@ describe("Builder CMS read client", () => {
     expect(fields).not.toContain("DATA.BLOCKS");
     expect(fields).not.toContain("data.BlocksString");
     expect(fields).not.toContain("sys.sync_state");
+    // The Builder status reads Builder's own autosave flag from every read.
+    expect(fields).toContain("meta.hasAutosaves");
     expect(fields.filter((field) => field === "data.tags")).toHaveLength(1);
     expect(fields).toContain("published");
     expect(fields).toContain("data.published");
