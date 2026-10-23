@@ -23,11 +23,16 @@ vi.mock("./run-store.js", () => ({
   setRunTerminalReason: vi.fn(),
 }));
 
-const { runAgentLoop } = await import("./production-agent.js");
+const { runAgentLoop, AGENT_INTERNAL_CONTINUE_PROMPT } =
+  await import("./production-agent.js");
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { defineAction, fail, NoWriteError } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
-import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import type {
+  AgentEngine,
+  EngineEvent,
+  EngineMessage,
+} from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
 import type { AgentChatEvent } from "./types.js";
 
@@ -73,16 +78,21 @@ function scriptedEngine(
 async function runCalls(
   actions: Record<string, ActionEntry>,
   calls: Array<{ name: string; input: Record<string, unknown> }>,
-  resumed?: { threadId: string },
+  resumed?: { threadId: string; history?: EngineMessage[] },
 ): Promise<AgentChatEvent[]> {
   const events: AgentChatEvent[] = [];
   await runAgentLoop({
-    ...(resumed ? { ...resumed, internalContinuation: true } : {}),
+    ...(resumed
+      ? { threadId: resumed.threadId, internalContinuation: true }
+      : {}),
     engine: scriptedEngine(calls),
     model: "test-model",
     systemPrompt: "system",
     tools: [],
-    messages: [{ role: "user", content: [{ type: "text", text: "Edit." }] }],
+    messages: [
+      { role: "user", content: [{ type: "text", text: "Edit." }] },
+      ...(resumed?.history ?? []),
+    ],
     actions,
     send: (event) => {
       events.push(event);
@@ -421,6 +431,66 @@ describe("a write whose outcome is really unknown", () => {
       );
     },
   );
+
+  it("keeps the journal's recorded cause when the history repeats the call", async () => {
+    const input = { body: "Refund sent" };
+    const result = "Error running send: Upstream rejected the request.";
+    currentTurnEvents.mockResolvedValue([
+      { type: "tool_start", id: "earlier", tool: "send", input },
+      {
+        type: "tool_done",
+        id: "earlier",
+        tool: "send",
+        input,
+        result,
+        isError: true,
+        outcomeUnknown: true,
+        unknownCause: "rejection",
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ]);
+    const run = vi.fn(async () => "sent");
+    const action = defineAction({
+      description: "Send.",
+      schema: z.object({ body: z.string() }),
+      run,
+    }) as unknown as ActionEntry;
+    const events = await runCalls({ send: action }, [{ name: "send", input }], {
+      threadId: "thread-both-sources",
+      history: [
+        {
+          role: "assistant",
+          content: [{ type: "tool-call", id: "earlier", name: "send", input }],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "earlier",
+              toolName: "send",
+              content: result,
+              isError: true,
+              outcome: "unknown",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "rejection",
+      }),
+    );
+  });
 
   it("still reads a plain handler failure as possibly written", async () => {
     const run = vi.fn(async () => {

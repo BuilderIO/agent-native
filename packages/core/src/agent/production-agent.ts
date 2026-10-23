@@ -5199,11 +5199,12 @@ function noteUnknownOutcome(
   outcomes: UnknownOutcomes,
   tool: string,
   argumentsHash: string | undefined,
-  cause: UnknownOutcomeCause = "interruption",
+  /** Only what recorded it: a cause-less source must not overwrite one. */
+  cause: UnknownOutcomeCause | undefined,
   input?: unknown,
 ): void {
   outcomes.tools.set(tool, (outcomes.tools.get(tool) ?? 0) + 1);
-  outcomes.causes.set(tool, cause);
+  if (cause) outcomes.causes.set(tool, cause);
   if (input !== undefined) {
     const inputKey = toolCallCacheKey(tool, input);
     outcomes.inputs.set(inputKey, (outcomes.inputs.get(inputKey) ?? 0) + 1);
@@ -5267,8 +5268,7 @@ function seedUnknownOutcomes(
       fromJournal,
       entry.tool,
       entry.argumentsHash,
-      // Recorded with the event; one recorded without it was an interruption.
-      entry.unknownCause ?? "interruption",
+      entry.unknownCause,
       entry.input,
     );
   }
@@ -5311,7 +5311,7 @@ function seedUnknownOutcomes(
         fromHistory,
         call.name,
         effect ? priorCallIdentities.get(call.identityKey ?? "") : undefined,
-        "interruption",
+        undefined,
         call.input,
       );
     }
@@ -5364,7 +5364,7 @@ function seedUnknownOutcomes(
       fromHistory,
       call.name,
       undefined,
-      "interruption",
+      undefined,
       call.input,
     );
   }
@@ -7596,7 +7596,7 @@ export async function runAgentLoop(opts: {
         seeded,
         entry.tool,
         entry.argumentsHash,
-        "interruption",
+        undefined,
         entry.input,
       );
       mergeUnknownOutcomes(unknownOutcomes, seeded);
@@ -7606,7 +7606,7 @@ export async function runAgentLoop(opts: {
   // hold back every write of the tool.
   for (const tool of opts.unknownWriteToolNames ?? []) {
     const seeded = noUnknownOutcomes();
-    noteUnknownOutcome(seeded, tool, undefined);
+    noteUnknownOutcome(seeded, tool, undefined, undefined);
     mergeUnknownOutcomes(unknownOutcomes, seeded);
   }
   const {
