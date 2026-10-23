@@ -1778,12 +1778,29 @@ function replyNamesRecordedAction(
   );
 }
 
+function explicitActionReferenceKeys(text: string): Set<string> {
+  const normalized = text.normalize("NFKC").toLowerCase().replace(/[*_`]/g, "");
+  const references = new Set<string>();
+  for (const match of normalized.matchAll(
+    /\b(pr|pull request|issue|ticket)\s+#?([\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)*)\b/giu,
+  )) {
+    const originalKind = match[1]!.toLowerCase();
+    const kind = originalKind === "pull request" ? "pr" : originalKind;
+    references.add(`${kind}:${match[2]!.toLowerCase()}`);
+  }
+  return references;
+}
+
 function replyExplicitlyOwnsRecordedAction(
   text: string,
   actionSummary: string,
+  actionReference?: string,
 ): boolean {
   const summary = normalizeReplyPhrase(actionSummary).split(" ");
   if (!summary.length) return false;
+  const actionReferences = explicitActionReferenceKeys(
+    `${actionSummary} ${actionReference ?? ""}`,
+  );
 
   const patterns = [
     /\b(?:i|we) (?:m|am) (taking|tracking|following|handling|owning|working on|reviewing|investigating|fixing|checking|monitoring|testing|building|implementing|confirming|shipping)\b/g,
@@ -1831,7 +1848,7 @@ function replyExplicitlyOwnsRecordedAction(
   };
 
   const clauses = text.split(
-    /([\n.!?;:,—–-]+|\b(?:while|whereas|although|though|unless|but)\b)/gi,
+    /([\n.!?;:,—–]+|\b(?:while|whereas|although|though|unless|but)\b)/gi,
   );
   for (let clauseIndex = 0; clauseIndex < clauses.length; clauseIndex += 2) {
     const clause = clauses[clauseIndex]!;
@@ -1876,29 +1893,66 @@ function replyExplicitlyOwnsRecordedAction(
             .join(" ")
             .normalize("NFKC")
             .replace(/[’‘]/g, "'");
-          if (
-            /\b(?:unless|if|provided that|depending on)\b/i.test(
-              continuation,
-            ) ||
-            /\b(?:i|we)\s+(?:won't|will not|can't|cannot|am not going to|are not going to|don't|do not|refuse to)\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)\b/i.test(
-              continuation,
-            ) ||
-            /\b(?:i'm|i am|we're|we are)\s+not\s+(?:going to\s+)?(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)\b/i.test(
-              continuation,
-            ) ||
-            /\b(?:i'm|i am|we're|we are)\s+not\s+(?:taking|tracking|following|handling|owning|working on|reviewing|investigating|fixing|checking|monitoring|testing|building|implementing|confirming|shipping)\b/i.test(
-              continuation,
-            ) ||
-            /\b(?:i|we)\s+(?:won't|will not|can't|cannot|don't|do not)\s+be\s+(?:taking|tracking|following|handling|owning|working on|reviewing|investigating|fixing|checking|monitoring|testing|building|implementing|confirming|shipping)\b/i.test(
-              continuation,
-            ) ||
-            /\b(?:i|we)\s+(?:(?:will\s+)?no longer\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)|(?:no longer|don't|do not)\s+(?:plan|intend|want)\s+to\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship))\b/i.test(
-              continuation,
-            ) ||
-            /\b(?:and|but|although|though|however)\b[\s\S]{0,120}\b(?:won't|will not|can't|cannot|not going to|don't|do not|refuse|not take|not own|not handle|someone else handles?)\b/i.test(
-              continuation,
-            )
-          ) {
+          const continuationParts = continuation.split(
+            /([.!?;:,—–]+|\b(?:while|whereas|although|though|unless|but|and|if|however|provided that|depending on)\b)/gi,
+          );
+          const conditionalConnectors = new Set([
+            "unless",
+            "if",
+            "provided that",
+            "depending on",
+          ]);
+          const contrastiveConnectors = new Set([
+            "and",
+            "but",
+            "although",
+            "though",
+            "however",
+          ]);
+          const continuationNegatesAction = continuationParts.some(
+            (part, partIndex) => {
+              if (partIndex % 2 !== 0 || !part.trim()) return false;
+              const clauseReferences = explicitActionReferenceKeys(part);
+              if (
+                actionReferences.size > 0 &&
+                clauseReferences.size > 0 &&
+                ![...clauseReferences].some((reference) =>
+                  actionReferences.has(reference),
+                )
+              ) {
+                return false;
+              }
+
+              const connector = continuationParts[partIndex - 1]
+                ?.trim()
+                .toLowerCase();
+              return (
+                (connector !== undefined &&
+                  conditionalConnectors.has(connector)) ||
+                /\b(?:i|we)\s+(?:won't|will not|can't|cannot|am not going to|are not going to|don't|do not|refuse to)\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i'm|i am|we're|we are)\s+not\s+(?:going to\s+)?(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i'm|i am|we're|we are)\s+not\s+(?:taking|tracking|following|handling|owning|working on|reviewing|investigating|fixing|checking|monitoring|testing|building|implementing|confirming|shipping)\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i|we)\s+(?:won't|will not|can't|cannot|don't|do not)\s+be\s+(?:taking|tracking|following|handling|owning|working on|reviewing|investigating|fixing|checking|monitoring|testing|building|implementing|confirming|shipping)\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i|we)\s+(?:(?:will\s+)?no longer\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)|(?:no longer|don't|do not)\s+(?:plan|intend|want)\s+to\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship))\b/i.test(
+                  part,
+                ) ||
+                (connector !== undefined &&
+                  contrastiveConnectors.has(connector) &&
+                  /\b(?:won't|will not|can't|cannot|not going to|don't|do not|refuse|not take|not own|not handle|someone else handles?)\b/i.test(
+                    part,
+                  ))
+              );
+            },
+          );
+          if (continuationNegatesAction) {
             continue;
           }
           return true;
@@ -1942,6 +1996,10 @@ function explicitlyStatesCompletion(text: string): boolean {
     `\\b(?:${completionWords})\\b.{0,40}\\b(?:maybe|perhaps|possibly|probably|likely|i think|i guess|not sure|unsure|unconfirmed|unverified|no confirmation)\\b`,
     "i",
   );
+  const nothingCompleted = new RegExp(
+    `\\bnothing\\s+(?:(?:has|have|was|were|is|are|been|ever|yet)\\s+){0,3}\\b(?:${completionWords})\\b`,
+    "i",
+  );
   const retractedCompletion =
     /\b(?:actually|correction|i was wrong|that was wrong)\b[\s\S]{0,40}\b(?:no|not|isn't|is not|wasn't|was not|still open|unmerged)\b/i;
   return (
@@ -1952,6 +2010,7 @@ function explicitlyStatesCompletion(text: string): boolean {
       "i",
     ).test(normalized) &&
     !postposedNegation.test(normalized) &&
+    !nothingCompleted.test(normalized) &&
     !contradictoryStatus.test(normalized) &&
     !hedgedCompletion.test(normalized) &&
     !postCompletionHedge.test(normalized) &&
@@ -2606,6 +2665,7 @@ function validateHistoricalReactionMarks(
         !replyExplicitlyOwnsRecordedAction(
           previous.text,
           completedSelfOwnedAction.actionSummary,
+          completedSelfOwnedAction.actionReference,
         ) ||
         !replyContainsPhrase(
           completedSelfOwnedAction.action,
@@ -16195,6 +16255,44 @@ if (args[0] === "--self-test" && args.length === 1) {
         );
       }
     }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008, but I won't review PR #9000.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test let an unrelated PR negation cancel an owned action",
+      );
+    }
+    if (
+      replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008, but I won't review PR #8008.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test accepted an ownership commitment negated for the same PR",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review issue PROJ-123, but I won't review issue PROJ-456.",
+        "review issue PROJ-123",
+        "issue PROJ-123",
+      ) ||
+      replyExplicitlyOwnsRecordedAction(
+        "I will review issue PROJ-123, but I won't review issue PROJ-123.",
+        "review issue PROJ-123",
+        "issue PROJ-123",
+      )
+    ) {
+      throw new Error(
+        "self-test did not scope ownership negation to the full hyphenated issue reference",
+      );
+    }
     const foreignSelfOwnedAction = structuredClone(
       completedSelfOwnedActionInventory,
     );
@@ -16259,6 +16357,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       "PR #8008 isn't merged",
       "PR #8008 hasn't been merged",
       "PR #8008 was not merged",
+      "PR #8008: Nothing has been completed",
       "PR #8008 merged? Not yet.",
       "PR #8008 merged. No.",
       "PR #8008 merged — no.",
@@ -16293,6 +16392,11 @@ if (args[0] === "--self-test" && args.length === 1) {
         `historical self-owned ticket with negated completion evidence (${negatedCompletion})`,
         negatedSelfOwnedCompletion,
         "historical self-owned 🎫 needs the same actor's captured prior action and exact current completion proof",
+      );
+    }
+    if (explicitlyStatesCompletion("Nothing has been completed")) {
+      throw new Error(
+        "self-test accepted explicit negative completion wording",
       );
     }
     const mixedReporterSelfOwnedHistory = withClosedReporterRequestHistory();
@@ -21014,7 +21118,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 50} negative cases; 39 positive inventory cases plus 6 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 54} negative cases; 39 positive inventory cases plus 6 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

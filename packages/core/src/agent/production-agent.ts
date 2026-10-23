@@ -8475,7 +8475,10 @@ export async function runAgentLoop(opts: {
       const hasEmptyFinalResponse =
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
         streamedAssistantText.trim().length === 0;
-      // A paired metadata tool_use stop alone does not require another reply.
+      if (followUpResults.length > 0 && terminalStopReason === "tool_use") {
+        if (streamedAssistantText) send({ type: "clear" });
+        continue;
+      }
       if (followUpResults.length > 0 && hasEmptyFinalResponse) {
         flushUnstreamedAssistantText();
         continue;
