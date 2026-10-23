@@ -1345,6 +1345,84 @@ describe("CommentsPanel reply composer", () => {
     },
   );
 
+  it.each(["stays open", "Cancel", "Escape", "leaves fullscreen"] as const)(
+    "keeps text typed while a fullscreen comment sends unsent after it posts, then sends it next (%s)",
+    async (meanwhile) => {
+      let completeRenewal!: (token: string) => void;
+      const renewal = new Promise<string>((resolve) => {
+        completeRenewal = resolve;
+      });
+      const getCommentAccessToken = vi.fn(() => renewal);
+      let completeRequest!: () => void;
+      const request = new Promise<void>((resolve) => {
+        completeRequest = resolve;
+      });
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+        await request;
+        return new Response(JSON.stringify({ id: "comment-2" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+      vi.stubGlobal("fetch", fetch);
+      const onAdded = vi.fn();
+      const { player, setFullscreen, bar, isOpen, close, reopen } =
+        renderFullscreenCommentPage({
+          recordingId: "recording-1",
+          atMs: 12000,
+          initialDraft: "Fake first comment",
+          onAdded,
+          onClose: vi.fn(),
+          commentAccessToken: "fake-expired-proof",
+          getCommentAccessToken,
+        });
+      const sentContent = (call: number) =>
+        JSON.parse(String(fetch.mock.calls[call][1]?.body)).content;
+      await act(async () => {
+        bar().send.click();
+      });
+      act(() => setTextareaValue(bar().composer, "Fake follow-up comment"));
+      if (meanwhile === "leaves fullscreen") {
+        setFullscreen(false);
+        expect(player.contains(bar().composer)).toBe(false);
+      } else if (meanwhile !== "stays open") {
+        close(meanwhile);
+        expect(isOpen()).toBe(false);
+      }
+
+      await act(async () => {
+        completeRenewal("fake-fresh-proof");
+      });
+      await act(async () => {
+        completeRequest();
+      });
+      // React Query publishes the settled state to render a tick later.
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(sentContent(0)).toBe("Fake first comment");
+      expect(onAdded).toHaveBeenCalledTimes(1);
+      if (meanwhile === "Cancel" || meanwhile === "Escape") {
+        expect(isOpen()).toBe(false);
+        reopen();
+      }
+      expect(isOpen()).toBe(true);
+      expect(bar().composer.value).toBe("Fake follow-up comment");
+      expect(bar().alert).toBeNull();
+      expect(bar().send.disabled).toBe(false);
+
+      await act(async () => {
+        bar().send.click();
+      });
+      expect(getCommentAccessToken).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(sentContent(1)).toBe("Fake follow-up comment");
+      expect(onAdded).toHaveBeenCalledTimes(2);
+      expect(isOpen()).toBe(false);
+      reopen();
+      expect(bar().composer.value).toBe("");
+    },
+  );
+
   it.each(["active", "resumed"])(
     "renews expired proof before a %s viewer submits",
     async (mode) => {

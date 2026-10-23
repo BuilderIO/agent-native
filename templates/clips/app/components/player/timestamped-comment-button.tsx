@@ -73,6 +73,10 @@ export function TimestampedCommentBar({
   const [uncontrolledDraft, setUncontrolledDraft] = useState("");
   const draft = controlledDraft ?? uncontrolledDraft;
   const setDraft = onDraftChange ?? setUncontrolledDraft;
+  const draftRef = useRef(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
 
   const commentAccessTokenRef = useRef<string | null | undefined>(
     commentAccessToken,
@@ -117,8 +121,11 @@ export function TimestampedCommentBar({
       { recordingId, content, videoTimestampMs: atMs },
       {
         onSuccess: () => {
-          setDraft("");
           onAdded?.();
+          // The textarea stays editable while this sends, so newer text is
+          // the next draft, not this posted one.
+          if (draftRef.current.trim() !== content) return;
+          setDraft("");
           onClose();
         },
       },
