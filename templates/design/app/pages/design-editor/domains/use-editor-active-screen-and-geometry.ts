@@ -41,7 +41,6 @@ import { deviceViewportFloorForWidth } from "@/components/design/multi-screen/fr
 import { resolveScreenHeightMode } from "@/components/design/multi-screen/screen-height";
 import type { KScaleStyleChangesByFrameId } from "@/components/design/multi-screen/types";
 import type { DeviceFrameType } from "@/components/design/types";
-import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
 import { type DesignEditorCommand } from "@/hooks/use-navigation-state";
 import {
   createDesignSaveOutboxEntry,
@@ -107,9 +106,8 @@ import {
   getNextZoomStepDown,
   getNextZoomStepUp,
   getOverviewCanvasZoom,
-  getOverviewCanvasZoomForFrame,
   getOverviewDisplayZoom,
-  getOverviewZoomScale,
+  getOverviewScreenZoomScale,
   resolveOverviewZoomBasisScreenId,
   resolveZoomUpdate,
   shouldResetExplicitOverviewZoomOnBasisChange,
@@ -1737,20 +1735,16 @@ export function useEditorActiveScreenAndGeometry({
         : undefined,
     [overviewZoomBasisScreenId, overviewScreens],
   );
-  const activeOverviewSourceWidth =
-    deviceFrame === "none"
-      ? overviewZoomBasisScreen?.width
-      : DEVICE_FRAME_VIEWPORTS[deviceFrame].width;
-  const activeOverviewFrameWidth = overviewZoomBasisScreenId
-    ? displayedCanvasFrameGeometryById[overviewZoomBasisScreenId]?.width
-    : undefined;
   // With no screen to measure, the board's own pixels are the displayed zoom.
-  const overviewZoomScale = overviewZoomBasisScreenId
-    ? getOverviewZoomScale({
-        frameWidth: activeOverviewFrameWidth,
-        sourceWidth: activeOverviewSourceWidth,
-      })
-    : 1;
+  const overviewZoomScale =
+    (overviewZoomBasisScreen
+      ? getOverviewScreenZoomScale({
+          screen: overviewZoomBasisScreen,
+          frameGeometry:
+            displayedCanvasFrameGeometryById[overviewZoomBasisScreen.id],
+          deviceFrame,
+        })
+      : null) ?? 1;
   const overviewZoomScaleRef = useRef(overviewZoomScale);
 
   useEffect(() => {
@@ -1867,18 +1861,20 @@ export function useEditorActiveScreenAndGeometry({
                       (screen) => screen.id === zoomRequest.screenId,
                     )
                   : undefined;
+                const targetScale = targetScreen
+                  ? getOverviewScreenZoomScale({
+                      screen: targetScreen,
+                      frameGeometry:
+                        displayedCanvasFrameGeometryById[targetScreen.id],
+                      deviceFrame,
+                    })
+                  : null;
                 const canvasZoom =
-                  zoomRequest && targetScreen
-                    ? getOverviewCanvasZoomForFrame({
-                        displayZoom: zoomRequest.displayZoom,
-                        frameWidth:
-                          displayedCanvasFrameGeometryById[targetScreen.id]
-                            ?.width,
-                        sourceWidth:
-                          deviceFrame === "none"
-                            ? targetScreen.width
-                            : DEVICE_FRAME_VIEWPORTS[deviceFrame].width,
-                      })
+                  zoomRequest && targetScale !== null
+                    ? getOverviewCanvasZoom(
+                        zoomRequest.displayZoom,
+                        targetScale,
+                      )
                     : undefined;
                 setCameraCommand({
                   ...camera,

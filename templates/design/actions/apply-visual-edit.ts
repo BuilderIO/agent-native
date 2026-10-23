@@ -526,11 +526,20 @@ const intentSchema = z.preprocess(
             y: z.number(),
             width: z.number().nonnegative(),
             height: z.number().nonnegative(),
+            box: z
+              .object({
+                sizing: z.enum(["border-box", "content-box"]),
+                edges: z.object({
+                  width: z.number().nonnegative(),
+                  height: z.number().nonnegative(),
+                }),
+              })
+              .optional(),
           }),
         )
         .optional()
         .describe(
-          "Measured child rectangles relative to the container, required when disabling auto-layout.",
+          "Measured child rectangles relative to the container, required when disabling auto-layout. A child's box (computed box-sizing, padding plus border per axis) lets an inset-sized child with a relative size join the flow.",
         ),
       containerRect: z
         .object({

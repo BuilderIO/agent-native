@@ -158,6 +158,7 @@ export function mixedElementFromSelection(
       elements.map((element) => element.textContent ?? ""),
     ),
     htmlContent: undefined,
+    childLayouts: undefined,
     childElementCount: undefined,
     isFlexChild: elements.every((element) => element.isFlexChild),
     isFlexContainer: elements.every((element) => element.isFlexContainer),

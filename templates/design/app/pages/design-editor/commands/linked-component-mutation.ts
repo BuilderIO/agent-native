@@ -978,13 +978,6 @@ export function createLinkedComponentMutationQueue(
         ),
       );
     },
-    deferHistoryChange: (run: () => void): boolean => {
-      if (barriers === 0) return false;
-      void schedule(async () => run()).catch((error) =>
-        args.reportFailure(String(error)),
-      );
-      return true;
-    },
     dispatchHistory: (run: () => void): void | Promise<void> => {
       if (queued === 0 && !failure) {
         run();

@@ -197,7 +197,6 @@ test("Motion inspector states match the editable timeline", async ({
   await page.getByRole("menuitem", { name: "Zoom to fit" }).click();
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
-    deep: false,
   });
   if ((await canvasZoom.innerText()).trim() !== "100%") {
     await canvasZoom.click();
@@ -249,7 +248,6 @@ test("Motion inspector states match the editable timeline", async ({
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   await expect(
     page.getByRole("button", { name: "Add animation", exact: true }).first(),
@@ -807,7 +805,6 @@ test("Motion inspector states match the editable timeline", async ({
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   const currentTime = dock.getByRole("textbox", { name: "Current time" });
   const appearance = page
@@ -863,7 +860,6 @@ test("Motion inspector states match the editable timeline", async ({
   await selectByText(page, "Reference Rectangle Two", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   const middleOpacitySave = page.waitForResponse(
     (response) =>
@@ -916,7 +912,6 @@ test("Motion gallery searches visible names, not hidden categories or tempo", as
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   await page.getByRole("button", { name: "Animations", exact: true }).click();
 
@@ -983,7 +978,6 @@ test("a new motion preset applies to every selected target", async ({
     await selectByText(page, "Reference Rectangle", {
       screenId: presetFileId,
       clearPreviousSelection: true,
-      deep: false,
     });
     await selectByText(page, "Reference Rectangle Two", {
       screenId: presetFileId,
@@ -1074,7 +1068,6 @@ for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {
       await selectByText(page, "Reference Rectangle", {
         screenId: file.id,
         clearPreviousSelection: true,
-        deep: false,
       });
       await zoomCanvasTo100(page);
 
@@ -1194,7 +1187,6 @@ for (const { recipeId, manualPosition } of [
       await selectByText(page, "Reference Rectangle", {
         screenId: file.id,
         clearPreviousSelection: true,
-        deep: false,
       });
       await zoomCanvasTo100(page);
 
@@ -1389,7 +1381,6 @@ for (const { recipeId, manualPosition } of [
       await selectByText(page, "Reference Rectangle", {
         screenId: file.id,
         clearPreviousSelection: true,
-        deep: false,
       });
       await page
         .getByRole("button", { name: "Motion dock", exact: true })
@@ -1451,7 +1442,6 @@ test("applies recipe content past the timeline duration at its limit", async ({
     await selectByText(page, "Reference Rectangle", {
       screenId: file.id,
       clearPreviousSelection: true,
-      deep: false,
     });
     await zoomCanvasTo100(page);
     await page
@@ -1541,7 +1531,6 @@ test("applies recipe content past the timeline duration at its limit", async ({
     await selectByText(page, "Reference Rectangle", {
       screenId: file.id,
       clearPreviousSelection: true,
-      deep: false,
     });
     await page
       .getByRole("button", { name: "Motion dock", exact: true })
@@ -1612,7 +1601,6 @@ test("applying a composite recipe preserves an existing unrelated native style",
     await selectByText(page, "Reference Rectangle", {
       screenId: file.id,
       clearPreviousSelection: true,
-      deep: false,
     });
 
     const addAnimation = page
@@ -1702,7 +1690,6 @@ test("keyboard-applies a searched recipe and saves its source-backed tracks", as
     await selectByText(page, "Reference Rectangle", {
       screenId: file.id,
       clearPreviousSelection: true,
-      deep: false,
     });
 
     const recipe = MOTION_BUILT_IN_RECIPES.find(
