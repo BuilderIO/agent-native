@@ -875,7 +875,7 @@ describe("Analytics agent Plan mode policy", () => {
 
   it("hands the plugin the receipt-aware guard", () => {
     expect(agentChatPluginOptions[0]?.finalResponseGuard).toBe(
-      realDataFinalGuard,
+      dbtFinalResponseGuard,
     );
   });
 

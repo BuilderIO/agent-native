@@ -59,6 +59,7 @@ import {
   isSafeNoDataAnalyticsResponse,
   hasOverstatedCoverageConfidenceClaim,
   looksLikeCoverageSensitiveAnalyticsRequest,
+  bigQueryRowValues,
   looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
   isNonDataTurn,
@@ -660,12 +661,13 @@ function dbtFailureWarehouseRows(
   // Any successful warehouse read after the dbt failure may carry the figure for this
   // metric, including a corrected retry of a read that errored. The agent loop truncates
   // a large result, so the content is kept whether or not it still parses; the figure
-  // check reads what is visible.
+  // check reads what is visible; a parsed read with no rows has no figure to check.
   const rows = results.flatMap((result, index) =>
     index > latestDbtIndex &&
     isNamedTool(result.name, "bigquery") &&
     result.isError !== true &&
-    String(result.content ?? "").trim() !== ""
+    String(result.content ?? "").trim() !== "" &&
+    bigQueryRowValues(result.content)?.length !== 0
       ? [String(result.content)]
       : [],
   );
