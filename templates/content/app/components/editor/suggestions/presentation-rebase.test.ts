@@ -751,23 +751,117 @@ describe("committed suggestion presentation proof", () => {
     ).toBeNull();
   });
 
+  it.each([
+    {
+      pending: "insertion",
+      target: [16, 16, " Pending"],
+      accepted: [[16, 16, " Accepted"]],
+    },
+    {
+      pending: "replacement",
+      target: [18, 24, "Next"],
+      accepted: [
+        [18, 18, "Intro "],
+        [34, 35, "!"],
+      ],
+    },
+  ] as const)(
+    "places a pending $pending at an accepted insertion's offset where acceptance lands it",
+    ({ target, accepted: edits }) => {
+      const source = "First paragraph.\n\nSecond paragraph.";
+      const accepted = edits.map(([from, to, inserted], index) => ({
+        id: `accepted-${index}`,
+        status: "accepted" as const,
+        proposalId: "accepted",
+        operations: [edit(source, from, to, inserted)],
+      }));
+      const [targetFrom, targetTo, targetText] = target;
+      const sibling = {
+        id: "sibling",
+        status: "pending" as const,
+        revision: 1,
+        operations: [edit(source, targetFrom, targetTo, targetText)],
+      };
+      const operation = sibling.operations[0]!;
+      const current =
+        createCommittedSuggestionPresentationTransition(accepted)!;
+      expect(
+        current.changes.map(({ from, to, afterText }) => [from, to, afterText]),
+      ).toEqual(edits);
+      // Accepting the sibling places it with the accepted anchors held fixed.
+      const placed = resolveMarkdownSuggestionRange(current.after, {
+        ...operation,
+        anchor: {
+          ...operation.anchor,
+          siblingRanges: edits.map(([from, to]) => ({ from, to })),
+        },
+      });
+      expect(placed).not.toBeNull();
+      expect(
+        resolveMarkdownSuggestionRange(current.after, operation),
+      ).toBeNull();
+      const key = suggestionPresentationTransitionKey(sibling);
+      const retained = retainCommittedSuggestionPresentationTransitions(
+        new Map(),
+        [sibling],
+        accepted,
+      );
+      expect(
+        resolveSuggestionPresentationRange(
+          current.after,
+          operation,
+          retained.get(key),
+        ),
+      ).toEqual(placed);
+      const hydrated = hydrateSuggestionPresentationTransitions(
+        new Map(),
+        [sibling],
+        accepted,
+        current.after,
+      );
+      expect(
+        resolveSuggestionPresentationRange(
+          current.after,
+          operation,
+          hydrated.get(key),
+        ),
+      ).toEqual(placed);
+    },
+  );
+
   it.each([before.indexOf(","), before.indexOf(",") + 1])(
-    "does not widen a pending insertion at accepted range edge %s",
+    "places a pending insertion at accepted range edge %s where acceptance lands it",
     (offset) => {
+      const comma = before.indexOf(",");
+      const deletion = {
+        ...committed,
+        operations: [edit(before, comma, comma + 1, "")],
+      };
+      const current = deletion.operations[0]!.after.markdown;
       const operation = edit(before, offset, offset, "added");
       const transition = createCommittedSuggestionPresentationTransition([
-        committed,
+        deletion,
       ])!;
+      expect(resolveMarkdownSuggestionRange(current, operation)).toBeNull();
       expect(
-        resolveSuggestionPresentationRange(after, operation, transition),
-      ).toBeNull();
+        resolveMarkdownSuggestionRange(current, {
+          ...operation,
+          anchor: {
+            ...operation.anchor,
+            siblingRanges: [{ from: comma, to: comma + 1 }],
+          },
+        }),
+      ).toEqual({ from: comma, to: comma });
+      expect(
+        resolveSuggestionPresentationRange(current, operation, transition),
+      ).toEqual({ from: comma, to: comma });
       expect(
         retainCommittedSuggestionPresentationTransitions(
           new Map(),
           [{ ...pending, operations: [operation] }],
-          [committed],
+          [deletion],
         ).size,
-      ).toBe(0);
+      ).toBe(1);
     },
   );
 

@@ -120,6 +120,10 @@ export function gradientToCss(value: GradientValue): string {
 }
 
 function stopsBarCss(stops: GradientStopValue[]): string {
+  if (stops.length === 1) {
+    const color = normalizeColor(stops[0]!.color);
+    return `linear-gradient(90deg, ${color} 0%, ${color} 100%)`;
+  }
   const ordered = sortedStops(stops)
     .map((stop) => `${normalizeColor(stop.color)} ${round(stop.position)}%`)
     .join(", ");

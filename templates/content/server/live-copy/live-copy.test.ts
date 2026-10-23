@@ -484,16 +484,20 @@ describe("switching a page to its live copy", () => {
     expect(await collabVersion("off")).toBeUndefined();
   });
 
-  it("refuses to switch a page whose stored body the parser would drop part of", async () => {
-    const stored = "Hello\n<callout>\nOnly text\n</callout>";
-    await insertPage("drops-on-switch", stored);
+  it("refuses to switch a page whose stored body the parser can't keep in full", async () => {
+    // The parser drops text directly inside a table, so both serializations
+    // of the built tree agree on the shortened body.
+    await insertPage(
+      "parse-loss",
+      "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>",
+    );
+    const before = await page("parse-loss");
 
     await expect(
-      switching.switchPageToLiveCopy("drops-on-switch"),
-    ).rejects.toMatchObject({ code: "build_refused", reason: "lossy" });
-    const row = await page("drops-on-switch");
-    expect(row.content).toBe(stored);
-    expect(row.liveBodySwitchedAt).toBeNull();
+      switching.switchPageToLiveCopy("parse-loss"),
+    ).rejects.toMatchObject({ name: "LiveCopyError", reason: "lossy" });
+    expect(await page("parse-loss")).toEqual(before);
+    expect(await collabVersion("parse-loss")).toBeUndefined();
   });
 
   it("converts again after a legacy write, and the stored body wins over the stale copy", async () => {
@@ -821,6 +825,30 @@ describe("writes through a switched page's live copy", () => {
     ).rejects.toMatchObject({ errorCode: "DOCUMENT_NOT_FOUND" });
     expect((await page("trashed")).content).toBe("Hello there");
     expect(await collabVersion("trashed")).toBe(version);
+  });
+
+  it("refuses a server replacement the parser can't keep in full, and commits nothing", async () => {
+    await switchedPage("parse-loss-edit", "Hello there");
+    const before = await page("parse-loss-edit");
+    const version = await collabVersion("parse-loss-edit");
+
+    await expect(
+      cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
+        collab.mutateLiveCopy(binding.contentLiveCopy, "parse-loss-edit", {
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: {
+            content:
+              "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "LiveCopyError",
+      code: "build_refused",
+      reason: "lossy",
+    });
+    expect(await page("parse-loss-edit")).toEqual(before);
+    expect(await collabVersion("parse-loss-edit")).toBe(version);
   });
 
   it("locks collections, then memberships, then the page, and trashes an inline collection the body dropped", async () => {
@@ -2090,8 +2118,8 @@ describe("edit-document on a switched page", () => {
     await switchedPage("drops-text", "Hello");
     const loaded = await page("drops-text");
     const version = await collabVersion("drops-text");
-    // A callout's child must be indented; this one would be dropped.
-    const replace = "Hello\n<callout>\nOnly text\n</callout>";
+    // The parser drops text directly inside a table.
+    const replace = "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>";
 
     await expect(
       agentEdit("drops-text", loaded, [{ find: "Hello", replace }]),
@@ -3256,11 +3284,12 @@ describe("a browser save to a switched page's body", () => {
   it("keeps a tab's draft when its save is not its own serialization", async () => {
     await switchedPage("noncanonical", "Hello");
     const loaded = await page("noncanonical");
-    await typeInTab("noncanonical", ["Hello\n<callout>\n</callout>"]);
+    await typeInTab("noncanonical", ["Hello\n*Hi*"]);
     const stored = (await page("noncanonical")).content;
-    // The parse drops the unindented callout child, so this compares as the
-    // empty callout the live copy holds.
-    const candidate = "Hello\n<callout>\nOnly text\n</callout>";
+    // Another spelling of the body the live copy holds, one the editor never
+    // writes.
+    const candidate = "Hello\n_Hi_";
+    expect(candidate).not.toBe(stored);
     expect(nfm.docToNfm(nfm.nfmToDoc(candidate))).toBe(stored);
     await keepDraft("noncanonical", candidate);
 
@@ -3327,6 +3356,40 @@ describe("a browser save to a switched page's body", () => {
       content: "Hello there",
       bodyRevision: loaded.bodyRevision,
     });
+  });
+
+  it("refuses a stale title that arrives with a live-copy body save after a rename", async () => {
+    await switchedPage("stale-title", "Hello there");
+    const loaded = await page("stale-title");
+    const titleAndTime = async () => {
+      const [row] = await getDb()
+        .select({
+          title: schema.documents.title,
+          updatedAt: schema.documents.updatedAt,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "stale-title"));
+      return row;
+    };
+    const { updatedAt } = await titleAndTime();
+    await browserSave("stale-title", loaded, "Hello there", {
+      title: "Renamed",
+      baseTitle: "stale-title",
+    });
+    const renamed = await titleAndTime();
+    expect(renamed.title).toBe("Renamed");
+
+    // A save checked by snapshot time carries the title the tab loaded and
+    // no baseTitle.
+    await expect(
+      browserSave("stale-title", loaded, "Hello there", {
+        title: "stale-title",
+        baseRevision: undefined,
+        baseUpdatedAt: updatedAt,
+        browserSaveAttemptId: "stale-title-old",
+      }),
+    ).resolves.toMatchObject({ conflict: true });
+    expect(await titleAndTime()).toEqual(renamed);
   });
 
   it("keeps a recovery replay's receipt only for a body the live copy holds", async () => {

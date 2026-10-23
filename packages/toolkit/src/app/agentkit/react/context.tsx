@@ -43,7 +43,9 @@ import {
   type ReactNode,
 } from "react";
 
+import type { AgentChatDataChartLayout } from "./data-chart-layout.js";
 import type { AgentMessageContentOrderResolver } from "./message-content-order.js";
+import type { AgentChatWorkedForRowLayout } from "./transcript-layout.js";
 
 export interface AgentKitRenderProps<T> {
   value: T;
@@ -87,6 +89,7 @@ export interface AgentKitWorkedForSummaryRenderProps {
   expandable: boolean;
   open: boolean;
   current?: ReactNode;
+  layout?: AgentChatWorkedForRowLayout;
 }
 
 export interface AgentConnectionErrorRenderProps {
@@ -495,6 +498,9 @@ export interface AgentKitProviderProps {
   /** Receives full renderer failures while the UI shows a safe fallback. */
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
     name: string;
@@ -525,6 +531,9 @@ export interface AgentKitContextValue {
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
   requestComposerFocus: (threadId: ThreadId) => void;
 }
@@ -546,6 +555,9 @@ export function AgentKitProvider({
   onConnectionRequest,
   onRenderError,
   resolveMessageContentOrder,
+  workedForRowLayout,
+  dataChartLayout,
+  formatWorkedForDuration,
   onClientEffect,
   children,
 }: AgentKitProviderProps) {
@@ -613,6 +625,9 @@ export function AgentKitProvider({
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
+      workedForRowLayout,
+      dataChartLayout,
+      formatWorkedForDuration,
       registerComposerFocus,
       requestComposerFocus,
     }),
@@ -631,6 +646,9 @@ export function AgentKitProvider({
       onConnectionRequest,
       onRenderError,
       resolveMessageContentOrder,
+      workedForRowLayout,
+      dataChartLayout,
+      formatWorkedForDuration,
       registerComposerFocus,
       requestComposerFocus,
     ],

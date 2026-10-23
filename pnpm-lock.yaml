@@ -5667,7 +5667,7 @@ importers:
   templates/community/qr:
     dependencies:
       '@agent-native/core':
-        specifier: ^0.214.0
+        specifier: ^0.219.0
         version: link:../../../packages/core
       postgres:
         specifier: ^3.4.9
@@ -6128,9 +6128,6 @@ importers:
       '@noble/hashes':
         specifier: ^2.3.0
         version: 2.3.0
-      '@paper-design/shaders-react':
-        specifier: 0.0.76
-        version: 0.0.76(@types/react@19.2.17)(react@19.2.7)
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
@@ -12761,18 +12758,6 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [win32]
-
-  '@paper-design/shaders-react@0.0.76':
-    resolution: {integrity: sha512-uPJWrYRf6cJdO2H+fuXlahaqz0QjYglNAyUTaRfIInpzCa/d6guxBIK003soAZQFuQ035yg9FhtfFzKNWm+a5A==}
-    peerDependencies:
-      '@types/react': ^19.2.14
-      react: 19.2.7
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
-  '@paper-design/shaders@0.0.76':
-    resolution: {integrity: sha512-AcNDY4J66YQHUfQYFInkCP7M9VOje0od7wLpOR7LtCmc532opJy6ll+h1W9zBovz8tt9U7OADUmJ/qKEXyOX/A==}
 
   '@parcel/watcher-android-arm64@2.5.6':
     resolution: {integrity: sha512-YQxSS34tPF/6ZG7r/Ih9xy+kP/WwediEUsqmtf0cuCV5TPPKw/PQHRhueUo6JdeFJaqV3pyjm0GdYjZotbRt/A==}
@@ -29798,15 +29783,6 @@ snapshots:
 
   '@oxlint/binding-win32-x64-msvc@1.71.0':
     optional: true
-
-  '@paper-design/shaders-react@0.0.76(@types/react@19.2.17)(react@19.2.7)':
-    dependencies:
-      '@paper-design/shaders': 0.0.76
-      react: 19.2.7
-    optionalDependencies:
-      '@types/react': 19.2.17
-
-  '@paper-design/shaders@0.0.76': {}
 
   '@parcel/watcher-android-arm64@2.5.6':
     optional: true

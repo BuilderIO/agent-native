@@ -27,8 +27,12 @@ import type { ExportedMessageRepository } from "@assistant-ui/react";
 import type * as React from "react";
 
 import type { AgentKitWorkedForSummaryRenderProps } from "../../agentkit/react/context.js";
+import type { AgentChatDataChartLayout } from "../../agentkit/react/data-chart-layout.js";
 import type { AgentMessageContentOrderResolver } from "../../agentkit/react/message-content-order.js";
-import type { AgentChatTranscriptLayout } from "../../agentkit/react/transcript-layout.js";
+import type {
+  AgentChatTranscriptLayout,
+  AgentChatWorkedForRowLayout,
+} from "../../agentkit/react/transcript-layout.js";
 import type { AssistantChatHistoryConfig } from "./history-types.js";
 import type { BuilderSetupCardLayout } from "./run-recovery.js";
 
@@ -241,6 +245,12 @@ export interface AssistantChatProps {
   emptyStateFooter?: React.ReactNode;
   /** Optional transcript geometry. Omitted values keep the shared defaults. */
   transcriptLayout?: AgentChatTranscriptLayout;
+  /** Optional sizing and typography for built-in chat data charts. */
+  dataChartLayout?: AgentChatDataChartLayout;
+  /** Optional elapsed-work row geometry. Omitted values keep the shared defaults. */
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  /** Optional duration text for the shared completed-work row. */
+  formatWorkedForDuration?: (durationMs: number) => string;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */

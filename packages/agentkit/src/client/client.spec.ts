@@ -273,6 +273,30 @@ async function assistantPartsAfterToolHistory(input: {
 }
 
 describe("AgentKitClient", () => {
+  it("reads the durable receipt status without exposing receipt payloads", async () => {
+    const getQueuedSubmissionStatus = vi.fn(async () => ({
+      state: "blocked" as const,
+    }));
+    const client = new AgentKitClientImplementation({
+      transport: {
+        ...createTransport([]),
+        getQueuedSubmissionStatus,
+      },
+    });
+
+    await expect(
+      client.getQueuedSubmissionStatus({
+        threadId: "thread-1",
+        messageId: "queued-1",
+      }),
+    ).resolves.toEqual({ state: "blocked" });
+    expect(getQueuedSubmissionStatus.mock.calls[0]?.[0]).toEqual({
+      threadId: "thread-1",
+      messageId: "queued-1",
+    });
+    await client.shutdown();
+  });
+
   it("refuses dispatch when a transport has no AI readiness validator", async () => {
     const startRun = vi.fn(async () => ({ runId: "run-1" }));
     const transport: AgentTransport = {
@@ -306,6 +330,266 @@ describe("AgentKitClient", () => {
     await client.sendMessage({ threadId: "thread-1", text: "Continue" });
 
     expect(startRun).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
+  it("keeps a receipt-backed follow-up queued while its active run finishes", async () => {
+    const queued = {
+      id: "message-queued",
+      threadId: "thread-1",
+      text: "Keep this after the current turn",
+      createdAt: "2026-10-21T00:00:00.000Z",
+    } satisfies AgentQueuedMessage;
+    const activeRunCompleted = Promise.withResolvers<void>();
+    const steerQueuedMessage = vi.fn(async () => undefined);
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      async startRun() {
+        return {
+          queuedSubmission: {
+            state: "queued",
+            message: queued,
+            activeRunId: "run-active",
+          },
+        };
+      },
+      async *subscribeToRun({ signal }) {
+        yield {
+          ...protocolEvent(1, { type: "run.started" }),
+          runId: "run-active",
+        };
+        await new Promise<void>((resolve) => {
+          activeRunCompleted.promise.then(resolve);
+          signal?.addEventListener("abort", resolve, { once: true });
+        });
+        if (!signal?.aborted) {
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            runId: "run-active",
+          };
+        }
+      },
+      steerQueuedMessage,
+    };
+    const client = new AgentKitClient({ transport });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+      queueWhileRunning: false,
+    });
+    await Promise.resolve();
+    let completed = false;
+    const completion = handle.completed.then(() => {
+      completed = true;
+    });
+
+    expect(handle).toMatchObject({
+      queuedMessageId: queued.id,
+      activeRunId: "run-active",
+    });
+    expect(client.getThread("thread-1")).toMatchObject({
+      activeRunIds: ["run-active"],
+      queuedMessages: [queued],
+    });
+    expect(steerQueuedMessage).not.toHaveBeenCalled();
+    expect(completed).toBe(false);
+
+    activeRunCompleted.resolve();
+    await completion;
+    expect(completed).toBe(true);
+    await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
+
+    await client.shutdown();
+  });
+
+  it("keeps a host queue reservation ID when a run-slot race queues a send", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id, threadId, text }) => ({
+        message: {
+          id: id ?? "queued-raced-send",
+          threadId,
+          text,
+          createdAt: "2026-10-21T00:00:00.000Z",
+        },
+      }),
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        async startRun() {
+          throw new AgentKitRunSlotBusyError("run-active");
+        },
+        queueMessage,
+        removeQueuedMessage: async () => {},
+      },
+    });
+    const reservation = client.reserveQueuedMessage({
+      threadId: "thread-1",
+      text: "Keep this ID across the run-slot race",
+    });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: reservation.text,
+      queuedMessageReservationId: reservation.id,
+    });
+
+    expect(queueMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: reservation.id }),
+      expect.anything(),
+    );
+    expect(client.getThread("thread-1").queuedMessages).toContainEqual(
+      expect.objectContaining({ id: reservation.id }),
+    );
+    await handle.cancel();
+    await client.shutdown();
+  });
+
+  it("keeps a replayed queued receipt in its existing queue position", async () => {
+    const first: AgentQueuedMessage = {
+      id: "queued-first",
+      threadId: "thread-1",
+      text: "Retry this one",
+      createdAt: "2026-10-21T00:00:00.000Z",
+    };
+    const later: AgentQueuedMessage = {
+      id: "queued-later",
+      threadId: "thread-1",
+      text: "Keep this behind the retry",
+      createdAt: "2026-10-21T00:00:01.000Z",
+    };
+    const replayed = { ...first, text: "Canonical receipt" };
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      async getThreadSnapshot() {
+        return {
+          id: "thread-1",
+          createdAt: first.createdAt,
+          updatedAt: later.createdAt,
+          messages: [],
+          queuedMessages: [first, later],
+        };
+      },
+      async startRun() {
+        return {
+          queuedSubmission: {
+            state: "queued",
+            message: replayed,
+            activeRunId: "run-active",
+          },
+        };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    await client.sendMessage({
+      threadId: "thread-1",
+      text: "Retry this one",
+      queueWhileRunning: false,
+    });
+
+    expect(client.getThread("thread-1").queuedMessages).toEqual([
+      replayed,
+      later,
+    ]);
+    await client.shutdown();
+  });
+
+  it("rejects a receipt-backed completion when active-run replay fails", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "message-queued-after-replay-failure",
+      threadId: "thread-1",
+      text: "Keep this queued",
+      createdAt: "2026-10-21T00:00:00.000Z",
+    };
+    const streamFailure = Object.assign(new Error("Active run stream failed"), {
+      retryable: false,
+    });
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      async startRun() {
+        return {
+          queuedSubmission: {
+            state: "queued",
+            message: queued,
+            activeRunId: "run-active",
+          },
+        };
+      },
+      async *subscribeToRun() {
+        throw streamFailure;
+      },
+    };
+    const client = new AgentKitClient({ transport });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+      queueWhileRunning: false,
+    });
+
+    await expect(handle.completed).rejects.toBe(streamFailure);
+    expect(client.getThread("thread-1").runs["run-active"]?.status).toBe(
+      "failed",
+    );
+    await client.shutdown();
+  });
+
+  it("does not reactivate a terminal projection from a stale queued receipt", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "message-stale-receipt",
+      threadId: "thread-1",
+      text: "Keep this queued",
+      createdAt: "2026-10-21T00:00:00.000Z",
+    };
+    let starts = 0;
+    let subscriptions = 0;
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      async startRun() {
+        starts += 1;
+        if (starts === 1) return { runId: "run-finished" };
+        return {
+          queuedSubmission: {
+            state: "queued",
+            message: queued,
+            activeRunId: "run-finished",
+          },
+        };
+      },
+      async *subscribeToRun() {
+        subscriptions += 1;
+        if (subscriptions === 1) {
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            runId: "run-finished",
+          };
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            runId: "run-finished",
+          };
+        }
+      },
+    };
+    const client = new AgentKitClient({ transport });
+
+    await (
+      await client.sendMessage({ threadId: "thread-1", text: "First" })
+    ).completed;
+    await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+      queueWhileRunning: false,
+    });
+
+    expect(client.getThread("thread-1")).toMatchObject({
+      runs: { "run-finished": { status: "completed" } },
+      activeRunIds: [],
+      queuedMessages: [queued],
+    });
+
     await client.shutdown();
   });
 
@@ -7931,6 +8215,54 @@ describe("AgentKitClient", () => {
     expect(cancelRun).not.toHaveBeenCalled();
 
     await client.shutdown();
+  });
+
+  it("cancels a queued handle after its send signal has been aborted", async () => {
+    const removeQueuedMessage = vi.fn<
+      NonNullable<AgentTransport["removeQueuedMessage"]>
+    >(async () => undefined);
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+      throw Object.assign(new Error("Run already in progress"), {
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: "run-active",
+      });
+    });
+    const controller = new AbortController();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        startRun,
+        async queueMessage(input) {
+          return {
+            message: {
+              id: input.id ?? "queued-cancel-after-abort",
+              threadId: input.threadId,
+              text: input.text,
+              createdAt: "2026-10-01T00:00:00.000Z",
+            },
+          };
+        },
+        removeQueuedMessage,
+      },
+    });
+
+    try {
+      const handle = await client.sendMessage(
+        { threadId: "thread-1", text: "Stop this queued prompt" },
+        { signal: controller.signal },
+      );
+      controller.abort();
+      await handle.cancel();
+
+      expect(removeQueuedMessage).toHaveBeenCalledOnce();
+      expect(removeQueuedMessage.mock.calls[0]?.[1]?.signal?.aborted).toBe(
+        false,
+      );
+    } finally {
+      await client.shutdown();
+    }
   });
 
   it("reuses a durable image URL when a busy run falls back to the queue", async () => {

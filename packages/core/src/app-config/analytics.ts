@@ -33,6 +33,6 @@ export const analyticsConfig = z.object({
     .optional()
     .meta({
       env: "AGENT_NATIVE_HEAD_SCRIPT_SRC",
-      doc: "HTTPS URL of a script loaded with `defer` on every server-rendered page, for deployment-specific tooling such as support or feedback widgets.",
+      doc: "HTTPS URL of a script added to every server-rendered page, for deployment-specific tooling such as support or feedback widgets. Where the consent banner shows, it waits for analytics consent, like Google Analytics.",
     }),
 });

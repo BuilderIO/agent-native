@@ -4082,6 +4082,64 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("does not treat a reconciled terminal status as displacement", async () => {
+    vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
+      new Error("transient status write failure"),
+    );
+    vi.mocked(reconcileTerminalRunFromEvents).mockImplementationOnce(
+      async () => {
+        vi.mocked(getRunStatus).mockResolvedValue("completed");
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        return true;
+      },
+    );
+
+    const run = startRun(
+      "run-reconciled-terminal",
+      "thread-reconciled-terminal",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    await run.finalized;
+
+    expect(run.status).toBe("completed");
+    expect(run.abortReason).toBeUndefined();
+  });
+
+  it("confirms an ambiguously committed terminal status after a no-op reconciliation", async () => {
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
+      vi.mocked(getRunStatus).mockResolvedValue("completed");
+      throw new Error("terminal status write committed but its reply was lost");
+    });
+    vi.mocked(reconcileTerminalRunFromEvents).mockImplementationOnce(
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        return false;
+      },
+    );
+
+    const run = startRun(
+      "run-ambiguous-terminal-write",
+      "thread-ambiguous-terminal-write",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    await run.finalized;
+
+    expect(run.status).toBe("completed");
+    expect(run.abortReason).toBeUndefined();
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-ambiguous-terminal-write",
+      "done",
+    );
+  });
+
   it("captures initial run-row persistence failures with the run id", async () => {
     const provider = vi.fn(() => "evt_run_insert");
     const unregister = registerErrorCaptureProvider(
@@ -7517,6 +7575,56 @@ describe("run manager soft timeout", () => {
 
     expect(abortFired).toBe(true);
     expect(run.abortReason).toBe("displaced");
+  });
+
+  it("does not treat its own terminal status write as displacement", async () => {
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
+      vi.mocked(getRunStatus).mockResolvedValue("completed");
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      return true;
+    });
+
+    const run = startRun(
+      "run-own-terminal",
+      "thread-own-terminal",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    await run.finalized;
+
+    expect(run.status).toBe("completed");
+    expect(run.abortReason).toBeUndefined();
+  });
+
+  it("detects displacement while onComplete is pending", async () => {
+    const completionStarted = Promise.withResolvers<void>();
+    const completion = Promise.withResolvers<void>();
+    const run = startRun(
+      "run-displaced-during-completion",
+      "thread-displaced-during-completion",
+      async () => {},
+      async () => {
+        completionStarted.resolve();
+        await completion.promise;
+      },
+      { softTimeoutMs: 0 },
+    );
+
+    await completionStarted.promise;
+    vi.mocked(getRunStatus).mockResolvedValue("completed");
+    await vi.advanceTimersByTimeAsync(3001);
+
+    expect(run.abortReason).toBe("displaced");
+
+    completion.resolve();
+    await run.finalized;
+    expect(markRunAborted).toHaveBeenCalledWith(
+      "run-displaced-during-completion",
+      "displaced",
+    );
   });
 
   it("uses the atomic abort write so a reaped row is not overwritten", async () => {
