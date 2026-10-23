@@ -88,6 +88,31 @@ describe("video block ids", () => {
     ]);
   });
 
+  it("keeps a resized video's id when the same change deletes another with its source", () => {
+    const target = open(
+      `<video src="${A}"></video>\n<video src="${A}"></video>\nIntro`,
+    );
+    const first = target.state.doc.nodeAt(videoPos(target, 0))!;
+    const tr = target.state.tr.delete(0, first.nodeSize);
+    const { attrs } = tr.doc.nodeAt(0)!;
+    target.view.dispatch(
+      tr.setNodeMarkup(0, undefined, { ...attrs, width: 320 }),
+    );
+    expect(videoIds(target)).toEqual([derivedVideoBlockId(A, 1)]);
+  });
+
+  it("keeps a moved video's id from a new video with its source", () => {
+    const target = open(`<video src="${A}"></video>\nIntro`);
+    const moved = target.state.doc.nodeAt(videoPos(target, 0))!;
+    const added = target.schema.nodes.video.create({ src: A });
+    const tr = target.state.tr.delete(0, moved.nodeSize).insert(0, added);
+    target.view.dispatch(tr.insert(tr.doc.content.size, moved));
+    const ids = videoIds(target);
+    expect(ids[1]).toBe(derivedVideoBlockId(A, 0));
+    expect(ids[0]).toMatch(/^video-/);
+    expect(ids[0]).not.toBe(derivedVideoBlockId(A, 0));
+  });
+
   it("keeps the original's id when a copy is pasted above or below it", () => {
     const target = open(
       `Intro\n<video src="${A}" id="video-original"></video>`,

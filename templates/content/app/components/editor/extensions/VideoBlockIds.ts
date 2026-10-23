@@ -1,4 +1,5 @@
 import { Extension } from "@tiptap/core";
+import type { Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 
 import { commentAnchorBlockList } from "../comment-block-anchors";
@@ -46,45 +47,41 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
             return null;
 
           const kept = new Map<number, string>();
-          // Resizing or moving a video replaces its node, so mapping loses
-          // it. One saved without an id has only its derived id to go by;
-          // the id-less video with its source that takes its place keeps it.
-          const derivedLost = new Map<string, string[]>();
-          const srcOf = (attrs: Record<string, unknown>) =>
-            typeof attrs.src === "string" ? attrs.src : "";
+          // Moving a video reinserts its node and resizing one writes a new
+          // node over it, so mapping loses both. One saved without an id keeps
+          // its derived id only when its own node comes back or a video with
+          // its source takes exactly its place.
+          const lost: { id: string; node: PMNode; from: number; to: number }[] =
+            [];
           for (const block of commentAnchorBlockList(oldState.doc)) {
             if (block.blockType !== "video") continue;
-            let pos = block.pos;
+            const node = oldState.doc.nodeAt(block.pos);
+            let from = block.pos;
+            let to = block.pos + (node?.nodeSize ?? 0);
             let deleted = false;
             for (const transaction of transactions) {
-              const mapped = transaction.mapping.mapResult(pos, 1);
+              const mapped = transaction.mapping.mapResult(from, 1);
               deleted ||= mapped.deleted;
-              pos = mapped.pos;
+              from = mapped.pos;
+              to = transaction.mapping.map(to, -1);
             }
             if (!deleted) {
-              kept.set(pos, block.blockId);
+              kept.set(from, block.blockId);
               continue;
             }
-            const old = oldState.doc.nodeAt(block.pos);
-            if (!old || old.attrs.blockId) continue;
-            const src = srcOf(old.attrs);
-            derivedLost.set(src, [
-              ...(derivedLost.get(src) ?? []),
-              block.blockId,
-            ]);
+            if (node && !node.attrs.blockId)
+              lost.push({ id: block.blockId, node, from, to });
           }
           const reserved = new Set(kept.values());
 
           const used = new Set<string>();
           const free = (id: string | undefined): id is string =>
             !!id && !reserved.has(id) && !used.has(id);
-          const takeLost = (src: string) => {
-            const lost = derivedLost.get(src) ?? [];
-            while (lost.length) {
-              const id = lost.shift();
-              if (free(id)) return id;
-            }
-            return undefined;
+          const take = (carries: (entry: (typeof lost)[number]) => boolean) => {
+            const index = lost.findIndex(
+              (entry) => free(entry.id) && carries(entry),
+            );
+            return index < 0 ? undefined : lost.splice(index, 1)[0].id;
           };
           const tr = newState.tr;
           newState.doc.descendants((node, pos) => {
@@ -97,7 +94,14 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
                 ? keptId
                 : free(saved)
                   ? saved
-                  : (!saved && takeLost(srcOf(node.attrs))) ||
+                  : (!saved &&
+                      (take((entry) => entry.node === node) ??
+                        take(
+                          (entry) =>
+                            entry.from === pos &&
+                            entry.to === pos + node.nodeSize &&
+                            entry.node.attrs.src === node.attrs.src,
+                        ))) ||
                     createContentBlockId("video");
             used.add(id);
             if (id !== saved) tr.setNodeAttribute(pos, "blockId", id);

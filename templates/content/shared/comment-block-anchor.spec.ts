@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   derivedVideoBlockId,
+  keepVideoBlockIds,
   nfmCommentAnchorBlocks,
 } from "./comment-block-anchor";
 import { nfmToDoc } from "./nfm";
@@ -70,5 +71,40 @@ describe("comment anchor blocks", () => {
       ),
     );
     expect([...blocks.keys()]).toEqual(["video-intoggl", "video-inlist1"]);
+  });
+});
+
+describe("keeping video ids through a copy that has none", () => {
+  const video = (caption: string, id?: string) =>
+    `<video src="https://example.com/a.mp4"${id ? ` id="${id}"` : ""}>${caption}</video>`;
+  const local = L(
+    video("First", "video-first"),
+    video("Second", "video-second"),
+  );
+
+  it("keeps each video's id when another with its source is deleted", () => {
+    expect(keepVideoBlockIds(local, video("Second"))).toBe(
+      video("Second", "video-second"),
+    );
+  });
+
+  it("keeps each video's id when videos with one source trade places", () => {
+    expect(keepVideoBlockIds(local, L(video("Second"), video("First")))).toBe(
+      L(video("Second", "video-second"), video("First", "video-first")),
+    );
+  });
+
+  it("keeps the id of the one video with a source whose caption changed", () => {
+    expect(
+      keepVideoBlockIds(video("First", "video-first"), video("Opening")),
+    ).toBe(video("Opening", "video-first"));
+  });
+
+  it("gives no id it cannot tell apart", () => {
+    const twins = L(video("", "video-one"), video("", "video-two"));
+    expect(keepVideoBlockIds(twins, video(""))).toBe(video(""));
+    expect(
+      keepVideoBlockIds(local, L(video("Opening"), video("Closing"))),
+    ).toBe(L(video("Opening"), video("Closing")));
   });
 });
