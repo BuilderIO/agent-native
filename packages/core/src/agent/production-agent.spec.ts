@@ -12169,7 +12169,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("does not cache repeated reads when the action opts out of deduping", async () => {
+  it("keeps polling fresh results past the repeat threshold when the action opts out of deduping", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -12185,7 +12185,7 @@ describe("runAgentLoop", () => {
       },
       async *stream(): AsyncIterable<EngineEvent> {
         streamCalls += 1;
-        if (streamCalls <= 2) {
+        if (streamCalls <= 9) {
           yield {
             type: "assistant-content",
             parts: [
@@ -12207,10 +12207,10 @@ describe("runAgentLoop", () => {
         yield { type: "stop", reason: "end_turn" };
       },
     };
-    const pollAction = vi
-      .fn()
-      .mockResolvedValueOnce({ status: "running" })
-      .mockResolvedValueOnce({ status: "complete" });
+    let polls = 0;
+    const pollAction = vi.fn(async () => ({
+      status: ++polls === 9 ? "complete" : "running",
+    }));
     const events: any[] = [];
 
     await runAgentLoop({
@@ -12230,8 +12230,13 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(pollAction).toHaveBeenCalledTimes(2);
+    expect(pollAction).toHaveBeenCalledTimes(9);
     expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
+    const completedPoll = events.find(
+      (event) => event.type === "tool_done" && event.id === "poll-9",
+    );
+    expect(completedPoll).toBeDefined();
+    expect(JSON.parse(completedPoll.result)).toEqual({ status: "complete" });
     expect(events).toContainEqual({ type: "text", text: "complete" });
   });
 
@@ -13456,96 +13461,6 @@ describe("runAgentLoop", () => {
         tool: "get-document",
         result: "fresh document after write",
       }),
-    );
-  });
-
-  it("stops a turn that keeps issuing the same successful tool call with identical arguments", async () => {
-    let streamCalls = 0;
-    const run = vi.fn(async () => "same answer every time");
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: false,
-      },
-      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
-        streamCalls += 1;
-        if (isLoopBreakerCloseout(options)) {
-          yield {
-            type: "assistant-content",
-            parts: [
-              {
-                type: "text" as const,
-                text: "Stopped after eight repeated reads; nothing remains.",
-              },
-            ],
-          };
-          yield { type: "stop", reason: "end_turn" };
-          return;
-        }
-        yield {
-          type: "assistant-content",
-          parts: [
-            {
-              type: "tool-call" as const,
-              id: `tool-loop-${streamCalls}`,
-              name: "spinning-read",
-              input: { q: "same" },
-            },
-          ],
-        };
-        yield { type: "stop", reason: "tool_use" };
-      },
-    };
-    const events: any[] = [];
-
-    await runAgentLoop({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: {
-        "spinning-read": {
-          ...actionEntry({ readOnly: true }),
-          dedupe: false,
-          run,
-        },
-      },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-      maxIterations: MAX_IDENTICAL_TOOL_CALLS,
-    });
-
-    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
-    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "tool_done",
-        tool: "spinning-read",
-        result: "same answer every time",
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "text",
-        text: "Stopped after eight repeated reads; nothing remains.",
-      }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "error" }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "loop_limit" }),
     );
   });
 

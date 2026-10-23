@@ -11,6 +11,17 @@ type Specificity = [number, number, number];
 type SelectorPart = { compound: string; combinator: " " | ">" | "+" | "~" };
 type ImageReference = { url: string; location: string };
 type EmailExportOptions = { preserveLinksFromHtml?: string };
+type ConditionalVisibilityRule = {
+  parts: SelectorPart[];
+  declarations: Declaration[];
+};
+
+const REQUIRED_FOOTER_TOKENS = [
+  "company_name",
+  "company_street_address_1",
+  "company_city",
+  "company_state",
+].map((name) => `site_settings.${name}`);
 
 function invalid(message: string): never {
   return fail(message, { errorCode: "invalid_hubspot_email", statusCode: 422 });
@@ -49,6 +60,15 @@ function validateContactInterpolation(token: string): void {
     invalid(
       "Email contact personalization needs personalization_token('contact.field', 'fallback') without filters; HubSpot does not support contact personalization filters in emails.",
     );
+}
+
+function validateAttributeInterpolations(value: string, at: string): void {
+  for (const token of value.match(/{{[\s\S]*?}}/g) ?? []) {
+    if (parseHubLInterpolation(token)?.fallback?.includes('"'))
+      invalid(
+        `Personalization defaults in attributes at ${at} cannot contain literal double quotes. Use an encoded URL or an HTML entity in text attributes.`,
+      );
+  }
 }
 
 function validateLinkDestination(value: string, at: string): void {
@@ -323,16 +343,54 @@ function parseStyles(css: string) {
   }
 }
 
-function visibleTextByElement(document: Node): Map<Element, string> {
-  const result = new Map<Element, string>();
+function winningDeclarations(declarations: Declaration[]) {
+  const result = new Map<string, Declaration>();
+  for (const declaration of declarations) {
+    const property = declaration.prop.toLowerCase();
+    const previous = result.get(property);
+    if (!previous?.important || declaration.important)
+      result.set(property, declaration);
+  }
+  return result;
+}
+
+function inlineDeclarations(element: Element) {
+  const declarations: Declaration[] = [];
+  parseStyles(`email { ${attribute(element, "style") ?? ""} }`).walkDecls(
+    (declaration) => {
+      declarations.push(declaration);
+    },
+  );
+  return winningDeclarations(declarations);
+}
+
+function mayHideText(declaration: Declaration): boolean {
+  const property = declaration.prop.toLowerCase();
+  const value = declaration.value.trim().toLowerCase();
+  return (
+    (property === "display" && value === "none") ||
+    (property === "visibility" && ["hidden", "collapse"].includes(value)) ||
+    (property === "opacity" && Number(value.replace(/%$/, "")) === 0) ||
+    (property === "font-size" &&
+      /^[+-]?(?:0*\.)?0+(?:[a-z%]+)?$/.test(value)) ||
+    ["all", "font"].includes(property)
+  );
+}
+
+function visibleTextByElement(document: Node): Map<Node, string> {
+  const result = new Map<Node, string>();
   const visit = (
     node: Node,
     inherited = { visibility: "visible", zeroFont: false },
   ): string => {
-    if (node.nodeName === "#text")
-      return inherited.visibility === "visible" && !inherited.zeroFont
-        ? (node as DefaultTreeAdapterTypes.TextNode).value
-        : "";
+    if (node.nodeName === "#text") {
+      const text =
+        inherited.visibility === "visible" && !inherited.zeroFont
+          ? (node as DefaultTreeAdapterTypes.TextNode).value
+          : "";
+      result.set(node, text);
+      return text;
+    }
     let state = inherited;
     if ("tagName" in node) {
       if (
@@ -341,15 +399,7 @@ function visibleTextByElement(document: Node): Map<Element, string> {
         attribute(node, "data-email-preheader") !== undefined
       )
         return "";
-      const declarations = new Map<string, Declaration>();
-      parseStyles(`email { ${attribute(node, "style") ?? ""} }`).walkDecls(
-        (declaration) => {
-          const property = declaration.prop.toLowerCase();
-          const previous = declarations.get(property);
-          if (!previous?.important || declaration.important)
-            declarations.set(property, declaration);
-        },
-      );
+      const declarations = inlineDeclarations(node);
       const value = (property: string) =>
         declarations.get(property)?.value.trim().toLowerCase();
       const opacity = value("opacity");
@@ -387,6 +437,67 @@ function visibleTextByElement(document: Node): Map<Element, string> {
   };
   visit(document);
   return result;
+}
+
+function assertResponsiveFooterVisibility(
+  visibleText: Map<Node, string>,
+  rules: ConditionalVisibilityRule[],
+  restoreTokens: (value: string) => string,
+): void {
+  if (!rules.length) return;
+  const candidates = new Map(
+    [...REQUIRED_FOOTER_TOKENS, "unsubscribe_link"].map((name) => [
+      name,
+      [] as Element[][],
+    ]),
+  );
+  for (const [node, text] of visibleText) {
+    if (node.nodeName !== "#text" || !text.trim()) continue;
+    const path: Element[] = [];
+    let parent = "parentNode" in node ? node.parentNode : undefined;
+    while (parent && "tagName" in parent) {
+      path.push(parent);
+      parent = parent.parentNode;
+    }
+    for (const token of restoreTokens(text).match(/{{[\s\S]*?}}/g) ?? []) {
+      const parsed = parseHubLInterpolation(token);
+      if (parsed && REQUIRED_FOOTER_TOKENS.includes(parsed.name))
+        candidates.get(parsed.name)?.push(path);
+    }
+    if (
+      path.some((element) => {
+        if (element.tagName !== "a") return false;
+        const parsed = parseHubLInterpolation(
+          restoreTokens(attribute(element, "href") ?? ""),
+        );
+        return parsed?.name === "unsubscribe_link" && !parsed.personalization;
+      })
+    )
+      candidates.get("unsubscribe_link")!.push(path);
+  }
+  const styles = new Map<Element, ReturnType<typeof inlineDeclarations>>();
+  for (const [name, paths] of candidates) {
+    const alwaysVisible = paths.some((path) =>
+      path.every((element) => {
+        if (!styles.has(element))
+          styles.set(element, inlineDeclarations(element));
+        return rules.every(
+          (rule) =>
+            !matchesSelector(element, rule.parts) ||
+            rule.declarations.every((declaration) => {
+              const inline = styles
+                .get(element)!
+                .get(declaration.prop.toLowerCase());
+              return inline?.important || (!!inline && !declaration.important);
+            }),
+        );
+      }),
+    );
+    if (!alwaysVisible)
+      invalid(
+        `Responsive CSS may hide required email footer content (${name}). Keep an always-visible footer and unsubscribe label outside conditional hide/show sections.`,
+      );
+  }
 }
 
 function imageReference(url: string, at: string): ImageReference {
@@ -467,6 +578,8 @@ export function prepareHubSpotEmailHtml(
         `Remove <${element.tagName}> at ${at}; email exports cannot depend on browser scripts, external styles, or interactive content.`,
       );
     for (const attr of element.attrs) {
+      const value = restoreTokens(attr.value);
+      validateAttributeInterpolations(value, `${at}[${attr.name}]`);
       if (
         /^(?:on|x-|@|:)/.test(attr.name) ||
         ["srcdoc", "srcset", "background", "action", "formaction"].includes(
@@ -476,8 +589,7 @@ export function prepareHubSpotEmailHtml(
         invalid(
           `Attribute "${attr.name}" at ${at} is not supported in an email. Use static HTML and HTTPS <img> elements.`,
         );
-      if (attr.name === "href")
-        validateLinkDestination(restoreTokens(attr.value), at);
+      if (attr.name === "href") validateLinkDestination(value, at);
     }
     if (element.tagName === "img") {
       if (attribute(element, "alt") === undefined)
@@ -536,6 +648,7 @@ export function prepareHubSpotEmailHtml(
     css: string;
     order: number;
   }> = [];
+  const conditionalVisibilityRules: ConditionalVisibilityRule[] = [];
   let order = 0;
   for (const element of all.filter((entry) => entry.tagName === "style")) {
     const root = parseStyles(textNodes(element.childNodes[0] ?? element));
@@ -548,8 +661,33 @@ export function prepareHubSpotEmailHtml(
     });
     const media: string[] = [];
     for (const node of root.nodes) {
-      if (node.type === "atrule") media.push(node.toString());
-      else if (node.type === "rule") {
+      if (node.type === "atrule") {
+        node.walkRules((rule) => {
+          const declarations: Declaration[] = [];
+          rule.walkDecls((declaration) => {
+            declarations.push(declaration);
+          });
+          const hiding = [...winningDeclarations(declarations).values()].filter(
+            mayHideText,
+          );
+          if (!hiding.length) return;
+          if (
+            rule.parent !== node ||
+            rule.nodes.some(
+              (child) => child.type !== "decl" && child.type !== "comment",
+            )
+          )
+            invalid(
+              "Nested responsive visibility rules cannot be validated for email footer content.",
+            );
+          for (const selector of rule.selectors)
+            conditionalVisibilityRules.push({
+              parts: parseSelector(selector).parts,
+              declarations: hiding,
+            });
+        });
+        media.push(node.toString());
+      } else if (node.type === "rule") {
         if (
           node.nodes.some(
             (child) => child.type !== "decl" && child.type !== "comment",
@@ -611,17 +749,10 @@ export function prepareHubSpotEmailHtml(
   const footerTokens = (
     restoreTokens(visibleText.get(body) ?? "").match(/{{[\s\S]*?}}/g) ?? []
   ).map(parseHubLInterpolation);
-  for (const token of [
-    "company_name",
-    "company_street_address_1",
-    "company_city",
-    "company_state",
-  ]) {
-    if (
-      !footerTokens.some((parsed) => parsed?.name === `site_settings.${token}`)
-    )
+  for (const token of REQUIRED_FOOTER_TOKENS) {
+    if (!footerTokens.some((parsed) => parsed?.name === token))
       invalid(
-        `The visible footer is missing {{ site_settings.${token} }} outside the preheader.`,
+        `The visible footer is missing {{ ${token} }} outside the preheader.`,
       );
   }
   if (
@@ -637,6 +768,11 @@ export function prepareHubSpotEmailHtml(
     invalid(
       'The email needs a visible unsubscribe link with href="{{ unsubscribe_link }}" and a non-empty text label outside the preheader.',
     );
+  assertResponsiveFooterVisibility(
+    visibleText,
+    conditionalVisibilityRules,
+    restoreTokens,
+  );
   const leadingComments =
     content
       .replace(/^\uFEFF/, "")

@@ -983,9 +983,7 @@ export default {
     framePresets: {
       title: "프레임",
       applyToFrame: "사전 설정 크기로 조정",
-      hubspotEmail: "HubSpot 이메일",
       categories: {
-        email: "이메일",
         phone: "휴대폰",
         tablet: "태블릿",
         desktop: "데스크톱",

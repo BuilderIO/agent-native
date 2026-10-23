@@ -992,9 +992,7 @@ export default {
     framePresets: {
       title: "Quadro",
       applyToFrame: "Redimensionar para predefinição",
-      hubspotEmail: "E-mail do HubSpot",
       categories: {
-        email: "E-mail",
         phone: "Celular",
         tablet: "Tablet",
         desktop: "Área de trabalho",

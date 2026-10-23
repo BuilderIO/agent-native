@@ -53,7 +53,6 @@ export function extraBreakpointWidthPresets(
   const out: Array<{ name: string; widthPx: number }> = [];
   for (const category of FRAME_SIZE_PRESET_CATEGORIES) {
     for (const preset of category.presets) {
-      if (preset.frameType) continue;
       if (taken.has(preset.width) || seen.has(preset.width)) continue;
       if (preset.width < 320 || preset.width > 3840) continue;
       seen.add(preset.width);

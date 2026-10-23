@@ -969,9 +969,7 @@ export default {
     framePresets: {
       title: "画框",
       applyToFrame: "调整为预设尺寸",
-      hubspotEmail: "HubSpot 邮件",
       categories: {
-        email: "邮件",
         phone: "手机",
         tablet: "平板",
         desktop: "桌面",

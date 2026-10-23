@@ -914,9 +914,7 @@ export default {
     framePresets: {
       title: "Frame",
       applyToFrame: "Resize to preset",
-      hubspotEmail: "HubSpot email",
       categories: {
-        email: "Email",
         phone: "Phone",
         tablet: "Tablet",
         desktop: "Desktop",

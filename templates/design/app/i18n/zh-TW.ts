@@ -1077,9 +1077,7 @@ export default {
     framePresets: {
       title: "外框",
       applyToFrame: "調整為預設尺寸",
-      hubspotEmail: "HubSpot 郵件",
       categories: {
-        email: "郵件",
         phone: "手機",
         tablet: "平板",
         desktop: "桌面",

@@ -19,7 +19,6 @@ function FramePresetCategoryGroup({
   defaultOpen?: boolean;
   onPick: (preset: FrameSizePreset) => void;
 }) {
-  const t = useT();
   const [open, setOpen] = useState(defaultOpen);
 
   return (
@@ -43,13 +42,13 @@ function FramePresetCategoryGroup({
         <div className="design-sidebar-control-stack pb-2">
           {presets.map((preset) => (
             <button
-              key={preset.nameKey ? t(preset.nameKey) : preset.name}
+              key={preset.name}
               type="button"
               className="flex min-h-[var(--design-row-height)] w-full min-w-0 cursor-pointer items-center gap-2 px-2 ps-8 text-left hover:bg-[var(--design-editor-control-hover-bg)]"
               onClick={() => onPick(preset)}
             >
               <span className="min-w-0 flex-1 truncate !text-[11px] text-foreground">
-                {preset.nameKey ? t(preset.nameKey) : preset.name}
+                {preset.name}
               </span>
               <span className="shrink-0 !text-[11px] tabular-nums text-muted-foreground">
                 {preset.width}
@@ -68,7 +67,6 @@ const FRAME_PRESET_CATEGORY_LABEL_KEYS: Record<
   FrameSizePresetCategoryKey,
   string
 > = {
-  email: "editPanel.framePresets.categories.email",
   phone: "editPanel.framePresets.categories.phone",
   tablet: "editPanel.framePresets.categories.tablet",
   desktop: "editPanel.framePresets.categories.desktop",
@@ -81,10 +79,8 @@ const FRAME_PRESET_CATEGORY_LABEL_KEYS: Record<
 
 export function FramePresetsPanel({
   onPick,
-  includeFrameTypes = true,
 }: {
   onPick: (preset: FrameSizePreset) => void;
-  includeFrameTypes?: boolean;
 }) {
   const t = useT();
 
@@ -96,17 +92,11 @@ export function FramePresetsPanel({
         </h3>
       </div>
       <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {FRAME_SIZE_PRESET_CATEGORIES.filter(
-          (category) =>
-            includeFrameTypes ||
-            category.presets.some((preset) => !preset.frameType),
-        ).map((category, index) => (
+        {FRAME_SIZE_PRESET_CATEGORIES.map((category, index) => (
           <FramePresetCategoryGroup
             key={category.key}
             title={t(FRAME_PRESET_CATEGORY_LABEL_KEYS[category.key])}
-            presets={category.presets.filter(
-              (preset) => includeFrameTypes || !preset.frameType,
-            )}
+            presets={category.presets}
             defaultOpen={index === 0}
             onPick={onPick}
           />

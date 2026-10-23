@@ -2,8 +2,8 @@
 name: hubspot-email
 description: >-
   Create, convert, personalize, and validate HubSpot marketing email HTML.
-  Use for HubSpot email creation, alignment, personalization tokens,
-  conversion, or HTML handoff, including follow-ups about existing email frames.
+  Use when creating emails, aligning existing frames with HubSpot, adding
+  personalization tokens, or exporting HTML, including follow-ups.
 ---
 
 # HubSpot Email

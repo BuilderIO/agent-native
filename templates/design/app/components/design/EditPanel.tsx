@@ -1073,7 +1073,6 @@ function ScreenSizePresetPicker({
       <PopoverContent align="end" side="left" className="w-56 p-0">
         <div className="flex max-h-80 flex-col overflow-hidden">
           <FramePresetsPanel
-            includeFrameTypes={false}
             onPick={(preset) => {
               onPick(preset);
               setOpen(false);

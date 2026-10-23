@@ -980,9 +980,7 @@ export default {
     framePresets: {
       title: "الإطار",
       applyToFrame: "تغيير الحجم إلى إعداد مسبق",
-      hubspotEmail: "بريد HubSpot الإلكتروني",
       categories: {
-        email: "البريد الإلكتروني",
         phone: "الهاتف",
         tablet: "الجهاز اللوحي",
         desktop: "سطح المكتب",

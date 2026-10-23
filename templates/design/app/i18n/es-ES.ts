@@ -995,9 +995,7 @@ export default {
     framePresets: {
       title: "Marco",
       applyToFrame: "Cambiar a tamaño predefinido",
-      hubspotEmail: "Correo de HubSpot",
       categories: {
-        email: "Correo electrónico",
         phone: "Teléfono",
         tablet: "Tableta",
         desktop: "Escritorio",

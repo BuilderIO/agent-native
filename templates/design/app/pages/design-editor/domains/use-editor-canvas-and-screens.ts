@@ -555,13 +555,7 @@ export function useEditorCanvasAndScreens({
   );
 
   const handleCreateScreenFrame = useCallback(
-    (geometry: {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      frameType?: FrameSizePreset["frameType"];
-    }) =>
+    (geometry: { x: number; y: number; width: number; height: number }) =>
       runCreateScreenFrame(
         {
           canEditDesign,
@@ -612,7 +606,7 @@ export function useEditorCanvasAndScreens({
             height: preset.height,
           }
         : { x: 0, y: 0, width: preset.width, height: preset.height };
-      handleCreateScreenFrame({ ...geometry, frameType: preset.frameType });
+      handleCreateScreenFrame(geometry);
     },
     [
       boardFileId,

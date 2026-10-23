@@ -995,9 +995,7 @@ export default {
     framePresets: {
       title: "フレーム",
       applyToFrame: "プリセットサイズに変更",
-      hubspotEmail: "HubSpot メール",
       categories: {
-        email: "メール",
         phone: "電話",
         tablet: "タブレット",
         desktop: "デスクトップ",

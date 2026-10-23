@@ -258,6 +258,55 @@ describe("HubSpot email HTML export", () => {
     ).toThrow("fallback");
   });
 
+  it("preserves double-quoted HubL arguments and quoted defaults in text", () => {
+    const urlToken =
+      '{{ personalization_token("contact.website", "https://example.com/docs") }}';
+    const textToken = `{{ personalization_token('contact.firstname', 'Bob "the builder"') }}`;
+    const { html } = prepareHubSpotEmailHtml(
+      withContent(`<a id="quoted-token" href="${urlToken}">${textToken}</a>`),
+    );
+    expect(html).toContain(urlToken);
+    expect(html).toContain(textToken);
+    expect(
+      findElement(
+        html.replace(urlToken, "https://example.com/docs"),
+        "quoted-token",
+      ).attrs,
+    ).toContainEqual({ name: "href", value: "https://example.com/docs" });
+  });
+
+  it.each([
+    [
+      "href",
+      String.raw`{{ personalization_token('contact.website', 'https://example.com/" onmouseover="injected') }}`,
+    ],
+    [
+      "href",
+      String.raw`{{ personalization_token("contact.website", "https://example.com/\"quoted\"") }}`,
+    ],
+    [
+      "title",
+      `{{ personalization_token('contact.firstname', 'Bob "the builder"') }}`,
+    ],
+  ])(
+    "rejects quote-bearing personalization defaults in %s attributes",
+    (attribute, token) => {
+      const attrs =
+        attribute === "href"
+          ? `href="${token}"`
+          : `href="https://example.com" title="${token}"`;
+      expect(() =>
+        prepareHubSpotEmailHtml(withContent(`<a ${attrs}>Open</a>`)),
+      ).toThrowError(
+        expect.objectContaining({
+          errorCode: "invalid_hubspot_email",
+          statusCode: 422,
+          message: expect.stringContaining("literal double quotes"),
+        }),
+      );
+    },
+  );
+
   it.each([
     "{{ contact.firstname|default('there', true) }}",
     "{{ contact.firstname|escape_html }}",
@@ -354,6 +403,103 @@ describe("HubSpot email HTML export", () => {
     expect(prepareHubSpotEmailHtml(html).html).toContain(
       "data-email-preheader",
     );
+  });
+
+  it.each([
+    [".email-footer", "display:none!important"],
+    ['table[role="presentation"]', "opacity:0%!important"],
+    [".email-footer p", "font-size:0px!important"],
+    [".email-footer a", "visibility:hidden!important"],
+    [".email-footer a", "visibility:collapse!important"],
+    [".email-footer", "font:0/0 Arial!important"],
+    [".email-footer", "all:unset!important"],
+  ])(
+    "rejects responsive visibility changes affecting required content (%s %s)",
+    (selector, css) => {
+      expect(() =>
+        prepareHubSpotEmailHtml(
+          withContent("Hello", `@media(max-width:620px){${selector}{${css}}}`),
+        ),
+      ).toThrow("Responsive CSS may hide required email footer content");
+    },
+  );
+
+  it("checks each company token and the unsubscribe label independently", () => {
+    const html = withContent(
+      "<p>{{ unsubscribe_link }}</p>",
+      "@media(max-width:620px){.company-name,.email-footer a{display:none!important}}",
+    ).replace(
+      "{{ site_settings.company_name }}",
+      '<span class="company-name">{{ site_settings.company_name }}</span>',
+    );
+    expect(() => prepareHubSpotEmailHtml(html)).toThrow(
+      "site_settings.company_name",
+    );
+    expect(() =>
+      prepareHubSpotEmailHtml(html.replace(".company-name,", "")),
+    ).toThrow("unsubscribe_link");
+  });
+
+  it.each([
+    ["display:block!important", "display:none!important"],
+    ["display:block", "display:none"],
+    ["", "display:none!important;display:table-cell!important"],
+  ])(
+    "respects inline and within-rule precedence for responsive visibility (%s / %s)",
+    (inline, css) => {
+      const html = withContent(
+        "Hello",
+        `@media(max-width:620px){.email-footer{${css}}}`,
+      ).replace(
+        '<td class="email-footer">',
+        `<td class="email-footer" style="${inline}">`,
+      );
+      expect(prepareHubSpotEmailHtml(html).html).toContain("@media");
+    },
+  );
+
+  it("preserves responsive spacing and unrelated conditional artwork", () => {
+    const html = withContent(
+      '<div class="art">Decoration</div>',
+      "@media(max-width:620px){.email-footer{padding:12px;font-size:14px}.art{display:none!important}}",
+    );
+    expect(prepareHubSpotEmailHtml(html).html).toContain(
+      ".art{display:none!important}",
+    );
+  });
+
+  it("accepts an always-visible duplicate footer but rejects mutually conditional copies", () => {
+    const html = withContent(
+      "Hello",
+      "@media(max-width:620px){.email-footer{display:none!important}}",
+    );
+    const footer = html
+      .match(/<td class="email-footer">[\s\S]*?<\/td>/)![0]
+      .replace('class="email-footer"', 'class="always-footer"');
+    const duplicated = html.replace(
+      "</body>",
+      `<table role="presentation"><tr>${footer}</tr></table></body>`,
+    );
+    expect(prepareHubSpotEmailHtml(duplicated).html).toContain("always-footer");
+    expect(() =>
+      prepareHubSpotEmailHtml(
+        duplicated.replace(
+          "</style>",
+          "@media(min-width:621px){.always-footer{display:none!important}}</style>",
+        ),
+      ),
+    ).toThrow("Responsive CSS may hide required email footer content");
+  });
+
+  it("rejects conditional visibility selectors it cannot safely match", () => {
+    expect(() =>
+      prepareHubSpotEmailHtml(
+        withContent(
+          "Hello",
+          "@media(max-width:620px){.email-footer:not(.keep){display:none!important}}",
+        ),
+      ),
+    ).toThrow("cannot be inlined");
   });
 
   it("requires the email annotation before document markup, without requiring availability", () => {

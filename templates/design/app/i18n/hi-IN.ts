@@ -981,9 +981,7 @@ export default {
     framePresets: {
       title: "फ़्रेम",
       applyToFrame: "प्रीसेट आकार में बदलें",
-      hubspotEmail: "HubSpot ईमेल",
       categories: {
-        email: "ईमेल",
         phone: "फ़ोन",
         tablet: "टैबलेट",
         desktop: "डेस्कटॉप",

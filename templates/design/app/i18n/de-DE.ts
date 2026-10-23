@@ -998,9 +998,7 @@ export default {
     framePresets: {
       title: "Rahmen",
       applyToFrame: "Auf Voreinstellung anpassen",
-      hubspotEmail: "HubSpot-E-Mail",
       categories: {
-        email: "E-Mail",
         phone: "Telefon",
         tablet: "Tablet",
         desktop: "Desktop",
