@@ -605,12 +605,12 @@ export function useEditorContentAndComponents({
   const markMotionTracksDirty = useCallback(() => {
     captureMotionSourceVersion(localhostMotionProof?.moduleVersionHash);
     setMotionTracksDirty(true);
-    setMotionAutosaveRevision((revision) => {
-      const next = revision + 1;
-      motionAutosaveRevisionRef.current = next;
-      motionAutosaveFailedRevisionRef.current = null;
-      return next;
-    });
+    // A save timer can fire before React applies this edit. Moving the ref
+    // now makes it stand down instead of saving the document from before it.
+    const next = motionAutosaveRevisionRef.current + 1;
+    motionAutosaveRevisionRef.current = next;
+    motionAutosaveFailedRevisionRef.current = null;
+    setMotionAutosaveRevision(next);
   }, [captureMotionSourceVersion, localhostMotionProof?.moduleVersionHash]);
 
   const pruneMotionTracksByNodeId = useCallback(
