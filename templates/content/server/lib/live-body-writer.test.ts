@@ -494,7 +494,7 @@ describe("live-body writer gate", () => {
 
       await getDb().transaction(async (tx) => {
         const [row] = await tx
-          .select(gate.liveBodyWriterPageColumns)
+          .select(gate.liveBodyWriterPageColumns())
           .from(schema.documents)
           .where(eq(schema.documents.id, "switched"))
           .for("update");

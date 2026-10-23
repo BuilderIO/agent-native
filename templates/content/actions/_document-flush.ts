@@ -118,12 +118,6 @@ export async function flushOpenDocumentEditorToSql(args: {
   ownerEmail?: string | null;
   propertyId?: string;
 }): Promise<OpenEditorFlushResult> {
-  // A switched page's body is its live copy, and each tab's commit to it
-  // already wrote SQL, so an editor's save adds nothing to it. A Blocks field
-  // outside the body still needs its save.
-  if (!args.propertyId && (await isLiveBodyWriterPage(args.documentId))) {
-    return { status: "live_copy" };
-  }
   const deadline = Date.now() + FLUSH_TIMEOUT_MS;
   let phase = "discovery";
   let waitingEditors: FlushEditorIdentity[] = [];
@@ -192,6 +186,17 @@ export async function flushOpenDocumentEditorToSql(args: {
     }
     const required = candidates.filter((value) => value.required);
     if (candidates.length === 0) return { status: "no_open_editor" };
+    // A switched page's body is its live copy, and each tab's commit to it
+    // already wrote SQL, so its editors never answer a body save: asking
+    // would wait out the deadline. Read only with an editor open, so a flush
+    // with none reads nothing beyond main's. A Blocks field outside the body
+    // still needs its save.
+    if (
+      !args.propertyId &&
+      (await bounded(isLiveBodyWriterPage(args.documentId)))
+    ) {
+      return { status: "live_copy" };
+    }
     if (required.length === 0) {
       const sessions = [
         ...new Set(

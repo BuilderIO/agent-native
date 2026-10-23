@@ -168,6 +168,10 @@ vi.mock("@agent-native/core/collab", () => ({
   hasCollabState: collabStateMock.hasCollabState,
   loadAwarenessRowsStrict: collabStateMock.loadAwarenessRowsStrict,
 }));
+vi.mock("../server/lib/live-body-writer.js", async (original) => ({
+  ...(await original<typeof import("../server/lib/live-body-writer.js")>()),
+  isLiveBodyWriterPage: async () => false,
+}));
 
 vi.mock("@agent-native/core/application-state", () => ({
   appStateCompareAndSet: appStateMock.appStateCompareAndSet,

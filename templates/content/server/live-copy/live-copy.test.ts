@@ -2846,6 +2846,44 @@ describe("a version restore on a switched page", () => {
     expect((await page("restore-renamed")).content).toBe("Second draft");
   });
 
+  it("answers a flush with a tab open on a switched page without asking the tab to save", async () => {
+    await switchedPage("flush-open", "Hello there");
+    await collab.loadAwarenessRowsStrict("flush-open");
+    const { DOCUMENT_FLUSH_PROTOCOL } =
+      await import("../../shared/document-flush-protocol.js");
+    await getDbExec().execute({
+      sql: "INSERT INTO _collab_awareness (doc_id, client_id, state, last_seen) VALUES (?, ?, ?, ?)",
+      args: [
+        "flush-open",
+        7,
+        JSON.stringify({
+          user: { email: OWNER },
+          canFlushDocument: true,
+          documentFlushProtocol: DOCUMENT_FLUSH_PROTOCOL,
+          editorSessionId: "flush-open-tab",
+        }),
+        Date.now(),
+      ],
+    });
+    const { flushOpenDocumentEditorToSql } =
+      await import("../../actions/_document-flush.js");
+    const { appStateGet } =
+      await import("@agent-native/core/application-state");
+    const started = performance.now();
+
+    await expect(
+      asOwner(() =>
+        flushOpenDocumentEditorToSql({
+          documentId: "flush-open",
+          ownerEmail: OWNER,
+        }),
+      ),
+    ).resolves.toEqual({ status: "live_copy" });
+
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(await appStateGet(OWNER, "flush-request-flush-open")).toBeNull();
+  });
+
   it("restores with a tab open without waiting on the tab to save (SF-03)", async () => {
     await switchedPage("restore-open", "First draft");
     await serverEdit("restore-open", "Second draft");
@@ -2965,6 +3003,40 @@ describe("a version restore on a switched page", () => {
     expect(await gateFor("restore-flags-on")).toEqual({
       writePath: "live_copy",
     });
+  });
+
+  it("refuses a legacy restore whose editor access was revoked during its editor flush", async () => {
+    await switchedPage("restore-legacy-revoked", "First draft");
+    await serverEdit("restore-legacy-revoked", "Second draft");
+    const versionId = await versionHolding(
+      "restore-legacy-revoked",
+      "First draft",
+    );
+    await switching.switchPageToLegacy("restore-legacy-revoked");
+    await getDb().insert(schema.documentShares).values({
+      id: "restore-legacy-revoked-share",
+      resourceId: "restore-legacy-revoked",
+      principalType: "user",
+      principalId: OTHER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const prepared = await metadata("restore-legacy-revoked");
+    beforeEditorFlush.current = async () => {
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, "restore-legacy-revoked-share"));
+    };
+    try {
+      await expect(
+        restore("restore-legacy-revoked", versionId, prepared.updatedAt, OTHER),
+      ).rejects.toThrow("No access to document restore-legacy-revoked");
+    } finally {
+      beforeEditorFlush.current = null;
+    }
+    expect(await metadata("restore-legacy-revoked")).toEqual(prepared);
+    expect((await page("restore-legacy-revoked")).content).toBe("Second draft");
   });
 
   it("restores through main's path once the page's flags are off (SF-11)", async () => {
