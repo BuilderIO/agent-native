@@ -5713,6 +5713,9 @@ export function AgentKitChat({
           <div
             ref={transcriptContentRef}
             className="agentkit-transcript-content"
+            data-lane-offset-mode={
+              transcriptLayout?.messageLaneOffsetMode ?? "clamped"
+            }
             style={transcriptContentStyle(transcriptLayout)}
           >
             <AgentKitRegionSlot slot={Transcript} threadId={threadId}>

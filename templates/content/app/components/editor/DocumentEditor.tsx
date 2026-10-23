@@ -4183,6 +4183,15 @@ function PageEditorSessionBody({
         options.editGeneration ?? editorEditGenerationRef.current;
       const contentObservationEpoch =
         options.contentObservationEpoch ?? contentObservationEpochRef.current;
+      // Text another writer added while this save was in flight is theirs to
+      // save, so it holds back neither the confirmation nor the journal clear.
+      // An entry kept for it outlives this tab's edits, and the next tab to
+      // open the page replays it as a save of its own.
+      const settleConfirmedEdit = () => {
+        if (contentEditVersionRef.current !== contentEditVersion) return;
+        confirmedContentEditVersionRef.current = contentEditVersion;
+        clearConfirmedDraftJournal(editorEditGeneration);
+      };
       lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
         serverContent: documentContentRef.current,
         serverUpdatedAt: documentUpdatedAtRef.current,
@@ -4263,12 +4272,14 @@ function PageEditorSessionBody({
           { title, content },
           options,
         );
-        return {
-          contentPersisted:
-            !isDocumentUpdateConflict(attested) &&
-            !isDocumentUpdateSuperseded(attested) &&
-            !isDocumentUpdatePreservationRequired(attested),
-        };
+        const confirmed =
+          !isDocumentUpdateConflict(attested) &&
+          !isDocumentUpdateSuperseded(attested) &&
+          !isDocumentUpdatePreservationRequired(attested);
+        // The page already held this edit, as when a peer's save carried it,
+        // so the attestation settles it as a written save would.
+        if (confirmed) settleConfirmedEdit();
+        return { contentPersisted: confirmed };
       }
       if (!hasUpdates) {
         return { contentPersisted: !contentChanged };
@@ -4488,14 +4499,7 @@ function PageEditorSessionBody({
             : null,
         });
       }
-      // Text another writer added while this save was in flight is theirs to
-      // save, so it holds back neither the confirmation nor the journal clear.
-      // An entry kept for it outlives this tab's edits, and the next tab to
-      // open the page replays it as a save of its own.
-      if (contentEditVersionRef.current === contentEditVersion) {
-        confirmedContentEditVersionRef.current = contentEditVersion;
-        clearConfirmedDraftJournal(editorEditGeneration);
-      }
+      settleConfirmedEdit();
 
       if (autoSync) {
         const status = queryClient.getQueryData<DocumentSyncStatus>(
@@ -8711,6 +8715,7 @@ function PageEditorSessionBody({
       onActivateSuggestion={activateSuggestionOrThread}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
+      hoveredThreadId={hoveredThreadId}
       currentUserEmail={session?.email}
       currentUserName={session?.name}
       currentUserOrgId={session?.orgId}

@@ -42,6 +42,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Suggested edits that add, remove, split, or merge paragraphs, line breaks, and list items now show where the break goes and save as one clear suggestion
 - Builder content sync keeps read and write status accurate when API responses fail.
 - HTML table cells preserve a trailing backslash when opening Markdown.
 - Preserve empty paragraph colors and refuse unsupported inline image and oversized math formatting before content is stored.
@@ -109,6 +110,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Accepting a suggestion on a Page that changed since it was suggested no longer shows "Something went wrong"
 - A page open in a tab that shows it's in the trash reopens within seconds when someone restores it.
 - A page restored from Trash returns to its place in its collection, and edits to a page in Trash are refused
 - Agent-written Markdown keeps nested lists indented with spaces, underscore bold and italics, and escaped punctuation

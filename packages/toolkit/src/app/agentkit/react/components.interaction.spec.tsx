@@ -263,6 +263,7 @@ describe("AgentKitChat interactions", () => {
                 topInset: 5,
                 messageLaneWidth: 730,
                 messageLaneOffsetInline: -33,
+                messageLaneOffsetMode: "responsive",
                 messageGap: 12,
                 messageLineHeight: 20,
                 fontFamily: "IBM Plex Sans",
@@ -285,6 +286,7 @@ describe("AgentKitChat interactions", () => {
         ".agentkit-transcript-content",
       );
       expect(transcript).not.toBeNull();
+      expect(transcript!.dataset.laneOffsetMode).toBe("responsive");
       expect(
         transcript!.style.getPropertyValue("--agentkit-transcript-top-inset"),
       ).toBe("5px");

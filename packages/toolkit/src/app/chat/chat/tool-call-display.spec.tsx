@@ -352,6 +352,35 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Ada");
   });
 
+  it("passes the app chart layout to regular tool renderers", () => {
+    const layout = { maxWidth: 760, labelFontSize: 14 };
+    registerToolRenderer({
+      id: "app.chart-layout",
+      match: "app-chart-layout",
+      Component: ({ context }) => (
+        <div data-chart-layout-width={context.dataChartLayout?.maxWidth} />
+      ),
+    });
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="app-chart-layout"
+          args={{}}
+          result="ready"
+          isRunning={false}
+          dataChartLayout={layout}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("[data-chart-layout-width]")
+        ?.getAttribute("data-chart-layout-width"),
+    ).toBe("760");
+  });
+
   it("renders table-only data insight payloads without a chart", async () => {
     await act(async () => {
       root.render(
