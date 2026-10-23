@@ -14,6 +14,9 @@ export interface RunTerminalTrackingFields {
   model?: string;
   engineName?: string;
   attemptCount?: number;
+  /** For `write_tool_outcome_unknown`: the call held back, and why. */
+  blockedTool?: string;
+  blockedBy?: "rejection" | "interruption";
   /** Set only by a reap, which ends a run outside the process running it. */
   reap?: { source: string; recoveryOutcome?: string };
 }
@@ -45,6 +48,8 @@ export function trackRunTerminal(
       model: fields.model,
       engine: fields.engineName,
       attempt_count: fields.attemptCount,
+      blocked_tool: fields.blockedTool,
+      blocked_by: fields.blockedBy,
       ...(fields.reap
         ? {
             reaped: true,
