@@ -132,20 +132,49 @@ export function StorageSetupCard({
   }, []);
   const completionTrackedRef = useRef(false);
   const returnReadInFlightRef = useRef(false);
+  const storageBeforeSetupRef = useRef<Promise<
+    { status: VideoStorageStatus } | { error: unknown }
+  > | null>(null);
+  const readStorageBeforeSetup = useCallback(() => {
+    storageBeforeSetupRef.current ??= fetchVideoStorageStatus({
+      timeoutMs: 10_000,
+    }).then(
+      (status) => ({ status }),
+      (error: unknown) => ({ error }),
+    );
+  }, []);
 
   // The route hosting this card can unmount it the moment the shared storage
   // status reads configured, before this card's poll sees it, so the unmount
   // path below reads the status once more and records through this too.
-  // Free hosted clips also read as configured; only the workspace's own
-  // storage completes this step.
+  // Only a change to the workspace's own storage completes this step: free
+  // hosted clips also read as configured, and own storage that was already
+  // there at the showing's first setup click was not set up by this card.
+  // The read of storage before setup must start before any setup request
+  // can, since one-request account activation can finish before a read sent
+  // with it.
   const trackCompletedIfConfigured = useCallback(
     (status: VideoStorageStatus) => {
-      if (status.mode !== "own" || completionTrackedRef.current) return;
+      const before = storageBeforeSetupRef.current;
+      if (status.mode !== "own" || !before || completionTrackedRef.current) {
+        return;
+      }
+      // Claimed before the wait, so reads landing together record once.
       completionTrackedRef.current = true;
-      const methodId = status.activeProvider?.id;
-      trackStorageStep("onboarding_step_completed", {
-        ...stepPropertiesRef.current,
-        ...(methodId ? { method_id: methodId } : {}),
+      void before.then((read) => {
+        if ("error" in read) {
+          console.warn(
+            "[storage-setup] storage before setup could not be read:",
+            read.error,
+          );
+          return;
+        }
+        if (read.status.mode === "own" || skippedRef.current) return;
+        const methodId = status.activeProvider?.id;
+        trackStorageStep("onboarding_step_completed", {
+          ...stepPropertiesRef.current,
+          ...(methodId ? { method_id: methodId } : {}),
+        });
       });
     },
     [],
@@ -306,6 +335,7 @@ export function StorageSetupCard({
         setStatusIssue("connect-not-allowed");
         return;
       }
+      readStorageBeforeSetup();
       connectRequestedRef.current = true;
       connectIntentExpiresAtRef.current = null;
       setStatusIssue(null);
@@ -318,7 +348,12 @@ export function StorageSetupCard({
         scope: builderConnectionScope,
       });
     },
-    [builderConnectionScope, builderConnect.start, stepProperties],
+    [
+      builderConnectionScope,
+      builderConnect.start,
+      readStorageBeforeSetup,
+      stepProperties,
+    ],
   );
   const handleBuilderCancel = useCallback(() => {
     connectIntentExpiresAtRef.current =
@@ -451,6 +486,7 @@ export function StorageSetupCard({
             cancel: undefined,
           }}
           onConnect={handleBuilderConnect}
+          onTriggerClick={readStorageBeforeSetup}
         >
           <Button
             type="button"
@@ -474,6 +510,7 @@ export function StorageSetupCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => {
+                  readStorageBeforeSetup();
                   customKeysOpenedAtRef.current = Date.now();
                   trackStorageStep("onboarding_method_clicked", {
                     ...stepProperties,
