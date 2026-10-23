@@ -374,6 +374,21 @@ describe("comment stacks in the margin", () => {
     ).toEqual(["a", "b", "c", "d", "l1", "l2", "l3", "solo"]);
   });
 
+  it("leaves a comment on the whole page out of the margin and its stacks", () => {
+    // Newer than every thread, so it would be a stack's front if it joined one.
+    const page = thread("page", ["2026-10-21T09:00:00Z"]);
+    page.quotedText = null;
+    page.comments[0].quoted_text = null;
+
+    render([...THREADS, page]);
+    expect(margin()).toEqual(["stack:d", "solo", "stack:l2", "l3"]);
+    expect(container.querySelector('[data-thread-card="page"]')).toBeNull();
+
+    render([...THREADS, page], "history");
+    expect(container.querySelector("[data-comment-stack]")).toBeNull();
+    expect(container.querySelector('[data-thread-card="page"]')).not.toBeNull();
+  });
+
   it("brings a highlight's thread to the front once the pointer rests on it", async () => {
     render();
     act(() => harness.hover("b"));
