@@ -779,28 +779,33 @@ function canReturnData(result: {
   return !(name === DBT_QUERY_TOOL && dbtQueryDidNotComplete(result));
 }
 
-// The index of the first dbt metric failure no later query resolved, or -1.
+// The index of the first dbt metric result that is not a complete success and that no later
+// query resolved, or -1. A paged or truncated success is not complete, so it counts too.
 function firstUnresolvedDbtFailureIndex(
   results: NonNullable<AgentLoopFinalResponseGuardContext["toolResults"]>,
 ): number {
   return results.findIndex(
     (result, index) =>
       isNamedTool(result.name, DBT_QUERY_TOOL) &&
-      dbtQueryDidNotComplete(result) &&
+      !isCompleteDbtSuccess(result) &&
       !dbtFailureResolvedLater(results, index),
   );
 }
 
-// Whether this turn holds a dbt failure no later query resolved and a tool result that
-// could carry data, in any position. Default-deny: a figure may have come from
-// any tool that can return data, so only a turn of non-data tools is exempt.
+// Whether this turn holds a dbt result no later query resolved and another tool result that
+// could carry data, in any position. Default-deny: a figure may have come from any tool that
+// can return data, so only a turn of non-data tools is exempt. The unresolved result does not
+// count as that other result: a paged dbt success is for the paging guard to continue.
 function hasUnresolvedDbtFailureInTurn(
   context: AgentLoopFinalResponseGuardContext,
 ): boolean {
   const results = context.toolResults ?? [];
+  const failureIndex = firstUnresolvedDbtFailureIndex(results);
   return (
-    firstUnresolvedDbtFailureIndex(results) !== -1 &&
-    results.some(canReturnData)
+    failureIndex !== -1 &&
+    results.some(
+      (result, index) => index !== failureIndex && canReturnData(result),
+    )
   );
 }
 

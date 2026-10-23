@@ -1818,6 +1818,44 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
+  it("withholds a figure after a paged dbt success when a warehouse query follows it", async () => {
+    const pagedSuccess = {
+      name: "query-dbt-semantic-metric",
+      isError: false,
+      content: JSON.stringify({
+        status: "success",
+        metricName: "active_accounts",
+        nextPage: "page-2",
+        querySpec: {
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+          groupBy: [],
+        },
+        rows: [{ active_accounts: 5 }],
+      }),
+    };
+    const warehouseRows = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({
+        rows: [{ account: "Acme" }, { account: "Globex" }],
+      }),
+    };
+    const { asked, result } = await judged(
+      {
+        userText: "What were active accounts last month?",
+        draftText: "Acme and Globex were active last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolResults: [pagedSuccess, warehouseRows],
+      },
+      "YES",
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("Do not state any figure"),
+    });
+  });
+
   it("clears a failed metric once a later query for the same metric succeeds", async () => {
     const activeSuccess = {
       name: "query-dbt-semantic-metric",
