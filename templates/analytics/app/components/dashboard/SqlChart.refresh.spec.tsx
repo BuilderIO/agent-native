@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -75,7 +75,12 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   isExtensionApiPath: () => false,
 }));
 
-import { formatSqlChartError, limitChartRows, SqlChart } from "./SqlChart";
+import {
+  ChartFillHeight,
+  formatSqlChartError,
+  limitChartRows,
+  SqlChart,
+} from "./SqlChart";
 
 describe("limitChartRows", () => {
   it("keeps tables untouched and bounds chart point rendering", () => {
@@ -631,6 +636,55 @@ describe("SqlChart refresh feedback", () => {
     await show("extension-1");
     expect(extensionProps().initialHeight).toBe(612);
     expect(wrapper().style.minHeight).toBe("612px");
+  });
+
+  it("keeps the full-screen view's height apart from the dashboard card's", async () => {
+    const panel = {
+      id: "github-status",
+      title: "GitHub data",
+      sql: "",
+      source: "first-party" as const,
+      chartType: "extension" as const,
+      width: 3,
+      config: { extensionId: "extension-1" },
+    };
+    const extensionProps = () =>
+      mocks.embeddedExtensionProps as {
+        initialHeight?: number;
+        onHeightChange?: (height: number) => void;
+      };
+    const card = <SqlChart panel={panel} dashboardId="repo-health" />;
+    const fullScreen = (
+      <ChartFillHeight>
+        <SqlChart panel={panel} dashboardId="repo-health" />
+      </ChartFillHeight>
+    );
+    const remount = async (node: ReactNode) => {
+      act(() => root.unmount());
+      root = createRoot(container);
+      await act(async () => {
+        root.render(node);
+      });
+    };
+
+    await act(async () => {
+      root.render(card);
+    });
+    await act(async () => {
+      extensionProps().onHeightChange?.(64);
+    });
+
+    // The wider full-screen view wraps to its own height and remembers it.
+    await remount(fullScreen);
+    expect(extensionProps().initialHeight).toBe(180);
+    await act(async () => {
+      extensionProps().onHeightChange?.(40);
+    });
+
+    await remount(card);
+    expect(extensionProps().initialHeight).toBe(64);
+    await remount(fullScreen);
+    expect(extensionProps().initialHeight).toBe(40);
   });
 
   it("shows a readable retry action when a chart query fails", async () => {

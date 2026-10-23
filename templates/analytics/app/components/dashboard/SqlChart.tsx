@@ -2190,8 +2190,12 @@ function DashboardExtensionPanel({
   const t = useT();
   const [ready, setReady] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  // The full-screen view is wider, so its content wraps to a different height;
+  // it remembers its own rather than overwriting the card's.
+  const fullScreen = useContext(ChartFillHeightContext);
+  const storageKey = fullScreen ? `${heightKey}:full-screen` : heightKey;
   const [initialHeight] = useState(() =>
-    initialExtensionPanelHeight(heightKey),
+    initialExtensionPanelHeight(storageKey),
   );
   const loadingSkeleton = !ready ? (
     <DashboardPanelSkeleton
@@ -2250,7 +2254,7 @@ function DashboardExtensionPanel({
         className={ready ? "w-full opacity-100" : "w-full opacity-0"}
         initialHeight={initialHeight}
         onHeightChange={(height) =>
-          rememberExtensionPanelHeight(heightKey, height)
+          rememberExtensionPanelHeight(storageKey, height)
         }
         onReady={() => setReady(true)}
         onUnavailable={() => {
