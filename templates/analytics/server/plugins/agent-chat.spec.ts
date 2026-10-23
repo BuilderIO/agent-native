@@ -1121,17 +1121,75 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     return { asked, result };
   };
 
-  it("withholds a BigQuery answer because its calculation cannot be verified against the dbt metric", () => {
+  it("requires a complete, clearly labeled warehouse result when the user asks for one", () => {
     const result = realDataFinalGuard(explicitWarehouseContext(draft));
 
     expect(result).toMatchObject({
       maxRetries: 1,
       retryMessage: expect.stringContaining(
-        "calculation that can verify equivalence",
+        "label them as a warehouse calculation",
       ),
       fallbackMessage: expect.stringContaining(
         "calculation matches the owner-defined metric",
       ),
+    });
+  });
+
+  it("allows an explicitly requested warehouse calculation with returned rows and source disclosure", async () => {
+    const context = explicitWarehouseContext(disclosed);
+    const asked: Asked[] = [];
+    const result = await dbtFinalResponseGuard(
+      context,
+      recordingCheck("NO", asked),
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.systemPrompt).toContain(
+      "independent warehouse calculation",
+    );
+    expect(result).toBeNull();
+  });
+
+  it("checks a truncated dbt result alone before accepting its figure", async () => {
+    const { asked, result } = await judged(
+      {
+        userText: question,
+        draftText: "Active accounts were 10 last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolCalls: [
+          {
+            toolCallId: "dbt-partial",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+        ],
+        toolResults: [
+          {
+            toolCallId: "dbt-partial",
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "active_accounts",
+              querySpec: { timeRange: activeAccountsRange, groupBy: [] },
+              rows: [{ active_accounts: 10 }],
+              truncated: true,
+              truncationReason: "query_row_cap",
+            }),
+          },
+        ],
+      },
+      "YES",
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.systemPrompt).toContain("partial dbt result");
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("label them as partial"),
     });
   });
 
@@ -1169,9 +1227,12 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       "YES",
     );
 
-    expect(affirmative.result).toMatchObject(withheld);
+    expect(affirmative.result).toMatchObject({
+      maxRetries: 1,
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
     expect(affirmative.result?.retryMessage).toContain(
-      "calculation that can verify equivalence",
+      "label them as a warehouse calculation",
     );
     expect(negative.result).toMatchObject(withheld);
     expect(negative.result?.retryMessage).toContain(
@@ -1330,10 +1391,10 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toBeNull();
   });
 
-  it("keeps a disclosed fallback answer withheld when the dbt calculation is unavailable", () => {
+  it("allows a disclosed warehouse calculation when the dbt metric is unavailable", () => {
     const result = realDataFinalGuard(explicitWarehouseContext(disclosed));
 
-    expect(result).toMatchObject(withheld);
+    expect(result).toBeNull();
   });
 
   it("withholds a disclosed figure supported by a query for another metric", () => {
@@ -1401,7 +1462,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
-  it("withholds even when date bounds match because the calculation is unknown", () => {
+  it("allows matching warehouse scope as an independent calculation without dbt equivalence", () => {
     const result = realDataFinalGuard(
       explicitWarehouseContext(disclosed, {
         query:
@@ -1409,37 +1470,45 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       }),
     );
 
-    expect(result).toMatchObject(withheld);
+    expect(result).toBeNull();
   });
 
   it.each([
     [
       "an extra warehouse predicate",
       "SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01' AND plan = 'enterprise'",
-      [{ active_accounts: 10 }],
-      "Active accounts were 10 last month.",
     ],
     [
       "COUNT(*) under the metric alias",
       "SELECT COUNT(*) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
-      [{ active_accounts: 10 }],
-      "Active accounts were 10 last month.",
     ],
-    [
-      "a literal under the metric alias",
-      "SELECT 999 AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
-      [{ active_accounts: 999 }],
-      "Active accounts were 999 last month.",
-    ],
-  ])("withholds a fallback with %s", (_case, query, rows, draftText) => {
+  ])("allows an independent warehouse calculation with %s", (_case, query) => {
     const result = realDataFinalGuard(
-      explicitWarehouseContext(draftText, { query, rows }),
+      explicitWarehouseContext(disclosed, {
+        query,
+        rows: [{ active_accounts: 10 }],
+      }),
     );
 
-    expect(result).toMatchObject(withheld);
-    expect(result?.retryMessage).toContain(
-      "calculation that can verify equivalence",
+    expect(result).toBeNull();
+  });
+
+  it("rejects a literal even when it is returned under the metric alias", () => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(
+        "Active accounts were 999 last month. This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition.",
+        {
+          query:
+            "SELECT 999 AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
+          rows: [{ active_accounts: 999 }],
+        },
+      ),
     );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+      retryMessage: expect.stringContaining("warehouse calculation"),
+    });
   });
 
   it("withholds a disclosed figure when the warehouse query adds a grouping", () => {
@@ -1472,7 +1541,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
-  it("withholds a matching grouped time alias when the dbt calculation is unknown", () => {
+  it("allows a matching grouped time alias as an independent warehouse calculation", () => {
     const weeklyDisclosed =
       "Active accounts in the weekly result were 10. This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
     const result = realDataFinalGuard(
@@ -1484,7 +1553,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       }),
     );
 
-    expect(result).toMatchObject(withheld);
+    expect(result).toBeNull();
   });
 
   it("withholds a disclosed figure when the matching query returns another value", () => {
@@ -1514,7 +1583,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
-  it("withholds complete BigQuery rows from a run-code bridge when the dbt calculation is unknown", () => {
+  it("allows complete BigQuery rows from an explicitly requested run-code calculation", () => {
     const result = realDataFinalGuard(
       explicitWarehouseContext(disclosed, {
         toolName: "run-code",
@@ -1522,7 +1591,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       }),
     );
 
-    expect(result).toMatchObject(withheld);
+    expect(result).toBeNull();
   });
 
   it("withholds run-code output when the BigQuery bridge result is incomplete", () => {
@@ -1951,6 +2020,10 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   });
 
   it("keeps a successful metric value in the exhausted fallback after the retry still includes a failed metric", async () => {
+    const signupsRange = {
+      startDate: "2026-08-01",
+      endDate: "2026-08-31",
+    };
     const signupsSuccess = {
       name: "query-dbt-semantic-metric",
       isError: false,
@@ -1959,14 +2032,14 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
         metricName: "signups",
         truncated: false,
         querySpec: {
-          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+          timeRange: signupsRange,
           groupBy: [],
         },
         rows: [[3]],
       }),
     };
     const params = {
-      userText: "What were active accounts and signups last month?",
+      userText: "What were active accounts in September and signups in August?",
       draftText: "There were 10 active accounts and 3 signups last month.",
       runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
       toolCalls: [
@@ -1984,7 +2057,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
           name: "query-dbt-semantic-metric",
           input: {
             metricName: "signups",
-            timeRange: activeAccountsRange,
+            timeRange: signupsRange,
             groupBy: [],
           },
         },
@@ -2012,9 +2085,14 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       "YES",
     );
 
-    expect(firstAttempt.result).toMatchObject(withheld);
+    expect(firstAttempt.result).toMatchObject({
+      maxRetries: 1,
+      fallbackMessage: expect.stringContaining(
+        'no owner-approved figure for "active_accounts"',
+      ),
+    });
     expect(exhaustedRetry.result?.fallbackMessage).toContain(
-      '"signups" from 2026-09-01 through 2026-09-30 returned 3',
+      '"signups" from 2026-08-01 through 2026-08-31 returned 3',
     );
     expect(exhaustedRetry.result?.fallbackMessage).not.toContain(
       "10 active accounts",
@@ -2081,6 +2159,136 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(asked[0]?.input).toContain('"active_accounts"');
     expect(asked[0]?.input).toContain("Signups were 3 last month.");
     expect(result).toBeNull();
+  });
+
+  it("judges an independent first-party result against only the unresolved dbt metric", async () => {
+    const { asked, result } = await judged(
+      {
+        userText: "What were active accounts and signups last month?",
+        draftText: "Signups were 3 last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolCalls: [
+          {
+            toolCallId: "dbt-failure",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+        ],
+        toolResults: [
+          {
+            ...dbtNotFound,
+            toolCallId: "dbt-failure",
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "query-agent-native-analytics",
+            isError: false,
+            content: JSON.stringify({ rows: [{ signups: 3 }] }),
+          },
+        ],
+      },
+      "NO",
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.systemPrompt).toContain("independently queried provider");
+    expect(asked[0]?.input).toContain('"active_accounts"');
+    expect(result).toBeNull();
+  });
+
+  it("preserves independent results in the exhausted safe fallback", async () => {
+    const safeDraft =
+      "Signups were 3 last month. Active accounts are unavailable from the Semantic Layer because the dbt query did not complete.";
+    const asked: Asked[] = [];
+    let figureChecks = 0;
+    const complete = recordingCheck((input) => {
+      const latest = asked[asked.length - 1];
+      if (
+        latest?.systemPrompt?.startsWith("Write a concise safe replacement")
+      ) {
+        return safeDraft;
+      }
+      if (latest?.systemPrompt?.includes("classify one draft answer")) {
+        figureChecks += 1;
+        return figureChecks === 1 ? "YES" : "NO";
+      }
+      return input;
+    }, asked);
+    const result = await dbtFinalResponseGuard(
+      guardContext({
+        userText: "What were active accounts and signups last month?",
+        draftText: "There were 10 active accounts and 3 signups last month.",
+        retryCount: 1,
+        toolCalls: [
+          {
+            toolCallId: "dbt-failure",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+          {
+            toolCallId: "dbt-success",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "signups",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+        ],
+        toolResults: [
+          {
+            ...dbtNotFound,
+            toolCallId: "dbt-failure",
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            toolCallId: "dbt-success",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "signups",
+              truncated: false,
+              querySpec: {
+                timeRange: activeAccountsRange,
+                groupBy: [],
+              },
+              rows: [{ signups: 3 }],
+            }),
+          },
+          {
+            name: "query-agent-native-analytics",
+            isError: false,
+            content: JSON.stringify({ rows: [{ signups: 3 }] }),
+          },
+        ],
+      }),
+      complete,
+    );
+
+    expect(asked).toHaveLength(3);
+    expect(asked[1]?.systemPrompt).toContain(
+      "Preserve complete verified results",
+    );
+    expect(asked[1]?.input).toContain('"query-agent-native-analytics"');
+    expect(result).toMatchObject({
+      fallbackMessage: safeDraft,
+      maxRetries: 0,
+    });
   });
 
   it("clears a scope-less metadata page after a complete success for its metric", async () => {
@@ -2213,7 +2421,9 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       expect(asked).toHaveLength(1);
       expect(result).toMatchObject({
         maxRetries: 1,
-        fallbackMessage: expect.stringContaining("no owner-approved figure"),
+        fallbackMessage: expect.stringContaining(
+          truncated ? "partial rows" : "no owner-approved figure",
+        ),
       });
     },
   );
@@ -2469,7 +2679,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).not.toHaveProperty("exhaustedDraftPrefix");
   });
 
-  it("withholds a disclosed figure even when a schema lookup and data read ran in the turn", async () => {
+  it("allows a disclosed figure when a schema lookup and complete data read ran in the turn", async () => {
     const schemaRows = {
       name: "bigquery",
       isError: false,
@@ -2528,7 +2738,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     );
 
     expect(asked).toHaveLength(1);
-    expect(result).toMatchObject(withheld);
+    expect(result).toBeNull();
   });
 
   it("does not support a disclosed figure with a BigQuery read made before the dbt failure", async () => {
@@ -2623,7 +2833,9 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(asked).toHaveLength(1);
     expect(result).toMatchObject({
-      retryMessage: expect.stringContaining("Do not state any figure"),
+      retryMessage: expect.stringContaining(
+        "Continue with the same metricName",
+      ),
     });
   });
 
@@ -4783,7 +4995,7 @@ describe("realDataFinalGuard", () => {
       retryMessage: expect.stringContaining(
         "Continue with the same metricName, queryId, and nextPage",
       ),
-      fallbackMessage: expect.stringContaining("result page"),
+      fallbackMessage: expect.stringContaining("result is still paged"),
     });
   });
 
@@ -4813,9 +5025,68 @@ describe("realDataFinalGuard", () => {
     );
 
     expect(result).toMatchObject({
-      retryMessage: expect.stringContaining("1,000-row result cap"),
-      fallbackMessage: expect.stringContaining("returned rows as partial"),
+      retryMessage: expect.stringContaining("label them as partial"),
+      fallbackMessage: expect.stringContaining("partial rows"),
     });
+  });
+
+  it("checks a truncated dbt result on its own and requires partial disclosure", () => {
+    const resultPageRange = activationRateWeek;
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt: todayUtc.getTime(),
+        toolCalls: [dbtMetricCall(resultPageRange)],
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "activation_rate",
+              querySpec: { groupBy: [], timeRange: resultPageRange },
+              rows: [{ activation_rate: 42 }],
+              truncated: true,
+              truncationReason: "query_row_cap",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("label them as partial"),
+    });
+  });
+
+  it("allows a truncated dbt value only when the draft labels it partial", () => {
+    const resultPageRange = activationRateWeek;
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the activation rate last week?",
+        draftText:
+          "The partial results from dbt included an activation rate of 42%.",
+        runStartedAt: todayUtc.getTime(),
+        toolCalls: [dbtMetricCall(resultPageRange)],
+        toolResults: [
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "activation_rate",
+              querySpec: { groupBy: [], timeRange: resultPageRange },
+              rows: [{ activation_rate: 42 }],
+              truncated: true,
+              truncationReason: "query_row_cap",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
   });
 
   it("preserves safe no-data answers for unrelated provider failures", () => {
