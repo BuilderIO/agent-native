@@ -198,7 +198,13 @@ jobs:
                   },
                 );
               } catch (error) {
-                if (!isTransientDispatchFailure(error)) throw error;
+                if (!isTransientDispatchFailure(error)) {
+                  const rejected = error instanceof Error
+                    ? error
+                    : new Error(String(error));
+                  rejected.dispatchOutcome = "rejected";
+                  throw rejected;
+                }
                 return recoverAmbiguousDispatch(
                   workflow,
                   ref,
@@ -229,8 +235,23 @@ jobs:
               })).data;
             }
 
-            async function dispatchAndWait(workflow, ref, inputs, label, timeoutMs) {
-              const run = await dispatch(workflow, ref, inputs);
+            async function dispatchAndWait(
+              workflow,
+              ref,
+              inputs,
+              label,
+              timeoutMs,
+              reservedTag = null,
+            ) {
+              let run;
+              try {
+                run = await dispatch(workflow, ref, inputs);
+              } catch (error) {
+                if (reservedTag && error?.dispatchOutcome === "rejected") {
+                  await cleanupReservedTags([reservedTag]);
+                }
+                throw error;
+              }
               try {
                 await waitForRun(run, label, timeoutMs);
                 return { run, error: null };
@@ -399,9 +420,14 @@ jobs:
               throw new Error(`Could not reserve a stable ${tagPrefix} version after 20 attempts.`);
             }
 
-            async function cleanupReservedTags() {
+            async function cleanupReservedTags(tags = [...reservedTags.keys()]) {
               const cleanup = await Promise.allSettled(
-                [...reservedTags].map(async ([tag, sourceSha]) => {
+                tags.map(async (tag) => {
+                  const sourceSha = reservedTags.get(tag);
+                  if (!sourceSha) {
+                    core.warning(`Could not clean stable tag ${tag}; this run does not own it.`);
+                    return;
+                  }
                   const tagSha = await getRemoteTagSha(tag);
                   if (tagSha && tagSha !== sourceSha) {
                     core.warning(`Keeping changed stable tag ${tag}; it is not owned by this run.`);
@@ -725,13 +751,17 @@ jobs:
             }
 
             async function listReleasePullRequests() {
-              return github.paginate(github.rest.pulls.list, {
+              const response = await github.rest.pulls.list({
                 owner,
                 repo,
                 state: "all",
                 base: "main",
+                head: `${owner}:changeset-release/main`,
+                sort: "updated",
+                direction: "desc",
                 per_page: 100,
               });
+              return response.data;
             }
 
             function isStableReleasePullRequest(pr) {
@@ -765,7 +795,7 @@ jobs:
                 }
                 const remaining = deadline - Date.now();
                 if (remaining <= 0) break;
-                await sleep(Math.min(pollIntervalMs, remaining));
+                await sleep(Math.min(30_000, remaining));
               }
               throw new Error("The stable package Version Packages PR was not created in time.");
             }
@@ -1289,6 +1319,7 @@ jobs:
                     },
                     "Agent-Native desktop stable release",
                     120 * 60_000,
+                    `v${desktopVersion}`,
                   ),
               publicationUnavailable
                 ? Promise.resolve(null)
@@ -1302,6 +1333,7 @@ jobs:
                     },
                     "Clips desktop stable release",
                     120 * 60_000,
+                    `clips-v${clipsVersion}`,
                   ),
               dispatchAndWait(
                 "deploy-production-sites-prebuilt.yml",

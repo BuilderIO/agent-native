@@ -321,6 +321,10 @@ describe("release everything workflow", () => {
         assert.match(error.message, /GitHub is temporarily unavailable/);
         assert.match(error.message, /does not prove the dispatch was rejected/);
         assert.match(error.message, /\[release:456-2-post-merge-1\]/);
+        assert.equal(
+          (error as Error & { dispatchOutcome?: string }).dispatchOutcome,
+          undefined,
+        );
         return true;
       },
     );
@@ -395,7 +399,11 @@ describe("release everything workflow", () => {
     );
     await assert.rejects(
       invalidDispatch("deploy-docs-production.yml", "main", {}),
-      /Validation failed/,
+      (error: Error & { dispatchOutcome?: string }) => {
+        assert.match(error.message, /Validation failed/);
+        assert.equal(error.dispatchOutcome, "rejected");
+        return true;
+      },
     );
     assert.equal(invalidStatusLookups, 0);
   });
@@ -486,6 +494,85 @@ describe("release everything workflow", () => {
       assert.equal(failedSibling.value.run.id, 2);
       assert.match(String(failedSibling.value.error), /sibling run failed/);
     }
+  });
+
+  it("cleans a reserved desktop tag only after a confirmed dispatch rejection", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const helperStart = source.indexOf("async function dispatchAndWait(");
+    const helperEnd = source.indexOf(
+      "\n\nasync function listAutoPublishRuns",
+      helperStart,
+    );
+    assert(helperStart >= 0 && helperEnd > helperStart);
+
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const createDispatchAndWait = new AsyncFunction(
+      "dispatch",
+      "waitForRun",
+      "cleanupReservedTags",
+      `${source.slice(helperStart, helperEnd)}\nreturn dispatchAndWait;`,
+    ) as (
+      dispatch: (
+        workflow: string,
+        ref: string,
+        inputs: Workflow,
+      ) => Promise<{ id: number; url: string }>,
+      waitForRun: () => Promise<void>,
+      cleanupReservedTags: (tags: string[]) => Promise<void>,
+    ) => Promise<
+      (
+        workflow: string,
+        ref: string,
+        inputs: Workflow,
+        label: string,
+        timeoutMs: number,
+        reservedTag?: string,
+      ) => Promise<{ run: { id: number; url: string }; error: unknown }>
+    >;
+
+    const cleanedTags: string[] = [];
+    const dispatchAndWait = await createDispatchAndWait(
+      async (workflow) => {
+        if (workflow === "rejected.yml") {
+          throw Object.assign(new Error("HTTP 404: workflow unavailable"), {
+            dispatchOutcome: "rejected",
+          });
+        }
+        throw new Error("Could not confirm workflow dispatch");
+      },
+      async () => {},
+      async (tags) => {
+        cleanedTags.push(...tags);
+      },
+    );
+
+    await assert.rejects(
+      dispatchAndWait(
+        "rejected.yml",
+        "main",
+        {},
+        "Desktop release",
+        60_000,
+        "v1.2.4",
+      ),
+      /HTTP 404: workflow unavailable/,
+    );
+    assert.deepEqual(cleanedTags, ["v1.2.4"]);
+
+    await assert.rejects(
+      dispatchAndWait(
+        "ambiguous.yml",
+        "main",
+        {},
+        "Clips release",
+        60_000,
+        "clips-v2.3.4",
+      ),
+      /Could not confirm workflow dispatch/,
+    );
+    assert.deepEqual(cleanedTags, ["v1.2.4"]);
   });
 
   it("starts docs push reconciliation before sibling releases settle", async () => {
@@ -651,6 +738,68 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     assert.match(source, /run\.head_branch === ref/);
   });
 
+  it("scopes release PR discovery to the stable release branch", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const helperStart = source.indexOf(
+      "async function listReleasePullRequests()",
+    );
+    const helperEnd = source.indexOf(
+      "\n\nfunction isStableReleasePullRequest",
+      helperStart,
+    );
+    assert(helperStart >= 0 && helperEnd > helperStart);
+
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const createListReleasePullRequests = new AsyncFunction(
+      "github",
+      "owner",
+      "repo",
+      `${source.slice(helperStart, helperEnd)}\nreturn listReleasePullRequests;`,
+    ) as (
+      github: {
+        rest: {
+          pulls: {
+            list: (options: Workflow) => Promise<{ data: Workflow[] }>;
+          };
+        };
+      },
+      owner: string,
+      repo: string,
+    ) => Promise<() => Promise<Workflow[]>>;
+
+    const requests: Workflow[] = [];
+    const github = {
+      rest: {
+        pulls: {
+          list: async (options: Workflow) => {
+            requests.push(options);
+            return { data: [] };
+          },
+        },
+      },
+    };
+    const listReleasePullRequests = await createListReleasePullRequests(
+      github,
+      "BuilderIO",
+      "agent-native",
+    );
+    assert.deepEqual(await listReleasePullRequests(), []);
+    assert.deepEqual(requests, [
+      {
+        owner: "BuilderIO",
+        repo: "agent-native",
+        state: "all",
+        base: "main",
+        head: "BuilderIO:changeset-release/main",
+        sort: "updated",
+        direction: "desc",
+        per_page: 100,
+      },
+    ]);
+  });
+
   it("waits for package publication before dispatching stable downstream releases", () => {
     assert.equal(
       coordinator.uses,
@@ -686,7 +835,10 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     assert.match(source, /refs\/tags\/\$\{tagPrefix\}\$\{version\}/);
     assert.match(source, /error\.status !== 422/);
     assert.match(source, /const reservedTags = new Map\(\)/);
-    assert.match(source, /async function cleanupReservedTags\(\)/);
+    assert.match(
+      source,
+      /async function cleanupReservedTags\(tags = \[\.\.\.reservedTags\.keys\(\)\]\)/,
+    );
     assert.match(source, /github\.rest\.repos\.deleteRelease/);
     assert.match(source, /github\.rest\.git\.deleteRef/);
     assert.match(source, /await cleanupReservedTags\(\)/);
