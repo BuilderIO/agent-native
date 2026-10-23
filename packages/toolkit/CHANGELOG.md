@@ -1,5 +1,19 @@
 # @agent-native/toolkit
 
+## 0.219.0
+
+### Minor Changes
+
+- 838e1ae: App-registered commands can render an opt-in preview inside the selected row.
+- 7b293b2: Expose the terminal status of action tool calls to custom chat renderers while keeping `isRunning` available.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 86429da: Keep the agent chat send button and tabs visible in narrow panels: the composer's model picker truncates instead of pushing the toolbar past the panel edge, and chat tabs shrink before scrolling.
+- Updated dependencies
+  - @agent-native/agentkit@0.219.0
+
 ## 0.218.0
 
 ### Minor Changes
@@ -1296,11 +1310,5 @@
 
 - dab8787: Call model effort "Effort" in chat controls and default model selections to GPT-5.6 Luna with high effort.
 - dab8787: Allow Slides to use a cleaner AI editing badge without a redundant status dot.
-
-## 0.13.8
-
-### Patch Changes
-
-- c41fd16: Use theme tokens for collaboration edit highlight labels.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

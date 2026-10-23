@@ -2048,6 +2048,16 @@ export default {
     pinComment: "Épingler un commentaire",
     export: "Exporter",
     downloadHtml: "Télécharger HTML",
+    exportHubspotHtml: "Exporter le HTML HubSpot",
+    hubspotConversion: {
+      title: "Convertir pour HubSpot ?",
+      description:
+        "{{name}} nécessite des adaptations pour les e-mails. Le cadre original sera conservé.",
+      convert: "Convertir avec l’agent",
+      cancel: "Annuler",
+      prompt:
+        "Crée une version e-mail HubSpot de ce cadre en gardant son contenu et son identité visuelle, et en préservant l’original. Valide l’export HTML et ouvre le nouveau cadre.",
+    },
     downloadPng: "Télécharger PNG",
     downloadSvg: "Télécharger SVG",
     downloadFigmaSvg: "Télécharger pour Figma (SVG)",
@@ -2244,6 +2254,9 @@ export default {
       htmlCreateError: "Impossible de créer le téléchargement HTML",
       htmlDownloaded: "HTML téléchargé",
       htmlExportError: "Impossible d’exporter HTML",
+      hubspotHtmlExporting: "Préparation du HTML HubSpot…",
+      hubspotHtmlDownloaded: "HTML HubSpot téléchargé",
+      hubspotHtmlExportError: "Impossible d’exporter le HTML HubSpot",
       zipCreateError: "Impossible de créer le téléchargement ZIP",
       zipDownloaded: "ZIP téléchargé",
       zipExportError: "Impossible d’exporter ZIP",

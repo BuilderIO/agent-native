@@ -833,6 +833,36 @@ describe("generate-design: new-file creation path", () => {
     resetDesignDataMutation();
   });
 
+  it("gives semantic email output a fluid email viewport without generated web breakpoints", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a HubSpot email template",
+      files: [
+        {
+          filename: "email.html",
+          fileType: "html",
+          frameType: "hubspot-email",
+          content:
+            '<!doctype html><html><head><meta name="agent-native:frame-type" content="hubspot-email"></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
+        },
+      ],
+    });
+    const fileId = result.savedFiles[0]!.id;
+    expect(mocks.getDesignData()).toMatchObject({
+      canvasFrames: { [fileId]: { width: 600, height: 800 } },
+      screenMetadata: {
+        [fileId]: {
+          width: 600,
+          height: 800,
+          heightMode: "hug",
+          heightPinned: false,
+          breakpointWidths: [],
+        },
+      },
+    });
+    expect(mocks.getDesignData().breakpointSet).toBeUndefined();
+  });
+
   it("creates a brand-new file via insert + seedFromText, with no pre-existing base to race against", async () => {
     const result = await action.run({
       designId: "design-1",

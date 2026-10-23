@@ -1,3 +1,9 @@
+## 0.13.8
+
+### Patch Changes
+
+- c41fd16: Use theme tokens for collaboration edit highlight labels.
+
 ## 0.13.7
 
 ### Patch Changes
