@@ -693,7 +693,10 @@ describe("Analytics agent Plan mode policy", () => {
       "A `not_found` result alone does not confirm a missing definition.",
     );
     expect(bigquerySkill).toContain(
-      "On `connection_error` or `connection_unavailable`, check `get-dbt-connection`",
+      "follow the dbt path in `data-querying/SKILL.md`",
+    );
+    expect(bigquerySkill).toContain(
+      "stop at the mapping gap for this metric; do not fall through to steps 1–3.",
     );
   });
 
