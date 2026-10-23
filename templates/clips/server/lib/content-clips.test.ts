@@ -62,8 +62,12 @@ const jose = await import(pathToFileURL(coreRequire.resolve("jose")).href);
 const { organizations, orgMembers } = await import("@agent-native/core/org");
 const { signA2AToken } = await import("@agent-native/core/a2a");
 const { schema } = await import("../db/index.js");
-const { CONTENT_CLIP_PUBLIC_READER, CONTENT_CLIP_SCOPES: SCOPES } =
-  await import("../../shared/content-clip-contract.js");
+const {
+  CONTENT_CLIP_GRANT_EXPIRED,
+  CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
+  CONTENT_CLIP_PUBLIC_READER,
+  CONTENT_CLIP_SCOPES: SCOPES,
+} = await import("../../shared/content-clip-contract.js");
 const { __resetContentClipRateLimitsForTests } =
   await import("./content-clip-peer.js");
 const { default: playbackRoute } =
@@ -290,7 +294,15 @@ async function fetchMedia(
   return {
     status: event.res.status ?? 200,
     bytes: result instanceof Uint8Array ? result : null,
+    body: result instanceof Uint8Array ? null : (result as any),
   };
+}
+
+function afterGrantExpires(issuedAt: number) {
+  vi.useFakeTimers({
+    toFake: ["Date"],
+    now: issuedAt + (CONTENT_CLIP_PLAYBACK_GRANT_SECONDS + 1) * 1000,
+  });
 }
 
 beforeEach(async () => {
@@ -368,9 +380,60 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
     const result = await playback("rec-upload", await token());
     await setBindingState("binding-doc-1", "trashed");
 
-    const video = await fetchMedia(videoRoute, result.body.playback.videoUrl);
-    expect(video.status).not.toBe(200);
-    expect(video.bytes).toBeNull();
+    for (const [route, url] of [
+      [videoRoute, result.body.playback.videoUrl],
+      [thumbnailRoute, result.body.playback.posterUrl],
+    ] as const) {
+      const media = await fetchMedia(route, url);
+      expect(media.status).toBe(404);
+      expect(media.bytes).toBeNull();
+    }
+  });
+
+  it("refuses an expired playback URL with a code the player refreshes on", async () => {
+    const issuedAt = Date.now();
+    const result = await playback("rec-upload", await token());
+    expect(Date.parse(result.body.playback.expiresAt)).toBeLessThanOrEqual(
+      issuedAt + (CONTENT_CLIP_PLAYBACK_GRANT_SECONDS + 1) * 1000,
+    );
+
+    afterGrantExpires(issuedAt);
+    try {
+      for (const [route, url] of [
+        [videoRoute, result.body.playback.videoUrl],
+        [thumbnailRoute, result.body.playback.posterUrl],
+      ] as const) {
+        const media = await fetchMedia(route, url);
+        expect(media.status).toBe(403);
+        expect(media.body).toMatchObject({ code: CONTENT_CLIP_GRANT_EXPIRED });
+        expect(media.bytes).toBeNull();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives a reader Content no longer vouches for no fresh grant", async () => {
+    const issuedAt = Date.now();
+    const vouched = await token();
+    expect((await playback("rec-upload", vouched)).status).toBe(200);
+
+    afterGrantExpires(issuedAt);
+    try {
+      const stale = await playback("rec-upload", vouched);
+      expect(stale.status).toBe(401);
+      expect(stale.body.playback).toBeUndefined();
+
+      const renewed = await playback("rec-upload", await token());
+      expect(renewed.status).toBe(200);
+      const video = await fetchMedia(
+        videoRoute,
+        renewed.body.playback.videoUrl,
+      );
+      expect(video.status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refuses a playback URL whose binding was swapped for another", async () => {
@@ -465,6 +528,46 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
     expect(result.body.viewer).toMatchObject({ isOwner: true });
     const video = await fetchMedia(videoRoute, result.body.playback.videoUrl);
     expect(video.status).toBe(200);
+  });
+
+  it("refuses earlier-screen-time footage, which only plays through its Clip", async () => {
+    await insertRecording("rec-footage");
+    await state.db.insert(schema.recordingContextItems).values({
+      id: "context-1",
+      recordingId: "rec-upload",
+      requestedSeconds: 60,
+      originalStartedAt: "2026-10-01T00:00:00.000Z",
+      originalEndedAt: "2026-10-01T00:01:00.000Z",
+      startedAt: "2026-10-01T00:00:00.000Z",
+      endedAt: "2026-10-01T00:01:00.000Z",
+      status: "ready",
+      mediaRecordingId: "rec-footage",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    });
+    await insertBinding("binding-footage", { recordingId: "rec-footage" });
+    const bearer = await token({ recordingId: "rec-footage" });
+
+    expect((await playback("rec-footage", bearer)).status).toBe(404);
+    expect((await listComments("rec-footage", bearer)).status).toBe(404);
+  });
+
+  it("hands out a YouTube Clip's own embed URL, checked only when issued", async () => {
+    await insertRecording("rec-youtube", {
+      videoUrl: "https://www.youtube.com/embed/abcdefghijk",
+    });
+    await insertBinding("binding-youtube", { recordingId: "rec-youtube" });
+    const bearer = await token({ recordingId: "rec-youtube" });
+
+    const result = await playback("rec-youtube", bearer);
+    expect(result.status).toBe(200);
+    expect(result.body.recording.embedProvider).toBe("youtube");
+    const videoUrl = new URL(result.body.playback.videoUrl);
+    expect(videoUrl.hostname).toMatch(/youtube/);
+    expect(videoUrl.searchParams.has("content_grant")).toBe(false);
+
+    await setBindingState("binding-youtube", "trashed");
+    expect((await playback("rec-youtube", bearer)).status).toBe(404);
   });
 
   it("plays for a signed-out reader of a public doc through its binding", async () => {
@@ -756,13 +859,24 @@ describe("video comments through a doc", () => {
     await insertRecording("rec-other", { visibility: "public" });
     await seedComment("foreign-comment", { recordingId: "rec-other" });
 
-    const result = await writeComment(
-      "rec-upload",
-      await token({ scope: SCOPES.comment }),
+    const write = await token({ scope: SCOPES.comment });
+    for (const body of [
       { operation: "reply", commentId: "foreign-comment", content: "Hi" },
-    );
-    expect(result.status).toBe(404);
-    expect(await storedComments()).toHaveLength(1);
+      { operation: "edit", commentId: "foreign-comment", content: "Hi" },
+      { operation: "delete", commentId: "foreign-comment" },
+      { operation: "resolve", commentId: "foreign-comment", resolved: true },
+      { operation: "react", commentId: "foreign-comment", emoji: "👍" },
+    ]) {
+      expect((await writeComment("rec-upload", write, body)).status).toBe(404);
+    }
+    expect(await storedComments()).toEqual([
+      expect.objectContaining({
+        id: "foreign-comment",
+        content: "Comment foreign-comment",
+        resolved: false,
+        emoji_reactions_json: "{}",
+      }),
+    ]);
   });
 
   it("refuses comments to readers of a doc the Clip is not bound to", async () => {
@@ -927,6 +1041,10 @@ describe("token checks", () => {
     [
       "an expired token",
       () => token({ issuedAt: now() - 120, expiresAt: now() - 60 }),
+    ],
+    [
+      "an issue time in the future",
+      () => token({ issuedAt: now() + 300, expiresAt: now() + 360 }),
     ],
     [
       "a lifetime over five minutes",

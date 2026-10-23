@@ -45,6 +45,7 @@ import {
   signContentPlaybackGrant,
   withContentPlaybackGrant,
 } from "./content-playback-grant.js";
+import { contextClipIdForFootage } from "./context-footage.js";
 import {
   isHeldForRedaction,
   REDACTION_HOLD_MESSAGE,
@@ -273,6 +274,9 @@ async function withOpenedClip(
   peer: ContentClipPeer,
   fn: (opened: OpenedClip) => Promise<Response>,
 ): Promise<Response> {
+  // Earlier-screen-time footage plays only through the Clip it is attached
+  // to, under that Clip's rules; a document never holds it on its own.
+  if (await contextClipIdForFootage(peer.recordingId)) return notFound();
   const binding = await findContentBinding(peer);
   const orgId = await contentReaderOrgId(peer.viewerEmail);
   const open = () =>

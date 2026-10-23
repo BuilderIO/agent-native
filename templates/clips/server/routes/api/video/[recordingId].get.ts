@@ -21,7 +21,8 @@
  *   - a Content playback grant (`content_grant`, from the Content playback
  *     route) names the reader in place of the browser session and never
  *     unlocks a password; a grant that does not verify for this recording,
- *     including an empty one, is a 404.
+ *     including an empty one, is a 404, and an expired one is a 403 with
+ *     code `content_grant_expired`.
  *   - earlier-screen-time footage is a private recording of its own that is
  *     shared with the clip it is attached to: every rule above is evaluated
  *     against that clip, and the footage's bytes are served on its behalf.
@@ -78,6 +79,7 @@ import {
 import { getDb, schema } from "../../../db/index.js";
 import {
   readContentPlaybackGrant,
+  refusedContentPlayback,
   runWithContentPlayback,
 } from "../../../lib/content-playback-grant.js";
 import { contextClipIdForFootage } from "../../../lib/context-footage.js";
@@ -342,9 +344,10 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const contentGrant = await readContentPlaybackGrant(event, recordingId);
-  if (contentGrant.status === "invalid") {
-    setResponseStatus(event, 404);
-    return { error: "Not found" };
+  const refused = refusedContentPlayback(contentGrant);
+  if (refused) {
+    setResponseStatus(event, refused.status);
+    return refused.body;
   }
 
   const session = await getSession(event).catch(() => null);
@@ -392,8 +395,10 @@ export default defineEventHandler(async (event: H3Event) => {
           }
         }
         if (row.visibility !== "public" && !viewerIsOrgMember) {
-          setResponseStatus(event, 403);
-          return { error: "Forbidden" };
+          // A Content reader gets the 404 a missing Clip gets; under a grant
+          // a 403 means only that the grant expired.
+          setResponseStatus(event, granted ? 404 : 403);
+          return { error: granted ? "Not found" : "Forbidden" };
         }
         recRow = row as RecordingRow;
         role = "viewer";

@@ -31,6 +31,7 @@ import {
 import { getDb, schema } from "../../../db/index.js";
 import {
   readContentPlaybackGrant,
+  refusedContentPlayback,
   runWithContentPlayback,
 } from "../../../lib/content-playback-grant.js";
 import { contextClipIdForFootage } from "../../../lib/context-footage.js";
@@ -459,9 +460,10 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const contentGrant = await readContentPlaybackGrant(event, recordingId);
-  if (contentGrant.status === "invalid") {
-    setResponseStatus(event, 404);
-    return { error: "Not found" };
+  const refused = refusedContentPlayback(contentGrant);
+  if (refused) {
+    setResponseStatus(event, refused.status);
+    return refused.body;
   }
 
   const session = await getSession(event).catch(() => null);

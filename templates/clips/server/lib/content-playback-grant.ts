@@ -6,6 +6,10 @@ import {
 import { getQuery, type H3Event } from "h3";
 
 import {
+  CONTENT_CLIP_GRANT_EXPIRED,
+  CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
+} from "../../shared/content-clip-contract.js";
+import {
   contentDocGrantFor,
   readContentBinding,
 } from "./content-clip-bindings.js";
@@ -18,13 +22,13 @@ import {
 // URLs carry who Content vouched for. The grant names the reader, never a
 // role: each media request re-runs every gate, so trashing the binding or the
 // Clip stops a URL that was already handed out.
-const PLAYBACK_GRANT_TTL_SECONDS = 60 * 60;
 const GRANT_PARAM = "content_grant";
 const BINDING_PARAM = "content_binding";
 
 export type ContentPlaybackAccess =
   | { status: "absent" }
   | { status: "invalid" }
+  | { status: "expired" }
   | {
       status: "granted";
       viewerEmail: string | null;
@@ -61,7 +65,7 @@ export function signContentPlaybackGrant(input: {
   const token = signShortLivedToken({
     resourceId: grantResourceId(input.recordingId, input.bindingId),
     viewerEmail: input.viewerEmail ?? undefined,
-    ttlSeconds: PLAYBACK_GRANT_TTL_SECONDS,
+    ttlSeconds: CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
   });
   return {
     params: {
@@ -69,7 +73,7 @@ export function signContentPlaybackGrant(input: {
       ...(input.bindingId ? { [BINDING_PARAM]: input.bindingId } : {}),
     },
     expiresAt: new Date(
-      (issuedAtSeconds + PLAYBACK_GRANT_TTL_SECONDS) * 1000,
+      (issuedAtSeconds + CONTENT_CLIP_PLAYBACK_GRANT_SECONDS) * 1000,
     ).toISOString(),
   };
 }
@@ -88,7 +92,8 @@ export function withContentPlaybackGrant(
 /**
  * Reads a media request's Content grant. A grant that is present but does not
  * verify for this recording is `invalid`, never `absent`, so a tampered URL
- * cannot fall back to the browser's own Clips session.
+ * cannot fall back to the browser's own Clips session. A genuine grant that
+ * ran out is `expired`, which Content's player answers by asking again.
  */
 export async function readContentPlaybackGrant(
   event: H3Event,
@@ -105,7 +110,11 @@ export async function readContentPlaybackGrant(
     token,
     grantResourceId(recordingId, bindingId),
   );
-  if (!verified.ok) return { status: "invalid" };
+  if (!verified.ok) {
+    return verified.reason === "expired"
+      ? { status: "expired" }
+      : { status: "invalid" };
+  }
   const viewerEmail = verified.viewerEmail?.trim().toLowerCase() || null;
   const orgId = await contentReaderOrgId(viewerEmail);
   if (!bindingId) {
@@ -122,6 +131,25 @@ export async function readContentPlaybackGrant(
     orgId,
     docGrant: binding ? contentDocGrantFor(binding, viewerEmail) : null,
   };
+}
+
+/** The response a media route sends when the grant does not let it serve. */
+export function refusedContentPlayback(
+  access: ContentPlaybackAccess,
+): { status: number; body: { error: string; code?: string } } | null {
+  if (access.status === "invalid") {
+    return { status: 404, body: { error: "Not found" } };
+  }
+  if (access.status === "expired") {
+    return {
+      status: 403,
+      body: {
+        error: "Playback grant expired",
+        code: CONTENT_CLIP_GRANT_EXPIRED,
+      },
+    };
+  }
+  return null;
 }
 
 export function runWithContentPlayback<T>(

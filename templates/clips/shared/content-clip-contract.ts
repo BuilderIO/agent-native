@@ -31,3 +31,21 @@ export const CONTENT_CLIP_CLAIMS = {
 
 /** Longest token lifetime the routes accept; Content mints one-minute tokens. */
 export const CONTENT_CLIP_MAX_TOKEN_SECONDS = 5 * 60;
+
+/**
+ * How long the media URLs from playback keep working, so a reader who loses
+ * access to the document stops playing within minutes. When they run out
+ * (`playback.expiresAt`, or a media request refused with
+ * `CONTENT_CLIP_GRANT_EXPIRED`), Content's player asks Content for playback
+ * again, and Content re-checks the reader's document access before it mints
+ * the token that gets fresh URLs.
+ *
+ * A Clip that plays in YouTube's player (`recording.embedProvider` is
+ * `"youtube"`) is the exception: its `videoUrl` is YouTube's own embed URL
+ * with no grant. Clips checks access only when it answers playback; YouTube
+ * then serves the video under that video's YouTube settings.
+ */
+export const CONTENT_CLIP_PLAYBACK_GRANT_SECONDS = 5 * 60;
+
+/** The `code` of a 403 media response refused only because its grant expired. */
+export const CONTENT_CLIP_GRANT_EXPIRED = "content_grant_expired";
