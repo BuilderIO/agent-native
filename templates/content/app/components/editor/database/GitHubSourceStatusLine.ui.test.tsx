@@ -481,6 +481,25 @@ describe("Filling while the collection is open", () => {
     expectNoToasts();
   });
 
+  it.each(["storage_unavailable", "storage_failed"] as const)(
+    "asks for the next part at once after one that got further with %s",
+    async (code) => {
+      vi.useFakeTimers();
+      sync.mutateAsync
+        .mockResolvedValueOnce(
+          syncResult({
+            state: "partial",
+            remaining: 40,
+            problem: problem(code),
+          }),
+        )
+        .mockResolvedValueOnce(syncResult({ state: "synced" }));
+      renderLine(filling());
+      await settle();
+      expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it.each([
     ["the folder is current", syncResult({ state: "synced" })],
     ["nothing changed", syncResult({ state: "unchanged" })],

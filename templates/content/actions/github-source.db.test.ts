@@ -3602,6 +3602,56 @@ describe("Filling a big folder", () => {
     expect(github.state.blobReads).toBe(2);
   });
 
+  it("reads no page ahead that only waits on storage once it's down", async () => {
+    // Every page shows one image, which no storage is set up to take yet.
+    github.state.noStorage = true;
+    const files: Record<string, string> = { "docs/images/logo.png": "PNGLOGO" };
+    for (let index = 1; index <= 105; index++) {
+      const name = String(index).padStart(3, "0");
+      files[`docs/page-${name}.md`] =
+        `# Page ${name}\n\n![Logo](images/logo.png)\n`;
+    }
+    const { database } = await linkFolderOf(files);
+    const id = await sourceId(database.id);
+    await as(() => syncGitHubSource({ sourceId: id, budgetMs: 120_000 }));
+    expect(await liveRows(database.id)).toHaveLength(105);
+
+    // Storage is set up now, but down. Three new pages sort first and their
+    // images fail, which ends the run's uploads. Another new page sorts
+    // after the first 100 files that a read takes.
+    github.state.noStorage = false;
+    github.state.storageDown = true;
+    github.state.batchedReads = true;
+    github.commit({
+      ...files,
+      "docs/aaa-1.md": "# One\n\n![One](images/one.png)\n",
+      "docs/aaa-2.md": "# Two\n\n![Two](images/two.png)\n",
+      "docs/aaa-3.md": "# Three\n\n![Three](images/three.png)\n",
+      "docs/images/one.png": "PNGONE",
+      "docs/images/two.png": "PNGTWO",
+      "docs/images/three.png": "PNGTHREE",
+      "docs/page-097a.md": "# Page 097a\n",
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 120_000 }),
+      );
+      expect(result).toMatchObject({
+        state: "synced",
+        created: 4,
+        problem: { code: "storage_failed" },
+      });
+      expect(github.state.uploadFailures).toBe(3);
+      // One read takes the first 100 files, before storage is known to be
+      // down. The new page after them is read alone, without the pages that
+      // only wait on storage after it.
+      expect(github.state.batches.map((batch) => batch.length)).toEqual([100]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("previews big files in requests no bigger than a sync's", async () => {
     github.state.batchedReads = true;
     const big = (name: string) =>

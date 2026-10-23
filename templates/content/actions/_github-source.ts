@@ -1124,6 +1124,19 @@ function storageDown(run: SyncRun) {
 }
 
 /**
+ * Whether a file's page would be rebuilt only to add its images while
+ * storage is down. It would come out the same, so it waits for a later sync
+ * without reading GitHub.
+ */
+function waitsForStorage(run: SyncRun, file: PlannedFile) {
+  return (
+    storageDown(run) &&
+    !!file.row &&
+    rowState(file.row)?.blobSha === file.entry.sha
+  );
+}
+
+/**
  * Copies one image into Content's file storage. `"no-storage"` means storage
  * isn't set up or is down, and `"failed"` that this upload failed; either way
  * the page leaves the image out until a later sync can store it.
@@ -1464,7 +1477,9 @@ function unread(file: PlannedFile) {
  */
 async function readTextsAhead(run: SyncRun, work: PlannedFile[], from: number) {
   const batch = fitTextBatch(
-    work.slice(from).filter(unread),
+    work
+      .slice(from)
+      .filter((file) => unread(file) && !waitsForStorage(run, file)),
     (file) => file.entry.size,
   );
   if (batch.length < 2) return;
@@ -2498,13 +2513,7 @@ export async function syncGitHubSource(
         continue;
       }
       index += 1;
-      // Once storage is down, a page rebuilt only to add its images would
-      // come out the same, so it waits for a later sync without reading GitHub.
-      if (
-        storageDown(run) &&
-        file.row &&
-        rowState(file.row)?.blobSha === file.entry.sha
-      ) {
+      if (waitsForStorage(run, file)) {
         record(file, "unchanged");
         continue;
       }
