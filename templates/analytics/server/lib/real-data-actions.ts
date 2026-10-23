@@ -1756,24 +1756,10 @@ export function isSuccessfulDbtMetricResult(content: unknown): boolean {
   return Array.isArray(rows) && rows.length > 0;
 }
 
-// Every string value in a parsed payload, however it is nested. A name matches only
-// one of these exactly, so a longer name that contains it does not count.
-function stringLeavesOf(
-  value: unknown,
-  leaves = new Set<string>(),
-): Set<string> {
-  if (typeof value === "string") leaves.add(value);
-  else if (Array.isArray(value)) {
-    value.forEach((item) => stringLeavesOf(item, leaves));
-  } else if (value !== null && typeof value === "object") {
-    Object.values(value).forEach((item) => stringLeavesOf(item, leaves));
-  }
-  return leaves;
-}
-
-// A metadata page or an exact-name miss is a lookup step, not an answer. A later
-// dbt metric query that returns rows answers the same question under the name it
-// found, so the lookup is recovered rather than left as a failure.
+// A metadata page or an exact-name miss is a lookup step, not an answer. Only the
+// lookup's own continuation clears it: a later dbt query under the same metric name
+// that returns rows. A different name is a lead, not a replacement, so the failure
+// stays and the final answer has to disclose the lookup.
 const DBT_LOOKUP_STATUSES = new Set([
   "not_found",
   "ambiguous_metric",
@@ -1791,35 +1777,22 @@ function isRecoveredByLaterDbtSuccess(
   }
   const record = payload as Record<string, unknown>;
   if (!DBT_LOOKUP_STATUSES.has(String(record.status))) return false;
-  for (let next = index + 1; next < results.length; next += 1) {
-    const candidate = results[next];
+  return results.slice(index + 1).some((candidate) => {
     if (
       !isDbtSemanticMetricActionName(String(candidate.name ?? "")) ||
       candidate.isError === true ||
       !isSuccessfulDbtMetricResult(candidate.content)
     ) {
-      continue;
+      return false;
     }
-    const answered = tryParseJsonContent(String(candidate.content ?? ""));
-    const answeredName = (answered as Record<string, unknown> | null)
-      ?.metricName;
-    if (typeof answeredName !== "string") continue;
-    // The lookup's own continuation answers under the same name. A retry under a
-    // different exact name counts only when find-data returned that name after the
-    // lookup failed, so an unrelated metric cannot clear the failure.
-    if (answeredName === record.metricName) return true;
-    const foundAfterLookup = results
-      .slice(index + 1, next)
-      .some(
-        (between) =>
-          isToolName(String(between.name ?? ""), "find-data") &&
-          stringLeavesOf(
-            tryParseJsonContent(String(between.content ?? "")),
-          ).has(answeredName),
-      );
-    if (foundAfterLookup) return true;
-  }
-  return false;
+    const answered = tryParseJsonContent(
+      String(candidate.content ?? ""),
+    ) as Record<string, unknown> | null;
+    return (
+      typeof record.metricName === "string" &&
+      answered?.metricName === record.metricName
+    );
+  });
 }
 
 function isFailedDataQueryAttempt(

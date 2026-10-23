@@ -47,7 +47,6 @@ import {
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
-  isBigQueryRowsPayload,
   hasIncompleteDataEvidence,
   hasEmptyFindDataResult,
   hasCompleteBigQuerySchemaSearch,
@@ -658,13 +657,15 @@ function dbtFailureWarehouseRows(
   ) {
     return null;
   }
-  // Any successful warehouse read with rows after the dbt failure is a figure for this
-  // metric, including a corrected retry of a read that errored.
+  // Any successful warehouse read after the dbt failure may carry the figure for this
+  // metric, including a corrected retry of a read that errored. The agent loop truncates
+  // a large result, so the content is kept whether or not it still parses; the figure
+  // check reads what is visible.
   const rows = results.flatMap((result, index) =>
     index > latestDbtIndex &&
     isNamedTool(result.name, "bigquery") &&
     result.isError !== true &&
-    isBigQueryRowsPayload(result.content)
+    String(result.content ?? "").trim() !== ""
       ? [String(result.content)]
       : [],
   );

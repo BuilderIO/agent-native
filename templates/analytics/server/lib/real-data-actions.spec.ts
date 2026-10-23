@@ -440,7 +440,7 @@ describe("real data action classification", () => {
     expect(failedDataQueryAttemptMessage([interrupted, completed])).toBeNull();
   });
 
-  it("clears a not_found lookup once a later dbt query returns rows", () => {
+  it("keeps a not_found lookup when a later query answers a different metric", () => {
     const notFound = {
       name: "query-dbt-semantic-metric",
       content: JSON.stringify({
@@ -466,7 +466,7 @@ describe("real data action classification", () => {
     };
 
     expect(hasDataQueryAttempt([notFound, found])).toBe(true);
-    expect(failedDataQueryAttemptMessage([notFound, found])).toBeNull();
+    expect(failedDataQueryAttemptMessage([notFound, found])).not.toBeNull();
     expect(failedDataQueryAttemptMessage([notFound])).not.toBeNull();
   });
 
@@ -534,7 +534,7 @@ describe("real data action classification", () => {
     ).not.toBeNull();
   });
 
-  it("clears a lookup failure once find-data returns the replacement metric name", () => {
+  it("keeps a lookup failure when find-data lists a replacement, so the answer discloses it", () => {
     const notFound = {
       name: "query-dbt-semantic-metric",
       content: JSON.stringify({
@@ -565,7 +565,35 @@ describe("real data action classification", () => {
 
     expect(
       failedDataQueryAttemptMessage([notFound, search, replacement]),
-    ).toBeNull();
+    ).not.toBeNull();
+  });
+
+  it("clears a lookup failure once a later query under the same metric name returns rows", () => {
+    const notFound = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "not_found",
+        metricName: "weekly_active_users",
+        searched: 3,
+        of: 3,
+      }),
+    };
+    const sameMetric = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "weekly_active_users",
+        queryId: "synthetic-query-id",
+        querySpec: {
+          groupBy: [],
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        },
+        rows: [{ weekly_active_users: 7836 }],
+        truncated: false,
+      }),
+    };
+
+    expect(failedDataQueryAttemptMessage([notFound, sameMetric])).toBeNull();
   });
 
   it("clears an empty continued page once the same query returns rows", () => {

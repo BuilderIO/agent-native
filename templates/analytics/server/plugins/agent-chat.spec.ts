@@ -1219,6 +1219,27 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(asked).toHaveLength(0);
   });
 
+  it("checks a warehouse result the agent loop truncated, so it cannot fail open", async () => {
+    const truncated = {
+      name: "bigquery",
+      isError: false,
+      content:
+        '{"rows":[{"account":"Acme Corp","active_accounts":12},{"account":"Globex Ltd","active_accounts":1',
+    };
+    const result = await dbtFinalResponseGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: "Acme Corp had 12 active accounts last month.",
+        toolResults: [dbtNotFound, truncated],
+      }),
+      figureCheck("YES"),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+  });
+
   it("reads the figure check reply only as YES or NO", () => {
     expect(parseFigureVerdict("YES")).toBe(true);
     expect(parseFigureVerdict(" no \n")).toBe(false);
