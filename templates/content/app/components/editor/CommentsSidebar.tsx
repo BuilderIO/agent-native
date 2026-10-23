@@ -1332,6 +1332,19 @@ export function CommentsSidebar({
     );
     return () => clearTimeout(timer);
   }, [expandedStackKey, selectedInExpandedStack, selectedThreadId]);
+  const pendingInExpandedStack =
+    !!expandedStack && pendingStackKey === expandedStack.key;
+  useLayoutEffect(() => {
+    if (!pendingInExpandedStack) return;
+    // Show all, under a new comment, removes the button that had focus.
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    sidebarRef.current
+      ?.querySelector<HTMLElement>(
+        '[data-comment-pending] [contenteditable="true"]',
+      )
+      ?.focus({ preventScroll: true });
+  }, [pendingInExpandedStack]);
   useLayoutEffect(() => {
     const key = focusStackKeyRef.current;
     if (key === null) return;
@@ -2026,8 +2039,6 @@ export function CommentsSidebar({
     documentTop: pendingPosition?.documentTop ?? pendingAnchorTop,
     layoutTop: pendingAnchorTop,
   };
-  const pendingInExpandedStack =
-    !!pendingLayout && !!expandedStack && pendingStackKey === expandedStack.key;
   // An open stack's Collapse row is laid out like a card above its first one.
   const stackHeaderLayout: ThreadLayoutIdentity | null = expandedStack
     ? { threadId: STACK_HEADER_LAYOUT_ID, comments: [] }
@@ -2067,7 +2078,7 @@ export function CommentsSidebar({
     }
     layoutHeights.set(STACK_HEADER_LAYOUT_ID, STACK_HEADER_HEIGHT);
   }
-  const selectedItems = layoutCommentThreads<
+  const anchoredItems = layoutCommentThreads<
     LayoutThread | ThreadLayoutIdentity
   >(
     [
@@ -2079,6 +2090,19 @@ export function CommentsSidebar({
     layoutHeights,
     pendingLayout ? PENDING_COMMENT_LAYOUT_ID : selectedLayoutThreadId,
   );
+  // Keeping the selected card level with its highlight pushes the cards above
+  // it upward. Near the top of a page that would put an open stack's Collapse
+  // row and first cards above the margin, where nothing can scroll to them, so
+  // the stack starts at the top instead.
+  const stackOverflow = Math.max(
+    0,
+    -(
+      anchoredItems.find((item) => item.thread === stackHeaderLayout)?.top ?? 0
+    ),
+  );
+  const selectedItems = stackOverflow
+    ? anchoredItems.map((item) => ({ ...item, top: item.top + stackOverflow }))
+    : anchoredItems;
   const pendingTop =
     selectedItems.find((item) => item.thread === pendingLayout)?.top ??
     pendingAnchorTop;

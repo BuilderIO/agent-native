@@ -407,6 +407,17 @@ describe("comment stacks in the margin", () => {
     }
   });
 
+  it("starts an open stack at the top of the margin, not above it", () => {
+    render();
+    // Every highlight here sits at the margin's top, so keeping the last
+    // thread level with its own would push the Collapse row above it.
+    act(() => harness.select("d"));
+    const header = container.querySelector<HTMLElement>(
+      '[data-comment-stack-state="open"]',
+    )!;
+    expect(header.style.top).toBe("0px");
+  });
+
   it("opens from any highlight in the block, on that thread", () => {
     render();
     act(() => harness.select("b"));
@@ -483,15 +494,17 @@ describe("comment stacks in the margin", () => {
     // The stack's own card makes way for the composer.
     expect(margin()).toEqual(["solo", "stack:l2", "l3"]);
 
+    showAll.focus();
     act(() => showAll.click());
     expect(margin()).toEqual(["a", "b", "c", "d", "solo", "stack:l2", "l3"]);
     expect(
       container.querySelector<HTMLElement>("[data-comment-pending]")?.dataset
         .commentStackState,
     ).toBeUndefined();
-    expect(
+    // The draft keeps focus, though the button that had it is gone.
+    expect(document.activeElement).toBe(
       richEditor(container.querySelector("[data-comment-pending]")!),
-    ).not.toBeNull();
+    );
   });
 
   it("puts a posted comment in front of the folded stack", async () => {
