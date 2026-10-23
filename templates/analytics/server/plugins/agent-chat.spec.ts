@@ -1070,6 +1070,42 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toBeNull();
   });
 
+  it("withholds a figure written as a number word", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: "Active accounts were twelve last month.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+  });
+
+  it("withholds a warehouse list that has no digits", () => {
+    const accountRows = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({
+        rows: [{ account: "Acme Corp" }, { account: "Globex Ltd" }],
+        totalRows: 2,
+      }),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Which accounts were active last month?",
+        draftText: "The active accounts were Acme Corp and Globex Ltd.",
+        toolResults: [dbtNotFound, accountRows],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+  });
+
   it("does not force a disclosure retry on a readiness status alone, without a dbt metric attempt", () => {
     const result = realDataFinalGuard(
       guardContext({

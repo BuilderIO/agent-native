@@ -440,6 +440,36 @@ describe("real data action classification", () => {
     expect(failedDataQueryAttemptMessage([interrupted, completed])).toBeNull();
   });
 
+  it("clears a not_found lookup once a later dbt query returns rows", () => {
+    const notFound = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "not_found",
+        metricName: "weekly_active_users",
+        searched: 3,
+        of: 3,
+      }),
+    };
+    const found = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "active_accounts",
+        queryId: "synthetic-query-id",
+        querySpec: {
+          groupBy: [],
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        },
+        rows: [{ active_accounts: 10 }],
+        truncated: false,
+      }),
+    };
+
+    expect(hasDataQueryAttempt([notFound, found])).toBe(true);
+    expect(failedDataQueryAttemptMessage([notFound, found])).toBeNull();
+    expect(failedDataQueryAttemptMessage([notFound])).not.toBeNull();
+  });
+
   it("clears an empty continued page once the same query returns rows", () => {
     const querySpec = {
       groupBy: [{ name: "metric_time", grain: "WEEK" }],

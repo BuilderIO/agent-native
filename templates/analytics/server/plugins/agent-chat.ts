@@ -46,6 +46,7 @@ import {
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
+  bigQueryRowValues,
   isBigQueryRowsPayload,
   hasIncompleteDataEvidence,
   hasEmptyFindDataResult,
@@ -574,6 +575,15 @@ const DBT_FALLBACK_NOT_APPROVED =
 // The user asked for warehouse numbers in this turn, so a labeled BigQuery figure
 // is what they want. Otherwise a warehouse figure for a dbt metric is withheld.
 const WAREHOUSE_REQUEST = /\b(?:bigquery|big\s+query|warehouse|sql)\b/i;
+// A figure can be written as a digit, a number word, or a warehouse value such as a
+// name in a list. The guard checks all three, since the answer must give no figure.
+const NUMBER_WORD =
+  /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|dozen)\b/i;
+function draftHasWarehouseFigure(text: string, warehouseValues: string[]) {
+  if (/\d/.test(text) || NUMBER_WORD.test(text)) return true;
+  const lowered = text.toLowerCase();
+  return warehouseValues.some((value) => lowered.includes(value));
+}
 const DBT_FALLBACK_BLOCK_RETRY =
   "Do not give a figure from BigQuery for this owner-defined metric. Its dbt metric query did not complete, so the answer has no owner-approved figure. Say that, name the missing step or mapping gap from the dbt result, and do not restate any warehouse number.";
 // A dbt-defined metric answered from BigQuery after dbt did not answer is withheld
@@ -613,7 +623,20 @@ function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
   // Without an explicit request for warehouse numbers, the figure is withheld. A
   // draft with no digits carries no figure, so the retry's answer passes.
   if (!WAREHOUSE_REQUEST.test(context.requestText ?? "")) {
-    return /\d/.test(context.text)
+    // Warehouse values from the rows read after the dbt failure, so a list of
+    // names is caught even without a digit.
+    const warehouseValues = results.flatMap((result, index) => {
+      if (index <= latestDbtIndex || result.isError === true) return [];
+      if (!named(result.name, "bigquery")) return [];
+      return (bigQueryRowValues(result.content) ?? [])
+        .flatMap((row) =>
+          Object.values(row !== null && typeof row === "object" ? row : {}),
+        )
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value.length >= 3);
+    });
+    return draftHasWarehouseFigure(context.text, warehouseValues)
       ? {
           retryMessage: DBT_FALLBACK_BLOCK_RETRY,
           fallbackMessage: DBT_FALLBACK_WITHHELD,

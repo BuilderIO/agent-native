@@ -1739,6 +1739,14 @@ export function isBigQueryRowsPayload(content: unknown): boolean {
   return Array.isArray(rows) && rows.length > 0;
 }
 
+// The rows of a BigQuery payload, or null when the payload is not a rows result.
+export function bigQueryRowValues(content: unknown): unknown[] | null {
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  if (parsed === null || typeof parsed !== "object") return null;
+  const rows = (parsed as { rows?: unknown }).rows;
+  return Array.isArray(rows) ? rows : null;
+}
+
 // A dbt success with no rows has no figure to support an answer, so it is not
 // grounding evidence.
 export function isSuccessfulDbtMetricResult(content: unknown): boolean {
@@ -1746,6 +1754,36 @@ export function isSuccessfulDbtMetricResult(content: unknown): boolean {
   const parsed = tryParseJsonContent(String(content ?? ""));
   const rows = (parsed as { rows?: unknown } | null)?.rows;
   return Array.isArray(rows) && rows.length > 0;
+}
+
+// A metadata page or an exact-name miss is a lookup step, not an answer. A later
+// dbt metric query that returns rows answers the same question under the name it
+// found, so the lookup is recovered rather than left as a failure.
+const DBT_LOOKUP_STATUSES = new Set([
+  "not_found",
+  "ambiguous_metric",
+  "metadata_truncated",
+]);
+
+function isRecoveredByLaterDbtSuccess(
+  result: { name?: string; isError?: boolean; content?: string },
+  index: number,
+  results: Array<{ name?: string; isError?: boolean; content?: string }>,
+): boolean {
+  const payload = tryParseJsonContent(String(result.content ?? ""));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  const status = String((payload as Record<string, unknown>).status);
+  if (!DBT_LOOKUP_STATUSES.has(status)) return false;
+  return results
+    .slice(index + 1)
+    .some(
+      (candidate) =>
+        isDbtSemanticMetricActionName(String(candidate.name ?? "")) &&
+        candidate.isError !== true &&
+        isSuccessfulDbtMetricResult(candidate.content),
+    );
 }
 
 function isFailedDataQueryAttempt(
@@ -1757,7 +1795,8 @@ function isFailedDataQueryAttempt(
   if (isDbtSemanticMetricActionName(name)) {
     return (
       dbtSemanticMetricFailure(result) !== null &&
-      !isRecoveredDbtContinuation(result, index, results)
+      !isRecoveredDbtContinuation(result, index, results) &&
+      !isRecoveredByLaterDbtSuccess(result, index, results)
     );
   }
   if (isToolName(name, "query-agent-native-analytics")) {
