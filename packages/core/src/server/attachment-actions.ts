@@ -28,6 +28,11 @@ function attachmentResourcePath(
   return `attachments/${threadId}/${batch}-${index}-${safe}`;
 }
 
+/** The sanitized filename a stored path was written under, without its batch and index. */
+function storedAttachmentName(path: string): string {
+  return (path.split("/").pop() ?? "").replace(/^[a-z0-9]+-\d+-/, "");
+}
+
 // A truncation note names one path for the rest of the thread, so each
 // request writes its own; the time prefix makes later uploads sort first.
 function attachmentBatchId(): string {
@@ -120,7 +125,9 @@ export function createCoreAttachmentActionEntries(): Record<
         description: [
           "Read a slice of a large text attachment (CSV, code, JSON, markdown, SVG, plain text) that was",
           "truncated in the conversation context. When a <chat-attachment-truncated> note names an",
-          "attachment, call this until hasMore is false before you edit, summarize, or answer from it.",
+          "attachment, read it as the note directs before you edit, summarize, or answer from it. If the",
+          "file is too long to read in full, read the parts the request depends on and tell the user which",
+          "parts you did not read.",
           "",
           "Identify the attachment by the path a <chat-attachment-truncated> note gives, or by name",
           "(e.g. name='data.csv') as shown in the <attachment name='...'> tag. Use offset and limit to",
@@ -209,20 +216,17 @@ export function createCoreAttachmentActionEntries(): Record<
           });
 
           const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-          const matching = path
+          const exact = path
             ? metas.filter((m) => m.path === path)
-            : metas.filter((m) => m.path.endsWith(`-${safeName}`));
-
+            : metas.filter((m) => storedAttachmentName(m.path) === safeName);
           const candidates =
-            matching.length > 0 || path
-              ? matching
-              : metas.filter((m) => {
-                  const basename = m.path.split("/").pop() || "";
-                  const withoutIndex = basename.replace(/^[a-z0-9]+-\d+-/, "");
-                  return withoutIndex
-                    .toLowerCase()
-                    .includes(name.toLowerCase());
-                });
+            exact.length > 0 || path
+              ? exact
+              : metas.filter(
+                  (m) =>
+                    storedAttachmentName(m.path).toLowerCase() ===
+                    safeName.toLowerCase(),
+                );
 
           if (candidates.length === 0) {
             return {

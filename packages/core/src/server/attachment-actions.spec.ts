@@ -134,7 +134,10 @@ describe("persistTextAttachmentsAsResources", () => {
       totalChars: content.length,
     });
     resourceListMock.mockResolvedValue([
-      { id: "resource-message", path: "attachments/thread-1/0-message.eml" },
+      {
+        id: "resource-message",
+        path: "attachments/thread-1/mfh2a1b2-0-message.eml",
+      },
     ]);
     resourceGetMock.mockResolvedValue({ content });
 
@@ -328,7 +331,7 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
 
   const makeResource = (content: string) => ({
     id: "res-1",
-    path: "attachments/thread-1/0-data.csv",
+    path: "attachments/thread-1/mfh2a1b2-0-data.csv",
     owner: "user@example.com",
     content,
     mimeType: "text/csv",
@@ -348,7 +351,7 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     resourceListMock.mockResolvedValue([
       {
         id: "res-1",
-        path: "attachments/thread-1/0-data.csv",
+        path: "attachments/thread-1/mfh2a1b2-0-data.csv",
         owner: "user@example.com",
       },
     ]);
@@ -369,7 +372,7 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
   it("returns second page correctly", async () => {
     const content = "A".repeat(5000) + "B".repeat(5000);
     resourceListMock.mockResolvedValue([
-      { id: "res-1", path: "attachments/thread-1/0-data.csv" },
+      { id: "res-1", path: "attachments/thread-1/mfh2a1b2-0-data.csv" },
     ]);
     resourceGetMock.mockResolvedValue(makeResource(content));
 
@@ -424,6 +427,34 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     );
 
     expect(result.content).toBe("new");
+  });
+
+  it("does not match a different file that ends with the requested name", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-mine", path: "attachments/thread-1/mfh9z9z9-0-MY-DESIGN.md" },
+      { id: "res-design", path: "attachments/thread-1/mfh2a1b2-1-DESIGN.md" },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-design" ? "design" : "mine"),
+    );
+
+    const entries = createCoreAttachmentActionEntries();
+    const result = await entries["read-attachment"].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(result.content).toBe("design");
+
+    resourceListMock.mockResolvedValue([
+      { id: "res-mine", path: "attachments/thread-1/mfh9z9z9-0-MY-DESIGN.md" },
+    ]);
+    const missing = await entries["read-attachment"].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(missing.error).toContain(
+      'No stored attachment found with name "DESIGN.md"',
+    );
   });
 
   it("rejects a path outside stored attachments", async () => {
