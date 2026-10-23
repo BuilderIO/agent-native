@@ -2598,6 +2598,8 @@ describe("Builder CMS read client", () => {
       lastUpdated: 1_786_000_000_000,
       blocksHash: baselineHash,
       id: "builder-entry-1",
+      values: expect.objectContaining({ "data.title": "Builder title" }),
+      hasAutosaves: null,
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     for (const [input] of fetchImpl.mock.calls) {

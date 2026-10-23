@@ -19,6 +19,8 @@ export const BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY =
 export const BUILDER_CMS_BODY_READABLE_MAP_KEY =
   "__builder.body.readableMapJson";
 export const BUILDER_CMS_BODY_BLOCK_COUNT_KEY = "__builder.body.blockCount";
+/** Builder's `meta.hasAutosaves`: a published entry has unpublished changes. */
+export const BUILDER_CMS_HAS_AUTOSAVES_KEY = "__builder.meta.hasAutosaves";
 
 export interface BuilderCmsSourceEntry {
   id: string;
@@ -297,6 +299,16 @@ function sourceValueFromUnknown(value: unknown): DocumentPropertyValue {
   return null;
 }
 
+/** Null when Builder's read did not say. */
+export function builderEntryHasAutosaves(
+  record: Record<string, unknown>,
+): boolean | null {
+  const meta = record.meta;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+  const value = (meta as Record<string, unknown>).hasAutosaves;
+  return typeof value === "boolean" ? value : null;
+}
+
 function builderSourceValuesFromRecord(args: {
   record: Record<string, unknown>;
   data: Record<string, unknown>;
@@ -318,6 +330,10 @@ function builderSourceValuesFromRecord(args: {
     if (key in args.record) {
       values[key] = sourceValueFromUnknown(args.record[key]);
     }
+  }
+  const hasAutosaves = builderEntryHasAutosaves(args.record);
+  if (hasAutosaves !== null) {
+    values[BUILDER_CMS_HAS_AUTOSAVES_KEY] = hasAutosaves;
   }
   const blocks = builderEntryBlocks(args.rawEntry);
   if (blocks.length > 0) {

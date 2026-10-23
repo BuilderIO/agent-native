@@ -105,6 +105,10 @@ import {
   type BuilderCmsSourceEntry,
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
+import {
+  builderSourceValuesKeepingUnpublishedChanges,
+  readBuilderCmsUnpublishedChanges,
+} from "./_builder-cms-unpublished-changes.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
 import { assertNoActiveBuilderSourceExecutions } from "./_builder-source-execution-guard.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
@@ -2102,8 +2106,14 @@ async function processBuilderBodyHydrationJob(
   const incomingLastUpdated =
     stringSourceValue(entryWithBody.sourceValues, "lastUpdated") ??
     entryWithBody.updatedAt;
+  const unpublishedChanges = readBuilderCmsUnpublishedChanges(sourceValues);
+  const incomingIsBodySavedOver =
+    unpublishedChanges.state === "pending" &&
+    !!incomingBlocksHash &&
+    unpublishedChanges.changes.liveBlocksHash === incomingBlocksHash;
   if (
     !isCodecMigration &&
+    !incomingIsBodySavedOver &&
     builderBodyBaselineHasSameVersionConflict({
       persistedBlocksHash: stringSourceValue(
         sourceValues,
@@ -2125,10 +2135,14 @@ async function processBuilderBodyHydrationJob(
       "Builder returned inconsistent body variants for the same lastUpdated value; the stored baseline and local document were preserved for retry.",
     );
   }
-  let nextValues = {
-    ...sourceValues,
-    ...entryWithBody.sourceValues,
-  };
+  let nextValues = builderSourceValuesKeepingUnpublishedChanges({
+    incoming: {
+      ...sourceValues,
+      ...entryWithBody.sourceValues,
+    },
+    existing: sourceValues,
+    keepFields: true,
+  });
   let nextContent =
     stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
   let emptyBodyRead: Extract<
@@ -2225,7 +2239,11 @@ async function processBuilderBodyHydrationJob(
           if (!upgraded) return;
           activeSourceEntryJson = liveSourceEntryJson;
           entryWithBody = liveEntry;
-          nextValues = liveValues;
+          nextValues = builderSourceValuesKeepingUnpublishedChanges({
+            incoming: liveValues,
+            existing: sourceValues,
+            keepFields: true,
+          });
           nextContent = liveContent;
         }
       } else {
@@ -2547,7 +2565,13 @@ async function processBuilderBodyHydrationJob(
         bodyHydrationStatus: "hydrated",
         bodyHydrationAttemptedAt: now,
         bodyHydrationError: null,
-        bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
+        // A kept body is the version the next refresh expects; Builder's
+        // would queue this read again on every refresh.
+        bodyHydrationVersion: builderBodyHydrationVersion(
+          incomingIsBodySavedOver
+            ? { ...entryWithBody, sourceValues: nextValues }
+            : entryWithBody,
+        ),
         bodyHydrationReason: null,
         bodyHydrationProviderStatus: "http_200",
         bodyHydrationAttemptCount: row.attempts,
@@ -6015,7 +6039,10 @@ export function sourceValuesForSeededSourceRow(args: {
           reference.id.trim();
       }
     }
-    return values;
+    return builderSourceValuesKeepingUnpublishedChanges({
+      incoming: values,
+      existing: existingSourceValues,
+    });
   }
   if (existingSourceValues) return existingSourceValues;
   if (args.sourceType !== "builder-cms") return {};

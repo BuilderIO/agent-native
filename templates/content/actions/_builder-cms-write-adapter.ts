@@ -7,6 +7,7 @@ import type {
   ContentDatabaseSourceExecutionState,
   ContentDatabaseSourcePushMode,
   ContentDatabaseSourceWriteMode,
+  DocumentPropertyValue,
 } from "../shared/api.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
@@ -57,6 +58,37 @@ export interface BuilderCmsExecutionPayload {
     validatedAt: string;
     checks: string[];
     mismatches: string[];
+  };
+  /** Builder's entry as read right before the write. */
+  livePreflight?: BuilderCmsLivePreflight;
+}
+
+export interface BuilderCmsLivePreflight {
+  checkedAt: string;
+  exists: boolean;
+  id: string | null;
+  published: string | null;
+  lastUpdated: number | string | null;
+  blocksHash: string | null;
+  hasAutosaves: boolean | null;
+  /** Live values of the fields this write sends; null when Builder did not return them. */
+  values: Record<string, DocumentPropertyValue> | null;
+}
+
+/** The source fields and body a Builder write request sends. */
+export function builderCmsWrittenSourceFields(
+  request: BuilderCmsExecutionPayload["request"],
+) {
+  const data = request.body.data;
+  const record =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+  return {
+    fieldKeys: Object.keys(record)
+      .filter((name) => name !== "blocks")
+      .map((name) => `data.${name}`),
+    wroteBody: record.blocks !== undefined,
   };
 }
 
@@ -310,18 +342,41 @@ export function builderCmsExecutionIntentMarker(idempotencyKey: string) {
   return `agent-native-execution:${portableIntentHash(idempotencyKey)}`;
 }
 
+export type BuilderCmsUnpublishedSaveEffect = "autosave" | "save_draft";
+
+export function isBuilderCmsUnpublishedSaveEffect(
+  effect: unknown,
+): effect is BuilderCmsUnpublishedSaveEffect {
+  return effect === "autosave" || effect === "save_draft";
+}
+
+/**
+ * A save that must not change what is live. Builder keeps an autosave out of
+ * its read API, so a draft entry saved that way snaps back on the next
+ * refresh; a draft takes a plain save instead. Only "draft" picks that save:
+ * a stale or unknown state falls back to autosave, which never touches the
+ * live page, and the live check before the write settles the real choice.
+ */
+export function builderCmsUnpublishedSaveEffect(
+  published: unknown,
+): BuilderCmsUnpublishedSaveEffect {
+  return published === "draft" ? "save_draft" : "autosave";
+}
+
 function builderEffectForWrite(args: {
   pushMode: ContentDatabaseSourcePushMode;
   writeMode?: ContentDatabaseSourceWriteMode | null;
   entryId: string | null;
+  entryPublished?: unknown;
   publicationTransition?: BuilderCmsPublicationTransitionIntent | null;
 }): BuilderCmsWriteEffect {
   if (!args.entryId) return "create_draft";
   if (args.publicationTransition === "publish") return "publish";
   if (args.publicationTransition === "unpublish") return "unpublish";
-  if (args.writeMode === "stage_only") return "autosave";
   if (args.writeMode === "publish_updates") return "update_in_place";
-  if (args.pushMode === "autosave") return "autosave";
+  if (args.writeMode === "stage_only" || args.pushMode === "autosave") {
+    return builderCmsUnpublishedSaveEffect(args.entryPublished);
+  }
   return "update_in_place";
 }
 
@@ -383,7 +438,7 @@ export function resolveBuilderCmsWriteEffect(args: {
     changeSet: args.changeSet,
   });
   const effectivePushMode = pushMode === "none" ? "autosave" : pushMode;
-  const { entryId } = resolveBuilderCmsWriteTarget({
+  const { entryId, targetRow } = resolveBuilderCmsWriteTarget({
     source: args.source,
     changeSet: args.changeSet,
   });
@@ -391,6 +446,7 @@ export function resolveBuilderCmsWriteEffect(args: {
     pushMode: effectivePushMode,
     writeMode: sourceWriteMode,
     entryId,
+    entryPublished: targetRow?.sourceValues?.published,
     publicationTransition: args.publicationTransition,
   });
 }
@@ -514,6 +570,24 @@ function builderBodyPatch(changeSet: ContentDatabaseSourceChangeSet) {
   }
 }
 
+// Neither request sends a published field: `published: "draft"` on an entry
+// that went live after the check would unpublish it.
+function builderUnpublishedSaveRequest(args: {
+  effect: BuilderCmsUnpublishedSaveEffect;
+  path: string;
+  body: Record<string, unknown>;
+}): BuilderCmsExecutionPayload["request"] {
+  return {
+    method: "PATCH",
+    path: args.path,
+    query:
+      args.effect === "autosave"
+        ? { autoSaveOnly: "true", triggerWebhooks: "false" }
+        : { triggerWebhooks: "false" },
+    body: args.body,
+  };
+}
+
 function builderRequestForEffect(args: {
   effect: BuilderCmsWriteEffect;
   model: string;
@@ -535,19 +609,15 @@ function builderRequestForEffect(args: {
     args.model === SAFE_WRITE_MODEL
       ? patchedTitle || args.currentTitle?.trim() || null
       : null;
-  if (args.effect === "autosave") {
-    return {
-      method: "PATCH",
+  if (isBuilderCmsUnpublishedSaveEffect(args.effect)) {
+    return builderUnpublishedSaveRequest({
+      effect: args.effect,
       path: basePath,
-      query: {
-        autoSaveOnly: "true",
-        triggerWebhooks: "false",
-      },
       body: {
         ...args.bodyPatch,
         ...(safeEntryName ? { name: safeEntryName } : {}),
       },
-    };
+    });
   }
   if (args.effect === "update_in_place") {
     return {
@@ -690,8 +760,15 @@ function builderSafetyChecks(args: {
   if (args.operations.length === 0 && !args.hasBodyOperation) {
     blockers.push("No Builder operations are available for this change.");
   }
-  if (args.effect === "autosave" || args.effect === "update_in_place") {
-    const label = args.effect === "autosave" ? "Autosave" : "Update in place";
+  if (
+    isBuilderCmsUnpublishedSaveEffect(args.effect) ||
+    args.effect === "update_in_place"
+  ) {
+    // The live check can swap autosave and draft save, so the gate's text
+    // names neither.
+    const label = isBuilderCmsUnpublishedSaveEffect(args.effect)
+      ? "Unpublished save"
+      : "Update in place";
     checks.push(
       `${label} preserves publication state — no published field is sent.`,
     );
@@ -809,6 +886,7 @@ export function buildBuilderCmsExecutionPlan(args: {
     pushMode: effectivePushMode,
     writeMode: sourceWriteMode,
     entryId: targetEntryId,
+    entryPublished: targetRow?.sourceValues?.published,
     publicationTransition: args.publicationTransition,
   });
   const operations: BuilderCmsExecutionOperation[] = [];
@@ -976,11 +1054,22 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function stripDryRun(
+// The reviewed intent of an unpublished save is "don't change what is live";
+// which of its two requests runs follows Builder's live state at write time,
+// so a retry after that choice still matches its gate.
+function gateComparablePayload(
   payload: Partial<BuilderCmsExecutionPayload>,
 ): Partial<BuilderCmsExecutionPayload> {
   const { dryRun: _dryRun, ...rest } = payload;
-  return rest;
+  if (!isBuilderCmsUnpublishedSaveEffect(rest.effect) || !rest.request) {
+    return rest;
+  }
+  const { autoSaveOnly: _autoSaveOnly, ...query } = rest.request.query ?? {};
+  return {
+    ...rest,
+    effect: "autosave",
+    request: { ...rest.request, query },
+  };
 }
 
 export function validateBuilderCmsExecutionDryRun(args: {
@@ -990,8 +1079,8 @@ export function validateBuilderCmsExecutionDryRun(args: {
 }): BuilderCmsExecutionPayload {
   const storedPayload =
     args.storedPayload as Partial<BuilderCmsExecutionPayload>;
-  const storedComparable = stripDryRun(storedPayload);
-  const planComparable = stripDryRun(args.plan.payload);
+  const storedComparable = gateComparablePayload(storedPayload);
+  const planComparable = gateComparablePayload(args.plan.payload);
   const mismatches: string[] = [];
 
   if (
@@ -1060,4 +1149,30 @@ export function validateBuilderCmsExecutionDryRun(args: {
       mismatches,
     },
   } as BuilderCmsExecutionPayload;
+}
+
+/**
+ * Re-picks an unpublished save from Builder's publication state read right
+ * before the write, so an entry published or unpublished since review still
+ * gets the save that leaves the live page as it is.
+ */
+export function builderCmsPayloadForLivePublication(
+  payload: BuilderCmsExecutionPayload,
+  livePublished: string | null,
+): BuilderCmsExecutionPayload {
+  if (!isBuilderCmsUnpublishedSaveEffect(payload.effect)) return payload;
+  if (livePublished !== "draft" && livePublished !== "published") {
+    return payload;
+  }
+  const effect = builderCmsUnpublishedSaveEffect(livePublished);
+  if (effect === payload.effect) return payload;
+  return {
+    ...payload,
+    effect,
+    request: builderUnpublishedSaveRequest({
+      effect,
+      path: payload.request.path,
+      body: payload.request.body,
+    }),
+  };
 }

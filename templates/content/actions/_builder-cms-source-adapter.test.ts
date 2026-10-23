@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ContentDatabaseItem } from "../shared/api";
 import {
+  BUILDER_CMS_HAS_AUTOSAVES_KEY,
   buildBuilderCmsFixtureEntry,
   builderCmsQualifiedId,
   builderCmsSourceFieldKey,
@@ -220,6 +221,31 @@ describe("Builder CMS source adapter", () => {
         lastUpdated: "2026-06-08T12:00:00.000Z",
       },
     });
+  });
+
+  it("records whether Builder reports unpublished changes on an entry", () => {
+    const entry = (meta: Record<string, unknown>) =>
+      normalizeBuilderCmsApiEntry(
+        {
+          id: "entry-1",
+          published: "published",
+          lastUpdated: 1782328870774,
+          meta,
+          data: { title: "Builder API title" },
+        },
+        "blog_article",
+      )?.sourceValues;
+
+    expect(entry({ hasAutosaves: true })).toMatchObject({
+      [BUILDER_CMS_HAS_AUTOSAVES_KEY]: true,
+    });
+    expect(entry({ hasAutosaves: false })).toMatchObject({
+      [BUILDER_CMS_HAS_AUTOSAVES_KEY]: false,
+    });
+    expect(entry({})).not.toHaveProperty(BUILDER_CMS_HAS_AUTOSAVES_KEY);
+    expect(entry({ hasAutosaves: "yes" })).not.toHaveProperty(
+      BUILDER_CMS_HAS_AUTOSAVES_KEY,
+    );
   });
 
   it("uses numeric Builder lastUpdated as the row source baseline", () => {

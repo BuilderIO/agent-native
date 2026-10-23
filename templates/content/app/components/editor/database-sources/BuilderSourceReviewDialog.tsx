@@ -63,6 +63,7 @@ const EFFECT_LABELS: Record<
   create_draft: { tag: "New", sentence: "Creates a new draft entry" },
   update_in_place: { tag: "Edit", sentence: "Updates the live entry" },
   autosave: { tag: "Draft", sentence: "Saves a draft revision" },
+  save_draft: { tag: "Draft", sentence: "Saves the draft" },
   publish: { tag: "Publish", sentence: "Publishes this entry" },
   unpublish: { tag: "Unpublish", sentence: "Unpublishes the live entry" },
 };
@@ -89,6 +90,7 @@ export function builderReviewIntentSummary(
     create_draft: 0,
     update_in_place: 0,
     autosave: 0,
+    save_draft: 0,
     publish: 0,
     unpublish: 0,
   };
@@ -108,10 +110,9 @@ export function builderReviewIntentSummary(
       `${counts.update_in_place} update${counts.update_in_place === 1 ? "" : "s"}`,
     );
   }
-  if (counts.autosave) {
-    parts.push(
-      `${counts.autosave} draft save${counts.autosave === 1 ? "" : "s"}`,
-    );
+  const draftSaves = counts.autosave + counts.save_draft;
+  if (draftSaves) {
+    parts.push(`${draftSaves} draft save${draftSaves === 1 ? "" : "s"}`);
   }
   if (counts.publish) parts.push(`${counts.publish} to publish`);
   if (counts.unpublish) parts.push(`${counts.unpublish} to unpublish`);

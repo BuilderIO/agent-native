@@ -9,6 +9,10 @@ import {
 import type { BuilderCmsEntryLiveState } from "./_builder-cms-read-client";
 import { BUILDER_CMS_BODY_BLOCKS_HASH_KEY } from "./_builder-cms-source-adapter";
 import {
+  BUILDER_CMS_UNPUBLISHED_CHANGES_KEY,
+  withBuilderCmsUnpublishedChanges,
+} from "./_builder-cms-unpublished-changes";
+import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
 } from "./_builder-cms-write-adapter";
@@ -269,6 +273,7 @@ function depsFor(args: {
             lastUpdated: BUILDER_LAST_UPDATED_MS,
             blocksHash: null,
             id: "builder-entry-1",
+            values: { "data.title": "Old title" },
           },
     ),
     reconcileWrite: vi.fn(async () => {}),
@@ -470,7 +475,18 @@ describe("execute Builder source execution", () => {
       source: builderSource,
       changeSet: approvedChangeSet,
     });
-    const deps = depsFor({ source: builderSource, execution });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: true,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+        values: { "data.title": "Old title", "data.slug": "old-title" },
+      },
+    });
 
     const result = await executeBuilderSourceExecutionWithDeps(
       {
@@ -529,7 +545,23 @@ describe("execute Builder source execution", () => {
         database: DATABASE,
         source: builderSource,
         changeSet: approvedChangeSet,
-        plan,
+        plan: expect.objectContaining({
+          idempotencyKey: plan.idempotencyKey,
+          payload: expect.objectContaining({
+            effect: "autosave",
+            request: plan.payload.request,
+            livePreflight: {
+              checkedAt: NOW,
+              exists: true,
+              id: "builder-entry-1",
+              published: "published",
+              lastUpdated: BUILDER_LAST_UPDATED_MS,
+              blocksHash: null,
+              hasAutosaves: null,
+              values: { "data.title": "Old title" },
+            },
+          }),
+        }),
         now: NOW,
       }),
     );
@@ -1107,6 +1139,7 @@ describe("execute Builder source execution", () => {
         lastUpdated: BUILDER_LAST_UPDATED_MS,
         blocksHash: "new-live-builder-hash",
         id: "builder-entry-1",
+        values: { "data.title": "Old title" },
       },
     });
 
@@ -2049,5 +2082,342 @@ describe("execute Builder source execution", () => {
     expect(deps.claimExecution).toHaveBeenCalledWith(
       expect.objectContaining({ attemptToken: expect.any(String) }),
     );
+  });
+});
+
+describe("Builder unpublished saves", () => {
+  const publishedRow = (
+    overrides: Partial<ContentDatabaseSource["rows"][number]> = {},
+  ) =>
+    row({
+      sourceValues: { published: "published", "data.title": "Old title" },
+      ...overrides,
+    });
+
+  function unpublishedSave(args: {
+    rows?: ContentDatabaseSource["rows"];
+    changeSet?: ContentDatabaseSourceChangeSet;
+    readLiveEntry: BuilderCmsEntryLiveState;
+    writeResult?: BuilderCmsWriteResult;
+  }) {
+    const approvedChangeSet = args.changeSet ?? changeSet();
+    const builderSource = source({
+      rows: args.rows ?? [publishedRow()],
+      changeSets: [approvedChangeSet],
+      metadata: {
+        builderModelFields: [
+          { name: "title", label: "Title", type: "string", required: true },
+        ],
+      },
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: args.readLiveEntry,
+      writeResult: args.writeResult,
+    });
+    const run = () =>
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      );
+    return { deps, run, execution };
+  }
+
+  it("saves a draft when Builder reports the entry unpublished right before the write", async () => {
+    const { deps, run } = unpublishedSave({
+      readLiveEntry: {
+        exists: true,
+        published: "draft",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+        values: { "data.title": "Old title" },
+      },
+    });
+
+    await expect(run()).resolves.toMatchObject(RESPONSE);
+
+    const request = vi.mocked(deps.executeWrite).mock.calls[0]?.[0].request;
+    expect(request).toMatchObject({
+      method: "PATCH",
+      query: { triggerWebhooks: "false" },
+    });
+    expect(request?.query).not.toHaveProperty("autoSaveOnly");
+    expect(request?.body).not.toHaveProperty("published");
+    expect(deps.reconcileWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          payload: expect.objectContaining({ effect: "save_draft" }),
+        }),
+      }),
+    );
+  });
+
+  it("saves when Builder changed only a field this change does not write", async () => {
+    const { deps, run } = unpublishedSave({
+      rows: [
+        publishedRow({
+          lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
+        }),
+      ],
+      readLiveEntry: {
+        exists: true,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+        values: {
+          "data.title": "Old title",
+          "data.blurb": "Edited in Builder",
+        },
+      },
+    });
+
+    await expect(run()).resolves.toMatchObject(RESPONSE);
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the field Builder changed since the edit and blocks the save", async () => {
+    const { deps, run } = unpublishedSave({
+      rows: [
+        publishedRow({
+          lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
+        }),
+      ],
+      readLiveEntry: {
+        exists: true,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+        values: { "data.title": "Edited in Builder" },
+      },
+    });
+
+    await expect(run()).rejects.toMatchObject({
+      statusCode: 409,
+      message:
+        "Title changed in Builder since you edited it; refresh and re-review.",
+    });
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("treats the live value Content saved over as the value this edit was made against", async () => {
+    const { deps, run } = unpublishedSave({
+      rows: [
+        publishedRow({
+          lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
+          sourceValues: withBuilderCmsUnpublishedChanges(
+            { published: "published", "data.title": "Saved title" },
+            { liveValues: { "data.title": "Live title" } },
+          ),
+        }),
+      ],
+      readLiveEntry: {
+        exists: true,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+        values: { "data.title": "Live title" },
+      },
+    });
+
+    await expect(run()).resolves.toMatchObject(RESPONSE);
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks a body save Builder changed around when the live body cannot be compared", async () => {
+    const bodyChangeSet = changeSet({
+      fieldChanges: [],
+      bodyChange: {
+        summary: "Builder body changed.",
+        currentExcerpt: "Old body",
+        proposedExcerpt: "New body",
+        currentHash: "local-baseline-hash",
+        proposedHash: "local-next-hash",
+        proposedContent: "New body",
+        proposedBlocksJson: "[]",
+        sidecarsJson: "{}",
+        warnings: [],
+      },
+    });
+    const stalePublishedRow = publishedRow({
+      lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
+    });
+    const live = {
+      exists: true,
+      published: "published",
+      lastUpdated: BUILDER_LAST_UPDATED_MS,
+      id: "builder-entry-1",
+      values: { "data.title": "Old title" },
+    } as const;
+
+    const unverifiable = unpublishedSave({
+      rows: [stalePublishedRow],
+      changeSet: bodyChangeSet,
+      readLiveEntry: { ...live, blocksHash: null },
+    });
+    await expect(unverifiable.run()).rejects.toThrow(
+      "Builder entry changed since this diff was approved; refresh and re-review.",
+    );
+    expect(unverifiable.deps.executeWrite).not.toHaveBeenCalled();
+
+    const unchangedBody = unpublishedSave({
+      rows: [stalePublishedRow],
+      changeSet: bodyChangeSet,
+      readLiveEntry: { ...live, blocksHash: "local-baseline-hash" },
+    });
+    await expect(unchangedBody.run()).resolves.toMatchObject(RESPONSE);
+    expect(unchangedBody.deps.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks an unpublished save when Builder does not return the entry's values", async () => {
+    const { deps, run } = unpublishedSave({
+      readLiveEntry: {
+        exists: true,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+      },
+    });
+
+    await expect(run()).rejects.toThrow(
+      "Builder did not return this entry's current values; refresh and re-review.",
+    );
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("blocks an unpublished save to an archived entry", async () => {
+    const { deps, run } = unpublishedSave({
+      readLiveEntry: {
+        exists: true,
+        published: "archived",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+        values: { "data.title": "Old title" },
+      },
+    });
+
+    await expect(run()).rejects.toThrow(
+      "This entry is archived in Builder; restore it there before saving.",
+    );
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("says so when a draft save lands on an entry Builder just published", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { deps, run } = unpublishedSave({
+        readLiveEntry: {
+          exists: true,
+          published: "draft",
+          lastUpdated: BUILDER_LAST_UPDATED_MS,
+          blocksHash: null,
+          id: "builder-entry-1",
+          values: { "data.title": "Old title" },
+        },
+        writeResult: {
+          ok: true,
+          status: 200,
+          entryId: "builder-entry-1",
+          responseBody: { id: "builder-entry-1", published: "published" },
+        },
+      });
+
+      await expect(run()).resolves.toMatchObject(RESPONSE);
+      expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
+        expect.objectContaining({
+          summary: expect.stringContaining("this change is live"),
+        }),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("records the live values an autosave saved over", () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({
+      rows: [publishedRow()],
+      changeSets: [approvedChangeSet],
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      pushModeConfirmation: "autosave",
+    });
+    expect(plan.payload.effect).toBe("autosave");
+
+    const values = JSON.parse(
+      builderCmsReconciledSourceValuesJson({
+        existingSourceValuesJson: JSON.stringify({
+          published: "published",
+          "data.title": "Old title",
+        }),
+        snapshotSourceValues: undefined,
+        changeSet: approvedChangeSet,
+        plan: {
+          ...plan,
+          payload: {
+            ...plan.payload,
+            livePreflight: {
+              checkedAt: NOW,
+              exists: true,
+              id: "builder-entry-1",
+              published: "published",
+              lastUpdated: BUILDER_LAST_UPDATED_MS,
+              blocksHash: null,
+              hasAutosaves: null,
+              values: { "data.title": "Old title" },
+            },
+          },
+        },
+      }),
+    );
+
+    expect(values["data.title"]).toBe("New title");
+    expect(JSON.parse(values[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY])).toEqual({
+      liveValues: { "data.title": "Old title" },
+    });
+  });
+
+  it("leaves the record alone for a stored response from before live values were kept", () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({
+      rows: [publishedRow()],
+      changeSets: [approvedChangeSet],
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      pushModeConfirmation: "autosave",
+    });
+
+    const values = JSON.parse(
+      builderCmsReconciledSourceValuesJson({
+        existingSourceValuesJson: JSON.stringify({
+          published: "published",
+          "data.title": "Old title",
+        }),
+        snapshotSourceValues: undefined,
+        changeSet: approvedChangeSet,
+        plan,
+      }),
+    );
+
+    expect(values["data.title"]).toBe("New title");
+    expect(values).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 });

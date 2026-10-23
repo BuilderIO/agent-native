@@ -16,6 +16,7 @@ import {
   BUILDER_CMS_BODY_SIDECARS_KEY,
   BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
 } from "./_builder-cms-source-adapter";
+import { BUILDER_CMS_UNPUBLISHED_CHANGES_KEY } from "./_builder-cms-unpublished-changes";
 import { resolveBuilderCmsWriteEffect } from "./_builder-cms-write-adapter";
 import {
   assertBuilderCmsContinuationIdentity,
@@ -2993,6 +2994,36 @@ describe("database source helpers", () => {
     ).toEqual({
       "data.url": "/blog/persisted-url",
     });
+  });
+
+  it("keeps a saved unpublished change through a refresh that still reads the live value", () => {
+    const refreshed = (title: string) =>
+      sourceValuesForSeededSourceRow({
+        sourceType: "builder-cms",
+        item: item("doc-1", "Saved title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T13:00:00.000Z",
+        builderEntry: {
+          id: "entry-1",
+          model: "blog_article",
+          title,
+          urlPath: "/blog/live-title",
+          updatedAt: "2026-06-08T13:00:00.000Z",
+          sourceValues: { published: "published", "data.title": title },
+        },
+        existingSourceValuesJson: JSON.stringify({
+          published: "published",
+          "data.title": "Saved title",
+          [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+            liveValues: { "data.title": "Live title" },
+          }),
+        }),
+      });
+
+    expect(refreshed("Live title")["data.title"]).toBe("Saved title");
+    const published = refreshed("Published in Builder");
+    expect(published["data.title"]).toBe("Published in Builder");
+    expect(published).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 
   it("preserves a hydrated Builder body baseline across metadata-only refreshes with the same hash", () => {

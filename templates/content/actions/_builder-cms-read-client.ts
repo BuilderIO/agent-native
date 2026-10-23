@@ -11,6 +11,7 @@ import type {
   BuilderCmsModelFieldSummary,
   BuilderCmsModelSummary,
   BuilderCmsModelsResponse,
+  DocumentPropertyValue,
 } from "../shared/api.js";
 import {
   builderBlocksHash,
@@ -18,6 +19,7 @@ import {
   type BuilderContentEntry,
 } from "../shared/builder-mdx.js";
 import {
+  builderEntryHasAutosaves,
   normalizeBuilderCmsApiEntry,
   type BuilderCmsSourceEntry,
 } from "./_builder-cms-source-adapter.js";
@@ -53,6 +55,9 @@ export interface BuilderCmsEntryLiveState {
   lastUpdated: number | string | null;
   blocksHash: string | null;
   id: string | null;
+  /** The entry's source values, normalized as a refresh stores them. */
+  values?: Record<string, DocumentPropertyValue> | null;
+  hasAutosaves?: boolean | null;
 }
 
 export interface BuilderCmsEntryFidelitySummary {
@@ -388,10 +393,13 @@ function stringOrNumberFromUnknown(value: unknown) {
   return stringFromUnknown(value);
 }
 
-function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
+function liveStateFromBuilderEntry(
+  value: unknown,
+  model: string,
+): BuilderCmsEntryLiveState {
   if (Array.isArray(value)) {
     return value.length > 0
-      ? liveStateFromBuilderEntry(value[0])
+      ? liveStateFromBuilderEntry(value[0], model)
       : {
           exists: false,
           published: null,
@@ -412,7 +420,7 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
 
   const record = value as Record<string, unknown>;
   if (Array.isArray(record.results)) {
-    return liveStateFromBuilderEntry(record.results);
+    return liveStateFromBuilderEntry(record.results, model);
   }
   if (Object.keys(record).length === 0) {
     return {
@@ -456,6 +464,8 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
       stringOrNumberFromUnknown(data.updatedAt),
     blocksHash: blocks.length > 0 ? builderBlocksHash(blocks) : null,
     id,
+    values: normalizeBuilderCmsApiEntry(record, model)?.sourceValues ?? null,
+    hasAutosaves: builderEntryHasAutosaves(record),
   };
 }
 
@@ -1793,7 +1803,7 @@ export async function readBuilderCmsEntryLiveState(args: {
     }
     const json = (await response.json()) as unknown;
     const { results } = parseBuilderGeneralQueryDataResponse(json);
-    if (results.length === 0) return liveStateFromBuilderEntry([]);
+    if (results.length === 0) return liveStateFromBuilderEntry([], args.model);
     const entry = normalizeBuilderCmsApiEntry(results[0], args.model);
     if (!entry || entry.id !== args.entryId) {
       fail(
@@ -1801,7 +1811,7 @@ export async function readBuilderCmsEntryLiveState(args: {
         { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
-    return liveStateFromBuilderEntry(entry.rawEntry);
+    return liveStateFromBuilderEntry(entry.rawEntry, args.model);
   }
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
   if (!publicKey) {
@@ -1839,7 +1849,7 @@ export async function readBuilderCmsEntryLiveState(args: {
   }
 
   const json = (await response.json()) as unknown;
-  return liveStateFromBuilderEntry(json);
+  return liveStateFromBuilderEntry(json, args.model);
 }
 
 export async function readBuilderCmsContentEntry(args: {
