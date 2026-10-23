@@ -53,10 +53,12 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   product, UX, or app-owner decision, do not post a status comment asking for
   or announcing that review; keep the thread silent and record the gate in the
   ship ledger and final recap. For a contributor thread silenced by that gate,
-  an internal decision does not count as an author update or trigger a reply;
-  wait for the contributor's next substantive update, then state the resolved
-  disposition, exact next action, and owner after thanking them. Never comment
-  that a product owner needs to review a PR.
+  an internal decision does not count as an author update, and an author update
+  made while the decision is pending does not qualify for a follow-up. Wait
+  until the decision is resolved and the contributor makes a substantive
+  update after resolution; then thank them for that update and state the
+  resolved disposition, exact next action, and owner. Never comment that a
+  product owner needs to review a PR.
 - On the active user's own PR, disposition a substantive reviewer update after
   its fix or terminal disposition. Begin by thanking them for that update; if
   they have not made a new substantive review update since the last reply, do
