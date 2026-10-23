@@ -55,7 +55,9 @@ const coreRequire = createRequire(
 const { PGlite } = coreRequire("@electric-sql/pglite");
 const jose = await import(pathToFileURL(coreRequire.resolve("jose")).href);
 
-const { organizations, orgMembers } = await import("@agent-native/core/org");
+const { invalidateMemberOrgCaches, organizations, orgMembers } =
+  await import("@agent-native/core/org");
+const { putUserSetting } = await import("@agent-native/core/settings");
 const { signA2AToken } = await import("@agent-native/core/a2a");
 const { withDbExec } = await import("@agent-native/core/db");
 const { schema } = await import("../db/index.js");
@@ -193,13 +195,13 @@ async function addMember(orgId: string, email: string, joinedAt: number) {
     role: "member",
     joinedAt,
   });
+  invalidateMemberOrgCaches();
 }
 
+/** Written through core, which drops its cached choice the way a switch does. */
 async function setActiveWorkspace(email: string, orgId: string) {
-  await client.query(
-    `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, 1)
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-    [`u:${email}:active-org-id`, JSON.stringify({ orgId })],
+  await withDbExec(coreDb(), () =>
+    putUserSetting(email, "active-org-id", { orgId }),
   );
 }
 
@@ -389,6 +391,9 @@ beforeEach(async () => {
   state.db = drizzle(client);
   state.blobs.clear();
   __resetContentClipRateLimitsForTests();
+  // Core caches workspace memberships per process; a new database makes
+  // whatever an earlier test left there stale.
+  invalidateMemberOrgCaches();
   for (const table of [
     schema.recordings,
     schema.recordingShares,
@@ -747,19 +752,8 @@ describe("a pasted Clip keeps its own sharing", () => {
   });
 
   it("plays for a reader whose workspace the Clip is shared with", async () => {
-    await state.db.insert(organizations).values({
-      id: "clips-org",
-      name: "Clips Org",
-      createdBy: OWNER,
-      createdAt: 1,
-    });
-    await state.db.insert(orgMembers).values({
-      id: "member-reader",
-      orgId: "clips-org",
-      email: READER,
-      role: "member",
-      joinedAt: 1,
-    });
+    await insertWorkspace("clips-org");
+    await addMember("clips-org", READER, 1);
     await state.db.insert(schema.recordingShares).values({
       id: "share-org",
       resourceId: "rec-pasted",
