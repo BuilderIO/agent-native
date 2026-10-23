@@ -292,7 +292,7 @@ it("asks the registered owner for each retry instead of opening a bare session",
     unregister();
   }
 
-  expect(ownerBegin).toHaveBeenCalledWith("text", undefined);
+  expect(ownerBegin).toHaveBeenCalledWith("text");
   expect(
     post.mock.calls.filter(([message]) => message.type === "begin-text-edit"),
   ).toHaveLength(0);

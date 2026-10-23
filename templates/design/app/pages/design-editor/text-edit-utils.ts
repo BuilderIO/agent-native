@@ -1,4 +1,4 @@
-import { beginTextEditForOwner } from "@/components/design/design-canvas/pending-text-capture";
+import { requestTextEditFromOwner } from "@/components/design/design-canvas/pending-text-capture";
 import {
   BEGIN_TEXT_EDIT_ACTIVATION_CONFIRM_DELAY_MS,
   BEGIN_TEXT_EDIT_RETRY_DELAYS_MS,
@@ -130,7 +130,7 @@ async function requestTextEdit(
   if (isAbandoned?.()) return status;
   // The owner holds what was typed before the session opened, so a retry goes
   // through it; a bare begin would open a session without that text.
-  if (!repeat && screenId && beginTextEditForOwner(screenId, nodeId)) {
+  if (!repeat && screenId && requestTextEditFromOwner(screenId, nodeId)) {
     return "activation-requested";
   }
   const iframe = findCanvasIframeForScreen(

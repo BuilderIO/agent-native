@@ -470,19 +470,28 @@ export function registerPendingTextHostCommit(
   };
 }
 
-/** Whether a mounted owner took the request; otherwise it waits for one. */
 export function beginTextEditForOwner(
   owner: OwnerIdentity,
   nodeId: string,
   options?: BeginTextEditOptions,
-): boolean {
+): void {
   const beginTextEdit = owners.get(owner)?.begin;
-  if (beginTextEdit?.(nodeId, options)) return true;
+  if (beginTextEdit?.(nodeId, options)) return;
   const capture = liveCapture();
   if (matches(capture, owner, nodeId)) {
     capture.pendingBegin = { options };
   }
-  return false;
+}
+
+/**
+ * A retry asks a mounted owner and nothing else: queuing it would replace a
+ * delivery or commit the capture already owes the next owner.
+ */
+export function requestTextEditFromOwner(
+  owner: OwnerIdentity,
+  nodeId: string,
+): boolean {
+  return owners.get(owner)?.begin(nodeId) === true;
 }
 
 export function takePendingTextCapture(

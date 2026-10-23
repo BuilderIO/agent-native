@@ -20,6 +20,7 @@ import {
   registerPendingTextHostCommit,
   registerTextEditOwner,
   releasePendingTextCapture,
+  requestTextEditFromOwner,
   returnPendingTextCapture,
   takePendingTextCapture,
 } from "./pending-text-capture";
@@ -274,6 +275,23 @@ describe("pending text capture", () => {
     expect(isPendingTextRequestLive("board", "text-owed")).toBe(true);
     acknowledgePendingTextInsert("board", "text-owed", true);
     expect(isPendingTextRequestLive("board", "text-owed")).toBe(false);
+  });
+
+  it("leaves an owed delivery queued when a retry finds no owner mounted", () => {
+    vi.useFakeTimers();
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-owed");
+    beginTextEditForOwner("board", "text-owed", { afterPointerGesture: true });
+    type("Standalone");
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
+
+    expect(requestTextEditFromOwner("board", "text-owed")).toBe(false);
+
+    const begun = vi.fn(() => true);
+    register("board", begun);
+    expect(begun).toHaveBeenCalledExactlyOnceWith("text-owed", {
+      deliverOwed: true,
+    });
   });
 
   it("stops intercepting when the owner unmounts with no replacement, and owes the typed text to the next owner", async () => {
