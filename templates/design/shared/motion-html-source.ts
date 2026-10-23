@@ -786,7 +786,8 @@ function assertExecutableScriptsSafe(
     const targetMutatingHandler = node.attrs?.find(
       ({ name, value }) =>
         (isEventHandlerAttribute(name) ||
-          isRuntimeLifecycleMutationAttribute(name)) &&
+          isRuntimeLifecycleMutationAttribute(name) ||
+          isAlpineExpressionAttribute(name)) &&
         handlerMayMutateMotionTarget(
           value,
           node,
@@ -853,6 +854,27 @@ function isRuntimeEventHandler(name: string): boolean {
     normalized === "v-on" ||
     normalized.startsWith("v-on:") ||
     normalized.startsWith("@")
+  );
+}
+
+// Alpine evaluates every directive value as JavaScript on any element, so a
+// binding on a sibling can reach a Motion target as surely as a handler can.
+// Directives whose values are class lists, selectors or names are not run.
+const ALPINE_NON_EXPRESSION_DIRECTIVES = new Set([
+  "x-cloak",
+  "x-ignore",
+  "x-ref",
+  "x-teleport",
+]);
+
+function isAlpineExpressionAttribute(name: string): boolean {
+  const normalized = name.toLowerCase();
+  if (normalized.startsWith(":") || normalized.startsWith("@")) return true;
+  if (!normalized.startsWith("x-")) return false;
+  const directive = normalized.split(/[.:]/, 1)[0]!;
+  return (
+    !ALPINE_NON_EXPRESSION_DIRECTIVES.has(directive) &&
+    directive !== "x-transition"
   );
 }
 

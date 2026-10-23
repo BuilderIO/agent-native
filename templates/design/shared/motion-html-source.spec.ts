@@ -1233,6 +1233,48 @@ describe("HTML Motion source adapter", () => {
     ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
   });
 
+  it.each([
+    [
+      "an x-text expression",
+      `<p x-data x-text="document.querySelector('[data-agent-native-node-id=hero-title]').classList.add('fade') || 'x'"></p>`,
+    ],
+    [
+      "a :class expression",
+      `<p x-data :class="document.querySelector('[data-agent-native-node-id=hero-title]').style.opacity = '0'"></p>`,
+    ],
+    [
+      "an x-bind expression",
+      `<p x-data x-bind:title="document.querySelector('[data-agent-native-node-id=hero-title]').classList.add('fade')"></p>`,
+    ],
+  ])(
+    "rejects %s on a sibling that changes a Motion target when Alpine loads from the CDN",
+    (_label, sibling) => {
+      const source = html.replace(
+        "</body>",
+        `${sibling}\n${ALPINE_CDN}\n</body>`,
+      );
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it("allows a sibling's Alpine bindings that only touch the sibling", () => {
+    const source = html.replace(
+      "</body>",
+      `<p x-data="{ open: true }" :class="open ? 'is-open' : ''" x-text="open ? 'Open' : 'Closed'"></p>\n${ALPINE_CDN}\n</body>`,
+    );
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
   it("still rejects an Alpine binding that changes a Motion target when Alpine loads from the CDN", () => {
     const source = html
       .replace(
