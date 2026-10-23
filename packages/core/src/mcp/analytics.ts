@@ -67,9 +67,10 @@ export function detectVendorClient(
   return undefined;
 }
 
-// Redirect hosts are client-supplied, so a vendor is credited only for the host
-// itself or a subdomain of it; a substring match would credit
-// `openai.evil.example`.
+// The client picks its redirect URI, but an authorization code sent to a domain
+// it does not control is useless to it, so a known vendor domain is a reliable
+// signal where `client_name` is not. Match the host itself or a subdomain,
+// never a substring: that would credit `openai.evil.example`.
 const REDIRECT_HOST_VENDORS: Array<[domain: string, vendor: string]> = [
   ["chatgpt.com", "openai"],
   ["openai.com", "openai"],
@@ -120,9 +121,11 @@ function captureParameters(): boolean {
 }
 
 function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
+  // A known redirect host is verified; a client-supplied name or user agent is
+  // only a hint, so OAuth events (the ones with a redirect host) flag it.
+  const hostVendor = vendorForRedirectHost(ctx.redirectHost);
   const vendor =
-    detectVendorClient(ctx.clientName, ctx.clientUserAgent) ??
-    vendorForRedirectHost(ctx.redirectHost);
+    hostVendor ?? detectVendorClient(ctx.clientName, ctx.clientUserAgent);
   return {
     $mcp_source: ctx.source,
     $mcp_server_name: ctx.serverName,
@@ -135,6 +138,7 @@ function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
       : {}),
     ...(ctx.redirectHost ? { $mcp_redirect_host: ctx.redirectHost } : {}),
     ...(vendor ? { $mcp_vendor_client: vendor } : {}),
+    ...(ctx.redirectHost ? { $mcp_vendor_verified: Boolean(hostVendor) } : {}),
     ...(ctx.protocolVersion
       ? { $mcp_protocol_version: ctx.protocolVersion }
       : {}),

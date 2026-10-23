@@ -1137,6 +1137,7 @@ describe("MCP OAuth route", () => {
         $mcp_client_name: "ChatGPT",
         $mcp_redirect_host: "chatgpt.com",
         $mcp_vendor_client: "openai",
+        $mcp_vendor_verified: true,
       };
       expect(authorizeFunnelCalls()).toEqual([
         [
@@ -1219,6 +1220,20 @@ describe("MCP OAuth route", () => {
 
       expect(authorizeFunnelCalls()[0][1]).toMatchObject({
         $mcp_vendor_client: "openai",
+        $mcp_vendor_verified: true,
+      });
+    });
+
+    it("prefers a known redirect host over a contradicting client name", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      await openAuthorize({}, undefined, {
+        name: "Cursor",
+        redirect: chatgptRedirect,
+      });
+
+      expect(authorizeFunnelCalls()[0][1]).toMatchObject({
+        $mcp_vendor_client: "openai",
+        $mcp_vendor_verified: true,
       });
     });
 
@@ -1232,6 +1247,20 @@ describe("MCP OAuth route", () => {
       const props = authorizeFunnelCalls()[0][1];
       expect(props.$mcp_redirect_host).toBe("openai.evil.example");
       expect(props.$mcp_vendor_client).toBeUndefined();
+      expect(props.$mcp_vendor_verified).toBe(false);
+    });
+
+    it("flags a vendor taken from a client-chosen name as unverified", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      await openAuthorize({}, undefined, {
+        name: "ChatGPT",
+        redirect: "https://evil.example/cb",
+      });
+
+      expect(authorizeFunnelCalls()[0][1]).toMatchObject({
+        $mcp_vendor_client: "openai",
+        $mcp_vendor_verified: false,
+      });
     });
 
     it("counts nothing when a signed-in visitor is redirected with an error", async () => {
