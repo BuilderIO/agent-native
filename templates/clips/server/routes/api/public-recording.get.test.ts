@@ -316,6 +316,67 @@ describe("/api/public-recording route", () => {
     },
   );
 
+  it.each([
+    { mode: "password", expected: "comment-token" },
+    { mode: "agent", expected: null },
+    { mode: "owner", expected: null },
+    { mode: "unprotected", expected: null },
+    { mode: "missing", expected: undefined },
+    { mode: "wrong", expected: undefined },
+  ])(
+    "issues comment proof only after password verification: $mode",
+    async ({ mode, expected }) => {
+      const rec = makeRecording({
+        enableComments: true,
+        sharePasswordVersion: "initial",
+        ...(mode === "unprotected" ? { password: null } : {}),
+      });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([[rec], [], [], [], []]),
+      );
+      mockSignShortLivedToken
+        .mockReset()
+        .mockImplementation(({ resourceId }) =>
+          resourceId.startsWith("clips-comment:")
+            ? "comment-token"
+            : "media-token",
+        );
+      if (mode === "agent") {
+        mockGetQuery.mockReturnValue({
+          id: "rec-1",
+          agent_access: "agent-read-token",
+        });
+        mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+      }
+      if (mode === "owner") {
+        mockGetSession.mockResolvedValue({ email: "owner@example.com" });
+        mockResolveAccess.mockResolvedValue({ role: "owner", resource: rec });
+      }
+      if (mode === "missing") mockGetQuery.mockReturnValue({ id: "rec-1" });
+      if (mode === "wrong") mockVerifySharePassword.mockReturnValue(false);
+      const result = (await handler({ setCookies: [] } as any)) as any;
+      expect(result.recording?.commentAccessToken).toBe(expected);
+      const grants = mockSignShortLivedToken.mock.calls.filter(([claims]) =>
+        claims.resourceId.startsWith("clips-comment:"),
+      );
+      if (mode === "password") {
+        expect(grants).toEqual([
+          [
+            {
+              resourceId:
+                "clips-comment:rec-1:fb0b690c4db3c30649e97252a8748e8e6e6a7c00b0f01d68d7beffa54343f494",
+              ttlSeconds: 600,
+            },
+          ],
+        ]);
+        expect(mockVerifySharePassword).toHaveBeenCalledWith(
+          "open-sesame",
+          "encrypted-password",
+        );
+      } else expect(grants).toEqual([]);
+    },
+  );
+
   it("sets a protected media cookie and long fallback token after password unlock", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetDb.mockReturnValue(
@@ -357,9 +418,22 @@ describe("/api/public-recording route", () => {
   });
 
   it("reuses a valid protected-media token across public-share polling", async () => {
+    mockSignShortLivedToken
+      .mockReset()
+      .mockImplementation(({ resourceId }) =>
+        resourceId.startsWith("clips-comment:")
+          ? "comment-token"
+          : "media-token",
+      );
     const firstEvent = { setCookies: [] as unknown[] };
     mockGetDb.mockReturnValue(
-      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+      createDbWithSelectResults([
+        [makeRecording({ enableComments: true })],
+        [],
+        [],
+        [],
+        [],
+      ]),
     );
 
     const firstResult = (await handler(firstEvent as any)) as any;
@@ -372,7 +446,13 @@ describe("/api/public-recording route", () => {
     );
     mockVerifyShortLivedToken.mockReturnValue({ ok: true });
     mockGetDb.mockReturnValue(
-      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+      createDbWithSelectResults([
+        [makeRecording({ enableComments: true })],
+        [],
+        [],
+        [],
+        [],
+      ]),
     );
 
     const secondResult = (await handler(secondEvent as any)) as any;
@@ -381,11 +461,21 @@ describe("/api/public-recording route", () => {
       firstResult.recording.videoUrl,
     );
     expect(secondResult.recording.mediaAccessToken).toBe(firstToken);
+    expect(secondResult.recording.commentAccessToken).toBe("comment-token");
+    expect(
+      mockSignShortLivedToken.mock.calls.filter(([claims]) =>
+        claims.resourceId.startsWith("clips-comment:"),
+      ),
+    ).toHaveLength(2);
     expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
       firstToken,
       "rec-1:password-scoped",
     );
-    expect(mockSignShortLivedToken).toHaveBeenCalledTimes(1);
+    expect(
+      mockSignShortLivedToken.mock.calls.filter(
+        ([claims]) => claims.resourceId === "rec-1:password-scoped",
+      ),
+    ).toHaveLength(1);
   });
 
   it("does not inspect a cached media token until the password gate succeeds", async () => {

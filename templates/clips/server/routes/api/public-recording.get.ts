@@ -36,6 +36,7 @@ import {
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
 import { countRecordingAgentViews } from "../../lib/agent-views.js";
+import { getCommentAccessTokenResourceId } from "../../lib/comment-access-token.js";
 import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
 import {
   isHeldForRedaction,
@@ -314,6 +315,7 @@ export default defineEventHandler(async (event) => {
   }
 
   let protectedMediaToken: string | null = null;
+  let commentAccessToken: string | null = null;
   if (rec.password && !viewerIsOwner) {
     if (!tokenAllowsAgentAccess) {
       if (!password) {
@@ -334,6 +336,16 @@ export default defineEventHandler(async (event) => {
         }
         setResponseStatus(event, 401);
         return { error: "Password required", passwordRequired: true };
+      }
+      if (rec.enableComments) {
+        commentAccessToken = signShortLivedToken({
+          resourceId: getCommentAccessTokenResourceId(
+            recordingId,
+            rec.password,
+            rec.sharePasswordVersion,
+          ),
+          ttlSeconds: 600,
+        });
       }
     }
     protectedMediaToken = setProtectedMediaAccessCookie(
@@ -524,6 +536,7 @@ export default defineEventHandler(async (event) => {
         : rec.editsJson,
       videoUrl: playbackVideoUrl,
       mediaAccessToken: protectedMediaToken,
+      commentAccessToken,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,
       mediaUpdatedAt: rec.mediaUpdatedAt,

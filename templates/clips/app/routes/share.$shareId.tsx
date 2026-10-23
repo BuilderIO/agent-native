@@ -2116,6 +2116,9 @@ export default function ShareRoute() {
                     />
                   ) : (
                     <CommentsPanel
+                      commentAccessToken={
+                        recording.commentAccessToken ?? undefined
+                      }
                       recordingId={recording.id}
                       comments={comments}
                       currentMs={playbackMs}

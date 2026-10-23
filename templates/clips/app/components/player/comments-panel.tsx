@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
+import { COMMENT_ACCESS_TOKEN_HEADER } from "../../../shared/comment-access";
 import {
   displayCommentMentions,
   mentionsForCommentText,
@@ -183,6 +184,7 @@ function updateReactionUsers(
 
 export interface CommentsPanelProps {
   recordingId: string;
+  commentAccessToken?: string;
   comments: Comment[];
   currentMs: number;
   getCurrentMs?: () => number;
@@ -404,6 +406,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
   };
 
   const addComment = useActionMutation("add-comment", {
+    headers: props.commentAccessToken
+      ? { [COMMENT_ACCESS_TOKEN_HEADER]: props.commentAccessToken }
+      : undefined,
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
       const tempId = makeTempId();
@@ -440,6 +445,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
   });
 
   const reactToComment = useActionMutation("react-to-comment", {
+    headers: props.commentAccessToken
+      ? { [COMMENT_ACCESS_TOKEN_HEADER]: props.commentAccessToken }
+      : undefined,
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
       const currentUser = currentUserEmail;
@@ -513,6 +521,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
   });
 
   const remove = useActionMutation("delete-comment", {
+    headers: props.commentAccessToken
+      ? { [COMMENT_ACCESS_TOKEN_HEADER]: props.commentAccessToken }
+      : undefined,
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
       const current = visibleCommentsRef.current;
@@ -548,6 +559,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
   });
 
   const updateComment = useActionMutation("update-comment", {
+    headers: props.commentAccessToken
+      ? { [COMMENT_ACCESS_TOKEN_HEADER]: props.commentAccessToken }
+      : undefined,
     onMutate: async (vars: any) => {
       await queryClient.cancelQueries({ queryKey });
       const updatedAt = new Date().toISOString();

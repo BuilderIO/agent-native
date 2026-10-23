@@ -26,6 +26,7 @@ const actionMocks = vi.hoisted(() => ({
   updateComment: vi.fn(),
   otherMutation: vi.fn(),
   mutationOptions: new Map<string, any>(),
+  requests: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -35,6 +36,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     actionMocks.mutationOptions.set(name, options);
     return {
       mutate: (vars: any) => {
+        const headers =
+          typeof options?.headers === "function"
+            ? options.headers()
+            : options?.headers;
+        actionMocks.requests(name, vars, headers);
         void options?.onMutate?.(vars);
         return (
           name === "add-comment"
@@ -196,11 +202,13 @@ describe("CommentsPanel reply composer", () => {
     comments: Comment[] = [rootComment],
     presentation: "default" | "share" | "inline" = "share",
     enableComments = true,
+    commentAccessToken?: string,
   ) {
     act(() => {
       root.render(
         <QueryClientProvider client={queryClient}>
           <CommentsPanel
+            commentAccessToken={commentAccessToken}
             recordingId="recording-1"
             comments={comments}
             currentMs={34_000}
@@ -235,6 +243,52 @@ describe("CommentsPanel reply composer", () => {
     notifyResize = undefined;
     actionMocks.mutationOptions.clear();
     vi.clearAllMocks();
+  });
+
+  it("supplies current password proof to every comment mutation after rotation", () => {
+    for (const token of ["fake-first-grant", "fake-rotated-grant", undefined]) {
+      renderPanel("viewer@example.com", [rootComment], "share", true, token);
+      for (const name of [
+        "add-comment",
+        "react-to-comment",
+        "delete-comment",
+        "update-comment",
+      ]) {
+        const options = actionMocks.mutationOptions.get(name);
+        const headers =
+          typeof options?.headers === "function"
+            ? options.headers()
+            : options?.headers;
+        expect(headers?.["x-clips-comment-token"]).toBe(token);
+      }
+    }
+  });
+
+  it("sends rotated proof with a reaction without putting it in action arguments", () => {
+    for (const token of ["fake-first-grant", "fake-rotated-grant"]) {
+      renderPanel(
+        "viewer@example.com",
+        [
+          {
+            ...rootComment,
+            emojiReactionsJson: JSON.stringify({ "👍": ["other@example.com"] }),
+          },
+        ],
+        "share",
+        true,
+        token,
+      );
+      const reaction = container.querySelector<HTMLButtonElement>(
+        "button[aria-pressed]",
+      );
+      expect(reaction).not.toBeNull();
+      act(() => reaction?.click());
+      expect(actionMocks.requests).toHaveBeenLastCalledWith(
+        "react-to-comment",
+        { commentId: "comment-1", emoji: "👍" },
+        { "x-clips-comment-token": token },
+      );
+    }
   });
 
   it("renders comment URLs as safe external links without including punctuation", () => {
