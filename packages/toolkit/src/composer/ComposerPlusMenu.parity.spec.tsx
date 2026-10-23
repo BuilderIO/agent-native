@@ -722,4 +722,76 @@ describe("shared default action preservation", () => {
     expect(document.querySelector('[role="status"]')).toBeNull();
     expect(item("Upload skill file")).toBeDefined();
   });
+
+  it("resumes skill-file review after the native picker dismisses the menu", async () => {
+    await mount();
+    await open();
+    await choose("Create Skill");
+    await choose("Upload skill file");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[accept=".md,text/markdown"]',
+    )!;
+    const file = new File(["# Test skill\nDo the test."], "Test Skill.md", {
+      type: "text/markdown",
+    });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+    });
+
+    const form = document.querySelector<HTMLFormElement>("[role=menu] form");
+    expect(form).not.toBeNull();
+    expect(form?.textContent).toContain(
+      "Review the content from Test Skill.md before saving.",
+    );
+    expect(form?.querySelector("textarea")?.value).toBe(
+      "# Test skill\nDo the test.",
+    );
+  });
+
+  it("restores the skill submenu when the native picker is canceled", async () => {
+    await mount();
+    await open();
+    await choose("Create Skill");
+    await choose("Upload skill file");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[accept=".md,text/markdown"]',
+    )!;
+    await act(async () => {
+      input.dispatchEvent(new Event("cancel"));
+      await settle();
+    });
+
+    expect(labels()).toContain("Upload skill file");
+  });
+
+  it("does not resume the skill page if the composer is disabled", async () => {
+    await mount();
+    await open();
+    await choose("Create Skill");
+    await choose("Upload skill file");
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[accept=".md,text/markdown"]',
+    )!;
+    act(() => input.dispatchEvent(new Event("cancel")));
+    await mount({ disabled: true });
+
+    expect(document.querySelector("[role=menu] form")).toBeNull();
+    expect(labels()).not.toContain("Upload skill file");
+  });
 });
