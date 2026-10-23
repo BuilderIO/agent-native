@@ -2483,6 +2483,17 @@ export function startRun(
               terminalPersistenceEstablished = !terminalPersistenceError;
             } else {
               terminalPersistenceEstablished = await reconcileTerminalRun();
+              // An ambiguous write can commit its status without the reason the
+              // success path records after it. A confirmed status gets that same
+              // reason; setRunTerminalReason never overwrites one already set.
+              if (
+                terminalPersistenceEstablished &&
+                !checkpointBoundaryStarted
+              ) {
+                await withWorkerFence(() =>
+                  setRunTerminalReason(runId, terminalReason),
+                );
+              }
             }
           }
         } catch (error) {

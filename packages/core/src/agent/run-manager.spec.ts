@@ -4134,6 +4134,10 @@ describe("run manager soft timeout", () => {
 
     expect(run.status).toBe("completed");
     expect(run.abortReason).toBeUndefined();
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-ambiguous-terminal-write",
+      "done",
+    );
   });
 
   it("captures initial run-row persistence failures with the run id", async () => {
