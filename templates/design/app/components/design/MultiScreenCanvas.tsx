@@ -99,18 +99,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { attachNativePreviewViewportPublisher } from "@/components/design/bridge/native-preview-viewport-transport";
-import { installNativeWorkerBroker } from "@/components/design/bridge/native-worker-broker";
 import {
-  connectNativePublicAssetPreview,
-  prepareNativePublicAssetPreviewDocument,
-  type NativePublicAssetPreviewDocument,
-} from "@/components/design/design-canvas/native-public-asset-preview";
-import {
-  connectNativePublicWorkerPreview,
-  prepareNativePublicWorkerPreviewDocument,
-  type NativePublicWorkerPreviewDocument,
-} from "@/components/design/design-canvas/native-public-worker-preview";
+  connectNativePreviewSurface,
+  nativePreviewSurfaceDocumentKey,
+  prepareNativePreviewSurface,
+  type NativePreviewSurfaceDocument,
+} from "@/components/design/design-canvas/native-preview-surface";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -140,7 +134,7 @@ import {
 import { CanvasRulers, type CanvasRulersHandle } from "./CanvasRulers";
 import {
   CONTENT_SIZE_REPORT_MESSAGE_TYPE,
-  CONTENT_SIZE_REPORT_BRIDGE,
+  contentSizeReportBridge,
   resolveStableContentSizeSample,
   type ContentSizeSample,
 } from "./design-canvas/content-size-report";
@@ -150,10 +144,7 @@ import {
   useBrowserOrigin,
 } from "./design-canvas/external-preview";
 import { hitTestResponderMarkup } from "./design-canvas/hit-test";
-import {
-  withLocalRuntimes,
-  withNativeShaderRuntime,
-} from "./design-canvas/local-runtime";
+import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import {
   connectPrivateReplayScreenshotPreview,
   preparePrivateReplayScreenshotPreviewDocument,
@@ -216,8 +207,6 @@ import {
   type PortableStyleSnapshot,
 } from "./types";
 import { useNativeShaderApprovals } from "./use-native-shader-approvals";
-
-if (typeof window !== "undefined") installNativeWorkerBroker(window);
 
 const SCREEN_WIDTH = OVERVIEW_FRAME_WIDTH;
 const CANVAS_BACKGROUND_VAR = "var(--design-editor-canvas-bg)";
@@ -893,6 +882,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const { resolvedTheme } = useTheme();
   const t = useT();
   const browserOrigin = useBrowserOrigin();
+  const boardAnimationEpochRef = useRef<{
+    boardFileId: string;
+    epochMs: number;
+  } | null>(null);
+  if (!boardFileId) boardAnimationEpochRef.current = null;
+  else if (
+    browserOrigin &&
+    boardAnimationEpochRef.current?.boardFileId !== boardFileId
+  )
+    boardAnimationEpochRef.current = {
+      boardFileId,
+      epochMs: performance.timeOrigin + performance.now(),
+    };
+  const boardAnimationEpoch = boardAnimationEpochRef.current;
+  const boardAnimationEpochMs =
+    boardAnimationEpoch && boardAnimationEpoch.boardFileId === boardFileId
+      ? boardAnimationEpoch.epochMs
+      : undefined;
   const surfaceRef = useRef<HTMLDivElement>(null);
   const panHitTestShieldRef = useRef<HTMLDivElement | null>(null);
   const panGestureActiveRef = useRef(false);
@@ -1306,25 +1313,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       boardStaticPreviewContent?.includes("application/x-agent-native-effects"),
     ),
   });
-  const boardNativePublicWorkerPreview = useMemo(
+  const boardNativePreview = useMemo(
     () =>
-      browserOrigin && boardStaticPreviewContent
-        ? prepareNativePublicWorkerPreviewDocument(
-            boardStaticPreviewContent,
-            boardApprovedDefinitionHashes,
-          )
+      boardStaticPreviewContent
+        ? prepareNativePreviewSurface({
+            html: boardStaticPreviewContent,
+            sandbox: "allow-scripts",
+            profile: "overview",
+            approvedHashes: boardApprovedDefinitionHashes,
+            baseHref: browserOrigin ? window.location.href : undefined,
+            animationEpochMs: boardAnimationEpochMs,
+          })
         : null,
-    [boardApprovedDefinitionHashes, boardStaticPreviewContent, browserOrigin],
-  );
-  const boardNativePublicAssetPreview = useMemo(
-    () =>
-      browserOrigin && boardStaticPreviewContent
-        ? prepareNativePublicAssetPreviewDocument(
-            boardNativePublicWorkerPreview?.html ?? boardStaticPreviewContent,
-            window.location.href,
-          )
-        : null,
-    [boardNativePublicWorkerPreview, boardStaticPreviewContent, browserOrigin],
+    [
+      boardAnimationEpochMs,
+      boardApprovedDefinitionHashes,
+      boardStaticPreviewContent,
+      browserOrigin,
+    ],
   );
   const showBoardStaticPreview = Boolean(
     boardFrameGeometry &&
@@ -1340,29 +1346,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
   useEffect(() => {
     const frame = boardStaticPreviewRef.current;
-    if (!frame || !boardNativePublicAssetPreview) return;
-    const stopViewportPublisher = attachNativePreviewViewportPublisher(frame);
-    const stopPublicAssetPreview = connectNativePublicAssetPreview(
-      frame,
-      boardNativePublicAssetPreview,
-    );
-    const stopPublicWorkerPreview = boardNativePublicWorkerPreview
-      ? connectNativePublicWorkerPreview(
-          frame,
-          boardNativePublicWorkerPreview,
-          boardNativePublicAssetPreview.html,
-        )
-      : null;
-    return () => {
-      stopPublicWorkerPreview?.();
-      stopPublicAssetPreview();
-      stopViewportPublisher();
-    };
-  }, [
-    boardNativePublicAssetPreview,
-    boardNativePublicWorkerPreview,
-    showBoardStaticPreview,
-  ]);
+    if (!frame || !boardNativePreview) return;
+    return connectNativePreviewSurface(frame, boardNativePreview);
+  }, [boardNativePreview, showBoardStaticPreview]);
   const boardStaticPrimitives = useMemo(() => {
     if (!boardFileId || !boardFileContent) return [];
     return parsePrimitivesFromScreen({
@@ -11487,24 +11473,55 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return `path("${path}")`;
   }, [boardObjectRects, boardSurfaceRenderGeometry, canvasFrames]);
   const boardHasObjectsOverScreens = boardOverScreensClipPath !== null;
+  const boardOverScreensViewport = useMemo(
+    () =>
+      boardSurfaceRenderGeometry
+        ? getBoardSurfaceStaticPreviewViewport(boardSurfaceRenderGeometry)
+        : null,
+    [boardSurfaceRenderGeometry],
+  );
   const boardOverScreensContent = useMemo(
     () =>
       boardHasObjectsOverScreens &&
       boardSurfaceHtml &&
-      boardSurfaceRenderGeometry
+      boardSurfaceRenderGeometry &&
+      boardOverScreensViewport
         ? getBoardSurfaceStaticPreviewContent({
             darkScheme: resolvedTheme === "dark",
             html: boardSurfaceHtml,
             logicalGeometry: boardSurfaceRenderGeometry,
-            viewport: boardSurfaceRenderGeometry,
+            viewport: boardOverScreensViewport,
           })
         : null,
     [
       boardHasObjectsOverScreens,
+      boardOverScreensViewport,
       boardSurfaceHtml,
       boardSurfaceRenderGeometry,
       resolvedTheme,
     ],
+  );
+  const boardOverScreensPreview = useMemo(
+    () =>
+      boardOverScreensContent
+        ? prepareNativePreviewSurface({
+            html: boardOverScreensContent,
+            sandbox: "allow-scripts",
+            profile: "overview",
+            approvedHashes: boardApprovedDefinitionHashes,
+            baseHref: browserOrigin ? window.location.href : undefined,
+            animationEpochMs: boardAnimationEpochMs,
+          })
+        : null,
+    [
+      boardAnimationEpochMs,
+      boardApprovedDefinitionHashes,
+      boardOverScreensContent,
+      browserOrigin,
+    ],
+  );
+  const setBoardOverScreensPreviewRef = useNativePreviewSurfaceRef(
+    boardOverScreensPreview,
   );
   const [previewParseRevision, setPreviewParseRevision] = useState(0);
   useEffect(() => {
@@ -12276,17 +12293,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }}
         >
           <iframe
+            key={nativePreviewSurfaceDocumentKey(boardNativePreview)}
             ref={boardStaticPreviewRef}
             data-board-static-preview-iframe
             aria-hidden="true"
             tabIndex={-1}
-            sandbox=""
+            sandbox="allow-scripts"
             referrerPolicy="strict-origin"
-            srcDoc={
-              boardNativePublicAssetPreview?.html ??
-              boardNativePublicWorkerPreview?.html ??
-              boardStaticPreviewContent
-            }
+            srcDoc={boardNativePreview?.html ?? boardStaticPreviewContent}
             onLoad={(event) =>
               syncBoardNativeShaderApprovals(event.currentTarget)
             }
@@ -12383,6 +12397,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   zoom={100}
                   deviceFrame="none"
                   boardSurface
+                  nativeAnimationEpochMs={boardAnimationEpochMs}
                   transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
@@ -12683,7 +12698,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
         {boardOverScreensClipPath &&
         boardOverScreensContent &&
-        boardSurfaceRenderGeometry ? (
+        boardSurfaceRenderGeometry &&
+        boardOverScreensViewport ? (
           <div
             data-board-over-screens
             style={{
@@ -12696,18 +12712,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             }}
           >
             <iframe
+              key={nativePreviewSurfaceDocumentKey(boardOverScreensPreview)}
+              ref={setBoardOverScreensPreviewRef}
               aria-hidden="true"
               tabIndex={-1}
-              sandbox=""
-              referrerPolicy="no-referrer"
-              srcDoc={boardOverScreensContent}
+              sandbox="allow-scripts"
+              referrerPolicy="strict-origin"
+              srcDoc={boardOverScreensPreview?.html ?? boardOverScreensContent}
+              onLoad={(event) =>
+                syncBoardNativeShaderApprovals(event.currentTarget)
+              }
               style={{
                 ...SCALED_IFRAME_PAINT_RETENTION_STYLE,
                 display: "block",
-                width: boardSurfaceRenderGeometry.width,
-                height: boardSurfaceRenderGeometry.height,
+                width: boardOverScreensViewport.width,
+                height: boardOverScreensViewport.height,
                 border: 0,
                 pointerEvents: "none",
+                transform: `scale(${boardSurfaceRenderGeometry.width / boardOverScreensViewport.width}, ${boardSurfaceRenderGeometry.height / boardOverScreensViewport.height})`,
+                transformOrigin: "top left",
                 background: "transparent",
               }}
             />
@@ -14171,38 +14194,21 @@ interface ScreenProps {
   layoutGridBoardSize?: number;
 }
 
-function useNativePreviewViewportPublisherRef(
-  publicAssetPreview: NativePublicAssetPreviewDocument | null = null,
-  publicWorkerPreview: NativePublicWorkerPreviewDocument | null = null,
+function useNativePreviewSurfaceRef(
+  prepared: NativePreviewSurfaceDocument | null,
 ) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
-  const assetCleanupRef = useRef<(() => void) | null>(null);
-  const workerCleanupRef = useRef<(() => void) | null>(null);
   return useCallback(
     (next: HTMLIFrameElement | null) => {
       if (frameRef.current === next) return;
       cleanupRef.current?.();
-      assetCleanupRef.current?.();
-      workerCleanupRef.current?.();
       cleanupRef.current = next
-        ? attachNativePreviewViewportPublisher(next)
+        ? connectNativePreviewSurface(next, prepared)
         : null;
-      assetCleanupRef.current =
-        next && publicAssetPreview
-          ? connectNativePublicAssetPreview(next, publicAssetPreview)
-          : null;
-      workerCleanupRef.current =
-        next && publicWorkerPreview
-          ? connectNativePublicWorkerPreview(
-              next,
-              publicWorkerPreview,
-              publicAssetPreview?.html ?? publicWorkerPreview.html,
-            )
-          : null;
       frameRef.current = next;
     },
-    [publicAssetPreview, publicWorkerPreview],
+    [prepared],
   );
 }
 
@@ -14332,21 +14338,19 @@ const Screen = memo(function Screen({
     if (!staticSrcdocNeeded) return "";
     // One injection for all three bridges: each separate one rescans the whole
     // screen for its closing body tag.
-    return withNativeShaderRuntime(
-      injectSessionReplayIframeBootstrap(
-        injectDocumentMarkup(
-          getEmbeddedFrameDocumentContent({
-            content: withLocalRuntimes(screen.content),
-            fitBodyToFrame,
-          }),
-          STATIC_PREVIEW_TWEAK_BRIDGE +
-            hitTestResponderMarkup(screen.content) +
-            CONTENT_SIZE_REPORT_BRIDGE,
-        ),
+    return injectSessionReplayIframeBootstrap(
+      injectDocumentMarkup(
+        getEmbeddedFrameDocumentContent({
+          content: withLocalRuntimes(screen.content),
+          fitBodyToFrame,
+        }),
+        STATIC_PREVIEW_TWEAK_BRIDGE +
+          hitTestResponderMarkup(screen.content) +
+          contentSizeReportBridge(metadata.heightMode),
       ),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitBodyToFrame, screen.content, staticSrcdocNeeded]);
+  }, [fitBodyToFrame, metadata.heightMode, screen.content, staticSrcdocNeeded]);
   const privateScreenshotPreview = useMemo(
     () =>
       preparePrivateReplayScreenshotPreviewDocument(srcdocWithHitTest, {
@@ -14354,42 +14358,33 @@ const Screen = memo(function Screen({
       }),
     [designId, srcdocWithHitTest],
   );
-  const nativePublicWorkerPreview = useMemo(
+  const staticPreviewSandbox = getDesignCanvasIframeSandbox({
+    externalPreview: Boolean(previewUrl),
+    readOnly: true,
+    previewUrl,
+    parentOrigin: browserOrigin ?? undefined,
+  });
+  const nativePreview = useMemo(
     () =>
-      browserOrigin && showStaticPreview && !previewUrl
-        ? prepareNativePublicWorkerPreviewDocument(
-            privateScreenshotPreview.html,
-            approvedDefinitionHashes,
-          )
+      staticSrcdocNeeded && !previewUrl
+        ? prepareNativePreviewSurface({
+            html: privateScreenshotPreview.html,
+            sandbox: staticPreviewSandbox,
+            profile: "overview",
+            approvedHashes: approvedDefinitionHashes,
+            baseHref: browserOrigin ? window.location.href : undefined,
+          })
         : null,
     [
       approvedDefinitionHashes,
       browserOrigin,
       privateScreenshotPreview.html,
       previewUrl,
-      showStaticPreview,
+      staticPreviewSandbox,
+      staticSrcdocNeeded,
     ],
   );
-  const nativePublicAssetPreview = useMemo(
-    () =>
-      browserOrigin && showStaticPreview && !previewUrl
-        ? prepareNativePublicAssetPreviewDocument(
-            nativePublicWorkerPreview?.html ?? privateScreenshotPreview.html,
-            window.location.href,
-          )
-        : null,
-    [
-      browserOrigin,
-      privateScreenshotPreview.html,
-      nativePublicWorkerPreview?.html,
-      previewUrl,
-      showStaticPreview,
-    ],
-  );
-  const setStaticPreviewFrameRef = useNativePreviewViewportPublisherRef(
-    nativePublicAssetPreview,
-    nativePublicWorkerPreview,
-  );
+  const setStaticPreviewFrameRef = useNativePreviewSurfaceRef(nativePreview);
   useEffect(() => {
     if (!showStaticPreview || previewUrl) return;
     return () => onStaticPreviewGone?.(screen.id);
@@ -14707,6 +14702,7 @@ const Screen = memo(function Screen({
             )
           ) : externalPreviewPendingOrigin ? null : (
             <iframe
+              key={nativePreviewSurfaceDocumentKey(nativePreview)}
               ref={setStaticPreviewFrameRef}
               {...{
                 [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl ? undefined : "",
@@ -14717,16 +14713,9 @@ const Screen = memo(function Screen({
               srcDoc={
                 previewUrl
                   ? undefined
-                  : (nativePublicAssetPreview?.html ??
-                    nativePublicWorkerPreview?.html ??
-                    privateScreenshotPreview.html)
+                  : (nativePreview?.html ?? privateScreenshotPreview.html)
               }
-              sandbox={getDesignCanvasIframeSandbox({
-                externalPreview: Boolean(previewUrl),
-                readOnly: true,
-                previewUrl,
-                parentOrigin: browserOrigin ?? undefined,
-              })}
+              sandbox={staticPreviewSandbox}
               onLoad={
                 previewUrl
                   ? undefined
@@ -15101,41 +15090,34 @@ function BreakpointPreviewRow({
       }),
     [designId, srcdocWithHitTest],
   );
-  const nativePublicWorkerPreview = useMemo(
+  const breakpointPreviewSandbox = getDesignCanvasIframeSandbox({
+    externalPreview: Boolean(previewUrl),
+    readOnly: true,
+    previewUrl,
+    parentOrigin: browserOrigin ?? undefined,
+  });
+  const breakpointNativePreview = useMemo(
     () =>
-      browserOrigin && !previewUrl && srcdocWithHitTest
-        ? prepareNativePublicWorkerPreviewDocument(
-            privateScreenshotPreview.html,
-            approvedDefinitionHashes,
-          )
+      !previewUrl && srcdocWithHitTest
+        ? prepareNativePreviewSurface({
+            html: privateScreenshotPreview.html,
+            sandbox: breakpointPreviewSandbox,
+            profile: "overview",
+            approvedHashes: approvedDefinitionHashes,
+            baseHref: browserOrigin ? window.location.href : undefined,
+          })
         : null,
     [
       approvedDefinitionHashes,
+      breakpointPreviewSandbox,
       browserOrigin,
       privateScreenshotPreview.html,
       previewUrl,
       srcdocWithHitTest,
     ],
   );
-  const nativePublicAssetPreview = useMemo(
-    () =>
-      browserOrigin && !previewUrl && srcdocWithHitTest
-        ? prepareNativePublicAssetPreviewDocument(
-            nativePublicWorkerPreview?.html ?? privateScreenshotPreview.html,
-            window.location.href,
-          )
-        : null,
-    [
-      browserOrigin,
-      privateScreenshotPreview.html,
-      nativePublicWorkerPreview?.html,
-      previewUrl,
-      srcdocWithHitTest,
-    ],
-  );
-  const setBreakpointPreviewFrameRef = useNativePreviewViewportPublisherRef(
-    nativePublicAssetPreview,
-    nativePublicWorkerPreview,
+  const setBreakpointPreviewFrameRef = useNativePreviewSurfaceRef(
+    breakpointNativePreview,
   );
 
   return (
@@ -15461,6 +15443,9 @@ function BreakpointPreviewRow({
                   editableContent
                 ) : externalPreviewPendingOrigin ? null : (
                   <iframe
+                    key={nativePreviewSurfaceDocumentKey(
+                      breakpointNativePreview,
+                    )}
                     ref={setBreakpointPreviewFrameRef}
                     data-screen-iframe-id={getBreakpointIframeId(
                       screen.id,
@@ -15476,16 +15461,10 @@ function BreakpointPreviewRow({
                     srcDoc={
                       previewUrl
                         ? undefined
-                        : (nativePublicAssetPreview?.html ??
-                          nativePublicWorkerPreview?.html ??
+                        : (breakpointNativePreview?.html ??
                           privateScreenshotPreview.html)
                     }
-                    sandbox={getDesignCanvasIframeSandbox({
-                      externalPreview: Boolean(previewUrl),
-                      readOnly: true,
-                      previewUrl,
-                      parentOrigin: browserOrigin ?? undefined,
-                    })}
+                    sandbox={breakpointPreviewSandbox}
                     onLoad={(event) => {
                       if (!previewUrl) {
                         syncNativeShaderApprovals(event.currentTarget);

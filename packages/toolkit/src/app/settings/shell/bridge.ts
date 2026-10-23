@@ -68,6 +68,8 @@ export interface SettingsBridge {
   tab: (...ids: string[]) => SettingsTabItem | undefined;
   /** The template tab behind a page the bridge derived from `extraTabs`. */
   tabForPage: (pageId: string) => SettingsTabItem | undefined;
+  /** The bridged page behind a template tab id. */
+  pageForTab: (tabId: string) => string | undefined;
 }
 
 export const EMPTY_SETTINGS_BRIDGE: SettingsBridge = createSettingsBridge({});
@@ -85,6 +87,9 @@ export function createSettingsBridge(
   );
   const labs = input.labs ?? [];
   const byId = new Map(tabs.map((tab) => [tab.id, tab]));
+  const pageByTabId = new Map(
+    [...pageTabs].map(([pageId, tab]) => [tab.id, pageId]),
+  );
   return {
     general: input.generalGroups ?? input.general ?? null,
     account: input.account ?? null,
@@ -109,6 +114,7 @@ export function createSettingsBridge(
       return undefined;
     },
     tabForPage: (pageId) => pageTabs.get(pageId),
+    pageForTab: (tabId) => pageByTabId.get(tabId),
   };
 }
 
@@ -162,16 +168,23 @@ export interface BridgedAppPages {
 
 /**
  * Agent tabs stay in the Agent group; other unclaimed tabs become app pages
- * after General. An id that collides with a core page (Mail's inbox
- * `automations`) gets an `app-` prefix so it never shadows the core page.
+ * after General. An id that collides with an existing page gets an `app-`
+ * prefix so it never shadows that page.
  */
 export function deriveBridgedAppPages(
   tabs: readonly SettingsTabItem[],
   corePages: readonly SettingsPageDefinition[],
   component: SettingsPageDefinition["component"],
+  reservedPages: readonly Pick<
+    SettingsPageDefinition,
+    "id" | "legacyTabIds"
+  >[] = [],
 ): BridgedAppPages {
-  const claimed = new Set(corePages.flatMap((page) => page.legacyTabIds ?? []));
-  const taken = new Set(corePages.map((page) => page.id));
+  const allReservedPages = [...corePages, ...reservedPages];
+  const claimed = new Set(
+    allReservedPages.flatMap((page) => page.legacyTabIds ?? []),
+  );
+  const taken = new Set(allReservedPages.map((page) => page.id));
   const pages: SettingsPageDefinition[] = [];
   const pageTabs = new Map<string, SettingsTabItem>();
   tabs.forEach((tab, index) => {

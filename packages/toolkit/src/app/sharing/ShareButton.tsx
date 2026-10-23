@@ -1150,6 +1150,12 @@ function MemberAutocomplete({
     activeIndex >= 0 && activeIndex < suggestions.length
       ? suggestions[activeIndex]
       : null;
+  const listOpen =
+    open &&
+    (suggestions.length > 0 ||
+      search.isLoading ||
+      Boolean(search.error) ||
+      value.trim().length > 0);
 
   useEffect(() => {
     setActiveIndex(-1);
@@ -1230,7 +1236,7 @@ function MemberAutocomplete({
   };
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
+    <Popover open={listOpen} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
         <div className="flex h-9 min-w-0 flex-1 items-center overflow-hidden rounded-md border border-input bg-card focus-within:ring-1 focus-within:ring-ring">
           <input
@@ -1238,8 +1244,8 @@ function MemberAutocomplete({
             type="text"
             role="combobox"
             aria-autocomplete="list"
-            aria-expanded={open}
-            aria-controls={open ? listboxId : undefined}
+            aria-expanded={listOpen}
+            aria-controls={listOpen ? listboxId : undefined}
             aria-activedescendant={
               activeIndex >= 0 ? optionId(listboxId, activeIndex) : undefined
             }
@@ -1361,13 +1367,9 @@ function MemberAutocomplete({
 
           {!search.isLoading && !search.error && suggestions.length === 0 ? (
             <div className="px-3 py-3 text-sm text-muted-foreground">
-              {value.trim()
-                ? t("agentChat.share.noMatches", {
-                    defaultValue: "No matches.",
-                  })
-                : t("agentChat.share.noPeopleFound", {
-                    defaultValue: "No people found.",
-                  })}
+              {t("agentChat.share.noMatches", {
+                defaultValue: "No matches.",
+              })}
             </div>
           ) : null}
 

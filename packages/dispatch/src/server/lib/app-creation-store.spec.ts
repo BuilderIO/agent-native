@@ -636,7 +636,7 @@ describe("listWorkspaceApps", () => {
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
   });
 
-  it("signs the hosted registry request with the caller's organization secret", async () => {
+  it("signs the hosted registry request as the member with the deployment secret", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify([]), {
@@ -656,15 +656,36 @@ describe("listWorkspaceApps", () => {
     const authorization = fetchMock.mock.calls[0]?.[1]?.headers
       ?.Authorization as string;
     const token = authorization.slice("Bearer ".length);
-    const payload = verifyJwtWithSecret(token, "workspace-org-secret");
+    const payload = verifyJwtWithSecret(token, "dispatch-deployment-secret");
     expect(payload).toMatchObject({
       sub: "dev@example.test",
       org_domain: "example.test",
       aud: "https://agent-workspace.builder.io",
     });
-    expect(() =>
-      verifyJwtWithSecret(token, "dispatch-deployment-secret"),
-    ).toThrow();
+    expect(() => verifyJwtWithSecret(token, "workspace-org-secret")).toThrow();
+  });
+
+  it("reports a missing deployment secret instead of signing a member's request with the organization secret", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValueOnce("workspace-org-secret");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "clips", name: "Clips", path: "/clips" },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-1" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_gateway_a2a_secret_missing",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("reports missing hosted gateway signing credentials instead of sending anonymously", async () => {

@@ -44,6 +44,10 @@ export class NativePreviewPolicyController {
     this.resetCommittedCadence();
   }
 
+  isOverviewCompact(): boolean {
+    return this.overviewCompact;
+  }
+
   setOverviewCompact(compact: boolean): boolean {
     if (this.overviewCompact === compact) return false;
     this.overviewCompact = compact;

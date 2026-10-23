@@ -648,6 +648,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "./native-composition-clock",
     "./native-composition-session",
     "./native-device-lifecycle",
+    "./native-dom",
     "./native-effect-extent",
     "./native-effect-output-geometry",
     "./native-export-selection",
@@ -661,6 +662,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "./native-mesh-grid",
     "./native-mounted-benchmark",
     "./native-mounted-output-summary",
+    "./native-opaque-public-asset",
     "./native-packed-uniform-arena",
     "./native-parameter-preview-queue",
     "./native-pixel-readback",
@@ -677,6 +679,8 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "./native-region-export",
     "./native-render-placement",
     "./native-runtime-epoch",
+    "./native-scene-body-transform",
+    "./native-scene-presentation-element",
     "./native-simulation-timeline",
     "./native-simulation-transaction",
     "./native-source-affine-geometry",
@@ -1516,7 +1520,14 @@ describe("generated bridge modules", () => {
         `Missing generated file for ${filename}. Run: pnpm exec tsx app/components/design/bridge/codegen.ts`,
       ).toBe(true);
 
-      const committed = readFileSync(outPath, "utf-8");
+      // source-read-ok: Generated bridge bytes must match an independent source bundle.
+      let committed = readFileSync(outPath, "utf-8");
+      if (filename === "native-shader-runtime.bridge.ts") {
+        const workerReviewComment =
+          "  // coercion-ok: The quoted worker bundle is checked in its original TypeScript files.\n";
+        expect(committed).toContain(workerReviewComment);
+        committed = committed.replace(workerReviewComment, "");
+      }
 
       const tempPath = outPath + ".tmp";
       try {

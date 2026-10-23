@@ -180,6 +180,17 @@ checked/unchecked. Users can reorder stacked sort and filter conditions from
 the collection toolbar menus, and sort priority follows the same top-to-bottom
 order shown in the menu.
 
+Filters can be grouped. Rules with `filterGroupId: "advanced"` and no parent
+form the UI's advanced filter; rules with `parentFilterGroupId: "advanced"` and
+their own `filterGroupId` (the UI uses `advanced-<id>`) form a group nested one
+level inside it. The view's `filterMode` combines ungrouped rules with each
+top-level group as one member. A group's And/Or lives on its rules:
+`filterGroupMode` is the mode of the rule's `filterGroupId`, and
+`parentFilterGroupMode` (nested rules only) is the mode of its parent. Write a
+group's mode onto every rule in it; the first rule that stores one wins, and a
+group with none inherits the view's `filterMode`. `update-content-database-view`
+rejects a group mode on a rule without the matching group ID.
+
 New rows created from a filtered UI view inherit simple editable equality and
 checkbox filters as initial property values, resolving option labels back to
 stable option IDs for select, status, and multi-select filters, so a row
@@ -233,9 +244,12 @@ supports searching property types by label or machine name.
 List views can save an item layout (`itemLayout`) that decides what each row
 shows: a start slot (page icon, a checkbox property, a status property, or
 nothing), the title weight, line 2 (a text, URL, or non-body Blocks property,
-clamped to 1-3 lines), and ordered property IDs for line 3 and the end of the
-row; end values move under the title on narrow screens and empty values take
-no space. Ticking a row's checkbox writes the property through
+or with `source: "page"` the first lines of each row's page, clamped to 1-3
+lines), and ordered property IDs for line 3 and the end of the row; end values
+move under the title on narrow screens and empty values take no space. While
+any list view shows page text, collection reads give each item an `excerpt`
+with the start of its page as plain text; other collections leave page bodies
+out of row reads. Ticking a row's checkbox writes the property through
 `set-document-property` and strikes the title through without moving the row.
 A view without `itemLayout` keeps the default rows. Agents update it with an
 `update-content-database-view` `update` patch on the list view: pass

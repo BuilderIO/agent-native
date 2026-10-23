@@ -36,6 +36,42 @@ export type NativeInputPlan =
   | { ok: true; inputs: ReadonlyMap<string, NativeExternalTextureInput> }
   | { ok: false; code: string; detail: string };
 
+export function nativeWorkerInputAssetId(
+  binding: Extract<NativeExternalTextureInput, { kind: "asset" }>,
+): string | null {
+  if (
+    (binding.sampleEncoding !== undefined &&
+      binding.sampleEncoding !== "srgb-color" &&
+      binding.sampleEncoding !== "linear-data") ||
+    binding.preprocess !== undefined ||
+    binding.mipmap !== undefined
+  )
+    return null;
+  const id = `input:${JSON.stringify([binding.url, binding.sampleEncoding ?? "srgb-color"])}`;
+  return id.length <= 4096 ? id : null;
+}
+
+export function nativeWorkerSupportsInputResources(
+  plan: NativeInputPlan,
+  receiverInteriorAvailable: boolean,
+): boolean {
+  if (!plan.ok) return false;
+  return [...plan.inputs].every(([resource, binding]) => {
+    if (binding.kind === "asset")
+      return nativeWorkerInputAssetId(binding) !== null;
+    if (binding.kind !== "builtin") return false;
+    return (
+      (resource === "source" && binding.source === "source") ||
+      (resource === "mask" && binding.source === "mask") ||
+      (resource === "receiverGeometry" &&
+        binding.source === "receiver-geometry") ||
+      (resource === "receiverInterior" &&
+        binding.source === "receiver-interior" &&
+        receiverInteriorAvailable)
+    );
+  });
+}
+
 const BUILTINS = new Set(["source", "mask", "backdrop"]);
 
 function sameInput(

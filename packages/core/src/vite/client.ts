@@ -1185,7 +1185,6 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "@modelcontextprotocol/ext-apps/app-bridge",
       packageName: "@modelcontextprotocol/ext-apps",
     },
-    { specifier: "@paper-design/shaders-react" },
     { specifier: "@radix-ui/react-accordion" },
     { specifier: "@radix-ui/react-alert-dialog" },
     { specifier: "@radix-ui/react-aspect-ratio" },

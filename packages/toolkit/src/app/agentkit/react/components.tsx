@@ -40,6 +40,7 @@ import {
 import {
   createContext,
   Component,
+  Fragment,
   memo,
   useCallback,
   useContext,
@@ -139,7 +140,11 @@ import {
 } from "./context.js";
 import { orderMessageContent } from "./message-content-order.js";
 import { AgentStreamingText } from "./streaming-text.js";
-import type { AgentChatTranscriptLayout } from "./transcript-layout.js";
+import {
+  workedForRowChevronStyle,
+  workedForRowSummaryStyle,
+  type AgentChatTranscriptLayout,
+} from "./transcript-layout.js";
 
 // AgentKit React installs without @agent-native/core, so it repeats core's
 // replay markers. Its specs assert core's attribute names.
@@ -1467,7 +1472,8 @@ export function AgentActivityGroup({
   excludeAgentActivities?: boolean;
   isCurrentSegment?: boolean;
 }) {
-  const { threadId, slots, registry, labels } = useAgentKit();
+  const { threadId, slots, registry, labels, formatWorkedForDuration } =
+    useAgentKit();
   const thread = useAgentThread();
   const runEvents = runId
     ? thread.events.filter((event) => event.runId === runId)
@@ -1764,6 +1770,7 @@ export function AgentActivityGroup({
   }
   const hasExpandableActivity = displayGroups.length > 0;
   const formatDuration = (ms: number) =>
+    formatWorkedForDuration?.(ms) ??
     formatAgentKitDuration(ms, {
       hour: labels.durationHourShort,
       minute: labels.durationMinuteShort,
@@ -1910,7 +1917,7 @@ function AgentWorkDisclosure({
   current?: ReactNode;
   children: ReactNode;
 }) {
-  const { slots } = useAgentKit();
+  const { slots, workedForRowLayout } = useAgentKit();
   const [open, setOpen] = useState(false);
   const Summary = slots.workedForSummary;
   return (
@@ -1923,6 +1930,7 @@ function AgentWorkDisclosure({
       <summary
         className="agentkit-activities-summary"
         aria-disabled={!expandable}
+        style={workedForRowSummaryStyle(workedForRowLayout)}
         onClick={(event) => {
           event.preventDefault();
           if (!expandable) return;
@@ -1936,12 +1944,14 @@ function AgentWorkDisclosure({
             expandable={expandable}
             open={open}
             current={current}
+            layout={workedForRowLayout}
           />
         ) : (
           <>
             <IconChevronRight
               aria-hidden="true"
               className="agentkit-icon agentkit-summary-chevron"
+              style={workedForRowChevronStyle(workedForRowLayout)}
             />
             <span className="agentkit-activities-summary-content">
               {label ? (
@@ -3800,11 +3810,15 @@ export function AgentMessageActions({
   );
 }
 
+const AgentKitPostWidgetTextContext =
+  createContext<AgentChatTranscriptLayout["postWidgetText"]>(undefined);
+
 export function AgentMessageView({
   value: message,
   threadId,
 }: AgentKitRenderProps<AgentMessage>) {
   const { labels, slots, resolveMessageContentOrder } = useAgentKit();
+  const postWidgetText = useContext(AgentKitPostWidgetTextContext);
   const thread = useAgentThread(threadId);
   const visibleMessage = stripAgentMessageContext(message);
   const Supplement = slots.messageSupplement;
@@ -3845,6 +3859,7 @@ export function AgentMessageView({
       <Supplement value={visibleMessage} threadId={threadId} />
     ) : null;
   }
+  let hasSeenWidget = false;
   return (
     <article
       className="agentkit-message"
@@ -3854,20 +3869,39 @@ export function AgentMessageView({
       aria-busy={message.status === "streaming"}
     >
       <div className="agentkit-message-content">
-        {orderedContent.map((item, index) => (
-          <AgentMessagePartView
-            key={item.key}
-            value={
-              item.type === "widget"
-                ? { type: "widget", widget: item.widget }
-                : item.part
-            }
-            threadId={threadId}
-            active={message.status === "streaming"}
-            resetKey={`${threadId}:${message.id}:${index}`}
-            userMessage={message.role === "user"}
-          />
-        ))}
+        {orderedContent.map((item, index) => {
+          const isWidget =
+            item.type === "widget" ||
+            (item.type === "part" && item.part.type === "widget");
+          const followsWidget =
+            message.role === "assistant" &&
+            postWidgetText !== undefined &&
+            hasSeenWidget &&
+            item.type === "part" &&
+            item.part.type === "text";
+          if (isWidget) hasSeenWidget = true;
+          const content = (
+            <AgentMessagePartView
+              value={
+                item.type === "widget"
+                  ? { type: "widget", widget: item.widget }
+                  : item.part
+              }
+              threadId={threadId}
+              active={message.status === "streaming"}
+              resetKey={`${threadId}:${message.id}:${index}`}
+              userMessage={message.role === "user"}
+            />
+          );
+
+          return followsWidget ? (
+            <div key={item.key} data-post-widget-text="true">
+              {content}
+            </div>
+          ) : (
+            <Fragment key={item.key}>{content}</Fragment>
+          );
+        })}
         {attachedAnnotations.length ? (
           <div className="agentkit-annotations">
             {attachedAnnotations.map((annotation) => (
@@ -4813,8 +4847,12 @@ type AgentKitTranscriptContentStyle = CSSProperties & {
   "--agentkit-transcript-lane-offset-inline"?: string;
   "--agentkit-transcript-message-gap"?: string;
   "--agentkit-transcript-message-line-height"?: string;
+  "--agentkit-transcript-font-family"?: string;
+  "--agentkit-transcript-post-widget-text-color"?: string;
+  "--agentkit-transcript-post-widget-paragraph-padding-block"?: string;
   "--agentkit-user-bubble-line-height"?: string;
   "--agentkit-user-bubble-max-width"?: string;
+  "--agentkit-user-bubble-offset-inline"?: string;
   "--agentkit-user-bubble-padding-block"?: string;
   "--agentkit-user-bubble-padding-inline"?: string;
 };
@@ -4862,6 +4900,16 @@ function transcriptContentStyle(
       layout.messageLineHeight,
       "messageLineHeight",
     ),
+    "--agentkit-transcript-font-family": layout.fontFamily,
+    "--agentkit-transcript-post-widget-text-color":
+      layout.postWidgetText?.tone === "muted"
+        ? "var(--agentkit-text-muted)"
+        : undefined,
+    "--agentkit-transcript-post-widget-paragraph-padding-block":
+      transcriptLength(
+        layout.postWidgetText?.paragraphPaddingBlock,
+        "postWidgetText.paragraphPaddingBlock",
+      ),
     "--agentkit-user-bubble-line-height": transcriptLength(
       layout.userBubbleLineHeight,
       "userBubbleLineHeight",
@@ -4869,6 +4917,10 @@ function transcriptContentStyle(
     "--agentkit-user-bubble-max-width": transcriptLength(
       layout.userBubbleMaxWidth,
       "userBubbleMaxWidth",
+    ),
+    "--agentkit-user-bubble-offset-inline": transcriptOffset(
+      layout.userBubbleOffsetInline,
+      "userBubbleOffsetInline",
     ),
     "--agentkit-user-bubble-padding-block": transcriptLength(
       layout.userBubblePadding?.block,
@@ -5661,13 +5713,20 @@ export function AgentKitChat({
           <div
             ref={transcriptContentRef}
             className="agentkit-transcript-content"
+            data-lane-offset-mode={
+              transcriptLayout?.messageLaneOffsetMode ?? "clamped"
+            }
             style={transcriptContentStyle(transcriptLayout)}
           >
             <AgentKitRegionSlot slot={Transcript} threadId={threadId}>
               {!hasConversation && EmptyState ? (
                 <EmptyState threadId={threadId} />
               ) : null}
-              {transcriptItems}
+              <AgentKitPostWidgetTextContext.Provider
+                value={transcriptLayout?.postWidgetText}
+              >
+                {transcriptItems}
+              </AgentKitPostWidgetTextContext.Provider>
               {approvalEntries.map(([approvalId, request]) => (
                 <AgentKitSurfaceBoundary
                   key={`${threadId}:${approvalId}`}

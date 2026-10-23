@@ -546,6 +546,132 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("checks transitions across static React style blocks in source order", () => {
+    const authored = `function Card() {
+  return <main>
+    <style>{\`#hero { animation-name: fade; animation-duration: 800ms; animation-fill-mode: both; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } }\`}</style>
+    <style>{\`#hero { transition: opacity 1s; }\`}</style>
+    <h1 id="hero" data-agent-native-node-id="hero-title">Hello</h1>
+  </main>;
+}`;
+
+    expect(readMotionReactSource(authored, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+  });
+
+  it.each([
+    ["transition shorthand", "#hero { transition: opacity 2s ease; }"],
+    [
+      "transition longhands",
+      "#hero { transition-property: transform; transition-duration: 1s; }",
+    ],
+    ["transition delay", "#hero { transition-delay: 1s; }"],
+    [
+      "transition timing function",
+      "#hero { transition-timing-function: ease-in-out; }",
+    ],
+    ["transition behavior", "#hero { transition-behavior: allow-discrete; }"],
+    ["vendor transition", "#hero { -webkit-transition: opacity 1s; }"],
+  ])(
+    "preserves authored CSS %s without blocking Motion reads or writes",
+    (_label, css) => {
+      const authored = `function Card() {
+  return <main>
+    <style>{\`${css}\`}</style>
+    <h1 id="hero" data-agent-native-node-id="hero-title">Hello</h1>
+  </main>;
+}`;
+
+      expect(readMotionReactSource(authored, "src/Card.tsx")).toEqual({
+        status: "absent",
+      });
+      const edit = apply(authored);
+      expect(edit.source).toContain(css);
+      expect(readMotionReactSource(edit.source, "src/Card.tsx")).toMatchObject({
+        status: "valid",
+        targetNodeIds: ["hero-title"],
+      });
+    },
+  );
+
+  it.each([
+    ["side-effect CSS import", 'import "./motion.css";'],
+    [
+      "dynamic stylesheet import",
+      "function loadStylesheet(path: string) { return import(path); }",
+    ],
+    ["JSX stylesheet link", '<link rel="stylesheet" href="./motion.css" />'],
+    [
+      "JSX promoted stylesheet preload",
+      '<link rel="preload" as="style" href="./motion.css" onLoad={(event) => { event.currentTarget.rel = "stylesheet"; }} />',
+    ],
+    [
+      "CSS import.meta glob",
+      'const styles = import.meta.glob("./styles/**/*.css");',
+    ],
+    [
+      "CSS import.meta glob extension set",
+      'const styles = import.meta.glob("./styles/*.{css,scss}");',
+    ],
+    [
+      "unresolved import.meta glob",
+      "const styles = import.meta.glob(stylePattern);",
+    ],
+    [
+      "CSS in import.meta glob array",
+      'const styles = import.meta.glob(["./routes/**/*.tsx", "./styles/**/*.css"]);',
+    ],
+  ])("refuses Motion writes while a %s is unresolved", (_label, dependency) => {
+    const authored = dependency.startsWith("function ")
+      ? `${dependency}\n${source}`
+      : dependency.startsWith("<link")
+        ? source.replace(
+            '<main className="card">',
+            `<main className="card">\n      ${dependency}`,
+          )
+        : source.replace(
+            'import React from "react";',
+            `import React from "react";\n${dependency}`,
+          );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+    expect(authored).toContain(dependency);
+  });
+
+  it("does not treat an uppercase Link component as a stylesheet tag", () => {
+    const authored = source.replace(
+      '<main className="card">',
+      '<main className="card">\n      <Link href="/plans" />',
+    );
+
+    expect(apply(authored).source).toContain('<Link href="/plans" />');
+  });
+
+  it("allows a static TypeScript module glob without stylesheet dependencies", () => {
+    const authored = source.replace(
+      'import React from "react";',
+      'import React from "react";\nconst pages = import.meta.glob("./pages/**/*.tsx");',
+    );
+
+    expect(apply(authored).source).toContain(
+      'import.meta.glob("./pages/**/*.tsx")',
+    );
+  });
+
   it("rejects global keyframe names shadowed by another JSX style block", () => {
     const source = `function Card() {
   return <main>
@@ -725,6 +851,963 @@ function Card(style = { animationName: "fade" }) {
       status: "invalid",
       error: { code: "unsupported-authored-motion" },
     });
+  });
+
+  it.each([
+    ["Emotion css transition", 'css={{ transition: "opacity 1s" }}'],
+    [
+      "nested Emotion css animation",
+      'css={{ "&:hover": { animationName: "pulse" } }}',
+    ],
+    ["MUI sx animation", 'sx={{ animationName: "pulse" }}'],
+    ["dynamic css object", "css={motionStyles}"],
+    ["transition behavior", 'style={{ transitionBehavior: "allow-discrete" }}'],
+    ["string style value", 'style="transition: opacity 1s"'],
+  ])(
+    "rejects %s on a Motion target without changing source",
+    (_label, prop) => {
+      const authored = source.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        `<h1 data-agent-native-node-id="hero-title" ${prop}>Hello</h1>`,
+      );
+
+      expect(
+        inspectMotionReactSourceWriteCapability({
+          source: authored,
+          targetNodeIds: ["hero-title"],
+          modulePath: "src/components/Card.tsx",
+          moduleVersionHash: "a".repeat(64),
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-authored-motion",
+      });
+      expect(() => apply(authored)).toThrow(MotionReactSourceError);
+      expect(authored).toContain(prop);
+
+      const existingMotion = apply(source).source.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        `<h1 data-agent-native-node-id="hero-title" ${prop}>Hello</h1>`,
+      );
+      expect(
+        readMotionReactSource(existingMotion, "src/components/Card.tsx"),
+      ).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+    },
+  );
+
+  it("rejects nested CSS-in-JS rules in a target component root", () => {
+    const authored = source.replace(
+      '<main className="card">',
+      '<main className="card" css={{ "& h1": { transition: "opacity 1s" } }}>',
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+    expect(authored).toContain('transition: "opacity 1s"');
+  });
+
+  it("allows statically inspected css and sx props without motion declarations", () => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" css={{ color: "red", "&:hover": { color: "blue" } }} sx={{ fontSize: 24 }}>Hello</h1>',
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+    expect(apply(authored).source).toContain(
+      'css={{ color: "red", "&:hover": { color: "blue" } }} sx={{ fontSize: 24 }}',
+    );
+  });
+
+  it("allows React CSS properties that resolve to static scalar aliases", () => {
+    const authored = source
+      .replace(
+        'import React from "react";',
+        'import React from "react";\n\nconst titleColor = "green";',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" css={{ color: titleColor }}>Hello</h1>',
+      );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+
+    const edit = apply(authored);
+    expect(edit.source).toContain("css={{ color: titleColor }}");
+    expect(
+      readMotionReactSource(edit.source, "src/components/Card.tsx"),
+    ).toMatchObject({ status: "valid", targetNodeIds: ["hero-title"] });
+  });
+
+  it.each([
+    ["transition", "transition: opacity 1s"],
+    ["animation", "animation: hero-fade 1s"],
+  ])("rejects %s declarations in root CSS strings", (_label, cssText) => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" css={${JSON.stringify(cssText)}}>Hello</h1>`,
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+  });
+
+  it("allows a root CSS string with static non-motion declarations", () => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" css={"color: red"}>Hello</h1>',
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+    expect(apply(authored).source).toContain('css={"color: red"}');
+  });
+
+  it.each([
+    [
+      "event style assignment",
+      'onClick={(event) => { event.currentTarget.style.transition = "opacity 1s"; }}',
+    ],
+    [
+      "event setProperty call",
+      'onClick={(event) => { event.currentTarget.style.setProperty("animation-name", "pulse"); }}',
+    ],
+    [
+      "global selector class mutation",
+      'onClick={() => document.querySelector("#hero-title")?.classList.add("animated")}',
+    ],
+    [
+      "event srcElement class mutation",
+      'onClick={(event) => event.srcElement.classList.add("animated")}',
+    ],
+    [
+      "event currentTarget value assignment",
+      'onChange={(event) => { event.currentTarget.value = "updated"; }}',
+    ],
+    [
+      "event target mutating method",
+      'onClick={(event) => event.target.classList.add("animated")}',
+    ],
+    [
+      "forwarded event currentTarget",
+      "onClick={(event) => registerTarget(event.currentTarget)}",
+    ],
+    [
+      "forwarded aliased event srcElement",
+      "onClick={(event) => { const target = event.srcElement; registerTarget(target); }}",
+    ],
+    [
+      "ref style assignment",
+      'ref={(node) => { if (node) node.style.animationName = "pulse"; }}',
+    ],
+    [
+      "ref style attribute mutation",
+      'ref={(node) => node.setAttribute("style", "transition: opacity 1s")}',
+    ],
+    [
+      "ref classList mutation",
+      'ref={(node) => node.classList.add("animated")}',
+    ],
+    [
+      "ref className assignment",
+      'ref={(node) => { node.className = "animated"; }}',
+    ],
+    [
+      "ref dataset assignment",
+      'ref={(node) => { node.dataset.state = "open"; }}',
+    ],
+    [
+      "ref mutation through a local alias",
+      'ref={(node) => { const target = node; target.classList.add("animated"); }}',
+    ],
+    [
+      "ref mutator extracted through a local alias",
+      'ref={(node) => { const setAttribute = node.setAttribute; setAttribute("style", "transition: opacity 1s"); }}',
+    ],
+    [
+      "ref destructured classList mutation",
+      'ref={(node) => { const { classList } = node; classList.add("animated"); }}',
+    ],
+    [
+      "ref destructured style mutation",
+      'ref={(node) => { const { style } = node; style.setProperty("transition", "opacity 1s"); }}',
+    ],
+    [
+      "destructured ref callback parameter",
+      'ref={({ classList }) => classList.add("animated")}',
+    ],
+    [
+      "forwarded event parameter",
+      "onClick={(event) => { updateTarget(event); }}",
+    ],
+    [
+      "forwarded event shorthand property",
+      "onClick={(event) => { updateTarget({ event }); }}",
+    ],
+    [
+      "nested forwarded ref parameter",
+      "ref={(node) => { registerTarget({ payload: { node } }); }}",
+    ],
+    [
+      "destructured event target parameter",
+      "onClick={({ currentTarget }) => { registerTarget(currentTarget); }}",
+    ],
+    [
+      "destructured currentTarget mutation",
+      'onClick={({ currentTarget }) => currentTarget.classList.add("animated")}',
+    ],
+    [
+      "local alias of destructured currentTarget mutation",
+      'onClick={({ currentTarget }) => { const node = currentTarget; node.classList.add("animated"); }}',
+    ],
+    [
+      "aliased destructured target mutation",
+      'onClick={({ target: node }) => { node.className = "animated"; }}',
+    ],
+    [
+      "aliased destructured srcElement forwarding",
+      "onClick={({ srcElement: element }) => registerTarget(element)}",
+    ],
+    [
+      "nested destructured event target mutation",
+      'onClick={({ currentTarget: { classList } }) => classList.add("animated")}',
+    ],
+    [
+      "local event currentTarget destructuring mutation",
+      'onClick={(event) => { const { currentTarget } = event; currentTarget.classList.add("animated"); }}',
+    ],
+    [
+      "local aliased event target destructuring mutation",
+      'onClick={(event) => { const { target: node } = event; node.className = "animated"; }}',
+    ],
+    [
+      "local nested event target object mutation",
+      'onClick={(event) => { const { target: { classList } } = event; classList.add("animated"); }}',
+    ],
+    [
+      "aliased default event target parameter",
+      "onClick={({ target: eventTarget = null }) => { registerTarget({ payload: eventTarget }); }}",
+    ],
+    [
+      "object rest event parameter",
+      "onClick={({ ...eventFields }) => { registerTarget(eventFields); }}",
+    ],
+    [
+      "array default and rest ref parameter",
+      "ref={([node = null, ...nodes]) => { registerTarget({ payload: [node, nodes] }); }}",
+    ],
+    ["forwarded ref parameter", "ref={(node) => { registerTarget(node); }}"],
+  ])("rejects Motion target %s from reads and writes", (_label, handler) => {
+    const managed = apply(source).source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${handler}>Hello</h1>`,
+    );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
+  });
+
+  it("rejects classList mutation through a Motion ref captured by a sibling handler", () => {
+    const managed = apply(source)
+      .source.replace(
+        "function Card() {",
+        "function Card() {\n  let sharedNode: HTMLElement | null = null;",
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" ref={(node) => { sharedNode = node; }}>Hello</h1>',
+      )
+      .replace(
+        '<main className="card">',
+        '<main className="card">\n      <button onClick={() => sharedNode?.classList.add("animated")}>Toggle</button>',
+      );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
+  });
+
+  it("tracks a captured Motion ref despite a nested shadowed local name", () => {
+    const managed = apply(source)
+      .source.replace(
+        "function Card() {",
+        "function Card() {\n  let sharedNode: HTMLElement | null = null;",
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" ref={(node) => { const helper = () => { const sharedNode = null; }; sharedNode = node; }}>Hello</h1>',
+      )
+      .replace(
+        '<main className="card">',
+        '<main className="card">\n      <button onClick={() => sharedNode?.classList.add("animated")}>Toggle</button>',
+      );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
+  });
+
+  it.each([
+    {
+      kind: "object",
+      declaration: "let stored: { node?: HTMLElement | null } = {};",
+      capture: "stored = { node };",
+      mutation: 'stored.node?.classList.add("animated")',
+    },
+    {
+      kind: "array",
+      declaration: "let stored: Array<HTMLElement | null> = [];",
+      capture: "stored = [node];",
+      mutation: 'stored[0]?.classList.add("animated")',
+    },
+  ])(
+    "rejects Motion ref storage inside a $kind before sibling handlers can mutate it",
+    ({ declaration, capture, mutation }) => {
+      const managed = apply(source)
+        .source.replace(
+          "function Card() {",
+          `function Card() {\n  ${declaration}`,
+        )
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+          `<h1 data-agent-native-node-id="hero-title" ref={(node) => { ${capture} }}>Hello</h1>`,
+        )
+        .replace(
+          '<main className="card">',
+          `<main className="card">\n      <button onClick={() => ${mutation}}>Toggle</button>`,
+        );
+
+      expect(readMotionReactSource(managed)).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+      expect(
+        inspectMotionReactSourceWriteCapability({
+          source: managed,
+          targetNodeIds: ["hero-title"],
+          modulePath: "src/components/Card.tsx",
+          moduleVersionHash: "a".repeat(64),
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-authored-motion",
+      });
+      expect(() => apply(managed)).toThrow(MotionReactSourceError);
+    },
+  );
+
+  it("allows an unrelated safe handler beside a captured Motion ref", () => {
+    const authored = apply(source)
+      .source.replace(
+        "function Card() {",
+        "function Card() {\n  let sharedNode: HTMLElement | null = null;",
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" ref={(node) => { sharedNode = node; }}>Hello</h1>',
+      )
+      .replace(
+        '<main className="card">',
+        '<main className="card">\n      <button onClick={(event) => event.preventDefault()}>Toggle</button>',
+      );
+
+    const edit = apply(authored);
+    expect(readMotionReactSource(edit.source)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: edit.source,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+  });
+
+  it("rejects a named handler that closes over a global document alias", () => {
+    const managed =
+      `const pageDocument = document;\nfunction handleClick() { pageDocument.querySelector("#hero-title")?.classList.add("animated"); }\n${apply(source).source}`.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" onClick={handleClick}>Hello</h1>',
+      );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+  });
+
+  it("rejects an aliased window document selector from reads and writes", () => {
+    const managed = `const w = window;\n${apply(source).source}`.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" onClick={() => w.document.querySelector("#hero-title")?.classList.add("animated")}>Hello</h1>',
+    );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
+  });
+
+  it.each(["useEffect", "useLayoutEffect", "useInsertionEffect"])(
+    "rejects %s lifecycle callbacks that mutate a Motion target from reads and writes",
+    (hook) => {
+      const managed = apply(source).source.replace(
+        "function Card() {",
+        `function Card() {\n  React.${hook}(() => { document.querySelector("#hero-title")?.classList.add("animated"); }, []);`,
+      );
+
+      expect(readMotionReactSource(managed)).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+      expect(
+        inspectMotionReactSourceWriteCapability({
+          source: managed,
+          targetNodeIds: ["hero-title"],
+          modulePath: "src/components/Card.tsx",
+          moduleVersionHash: "a".repeat(64),
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-authored-motion",
+      });
+      expect(() => apply(managed)).toThrow(MotionReactSourceError);
+    },
+  );
+
+  it("rejects lifecycle effects that delegate target mutation to a local helper", () => {
+    const managed = apply(source).source.replace(
+      "function Card() {",
+      `function Card() {
+  function applyStyles() {
+    document.querySelector("#hero-title")?.classList.add("animated");
+  }
+  React.useEffect(() => applyStyles(), []);`,
+    );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
+  });
+
+  it("removes owned Motion source after an unsafe helper effect is authored", () => {
+    const managed = apply(source).source.replace(
+      "function Card() {",
+      `function Card() {
+  function applyStyles() {
+    document.querySelector("#hero-title")?.classList.add("animated");
+  }
+  React.useEffect(() => applyStyles(), []);`,
+    );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+
+    const removed = removeMotionReactSource(managed);
+    expect(removed.changed).toBe(true);
+    expect(removed.source).not.toContain("data-agent-native-motion");
+    expect(removed.source).toContain("function applyStyles()");
+    expect(removed.source).toContain(
+      "React.useEffect(() => applyStyles(), []);",
+    );
+    expect(removed.source).toContain(
+      'document.querySelector("#hero-title")?.classList.add("animated");',
+    );
+    expect(readMotionReactSource(removed.source)).toEqual({ status: "absent" });
+  });
+
+  it("allows literal object property keys matching a callback parameter", () => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" onClick={(event) => updateTarget({ event: "label" })}>Hello</h1>',
+    );
+
+    const edit = apply(authored);
+    expect(edit.source).toContain('{ event: "label" }');
+    expect(readMotionReactSource(edit.source)).toMatchObject({
+      status: "valid",
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: edit.source,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+  });
+
+  it("rejects a named handler that forwards its event parameter", () => {
+    const managed =
+      `function handleClick(event) { updateTarget(event); }\n${apply(source).source}`.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" onClick={handleClick}>Hello</h1>',
+      );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+  });
+
+  it("allows a target event handler that does not access DOM styles", () => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<h1 data-agent-native-node-id="hero-title" onClick={(event) => event.preventDefault()}>Hello</h1>',
+    );
+
+    const edit = apply(authored);
+    expect(edit.source).toContain("event.preventDefault()");
+    expect(readMotionReactSource(edit.source)).toMatchObject({
+      status: "valid",
+    });
+  });
+
+  it.each([
+    [
+      "currentTarget value",
+      "onChange={(event) => setValue(event.currentTarget.value)}",
+    ],
+    [
+      "target checked state",
+      "onChange={(event) => setChecked(event.target.checked)}",
+    ],
+    [
+      "cast event target value",
+      "onChange={(event) => setValue((event.target as HTMLInputElement).value)}",
+    ],
+    [
+      "srcElement value with element access",
+      'onChange={(event) => setValue(event["srcElement"]["value"])}',
+    ],
+    [
+      "destructured currentTarget value",
+      "onChange={({ currentTarget }) => setValue(currentTarget.value)}",
+    ],
+    [
+      "aliased destructured target value",
+      "onChange={({ target: input }) => setValue(input.value)}",
+    ],
+    [
+      "destructured currentTarget trimmed value",
+      "onChange={({ currentTarget }) => setValue(currentTarget.value.trim())}",
+    ],
+    [
+      "nested destructured target value",
+      "onChange={({ target: { value } }) => setValue(value)}",
+    ],
+    [
+      "local nested destructured target value",
+      "onChange={(event) => { const { target: { value } } = event; setValue(value); }}",
+    ],
+  ])("allows a safe read of the event %s", (_label, handler) => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${handler}>Hello</h1>`,
+    );
+
+    const edit = apply(authored);
+    expect(edit.source).toContain(handler);
+    expect(readMotionReactSource(edit.source)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
+
+  it("rejects a spread prop that resolves to a global DOM mutation handler", () => {
+    const authored = `const interactiveProps = { onClick: () => document.querySelector("#hero-title")?.classList.add("animated") };\n${apply(source).source}`;
+    const managedCases = [
+      authored.replace(
+        '<main className="card">',
+        '<main className="card" {...interactiveProps}>',
+      ),
+      authored.replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<button {...interactiveProps}>Continue</button>\n      <h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      ),
+    ];
+
+    for (const managed of managedCases) {
+      expect(readMotionReactSource(managed)).toMatchObject({
+        status: "invalid",
+        error: { code: "unsupported-authored-motion" },
+      });
+      expect(
+        inspectMotionReactSourceWriteCapability({
+          source: managed,
+          targetNodeIds: ["hero-title"],
+          modulePath: "src/components/Card.tsx",
+          moduleVersionHash: "a".repeat(64),
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "unsupported-authored-motion",
+      });
+      expect(() => apply(managed)).toThrow(MotionReactSourceError);
+    }
+  });
+
+  it("fails closed on unresolved JSX spread props in the Motion component root", () => {
+    const managed = apply(source).source.replace(
+      '<main className="card">',
+      '<main className="card" {...interactiveProps}>',
+    );
+
+    expect(readMotionReactSource(managed)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+  });
+
+  it("allows statically inspectable safe JSX spread props", () => {
+    const authored =
+      `const safeProps = { title: "Card", onClick: (event) => event.preventDefault() };\n${source}`.replace(
+        '<main className="card">',
+        '<main className="card" {...safeProps}>',
+      );
+    const managed = apply(authored).source;
+
+    expect(readMotionReactSource(managed)).toMatchObject({ status: "valid" });
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: managed,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+  });
+
+  it("rejects Motion declarations in aliases under plain tag selector keys", () => {
+    const authored = source
+      .replace(
+        'import React from "react";',
+        'import React from "react";\n\nconst headingStyles = { transition: "opacity 1s" };',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" css={{ h1: headingStyles }}>Hello</h1>',
+      );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+    expect(authored).toContain('transition: "opacity 1s"');
+  });
+
+  it("fails closed when a nested CSS rule references an unresolved style object", () => {
+    const prop = 'css={{ "&:hover": hoverStyles }}';
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${prop}>Hello</h1>`,
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+    expect(authored).toContain(prop);
+
+    const existingMotion = apply(source).source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${prop}>Hello</h1>`,
+    );
+    expect(
+      readMotionReactSource(existingMotion, "src/components/Card.tsx"),
+    ).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("resolves nested CSS style aliases and preserves them through a Motion round trip", () => {
+    const prop = 'css={{ "&:hover": hoverStyles }}';
+    const authored = source
+      .replace(
+        'import React from "react";',
+        'import React from "react";\n\nconst hoverStyles = { color: "blue" };',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        `<h1 data-agent-native-node-id="hero-title" ${prop}>Hello</h1>`,
+      );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+
+    const edit = apply(authored);
+    expect(edit.source).toContain('const hoverStyles = { color: "blue" };');
+    expect(edit.source).toContain(prop);
+    expect(
+      readMotionReactSource(edit.source, "src/components/Card.tsx"),
+    ).toMatchObject({ status: "valid", targetNodeIds: ["hero-title"] });
+  });
+
+  it("rejects a nested CSS style alias that contains Motion declarations", () => {
+    const authored = source
+      .replace(
+        'import React from "react";',
+        'import React from "react";\n\nconst hoverStyles = { animationName: "pulse" };',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" css={{ "&:hover": hoverStyles }}>Hello</h1>',
+      );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+    expect(authored).toContain('animationName: "pulse"');
+  });
+
+  it.each([
+    [
+      "dynamic HTML payload",
+      "dangerouslySetInnerHTML={{ __html: motionMarkup }}",
+    ],
+    [
+      "literal HTML payload",
+      'dangerouslySetInnerHTML={{ __html: "<style>#hero { transition: opacity 1s }</style>" }}',
+    ],
+  ])("rejects %s inside a Motion component", (_label, prop) => {
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${prop} />`,
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+    expect(authored).toContain(prop);
+
+    const existingMotion = apply(source).source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      `<h1 data-agent-native-node-id="hero-title" ${prop} />`,
+    );
+    expect(
+      readMotionReactSource(existingMotion, "src/components/Card.tsx"),
+    ).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
+  it("rejects Motion targets whose component contains hidden HTML injection", () => {
+    const authored = source.replace(
+      '    <h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '    <div dangerouslySetInnerHTML={{ __html: motionMarkup }} />\n    <h1 data-agent-native-node-id="hero-title">Hello</h1>',
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+    expect(() => apply(authored)).toThrow(MotionReactSourceError);
+    expect(authored).toContain("dangerouslySetInnerHTML");
   });
 
   it("fails closed when managed CSS uses an unsupported animation duration", () => {
@@ -1015,6 +2098,20 @@ function Card() {
       status: "invalid",
       error: { code: "unsupported-authored-motion" },
     });
+  });
+
+  it("reads an existing managed timeline when CSS imports need no inline animation import", () => {
+    const managed = apply(source).source.replace(
+      'import React from "react";',
+      'import React from "react";\nimport styles from "./Card.module.css";',
+    );
+
+    expect(readMotionReactSource(managed, "src/Card.tsx")).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+      document: { tracks: [{ property: "opacity" }] },
+    });
+    expect(() => apply(managed)).toThrow(MotionReactSourceError);
   });
 
   it("preserves audio clips in managed source when React motion is edited", () => {
@@ -1437,7 +2534,7 @@ function Card() {
     ).toThrow(/preview identity snapshot does not match/);
   });
 
-  it("rejects absent or ambiguous targets without blocking unrelated spread JSX", () => {
+  it("rejects absent or ambiguous targets and unresolved spreads in the target root", () => {
     expect(() =>
       apply(source.replace(' data-agent-native-node-id="hero-title"', "")),
     ).toThrow(/does not contain a static/);
@@ -1460,9 +2557,7 @@ function Card() {
       "    </main>",
       "      <p {...props}>Spread</p>\n    </main>",
     );
-    expect(apply(spread).source).toContain(
-      'data-agent-native-node-id="hero-title"',
-    );
+    expect(() => apply(spread)).toThrow(/JSX spread props/);
 
     const spreadTarget = source.replace(
       '<h1 data-agent-native-node-id="hero-title">Hello</h1>',

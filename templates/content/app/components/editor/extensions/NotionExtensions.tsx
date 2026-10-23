@@ -84,7 +84,7 @@ function readElementAttributes(
   return attrs;
 }
 
-function parseAttrsJson(
+export function parseAttrsJson(
   attrsJson: string | null | undefined,
 ): Record<string, string> {
   if (!attrsJson) return {};
@@ -132,7 +132,7 @@ function serializeAtomTag(
     : `<${tagName}${serializeTagAttributes(attrs)} />`;
 }
 
-function humanizeTag(tagName: string): string {
+export function humanizeTag(tagName: string): string {
   return tagName.replace(/[_-]/g, " ");
 }
 
@@ -165,7 +165,7 @@ function getNotionPageId(attrs: Record<string, string>) {
   );
 }
 
-function safeExternalPageUrl(input: string | null): string | null {
+export function safeExternalPageUrl(input: string | null): string | null {
   if (!input) return null;
   try {
     const url = new URL(input);
@@ -294,7 +294,7 @@ export function outdentDirectToggleChild(editor: Editor): boolean {
   return true;
 }
 
-function normalizeIndentAttr(value: unknown): number {
+export function normalizeIndentAttr(value: unknown): number {
   const parsed =
     typeof value === "number"
       ? value

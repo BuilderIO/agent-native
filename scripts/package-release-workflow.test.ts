@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,11 +23,40 @@ import {
   preparePackagesForTagging,
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
+import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
+import {
+  RELEASE_COORDINATOR_STEP_NAME,
+  assertReleaseCoordinatorStepActive,
+  selectActiveReleaseCoordinator,
+} from "./release-coordinator.ts";
+import {
+  isMajorVersionPromotion,
+  packageManifestVersion,
+  packageManifestVersionChange,
+} from "./release-package-version-policy.ts";
+import {
+  COORDINATED_RELEASE_CHECK_TIMEOUT_MS,
+  DEFAULT_REQUIRED_CHECK_TIMEOUT_MS,
+  evaluateRequiredChecks,
+  requiredCheckTimeoutForEvent,
+  requiredContextsFromRules,
+  waitForRequiredChecks,
+} from "./release-required-checks.ts";
 import {
   gitBlobSha,
   syncCommunityQrBlobPins,
   syncCommunityQrCoreLock,
 } from "./sync-community-qr-core-lock.ts";
+import {
+  assertCompletePullRequestFiles,
+  assertCommunityQrFilePinsSynced,
+  decodeGitHubContentResponse,
+  parseCompletePullRequestFiles,
+} from "./verify-community-qr-release-pin.ts";
+import {
+  assertReleaseOnlyPullRequestFiles,
+  extractPullRequestFileNames,
+} from "./verify-release-package-files.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -38,6 +75,10 @@ const publisherSource = readFileSync(
   "scripts/changeset-publish-sequential.ts",
   "utf8",
 );
+const releaseEverythingWorkflowSource = readFileSync(
+  ".github/workflows/release-everything.yml",
+  "utf8",
+);
 const ciLintJob = (
   parse(readFileSync(".github/workflows/ci.yml", "utf8")) as {
     jobs: Record<string, { name: string; steps: Workflow[] }>;
@@ -47,8 +88,678 @@ const trigger = workflow.on as Workflow;
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
 const jobs = workflow.jobs as Workflow;
+const autoMergeWorkflow = parse(
+  readFileSync(".github/workflows/auto-merge-version-packages.yml", "utf8"),
+) as Workflow;
 
 describe("npm package release workflow", () => {
+  it("waits for every active main ruleset check before auto-merging a release PR", async () => {
+    const required = ["Build", "Fast tests", "Lint & format"];
+    const contexts = requiredContextsFromRules([
+      {
+        type: "required_status_checks",
+        parameters: {
+          required_status_checks: required.map((context) => ({
+            context,
+            integration_id: null,
+          })),
+        },
+      },
+      {
+        type: "required_status_checks",
+        parameters: {
+          required_status_checks: [{ context: "Build", integration_id: null }],
+        },
+      },
+    ]);
+    assert.deepEqual(contexts, required);
+    assert.deepEqual(evaluateRequiredChecks(required, []), {
+      status: "pending",
+      missing: required,
+      pending: [],
+    });
+    assert.deepEqual(
+      evaluateRequiredChecks(required, [
+        { name: "Build", bucket: "pass" },
+        { name: "Fast tests", bucket: "pass" },
+      ]),
+      {
+        status: "pending",
+        missing: ["Lint & format"],
+        pending: [],
+      },
+    );
+
+    let now = 0;
+    let reads = 0;
+    await waitForRequiredChecks({
+      readRequiredContexts: async () => required,
+      readStatuses: async () => {
+        reads += 1;
+        if (reads === 1) return [];
+        if (reads === 2) {
+          return [
+            { name: "Build", bucket: "pass" },
+            { name: "Fast tests", bucket: "pass" },
+          ];
+        }
+        return required.map((name) => ({ name, bucket: "pass" }));
+      },
+      sleep: async (ms) => {
+        now += ms;
+      },
+      now: () => now,
+      timeoutMs: 60_000,
+      intervalMs: 15_000,
+    });
+    assert.equal(reads, 3);
+    assert.deepEqual(
+      evaluateRequiredChecks(
+        required,
+        required.map((name) => ({ name, bucket: "pass" })),
+      ),
+      { status: "passed" },
+    );
+  });
+
+  it("fails closed when required checks fail, remain partial, or are unconfigured", async () => {
+    const required = ["Build", "Fast tests"];
+    assert.deepEqual(
+      evaluateRequiredChecks(required, [
+        { name: "Build", bucket: "fail" },
+        { name: "Fast tests", bucket: "pending" },
+      ]),
+      {
+        status: "failed",
+        reason: "Required release PR checks are not green: Build.",
+      },
+    );
+    assert.throws(
+      () => requiredContextsFromRules([]),
+      /No required status checks are configured for main/,
+    );
+    assert.throws(
+      () =>
+        requiredContextsFromRules([
+          {
+            type: "required_status_checks",
+            parameters: {
+              required_status_checks: [{ context: " ", integration_id: null }],
+            },
+          },
+        ]),
+      /without a context name/,
+    );
+    assert.throws(
+      () =>
+        requiredContextsFromRules([
+          {
+            type: "required_status_checks",
+            parameters: {
+              required_status_checks: [
+                { context: "Build", integration_id: 15368 },
+              ],
+            },
+          },
+        ]),
+      /bound to GitHub App 15368.*cannot verify check provenance/,
+    );
+    assert.deepEqual(
+      requiredContextsFromRules([
+        {
+          type: "required_status_checks",
+          parameters: {
+            required_status_checks: [{ context: "Build" }],
+          },
+        },
+      ]),
+      ["Build"],
+    );
+
+    let now = 0;
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => required,
+        readStatuses: async () => [{ name: "Build", bucket: "pass" }],
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+        timeoutMs: 30_000,
+        intervalMs: 15_000,
+      }),
+      /Timed out waiting for required release PR checks: Fast tests \(not reported\)/,
+    );
+  });
+
+  it("caps delayed required-check polling at the coordinator merge window", async () => {
+    assert.match(
+      releaseEverythingWorkflowSource,
+      /phaseDeadline\(210 \* 60_000\),\s*coordinatorDeadline - postMergeReserveMs/,
+    );
+    assert.equal(
+      requiredCheckTimeoutForEvent("pull_request"),
+      COORDINATED_RELEASE_CHECK_TIMEOUT_MS,
+    );
+    assert.equal(COORDINATED_RELEASE_CHECK_TIMEOUT_MS, 210 * 60_000);
+    let now = 0;
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => ["Build"],
+        readStatuses: async () => [],
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+        timeoutMs: requiredCheckTimeoutForEvent("pull_request"),
+        intervalMs: 60 * 60_000,
+      }),
+      /Timed out waiting for required release PR checks: Build \(not reported\)/,
+    );
+    assert.equal(now, COORDINATED_RELEASE_CHECK_TIMEOUT_MS);
+    assert.equal(
+      requiredCheckTimeoutForEvent("workflow_dispatch"),
+      DEFAULT_REQUIRED_CHECK_TIMEOUT_MS,
+    );
+    assert.equal(DEFAULT_REQUIRED_CHECK_TIMEOUT_MS, 240 * 60_000);
+  });
+
+  it("stops polling when the matching release coordinator ends", async () => {
+    let now = 0;
+    let coordinatorReads = 0;
+    let statusReads = 0;
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => ["Build"],
+        readStatuses: async () => {
+          statusReads += 1;
+          return [];
+        },
+        verifyCoordinator: async (expectedRunId) => {
+          coordinatorReads += 1;
+          if (coordinatorReads === 1) {
+            assert.equal(expectedRunId, undefined);
+            return 123;
+          }
+          assert.equal(expectedRunId, 123);
+          throw new Error("Release everything coordinator run 123 ended.");
+        },
+        coordinatorCheckIntervalMs: 30_000,
+        intervalMs: 15_000,
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+      }),
+      /Release everything coordinator run 123 ended/,
+    );
+    assert.equal(coordinatorReads, 2);
+    assert.equal(statusReads, 2);
+  });
+
+  it("matches one in-progress coordinator to the release PR update", () => {
+    const run = {
+      id: 123,
+      event: "schedule",
+      head_branch: "main",
+      run_started_at: "2026-10-23T10:00:00Z",
+      status: "in_progress",
+    };
+    const pages = [{ workflow_runs: [run] }];
+    assert.equal(
+      selectActiveReleaseCoordinator(pages, "2026-10-23T10:01:00Z"),
+      123,
+    );
+    assert.equal(
+      selectActiveReleaseCoordinator(pages, "2026-10-23T10:01:00Z", 123),
+      123,
+    );
+    assert.throws(
+      () => selectActiveReleaseCoordinator(pages, "2026-10-23T09:58:00Z"),
+      /does not match the release PR update/,
+    );
+    assert.throws(
+      () =>
+        selectActiveReleaseCoordinator(
+          [{ workflow_runs: [run] }, { workflow_runs: [{ ...run, id: 124 }] }],
+          "2026-10-23T10:01:00Z",
+        ),
+      /Expected one active Release everything coordinator/,
+    );
+    assert.throws(
+      () =>
+        selectActiveReleaseCoordinator(
+          [{ workflow_runs: [] }],
+          "2026-10-23T10:01:00Z",
+        ),
+      /returned 0/,
+    );
+  });
+
+  it("requires the coordinator release step to remain active", () => {
+    const activePages = [
+      {
+        jobs: [
+          {
+            name: "Release packages, desktop apps, and production sites",
+            status: "in_progress",
+            steps: [
+              {
+                name: RELEASE_COORDINATOR_STEP_NAME,
+                status: "in_progress",
+                conclusion: null,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorStepActive(activePages, 123),
+    );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorStepActive(
+          [
+            {
+              jobs: [
+                {
+                  name: "Release packages, desktop apps, and production sites",
+                  status: "in_progress",
+                  steps: [
+                    {
+                      name: RELEASE_COORDINATOR_STEP_NAME,
+                      status: "completed",
+                      conclusion: "failure",
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          123,
+        ),
+      /no longer performing the release step/,
+    );
+    assert.throws(
+      () => assertReleaseCoordinatorStepActive([{ jobs: [] }], 123),
+      /Expected one active release step/,
+    );
+  });
+
+  it("does not miss a required check on a later main rules page", () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-checks-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const ghPath = path.join(binDirectory, "gh");
+    mkdirSync(binDirectory);
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+set -eu
+case "$1" in
+  api)
+    case " $* " in
+      *" --paginate --slurp "*)
+        printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build","integration_id":null}]}}],[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Fast tests","integration_id":null}]}}]]'
+        ;;
+      *)
+        printf '%s\\n' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build","integration_id":null}]}}]'
+        ;;
+    esac
+    ;;
+  pr)
+    printf '%s\\n' '[{"name":"Build","bucket":"pass"},{"name":"Fast tests","bucket":"fail"}]'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    try {
+      assert.throws(
+        () =>
+          execFileSync(
+            process.execPath,
+            [
+              "--experimental-strip-types",
+              path.resolve("scripts/release-required-checks.ts"),
+              "verify",
+              "8102",
+              "BuilderIO/agent-native",
+            ],
+            {
+              cwd: process.cwd(),
+              env: {
+                ...process.env,
+                PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+              },
+            },
+          ),
+        (error: unknown) => {
+          const commandError = error as { status?: number; stderr?: Buffer };
+          assert.equal(commandError.status, 1);
+          assert.match(String(commandError.stderr), /Fast tests/);
+          return true;
+        },
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("treats an unreported required-check set as pending", () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-checks-empty-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-status-calls.txt");
+    const ghPath = path.join(binDirectory, "gh");
+    mkdirSync(binDirectory);
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+case "$1" in
+  api)
+    printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build","integration_id":null}]}}]]'
+    ;;
+  pr)
+    calls=0
+    if [ -f "$GH_CALLS_FILE" ]; then calls=$(cat "$GH_CALLS_FILE"); fi
+    calls=$((calls + 1))
+    printf '%s' "$calls" > "$GH_CALLS_FILE"
+    if [ "$calls" -eq 1 ]; then
+      printf '%s\\n' "gh: no required checks reported on the 'main' branch" >&2
+      exit 1
+    fi
+    printf '%s' '[{"name":"Build","bucket":"fail"}]'
+    ;;
+  *) exit 1 ;;
+esac
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    try {
+      assert.throws(
+        () =>
+          execFileSync(
+            process.execPath,
+            [
+              "--experimental-strip-types",
+              path.resolve("scripts/release-required-checks.ts"),
+              "verify",
+              "8102",
+              "BuilderIO/agent-native",
+            ],
+            {
+              cwd: process.cwd(),
+              env: {
+                ...process.env,
+                PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+                GH_CALLS_FILE: callsPath,
+              },
+            },
+          ),
+        (error: unknown) => {
+          const commandError = error as { status?: number; stderr?: Buffer };
+          assert.equal(commandError.status, 1);
+          assert.match(
+            String(commandError.stderr),
+            /Required release PR checks are missing or pending: Build/,
+          );
+          return true;
+        },
+      );
+      assert.equal(readFileSync(callsPath, "utf8"), "1");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("waits only while the matching coordinator release step is active", () => {
+    const tempRoot = mkdtempSync(
+      path.join(tmpdir(), "release-coordinator-wait-"),
+    );
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    const ghPath = path.join(binDirectory, "gh");
+    mkdirSync(binDirectory);
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+printf '%s|%s\\n' "$GH_TOKEN" "$*" >> "$GH_CALLS_FILE"
+case " $* " in
+  *" repos/BuilderIO/agent-native/actions/workflows/release-everything.yml/runs?branch=main&status=in_progress&per_page=100 "*) printf '%s' "$GH_RUN_PAGES" ;;
+  *" repos/BuilderIO/agent-native/actions/runs/123/jobs?per_page=100 "*) printf '%s' "$GH_JOB_PAGES" ;;
+  *" repos/BuilderIO/agent-native/rules/branches/main "*) printf '%s' "$GH_RULE_PAGES" ;;
+  *" pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket "*) printf '%s' '[{"name":"Build","bucket":"pass"}]' ;;
+  *) printf '%s\\n' 'unexpected gh arguments' >&2; exit 1 ;;
+esac
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    const run = {
+      id: 123,
+      event: "schedule",
+      head_branch: "main",
+      run_started_at: "2026-10-23T10:00:00Z",
+      status: "in_progress",
+    };
+    const jobs = [
+      {
+        name: "Release packages, desktop apps, and production sites",
+        status: "in_progress",
+        steps: [
+          {
+            name: RELEASE_COORDINATOR_STEP_NAME,
+            status: "in_progress",
+            conclusion: null,
+          },
+        ],
+      },
+    ];
+    const env = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "workflow-token",
+      GH_ACTIONS_TOKEN: "actions-read-token",
+      GH_CALLS_FILE: callsPath,
+      GH_RUN_PAGES: JSON.stringify([{ workflow_runs: [run] }]),
+      GH_JOB_PAGES: JSON.stringify([{ jobs }]),
+      GH_RULE_PAGES: JSON.stringify([
+        [
+          {
+            type: "required_status_checks",
+            parameters: {
+              required_status_checks: [
+                { context: "Build", integration_id: null },
+              ],
+            },
+          },
+        ],
+      ]),
+      PR_NUMBER: "8102",
+      REPO: "BuilderIO/agent-native",
+      RELEASE_EVENT_NAME: "pull_request",
+      PR_UPDATED_AT: "2026-10-23T10:01:00Z",
+      EXPECTED_COORDINATOR_RUN_ID: "",
+    };
+    const runWait = () =>
+      execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          path.resolve("scripts/release-required-checks.ts"),
+          "wait",
+          "8102",
+          "BuilderIO/agent-native",
+        ],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    try {
+      assert.equal(runWait(), "123\n");
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/workflows/release-everything.yml/runs?branch=main&status=in_progress&per_page=100",
+        "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/runs/123/jobs?per_page=100",
+        "workflow-token|api --paginate --slurp repos/BuilderIO/agent-native/rules/branches/main",
+        "workflow-token|pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket",
+      ]);
+
+      writeFileSync(callsPath, "");
+      env.RELEASE_EVENT_NAME = "workflow_dispatch";
+      delete (env as { PR_UPDATED_AT?: string }).PR_UPDATED_AT;
+      assert.equal(runWait(), "");
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "workflow-token|api --paginate --slurp repos/BuilderIO/agent-native/rules/branches/main",
+        "workflow-token|pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket",
+      ]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("retries transient GitHub command failures while reading rules and checks", async () => {
+    const required = ["Build"];
+    const commandFailure = () =>
+      Object.assign(new Error("GitHub request failed"), {
+        status: 1,
+        stderr: "HTTP 503",
+      });
+    const delays: number[] = [];
+    let contextReads = 0;
+    let statusReads = 0;
+
+    await waitForRequiredChecks({
+      readRequiredContexts: async () => {
+        contextReads += 1;
+        if (contextReads === 1) throw commandFailure();
+        return required;
+      },
+      readStatuses: async () => {
+        statusReads += 1;
+        if (statusReads === 1) throw commandFailure();
+        return [{ name: "Build", bucket: "pass" }];
+      },
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+      readRetryDelaysMs: [5, 10],
+    });
+
+    assert.equal(contextReads, 2);
+    assert.equal(statusReads, 2);
+    assert.deepEqual(delays, [5, 5]);
+  });
+
+  it("fails with the GitHub error after bounded retries are exhausted", async () => {
+    const commandFailure = () =>
+      Object.assign(new Error("GitHub request failed"), {
+        status: 1,
+        stderr: "HTTP 503",
+      });
+    let reads = 0;
+    let now = 0;
+
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => ["Build"],
+        readStatuses: async () => {
+          reads += 1;
+          throw commandFailure();
+        },
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+        readRetryDelaysMs: [1, 2],
+      }),
+      /Reading required release PR check results failed after 3 attempts: HTTP 503/,
+    );
+    assert.equal(reads, 3);
+    assert.equal(now, 3);
+  });
+
+  it("allows a modified private app manifest without a package version", () => {
+    assert.equal(
+      packageManifestVersionChange(
+        "templates/community/qr/package.json",
+        "modified",
+        { version: null },
+        { version: null },
+      ),
+      null,
+    );
+  });
+
+  it("distinguishes an omitted package version from an invalid null version", () => {
+    assert.deepEqual(packageManifestVersion({ name: "qr" }), {
+      version: null,
+    });
+    assert.throws(
+      () => packageManifestVersion({ name: "qr", version: null }),
+      /invalid package version/,
+    );
+  });
+
+  it("still rejects missing manifests and version fields that appear or disappear", () => {
+    for (const [before, after] of [
+      [{ version: null }, { version: "1.0.0" }],
+      [{ version: "1.0.0" }, { version: null }],
+    ]) {
+      assert.throws(
+        () =>
+          packageManifestVersionChange(
+            "templates/community/qr/package.json",
+            "modified",
+            before,
+            after,
+          ),
+        /Could not verify package manifest versions/,
+      );
+    }
+    assert.throws(
+      () =>
+        packageManifestVersionChange(
+          "packages/core/package.json",
+          "modified",
+          { version: "0.216.0" },
+          null,
+        ),
+      /Could not verify package manifest versions/,
+    );
+  });
+
+  it("does not allow adding or removing a versionless package manifest", () => {
+    assert.throws(
+      () =>
+        packageManifestVersionChange(
+          "templates/community/qr/package.json",
+          "added",
+          null,
+          { version: null },
+        ),
+      /Could not verify added package manifest/,
+    );
+    assert.throws(
+      () =>
+        packageManifestVersionChange(
+          "templates/community/qr/package.json",
+          "removed",
+          { version: null },
+          null,
+        ),
+      /Could not verify removed package manifest/,
+    );
+  });
+
+  it("keeps the major-promotion check for versioned package manifests", () => {
+    assert.equal(isMajorVersionPromotion("0.216.0", "1.0.0"), true);
+    assert.equal(isMajorVersionPromotion("0.216.0", "0.217.0"), false);
+  });
+
   it("offers an explicit stable bump with patch as the default", () => {
     assert.deepEqual(inputs.releaseType, {
       description: "Stable release bump for all public npm packages",
@@ -531,6 +1242,665 @@ importers:
     assert.equal(
       gitBlobSha(Buffer.from("hello\n")),
       "ce013625030ba8dba906f756967f9e9ca394464a",
+    );
+  });
+
+  it("accepts all synchronized community QR template pins and rejects other catalog changes", () => {
+    const basePackage = Buffer.from('{"name":"qr","version":"0.40.35"}\n');
+    const headPackage = Buffer.from('{"name":"qr","version":"0.40.36"}\n');
+    const headReadme = Buffer.from("updated QR template docs\n");
+    const headAction = Buffer.from("updated QR action\n");
+    const source = (pins: Map<string, string>) => `
+      templatePath: "templates/community/qr",
+      files: [
+        ${["package.json", "README.md", "actions/run.ts"]
+          .map(
+            (path) => `{
+          path: "${path}",
+          blobSha: "${pins.get(path)}",
+        }`,
+          )
+          .join(",\n        ")},
+      ],
+    },`;
+    const baseSource = source(
+      new Map([
+        ["package.json", gitBlobSha(basePackage)],
+        ["README.md", "b".repeat(40)],
+        ["actions/run.ts", "d".repeat(40)],
+      ]),
+    );
+    const headFiles = new Map([
+      ["package.json", headPackage],
+      ["README.md", headReadme],
+      ["actions/run.ts", headAction],
+    ]);
+    const headPins = new Map(
+      [...headFiles].map(([path, content]) => [path, gitBlobSha(content)]),
+    );
+    const headSource = source(headPins);
+
+    assert.doesNotThrow(() =>
+      assertCommunityQrFilePinsSynced(baseSource, headSource, headPins),
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrFilePinsSynced(
+          baseSource,
+          source(new Map(headPins).set("package.json", "c".repeat(40))),
+          headPins,
+        ),
+      /Head QR template blob pin does not match package.json/,
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrFilePinsSynced(
+          baseSource,
+          headSource,
+          new Map([...headPins].filter(([path]) => path !== "README.md")),
+        ),
+      /Missing head QR template blob for README.md/,
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrFilePinsSynced(
+          baseSource,
+          headSource.replace(
+            'templatePath: "templates/community/qr",',
+            'templatePath: "templates/community/qr",\n      description: "unexpected",',
+          ),
+          headPins,
+        ),
+      /Community app catalog does not match the synchronized QR template file pins/,
+    );
+  });
+
+  it("rejects incomplete or capped pull request file listings", () => {
+    assert.deepEqual(assertCompletePullRequestFiles(["one", "two"], 2), [
+      "one",
+      "two",
+    ]);
+    assert.throws(
+      () => assertCompletePullRequestFiles(["one"], 2),
+      /GitHub returned 1 of 2 changed pull request files/,
+    );
+    assert.throws(
+      () => assertCompletePullRequestFiles([], 3_000),
+      /endpoint is capped at 3000/,
+    );
+  });
+
+  it("rejects pull request file lists at GitHub's 3,000-file cap", () => {
+    const belowLimit = Array.from(
+      { length: 2_999 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+    const atLimit = Array.from(
+      { length: 3_000 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+
+    assert.equal(parseCompletePullRequestFiles(belowLimit).length, 2_999);
+    assert.throws(
+      () => parseCompletePullRequestFiles(atLimit),
+      /pull request files API reached its 3,000-file limit/,
+    );
+  });
+
+  it("checks complete release paths as filenames and rejects embedded newlines", () => {
+    const allowedFiles = [
+      ".changeset/release.md",
+      "packages/core/package.json",
+      "packages/dispatch/src/server/lib/community-apps.ts",
+    ];
+    assert.deepEqual(
+      assertReleaseOnlyPullRequestFiles(allowedFiles, allowedFiles.length),
+      allowedFiles,
+    );
+    assert.throws(
+      () =>
+        assertReleaseOnlyPullRequestFiles(
+          [".changeset/release.md\npackages/core/package.json"],
+          1,
+        ),
+      /filename with control characters/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles(["README.md"], 1),
+      /unexpected release PR path/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles(["package.json"], 2),
+      /returned 1 of 2 changed pull request files/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles([], 3_000),
+      /endpoint is capped at 3000/,
+    );
+  });
+
+  it("collects filenames from every paginated GitHub file response", () => {
+    assert.deepEqual(
+      extractPullRequestFileNames([
+        [{ filename: ".changeset/release.md" }],
+        [
+          { filename: "package.json" },
+          { filename: "packages/core/CHANGELOG.md" },
+        ],
+      ]),
+      [".changeset/release.md", "package.json", "packages/core/CHANGELOG.md"],
+    );
+    assert.throws(
+      () => extractPullRequestFileNames([[{ filename: 1 }]]),
+      /invalid pull request file list/,
+    );
+  });
+
+  it("rejects unreadable or incomplete GitHub Contents API responses", () => {
+    const content = Buffer.from("manifest");
+    assert.deepEqual(
+      decodeGitHubContentResponse(
+        {
+          encoding: "base64",
+          content: content.toString("base64"),
+          size: content.length,
+        },
+        "manifest.json",
+        "head-sha",
+      ),
+      content,
+    );
+
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "none", content: "", size: 1_048_577 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned unreadable file content/,
+    );
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "base64", content: "%%%", size: 3 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned invalid base64 content/,
+    );
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "base64", content: "bWFuaWZlc3Q=", size: 99 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned incomplete file content/,
+    );
+  });
+
+  it("rejects pull request file lists at GitHub's 3,000-file cap", () => {
+    const belowLimit = Array.from(
+      { length: 2_999 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+    const atLimit = Array.from(
+      { length: 3_000 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+
+    assert.equal(parseCompletePullRequestFiles(belowLimit).length, 2_999);
+    assert.throws(
+      () => parseCompletePullRequestFiles(atLimit),
+      /pull request files API reached its 3,000-file limit/,
+    );
+  });
+
+  it("runs both release verifier CLIs through the shared file request", () => {
+    const files = [
+      { filename: "packages/core/package.json", status: "modified" },
+      { filename: ".changeset/core-fix.md", status: "added" },
+      { filename: "packages/core/CHANGELOG.md", status: "modified" },
+    ];
+    const pages = JSON.stringify([[files[0], files[1]], [files[2]]]);
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-pr-files-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    mkdirSync(binDirectory);
+    const ghPath = path.join(binDirectory, "gh");
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+printf '%s\\n' '---' "$@" >> "$GH_CALLS_FILE"
+if [ "$#" -eq 4 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] && [ "$3" = "--slurp" ] && [ "$4" = "$GH_EXPECTED_FILE_ENDPOINT" ]; then
+  printf '%s' "$GH_FILE_PAGES"
+elif [ "$#" -eq 2 ] && [ "$1" = "api" ] && [ "$2" = "$GH_EXPECTED_PR_ENDPOINT" ]; then
+  printf '%s' "$GH_PULL_REQUEST"
+else
+  printf '%s\\n' 'unexpected gh arguments' >&2
+  exit 1
+fi
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    const endpoint = "repos/BuilderIO/agent-native/pulls/8062/files";
+    const pullRequestEndpoint = "repos/BuilderIO/agent-native/pulls/8062";
+    const env = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+      REPO: "BuilderIO/agent-native",
+      PR_NUMBER: "8062",
+      GH_CALLS_FILE: callsPath,
+      GH_EXPECTED_FILE_ENDPOINT: endpoint,
+      GH_EXPECTED_PR_ENDPOINT: pullRequestEndpoint,
+      GH_FILE_PAGES: pages,
+      GH_PULL_REQUEST: JSON.stringify({ changed_files: files.length }),
+    };
+
+    const runCli = (script: string) =>
+      execFileSync(
+        process.execPath,
+        ["--experimental-strip-types", path.resolve(script)],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    try {
+      const packageOutput = runCli("scripts/list-release-pr-package-files.ts");
+      assert.deepEqual(JSON.parse(packageOutput), [
+        { filename: "packages/core/package.json", status: "modified" },
+      ]);
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "---",
+        "api",
+        "--paginate",
+        "--slurp",
+        endpoint,
+      ]);
+
+      writeFileSync(callsPath, "");
+      assert.match(
+        runCli("scripts/verify-release-package-files.ts"),
+        /Verified 3 complete release PR file paths against the allowlist\./,
+      );
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "---",
+        "api",
+        "--paginate",
+        "--slurp",
+        endpoint,
+        "---",
+        "api",
+        pullRequestEndpoint,
+      ]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+
+    assert.throws(
+      () => parseReleasePullRequestPackageFiles([[{}]]),
+      /invalid release PR file list/,
+    );
+    assert.throws(
+      () => parseReleasePullRequestPackageFiles({ files: [] }),
+      /invalid release PR file list/,
+    );
+  });
+
+  it("verifies versionless manifests through the release guard CLI", () => {
+    const file = "templates/community/qr/package.json";
+    const files = JSON.stringify([[{ filename: file, status: "modified" }]]);
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-version-guard-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    mkdirSync(binDirectory);
+    const ghPath = path.join(binDirectory, "gh");
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALLS_FILE"
+if [ "$#" -eq 4 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] && [ "$3" = "--slurp" ]; then
+  printf '%s' "$GH_FILE_PAGES"
+elif [ "$#" -eq 2 ] && [ "$1" = "api" ]; then
+  case "$2" in
+    *ref=base-sha)
+      if [ "$GH_BASE_MANIFEST" = "__HTTP_404__" ]; then
+        printf '%s\\n' 'gh: HTTP 404' >&2
+        exit 1
+      fi
+      printf '%s' "$GH_BASE_MANIFEST"
+      ;;
+    *ref=head-sha) printf '%s' "$GH_HEAD_MANIFEST" ;;
+    *) printf '%s\\n' 'unexpected gh endpoint' >&2; exit 1 ;;
+  esac
+else
+  printf '%s\\n' 'unexpected gh arguments' >&2
+  exit 1
+fi
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    const manifestResponse = (manifest: Record<string, unknown>) => {
+      const content = Buffer.from(JSON.stringify(manifest));
+      return JSON.stringify({
+        encoding: "base64",
+        content: content.toString("base64"),
+        size: content.length,
+      });
+    };
+    const env = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+      REPO: "BuilderIO/agent-native",
+      PR_NUMBER: "8062",
+      BASE_SHA: "base-sha",
+      HEAD_SHA: "head-sha",
+      GH_CALLS_FILE: callsPath,
+      GH_FILE_PAGES: files,
+      GH_BASE_MANIFEST: manifestResponse({ name: "qr" }),
+      GH_HEAD_MANIFEST: manifestResponse({
+        name: "qr",
+        dependencies: { "@agent-native/core": "^0.217.0" },
+      }),
+    };
+
+    const runCli = () =>
+      execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          path.resolve("scripts/verify-release-package-version-changes.ts"),
+        ],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    try {
+      assert.match(
+        runCli(),
+        /No forbidden promotion in 1 changed package.json file/,
+      );
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "api --paginate --slurp repos/BuilderIO/agent-native/pulls/8062/files",
+        `api repos/BuilderIO/agent-native/contents/${file}?ref=base-sha`,
+        `api repos/BuilderIO/agent-native/contents/${file}?ref=head-sha`,
+      ]);
+
+      writeFileSync(callsPath, "");
+      env.GH_FILE_PAGES = JSON.stringify([
+        [{ filename: "packages/core/package.json", status: "modified" }],
+      ]);
+      env.GH_BASE_MANIFEST = manifestResponse({
+        name: "core",
+        version: "0.216.0",
+      });
+      env.GH_HEAD_MANIFEST = manifestResponse({
+        name: "core",
+        version: "1.0.0",
+      });
+      assert.throws(runCli, (error: unknown) => {
+        const commandError = error as { status?: number; stderr?: Buffer };
+        assert.equal(commandError.status, 1);
+        assert.match(
+          String(commandError.stderr),
+          /::error::This release PR contains a forbidden major promotion/,
+        );
+        return true;
+      });
+
+      env.GH_FILE_PAGES = files;
+      env.GH_BASE_MANIFEST = "__HTTP_404__";
+      env.GH_HEAD_MANIFEST = manifestResponse({ name: "qr" });
+      assert.throws(runCli, (error: unknown) => {
+        const commandError = error as { status?: number; stderr?: Buffer };
+        assert.equal(commandError.status, 1);
+        assert.match(
+          String(commandError.stderr),
+          /Could not verify package manifest versions/,
+        );
+        return true;
+      });
+
+      env.GH_BASE_MANIFEST = JSON.stringify({
+        encoding: "base64",
+        content: "%%%",
+        size: 3,
+      });
+      assert.throws(runCli, (error: unknown) => {
+        const commandError = error as { status?: number; stderr?: Buffer };
+        assert.equal(commandError.status, 1);
+        assert.match(
+          String(commandError.stderr),
+          /GitHub returned invalid base64 for/,
+        );
+        return true;
+      });
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("runs the community QR pin guard from the base commit before auto-merge", () => {
+    const autoMergeTriggers = autoMergeWorkflow.on as Workflow;
+    const workflowDispatch = autoMergeTriggers.workflow_dispatch as Workflow;
+    const workflowDispatchInputs = workflowDispatch.inputs as Workflow;
+    const autoMergeJobs = autoMergeWorkflow.jobs as Workflow;
+    const autoMergeJob = autoMergeJobs["auto-merge"] as Workflow;
+    const autoMergeSteps = autoMergeJob.steps as Workflow[];
+    const checkout = autoMergeSteps.find(
+      (step) =>
+        step.uses ===
+        "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+    );
+    const releaseDiff = autoMergeSteps.find(
+      (step) => step.name === "Verify release-only diff",
+    );
+    const qrPinGuard = autoMergeSteps.find(
+      (step) => step.name === "Verify community QR template pins",
+    );
+    const releasePrContext = autoMergeSteps.find(
+      (step) => step.name === "Verify release PR identity and event-bound SHAs",
+    );
+    const manualDispatcherGate = autoMergeSteps.find(
+      (step) =>
+        step.name === "Verify manual release dispatcher is an administrator",
+    );
+    const majorPromotionGuard = autoMergeSteps.find(
+      (step) => step.name === "Refuse unattended major promotions",
+    );
+    const requiredChecks = autoMergeSteps.find(
+      (step) => step.name === "Wait for required release PR checks",
+    );
+    const mergeToken = autoMergeSteps.find(
+      (step) => step.name === "Generate fresh merge token",
+    );
+    const releasePrRecheck = autoMergeSteps.find(
+      (step) => step.name === "Revalidate release PR before merge",
+    );
+    const forceMerge = autoMergeSteps.find(
+      (step) => step.name === "Force-merge with admin bypass",
+    );
+
+    for (const input of ["pull_request_number", "base_sha", "head_sha"]) {
+      assert.equal((workflowDispatchInputs[input] as Workflow).required, true);
+    }
+    assert.deepEqual(autoMergeWorkflow.permissions, {
+      actions: "read",
+      checks: "read",
+      contents: "read",
+      "pull-requests": "read",
+      statuses: "read",
+    });
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(String(autoMergeJob.if), /github\.ref == 'refs\/heads\/main'/);
+
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.pull_request\.head\.ref == 'changeset-release\/main'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.pull_request\.user\.login == 'builder-io-integration\[bot\]'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.sender\.login == 'builder-io-integration\[bot\]'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /!github\.event\.pull_request\.draft/,
+    );
+
+    assert(checkout);
+    assert.equal(
+      (checkout.with as Workflow).ref,
+      "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.base.sha }}",
+    );
+    assert(manualDispatcherGate);
+    assert.match(
+      String(manualDispatcherGate.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String((manualDispatcherGate.env as Workflow).DISPATCH_ACTOR),
+      /github\.triggering_actor/,
+    );
+    assert.match(
+      String(manualDispatcherGate.run),
+      /collaborators\/\$DISPATCH_ACTOR\/permission/,
+    );
+    assert.match(
+      String(manualDispatcherGate.run),
+      /dispatch_permission" != "admin"/,
+    );
+    assert(releasePrContext);
+    assert.match(String(releasePrContext.run), /\.user\.login/);
+    assert.match(
+      String(releasePrContext.run),
+      /\.head\.repo\.full_name == \$repo/,
+    );
+    assert.match(String(releasePrContext.run), /\.head\.sha == \$head/);
+    assert.match(String(releasePrContext.run), /\.base\.sha == \$base/);
+    assert(requiredChecks);
+    assert.equal(requiredChecks.id, "required-checks");
+    assert.match(
+      String(requiredChecks.run),
+      /release-required-checks\.ts wait "\$PR_NUMBER" "\$REPO"/,
+    );
+    assert.equal(
+      (requiredChecks.env as Workflow).GH_TOKEN,
+      "${{ github.token }}",
+    );
+    assert.equal(
+      (requiredChecks.env as Workflow).GH_ACTIONS_TOKEN,
+      "${{ github.token }}",
+    );
+    assert.equal(
+      (requiredChecks.env as Workflow).RELEASE_EVENT_NAME,
+      "${{ github.event_name }}",
+    );
+    assert.match(
+      String((requiredChecks.env as Workflow).PR_UPDATED_AT),
+      /pull_request\.updated_at/,
+    );
+    assert.match(
+      String(requiredChecks.run),
+      /coordinator_run_id=.*GITHUB_OUTPUT/,
+    );
+    assert.doesNotMatch(String(requiredChecks.run), /gh pr checks/);
+    assert(mergeToken);
+    assert(releaseDiff);
+    assert.match(String(mergeToken.uses), /actions\/create-github-app-token/);
+    assert(
+      autoMergeSteps.indexOf(requiredChecks) <
+        autoMergeSteps.indexOf(mergeToken),
+    );
+    assert(
+      autoMergeSteps.indexOf(mergeToken) < autoMergeSteps.indexOf(releaseDiff),
+    );
+    for (const step of autoMergeSteps.slice(
+      autoMergeSteps.indexOf(mergeToken) + 1,
+    )) {
+      const env = step.env as Workflow | undefined;
+      if (env && "GH_TOKEN" in env) {
+        assert.equal(env.GH_TOKEN, "${{ steps.merge-token.outputs.token }}");
+      }
+    }
+    assert.equal(
+      (releaseDiff.env as Workflow).GH_TOKEN,
+      "${{ steps.merge-token.outputs.token }}",
+    );
+    assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
+    assert(majorPromotionGuard);
+    assert.equal(
+      majorPromotionGuard.run,
+      "node --experimental-strip-types scripts/verify-release-package-version-changes.ts",
+    );
+    assert(
+      autoMergeSteps.indexOf(releaseDiff) <
+        autoMergeSteps.indexOf(majorPromotionGuard),
+    );
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).BASE_SHA),
+      /inputs\.base_sha/,
+    );
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).HEAD_SHA),
+      /inputs\.head_sha/,
+    );
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).PR_NUMBER),
+      /inputs\.pull_request_number/,
+    );
+    assert(qrPinGuard);
+    assert.equal(
+      qrPinGuard.run,
+      "node --experimental-strip-types scripts/verify-community-qr-release-pin.ts",
+    );
+    assert(releasePrRecheck);
+    assert.equal(
+      (releasePrRecheck.env as Workflow).GH_TOKEN,
+      "${{ steps.merge-token.outputs.token }}",
+    );
+    assert.match(String(releasePrRecheck.run), /\.state == "open"/);
+    assert.match(String(releasePrRecheck.run), /\.user\.login/);
+    assert.match(
+      String(releasePrRecheck.run),
+      /\.head\.repo\.full_name == \$repo/,
+    );
+    assert.match(String(releasePrRecheck.run), /\.head\.sha == \$head/);
+    assert.match(String(releasePrRecheck.run), /\.base\.sha == \$base/);
+    assert.match(
+      String(releasePrRecheck.run),
+      /release-required-checks\.ts verify "\$PR_NUMBER" "\$REPO"/,
+    );
+    assert.match(
+      String((releasePrRecheck.env as Workflow).EXPECTED_COORDINATOR_RUN_ID),
+      /required-checks\.outputs\.coordinator_run_id/,
+    );
+    assert(forceMerge);
+    assert.equal(
+      (forceMerge.env as Workflow).GH_TOKEN,
+      "${{ steps.merge-token.outputs.token }}",
+    );
+    assert.match(String(forceMerge.run), /branches\/main/);
+    assert.match(String(forceMerge.run), /current_main.*BASE_SHA/s);
+    assert.match(String(forceMerge.run), /--match-head-commit "\$HEAD_SHA"/);
+    assert.match(
+      String(forceMerge.run),
+      /release-required-checks\.ts verify "\$PR_NUMBER" "\$REPO"/,
+    );
+    assert.match(
+      String((forceMerge.env as Workflow).EXPECTED_COORDINATOR_RUN_ID),
+      /required-checks\.outputs\.coordinator_run_id/,
+    );
+    assert(
+      String(forceMerge.run).indexOf("release-required-checks.ts verify") <
+        String(forceMerge.run).indexOf("gh pr merge"),
     );
   });
 

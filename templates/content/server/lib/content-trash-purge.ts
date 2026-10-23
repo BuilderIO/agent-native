@@ -26,6 +26,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
+import { cleanupBuilderPrivatePayload } from "../../actions/_builder-cms-blob-custody.js";
 import { contentTrashPredicates } from "../../actions/_content-trash-query.js";
 import {
   deleteTrashedDocumentSubtree,
@@ -305,6 +306,7 @@ export async function processContentTrashPurge(operationId: string) {
           }
 
           const units = unitToDelete ? [unitToDelete] : [];
+          const deletedBlobReferences = new Set<string>();
           let deletedDelta = 0;
           for (const unit of units) {
             const frozen = allPending.filter(
@@ -316,6 +318,7 @@ export async function processContentTrashPurge(operationId: string) {
                 transactionDb,
                 unit.rootDocumentId,
                 unit.ownerEmail,
+                deletedBlobReferences,
                 frozen,
                 frozen[0]?.expectedScopeFingerprint,
               );
@@ -372,12 +375,23 @@ export async function processContentTrashPurge(operationId: string) {
               });
             if (!countReceipt) throw new ContentTrashPurgeLeaseLostError();
           }
-          return { blockedDelta, deletedDelta, unitCount: units.length };
+          return {
+            blockedDelta,
+            deletedDelta,
+            deletedBlobReferences,
+            unitCount: units.length,
+          };
         },
         { isolationLevel: "serializable" },
       );
       claimed.blockedCount += batchResult.blockedDelta;
       claimed.deletedCount += batchResult.deletedDelta;
+      for (const reference of batchResult.deletedBlobReferences) {
+        await cleanupBuilderPrivatePayload(
+          reference,
+          "deleted document source",
+        );
+      }
       if (batchResult.unitCount === 0) break;
     }
   } catch (error) {

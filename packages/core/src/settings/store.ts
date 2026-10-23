@@ -81,15 +81,12 @@ export interface StoreReadOptions {
   transaction?: DbExec;
 }
 
-export async function getSetting(
+async function readSettingRaw(
   key: string,
   options?: StoreReadOptions,
-): Promise<Record<string, unknown> | null> {
+): Promise<string | null> {
   const cache = options?.transaction ? null : requestSettingsCache();
-  if (!options?.bypassCache && cache?.has(key)) {
-    const cached = cache.get(key);
-    return cached == null ? null : JSON.parse(cached);
-  }
+  if (!options?.bypassCache && cache?.has(key)) return cache.get(key) ?? null;
   if (!options?.transaction) await ensureTable();
   const client = options?.transaction ?? getDbExec();
   const table = settingsTable();
@@ -99,7 +96,28 @@ export async function getSetting(
   });
   const raw = rows.length === 0 ? null : (rows[0].value as string);
   if (!options?.bypassCache) cache?.set(key, raw);
+  return raw;
+}
+
+export async function getSetting(
+  key: string,
+  options?: StoreReadOptions,
+): Promise<Record<string, unknown> | null> {
+  const raw = await readSettingRaw(key, options);
   return raw == null ? null : JSON.parse(raw);
+}
+
+export type SettingEntry = { found: false } | { found: true; value: unknown };
+
+/** Like `getSetting`, but a stored JSON `null` is found, not missing. */
+export async function getSettingEntry(
+  key: string,
+  options?: StoreReadOptions,
+): Promise<SettingEntry> {
+  const raw = await readSettingRaw(key, options);
+  return raw == null
+    ? { found: false }
+    : { found: true, value: JSON.parse(raw) };
 }
 
 const SETTINGS_IN_LIST_CHUNK_SIZE = 500;

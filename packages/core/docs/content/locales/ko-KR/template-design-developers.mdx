@@ -142,15 +142,15 @@ Design 전용 작업은 모두 `templates/design/actions/`에 있는 TypeScript
 
 ### 모션과 셰이더
 
-| 액션                     | 동작                                    |
-| ------------------------ | --------------------------------------- |
-| `get-motion-timeline`    | 요소의 모션 타임라인 조회               |
-| `apply-motion-edit`      | 모션 타임라인에 키프레임 추가 또는 편집 |
-| `remove-motion-timeline` | 모션 타임라인 제거                      |
-| `apply-shader`           | 셰이더 효과 적용                        |
-| `apply-shader-fill`      | 셰이더를 채우기로 적용                  |
-| `preview-shader-fill`    | 셰이더 채우기를 적용하기 전에 미리보기  |
-| `get-shader`             | 셰이더의 현재 매개변수 조회             |
+| 액션                     | 동작                                        |
+| ------------------------ | ------------------------------------------- |
+| `get-motion-timeline`    | 요소의 모션 타임라인 조회                   |
+| `apply-motion-edit`      | 모션 타임라인에 키프레임 추가 또는 편집     |
+| `remove-motion-timeline` | 모션 타임라인 제거                          |
+| `get-shader`             | 네이티브 정의와 저장된 효과 매니페스트 확인 |
+| `edit-native-shader`     | 네이티브 효과 적용, 편집, 승인 또는 제거    |
+
+네이티브 WebGPU 효과는 WGSL을 사용합니다. 사용자 지정 효과는 `edit-native-shader`의 `define-definition`으로 저장한 다음 `get-shader`로 저장된 `executionHash`를 읽고, 해당 `expectedExecutionHash`로 `approve-definition`을 실행한 뒤 정확한 정의 ID와 버전으로 `apply`를 실행합니다. 편집에는 `designId`, `fileId`, 현재 `expectedVersionHash`가 필요합니다. 쓰기 작업마다 해시를 다시 읽어야 합니다. CPU 스키마 검증은 GPU 코드를 컴파일하지 않으므로 Design 미리보기를 확인해야 합니다. 이전에 저장된 GLSL 효과는 계속 렌더링하고 제거할 수 있습니다.
 
 ### 품질 {#quality}
 

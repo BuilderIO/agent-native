@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { getDbExec, type DbExec } from "../db/client.js";
+import {
+  getDbExec,
+  getScopedTransactionDbExec,
+  type DbExec,
+} from "../db/client.js";
 
 export interface ExecutionFence {
   threadId: string;
@@ -104,6 +108,15 @@ export function withExecutionFence<T>(fence: ExecutionFence, work: () => T): T {
   );
 }
 
+export function runWithoutExecutionFence<T>(work: () => T): T {
+  // A follow-up turn scheduled by a completed run must not inherit that run's
+  // now-expired lease through AsyncLocalStorage.
+  return executionFenceStorage.run(
+    { fences: [], executionLeaseRequested: false },
+    work,
+  );
+}
+
 export async function lockAndAssertCurrentExecutionFences(
   tx: DbExec,
 ): Promise<void> {
@@ -151,6 +164,10 @@ export async function withFencedExecutionWrite<T>(
   );
   if (!scopedFence) {
     throw new StaleExecutionFenceError(fence);
+  }
+  if (getScopedTransactionDbExec() === client) {
+    await lockAndAssertCurrentExecutionFences(client);
+    return write(client);
   }
   if (!client.transaction) {
     throw new Error("Fenced execution writes require transaction support");

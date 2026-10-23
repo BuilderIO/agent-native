@@ -24,6 +24,7 @@ let connectionRequestRows: Array<{ event_data: string }> = [];
 let hasLaterSameTurnRun = false;
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
+let pendingQueuedSubmissionRows: Array<Record<string, unknown>> = [];
 let completedTurnRows: Array<{
   id: string;
   has_terminal_event?: boolean;
@@ -55,6 +56,8 @@ let requiredInsertRunRows: Array<{
 let insertEventBehavior: () => void = () => {};
 let insertEventRowsAffected = 1;
 let abortRowsAffected = 1;
+let terminalReasonCasStatus = "completed";
+let terminalReasonCasValue: string | null = null;
 let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
 let staleRecoveryRows: Array<{
   thread_id: string;
@@ -80,8 +83,22 @@ const mockDb: any = {
     const args = typeof sql === "string" ? [] : (sql.args ?? []);
     execCalls.push({ sql: rawSql, args });
 
+    if (
+      /UPDATE agent_runs SET terminal_reason = \?/i.test(rawSql) &&
+      /WHERE id = \? AND status = \?/i.test(rawSql)
+    ) {
+      const matches =
+        terminalReasonCasStatus === args[2] &&
+        (terminalReasonCasValue === null || terminalReasonCasValue === "");
+      if (matches) terminalReasonCasValue = String(args[0]);
+      return { rows: [], rowsAffected: matches ? 1 : 0 };
+    }
+
     if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
       return { rows: [{ acquired: true }], rowsAffected: 0 };
+    }
+    if (/FROM agent_chat_submission_inbox/i.test(rawSql)) {
+      return { rows: pendingQueuedSubmissionRows, rowsAffected: 0 };
     }
     if (
       /SELECT thread_id, COALESCE\(turn_id, id\) AS turn_id\s+FROM agent_runs WHERE id = \?/i.test(
@@ -326,6 +343,7 @@ const mockCaptureError = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
+  getScopedTransactionDbExec: () => undefined,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -372,6 +390,7 @@ const {
   persistRunCheckpointEvent,
   reconcileTerminalRunFromEvents,
   setRunTerminalReason,
+  setRunTerminalReasonIfStatus,
   getRunEventsSince,
   getRunPendingConnectionRequestId,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
@@ -441,6 +460,7 @@ describe("run store", () => {
     hasLaterSameTurnRun = false;
     staleSelectRows = [];
     claimSlotRows = [];
+    pendingQueuedSubmissionRows = [];
     completedTurnRows = [];
     runStatusRows = [];
     claimStateRows = [];
@@ -462,6 +482,8 @@ describe("run store", () => {
     insertEventBehavior = () => {};
     insertEventRowsAffected = 1;
     abortRowsAffected = 1;
+    terminalReasonCasStatus = "completed";
+    terminalReasonCasValue = null;
     __resetNoRunningRunsProbeForTests();
     vi.clearAllMocks();
   });
@@ -1504,6 +1526,43 @@ describe("run store", () => {
     ).toBe(true);
   });
 
+  it("defers a fresh run claim while an accepted queue receipt is pending", async () => {
+    pendingQueuedSubmissionRows = [{ present: 1 }];
+    const result = await tryClaimRunSlot(
+      "thread-queued-order",
+      "run-direct",
+      undefined,
+      {
+        hasPendingQueuedSubmission: async (tx) => {
+          const { rows } = await tx.execute({
+            sql: `SELECT 1 FROM agent_chat_submission_inbox
+                  WHERE thread_id = ? AND state = 'queued'
+                  LIMIT 1`,
+            args: ["thread-queued-order"],
+          });
+          return rows.length > 0;
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      claimed: false,
+      activeRunId: null,
+      queuedSubmissionPending: true,
+    });
+    expect(
+      execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+    ).toBe(false);
+    expect(
+      execCalls.find((call) =>
+        /FROM agent_chat_submission_inbox/i.test(call.sql),
+      ),
+    ).toBeDefined();
+    expect(
+      execCalls.find((call) => /pg_advisory_xact_lock/i.test(call.sql))?.args,
+    ).toEqual(["agent-native:run-slot:thread-queued-order"]);
+  });
+
   it("tryClaimRunSlot persists a byte-free dispatch payload", async () => {
     const dispatchPayload = JSON.stringify({
       messages: [{ role: "user", content: "Create an ad" }],
@@ -1707,6 +1766,24 @@ describe("run store", () => {
       activeRunId: null,
       completedRunId: "run-completed",
     });
+  });
+
+  it("replays a completed turn before deferring to a pending queued submission", async () => {
+    completedTurnRows = [{ id: "run-completed" }];
+    const hasPendingQueuedSubmission = vi.fn(async () => true);
+
+    await expect(
+      tryClaimRunSlot("thread-completed-with-queue", "run-retry", undefined, {
+        turnId: "turn-completed",
+        replayCompletedTurn: true,
+        hasPendingQueuedSubmission,
+      }),
+    ).resolves.toEqual({
+      claimed: false,
+      activeRunId: null,
+      completedRunId: "run-completed",
+    });
+    expect(hasPendingQueuedSubmission).not.toHaveBeenCalled();
   });
 
   it("tryClaimRunSlot does not replay a completed continuation chunk", async () => {
@@ -2703,6 +2780,30 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
       expect(update?.sql).toContain(
         "(status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')",
       );
+    }
+  });
+
+  it("setRunTerminalReasonIfStatus writes for a matching terminal row with a NULL or empty reason", async () => {
+    for (const existingReason of [null, ""] as const) {
+      execCalls.length = 0;
+      terminalReasonCasStatus = "completed";
+      terminalReasonCasValue = existingReason;
+
+      const matched = await setRunTerminalReasonIfStatus(
+        "run-final",
+        "completed",
+        "done",
+      );
+
+      const update = execCalls.find((call) =>
+        /UPDATE agent_runs/i.test(call.sql),
+      );
+      expect(update?.sql).toContain(
+        "WHERE id = ? AND status = ? AND (terminal_reason IS NULL OR terminal_reason = '')",
+      );
+      expect(update?.args).toEqual(["done", "run-final", "completed"]);
+      expect(matched).toBe(true);
+      expect(terminalReasonCasValue).toBe("done");
     }
   });
 });

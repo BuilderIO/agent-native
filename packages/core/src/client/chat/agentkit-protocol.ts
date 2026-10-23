@@ -17,6 +17,7 @@ import type {
   AgentMessagePart,
   AgentObjectReference,
   AgentParticipant,
+  AgentQueuedSubmissionReceipt,
   AgentRunStatus,
   AgentRequestAttachment,
   AgentTask,
@@ -307,52 +308,61 @@ function runtimeRequestAttachments(args: {
       part.type === "file" ? [runtimeAttachmentFromFilePart(part)] : [],
     ) ?? [];
   for (const requestAttachment of args.requestAttachments ?? []) {
-    const originalUrl = requestAttachment.referenceUrl;
-    const originalIndex = originalUrl
-      ? attachments.findIndex((attachment) => attachment.url === originalUrl)
+    const referenceUrl = requestAttachment.referenceUrl;
+    const originalUrl = referenceUrl;
+    const originalLookupUrl = originalUrl ?? requestAttachment.url;
+    const originalIndex = originalLookupUrl
+      ? attachments.findIndex(
+          (attachment) => attachment.url === originalLookupUrl,
+        )
       : -1;
-    if (typeof requestAttachment.data === "string") {
-      const imageUrl = requestAttachment.url ?? originalUrl;
-      const keepsOriginalReference =
-        originalUrl !== undefined &&
-        imageUrl !== undefined &&
-        originalUrl !== imageUrl;
-      if (keepsOriginalReference) {
-        const original = originalIndex >= 0 ? attachments[originalIndex] : null;
-        const reference = {
-          type: "file",
-          name: original?.name || requestAttachment.name,
-          contentType: original?.contentType || requestAttachment.contentType,
-          url: originalUrl,
-          referenceOnly: true,
-        };
-        if (originalIndex >= 0) attachments.splice(originalIndex, 1, reference);
-        else attachments.push(reference);
+    const addReferenceOnly = (replaceOriginal: boolean) => {
+      const original = originalIndex >= 0 ? attachments[originalIndex] : null;
+      const reference: AgentChatAttachment = {
+        type: "file",
+        name: original?.name || requestAttachment.name,
+        contentType: original?.contentType || requestAttachment.contentType,
+        ...(original?.id ? { id: original.id } : {}),
+        ...(original?.mediaType ? { mediaType: original.mediaType } : {}),
+        url: originalLookupUrl,
+        referenceOnly: true,
+      };
+      if (replaceOriginal && originalIndex >= 0) {
+        attachments.splice(originalIndex, 1, reference);
+      } else {
+        attachments.push(reference);
       }
-      const image = {
+    };
+    if (typeof requestAttachment.data === "string") {
+      // The image's identity is exactly what the client fingerprinted: its own
+      // url, never one derived from referenceUrl. An original file part is kept
+      // as a reference (even when the image shares its url), so the submitted
+      // file fingerprint still matches the mapped attachments.
+      const imageUrl = requestAttachment.url;
+      const keepsOriginalReference =
+        originalIndex >= 0 ||
+        (originalUrl !== undefined &&
+          imageUrl !== undefined &&
+          originalUrl !== imageUrl);
+      if (keepsOriginalReference) {
+        addReferenceOnly(originalIndex >= 0);
+      }
+      attachments.push({
         type: "image",
         name: requestAttachment.name,
         contentType: requestAttachment.contentType,
         data: requestAttachment.data,
         ...(imageUrl ? { url: imageUrl } : {}),
-      };
-      if (originalIndex >= 0 && !keepsOriginalReference) {
-        attachments.splice(originalIndex, 1, image);
-      } else {
-        attachments.push(image);
-      }
+        ...(referenceUrl ? { referenceUrl } : {}),
+      });
       continue;
     }
 
-    if (originalIndex >= 0 && originalUrl) {
-      const original = attachments[originalIndex]!;
-      attachments.splice(originalIndex, 1, {
-        type: "file",
-        name: original.name || requestAttachment.name,
-        contentType: original.contentType,
-        url: originalUrl,
-        referenceOnly: true,
-      });
+    if (
+      originalUrl &&
+      (originalIndex < 0 || requestAttachment.url !== originalUrl)
+    ) {
+      addReferenceOnly(originalIndex >= 0);
     }
     if (typeof requestAttachment.url === "string") {
       attachments.push({
@@ -360,6 +370,7 @@ function runtimeRequestAttachments(args: {
         name: requestAttachment.name,
         contentType: requestAttachment.contentType,
         url: requestAttachment.url,
+        ...(referenceUrl ? { referenceUrl } : {}),
       });
     }
   }
@@ -462,6 +473,20 @@ function mergeProtocolMetadata(
     merged[AGENT_NATIVE_PROTOCOL_METADATA_KEY] = native;
   }
   return merged;
+}
+
+function withQueuedMessageIdMetadata(
+  metadata: Record<string, unknown> | undefined,
+  messageId: string | undefined,
+): Record<string, unknown> | undefined {
+  if (messageId === undefined) return metadata;
+  return {
+    ...metadata,
+    custom: {
+      ...asRecord(metadata?.custom),
+      agentNativeQueuedMessageId: messageId,
+    },
+  };
 }
 
 const PROTECTED_PROTOCOL_METADATA_KEYS = [
@@ -2136,26 +2161,30 @@ export function createAgentKitProtocolAdapter(
     start: {
       attachReplayedRun?: boolean;
       messageId?: string;
+      queuedMessageId?: string;
     } = {},
   ): Promise<string> {
     const runId = turn.runId ?? turn.id ?? createId("run");
-    const runMetadata = mergeTrustedProtocolMetadata(
-      options.metadata,
-      turnMetadata,
-      turn.metadata,
-      {
-        [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
-          observability: {
-            protocolRunId: runId,
-            ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
-            runtimeId: runtime.id,
-            sessionId: session.id,
-            ...(turn.id === undefined ? {} : { turnId: turn.id }),
-            threadId,
-            ...observability,
-          },
-        } satisfies AgentNativeProtocolMetadata,
-      },
+    const runMetadata = withQueuedMessageIdMetadata(
+      mergeTrustedProtocolMetadata(
+        options.metadata,
+        turnMetadata,
+        turn.metadata,
+        {
+          [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
+            observability: {
+              protocolRunId: runId,
+              ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
+              runtimeId: runtime.id,
+              sessionId: session.id,
+              ...(turn.id === undefined ? {} : { turnId: turn.id }),
+              threadId,
+              ...observability,
+            },
+          } satisfies AgentNativeProtocolMetadata,
+        },
+      ),
+      start.queuedMessageId,
     );
     setRuntimeRunIdMetadata(runMetadata, turn.runId);
     setRuntimeTurnIdMetadata(runMetadata, turn.id);
@@ -2455,6 +2484,7 @@ export function createAgentKitProtocolAdapter(
       options.onRunOutcome({
         runId: run.turn.runId ?? run.runId,
         threadId: run.threadId,
+        ...(run.turn.requestTurnId ? { turnId: run.turn.requestTurnId } : {}),
         outcome:
           event.type === "run.completed"
             ? "succeeded"
@@ -3770,7 +3800,12 @@ export function createAgentKitProtocolAdapter(
       run.quietAuthorityReads = 0;
       run.successorWaitStartedAtMs = undefined;
     }
-    run.turn = resumed;
+    // A resumed stream is the same turn; only the response that started it
+    // carries the turn the server stored the run under.
+    run.turn =
+      resumed.requestTurnId || !run.turn.requestTurnId
+        ? resumed
+        : { ...resumed, requestTurnId: run.turn.requestTurnId };
     indexRun(run, resumed.runId);
   }
 
@@ -3929,14 +3964,21 @@ export function createAgentKitProtocolAdapter(
       const recoveryMetadata = asRecord(latestUserMetadata?.custom);
       const isRecoveryRetry =
         recoveryMetadata?.agentNativeRecoveryAction === "retry";
-      const turnMetadata = mergeTrustedProtocolMetadata(
-        options.metadata,
-        input.metadata,
-        input.options?.metadata,
-        input.options?.agentId ? { agentId: input.options.agentId } : undefined,
-        input.options?.locale ? { locale: input.options.locale } : undefined,
-        input.options?.mode ? { mode: input.options.mode } : undefined,
-        isRecoveryRetry ? { agentNativeInternalContinuation: true } : undefined,
+      const turnMetadata = withQueuedMessageIdMetadata(
+        mergeTrustedProtocolMetadata(
+          options.metadata,
+          input.metadata,
+          input.options?.metadata,
+          input.options?.agentId
+            ? { agentId: input.options.agentId }
+            : undefined,
+          input.options?.locale ? { locale: input.options.locale } : undefined,
+          input.options?.mode ? { mode: input.options.mode } : undefined,
+          isRecoveryRetry
+            ? { agentNativeInternalContinuation: true }
+            : undefined,
+        ),
+        input.queuePromotion?.messageId,
       );
       const queuePromotionKey = input.queuePromotion
         ? JSON.stringify([input.threadId, input.queuePromotion.turnId])
@@ -3956,7 +3998,9 @@ export function createAgentKitProtocolAdapter(
           return { runId: await pendingRun, capabilities };
         }
       }
-      const createRun = async (): Promise<string> => {
+      const createRun = async (): Promise<
+        string | AgentQueuedSubmissionReceipt
+      > => {
         const session = await getSession(input.threadId, turnMetadata);
         const messages = input.messages.map(protocolMessageToRuntimeMessage);
         const attachments = runtimeRequestAttachments({
@@ -3966,9 +4010,11 @@ export function createAgentKitProtocolAdapter(
         const turn = await session.startTurn({
           prompt: latestUserPrompt(input.messages),
           messages,
+          ...(input.options ? { options: input.options } : {}),
           ...(input.submissionPayload
             ? { submissionPayload: input.submissionPayload }
             : {}),
+          ...(input.references?.length ? { references: input.references } : {}),
           ...(input.queuePromotion
             ? { queuePromotion: input.queuePromotion }
             : {}),
@@ -3987,6 +4033,7 @@ export function createAgentKitProtocolAdapter(
           metadata: turnMetadata,
           abortSignal: readers.signal,
         });
+        if (turn.queuedSubmission) return turn.queuedSubmission;
         return openStartedRun(
           input.threadId,
           session,
@@ -3996,13 +4043,27 @@ export function createAgentKitProtocolAdapter(
           {
             attachReplayedRun: true,
             messageId: latestUserMessage?.id,
+            ...(input.queuePromotion
+              ? { queuedMessageId: input.queuePromotion.messageId }
+              : {}),
           },
         );
       };
       if (!queuePromotionKey) {
-        return { runId: await createRun(), capabilities };
+        const started = await createRun();
+        return typeof started === "string"
+          ? { runId: started, capabilities }
+          : { queuedSubmission: started, capabilities };
       }
-      const pendingRun = Promise.resolve().then(createRun);
+      const pendingRun = Promise.resolve().then(async () => {
+        const started = await createRun();
+        if (typeof started !== "string") {
+          throw new TypeError(
+            "A queue promotion cannot be acknowledged as a new queued submission.",
+          );
+        }
+        return started;
+      });
       pendingQueuePromotionRuns.set(queuePromotionKey, pendingRun);
       try {
         return { runId: await pendingRun, capabilities };
@@ -4720,6 +4781,9 @@ export function createAgentKitProtocolAdapter(
     transport.cancelUpload = hostOperations.cancelUpload;
   if (hostOperations?.listQueuedMessages)
     transport.listQueuedMessages = hostOperations.listQueuedMessages;
+  if (hostOperations?.getQueuedSubmissionStatus)
+    transport.getQueuedSubmissionStatus =
+      hostOperations.getQueuedSubmissionStatus;
   if (hostOperations?.queueMessage) {
     transport.queueMessage = (input, context) => {
       const metadata = mergeTrustedProtocolMetadata(
