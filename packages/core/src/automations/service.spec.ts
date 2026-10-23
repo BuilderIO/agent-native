@@ -117,7 +117,7 @@ vi.mock("../jobs/run-history.js", () => ({
   ) => ({ sql: "history-delete", args: [owner, name, guard] }),
 }));
 
-import { defineAction } from "../action.js";
+import { defineAction, type ActionRunContext } from "../action.js";
 import { nextOccurrence } from "../jobs/cron.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import {
@@ -132,8 +132,39 @@ import {
   updateAutomation,
 } from "./service.js";
 
-const actor = { userEmail: "Alice@Example.com", orgId: "org-1", appId: "mail" };
+const omittedCallerActor = {
+  userEmail: "Alice@Example.com",
+  orgId: "org-1",
+  appId: "mail",
+};
+const actor = { ...omittedCallerActor, caller: "frontend" as const };
 const orgOwner = "__organization__:org-1";
+
+type Origin = Pick<ActionRunContext, "caller" | "networkProtocol">;
+const outsideOrigins: { label: string; context: Origin }[] = [
+  { label: "A2A caller", context: { caller: "a2a" } },
+  {
+    label: "tool over A2A",
+    context: { caller: "tool", networkProtocol: "a2a" },
+  },
+  {
+    label: "tool over MCP ask_app",
+    context: { caller: "tool", networkProtocol: "mcp" },
+  },
+  {
+    label: "tool over provider API",
+    context: { caller: "tool", networkProtocol: "provider-api" },
+  },
+];
+
+/** Runs `run` inside an app action frame, as an action wrapper that omits the caller does. */
+function inAppAction<T>(context: Origin, run: () => Promise<T>) {
+  return defineAction({
+    description: "Change an app-owned automation.",
+    schema: z.object({}),
+    run,
+  }).run({}, { ...context, userEmail: actor.userEmail });
+}
 
 function resource(
   content: string,
@@ -302,7 +333,7 @@ describe("automation domain service", () => {
         description: "Create an app-owned automation.",
         schema: z.object({}),
         run: () =>
-          defineAutomation(actor, {
+          defineAutomation(omittedCallerActor, {
             name: "app-created",
             scope: "personal",
             triggerType: "manual",
@@ -320,6 +351,140 @@ describe("automation domain service", () => {
       ).toBe(caller === "mcp" ? true : undefined);
     },
   );
+
+  it.each(outsideOrigins)(
+    "marks $label definitions through app action wrappers that omit the caller",
+    async ({ context }) => {
+      const result = await inAppAction(context, () =>
+        defineAutomation(omittedCallerActor, {
+          name: "outside-created",
+          scope: "personal",
+          triggerType: "manual",
+          body: "Send a reminder.",
+        }),
+      );
+      expect(result.meta.mcpManaged).toBe(true);
+      expect(
+        parseJobResource(resourcePutWithDbMock.mock.calls[0][3]).meta
+          .mcpManaged,
+      ).toBe(true);
+    },
+  );
+
+  it("marks definitions from an A2A actor outside any action frame", async () => {
+    const result = await defineAutomation(
+      { ...actor, caller: "a2a" },
+      {
+        name: "a2a-created",
+        scope: "personal",
+        triggerType: "manual",
+        body: "Send a reminder.",
+      },
+    );
+    expect(result.meta.mcpManaged).toBe(true);
+    expect(
+      parseJobResource(resourcePutWithDbMock.mock.calls[0][3]).meta.mcpManaged,
+    ).toBe(true);
+  });
+
+  it.each([
+    { label: "an unrecognized caller", who: { ...actor, caller: "future" } },
+    { label: "no caller and no action frame", who: omittedCallerActor },
+  ])("treats $label as outside provenance", async ({ who }) => {
+    const result = await defineAutomation(who as typeof actor, {
+      name: "unknown-origin",
+      scope: "personal",
+      triggerType: "manual",
+      body: "Send a reminder.",
+    });
+    expect(result.meta.mcpManaged).toBe(true);
+  });
+
+  it.each(["frontend", "tool"] as const)(
+    "keeps definitions and edits from the app's own %s unmarked",
+    async (caller) => {
+      const created = await inAppAction({ caller }, () =>
+        defineAutomation(omittedCallerActor, {
+          name: "app-created",
+          scope: "personal",
+          triggerType: "manual",
+          body: "Send a reminder.",
+        }),
+      );
+      expect(created.meta.mcpManaged).toBeUndefined();
+      expect(
+        parseJobResource(resourcePutWithDbMock.mock.calls[0][3]).meta
+          .mcpManaged,
+      ).toBeUndefined();
+      resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+      const updated = await inAppAction({ caller }, () =>
+        updateAutomation(omittedCallerActor, {
+          name: "notify",
+          scope: "organization",
+          enabled: false,
+        }),
+      );
+      expect(updated.meta.enabled).toBe(false);
+      expect(updated.meta.mcpManaged).toBeUndefined();
+      expect(
+        parseJobResource(updated.resource.content).meta.mcpManaged,
+      ).toBeUndefined();
+    },
+  );
+
+  it.each(outsideOrigins)(
+    "marks $label edits and keeps the mark through later ordinary edits",
+    async ({ context }) => {
+      let stored = resource(eventAutomation);
+      resourceGetByPathMock.mockImplementation(async () => stored);
+      resourcePutIfCurrentMock.mockImplementation(async (input) => {
+        stored = {
+          ...stored,
+          content: input.content,
+          updatedAt: stored.updatedAt + 1,
+        };
+        return stored;
+      });
+      const first = await inAppAction(context, () =>
+        updateAutomation(omittedCallerActor, {
+          name: "notify",
+          scope: "organization",
+          body: "Send a changed reminder.",
+        }),
+      );
+      expect(first.meta.mcpManaged).toBe(true);
+      expect(parseJobResource(stored.content).meta.mcpManaged).toBe(true);
+      const second = await updateAutomation(
+        { ...actor, caller: "frontend" },
+        { name: "notify", scope: "organization", enabled: false },
+      );
+      expect(second.meta.mcpManaged).toBe(true);
+      expect(parseJobResource(stored.content).meta.mcpManaged).toBe(true);
+    },
+  );
+
+  it("keeps A2A provenance through nested actions with a different inner caller", async () => {
+    let stored = resource(eventAutomation);
+    resourceGetByPathMock.mockImplementation(async () => stored);
+    resourcePutIfCurrentMock.mockImplementation(async (input) => {
+      stored = {
+        ...stored,
+        content: input.content,
+        updatedAt: stored.updatedAt + 1,
+      };
+      return stored;
+    });
+    const result = await inAppAction({ caller: "a2a" }, () =>
+      inAppAction({ caller: "tool" }, () =>
+        updateAutomation(
+          { ...actor, caller: "frontend" },
+          { name: "notify", scope: "organization", enabled: false },
+        ),
+      ),
+    );
+    expect(result.meta.mcpManaged).toBe(true);
+    expect(parseJobResource(stored.content).meta.mcpManaged).toBe(true);
+  });
 
   it("keeps MCP provenance through nested actions with a different inner caller", async () => {
     let stored = resource(eventAutomation);
@@ -437,7 +602,7 @@ describe("automation domain service", () => {
       ).rejects.toMatchObject({
         statusCode: 409,
         message:
-          "This automation is running. Wait for it to finish before managing it through MCP.",
+          "This automation is running. Wait for it to finish before managing it through an external agent.",
       });
       expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
       expect(transactionMock).not.toHaveBeenCalled();
@@ -532,7 +697,7 @@ describe("automation domain service", () => {
     ).rejects.toMatchObject({
       statusCode: 409,
       message:
-        "Esta automatización se está ejecutando. Espera a que termine antes de gestionarla mediante MCP.",
+        "Esta automatización se está ejecutando. Espera a que termine antes de gestionarla mediante un agente externo.",
     });
     expect(getUserSettingMock).toHaveBeenCalledWith(
       "alice@example.com",
@@ -1514,7 +1679,12 @@ Send the digest.`);
       );
 
     const updated = await updateAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      {
+        userEmail: "admin@example.com",
+        orgId: "org-1",
+        appId: "mail",
+        caller: "frontend",
+      },
       { name: "notify", scope: "organization", body: requestedBody },
     );
 
@@ -1557,7 +1727,12 @@ Send the digest.`);
       );
 
     const updated = await updateAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      {
+        userEmail: "admin@example.com",
+        orgId: "org-1",
+        appId: "mail",
+        caller: "frontend",
+      },
       { name: "notify", scope: "organization", enabled: true },
     );
 
@@ -1622,7 +1797,12 @@ Send the digest.`);
       );
 
     const updated = await updateAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      {
+        userEmail: "admin@example.com",
+        orgId: "org-1",
+        appId: "mail",
+        caller: "frontend",
+      },
       {
         name: "notify",
         scope: "organization",
@@ -1652,7 +1832,12 @@ Run this as a recurring job.`;
 
     await expect(
       updateAutomation(
-        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          userEmail: "admin@example.com",
+          orgId: "org-1",
+          appId: "mail",
+          caller: "frontend",
+        },
         { name: "notify", scope: "organization", enabled: false },
       ),
     ).rejects.toMatchObject({ statusCode: 400 });
@@ -1672,7 +1857,12 @@ Run this as a recurring job.`;
 
     await expect(
       updateAutomation(
-        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          userEmail: "admin@example.com",
+          orgId: "org-1",
+          appId: "mail",
+          caller: "frontend",
+        },
         { name: "notify", scope: "organization", enabled: false },
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
@@ -1686,7 +1876,12 @@ Run this as a recurring job.`;
 
     await expect(
       updateAutomation(
-        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          userEmail: "admin@example.com",
+          orgId: "org-1",
+          appId: "mail",
+          caller: "frontend",
+        },
         { name: "notify", scope: "organization", enabled: false },
       ),
     ).rejects.toMatchObject({ statusCode: 409 });

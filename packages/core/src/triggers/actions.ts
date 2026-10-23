@@ -4,7 +4,7 @@ import {
 } from "../action-ui.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { isMcpAutomationOrigin } from "../automations/mcp-origin.js";
+import { isOutsideAutomationOrigin } from "../automations/outside-origin.js";
 import {
   defineAutomation,
   deleteAutomation,
@@ -258,6 +258,8 @@ async function handleDefine(
       orgId: getRequestOrgId(),
       appId,
       ...(context?.caller ? { caller: context.caller } : {}),
+      networkProtocol: context?.networkProtocol,
+      automation: context?.automation,
     },
     {
       name: typeof args.name === "string" ? args.name : "",
@@ -356,6 +358,8 @@ async function handleUpdate(
       orgId: getRequestOrgId(),
       appId,
       ...(context?.caller ? { caller: context.caller } : {}),
+      networkProtocol: context?.networkProtocol,
+      automation: context?.automation,
     },
     {
       resourceId:
@@ -572,7 +576,7 @@ export function createAutomationToolEntries(
   return frameworkMcpTools({
     "manage-automations": {
       needsApproval: (args, context) =>
-        isMcpAutomationOrigin(context?.caller) &&
+        isOutsideAutomationOrigin(context) &&
         args.action !== "list" &&
         args.action !== "list-events" &&
         args.action !== "list-hosts",

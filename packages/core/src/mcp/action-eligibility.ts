@@ -111,15 +111,26 @@ export function isMcpActionInputEligible(
   );
 }
 
+// The framework's own runtime, by name and by marker. Every catalog and every
+// run an outside caller starts leaves it out, whatever an entry's input is.
+export function isFrameworkRuntimeAction(
+  name: string,
+  entry: ActionEntry,
+): boolean {
+  return (
+    RUNTIME_ONLY_ACTION_NAMES.has(name) ||
+    /^(?:db-|provider-api-|seed-)/i.test(name) ||
+    entry.cliWrapper === true ||
+    (isFrameworkMcpTool(entry) && !ALLOWED_FRAMEWORK_ACTION_NAMES.has(name))
+  );
+}
+
 export function isMcpActionNameEligible(
   name: string,
   entry: ActionEntry,
 ): boolean {
   return (
-    !RUNTIME_ONLY_ACTION_NAMES.has(name) &&
-    !/^(?:db-|provider-api-|seed-)/i.test(name) &&
-    !isAutoReadExcludedActionName(name) &&
-    entry.cliWrapper !== true &&
-    (!isFrameworkMcpTool(entry) || ALLOWED_FRAMEWORK_ACTION_NAMES.has(name))
+    !isFrameworkRuntimeAction(name, entry) &&
+    !isAutoReadExcludedActionName(name)
   );
 }

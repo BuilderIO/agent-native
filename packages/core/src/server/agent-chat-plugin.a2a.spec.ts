@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { createApp } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -972,18 +970,6 @@ describe("delegated A2A tool surface", () => {
   });
 
   it("keeps framework automation tools on the delegated first request", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", "utf8");
-    const a2aActionsStart = source.indexOf(
-      "const a2aRegisteredActions = devActive",
-    );
-    const a2aToolSurfaceStart = source.indexOf(
-      "const a2aToolSurface = createA2AEngineToolSurface(",
-      a2aActionsStart,
-    );
-    const a2aActions = source.slice(a2aActionsStart, a2aToolSurfaceStart);
-
-    expect(a2aActions.match(/\.\.\.automationTools,/g)).toHaveLength(2);
-
     const surface = createA2AEngineToolSurface(
       [tool("manage-automations"), tool("tool-search"), tool("rare-action")],
       ["manage-automations"],

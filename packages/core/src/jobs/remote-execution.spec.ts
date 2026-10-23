@@ -153,7 +153,7 @@ describe("remote automation execution", () => {
       ).rejects.toMatchObject({
         errorCode: "config_invalid",
         message:
-          "Las automatizaciones gestionadas por MCP no pueden usar funciones sin aprobación por acción.",
+          "Las automatizaciones gestionadas por un agente externo no pueden usar funciones sin aprobación por acción.",
       });
       expect(enqueueRemoteCommandMock).not.toHaveBeenCalled();
       expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
