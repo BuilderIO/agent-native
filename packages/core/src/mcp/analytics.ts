@@ -11,16 +11,19 @@ export const MCP_ANALYTICS_EVENTS = {
   toolCall: "$mcp_tool_call",
   resourcesList: "$mcp_resources_list",
   resourceRead: "$mcp_resource_read",
+  oauthAuthorizeOpened: "$mcp_oauth_authorize_opened",
+  oauthLoginWallShown: "$mcp_oauth_login_wall_shown",
 } as const;
 
 export interface McpAnalyticsContext {
   source: "http" | "stdio";
   serverName: string;
-  serverVersion: string;
+  serverVersion?: string;
   appId?: string;
   clientName?: string;
   clientVersion?: string;
   clientUserAgent?: string;
+  redirectHost?: string;
   protocolVersion?: string;
   userId?: string;
   sessionId?: string;
@@ -98,17 +101,22 @@ function captureParameters(): boolean {
 }
 
 function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
-  const vendor = detectVendorClient(ctx.clientName, ctx.clientUserAgent);
+  const vendor = detectVendorClient(
+    ctx.clientName,
+    ctx.clientUserAgent,
+    ctx.redirectHost,
+  );
   return {
     $mcp_source: ctx.source,
     $mcp_server_name: ctx.serverName,
-    $mcp_server_version: ctx.serverVersion,
+    ...(ctx.serverVersion ? { $mcp_server_version: ctx.serverVersion } : {}),
     ...(ctx.appId ? { $mcp_app_id: ctx.appId } : {}),
     ...(ctx.clientName ? { $mcp_client_name: ctx.clientName } : {}),
     ...(ctx.clientVersion ? { $mcp_client_version: ctx.clientVersion } : {}),
     ...(ctx.clientUserAgent
       ? { $mcp_client_user_agent: ctx.clientUserAgent }
       : {}),
+    ...(ctx.redirectHost ? { $mcp_redirect_host: ctx.redirectHost } : {}),
     ...(vendor ? { $mcp_vendor_client: vendor } : {}),
     ...(ctx.protocolVersion
       ? { $mcp_protocol_version: ctx.protocolVersion }
@@ -209,6 +217,29 @@ export function trackMcpResourceRead(
     $mcp_is_error: args.isError,
     ...(args.errorType ? { $mcp_error_type: args.errorType } : {}),
     ...(args.errorMessage ? { $mcp_error_message: args.errorMessage } : {}),
+  });
+}
+
+export type McpOAuthRoute = "directory" | "mcp";
+
+export function trackMcpOAuthAuthorizeOpened(
+  ctx: McpAnalyticsContext,
+  args: { route: McpOAuthRoute; signedIn: boolean },
+): void {
+  if (!analyticsEnabled()) return;
+  emit(MCP_ANALYTICS_EVENTS.oauthAuthorizeOpened, ctx, {
+    $mcp_oauth_route: args.route,
+    $mcp_oauth_signed_in: args.signedIn,
+  });
+}
+
+export function trackMcpOAuthLoginWallShown(
+  ctx: McpAnalyticsContext,
+  args: { route: McpOAuthRoute },
+): void {
+  if (!analyticsEnabled()) return;
+  emit(MCP_ANALYTICS_EVENTS.oauthLoginWallShown, ctx, {
+    $mcp_oauth_route: args.route,
   });
 }
 

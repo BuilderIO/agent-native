@@ -23,6 +23,12 @@ beforeEach(() => {
   trackMock.mockClear();
   connectionClaims.clear();
 });
+const trackedCalls = (matches: (name: string) => boolean) =>
+  trackMock.mock.calls.filter(([name]) => matches(String(name)));
+const agentConnectedCalls = () =>
+  trackedCalls((name) => name === "agent_connected");
+const authorizeFunnelCalls = () =>
+  trackedCalls((name) => name.startsWith("$mcp_oauth_"));
 
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 
@@ -444,7 +450,7 @@ describe("MCP OAuth route", () => {
     };
     await connect();
     await connect();
-    expect(trackMock.mock.calls).toEqual([
+    expect(agentConnectedCalls()).toEqual([
       [
         "agent_connected",
         {
@@ -460,7 +466,7 @@ describe("MCP OAuth route", () => {
 
   it("does not record OAuth consent, invalid grants or failed issuance", async () => {
     await openConsent();
-    expect(trackMock).not.toHaveBeenCalled();
+    expect(agentConnectedCalls()).toEqual([]);
     const response = await handleMcpOAuth(
       event({
         method: "POST",
@@ -475,7 +481,7 @@ describe("MCP OAuth route", () => {
       "/token",
     );
     expect(response.status).toBe(400);
-    expect(trackMock).not.toHaveBeenCalled();
+    expect(agentConnectedCalls()).toEqual([]);
   });
 
   it("serves protected-resource and authorization-server metadata", async () => {
@@ -1078,6 +1084,141 @@ describe("MCP OAuth route", () => {
     );
     expect(res.status).toBe(200);
     await expect(res.text()).resolves.toContain("Sign in");
+  });
+
+  describe("authorize funnel events", () => {
+    const chatgptRedirect = "https://chatgpt.com/connector/oauth/abc123";
+    const verifier = "v".repeat(50);
+
+    async function openAuthorize(
+      query: Record<string, string> = {},
+      resource = "https://mail.agent-native.com/mcp/directory",
+    ) {
+      const client = await (
+        await handleMcpOAuth(
+          event({
+            method: "POST",
+            body: {
+              client_name: "ChatGPT",
+              redirect_uris: [chatgptRedirect],
+            } as any,
+          }),
+          "/register",
+        )
+      ).json();
+      const params = {
+        response_type: "code",
+        client_id: client.client_id,
+        redirect_uri: chatgptRedirect,
+        resource,
+        code_challenge: challenge(verifier),
+        code_challenge_method: "S256",
+        state: "secret-state",
+        ...query,
+      };
+      const response = await handleMcpOAuth(
+        event({ query: params }),
+        "/authorize",
+        { appId: "agent-native-mail", appName: "Mail" },
+      );
+      return { response, params };
+    }
+
+    it("counts a signed-out open as an open and a login wall, tagged by client and route", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      const { response } = await openAuthorize();
+
+      expect(response.status).toBe(200);
+      const tags = {
+        $mcp_oauth_route: "directory",
+        $mcp_app_id: "mail",
+        $mcp_server_name: "Mail",
+        $mcp_client_name: "ChatGPT",
+        $mcp_redirect_host: "chatgpt.com",
+        $mcp_vendor_client: "openai",
+      };
+      expect(authorizeFunnelCalls()).toEqual([
+        [
+          "$mcp_oauth_authorize_opened",
+          expect.objectContaining({ ...tags, $mcp_oauth_signed_in: false }),
+          { userId: undefined, sessionId: undefined },
+        ],
+        [
+          "$mcp_oauth_login_wall_shown",
+          expect.objectContaining(tags),
+          { userId: undefined, sessionId: undefined },
+        ],
+      ]);
+    });
+
+    it("counts a signed-in open once, with the user, and not the consent POST", async () => {
+      const resource = "https://mail.agent-native.com/mcp";
+      const { response, params } = await openAuthorize({}, resource);
+      const consentToken = (await response.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )![1];
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: { ...params, decision: "approve", consent_token: consentToken },
+        }),
+        "/authorize",
+        { appId: "agent-native-mail", appName: "Mail" },
+      );
+
+      expect(authorizeFunnelCalls()).toEqual([
+        [
+          "$mcp_oauth_authorize_opened",
+          expect.objectContaining({
+            $mcp_oauth_route: "mcp",
+            $mcp_oauth_signed_in: true,
+          }),
+          { userId: "steve@example.com", sessionId: undefined },
+        ],
+      ]);
+    });
+
+    it("does not count prompt=none as a login wall", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      await openAuthorize({ prompt: "none" });
+
+      expect(authorizeFunnelCalls().map(([name]) => name)).toEqual([
+        "$mcp_oauth_authorize_opened",
+      ]);
+    });
+
+    it("keeps PKCE, state, client id and the redirect path out of the events", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      const { params } = await openAuthorize();
+
+      expect(authorizeFunnelCalls()).toHaveLength(2);
+      const recorded = JSON.stringify(authorizeFunnelCalls());
+      for (const secret of [
+        params.code_challenge,
+        params.state,
+        params.client_id,
+        "/connector/oauth/abc123",
+      ]) {
+        expect(recorded).not.toContain(secret);
+      }
+    });
+
+    it("still serves the login page when tracking throws", async () => {
+      const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+      trackMock.mockImplementationOnce(() => {
+        throw new Error("analytics down");
+      });
+      trackMock.mockImplementationOnce(() => {
+        throw new Error("analytics down");
+      });
+      getSessionMock.mockResolvedValueOnce(null);
+      const { response } = await openAuthorize();
+
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toContain("Sign in");
+      expect(logged).toHaveBeenCalled();
+      logged.mockRestore();
+    });
   });
 
   it.each([
@@ -2594,13 +2735,13 @@ describe("MCP OAuth grant validation", () => {
       expect(codes.get(code).consumedAt).toBeNull();
       expect(refreshRows.size).toBe(0);
       if (failure === "insertion") expect(sign).not.toHaveBeenCalled();
-      expect(trackMock).not.toHaveBeenCalled();
+      expect(agentConnectedCalls()).toEqual([]);
 
       const retried = await exchange(clientId, code);
       expect(retried.status).toBe(200);
       expect((await retried.json()).access_token).toBeTruthy();
       expect(refreshRows.size).toBe(1);
-      expect(trackMock).toHaveBeenCalledTimes(1);
+      expect(agentConnectedCalls()).toHaveLength(1);
     },
   );
 

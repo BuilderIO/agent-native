@@ -179,6 +179,9 @@ describe("client identification", () => {
     expect(detectVendorClient(undefined, "cursor-mcp/0.4")).toBe("cursor");
     expect(detectVendorClient("some-unknown-host")).toBeUndefined();
     expect(detectVendorClient(undefined, undefined)).toBeUndefined();
+    expect(detectVendorClient(undefined, undefined, "chatgpt.com")).toBe(
+      "openai",
+    );
   });
 
   it("reads the client's own name and version from per-request _meta", () => {
