@@ -749,6 +749,26 @@ export interface GitHubSyncResult {
   problem: GitHubSourceState["problem"];
 }
 
+/**
+ * How many images the planned pages wait on: what this run left out of the
+ * pages it wrote, and what their last sync left out of the rest. Also whether
+ * any of those images failed to upload, rather than waiting for storage.
+ */
+function waitingImages(planned: readonly PlannedFile[]) {
+  let waiting = 0;
+  let failed = false;
+  for (const file of planned) {
+    const linked = file.row ?? file.renamedFrom;
+    const last = linked ? rowState(linked) : null;
+    const count = file.imagesWaiting ?? last?.imagesWaiting ?? 0;
+    waiting += count;
+    if (count > 0 && (file.imagesFailed ?? Boolean(last?.imagesFailedAt))) {
+      failed = true;
+    }
+  }
+  return { waiting, failed };
+}
+
 function emptyResult(
   state: GitHubSyncResult["state"],
   commitSha: string | null,
@@ -1802,19 +1822,19 @@ export async function syncGitHubSource(
   // Files this run read and had to skip. A run that fails partway keeps
   // them too, so the next one doesn't read them again.
   let readSkipsSoFar: GitHubReadSkip[] | null = null;
-  // Images the pages this run wrote left waiting. A run that fails partway
-  // still counts them, so the next sync goes back for them.
-  let imagesWaitingSoFar = 0;
-  const keepImagesWaiting = (current: GitHubSourceState) =>
-    imagesWaitingSoFar > current.imagesWaiting
-      ? { ...current, imagesWaiting: imagesWaitingSoFar }
-      : current;
+  // The files this run planned, once it has. A run that fails partway counts
+  // the images they wait on from them, so the next sync goes back for the
+  // ones still missing and stops counting the ones it stored.
+  let plannedSoFar: PlannedFile[] | null = null;
+  const imagesWaitingNow = (before: number) =>
+    plannedSoFar ? waitingImages(plannedSoFar).waiting : before;
   const failed = (problem: GitHubSourceState["problem"]): GitHubSyncResult => ({
     ...emptyResult("error", state.pendingCommitSha, problem),
     created: result.created,
     updated: result.updated,
     renamed: result.renamed,
     trashed: result.trashed,
+    imagesWaiting: imagesWaitingNow(0),
   });
   const endBudget = () => budget.abort();
   if (options.signal?.aborted) endBudget();
@@ -2002,6 +2022,15 @@ export async function syncGitHubSource(
     const cutShort = new Map(
       state.cutShort.map((path, index) => [path, index + 1]),
     );
+    // A renamed file keeps the place its old path had.
+    const cutShortRank = new Map(
+      work.map((file) => {
+        const from = file.renamedFrom ? rowState(file.renamedFrom)?.path : null;
+        const rank =
+          cutShort.get(file.repoPath) ?? (from ? cutShort.get(from) : 0) ?? 0;
+        return [file, rank];
+      }),
+    );
     // Pages whose images failed to upload go after those too, oldest failure
     // first, so an image storage always rejects can't stop the rest.
     const failedAt = new Map(
@@ -2014,13 +2043,14 @@ export async function syncGitHubSource(
       ]),
     );
     const inLine = (a: PlannedFile, b: PlannedFile) =>
-      (cutShort.get(a.repoPath) ?? 0) - (cutShort.get(b.repoPath) ?? 0) ||
+      cutShortRank.get(a)! - cutShortRank.get(b)! ||
       failedAt.get(a)!.localeCompare(failedAt.get(b)!);
     work.sort(inLine);
     result.commitSha = head.sha;
     result.unchanged = planned.length - work.length - stillSkipped.length;
     const readSkips: GitHubReadSkip[] = [...stillSkipped];
     readSkipsSoFar = readSkips;
+    plannedSoFar = planned;
     let done = 0;
     let cutShortPath: string | null = null;
     for (let index = 0; index < work.length; index += 1) {
@@ -2059,11 +2089,16 @@ export async function syncGitHubSource(
               folderRelative(run, file.repoPath),
               match[1].documentId,
             );
-            // It takes its old page's place in line, so one whose images
-            // failed to upload still goes after the files still to come.
+            // It takes its old page's place in line, so one the time ran out
+            // on, or whose images failed to upload, still goes after the
+            // files still to come.
+            cutShortRank.set(
+              file,
+              cutShort.get(file.repoPath) ?? cutShort.get(match[0]) ?? 0,
+            );
             failedAt.set(file, rowState(match[1])?.imagesFailedAt ?? "");
             let to = index + 1;
-            while (to < work.length && inLine(work[to]!, file) <= 0) to += 1;
+            while (to < work.length && inLine(work[to]!, file) < 0) to += 1;
             if (to > index + 1) {
               work.splice(to, 0, file);
               work.splice(index, 1);
@@ -2082,7 +2117,6 @@ export async function syncGitHubSource(
         }
         throw error;
       }
-      imagesWaitingSoFar += file.imagesWaiting ?? 0;
       if (typeof outcome === "string") result[outcome] += 1;
       else
         readSkips.push({
@@ -2103,16 +2137,9 @@ export async function syncGitHubSource(
     }
     result.remaining = remainingFiles + gone.size;
     // Pages this run didn't get to still wait on what their last sync left out.
-    let imagesFailed = false;
-    for (const file of planned) {
-      const linked = file.row ?? file.renamedFrom;
-      const last = linked ? rowState(linked) : null;
-      const waiting = file.imagesWaiting ?? last?.imagesWaiting ?? 0;
-      result.imagesWaiting += waiting;
-      if (waiting > 0 && (file.imagesFailed ?? Boolean(last?.imagesFailedAt))) {
-        imagesFailed = true;
-      }
-    }
+    const images = waitingImages(planned);
+    result.imagesWaiting = images.waiting;
+    const imagesFailed = images.failed;
     // Storage that just worked isn't missing, even if the time budget left
     // some pages for the next sync to fill in. Images that failed to upload
     // still say so until they're stored, even when the time ran out before
@@ -2194,7 +2221,10 @@ export async function syncGitHubSource(
       // may well finish, so the link shows no problem and waits its turn. It
       // can't say the rows match the branch, though, until a check gets through.
       await release(
-        (current) => keepImagesWaiting(current),
+        (current) => ({
+          ...current,
+          imagesWaiting: imagesWaitingNow(current.imagesWaiting),
+        }),
         (next) => ({
           syncState: next.pendingCommitSha
             ? "refreshing"
@@ -2227,7 +2257,8 @@ export async function syncGitHubSource(
     }
     await release(
       (current) => ({
-        ...keepImagesWaiting(current),
+        ...current,
+        imagesWaiting: imagesWaitingNow(current.imagesWaiting),
         checkedAt: now,
         problem,
         ...(readSkipsSoFar ? { readSkips: readSkipsSoFar } : {}),

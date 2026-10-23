@@ -1948,6 +1948,94 @@ describe("GitHub folder source", () => {
     }
   });
 
+  it("counts only the images still missing when a retry fails partway", async () => {
+    github.state.storageDown = true;
+    github.commit({
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+      "docs/b-chart.md": "# Chart\n\n![Chart](images/chart.png)\n",
+      "docs/images/chart.png": "PNGCHART",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const linked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      expect(linked.sync).toMatchObject({ imagesWaiting: 2 });
+
+      // Storage works again: the poster's page gets its image, then the
+      // read of the chart's page fails.
+      github.state.storageDown = false;
+      const failAfterUpload = async () => {
+        if (github.state.uploads > 0) throw new Error("socket hang up");
+        github.state.duringBlobRead = failAfterUpload;
+      };
+      github.state.duringBlobRead = failAfterUpload;
+      const id = await sourceId(database.id);
+      const failed = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(failed).toMatchObject({
+        state: "error",
+        updated: 1,
+        imagesWaiting: 1,
+      });
+      const status = await as(() => getSource.run({ databaseId: database.id }));
+      expect(status.source?.metadata.github?.imagesWaiting).toBe(1);
+
+      github.state.duringBlobRead = null;
+      const filled = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(filled).toMatchObject({
+        state: "synced",
+        updated: 1,
+        imagesWaiting: 0,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps a frontmatter-matched page's cut-short place in line", async () => {
+    github.commit({
+      "docs/a.md": "---\nid: page-a\n---\n# A\n",
+      "docs/b.md": "# B\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    // The time runs out on the edited a.md, so it goes after the rest next.
+    github.commit({
+      "docs/a.md": "---\nid: page-a\n---\n# A, edited\n",
+      "docs/b.md": "# B\n",
+    });
+    github.state.slowContents.add("---\nid: page-a\n---\n# A, edited\n");
+    const id = await sourceId(database.id);
+    const cut = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
+    );
+    expect(cut).toMatchObject({ state: "partial", remaining: 1 });
+    github.state.slowContents.clear();
+
+    // Moved and edited again: only its frontmatter id ties it to its page.
+    // It comes before b.md by name but keeps its place after it.
+    github.commit({
+      "docs/a-moved.md":
+        "---\nid: page-a\n---\n# A, moved\n\n![X](images/x.png)\n",
+      "docs/images/x.png": "PNGX",
+      "docs/b.md": "# B, edited\n\n![Y](images/y.png)\n",
+      "docs/images/y.png": "PNGY",
+    });
+    const synced = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+    );
+    expect(synced).toMatchObject({ state: "synced", renamed: 1, updated: 1 });
+    expect(github.state.uploadAttempts).toEqual(["y.png", "x.png"]);
+  });
+
   it("goes back for a rejected image when a later read in the same sync fails", async () => {
     const { database } = await linkBaseFolder();
     github.state.rejectFilename = "poster.png";
@@ -1969,7 +2057,11 @@ describe("GitHub folder source", () => {
       const failed = await as(() =>
         syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
       );
-      expect(failed).toMatchObject({ state: "error", created: 1 });
+      expect(failed).toMatchObject({
+        state: "error",
+        created: 1,
+        imagesWaiting: 1,
+      });
       expect(github.state.uploadFailures).toBe(1);
 
       github.state.rejectFilename = null;
