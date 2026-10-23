@@ -588,15 +588,24 @@ function matchesSlackMessageText(
   sourceText: string,
   threadText: string,
 ): boolean {
-  const normalize = (text: string, isThreadRead = false) => {
-    const textWithThreadPreviewRemoved = isThreadRead
-      ? text.replace(
-          /\n+(?:Reactions: [^\n]*\n+)?App notification from App \([^)]+\):[\s\S]*$/i,
-          "",
-        )
+  const appNotificationTail =
+    /\n+(?:Reactions: [^\n]*\n+)?App notification from App \([^)]+\):[\s\S]*$/i;
+  const sourceNotificationTail = sourceText.match(appNotificationTail)?.[0];
+  const normalizedThread = threadText.replace(
+    /^I[’']m looking into this for you\r?\nCancel button\r?\n/i,
+    "",
+  );
+  const threadNotificationTail =
+    normalizedThread.match(appNotificationTail)?.[0];
+  const sourcePreviewMatchesThreadPreview =
+    sourceNotificationTail !== undefined &&
+    sourceNotificationTail === threadNotificationTail;
+  const normalize = (text: string, removeAppNotificationTail = false) => {
+    const textWithAppNotificationRemoved = removeAppNotificationTail
+      ? text.replace(appNotificationTail, "")
       : text;
     return (
-      textWithThreadPreviewRemoved
+      textWithAppNotificationRemoved
         // Search omits the connector origin footer that thread reads append.
         .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
         // Search can add one or more bot disclosures and a page separator that
@@ -635,18 +644,18 @@ function matchesSlackMessageText(
         .trim()
     );
   };
-  const normalizedThread = threadText.replace(
-    /^I[’']m looking into this for you\r?\nCancel button\r?\n/i,
-    "",
-  );
   if (
     sourceText === threadText ||
-    normalize(sourceText) === normalize(normalizedThread, true)
+    normalize(sourceText, sourcePreviewMatchesThreadPreview) ===
+      normalize(normalizedThread, true)
   ) {
     return true;
   }
 
-  const normalizedSource = normalize(sourceText);
+  const normalizedSource = normalize(
+    sourceText,
+    sourcePreviewMatchesThreadPreview,
+  );
   const normalizedThreadText = normalize(normalizedThread, true);
   const groupMention = /<!subteam\^S[A-Z0-9]+(?:\|@([^>]+))?>/gi;
   const groupHandle =
@@ -1782,11 +1791,14 @@ function explicitActionReferenceKeys(text: string): Set<string> {
   const normalized = text.normalize("NFKC").toLowerCase().replace(/[*_`]/g, "");
   const references = new Set<string>();
   for (const match of normalized.matchAll(
-    /\b(pr|pull request|issue|ticket)\s+#?([\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)*)\b/giu,
+    /\b(pr|pull request|issue|ticket)\s+(#?)([\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)*)\b/giu,
   )) {
     const originalKind = match[1]!.toLowerCase();
     const kind = originalKind === "pull request" ? "pr" : originalKind;
-    references.add(`${kind}:${match[2]!.toLowerCase()}`);
+    const marker = match[2]!;
+    const id = match[3]!;
+    if (!marker && !/\p{N}/u.test(id)) continue;
+    references.add(`${kind}:${id.toLowerCase()}`);
   }
   return references;
 }
@@ -4025,24 +4037,33 @@ function claimsHumanTicketAction(text: string): boolean {
   const humanActor =
     "(?:i|we|they|owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|someone|anyone)";
   const namedActor =
-    "(?!(?:the|a|an|this|that|it|ticket|issue|action|task|work|request|handoff|bug|repro|pr|scope|fix|behavior|disposition|thread|root|mark|status|report|evidence|comment|message|system|bot|team|app|run|file|page|channel|calendar|database|service|agent|assistant|server|model|tool|api)\\b)\\p{Lu}[\\p{L}'-]*";
+    "(?!(?:the|a|an|this|that|it|ticket|issue|action|task|work|request|handoff|bug|repro|pr|scope|fix|behavior|disposition|thread|root|mark|status|report|evidence|comment|message|system|bot|team|app|run|file|page|channel|calendar|database|service|agent|assistant|server|model|tool|api|Jira|Slack|GitHub|Linear|Salesforce|HubSpot|Notion|Builder)\\b)\\p{Lu}[\\p{L}'-]*";
   const actionTarget =
     "(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)";
 
   return splitEvidenceClauses(text).some((clause) => {
     const normalized = normalizeReplyPhrase(clause);
+    if (
+      /\b(?:automatically|automated|automation|auto[- ]?(?:created|opened|filed)|bot|system)\b/i.test(
+        normalized,
+      )
+    ) {
+      return false;
+    }
     const hasHumanActorStatement = (statement: string) =>
       new RegExp(`\\b${humanActor}\\s+${statement}`, "i").test(normalized) ||
       new RegExp(`\\b${namedActor}\\s+${statement}`, "u").test(
         clause.normalize("NFKC"),
       );
+    const hasHumanPassiveAssignment = new RegExp(
+      String.raw`\b(?:ticket|issue|action)\b.{0,40}\b(?:is|was|has been|had been)\s+assigned\s+to\s+(?!(?:[Nn]o one|[Nn]obody|[Aa]nyone|[Aa]nybody|[Tt]he (?:bot|system|automation|app|agent|assistant|server|model|tool|api)|Jira|Slack|GitHub|Linear|Salesforce|HubSpot|Notion|Builder)\b)(?:\p{Lu}[\p{L}'-]*|me|us|you|someone|somebody|the (?:owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|team))\b`,
+      "u",
+    ).test(clause.normalize("NFKC"));
     return (
-      /\b(?:ticket|issue|action)\b.{0,40}\b(?:opened|created|filed|assigned|accepted|started|owned|taken|picked)\b/i.test(
-        normalized,
+      hasHumanActorStatement(
+        String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:open(?:s|ed|ing)?|creat(?:e|es|ed|ing)|fil(?:e|es|ed|ing))\b.{0,50}\b(?:ticket|issue|action)\b`,
       ) ||
-      /\b(?:opened|created|filed|assigned|accepted|started|owned|took|taken|picked)\b.{0,40}\b(?:ticket|issue|action)\b/i.test(
-        normalized,
-      ) ||
+      hasHumanPassiveAssignment ||
       hasHumanActorStatement(
         String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:accept(?:s|ed|ing)?|own(?:s|ed|ing)?|handle(?:s|d|ing)?|take|takes|took|taken|taking\s+on|pick(?:s|ed|ing)\s+up|work(?:s|ed|ing)\s+on|track(?:s|ed|ing)|follow(?:s|ed)?\s+up)\b.{0,50}\b${actionTarget}\b`,
       ) ||
@@ -9361,12 +9382,41 @@ if (args[0] === "--self-test" && args.length === 1) {
     "I am not assigning it to Sam.",
     "Sam is not on the hook for it.",
     "Alex does not have it.",
+    "The ticket was not assigned to anyone.",
+    "The ticket was not assigned to Alex.",
+    "The ticket was created automatically by the system.",
+    "Jira automatically created the ticket.",
+    "A bot opened a ticket.",
+    "Bot opened a ticket.",
   ]) {
     if (claimsHumanTicketAction(negatedAssignment)) {
       throw new Error(
         `Feedback inventory checker self-test treated a negated human action as active: ${negatedAssignment}`,
       );
     }
+  }
+  for (const positiveAction of [
+    "The ticket was assigned to Alex.",
+    "I opened a ticket.",
+    "I created the ticket.",
+    "I assigned it to Sam.",
+  ]) {
+    if (!claimsHumanTicketAction(positiveAction)) {
+      throw new Error(
+        `Feedback inventory checker self-test missed a positive human action: ${positiveAction}`,
+      );
+    }
+  }
+  if (
+    explicitActionReferenceKeys(
+      "The ticket tracks the internal repro; review ticket later and see the issue for the login bug.",
+    ).size !== 0 ||
+    !explicitActionReferenceKeys("PR #8008").has("pr:8008") ||
+    !explicitActionReferenceKeys("issue PROJ-123").has("issue:proj-123")
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test misclassified ticket prose or explicit action references.",
+    );
   }
   expectFocusedFailure(
     "unreconciled ticket status with a prior ticket assignment",
@@ -20929,6 +20979,14 @@ if (args[0] === "--self-test" && args.length === 1) {
       !matchesSlackMessageText(
         "Status reply.",
         "Status reply.\n\nApp notification from App (Builder):\nExpanded preview.",
+      ) ||
+      !matchesSlackMessageText(
+        "Status *reply*.\n\nApp notification from App (Builder):\nSame preview.",
+        "Status reply.\n\nApp notification from App (Builder):\nSame preview.",
+      ) ||
+      matchesSlackMessageText(
+        "Status reply.\n\nApp notification from App (Builder):\nSource-only preview.",
+        "Status reply.",
       ) ||
       matchesSlackMessageText(
         "Status reply.\n\nApp notification from App (Builder):\nSource notification tail.",

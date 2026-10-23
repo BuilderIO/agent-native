@@ -42,6 +42,13 @@ const docs = table("qa_docs", {
 });
 
 const docShares = createSharesTable("qa_doc_shares");
+const managedDocs = table("qa_managed_docs", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+
+const managedDocShares = createSharesTable("qa_managed_doc_shares");
 
 type Db = ReturnType<typeof drizzle>;
 
@@ -78,6 +85,21 @@ async function insertDoc(values: {
   visibility?: "private" | "org" | "public";
 }) {
   await db.insert(docs).values({
+    id: values.id,
+    title: values.id,
+    ownerEmail: values.ownerEmail ?? ownerEmail,
+    orgId: values.orgId === undefined ? orgId : values.orgId,
+    visibility: values.visibility ?? "private",
+  });
+}
+
+async function insertManagedDoc(values: {
+  id: string;
+  ownerEmail?: string;
+  orgId?: string | null;
+  visibility?: "private" | "org" | "public";
+}) {
+  await db.insert(managedDocs).values({
     id: values.id,
     title: values.id,
     ownerEmail: values.ownerEmail ?? ownerEmail,
@@ -139,6 +161,23 @@ beforeEach(async () => {
       created_at TEXT NOT NULL,
       notified_at TEXT
     );
+    CREATE TABLE qa_managed_docs (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    );
+    CREATE TABLE qa_managed_doc_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      notified_at TEXT
+    );
     CREATE TABLE organizations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -183,8 +222,8 @@ beforeEach(async () => {
   });
   registerShareableResource({
     type: `${resourceType}-manager-policy`,
-    resourceTable: docs,
-    sharesTable: docShares,
+    resourceTable: managedDocs,
+    sharesTable: managedDocShares,
     displayName: "QA Workspace App",
     titleColumn: "title",
     getDb: () => db,
@@ -201,8 +240,8 @@ afterEach(async () => {
 describe("shareable resource access helpers", () => {
   it("keeps direct admin shares below a registration's manager policy", async () => {
     const managedResourceType = `${resourceType}-manager-policy`;
-    await insertDoc({ id: "manager-policy-app" });
-    await db.insert(docShares).values({
+    await insertManagedDoc({ id: "manager-policy-app" });
+    await db.insert(managedDocShares).values({
       id: "manager-policy-admin-share",
       resourceId: "manager-policy-app",
       principalType: "user",
@@ -226,8 +265,8 @@ describe("shareable resource access helpers", () => {
     });
     const [unchanged] = await db
       .select()
-      .from(docs)
-      .where(eq(docs.id, "manager-policy-app"));
+      .from(managedDocs)
+      .where(eq(managedDocs.id, "manager-policy-app"));
     expect(unchanged?.visibility).toBe("private");
 
     await runWithRequestContext(
@@ -247,9 +286,43 @@ describe("shareable resource access helpers", () => {
     );
   });
 
+  it("does not filter direct admin shares through manager-policy SQL", async () => {
+    await insertManagedDoc({ id: "manager-policy-filter" });
+    await db.insert(managedDocShares).values({
+      id: "manager-policy-filter-admin-share",
+      resourceId: "manager-policy-filter",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "admin",
+      createdBy: ownerEmail,
+      createdAt: "2026-01-01",
+    });
+
+    const listFor = (userEmail: string) =>
+      runWithRequestContext({ userEmail, orgId }, async () => {
+        const rows = await db
+          .select()
+          .from(managedDocs)
+          .where(
+            accessFilter(
+              managedDocs,
+              managedDocShares,
+              { userEmail, orgId },
+              "admin",
+            ),
+          );
+        return rows.map((row) => row.id);
+      });
+
+    await expect(listFor(viewerEmail)).resolves.toEqual([]);
+    await expect(listFor(ownerEmail)).resolves.toEqual([
+      "manager-policy-filter",
+    ]);
+  });
+
   it("does not let public access bypass a registration's manager policy", async () => {
     const managedResourceType = `${resourceType}-manager-policy`;
-    await insertDoc({
+    await insertManagedDoc({
       id: "manager-policy-public-app",
       ownerEmail: outsiderEmail,
       visibility: "public",

@@ -21750,6 +21750,74 @@ describe("runAgentLoop endsTurn", () => {
     ]);
   });
 
+  it("keeps an earlier user-input stop visible when a later approval call is skipped", async () => {
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "ask-1",
+              name: "ask-question",
+              input: { question: "Which range?", options: "[]" },
+            },
+            {
+              type: "tool-call" as const,
+              id: "email-1",
+              name: "send-email",
+              input: { to: "person@example.com" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const ask = vi.fn(async () => "asked");
+    const sendEmail = vi.fn(async () => "sent");
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "ask-question": {
+          ...actionEntry({ readOnly: false }),
+          endsTurn: true,
+          run: ask,
+        },
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: sendEmail,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(ask).toHaveBeenCalledOnce();
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(events.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+    expect(events.filter((event) => event.type === "text")).toEqual([
+      { type: "text", text: "Waiting for your answer before continuing." },
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "email-1",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
+    expect(events.some((event) => event.type === "done")).toBe(false);
+  });
+
   it("keeps the turn running when the endsTurn action fails", async () => {
     const { engine, streamCalls } = yieldEngine();
     const ask = createUrlTools()["ask-question"]!;

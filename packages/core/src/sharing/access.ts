@@ -269,6 +269,12 @@ export function accessFilter(
   const publicAllowed = reg?.allowPublic !== false;
   const includePublic = (options.includePublic ?? false) && publicAllowed;
   const clauses: SQL[] = [];
+  // A resource-specific manager callback cannot be evaluated by this SQL
+  // filter, so admin queries must not admit raw share roles for that policy.
+  const shareRoleFilter =
+    minRole === "admin" && reg?.canManageAccess
+      ? sql`1=0`
+      : minRoleSql(minRole);
   const orgMembership = orgId ? orgMembershipScope(ctx, orgId) : sql`1=1`;
 
   if (normalizedUserEmail) {
@@ -301,7 +307,7 @@ export function accessFilter(
                     and ${sharesTable.principalType} = 'user'
                     and lower(${sharesTable.principalId}) = ${normalizedUserEmail}
                     and ${shareScope}
-                    and ${minRoleSql(minRole)})`,
+                    and ${shareRoleFilter})`,
     );
   }
   if (orgId) {
@@ -313,7 +319,7 @@ export function accessFilter(
                     and ${sharesTable.principalId} = ${orgId}
                     and ${orgMembership}
                     and ${shareScope}
-                    and ${minRoleSql(minRole)})`,
+                    and ${shareRoleFilter})`,
     );
   }
 
@@ -341,7 +347,7 @@ export function accessFilter(
       sql`exists (select 1 from ${sharesTable}
                   where ${sharesTable.resourceId} = ${resourceTable.id}
                     and ${sharesTable.principalType} = 'group'
-                    and ${minRoleSql(minRole)}
+                    and ${shareRoleFilter}
                     and exists (
                       select 1 from ${groupTable} as workspace_group
                       where workspace_group.id = ${sharesTable.principalId}
