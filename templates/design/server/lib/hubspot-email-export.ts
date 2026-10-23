@@ -3,6 +3,7 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { parse, serialize, type DefaultTreeAdapterTypes } from "parse5";
 import postcss, { type Declaration } from "postcss";
 
+import { classifyEmailTextColor } from "./email-text-color.js";
 import { parseHubLInterpolation } from "./hubl-interpolation.js";
 
 type Element = DefaultTreeAdapterTypes.Element;
@@ -367,6 +368,12 @@ function inlineDeclarations(element: Element) {
 function mayHideText(declaration: Declaration): boolean {
   const property = declaration.prop.toLowerCase();
   const value = declaration.value.trim().toLowerCase();
+  if (property === "color") {
+    const color = classifyEmailTextColor(value);
+    return color.kind === "resolved"
+      ? color.alpha === 0
+      : color.kind !== "initial";
+  }
   return (
     (property === "display" && value === "none") ||
     (property === "visibility" && ["hidden", "collapse"].includes(value)) ||
@@ -377,15 +384,34 @@ function mayHideText(declaration: Declaration): boolean {
   );
 }
 
+function textColorVisible(
+  value: string | undefined,
+  inherited: boolean,
+): boolean {
+  const color = classifyEmailTextColor(value);
+  switch (color.kind) {
+    case "inherit":
+      return inherited;
+    case "initial":
+      return true;
+    case "resolved":
+      return color.alpha > 0;
+    case "unsupported":
+      return false;
+  }
+}
+
 function visibleTextByElement(document: Node): Map<Node, string> {
   const result = new Map<Node, string>();
   const visit = (
     node: Node,
-    inherited = { visibility: "visible", zeroFont: false },
+    inherited = { visibility: "visible", zeroFont: false, colorVisible: true },
   ): string => {
     if (node.nodeName === "#text") {
       const text =
-        inherited.visibility === "visible" && !inherited.zeroFont
+        inherited.visibility === "visible" &&
+        !inherited.zeroFont &&
+        inherited.colorVisible
           ? (node as DefaultTreeAdapterTypes.TextNode).value
           : "";
       result.set(node, text);
@@ -426,6 +452,7 @@ function visibleTextByElement(document: Node): Map<Node, string> {
               ? "hidden"
               : "visible",
         zeroFont,
+        colorVisible: textColorVisible(value("color"), inherited.colorVisible),
       };
     }
     const text =
@@ -477,22 +504,34 @@ function assertResponsiveFooterVisibility(
   }
   const styles = new Map<Element, ReturnType<typeof inlineDeclarations>>();
   for (const [name, paths] of candidates) {
-    const alwaysVisible = paths.some((path) =>
-      path.every((element) => {
+    const alwaysVisible = paths.some((path) => {
+      let colorVisible = true;
+      for (const element of [...path].reverse()) {
         if (!styles.has(element))
           styles.set(element, inlineDeclarations(element));
-        return rules.every(
-          (rule) =>
-            !matchesSelector(element, rule.parts) ||
-            rule.declarations.every((declaration) => {
-              const inline = styles
-                .get(element)!
-                .get(declaration.prop.toLowerCase());
-              return inline?.important || (!!inline && !declaration.important);
-            }),
+        const inline = styles.get(element)!;
+        const parentColorVisible = colorVisible;
+        colorVisible = textColorVisible(
+          inline.get("color")?.value,
+          parentColorVisible,
         );
-      }),
-    );
+        for (const rule of rules) {
+          if (!matchesSelector(element, rule.parts)) continue;
+          for (const declaration of rule.declarations) {
+            const property = declaration.prop.toLowerCase();
+            const winner = inline.get(property);
+            if (winner?.important || (!!winner && !declaration.important))
+              continue;
+            if (property !== "color") return false;
+            colorVisible &&= textColorVisible(
+              declaration.value,
+              parentColorVisible,
+            );
+          }
+        }
+      }
+      return colorVisible;
+    });
     if (!alwaysVisible)
       invalid(
         `Responsive CSS may hide required email footer content (${name}). Keep an always-visible footer and unsubscribe label outside conditional hide/show sections.`,

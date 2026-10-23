@@ -1,13 +1,28 @@
-const LITERAL = "('(?:[^'\\\\]|\\\\.)*'|\"(?:[^\"\\\\]|\\\\.)*\")";
+const LITERAL = String.raw`('(?:[^'\\]|\\['"\\ntbfr])*'|"(?:[^"\\]|\\['"\\ntbfr])*")`;
+const LITERAL_ESCAPES: Record<string, string> = {
+  "'": "'",
+  '"': '"',
+  "\\": "\\",
+  n: "\n",
+  t: "\t",
+  b: "\b",
+  f: "\f",
+  r: "\r",
+};
 const DEFAULT_FILTER = new RegExp(
   `^\\s*\\|\\s*default\\s*\\(\\s*${LITERAL}(?:\\s*,\\s*(?:true|false))?\\s*\\)`,
 );
 const PERSONALIZATION = new RegExp(
-  `^personalization_token\\s*\\(\\s*(['\"])(contact\\.[\\w.]+)\\1\\s*,\\s*${LITERAL}\\s*\\)`,
+  `^personalization_token\\s*\\(\\s*(['"])(contact\\.[\\w.]+)\\1\\s*,\\s*${LITERAL}\\s*\\)`,
 );
 
 function literalValue(literal: string): string {
-  return literal.slice(1, -1).replace(/\\(['"\\])/g, "$1");
+  return literal
+    .slice(1, -1)
+    .replace(
+      /\\(['"\\ntbfr])/g,
+      (_, escape: string) => LITERAL_ESCAPES[escape],
+    );
 }
 
 export function parseHubLInterpolation(token: string):

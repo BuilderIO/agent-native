@@ -468,6 +468,104 @@ describe("HubSpot email HTML export", () => {
     );
   });
 
+  it.each([
+    "transparent",
+    "#1230",
+    "#11223300",
+    "rgba(0,0,0,0)",
+    "rgb(10 20 30 / 0%)",
+    "hsl(210 50% 40% / 0)",
+    "color-mix(in srgb, transparent, transparent)",
+  ])("rejects invisible footer text colors (%s)", (color) => {
+    expect(() =>
+      prepareHubSpotEmailHtml(
+        withContent("Hello", `.email-footer {color:${color}}`),
+      ),
+    ).toThrow("visible footer");
+  });
+
+  it.each(["inherit", "currentColor", "unset"])(
+    "inherits transparent footer text through %s",
+    (color) => {
+      const html = withContent("Hello", ".email-footer {color:transparent}")
+        .replace(
+          '<td class="email-footer">',
+          `<td class="email-footer"><div style="color:${color}">`,
+        )
+        .replace("</a>\n      </td>", "</a></div>\n      </td>");
+      expect(() => prepareHubSpotEmailHtml(html)).toThrow("visible footer");
+    },
+  );
+
+  it.each(["#333", "initial"])(
+    "allows a visible child color reset (%s)",
+    (color) => {
+      const html = withContent(
+        "Hello",
+        `.email-footer {color:transparent}.email-footer p,.email-footer a {color:${color}}`,
+      );
+      expect(prepareHubSpotEmailHtml(html).html).toContain(`color:${color}`);
+    },
+  );
+
+  it("requires visible unsubscribe text even when company tokens remain visible", () => {
+    expect(() =>
+      prepareHubSpotEmailHtml(
+        withContent("Hello", ".email-footer a {color:transparent}"),
+      ),
+    ).toThrow("visible unsubscribe");
+  });
+
+  it.each([
+    [".email-footer", "transparent"],
+    ["body", "rgba(0,0,0,0)"],
+    [".email-footer a", "#0000"],
+    [".email-footer p", "hsl(0 0% 0% / 0%)"],
+  ])(
+    "rejects responsive transparent footer colors (%s / %s)",
+    (selector, color) => {
+      expect(() =>
+        prepareHubSpotEmailHtml(
+          withContent(
+            "Hello",
+            `@media(max-width:620px){${selector}{color:${color}!important}}`,
+          ),
+        ),
+      ).toThrow("Responsive CSS may hide required email footer content");
+    },
+  );
+
+  it("respects opaque inline important colors over responsive transparency", () => {
+    const html = withContent(
+      "Hello",
+      "@media(max-width:620px){.email-footer{color:transparent!important}}",
+    ).replace(
+      '<td class="email-footer">',
+      '<td class="email-footer" style="color:#333!important">',
+    );
+    expect(prepareHubSpotEmailHtml(html).html).toContain(
+      "color:#333!important",
+    );
+  });
+
+  it("allows opaque child colors beneath responsive transparent ancestors", () => {
+    const html = withContent(
+      "Hello",
+      ".email-footer p,.email-footer a{color:#333}@media(max-width:620px){.email-footer{color:transparent!important}}",
+    );
+    expect(prepareHubSpotEmailHtml(html).html).toContain("color:#333");
+  });
+
+  it("rejects a responsive inheritance reset that exposes a transparent ancestor", () => {
+    const html = withContent(
+      "Hello",
+      ".email-footer{color:transparent}.email-footer p,.email-footer a{color:#333}@media(max-width:620px){.email-footer p{color:inherit!important}}",
+    );
+    expect(() => prepareHubSpotEmailHtml(html)).toThrow(
+      "Responsive CSS may hide required email footer content",
+    );
+  });
+
   it("accepts an always-visible duplicate footer but rejects mutually conditional copies", () => {
     const html = withContent(
       "Hello",
