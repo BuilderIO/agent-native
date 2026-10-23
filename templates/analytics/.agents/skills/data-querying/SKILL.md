@@ -19,8 +19,8 @@ The analytics app connects to multiple data sources. This skill covers general p
 5. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 6. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it. Only present numbers you actually retrieved; never report a value you did not query.
 
-For a question about something an owner-defined dbt metric measures, even without its exact name (for example, "weekly active users" is `weekly_active_users`), use `tool-search` to load
-`query-dbt-semantic-metric` and pass its exact dbt name. Known owner-defined metrics include weekly_active_users (Pod 1 North Star), weekly_active_builders (Pod 2 North Star), and weekly_active_shippers. Use dbt as the metric-
+For a question about something an owner-defined dbt metric measures, even without its exact name (for example, a question about weekly active users), use `tool-search` to load
+`query-dbt-semantic-metric` and pass its exact dbt name. Resolve the exact metric name with `find-data` first, because metric names can change. Use dbt as the metric-
 definition and grain source; Sigma and Amplitude are examples or cross-checks.
 
 If no dbt connection is available, use the source-selection path below.
