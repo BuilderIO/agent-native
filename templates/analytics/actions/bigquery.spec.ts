@@ -121,23 +121,30 @@ describe("bigquery action error handling", () => {
     );
   });
 
-  it("passes successful query results straight through", async () => {
-    runQuery.mockResolvedValue({
-      rows: [{ week: "2026-05-11", signups: 42 }],
-      totalRows: 1,
-      schema: [],
-      bytesProcessed: 0,
-    });
+  it.each([0, undefined])(
+    "preserves successful query usage of %s in results and tracking",
+    async (bytesProcessed) => {
+      runQuery.mockResolvedValue({
+        rows: [{ week: "2026-05-11", signups: 42 }],
+        totalRows: 1,
+        schema: [],
+        bytesProcessed,
+      });
 
-    const result = await bigquery.run({ sql: "SELECT 1" });
+      const result = await bigquery.run({ sql: "SELECT 1" });
 
-    expect(result).toEqual({
-      rows: [{ week: "2026-05-11", signups: 42 }],
-      totalRows: 1,
-      schema: [],
-      bytesProcessed: 0,
-    });
-  });
+      expect(result).toEqual({
+        rows: [{ week: "2026-05-11", signups: 42 }],
+        totalRows: 1,
+        schema: [],
+        bytesProcessed,
+      });
+      const properties = track.mock.calls[0]?.[1];
+      if (bytesProcessed === undefined)
+        expect(properties).not.toHaveProperty("bytes_processed");
+      else expect(properties).toHaveProperty("bytes_processed", 0);
+    },
+  );
 
   it("marks completed results with BigQuery warnings as partial", async () => {
     runQuery.mockResolvedValue({

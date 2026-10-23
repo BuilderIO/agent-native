@@ -510,7 +510,8 @@ function getCacheKey(
   // cached warehouse results across tenants that happen to query the same
   // project/table names.
   // Isolate fenced cache rows from old instances that still write unconditionally.
-  return `v2:${createHash("sha256")
+  // Old cache rows may contain zero substituted for missing provider byte metadata.
+  return `v3:${createHash("sha256")
     .update(`${cacheScope}\n${projectId}\n${sql}`)
     .digest("hex")}`;
 }
@@ -799,7 +800,8 @@ async function finishCacheQuery(
         key,
         sql,
         JSON.stringify(result),
-        result.bytesProcessed ?? 0,
+        // The legacy non-null column uses -1 for unknown; JSON keeps usage optional.
+        result.bytesProcessed ?? -1,
         now.toISOString(),
         expiresAt.toISOString(),
         fence.generation,
@@ -914,11 +916,18 @@ async function acquireCacheQuery(
   }
 }
 
+function queryBytesProcessed(value: unknown): number | undefined {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return undefined;
+  const bytes = Number(value);
+  return Number.isSafeInteger(bytes) ? bytes : undefined;
+}
+
 export interface QueryResult {
   rows: Record<string, unknown>[];
   totalRows: number;
   schema: { name: string; type: string }[];
-  bytesProcessed: number;
+  /** Absent when the provider omits usage or returns an invalid byte count. */
+  bytesProcessed?: number;
   cached?: boolean;
   truncated?: boolean;
   partial?: boolean;
@@ -1568,7 +1577,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     }));
 
     const rows = data.rows ? rowsToObjects(data.rows, fields) : [];
-    const bytesProcessed = parseInt(data.totalBytesProcessed || "0", 10);
+    const bytesProcessed = queryBytesProcessed(data.totalBytesProcessed);
 
     const reportedTotal = Number.parseInt(data.totalRows || "", 10);
     const totalRows = Number.isFinite(reportedTotal)

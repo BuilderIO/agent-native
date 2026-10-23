@@ -986,11 +986,13 @@ describe("content collection", () => {
       );
       expect(
         await rows(
-          "SELECT error_code, error_message FROM analytics_content_collection_runs WHERE step = 'signups'",
+          "SELECT error_code, error_message, bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
         ),
       ).toEqual([
         {
           error_code: "signups_bytes_cap",
+          bytes_processed: 0,
+          bytes_cap: 1_000,
           error_message:
             "The signups join would scan 5000 bytes, over the 1000-byte cap. Nothing ran.",
         },
@@ -1020,6 +1022,159 @@ describe("content collection", () => {
       expect(ran(summaries)[1]).toEqual(
         expect.objectContaining({ step: "signups", status: "cost_limited" }),
       );
+      expect(
+        await rows(
+          "SELECT bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
+        ),
+      ).toEqual([{ bytes_processed: null, bytes_cap: 1_000 }]);
+    });
+
+    it.each([
+      { name: "dry-run error", dryRun: { error: "unavailable" }, bytes: 0 },
+      { name: "missing estimate", dryRun: { error: null }, bytes: 0 },
+      {
+        name: "query error",
+        queryError: new Error("query unavailable"),
+        bytes: null,
+      },
+      { name: "truncated result", result: { truncated: true }, bytes: 400 },
+      {
+        name: "row limit",
+        result: { rows: Array(200_000).fill({}) },
+        bytes: 400,
+      },
+      {
+        name: "invalid signup count",
+        result: {
+          rows: [
+            {
+              data_through: "2026-10-13",
+              handle: "post-a1",
+              day: "2026-10-13",
+              signups: Symbol("invalid-count"),
+            },
+          ],
+        },
+        bytes: 400,
+      },
+    ])(
+      "keeps the cap and known usage after $name",
+      async ({ dryRun, queryError, result, bytes }) => {
+        await onlySteps({ builderBlog: true, signups: true }, [], {
+          ...WAREHOUSE,
+          maxBytesBilled: 1_000,
+        });
+        feed(article("a1"));
+        mocks.dryRunQuerySchema.mockResolvedValueOnce(
+          dryRun ?? { error: null, totalBytesProcessed: 900 },
+        );
+        if (queryError) mocks.runQuery.mockRejectedValueOnce(queryError);
+        else
+          mocks.runQuery.mockResolvedValueOnce({
+            rows: [],
+            totalRows: 0,
+            schema: [],
+            bytesProcessed: 400,
+            ...result,
+          });
+
+        const summaries = await collectContentForAllTenants({
+          now: new Date("2026-10-15T07:00:00Z"),
+        });
+
+        expect(ran(summaries)[1]).toMatchObject({
+          step: "signups",
+          status: "failed",
+        });
+        expect(
+          await rows(
+            "SELECT bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
+          ),
+        ).toEqual([{ bytes_processed: bytes, bytes_cap: 1_000 }]);
+        expect(mocks.runQuery).toHaveBeenCalledTimes(dryRun ? 0 : 1);
+        expect(await snapshots("signups_first_touch")).toEqual([]);
+      },
+    );
+
+    it.each([0, undefined])(
+      "preserves a returned usage of %s without substituting the estimate",
+      async (bytesProcessed) => {
+        await onlySteps({ builderBlog: true, signups: true }, [], {
+          ...WAREHOUSE,
+          maxBytesBilled: 1_000,
+        });
+        feed(article("a1"));
+        mocks.dryRunQuerySchema.mockResolvedValueOnce({
+          error: null,
+          totalBytesProcessed: 900,
+        });
+        mocks.runQuery.mockResolvedValueOnce({
+          rows: [],
+          totalRows: 0,
+          schema: [],
+          bytesProcessed,
+        });
+
+        await collectContentForAllTenants({
+          now: new Date("2026-10-15T07:00:00Z"),
+        });
+
+        expect(
+          await rows(
+            "SELECT status, bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
+          ),
+        ).toEqual([
+          {
+            status: "succeeded",
+            bytes_processed: bytesProcessed ?? null,
+            bytes_cap: 1_000,
+          },
+        ]);
+      },
+    );
+
+    it("keeps actual query usage when saving snapshots fails", async () => {
+      await onlySteps({ builderBlog: true, signups: true }, [], {
+        ...WAREHOUSE,
+        maxBytesBilled: 1_000,
+      });
+      feed(article("a1", { publishDate: "2026-10-13T00:00:00.000Z" }));
+      await client.exec(
+        "ALTER TABLE analytics_content_metric_snapshots ADD CONSTRAINT reject_signups CHECK (source <> 'signups')",
+      );
+      mocks.dryRunQuerySchema.mockResolvedValueOnce({
+        error: null,
+        totalBytesProcessed: 900,
+      });
+      mocks.runQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            data_through: "2026-10-13",
+            handle: "post-a1",
+            day: "2026-10-13",
+            signups: 2,
+            source_signups: 1,
+          },
+        ],
+        totalRows: 1,
+        schema: [],
+        bytesProcessed: 400,
+      });
+
+      const summaries = await collectContentForAllTenants({
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+
+      expect(ran(summaries)[1]).toMatchObject({
+        step: "signups",
+        status: "failed",
+      });
+      expect(
+        await rows(
+          "SELECT status, bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
+        ),
+      ).toEqual([{ status: "failed", bytes_processed: 400, bytes_cap: 1_000 }]);
+      expect(await snapshots("signups_first_touch")).toEqual([]);
     });
 
     it("writes first-touch signups per article by visit day, zero only through the warehouse's last day", async () => {
@@ -1060,7 +1215,7 @@ describe("content collection", () => {
         ],
         totalRows: 3,
         schema: [],
-        bytesProcessed: 900,
+        bytesProcessed: 400,
       });
 
       await collectContentForAllTenants({
@@ -1072,6 +1227,13 @@ describe("content collection", () => {
         { maxBytesBilled: number },
       ];
       expect(options.maxBytesBilled).toBe(1_000);
+      expect(
+        await rows(
+          "SELECT status, bytes_processed, bytes_cap FROM analytics_content_collection_runs WHERE step = 'signups'",
+        ),
+      ).toEqual([
+        { status: "succeeded", bytes_processed: 400, bytes_cap: 1_000 },
+      ]);
       expect(sql).toContain("`example-project.analytics.events`");
       expect(sql).toContain("TIMESTAMP('2026-07-17')");
       expect(sql).toContain("DATE '2026-10-14'");
