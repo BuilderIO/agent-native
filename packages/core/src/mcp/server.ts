@@ -543,7 +543,12 @@ export function mountMCP(
 
   mountMcpApprovalRoute(
     nitroApp,
-    { appId: mcpApprovalAppId(config), actions: config.actions },
+    {
+      appId: mcpApprovalAppId(config),
+      // Only a signed-in caller makes a grant, and MCP runs its calls from
+      // `productionActions` when there is one (`selectMcpActionSurface`).
+      actions: config.productionActions ?? config.actions,
+    },
     routePrefix,
   );
   for (const routePath of routePaths) {

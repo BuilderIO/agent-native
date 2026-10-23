@@ -161,6 +161,14 @@ vi.mock("./approval-store.js", async () => {
   };
 });
 
+vi.mock("./approval-route.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./approval-route.js")>();
+  return {
+    ...actual,
+    mountMcpApprovalRoute: vi.fn(actual.mountMcpApprovalRoute),
+  };
+});
+
 // No saved localization: approval prompts are in the default locale.
 vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
@@ -403,6 +411,7 @@ vi.mock("./credential-membership.js", async (importOriginal) => {
 });
 
 const { handleMcpRequest, mountMCP } = await import("./server.js");
+const { mountMcpApprovalRoute } = await import("./approval-route.js");
 const { handleMcpFetchRequest } = await import("./framework-fetch-handler.js");
 
 interface MakeEventOpts {
@@ -5765,6 +5774,21 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       `https://mail.agent-native.com/custom/mcp/approvals/${grant.nonce}`,
     );
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("reads a review's action from the actions a signed-in caller runs", () => {
+    const listed = sendEmailConfig(vi.fn());
+    const signedIn = {
+      ...listed.actions,
+      "create-event": listed.actions["send-email"],
+    };
+    mountMCP(
+      { h3: { use: vi.fn() } },
+      { ...listed, productionActions: signedIn },
+    );
+    expect(vi.mocked(mountMcpApprovalRoute).mock.lastCall?.[1].actions).toBe(
+      signedIn,
+    );
   });
 
   it("links a declined approval prompt to a new grant's review page without running", async () => {

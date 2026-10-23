@@ -294,6 +294,25 @@ describe("summarizeMcpApproval", () => {
     expect(summary.cut).toBe(false);
   });
 
+  it("counts every address in a recipient string that lists several", () => {
+    const summary = summarizeMcpApproval({
+      entry: undefined,
+      actionName: "send-email",
+      argumentsJson: JSON.stringify({
+        to: "ana@example.com, Bo <bo@example.com>",
+        cc: "cy@example.com;\ndee@example.com",
+        bcc: "Team, eve@example.com",
+      }),
+      labels,
+    });
+    expect(summary.recipients).toEqual([
+      "ana@example.com",
+      "bo@example.com",
+      "cy@example.com",
+      "dee@example.com",
+    ]);
+  });
+
   it("marks arguments the server cut to store them", () => {
     const summarize = (args: unknown) =>
       summarizeMcpApproval({

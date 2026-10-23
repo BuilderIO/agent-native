@@ -53,6 +53,8 @@ export interface McpApprovalSummary {
 const RECIPIENT_KEY =
   /^(?:to|cc|bcc|recipients?|attendees?|participants?|invitees?|guests?|members?|emails?|shared?_?with|users?)$/i;
 const EMAIL = /^[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[^\s@<>(),;:]+$/;
+const ADDRESS_SEPARATOR = /[,;\n]/;
+const NAMED_ADDRESS = /^[^<>]*<([^<>]+)>$/;
 // Stored arguments are no deeper (`audit/redact.ts`).
 const MAX_DEPTH = 6;
 // The in-client prompt is a short text; it says what it leaves out.
@@ -69,10 +71,26 @@ export function humanizeIdentifier(identifier: string): string {
   return words ? words[0].toUpperCase() + words.slice(1) : identifier;
 }
 
+/**
+ * The addresses a string names when it names nothing else, as recipient
+ * arguments often do: `a@x.com, Ana <b@x.com>`.
+ */
+function addressList(text: string): string[] | undefined {
+  const addresses: string[] = [];
+  for (const part of text.split(ADDRESS_SEPARATOR)) {
+    if (!part.trim()) continue;
+    const named = NAMED_ADDRESS.exec(part.trim());
+    const address = (named ? named[1] : part).trim();
+    if (!EMAIL.test(address)) return undefined;
+    addresses.push(address);
+  }
+  return addresses.length > 0 ? addresses : undefined;
+}
+
 function collectEmails(value: unknown, into: Set<string>, depth: number) {
   if (depth > MAX_DEPTH) return;
   if (typeof value === "string") {
-    if (EMAIL.test(value.trim())) into.add(value.trim());
+    for (const address of addressList(value) ?? []) into.add(address);
     return;
   }
   if (Array.isArray(value)) {
