@@ -17,6 +17,7 @@ import {
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
+import { isRegistryBlockTag } from "@shared/nfm-registry";
 import { buildPublicDocumentDescription } from "@shared/og-description";
 import { IconLayoutSidebarRight, IconLock } from "@tabler/icons-react";
 import { and, eq, isNull } from "drizzle-orm";
@@ -212,6 +213,20 @@ function renderMarkdownBlocks(content: string) {
   return content.split(/\n{2,}/).map((block, index) => {
     const trimmed = block.trim();
     if (!trimmed) return null;
+    // A registry block draws its data once the editor mounts; until then it
+    // holds its place, as the editor's static body does, instead of showing
+    // its MDX source.
+    if (isRegistryBlockTag(trimmed.match(/^<([A-Za-z_][\w-]*)/)?.[1] ?? "")) {
+      return (
+        <div
+          key={index}
+          aria-hidden
+          className="plan-block-node__placeholder mt-4 rounded-md border border-dashed border-border px-3 py-2"
+        >
+          {" "}
+        </div>
+      );
+    }
     if (trimmed.startsWith("## ")) {
       return (
         <h2 key={index} className="mt-8 text-xl font-semibold text-foreground">
