@@ -615,6 +615,46 @@ function srcdocContainsExecutableContentOrNestedFrame(value: string): boolean {
   });
 }
 
+// Every generated design loads these two from jsDelivr. Neither touches a
+// Motion target by itself: Tailwind only reads classes already in the
+// markup, and Alpine acts only through x- directives, which the attribute
+// checks above already refuse when they could change a target. Any other
+// script, or these URLs with inline code, extra attributes or a query, is
+// still unknown code and stays refused.
+const GENERATED_DESIGN_LIBRARY_SCRIPT_URLS = [
+  /^https:\/\/cdn\.jsdelivr\.net\/npm\/@tailwindcss\/browser@4(?:\.\d+){0,2}(?:\/dist\/index\.global\.js)?$/,
+  /^https:\/\/cdn\.jsdelivr\.net\/npm\/alpinejs@3(?:\.\d+){0,2}\/dist\/cdn(?:\.min)?\.js$/,
+];
+const GENERATED_DESIGN_LIBRARY_SCRIPT_ATTRIBUTES = new Set([
+  "src",
+  "defer",
+  "async",
+  "crossorigin",
+  "integrity",
+  "referrerpolicy",
+]);
+
+function isGeneratedDesignLibraryScript(node: HtmlNode): boolean {
+  if ((node.childNodes ?? []).some((child) => (child.value ?? "").trim())) {
+    return false;
+  }
+  const attrs = node.attrs ?? [];
+  if (
+    !attrs.every((attr) =>
+      GENERATED_DESIGN_LIBRARY_SCRIPT_ATTRIBUTES.has(attr.name.toLowerCase()),
+    )
+  ) {
+    return false;
+  }
+  const src = attributes(node, "src");
+  return (
+    src.length === 1 &&
+    GENERATED_DESIGN_LIBRARY_SCRIPT_URLS.some((url) =>
+      url.test(src[0]!.value.trim()),
+    )
+  );
+}
+
 function isManagedMotionTextRuntime(source: string, node: HtmlNode): boolean {
   const marker = attributes(node, MOTION_TEXT_RUNTIME_ATTRIBUTE);
   if (
@@ -797,6 +837,7 @@ function assertExecutableScriptsSafe(
     ) {
       continue;
     }
+    if (isGeneratedDesignLibraryScript(node)) continue;
     sourceError(
       "unsupported-target",
       "HTML Motion targets cannot be synchronized safely while an executable script may change their class or style.",

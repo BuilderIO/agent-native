@@ -1182,6 +1182,72 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
+  const TAILWIND_CDN =
+    '<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>';
+  const ALPINE_CDN =
+    '<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>';
+
+  it("accepts the Tailwind and Alpine scripts every generated design loads", () => {
+    const source = html.replace(
+      "</body>",
+      `${TAILWIND_CDN}\n${ALPINE_CDN}\n</body>`,
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+    expect(() => apply(source)).not.toThrow();
+  });
+
+  it.each([
+    [
+      "a different package on jsDelivr",
+      '<script src="https://cdn.jsdelivr.net/npm/alpinejs-lookalike@3.15.11/dist/cdn.min.js"></script>',
+    ],
+    [
+      "the Alpine path on another host",
+      '<script src="https://cdn.example.com/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>',
+    ],
+    [
+      "a query string on the Alpine URL",
+      '<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js?payload=1"></script>',
+    ],
+    [
+      "inline code alongside the Alpine src",
+      '<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js">document.body.className = "x"</script>',
+    ],
+    [
+      "an onload handler on the Tailwind script",
+      '<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" onload="document.body.className = \'x\'"></script>',
+    ],
+  ])("still rejects %s", (_label, script) => {
+    const source = html.replace("</body>", `${script}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("still rejects an Alpine binding that changes a Motion target when Alpine loads from the CDN", () => {
+    const source = html
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 data-agent-native-node-id="hero-title" x-data="{ on: false }" :class="on ? \'fade\' : \'\'">',
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
   it("rejects executable scripts embedded in iframe srcdoc with Motion targets", () => {
     const iframe =
       "<iframe srcdoc=\"&lt;script&gt;document.body.classList.add('active')&lt;/script&gt;\"></iframe>";
