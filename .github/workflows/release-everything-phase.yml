@@ -615,6 +615,12 @@ jobs:
               return matches[0];
             }
 
+            function stablePackagePublicationError(message, outcome) {
+              const error = new Error(message);
+              error.publicationOutcome = outcome;
+              return error;
+            }
+
             async function requireRecoverableStablePublishFailure(run) {
               if (run.conclusion !== "failure") {
                 throw new Error(
@@ -644,8 +650,13 @@ jobs:
                 unexpected.length > 0 ||
                 !(await hasOnlyHostedRunnerFailure(notify))
               ) {
-                throw new Error(
+                const outcome =
+                  verify.conclusion === "failure" || publish.conclusion === "failure"
+                    ? "failed"
+                    : "unknown";
+                throw stablePackagePublicationError(
                   `Stable npm publication had failures beyond downstream runner acquisition: ${run.html_url}`,
+                  outcome,
                 );
               }
             }
@@ -826,8 +837,9 @@ jobs:
                     const tagDescription = requireMergeTag
                       ? `remote tag ${packageTag} pointing to ${mergeSha}`
                       : `remote tag ${packageTag}`;
-                    throw new Error(
+                    throw stablePackagePublicationError(
                       `Stable npm publication completed without ${tagDescription}: ${run.html_url}`,
+                      "failed",
                     );
                   }
                   if (completed.conclusion === "failure") {
@@ -852,7 +864,10 @@ jobs:
                 if (remaining <= 0) break;
                 await sleep(Math.min(pollIntervalMs, remaining));
               }
-              throw new Error(`Stable npm publication was not started for ${mergeSha}.`);
+              throw stablePackagePublicationError(
+                `Stable npm publication was not started for ${mergeSha}.`,
+                "failed",
+              );
             }
 
             const docsDeploymentPaths = [
@@ -1143,18 +1158,27 @@ jobs:
             // out the exact release commit below.
             const workflowRef = coreVersionChanged ? packageRef : "main";
             let publicationError = null;
+            let publicationStatusUnknownError = null;
             try {
               await waitForStablePackagePublish(releaseSha, packageRef, coreVersionChanged);
             } catch (error) {
-              publicationError = error instanceof Error ? error : new Error(String(error));
+              const publicationFailure = error instanceof Error
+                ? error
+                : new Error(String(error));
+              if (publicationFailure.publicationOutcome === "failed") {
+                publicationError = publicationFailure;
+              } else {
+                publicationStatusUnknownError = publicationFailure;
+              }
+              const publicationStatus = publicationError ? "failed" : "status is unknown";
               core.error(
-                `${publicationError.message}\nProduction sites still release from ${releaseSha}; desktop apps are skipped.`,
+                `Stable npm publication ${publicationStatus}: ${publicationFailure.message}\nProduction sites still release from ${releaseSha}; desktop apps are skipped until publication is verified.`,
               );
             }
-            // Sites build from the release commit, not from npm. After a failed
-            // publication the package tag may not exist, so their workflow
-            // definitions come from main.
-            const siteWorkflowRef = publicationError ? "main" : workflowRef;
+            const publicationUnavailable = publicationError || publicationStatusUnknownError;
+            // Sites build from the release commit, not npm. Use main's workflow
+            // definition when the package tag is absent or publication is unverified.
+            const siteWorkflowRef = publicationUnavailable ? "main" : workflowRef;
 
             const sitesManifest = await readJsonAt(
               releaseSha,
@@ -1253,7 +1277,7 @@ jobs:
             }
 
             const downstream = await Promise.allSettled([
-              publicationError
+              publicationUnavailable
                 ? Promise.resolve(null)
                 : dispatchAndWait(
                     "desktop-release.yml",
@@ -1266,7 +1290,7 @@ jobs:
                     "Agent-Native desktop stable release",
                     120 * 60_000,
                   ),
-              publicationError
+              publicationUnavailable
                 ? Promise.resolve(null)
                 : dispatchAndWait(
                     "clips-desktop-release.yml",
@@ -1293,7 +1317,13 @@ jobs:
               ),
               dispatchDocsAndReconcile(),
             ]);
-            const failures = publicationError ? [publicationError.message] : [];
+            const failures = [];
+            if (publicationError) failures.push(publicationError.message);
+            if (publicationStatusUnknownError) {
+              failures.push(
+                `Stable npm publication status is unknown: ${publicationStatusUnknownError.message}`,
+              );
+            }
             const targetLabels = [
               "Agent-Native desktop stable release",
               "Clips desktop stable release",
@@ -1327,7 +1357,11 @@ jobs:
               (result) => result.run,
             );
             const outcomes = childResults.map((result) => {
-              if (result.skipped) return "skipped: stable npm publication failed";
+              if (result.skipped) {
+                return publicationError
+                  ? "skipped: stable npm publication failed"
+                  : "skipped: stable npm publication status unknown";
+              }
               if (result.dispatchFailed) return "failed: dispatch";
               return result.error ? "failed" : "released";
             });
@@ -1347,16 +1381,25 @@ jobs:
               .addHeading("Release everything")
               .addTable([
                 ["Target", "Result"],
-                ["npm packages", publicationError ? "failed" : `${releaseType} release published`],
+                [
+                  "npm packages",
+                  publicationError
+                    ? "failed"
+                    : publicationStatusUnknownError
+                      ? "status unknown"
+                      : `${releaseType} release published`,
+                ],
                 [
                   "Downstream package notifications",
                   publicationError
                     ? "skipped: npm publication failed"
-                    : downstreamNotificationRecoveryError
-                      ? `recovery failed: ${downstreamNotificationRecoveryUrl || downstreamNotificationRecoveryError.message}`
-                      : downstreamNotificationFailureUrl
-                        ? `not delivered: ${downstreamNotificationFailureUrl}`
-                        : "delivered",
+                    : publicationStatusUnknownError
+                      ? "not verified: npm publication status unknown"
+                      : downstreamNotificationRecoveryError
+                        ? `recovery failed: ${downstreamNotificationRecoveryUrl || downstreamNotificationRecoveryError.message}`
+                        : downstreamNotificationFailureUrl
+                          ? `not delivered: ${downstreamNotificationFailureUrl}`
+                          : "delivered",
                 ],
                 ["Agent-Native desktop", desktop ? `${outcomes[0]}: stable v${desktopVersion}` : outcomes[0]],
                 ["Clips desktop", clips ? `${outcomes[1]}: stable v${clipsVersion}` : outcomes[1]],

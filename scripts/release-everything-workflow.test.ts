@@ -513,7 +513,7 @@ describe("release everything workflow", () => {
       "desktopVersion",
       "clipsVersion",
       "productionSites",
-      "publicationError",
+      "publicationUnavailable",
       `${source.slice(helperStart, fanoutEnd + "]);".length)}
 return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     ) as (
@@ -532,7 +532,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       desktopVersion: string,
       clipsVersion: string,
       productionSites: string[],
-      publicationError: Error | null,
+      publicationUnavailable: Error | null,
     ) => Promise<{
       downstream: PromiseSettledResult<Workflow>[];
       getReconciledDocsRun: () => Workflow | null;
@@ -1415,9 +1415,11 @@ return waitForReleaseMerge;`,
       "downstreamNotificationRecoveryError",
       `${source.slice(stablePublishStart, stablePublishEnd)}
 ${source.slice(publicationStart, publicationEnd)}
-return { publicationError, siteWorkflowRef, downstreamNotificationFailureUrl, downstreamNotificationRecoveryUrl, downstreamNotificationRecoveryError };`,
+return { publicationError, publicationStatusUnknownError, publicationUnavailable, siteWorkflowRef, downstreamNotificationFailureUrl, downstreamNotificationRecoveryUrl, downstreamNotificationRecoveryError };`,
     ) as (...args: unknown[]) => Promise<{
       publicationError: Error | null;
+      publicationStatusUnknownError?: Error | null;
+      publicationUnavailable?: Error | null;
       siteWorkflowRef: string;
       downstreamNotificationFailureUrl?: string;
       downstreamNotificationRecoveryUrl?: string;
@@ -1465,6 +1467,50 @@ return { publicationError, siteWorkflowRef, downstreamNotificationFailureUrl, do
     );
     assert.match(errors[0] ?? "", /continuing desktop and production releases/);
 
+    const unknownErrors: string[] = [];
+    const unknownResult = await runScenario(
+      (timeoutMs: number) => Date.now() + timeoutMs,
+      15_000,
+      {
+        rest: {
+          actions: {
+            listWorkflowRuns: async () => {
+              throw new Error("GitHub API read failed");
+            },
+          },
+        },
+      },
+      "BuilderIO",
+      "agent-native",
+      async () => ({ conclusion: "success" }),
+      async () => {},
+      async () => mergeSha,
+      {
+        warning: () => {},
+        error: (message: string) => unknownErrors.push(message),
+      },
+      async () => {},
+      async () => {},
+      mergeSha,
+      "@agent-native/core@1.2.3",
+      true,
+      "@agent-native/core@1.2.3",
+      undefined,
+      undefined,
+      undefined,
+    );
+    assert.equal(unknownResult.publicationError, null);
+    assert.match(
+      unknownResult.publicationStatusUnknownError?.message ?? "",
+      /GitHub API read failed/,
+    );
+    assert.equal(
+      unknownResult.publicationUnavailable,
+      unknownResult.publicationStatusUnknownError,
+    );
+    assert.equal(unknownResult.siteWorkflowRef, "main");
+    assert.match(unknownErrors[0] ?? "", /publication status is unknown/);
+
     const downstreamStart = source.indexOf(
       "const downstream = await Promise.allSettled",
     );
@@ -1472,7 +1518,7 @@ return { publicationError, siteWorkflowRef, downstreamNotificationFailureUrl, do
     assert.ok(downstreamStart >= 0 && downstreamEnd > downstreamStart);
     const dispatches: string[] = [];
     const releaseDownstream = new AsyncFunction(
-      "publicationError",
+      "publicationUnavailable",
       "releaseSha",
       "workflowRef",
       "siteWorkflowRef",
@@ -1485,7 +1531,7 @@ return { publicationError, siteWorkflowRef, downstreamNotificationFailureUrl, do
 return downstream;`,
     ) as (...args: unknown[]) => Promise<unknown>;
     await releaseDownstream(
-      result.publicationError,
+      result.publicationUnavailable,
       mergeSha,
       "@agent-native/core@1.2.3",
       result.siteWorkflowRef,
@@ -1501,6 +1547,25 @@ return downstream;`,
     assert.deepEqual(dispatches, [
       "desktop-release.yml",
       "clips-desktop-release.yml",
+      "deploy-production-sites-prebuilt.yml",
+    ]);
+
+    const unknownDispatches: string[] = [];
+    await releaseDownstream(
+      unknownResult.publicationUnavailable,
+      mergeSha,
+      "@agent-native/core@1.2.3",
+      unknownResult.siteWorkflowRef,
+      "1.2.3",
+      "1.2.3",
+      ["design"],
+      async (workflow: string) => {
+        unknownDispatches.push(workflow);
+        return { run: { id: unknownDispatches.length }, error: null };
+      },
+      async () => ({ run: { id: 4 }, error: null }),
+    );
+    assert.deepEqual(unknownDispatches, [
       "deploy-production-sites-prebuilt.yml",
     ]);
   });
@@ -1778,11 +1843,19 @@ return downstream;`,
     const source = String((coordinator.with as Workflow).script);
     assert.match(
       source,
-      /try \{\s*await waitForStablePackagePublish\(releaseSha, packageRef, coreVersionChanged\);\s*\} catch \(error\) \{\s*publicationError =/,
+      /function stablePackagePublicationError\(message, outcome\)/,
     );
     assert.match(
       source,
-      /const siteWorkflowRef = publicationError \? "main" : workflowRef/,
+      /publicationFailure\.publicationOutcome === "failed"[\s\S]*?publicationError = publicationFailure[\s\S]*?publicationStatusUnknownError = publicationFailure/,
+    );
+    assert.match(
+      source,
+      /const publicationUnavailable = publicationError \|\| publicationStatusUnknownError/,
+    );
+    assert.match(
+      source,
+      /const siteWorkflowRef = publicationUnavailable \? "main" : workflowRef/,
     );
     assert.match(
       source,
@@ -1790,11 +1863,11 @@ return downstream;`,
     );
     assert.match(
       source,
-      /publicationError\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"desktop-release\.yml"/,
+      /publicationUnavailable\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"desktop-release\.yml"/,
     );
     assert.match(
       source,
-      /publicationError\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"clips-desktop-release\.yml"/,
+      /publicationUnavailable\s*\? Promise\.resolve\(null\)\s*: dispatchAndWait\(\s*"clips-desktop-release\.yml"/,
     );
     assert.match(
       source,
@@ -1802,7 +1875,7 @@ return downstream;`,
     );
     assert.match(
       source,
-      /const failures = publicationError \? \[publicationError\.message\] : \[\]/,
+      /if \(publicationStatusUnknownError\) \{\s*failures\.push\(\s*`Stable npm publication status is unknown/,
     );
     assert.match(
       source,
