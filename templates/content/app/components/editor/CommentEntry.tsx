@@ -214,6 +214,13 @@ export function CommentEntry({
         content: comment.content,
         threadId: comment.parent_id ? comment.thread_id : undefined,
         parentId: comment.parent_id ?? undefined,
+        // A new thread keeps what it pointed at: a Property, or text in a tab.
+        propertyId: comment.parent_id
+          ? undefined
+          : (comment.property_id ?? undefined),
+        fieldId: comment.parent_id
+          ? undefined
+          : (comment.field_id ?? undefined),
         quotedText: comment.quoted_text ?? undefined,
         anchorPrefix: comment.anchor_prefix ?? undefined,
         anchorSuffix: comment.anchor_suffix ?? undefined,
