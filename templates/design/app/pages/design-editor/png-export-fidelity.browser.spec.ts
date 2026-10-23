@@ -83,6 +83,11 @@ beforeAll(async () => {
         response.end(
           '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="red"/></svg>',
         );
+      } else if (request.url === "/alternate-density.svg") {
+        response.writeHead(200, { "content-type": "image/svg+xml" });
+        response.end(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="blue"/></svg>',
+        );
       } else {
         response.writeHead(200, { "content-type": "text/html" });
         response.end("<!doctype html><html><body></body></html>");
@@ -119,7 +124,24 @@ function hydrateBridge(runtime: boolean): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-it.each([
+type ExportFidelityFixture = {
+  name: string;
+  width: number;
+  height: number;
+  frameHeight: number;
+  content: string;
+  redWidth: number;
+  redHeight: number;
+  exportWidth?: number;
+  runtime?: boolean;
+  lazy?: boolean;
+  modeParity?: boolean;
+  verifySrcsetDataUrl?: boolean;
+  pictureSourcesRemoved?: boolean;
+  directRedHeight?: number;
+};
+
+const exportFidelityFixtures: ExportFidelityFixture[] = [
   {
     name: "responsive layout with horizontal overflow",
     width: 1000,
@@ -137,6 +159,7 @@ it.each([
     frameHeight: 400,
     content:
       '<style>html,body{margin:0}</style><img id="probe" srcset="/density.svg 2x">',
+    modeParity: true,
     redWidth: 100,
     redHeight: 50,
   },
@@ -145,40 +168,33 @@ it.each([
     width: 400,
     height: 400,
     frameHeight: 400,
-    runtime: true,
+    modeParity: true,
+    verifySrcsetDataUrl: true,
     content:
       "<style>html,body{margin:0}</style><img id=\"probe\" width=\"100\" height=\"50\" src=\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'><rect width='200' height='100' fill='red'/></svg>\" srcset=\"\">",
     redWidth: 100,
     redHeight: 50,
   },
   {
-    name: "the browser-selected picture source",
+    name: "the browser-selected picture source at a narrower viewport",
     width: 400,
+    exportWidth: 50,
     height: 400,
     frameHeight: 400,
+    modeParity: true,
+    pictureSourcesRemoved: true,
     content:
-      '<style>html,body{margin:0}</style><picture><source type="image/svg+xml" srcset="/density.svg 2x"><img id="probe" src="/missing-fallback.svg"></picture>',
-    redWidth: 100,
+      '<style>html,body{margin:0}</style><picture><source media="(min-width: 200px)" srcset="/density.svg 2x"><source media="(max-width: 199px)" srcset="/alternate-density.svg 2x"><img id="probe" width="100" height="50" src="/missing-fallback.svg"></picture>',
+    redWidth: 50,
     redHeight: 50,
   },
   {
-    name: "an offscreen lazy responsive image in direct export",
+    name: "an offscreen lazy responsive image",
     width: 400,
     height: 400,
     frameHeight: 400,
     lazy: true,
-    content:
-      '<style>html,body{margin:0}</style><img id="probe" loading="lazy" srcset="/density.svg 2x">',
-    redWidth: 100,
-    redHeight: 50,
-  },
-  {
-    name: "an offscreen lazy responsive image in a runtime snapshot",
-    width: 400,
-    height: 400,
-    frameHeight: 400,
-    lazy: true,
-    runtime: true,
+    modeParity: true,
     content:
       '<style>html,body{margin:0}</style><img id="probe" loading="lazy" srcset="/density.svg 2x">',
     redWidth: 100,
@@ -190,7 +206,7 @@ it.each([
     height: 400,
     frameHeight: 400,
     lazy: true,
-    runtime: true,
+    modeParity: true,
     content:
       '<style>html,body{margin:0}</style><img id="probe" loading="lazy" src="/density.svg">',
     redWidth: 200,
@@ -203,6 +219,7 @@ it.each([
     frameHeight: 400,
     content:
       '<style>html,body{margin:0}</style><picture><source type="image/unsupported" srcset="/density.svg 2x"><img id="probe" src="/density.svg"></picture>',
+    modeParity: true,
     redWidth: 200,
     redHeight: 100,
   },
@@ -212,11 +229,12 @@ it.each([
     exportWidth: 50,
     height: 400,
     frameHeight: 400,
-    runtime: true,
+    modeParity: true,
     content:
       '<style>html,body{margin:0}img{max-width:100%;height:auto}</style><img id="probe" srcset="/density.svg 2x">',
     redWidth: 50,
     redHeight: 25,
+    directRedHeight: 50,
   },
   {
     name: "an empty inline SVG image reference",
@@ -239,159 +257,195 @@ it.each([
     redWidth: 100,
     redHeight: 100,
   },
-])("preserves $name in the exported pixels", async (fixture) => {
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ deviceScaleFactor: 2 });
-  await page.goto(base);
-  await page.addScriptTag({ url: `${base}/exporter.js` });
-  await page.evaluate(() => {
-    window.addEventListener("message", (event) => {
-      if (event.data?.type === "agent-native:runtime-layer-snapshot") {
-        (window as any).__exportSnapshot = event.data.payload.html;
-      }
-      if (
-        event.data?.type ===
-        "agent-native:runtime-layer-snapshot-reservation-request"
-      ) {
-        (event.source as Window).postMessage(
-          {
-            type: "grant-runtime-layer-snapshot-reservation",
-            requestId: event.data.requestId,
-            documentId: event.data.documentId,
-            reservationToken: "export-fidelity",
-          },
-          "*",
+];
+
+const exportFidelityCases: ExportFidelityFixture[] =
+  exportFidelityFixtures.flatMap((fixture) => {
+    if (!fixture.modeParity) return [fixture];
+    return [false, true].map((runtime) => ({
+      ...fixture,
+      runtime,
+      name: `${fixture.name} (${runtime ? "runtime snapshot" : "direct export"})`,
+    }));
+  });
+
+it.each(exportFidelityCases)(
+  "preserves $name in the exported pixels",
+  async (fixture) => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({ deviceScaleFactor: 2 });
+    await page.goto(base);
+    await page.addScriptTag({ url: `${base}/exporter.js` });
+    await page.evaluate(() => {
+      window.addEventListener("message", (event) => {
+        if (event.data?.type === "agent-native:runtime-layer-snapshot") {
+          (window as any).__exportSnapshot = event.data.payload.html;
+        }
+        if (
+          event.data?.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request"
+        ) {
+          (event.source as Window).postMessage(
+            {
+              type: "grant-runtime-layer-snapshot-reservation",
+              requestId: event.data.requestId,
+              documentId: event.data.documentId,
+              reservationToken: "export-fidelity",
+            },
+            "*",
+          );
+        }
+      });
+    });
+    await page.evaluate(async (fixture) => {
+      const iframe = document.createElement("iframe");
+      iframe.width = String(fixture.width);
+      iframe.height = String(fixture.height);
+      iframe.style.cssText =
+        "border:0;transform:scale(.5935);transform-origin:0 0";
+      if ("lazy" in fixture && fixture.lazy) iframe.style.top = "8000px";
+      if ("lazy" in fixture && fixture.lazy) iframe.style.position = "absolute";
+      const ready = new Promise<void>((resolve) => {
+        iframe.onload = () => resolve();
+      });
+      iframe.srcdoc = `<!doctype html><html><head></head><body>${fixture.content}</body></html>`;
+      document.body.appendChild(iframe);
+      await ready;
+      if (!("lazy" in fixture && fixture.lazy)) {
+        await Promise.all(
+          Array.from(iframe.contentDocument!.images, (image) => image.decode()),
         );
       }
-    });
-  });
-  await page.evaluate(async (fixture) => {
-    const iframe = document.createElement("iframe");
-    iframe.width = String(fixture.width);
-    iframe.height = String(fixture.height);
-    iframe.style.cssText =
-      "border:0;transform:scale(.5935);transform-origin:0 0";
-    if ("lazy" in fixture && fixture.lazy) iframe.style.top = "8000px";
-    if ("lazy" in fixture && fixture.lazy) iframe.style.position = "absolute";
-    const ready = new Promise<void>((resolve) => {
-      iframe.onload = () => resolve();
-    });
-    iframe.srcdoc = `<!doctype html><html><head></head><body>${fixture.content}</body></html>`;
-    document.body.appendChild(iframe);
-    await ready;
-    if (!("lazy" in fixture && fixture.lazy)) {
-      await Promise.all(
-        Array.from(iframe.contentDocument!.images, (image) => image.decode()),
-      );
-    }
-  }, fixture);
-  if ("lazy" in fixture && fixture.lazy) {
-    await page.frames()[1]!.evaluate(() => {
-      (window as any).__initialImageCurrentSrc =
-        document.querySelector("img")?.currentSrc ?? "";
-    });
-  }
-  await page.frames()[1]!.addScriptTag({
-    content: hydrateBridge("runtime" in fixture && fixture.runtime === true),
-  });
-  if ("runtime" in fixture && fixture.runtime) {
+    }, fixture);
     if ("lazy" in fixture && fixture.lazy) {
+      await page.frames()[1]!.evaluate(() => {
+        (window as any).__initialImageCurrentSrc =
+          document.querySelector("img")?.currentSrc ?? "";
+      });
+    }
+    await page.frames()[1]!.addScriptTag({
+      content: hydrateBridge("runtime" in fixture && fixture.runtime === true),
+    });
+    if ("runtime" in fixture && fixture.runtime) {
+      if ("lazy" in fixture && fixture.lazy) {
+        expect(
+          await page
+            .frames()[1]!
+            .evaluate(() => (window as any).__initialImageCurrentSrc),
+        ).toBe("");
+      }
+      await page.waitForFunction(
+        () => typeof (window as any).__exportSnapshot === "string",
+      );
+      expect(
+        await page.evaluate(() => (window as any).__exportSnapshot),
+      ).not.toContain("data-agent-native-export-resource-failures");
+      if ("pictureSourcesRemoved" in fixture && fixture.pictureSourcesRemoved) {
+        expect(
+          await page.evaluate(() => {
+            const snapshot = new DOMParser().parseFromString(
+              (window as any).__exportSnapshot,
+              "text/html",
+            );
+            return snapshot.querySelectorAll("picture source").length;
+          }),
+        ).toBe(0);
+      }
+      await page.evaluate(async (width) => {
+        const original = document.querySelector("iframe")!;
+        const replacement = document.createElement("iframe");
+        replacement.width = String(width);
+        replacement.height = "400";
+        replacement.style.border = "0";
+        const ready = new Promise<void>(
+          (resolve) => (replacement.onload = () => resolve()),
+        );
+        replacement.srcdoc = (window as any).__exportSnapshot;
+        original.replaceWith(replacement);
+        await ready;
+      }, fixture.exportWidth);
+    }
+    if (
+      "verifySrcsetDataUrl" in fixture &&
+      fixture.verifySrcsetDataUrl &&
+      "runtime" in fixture &&
+      fixture.runtime
+    ) {
       expect(
         await page
           .frames()[1]!
-          .evaluate(() => (window as any).__initialImageCurrentSrc),
-      ).toBe("");
+          .locator("#probe")
+          .evaluate(async (element) => {
+            const image = new Image();
+            image.srcset = (element as HTMLImageElement).srcset;
+            await image.decode();
+            return image.naturalWidth;
+          }),
+      ).toBe(200);
     }
-    await page.waitForFunction(
-      () => typeof (window as any).__exportSnapshot === "string",
-    );
-    expect(
-      await page.evaluate(() => (window as any).__exportSnapshot),
-    ).not.toContain("data-agent-native-export-resource-failures");
-    await page.evaluate(async (width) => {
-      const original = document.querySelector("iframe")!;
-      const replacement = document.createElement("iframe");
-      replacement.width = String(width);
-      replacement.height = "400";
-      replacement.style.border = "0";
-      const ready = new Promise<void>(
-        (resolve) => (replacement.onload = () => resolve()),
-      );
-      replacement.srcdoc = (window as any).__exportSnapshot;
-      original.replaceWith(replacement);
-      await ready;
-    }, fixture.exportWidth);
-  }
-  if (fixture.name === "responsive inline SVG data URL with whitespace") {
-    expect(
-      await page
-        .frames()[1]!
-        .locator("#probe")
-        .evaluate(async (element) => {
-          const image = new Image();
-          image.srcset = (element as HTMLImageElement).srcset;
-          await image.decode();
-          return image.naturalWidth;
-        }),
-    ).toBe(200);
-  }
-  const result = await page.evaluate(async (fixture) => {
-    const iframe = document.querySelector("iframe")!;
-    const { canvas } = await (
-      window as any
-    ).exporter.renderExportDocumentCanvas({
-      doc: iframe.contentDocument,
-      iframe,
-      exportScale: 1,
-      cropRect: {
-        x: 0,
-        y: 0,
-        width: "exportWidth" in fixture ? fixture.exportWidth : fixture.width,
-        height: fixture.frameHeight,
-      },
-    });
-    const pixels = canvas
-      .getContext("2d")
-      .getImageData(0, 0, canvas.width, canvas.height).data;
-    let left = canvas.width,
-      top = canvas.height,
-      right = -1,
-      bottom = -1;
-    for (let y = 0; y < canvas.height; y++)
-      for (let x = 0; x < canvas.width; x++) {
-        const index = (y * canvas.width + x) * 4;
-        if (
-          pixels[index] > 200 &&
-          pixels[index + 1] < 80 &&
-          pixels[index + 2] < 80 &&
-          pixels[index + 3] > 200
-        ) {
-          left = Math.min(left, x);
-          top = Math.min(top, y);
-          right = Math.max(right, x);
-          bottom = Math.max(bottom, y);
+    const result = await page.evaluate(async (fixture) => {
+      const iframe = document.querySelector("iframe")!;
+      const { canvas } = await (
+        window as any
+      ).exporter.renderExportDocumentCanvas({
+        doc: iframe.contentDocument,
+        iframe,
+        exportScale: 1,
+        cropRect: {
+          x: 0,
+          y: 0,
+          width: "exportWidth" in fixture ? fixture.exportWidth : fixture.width,
+          height: fixture.frameHeight,
+        },
+      });
+      const pixels = canvas
+        .getContext("2d")
+        .getImageData(0, 0, canvas.width, canvas.height).data;
+      let left = canvas.width,
+        top = canvas.height,
+        right = -1,
+        bottom = -1;
+      for (let y = 0; y < canvas.height; y++)
+        for (let x = 0; x < canvas.width; x++) {
+          const index = (y * canvas.width + x) * 4;
+          if (
+            pixels[index] > 200 &&
+            pixels[index + 1] < 80 &&
+            pixels[index + 2] < 80 &&
+            pixels[index + 3] > 200
+          ) {
+            left = Math.min(left, x);
+            top = Math.min(top, y);
+            right = Math.max(right, x);
+            bottom = Math.max(bottom, y);
+          }
         }
-      }
-    return {
-      width: canvas.width,
-      height: canvas.height,
-      redWidth: right - left + 1,
-      redHeight: bottom - top + 1,
-    };
-  }, fixture);
-  expect(result).toEqual({
-    width: "exportWidth" in fixture ? fixture.exportWidth : fixture.width,
-    height: fixture.frameHeight,
-    redWidth: fixture.redWidth,
-    redHeight: fixture.redHeight,
-  });
-  if ("lazy" in fixture && fixture.lazy) {
-    expect(await page.frames()[1]!.locator("img").getAttribute("loading")).toBe(
-      "lazy",
-    );
-  }
-  await browser.close();
-});
+      return {
+        width: canvas.width,
+        height: canvas.height,
+        redWidth: right - left + 1,
+        redHeight: bottom - top + 1,
+      };
+    }, fixture);
+    expect(result).toEqual({
+      width: "exportWidth" in fixture ? fixture.exportWidth : fixture.width,
+      height: fixture.frameHeight,
+      redWidth: fixture.redWidth,
+      redHeight:
+        "directRedHeight" in fixture &&
+        "runtime" in fixture &&
+        fixture.runtime === false
+          ? fixture.directRedHeight
+          : fixture.redHeight,
+    });
+    if ("lazy" in fixture && fixture.lazy) {
+      expect(
+        await page.frames()[1]!.locator("img").getAttribute("loading"),
+      ).toBe("lazy");
+    }
+    await browser.close();
+  },
+);
 
 it("preserves transparent padding for negative-origin element crops", async () => {
   const browser = await chromium.launch({ headless: true });
