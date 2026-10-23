@@ -597,7 +597,9 @@ export async function handleMcpApprovalRequest(
       );
     }
     setResponseStatus(event, 401);
-    return { error: configurationError ?? messages.signInToReview };
+    return configurationError
+      ? { error: configurationError, reason: "sign-in-unavailable" }
+      : { error: messages.signInToReview };
   }
   // Only now, signed in: a signed-out reader signs in at this URL above, so
   // the link the agent gave still works after sign-in.

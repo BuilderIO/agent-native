@@ -296,21 +296,30 @@ describe("deciding", () => {
     expect(button("Approve").disabled).toBe(false);
   });
 
-  it("stops offering a decision the server will refuse again", async () => {
-    serve(
-      () => respond(200, pendingView()),
-      () => respond(403, { error: "Out of date" }),
-    );
-    await renderPage();
+  it.each([
+    [403, {}, "This page is out of date. Reload it and decide again."],
+    [401, {}, "Sign in to review this request."],
+    [
+      401,
+      { reason: "sign-in-unavailable" },
+      "This app can't confirm your sign-in on this page.",
+    ],
+  ])(
+    "stops offering a decision the server will refuse again: %i %j",
+    async (status, body, message) => {
+      serve(
+        () => respond(200, pendingView()),
+        () => respond(status, { error: "Refused", ...body }),
+      );
+      await renderPage();
 
-    await click("Deny");
+      await click("Deny");
 
-    expect(text()).toContain(
-      "This page is out of date. Reload it and decide again.",
-    );
-    expect(button("Approve").disabled).toBe(true);
-    expect(button("Deny").disabled).toBe(true);
-  });
+      expect(text()).toContain(message);
+      expect(button("Approve").disabled).toBe(true);
+      expect(button("Deny").disabled).toBe(true);
+    },
+  );
 });
 
 describe("a review that can't be decided", () => {
@@ -337,6 +346,23 @@ describe("a review that can't be decided", () => {
     expect(text()).toContain(
       "This request belongs to owner@example.com in another organization.",
     );
+    expect(button("Open Calendar")).toBeTruthy();
+  });
+
+  it("says the app can't confirm the sign-in rather than asking for one", async () => {
+    serve(() =>
+      respond(401, {
+        error: "Custom authentication requires a hook",
+        reason: "sign-in-unavailable",
+      }),
+    );
+
+    await renderPage();
+
+    expect(text()).toContain(
+      "This app can't confirm your sign-in on this page.",
+    );
+    expect(text()).not.toContain("Sign in to review");
     expect(button("Open Calendar")).toBeTruthy();
   });
 

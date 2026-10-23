@@ -34,11 +34,16 @@ export type {
 } from "../mcp/approval-summary.js";
 export type { McpApprovalPriorRun } from "../mcp/execute-action-call.js";
 
+type McpApprovalUnauthorized =
+  | { status: "signed-out" }
+  /** The app's own authentication can't sign anyone in to this page. */
+  | { status: "sign-in-unavailable" };
+
 export type McpApprovalLoadResult =
   | { status: "ready"; view: McpApprovalView }
   /** No grant with this id is the reader's; `otherOrganization` when it is theirs elsewhere. */
   | { status: "not-found"; otherOrganization: boolean }
-  | { status: "signed-out" };
+  | McpApprovalUnauthorized;
 
 export type McpApprovalDecisionResult =
   /** The grant's state now: the decision, or one made first elsewhere. */
@@ -46,7 +51,7 @@ export type McpApprovalDecisionResult =
   /** The token is for another session or user; read the review again. */
   | { status: "out-of-date" }
   | { status: "not-found" }
-  | { status: "signed-out" };
+  | McpApprovalUnauthorized;
 
 /** A response the review page can't act on. */
 export class McpApprovalRequestError extends Error {
@@ -58,6 +63,15 @@ export class McpApprovalRequestError extends Error {
 
 function approvalPath(id: string): string {
   return agentNativePath(`/_agent-native/mcp/approvals/${id}`);
+}
+
+async function readUnauthorized(
+  response: Response,
+): Promise<McpApprovalUnauthorized> {
+  const body = (await response.json()) as { reason?: unknown };
+  return body.reason === "sign-in-unavailable"
+    ? { status: "sign-in-unavailable" }
+    : { status: "signed-out" };
 }
 
 function readDecided(body: unknown): McpApprovalDecisionResult | undefined {
@@ -78,7 +92,7 @@ export async function fetchMcpApproval(
     headers: { accept: "application/json" },
     signal: options.signal,
   });
-  if (response.status === 401) return { status: "signed-out" };
+  if (response.status === 401) return readUnauthorized(response);
   if (response.status === 404) {
     const body = (await response.json()) as { reason?: unknown };
     return {
@@ -105,7 +119,7 @@ export async function sendMcpApprovalDecision(
     },
     body: JSON.stringify({ decision, csrfToken }),
   });
-  if (response.status === 401) return { status: "signed-out" };
+  if (response.status === 401) return readUnauthorized(response);
   if (response.status === 403) return { status: "out-of-date" };
   if (response.status === 404) return { status: "not-found" };
   // 409: decided or expired before this decision arrived; the body says how.

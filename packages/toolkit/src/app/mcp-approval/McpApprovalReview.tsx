@@ -7,6 +7,7 @@ import {
   readMcpApprovalId,
   sendMcpApprovalDecision,
   zoneOffsetMinutes,
+  type McpApprovalDecisionResult,
   type McpApprovalField,
   type McpApprovalMessages,
   type McpApprovalView,
@@ -50,11 +51,25 @@ type Loaded =
   | { status: "loading" }
   | { status: "failed" }
   | { status: "signed-out" }
+  | { status: "sign-in-unavailable" }
   | { status: "not-found"; otherOrganization: boolean }
   | { status: "ready"; view: McpApprovalView };
 
 /** Why the last decision didn't land, in the page's own words. */
-type DecisionProblem = "saveFailed" | "pageOutOfDate" | "signInToReview";
+type DecisionProblem =
+  | "saveFailed"
+  | "pageOutOfDate"
+  | "signInToReview"
+  | "signInUnavailable";
+
+const UNDECIDABLE: Record<
+  Exclude<McpApprovalDecisionResult["status"], "decided" | "not-found">,
+  DecisionProblem
+> = {
+  "out-of-date": "pageOutOfDate",
+  "signed-out": "signInToReview",
+  "sign-in-unavailable": "signInUnavailable",
+};
 
 // A review link can be framed by any site that has it, and the app's session
 // cookie can reach a frame, so a decision is only taken in a top-level window,
@@ -435,9 +450,7 @@ function Review({
       } else if (result.status === "not-found") {
         onNotFound();
       } else {
-        setProblem(
-          result.status === "out-of-date" ? "pageOutOfDate" : "signInToReview",
-        );
+        setProblem(UNDECIDABLE[result.status]);
       }
     } catch {
       setProblem("saveFailed");
@@ -447,7 +460,7 @@ function Review({
 
   // The token or session behind this page is gone: deciding again here would
   // fail the same way, so the buttons stay off until a reload.
-  const stuck = problem === "pageOutOfDate" || problem === "signInToReview";
+  const stuck = problem !== null && problem !== "saveFailed";
 
   return (
     <>
@@ -719,12 +732,14 @@ function ReviewNotice({
       ? messages.loadFailed
       : loaded.status === "signed-out"
         ? messages.signInToReview
-        : fill(
-            loaded.otherOrganization
-              ? messages.otherOrganization
-              : messages.notFound,
-            { email },
-          );
+        : loaded.status === "sign-in-unavailable"
+          ? messages.signInUnavailable
+          : fill(
+              loaded.otherOrganization
+                ? messages.otherOrganization
+                : messages.notFound,
+              { email },
+            );
   return (
     <>
       <CardContent className="p-6">

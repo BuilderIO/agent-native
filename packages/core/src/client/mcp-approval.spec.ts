@@ -80,6 +80,11 @@ describe("reading a review", () => {
       status: "signed-out",
     });
 
+    answer(401, { error: "No hook", reason: "sign-in-unavailable" });
+    await expect(fetchMcpApproval(ID)).resolves.toEqual({
+      status: "sign-in-unavailable",
+    });
+
     answer(503, { error: "Unavailable" });
     await expect(fetchMcpApproval(ID)).rejects.toBeInstanceOf(
       McpApprovalRequestError,
@@ -116,16 +121,20 @@ describe("deciding", () => {
   });
 
   it.each([
-    [401, { status: "signed-out" }],
-    [403, { status: "out-of-date" }],
-    [404, { status: "not-found" }],
-  ])("maps %i to a result the page can show", async (status, expected) => {
-    answer(status, { error: "No" });
+    [401, {}, { status: "signed-out" }],
+    [401, { reason: "sign-in-unavailable" }, { status: "sign-in-unavailable" }],
+    [403, {}, { status: "out-of-date" }],
+    [404, {}, { status: "not-found" }],
+  ])(
+    "maps %i %j to a result the page can show",
+    async (status, body, expected) => {
+      answer(status, { error: "No", ...body });
 
-    await expect(
-      sendMcpApprovalDecision(ID, "deny", "token-1"),
-    ).resolves.toEqual(expected);
-  });
+      await expect(
+        sendMcpApprovalDecision(ID, "deny", "token-1"),
+      ).resolves.toEqual(expected);
+    },
+  );
 
   it("throws rather than report a state the server didn't send", async () => {
     answer(409, { error: "Conflict" });
