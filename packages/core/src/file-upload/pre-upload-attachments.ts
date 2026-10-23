@@ -7,6 +7,7 @@ import { parseBase64DataUrl } from "../shared/data-url.js";
 import { normalizeImageMediaType } from "./attachment-bytes.js";
 import {
   decodeTextAttachmentData,
+  isTextLikeFilename,
   MAX_INLINE_TEXT_ATTACHMENT_CHARS,
 } from "./attachment-text.js";
 import {
@@ -94,9 +95,10 @@ function readableDocumentMediaType(
                 : extension === "xls"
                   ? "application/vnd.ms-excel"
                   : undefined;
-  return inferred && isInlineReadableDocumentType(inferred, att.name)
-    ? inferred
-    : undefined;
+  if (inferred && isInlineReadableDocumentType(inferred, att.name)) {
+    return inferred;
+  }
+  return isTextLikeFilename(att.name) ? "text/plain" : undefined;
 }
 
 function inlineTextLength(att: AgentChatAttachment): number {

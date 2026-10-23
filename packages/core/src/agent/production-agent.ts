@@ -2945,9 +2945,14 @@ function describeEmptyTextAttachment(att: AgentChatAttachment): string {
 function describeUndecodableTextAttachment(
   att: AgentChatAttachment,
   mediaType: string,
+  reason: "invalid-base64" | "not-utf8",
 ): string {
   const name = escapeAttachmentAttribute(att.name || "attachment");
-  return `<chat-attachment-processing-error code="undecodable-text" name="${name}" contentType="${escapeAttachmentAttribute(mediaType)}">The attachment is a text file, but its bytes are not valid UTF-8, so its contents were not sent to the model. Do not infer or describe its contents. Tell the user it could not be read and ask them to save it as UTF-8 and attach it again.</chat-attachment-processing-error>`;
+  const why =
+    reason === "invalid-base64"
+      ? "its encoded payload is corrupt, so its contents were not sent to the model. Do not infer or describe its contents. Tell the user it could not be read and ask them to attach it again."
+      : "its bytes are not valid UTF-8, so its contents were not sent to the model. Do not infer or describe its contents. Tell the user it could not be read and ask them to save it as UTF-8 and attach it again.";
+  return `<chat-attachment-processing-error code="undecodable-text" reason="${reason}" name="${name}" contentType="${escapeAttachmentAttribute(mediaType)}">The attachment is a text file, but ${why}</chat-attachment-processing-error>`;
 }
 
 function describeUnsupportedVisionAttachment(att: AgentChatAttachment): string {
@@ -3010,7 +3015,11 @@ export function buildUserContentWithAttachments(opts: {
     const decodedText = decodeTextAttachmentData(att);
     if (decodedText.kind === "undecodable") {
       textAttachments.push(
-        describeUndecodableTextAttachment(att, decodedText.mediaType),
+        describeUndecodableTextAttachment(
+          att,
+          decodedText.mediaType,
+          decodedText.reason,
+        ),
       );
       continue;
     }

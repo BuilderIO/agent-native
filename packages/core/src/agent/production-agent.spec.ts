@@ -2183,8 +2183,28 @@ describe("buildUserContentWithAttachments", () => {
 
     const text = content[0]?.type === "text" ? content[0].text : "";
     expect(text).toContain(
-      '<chat-attachment-processing-error code="undecodable-text" name="notes.md"',
+      '<chat-attachment-processing-error code="undecodable-text" reason="not-utf8" name="notes.md"',
     );
+  });
+
+  it("reports a corrupt base64 text payload instead of decoding around it", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Use this",
+      attachments: [
+        {
+          type: "file",
+          name: "notes.md",
+          contentType: "text/markdown",
+          data: "data:text/markdown;base64,aGVs*bG8=",
+        },
+      ],
+    });
+
+    const text = content[0]?.type === "text" ? content[0].text : "";
+    expect(text).toContain(
+      '<chat-attachment-processing-error code="undecodable-text" reason="invalid-base64" name="notes.md"',
+    );
+    expect(text).not.toContain("hello");
   });
 
   it("caps the aggregate text from multiple attachments", () => {
@@ -2361,6 +2381,67 @@ describe("buildUserContentWithAttachments", () => {
         .join("\n");
       expect(text).toContain(markdown.slice(0, 60_000));
       expect(text).toContain(`totalChars="${markdown.length}"`);
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("hydrates JSON and YAML uploads into text", async () => {
+    const bodies: Record<string, [string, string]> = {
+      "https://storage.example.test/uploads/tokens.json": [
+        '{"color":"#000"}',
+        "application/json",
+      ],
+      "https://storage.example.test/uploads/config.yaml": [
+        "theme: dark\n",
+        "application/octet-stream",
+      ],
+    };
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const [body, type] =
+          bodies[String(input instanceof Request ? input.url : input)]!;
+        return new Response(body, {
+          status: 200,
+          headers: { "content-type": type },
+        });
+      }),
+    );
+
+    try {
+      const prepared = await preUploadAttachmentsModule.preUploadAttachments({
+        attachments: [
+          {
+            type: "file",
+            name: "tokens.json",
+            contentType: "application/json",
+            url: "https://storage.example.test/uploads/tokens.json",
+          },
+          {
+            type: "file",
+            name: "config.yaml",
+            url: "https://storage.example.test/uploads/config.yaml",
+          },
+        ],
+        ownerEmail: "alice@example.com",
+        includeFiles: true,
+      });
+
+      expect(prepared.readFailures).toEqual([]);
+      const text = buildUserContentWithAttachments({
+        text: "Use these",
+        attachments: prepared.attachments,
+      })
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      expect(text).toContain('{"color":"#000"}');
+      expect(text).toContain("theme: dark");
     } finally {
       findProvider.mockRestore();
       vi.unstubAllGlobals();

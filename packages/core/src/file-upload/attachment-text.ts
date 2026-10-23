@@ -46,10 +46,17 @@ export function unwrapTextAttachmentEnvelope(text: string): string {
   return match ? match[1] : text;
 }
 
+const BASE64_PAYLOAD =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
 export type DecodedAttachmentText =
   | { kind: "text"; text: string }
   | { kind: "not-text" }
-  | { kind: "undecodable"; mediaType: string };
+  | {
+      kind: "undecodable";
+      mediaType: string;
+      reason: "invalid-base64" | "not-utf8";
+    };
 
 /**
  * Text files reach the server as base64 data URLs once storage hydrates them.
@@ -76,6 +83,15 @@ export function decodeTextAttachmentData(att: {
     (untyped &&
       (isTextLikeMimeType(att.contentType) || isTextLikeFilename(att.name)));
   if (!textLike) return { kind: "not-text" };
+  // Buffer.from skips characters that are not base64, so a corrupt payload
+  // would otherwise decode to plausible text.
+  if (!BASE64_PAYLOAD.test(dataUrl.data)) {
+    return {
+      kind: "undecodable",
+      mediaType: mediaType || "unknown",
+      reason: "invalid-base64",
+    };
+  }
   try {
     return {
       kind: "text",
@@ -84,7 +100,11 @@ export function decodeTextAttachmentData(att: {
       ),
     };
   } catch {
-    return { kind: "undecodable", mediaType: mediaType || "unknown" };
+    return {
+      kind: "undecodable",
+      mediaType: mediaType || "unknown",
+      reason: "not-utf8",
+    };
   }
 }
 

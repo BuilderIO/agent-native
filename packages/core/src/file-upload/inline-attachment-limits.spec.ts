@@ -64,6 +64,7 @@ describe("classifyInlineAttachment", () => {
     expect(reason).toEqual({
       kind: "undecodable-text",
       mediaType: "text/markdown",
+      reason: "not-utf8",
     });
     expect(describeInlineBlockReason(reason!)).toBe(
       "its text/markdown bytes are not valid UTF-8 text",

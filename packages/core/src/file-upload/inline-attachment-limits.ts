@@ -1,7 +1,10 @@
 import { isSpreadsheetDocument } from "../ingestion/spreadsheet.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { normalizeImageMediaType } from "./attachment-bytes.js";
-import { decodeTextAttachmentData } from "./attachment-text.js";
+import {
+  decodeTextAttachmentData,
+  isTextLikeMimeType,
+} from "./attachment-text.js";
 
 export const MAX_INLINE_FILE_BASE64_CHARS = 1_000_000;
 
@@ -33,8 +36,9 @@ export function isInlineReadableDocumentType(
 ): boolean {
   const normalized = mediaType.split(";")[0]!.trim().toLowerCase();
   if (normalized === "application/pdf") return true;
-  if (normalized.startsWith("text/")) return true;
-  if (normalized === "image/svg+xml") return true;
+  // Text is decoded and shown as text, so this must accept every type the
+  // shared text classifier does, or JSON/YAML/XML uploads are never read.
+  if (isTextLikeMimeType(normalized)) return true;
   return isSpreadsheetDocument(fileName ?? "", normalized);
 }
 
@@ -42,7 +46,11 @@ export type InlineAttachmentBlockReason =
   | { kind: "no-data" }
   | { kind: "unsupported-image-format"; mediaType: string }
   | { kind: "unsupported-file-format"; mediaType: string }
-  | { kind: "undecodable-text"; mediaType: string }
+  | {
+      kind: "undecodable-text";
+      mediaType: string;
+      reason: "invalid-base64" | "not-utf8";
+    }
   | { kind: "over-inline-limit"; maxChars: number; actualChars: number };
 
 export function describeInlineBlockReason(
@@ -56,7 +64,9 @@ export function describeInlineBlockReason(
     case "unsupported-file-format":
       return `${reason.mediaType} is not a document format the model can read inline`;
     case "undecodable-text":
-      return `its ${reason.mediaType} bytes are not valid UTF-8 text`;
+      return reason.reason === "invalid-base64"
+        ? `its ${reason.mediaType} payload is not valid base64`
+        : `its ${reason.mediaType} bytes are not valid UTF-8 text`;
     case "over-inline-limit":
       return `over the ${formatBase64CharBudget(reason.maxChars)} inline limit`;
   }
@@ -73,7 +83,11 @@ export function classifyInlineAttachment(att: {
   const decoded = decodeTextAttachmentData(att);
   if (decoded.kind === "text") return null;
   if (decoded.kind === "undecodable") {
-    return { kind: "undecodable-text", mediaType: decoded.mediaType };
+    return {
+      kind: "undecodable-text",
+      mediaType: decoded.mediaType,
+      reason: decoded.reason,
+    };
   }
   if (att.referenceOnly === true) return { kind: "no-data" };
   if (typeof att.text === "string" && att.text.length > 0) return null;
