@@ -4109,6 +4109,37 @@ describe("run manager soft timeout", () => {
     expect(run.abortReason).toBeUndefined();
   });
 
+  it("confirms an ambiguously committed terminal status after a no-op reconciliation", async () => {
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
+      vi.mocked(getRunStatus).mockResolvedValue("completed");
+      throw new Error("terminal status write committed but its reply was lost");
+    });
+    vi.mocked(reconcileTerminalRunFromEvents).mockImplementationOnce(
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        return false;
+      },
+    );
+
+    const run = startRun(
+      "run-ambiguous-terminal-write",
+      "thread-ambiguous-terminal-write",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    await run.finalized;
+
+    expect(run.status).toBe("completed");
+    expect(run.abortReason).toBeUndefined();
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-ambiguous-terminal-write",
+      "done",
+    );
+  });
+
   it("captures initial run-row persistence failures with the run id", async () => {
     const provider = vi.fn(() => "evt_run_insert");
     const unregister = registerErrorCaptureProvider(
