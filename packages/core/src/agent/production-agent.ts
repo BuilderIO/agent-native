@@ -9703,11 +9703,16 @@ export async function runAgentLoop(opts: {
               ? null
               : undefined,
         );
-        unknownOutcomeCause =
-          recordedCauses.find((cause) => cause !== undefined) ?? undefined;
+        const recordedCause = recordedCauses.find(
+          (cause) => cause !== undefined,
+        );
+        unknownOutcomeCause = recordedCause ?? undefined;
+        // Attempts that disagree get no cause-specific wording.
         const result = unknownRepeatResult(
           toolCall.name,
-          unknownOutcomeCause ?? "interruption",
+          recordedCause === null
+            ? undefined
+            : (unknownOutcomeCause ?? "interruption"),
         );
         await send({
           type: "tool_start",

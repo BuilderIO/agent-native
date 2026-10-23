@@ -296,12 +296,14 @@ describe("durable execution step replay", () => {
       {
         type: "tool_start",
         id,
+        executionStepId: `step-${id}`,
         tool: "create-deck",
         ...start,
       } as AgentChatEvent,
       {
         type: "tool_done",
         id,
+        executionStepId: `step-${id}`,
         tool: "create-deck",
         result: "Error running create-deck: lost.",
         isError: true,
@@ -356,6 +358,7 @@ describe("durable execution step replay", () => {
       }),
     );
 
+    expect(vi.mocked(beginAgentExecutionStep)).toHaveBeenCalled();
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -363,6 +366,84 @@ describe("durable execution step replay", () => {
         blockedBy: "interruption",
       }),
     );
+  });
+
+  it("words a step neutrally when its earlier attempts disagree on why", async () => {
+    const input = { id: "deck-5" };
+    const attempt = (id: string, unknownCause: string): AgentChatEvent[] => [
+      {
+        type: "tool_start",
+        id,
+        executionStepId: `step-${id}`,
+        tool: "create-deck",
+        input,
+      },
+      {
+        type: "tool_done",
+        id,
+        executionStepId: `step-${id}`,
+        tool: "create-deck",
+        input,
+        result: "Error running create-deck: lost.",
+        isError: true,
+        outcomeUnknown: true,
+        unknownCause: unknownCause as "rejection",
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ];
+    durableStep.priorEvents = [
+      ...attempt("first", "rejection"),
+      ...attempt("second", "unattributed"),
+    ];
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", input)], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [text("Create the deck.")] },
+          { role: "user", content: [text(AGENT_INTERNAL_CONTINUE_PROMPT)] },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Deck deck-5"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const done = events.find(
+      (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+        event.type === "tool_done",
+    );
+    expect(vi.mocked(beginAgentExecutionStep)).toHaveBeenCalled();
+    expect(done?.result).toContain(
+      "The create-deck action has 1 earlier attempt(s) whose outcome is unknown.",
+    );
+    expect(done?.unknownCause).toBeUndefined();
   });
 
   it("records no cause for a step stored as unknown that nothing explains", async () => {
