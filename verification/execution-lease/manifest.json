@@ -11,6 +11,12 @@
     },
     {
       "config": "ExecutionLeasePolicyFlip.cfg"
+    },
+    {
+      "config": "sufficiency/fence-alone.cfg"
+    },
+    {
+      "config": "sufficiency/clause-alone.cfg"
     }
   ],
   "mutations": [
@@ -53,7 +59,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "d19f2ae73c5866dd311586199bb7236c95c5d73e",
+    "syncCommit": "fe3dc20368c86103ebda752e3d91958b1ffdf187",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -215,6 +221,22 @@
         "file": "packages/core/src/agent/run-store.ts",
         "name": "lockTurnExecutionLease",
         "sha256": "f1590e82518b6b5419ba87ef17676852255e77232bb602a057f1b34d4787940f"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "from": "const actionIsReadOnly = intentIsReadOnly(intent);",
+        "to": "? actionCallIsRetrySafe(actionEntry, preparedCallArguments(intent))",
+        "sha256": "48535b26d3e5396641a91b0a909e83dc786d248c82bbcf6745c4d613e3f242a4"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "name": "intentIsReadOnly",
+        "sha256": "ef113f29360a51e75cdb10cc2b42aa72a494b808b22f09b770cfa9fe8595b730"
+      },
+      {
+        "file": "packages/core/src/action-call-classification.ts",
+        "name": "actionCallIsRetrySafe",
+        "sha256": "dd87718d0babb816d02370b9057da4fa275408e13b53ea770d8ab9ff20c130b5"
       }
     ]
   }

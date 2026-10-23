@@ -59,10 +59,11 @@ run.
 
 Observations:
 
-- In `markAgentExecutionStepDispatched`, the fence alone keeps P8 and P1. The
-  `run_id`/`generation` clause alone keeps P8 but not P1: without the fence, a
+- In `markAgentExecutionStepDispatched`, the fence alone keeps P8 and P1
+  (`sufficiency/fence-alone.cfg`). The `run_id`/`generation` clause alone
+  keeps P8 (`sufficiency/clause-alone.cfg`) but not P1: without the fence, a
   worker whose lease lapsed can still mark its own prepared row dispatched
-  (mutation a). Keep both.
+  (`mutations/a`). All three run on every check. Keep both guards.
 - `withFencedExecutionWrite` writes without a fence when there is no execution
   fence in async context (`execution-fence.ts:157-161`), and inside a scoped
   transaction it commits with the caller (`:168-170`). No current step-journal

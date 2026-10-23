@@ -27,7 +27,7 @@ CONSTANTS
 
 ASSUME NoRun \notin Runs
 ASSUME PolicyChoices \subseteq {"never", "retry-safe", "read-only"}
-ASSUME Mutation \in {"none", "a", "b", "c", "d", "e"}
+ASSUME Mutation \in {"none", "a", "b", "c", "d", "e", "f"}
 ASSUME WithPrune \in BOOLEAN
 ASSUME PruneWhileTurnActive \in BOOLEAN
 
@@ -202,15 +202,14 @@ BeginStep(r) ==
 \* then runPreparedActionCall PA:9947; BAR:1227 then sendMessageToTarget
 \* BAR:1228. A rowsAffected != 1 throws (RS:835-837), so no effect; here that
 \* is the action never being enabled for this worker.
-\* Mutation a: the fence is dropped and only the run_id/generation clause
-\* guards the UPDATE, so a worker whose lease lapsed can still dispatch its
-\* own prepared row (P1). The fence alone keeps P8 and P1; the clause alone
-\* keeps only P8 (NOTES.md).
+\* Mutation a drops the fence and keeps the run_id/generation clause; f drops
+\* the clause and keeps the fence. sufficiency/*.cfg check what each guard
+\* alone still guarantees (NOTES.md).
 MarkDispatched(r) ==
   /\ wpc[r] = "dispatch"
   /\ Mutation = "a" \/ FenceOK(r)
   /\ step.exists /\ step.status = "prepared"
-  /\ StepMine(r)
+  /\ Mutation = "f" \/ StepMine(r)
   /\ step' = [step EXCEPT !.status = "dispatched"]
   /\ effectPending' = IF Mutation = "c" THEN effectPending
                       ELSE [effectPending EXCEPT ![r] = TRUE]
