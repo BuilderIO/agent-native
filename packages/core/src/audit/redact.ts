@@ -67,9 +67,10 @@ const CREDENTIAL_LINE = String.raw`[ \t]*(?:["']?[^\s"']+["']?[ \t]*(?:\r?\n|$)|
 // A word alone on its line (`Bearer`, `"Api-Key"`) takes the credential on
 // the next one. It can be a scheme no list names, and stopping at the newline
 // would leave the credential bare. A next line of prose, or one that opens
-// another field, is content a reviewer must still see.
+// another field, is content a reviewer must still see. Only that one line is
+// taken, so a quote it leaves open can't carry the match into later fields.
 const EMBEDDED_AUTHORIZATION = new RegExp(
-  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)((?:["']?[^\s"']+["']?[ \t]*\r?\n\s*(?!${FIELD_LINE})(?=${CREDENTIAL_LINE}))?(?:${QUOTED_CREDENTIAL}|[^\r\n]+))`,
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(["']?[^\s"']+["']?[ \t]*\r?\n\s*(?!${FIELD_LINE})(?=${CREDENTIAL_LINE})[^\r\n]+|${QUOTED_CREDENTIAL}|[^\r\n]+)`,
   "gi",
 );
 const EMBEDDED_CREDENTIAL_FIELD = new RegExp(
