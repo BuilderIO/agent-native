@@ -11,7 +11,6 @@ import * as Y from "yjs";
 
 import {
   commentAnchorHoldsOn,
-  commentAnchorText,
   commentAnchorTextOf,
 } from "../../shared/comment-reanchor.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
