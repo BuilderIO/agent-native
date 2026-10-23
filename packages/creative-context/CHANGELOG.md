@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.8.56
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.55
 
 ### Patch Changes
@@ -651,11 +657,5 @@
 ### Patch Changes
 
 - b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
-
-## 0.5.2
-
-### Patch Changes
-
-- 915c940: Preserve stubbed optional package imports and package subpaths when bundling Cloudflare Pages workers.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

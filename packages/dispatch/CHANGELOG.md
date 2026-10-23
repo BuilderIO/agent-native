@@ -1,5 +1,18 @@
 # @agent-native/dispatch
 
+## 0.40.38
+
+### Patch Changes
+
+- de3f844: Sign Dispatch's own workspace apps gateway read as the signed-in member with the deployment secret, so the receiver keeps the member's identity. Signing it with the organization secret made the registry refuse it, and a Dispatch with no deployment manifest to fall back on showed "Couldn't load data" (`workspace_gateway_rejected`).
+- Release all public npm packages with a patch version bump.
+- 84e4b2e: Show owned and shared chats in separate Dispatch history sections with independent paging and owner and access details.
+- Updated dependencies [84e4b2e]
+- Updated dependencies
+- Updated dependencies [84e4b2e]
+- Updated dependencies [fc038a0]
+  - @agent-native/toolkit@0.218.0
+
 ## 0.40.37
 
 ### Patch Changes
@@ -1326,13 +1339,5 @@
 ### Patch Changes
 
 - 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
-
-## 0.30.1
-
-### Patch Changes
-
-- a2f21dc: Keep workspace apps inline outside Builder.io embeds.
-- Updated dependencies [a2f21dc]
-  - @agent-native/toolkit@0.16.6
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

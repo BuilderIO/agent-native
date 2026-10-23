@@ -1,3 +1,9 @@
+## 0.5.2
+
+### Patch Changes
+
+- 915c940: Preserve stubbed optional package imports and package subpaths when bundling Cloudflare Pages workers.
+
 ## 0.5.1
 
 ### Patch Changes

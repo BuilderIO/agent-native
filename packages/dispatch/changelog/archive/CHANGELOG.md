@@ -1,3 +1,11 @@
+## 0.30.1
+
+### Patch Changes
+
+- a2f21dc: Keep workspace apps inline outside Builder.io embeds.
+- Updated dependencies [a2f21dc]
+  - @agent-native/toolkit@0.16.6
+
 ## 0.30.0
 
 ### Minor Changes
