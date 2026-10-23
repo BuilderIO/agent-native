@@ -2811,6 +2811,9 @@ export function CommentsSidebar({
               ) : undefined
             }
             onCreatedCommentConfirmed={(operationId) => {
+              // Once confirmed, a new thread is one just posted, saved under
+              // its operation's id, so the filters still don't hide it.
+              if (id === thread.comments[0]?.id) setPostedThreadId(operationId);
               if (
                 pendingHandoff?.operationId === operationId &&
                 pendingCommentRef.current?.id === pendingHandoff.id

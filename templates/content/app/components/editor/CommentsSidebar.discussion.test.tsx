@@ -24,12 +24,12 @@ import {
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const actions = vi.hoisted(() => ({ create: vi.fn() }));
+const actions = vi.hoisted(() => ({ create: vi.fn(), reconcile: vi.fn() }));
 vi.mock("@/hooks/use-comments", () => ({
   useCreateComment: () => ({
     mutateAsync: actions.create,
     isPending: false,
-    reconcileAmbiguous: vi.fn(),
+    reconcileAmbiguous: actions.reconcile,
   }),
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
@@ -160,6 +160,7 @@ describe("the Discussion panel", () => {
   beforeEach(() => {
     queryClient = new QueryClient();
     actions.create.mockReset();
+    actions.reconcile.mockReset();
     highlights = { visible: true };
     container = document.createElement("div");
     document.body.append(container);
@@ -430,8 +431,8 @@ describe("the Discussion panel", () => {
     }
   });
 
-  it("keeps a comment whose save wasn't confirmed in view under any filter", () => {
-    const unconfirmed = thread("optimistic-1", null);
+  it("keeps a comment whose save wasn't confirmed in view under any filter, and once it's confirmed", async () => {
+    const unconfirmed = thread("optimistic-operation-1", null);
     unconfirmed.comments[0].mutation = {
       kind: "create",
       status: "error",
@@ -445,13 +446,24 @@ describe("the Discussion panel", () => {
     );
     // Its card holds the only way to check the save, and the composer waits
     // on that check.
-    expect(card("optimistic-1")).not.toBeNull();
-    expect(
-      [...container.querySelectorAll("button")].some((button) =>
-        button.textContent?.includes("comments.checkSaved"),
-      ),
-    ).toBe(true);
+    expect(card("optimistic-operation-1")).not.toBeNull();
     expect(card("page-1")).toBeNull();
+    const check = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("comments.checkSaved"),
+    )!;
+    expect(check).toBeDefined();
+
+    actions.reconcile.mockResolvedValue("confirmed");
+    await act(async () => check.click());
+    expect(actions.reconcile).toHaveBeenCalledWith("fixture", "operation-1");
+    // The refetch swaps the unconfirmed card for the saved thread, which is
+    // saved under its operation's id.
+    threads = [...fixtureThreads, thread("operation-1", null)];
+    render();
+    expect(card("operation-1")).not.toBeNull();
+
+    act(() => replies.setHistoryFilters({ target: "property" }));
+    expect(card("operation-1")).toBeNull();
   });
 
   it("keeps a conflict's view while someone searches, without saving over their filters", () => {
