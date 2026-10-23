@@ -5192,6 +5192,12 @@ interface UnknownOutcomes {
    * sharing a key recorded different causes: none speaks for the key.
    */
   causes: Map<string, UnknownOutcomeCause | null>;
+  /**
+   * Keys this set noted a call under with no cause. A call with one beside
+   * it makes the key ambiguous. Not merged: another source recording the
+   * same call without a cause says nothing about the cause it recorded.
+   */
+  uncaused: Set<string>;
 }
 
 function recordUnknownCause(
@@ -5223,7 +5229,7 @@ function noteUnknownOutcome(
   outcomes: UnknownOutcomes,
   tool: string,
   argumentsHash: string | undefined,
-  /** Only what recorded it: a cause-less source must not overwrite one. */
+  /** `undefined` when nothing recorded why. */
   cause: UnknownOutcomeCause | undefined,
   input?: unknown,
 ): void {
@@ -5237,7 +5243,15 @@ function noteUnknownOutcome(
     const key = keys[kind];
     if (key === undefined) continue;
     map.set(key, (map.get(key) ?? 0) + 1);
-    if (cause) recordUnknownCause(outcomes.causes, `${kind}:${key}`, cause);
+    const causeKey = `${kind}:${key}`;
+    if (!cause) {
+      if (outcomes.causes.has(causeKey)) outcomes.causes.set(causeKey, null);
+      else outcomes.uncaused.add(causeKey);
+    } else if (outcomes.uncaused.has(causeKey)) {
+      outcomes.causes.set(causeKey, null);
+    } else {
+      recordUnknownCause(outcomes.causes, causeKey, cause);
+    }
   }
 }
 
@@ -5274,6 +5288,7 @@ function noUnknownOutcomes(): UnknownOutcomes {
     inputs: new Map(),
     unidentified: new Map(),
     causes: new Map(),
+    uncaused: new Set(),
   };
 }
 
@@ -5285,7 +5300,8 @@ function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
     }
   }
   for (const [key, cause] of from.causes) {
-    recordUnknownCause(into.causes, key, cause);
+    if (cause === null) into.causes.set(key, null);
+    else recordUnknownCause(into.causes, key, cause);
   }
 }
 

@@ -685,6 +685,21 @@ describe("a write whose outcome is really unknown", () => {
     );
   });
 
+  it("names no recorded cause when a call sharing its sent arguments recorded none", async () => {
+    const stop = await repeatAfterStoredUnknowns(
+      [
+        { id: "stamp-1", prepared: { stamp: 1 }, cause: "rejection" },
+        { id: "stamp-2", prepared: { stamp: 2 } },
+      ],
+      z.object({ stamp: z.number().default(3) }),
+      {},
+    );
+    expect(stop).toMatchObject({
+      errorCode: "write_tool_outcome_unknown",
+      blockedBy: "interruption",
+    });
+  });
+
   it("keeps a rejection recorded only in the resumed history", async () => {
     const input = { body: "Refund sent" };
     const run = vi.fn(async () => "sent");
