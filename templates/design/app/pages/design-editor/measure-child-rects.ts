@@ -1,4 +1,4 @@
-import type { LayoutRect } from "@shared/layout-model";
+import type { LayoutBoxModel, LayoutRect } from "@shared/layout-model";
 
 import { hasMeaningfulCssTransform } from "./auto-layout-suggestion";
 
@@ -9,6 +9,7 @@ export interface MeasuredFrameChild {
   rect: LayoutRect;
   position: string;
   transformed: boolean;
+  box: LayoutBoxModel;
 }
 
 export interface MeasuredFrame {
@@ -98,6 +99,22 @@ export function measureFrameElement(
       },
       position: childStyles.position,
       transformed,
+      box: {
+        sizing:
+          childStyles.boxSizing === "border-box" ? "border-box" : "content-box",
+        edges: {
+          width:
+            edgeWidth(childStyles.paddingLeft) +
+            edgeWidth(childStyles.paddingRight) +
+            edgeWidth(childStyles.borderLeftWidth) +
+            edgeWidth(childStyles.borderRightWidth),
+          height:
+            edgeWidth(childStyles.paddingTop) +
+            edgeWidth(childStyles.paddingBottom) +
+            edgeWidth(childStyles.borderTopWidth) +
+            edgeWidth(childStyles.borderBottomWidth),
+        },
+      },
     });
   }
   return {

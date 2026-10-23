@@ -571,7 +571,10 @@ export function runAddAutoLayout({
       enabled: true,
       containerStyles,
       childRects: Object.fromEntries(
-        measured.children.map((child) => [child.id, child.rect]),
+        measured.children.map((child) => [
+          child.id,
+          { ...child.rect, box: child.box },
+        ]),
       ),
     },
     { source },

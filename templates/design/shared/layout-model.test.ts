@@ -810,6 +810,62 @@ describe("joinFlowPatch", () => {
     ).toBeNull();
   });
 
+  it.each([
+    ["is already border-box", { boxSizing: "border-box" }, undefined],
+    [
+      "measures as border-box",
+      {},
+      { sizing: "border-box", edges: { width: 32, height: 32 } },
+    ],
+    [
+      "has no padding or border along the relative axis",
+      {},
+      { sizing: "content-box", edges: { width: 32, height: 0 } },
+    ],
+  ] as const)(
+    "keeps a relative size on the other axis when the child %s",
+    (_label, extraStyles, box) => {
+      const patch = joinFlowPatch(
+        child(
+          "bar",
+          { x: 0, y: 180, width: 320, height: 52 },
+          {
+            styles: {
+              position: "absolute",
+              left: "0",
+              right: "0",
+              height: "10%",
+              ...extraStyles,
+            },
+            box,
+          },
+        ),
+      );
+      expect(patch).toMatchObject({ width: "320px", boxSizing: "border-box" });
+      expect(patch).not.toHaveProperty("height");
+    },
+  );
+
+  it("refuses a measured content-box child with padding along the relative axis", () => {
+    expect(
+      joinFlowPatch(
+        child(
+          "bar",
+          { x: 0, y: 180, width: 320, height: 52 },
+          {
+            styles: {
+              position: "absolute",
+              left: "0",
+              right: "0",
+              height: "10%",
+            },
+            box: { sizing: "content-box", edges: { width: 0, height: 32 } },
+          },
+        ),
+      ),
+    ).toBeNull();
+  });
+
   it("refuses to join flow when an inset-sized child was never measured", () => {
     expect(
       joinFlowPatch(

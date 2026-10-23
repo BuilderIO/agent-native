@@ -60,6 +60,14 @@ export interface LayoutNodeInput {
    * origin absolute positioning uses. Null when the node was not measured.
    */
   rect?: LayoutRect | null;
+  /** Computed box model; null when the node was not measured. */
+  box?: LayoutBoxModel | null;
+}
+
+export interface LayoutBoxModel {
+  sizing: "border-box" | "content-box";
+  /** Padding plus border along each axis, in px. */
+  edges: { width: number; height: number };
 }
 
 export interface LayoutParentInput {
@@ -746,20 +754,33 @@ export function joinFlowPatch(child: LayoutNodeInput): LayoutStylePatch | null {
   // border-box sizing. That switch also reinterprets the other axis: an
   // explicit px size there is rewritten to its rendered border box and auto
   // sizes are unaffected. A relative size (%, vw, calc) cannot be rewritten
-  // without losing what it means, and keeping content-box would grow a
-  // padded child, so that case is refused rather than guessed.
+  // without losing what it means, so it is kept only when the switch leaves
+  // it alone, and refused when that is unknown.
   const other =
     insetWidth && !insetHeight ? "height" : !insetWidth ? "width" : null;
   if (other) {
     const declared = lower(child.declaredSize?.[other] ?? styles[other]);
     if (/^-?(?:\d+\.?\d*|\.\d+)px$/.test(declared)) {
       patch[other] = wholePx(child.rect[other]);
-    } else if (declared && !HUG_SIZES.has(declared)) {
+    } else if (
+      declared &&
+      !HUG_SIZES.has(declared) &&
+      !borderBoxKeepsSize(child, other)
+    ) {
       return null;
     }
   }
   patch.boxSizing = "border-box";
   return patch;
+}
+
+function borderBoxKeepsSize(
+  child: LayoutNodeInput,
+  axis: "width" | "height",
+): boolean {
+  if (lower(child.styles.boxSizing) === "border-box") return true;
+  if (!child.box) return false;
+  return child.box.sizing === "border-box" || child.box.edges[axis] === 0;
 }
 
 /** Pins a child where it renders, relative to its container's padding box. */

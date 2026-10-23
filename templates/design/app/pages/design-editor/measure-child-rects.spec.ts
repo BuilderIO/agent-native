@@ -65,6 +65,20 @@ describe("measureFrameElement", () => {
     });
   });
 
+  it("reports each child's box sizing and the padding and border along each axis", () => {
+    const { container, child } = mountPreview("position:relative");
+    child.setAttribute(
+      "style",
+      "display:block;box-sizing:border-box;padding:4px 6px;border:1px solid",
+    );
+    const measured = measureFrameElement(container);
+    if (measured.status !== "measured") throw new Error(measured.reason);
+    expect(measured.children.find((kid) => kid.id === "kid")?.box).toEqual({
+      sizing: "border-box",
+      edges: { width: 14, height: 10 },
+    });
+  });
+
   it("counts children no edit can address instead of dropping them", () => {
     const { container } = mountPreview("position:relative");
     const measured = measureFrameElement(container);

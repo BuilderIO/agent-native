@@ -40,6 +40,7 @@ import {
   joinFlowPatch,
   readLayoutModel,
   writeLayoutChange,
+  type LayoutBoxModel,
   type LayoutNodeInput,
   type LayoutRect,
   type LayoutStylePatch,
@@ -570,7 +571,13 @@ export interface AutoLayoutEditIntent {
   gap?: string;
   childRects?: Record<
     string,
-    { x: number; y: number; width: number; height: number }
+    {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      box?: LayoutBoxModel;
+    }
   >;
   containerRect?: { width: number; height: number };
 }
@@ -8624,6 +8631,7 @@ const MEASURED_FLOW_REBASE_STRIP_PROPS = [
 function layoutNodeFromParsed(
   element: ParsedElement,
   rect: LayoutRect | null = null,
+  box: LayoutBoxModel | null = null,
 ): LayoutNodeInput {
   const styles: Record<string, string> = {};
   for (const [property, value] of Object.entries(
@@ -8643,6 +8651,7 @@ function layoutNodeFromParsed(
     styles,
     classes: classList(element),
     rect,
+    box,
   };
 }
 
@@ -8679,14 +8688,22 @@ function stripAbsolutePositioningFromChild(
   html: string,
   child: ParsedElement,
   forceRootIntoFlow = false,
-  renderedSize?: { width: number; height: number },
+  renderedSize?: { width: number; height: number; box?: LayoutBoxModel },
 ): string {
   const currentStyle = attributeValue(child, "style");
   const declarations = parseStyleDeclarations(currentStyle ?? "");
   const joinPatch = joinFlowPatch(
     layoutNodeFromParsed(
       child,
-      renderedSize ? { x: 0, y: 0, ...renderedSize } : null,
+      renderedSize
+        ? {
+            x: 0,
+            y: 0,
+            width: renderedSize.width,
+            height: renderedSize.height,
+          }
+        : null,
+      renderedSize?.box ?? null,
     ),
   );
   // Without a measurement an inset-sized child cannot keep its size in flow;
@@ -10512,7 +10529,10 @@ function applyAutoLayout(
         const child = build.elements[index];
         if (!child) return [];
         const id = attributeValue(child, "data-agent-native-node-id");
-        return [layoutNodeFromParsed(child, id ? childRects[id] : null)];
+        const measured = id ? childRects[id] : undefined;
+        return [
+          layoutNodeFromParsed(child, measured ?? null, measured?.box ?? null),
+        ];
       }),
     },
   });

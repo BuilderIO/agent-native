@@ -36,6 +36,7 @@ function frame(
       rect,
       position: "static",
       transformed: false,
+      box: { sizing: "content-box", edges: { width: 0, height: 0 } },
     })),
     unidentifiedChildren: 0,
   };

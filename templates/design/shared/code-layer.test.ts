@@ -5824,4 +5824,35 @@ describe("autoLayout keeps children's rendered geometry", () => {
     expect(bar).toMatch(/width:\s*320px/);
     expect(bar).toMatch(/height:\s*20px/);
   });
+
+  it("keeps a relative height when the measured box model says border-box sizing leaves it alone", () => {
+    const html =
+      `<div data-agent-native-node-id="frame" style="position: relative; width: 320px; height: 200px">` +
+      `<div data-agent-native-node-id="bar" style="position: absolute; left: 0; right: 0; top: 0; height: 10%"></div>` +
+      `</div>`;
+    const rect = { x: 0, y: 0, width: 320, height: 20 };
+    const enable = (box?: {
+      sizing: "border-box" | "content-box";
+      edges: { width: number; height: number };
+    }) =>
+      applyVisualEdit(html, {
+        kind: "autoLayout",
+        targetId: "frame",
+        enabled: true,
+        direction: "column",
+        gap: "8px",
+        childRects: { bar: box ? { ...rect, box } : rect },
+      });
+
+    const unpadded = styleOf(
+      enable({ sizing: "content-box", edges: { width: 0, height: 0 } }).content,
+      "bar",
+    );
+    expect(unpadded).not.toMatch(/position:\s*absolute/);
+    expect(unpadded).toMatch(/width:\s*320px/);
+    expect(unpadded).toMatch(/height:\s*10%/);
+
+    // Unmeasured, the child may be padded, so it stays where it is.
+    expect(styleOf(enable().content, "bar")).toMatch(/position:\s*absolute/);
+  });
 });
