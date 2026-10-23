@@ -1394,6 +1394,8 @@ export function App({
     );
   }, [videoStorageIdentity, serverUrl, signedInAs]);
 
+  const videoStorageProbeSeqRef = useRef(0);
+
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed") {
       hostedClipLimitMsRef.current = null;
@@ -1402,11 +1404,15 @@ export function App({
     }
 
     const probedIdentity = videoStorageIdentity;
+    // Probes are slow enough to overlap; only the newest result may land, or a
+    // pre-connect "missing" overwrites the "configured" that came after it.
+    const probeSeq = ++videoStorageProbeSeqRef.current;
     const { probe, maxClipDurationMs } = await hasConfiguredVideoStorage(
       serverUrl,
       signedInAs,
     );
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
+    if (videoStorageProbeSeqRef.current !== probeSeq) return false;
     if (probe === "unavailable") {
       setVideoStorageStatus("unavailable");
       return false;
@@ -1435,8 +1441,10 @@ export function App({
       });
     };
     const interval = window.setInterval(tick, 5000);
+    // Showing the popover always re-probes, even past an in-flight probe: the
+    // newest probe wins.
     const onVisibilityChange = () => {
-      if (!document.hidden) tick();
+      if (!document.hidden) void refreshVideoStorageStatus();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
@@ -3857,6 +3865,7 @@ export function App({
   ) => {
     if (recordFirstUploading || !recordFirstKey || !signedInAs) return;
     if (videoStorageStatus !== "configured") {
+      setRecError(STORAGE_SETUP_HELP_TEXT);
       openVideoStorageSetup();
       return;
     }
@@ -4149,7 +4158,6 @@ export function App({
   const openVideoStorageSetup = useCallback(
     (targetServerUrl?: string) => {
       const base = (targetServerUrl?.trim() || serverUrl).replace(/\/+$/, "");
-      setRecError(STORAGE_SETUP_HELP_TEXT);
       void openExternal(buildVideoStorageSetupUrl(base)).catch((err) => {
         setRecError(
           err instanceof Error
@@ -4157,10 +4165,21 @@ export function App({
             : "Could not open Clips storage setup.",
         );
       });
-      void refreshVideoStorageStatus();
     },
-    [refreshVideoStorageStatus, serverUrl],
+    [serverUrl],
   );
+
+  // The banner goes away on click; reopening the popover re-probes, and the
+  // banner returns only if storage is still missing.
+  const connectVideoStorage = useCallback(() => {
+    setRecError((message) =>
+      isStorageSetupFailureMessage(message) ? null : message,
+    );
+    setVideoStorageStatus((status) =>
+      status === "missing" ? "checking" : status,
+    );
+    openVideoStorageSetup();
+  }, [openVideoStorageSetup]);
 
   useEffect(
     () =>
@@ -4178,6 +4197,21 @@ export function App({
       isStorageSetupFailureMessage(message) ? null : message,
     );
   }, [videoStorageStatus]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (!document.hidden) return;
+      setRecError((message) =>
+        isStorageSetupFailureMessage(message) ? null : message,
+      );
+      setVideoStorageStatus((status) =>
+        status === "missing" ? "checking" : status,
+      );
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
 
   async function handleStartRecording(options?: {
     resumeCapture?: RestartHandoff;
@@ -5494,9 +5528,7 @@ export function App({
               onRetry={() => beginRecording()}
             />
           ) : isStorageSetupFailureMessage(recError) ? (
-            <StorageConnectionBanner
-              onConnect={() => openVideoStorageSetup()}
-            />
+            <StorageConnectionBanner onConnect={connectVideoStorage} />
           ) : recError === RECORDING_SESSION_EXPIRED ? (
             <SessionExpiredBanner onReconnect={() => void reconnectSession()} />
           ) : recError === RECORDING_SERVER_UNAVAILABLE ? (
@@ -5509,7 +5541,7 @@ export function App({
         localRecordingMode === "off" &&
         authStatus === "authed" &&
         videoStorageStatus === "missing" ? (
-          <StorageConnectionBanner onConnect={() => openVideoStorageSetup()} />
+          <StorageConnectionBanner onConnect={connectVideoStorage} />
         ) : null}
         {cameraError && !recError ? (
           cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
