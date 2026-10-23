@@ -1939,6 +1939,77 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(asked).toHaveLength(1);
     expect(result).toMatchObject(withheld);
+    expect(result?.retryMessage).toContain(
+      "Keep figures from other complete successful dbt metric queries",
+    );
+    expect(result?.fallbackMessage).toContain(
+      'no owner-approved figure for "active_accounts"',
+    );
+    expect(result?.fallbackMessage).toContain(
+      "Other metrics with complete successful dbt queries remain independently verified",
+    );
+  });
+
+  it("allows a complete result for another metric when the failed metric is absent from the draft", async () => {
+    const signupsSuccess = {
+      name: "query-dbt-semantic-metric",
+      isError: false,
+      content: JSON.stringify({
+        status: "success",
+        metricName: "signups",
+        truncated: false,
+        querySpec: {
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+          groupBy: [],
+        },
+        rows: [{ signups: 3 }],
+      }),
+    };
+    const { asked, result } = await judged(
+      {
+        userText: "What were active accounts and signups last month?",
+        draftText: "Signups were 3 last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolCalls: [
+          {
+            toolCallId: "dbt-failure",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+          {
+            toolCallId: "dbt-success",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "signups",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+        ],
+        toolResults: [
+          {
+            ...dbtNotFound,
+            toolCallId: "dbt-failure",
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          { ...signupsSuccess, toolCallId: "dbt-success" },
+        ],
+      },
+      "NO",
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.systemPrompt).toContain("unresolved metrics");
+    expect(asked[0]?.input).toContain('"active_accounts"');
+    expect(asked[0]?.input).toContain("Signups were 3 last month.");
+    expect(result).toBeNull();
   });
 
   it("clears a scope-less metadata page after a complete success for its metric", async () => {
