@@ -355,6 +355,25 @@ describe("real data action classification", () => {
     );
   });
 
+  it("continues a dbt result page that has no rows but still has a cursor", () => {
+    const emptyPage = {
+      name: "query_dbt_semantic_metric",
+      content: JSON.stringify({
+        status: "success",
+        rows: [],
+        truncated: true,
+        nextPage: "metric-results-v5.cursor.signature",
+      }),
+    };
+
+    expect(hasDataQueryAttempt([emptyPage])).toBe(false);
+    const message = failedDataQueryAttemptMessage([emptyPage]);
+    expect(message).toContain(
+      "Continue with the same metricName, queryId, and nextPage",
+    );
+    expect(message).not.toContain("returned no metric rows");
+  });
+
   it("clears a recoverable dbt status only after the same query completes", () => {
     const querySpec = {
       groupBy: [{ name: "metric_time", grain: "WEEK" }],

@@ -1216,10 +1216,12 @@ function dbtSemanticMetricFailure(result: {
 
   const record = payload as Record<string, unknown>;
   if (record.status === "success") {
+    // A page can have no rows and still hold the cursor to the next one, so the
+    // cursor is checked before the row count.
+    if (typeof record.nextPage === "string" && record.nextPage.length > 0) {
+      return "The dbt Semantic Layer returned another result page. Continue with the same metricName, queryId, and nextPage before reporting a complete result.";
+    }
     if (Array.isArray(record.rows) && record.rows.length > 0) {
-      if (typeof record.nextPage === "string" && record.nextPage.length > 0) {
-        return "The dbt Semantic Layer returned another result page. Continue with the same metricName, queryId, and nextPage before reporting a complete result.";
-      }
       if (record.truncated === true) {
         return record.truncationReason === "query_row_cap"
           ? "The dbt Semantic Layer hit its 1,000-row result cap without a continuation cursor. Narrow the metric query or report only the returned rows as partial; do not claim a complete total."
