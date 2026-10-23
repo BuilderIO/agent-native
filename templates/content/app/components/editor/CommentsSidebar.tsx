@@ -1263,7 +1263,12 @@ export function CommentsSidebar({
     if (
       (!selectedThreadId && !pendingComment) ||
       pendingFoldsOpenStack ||
-      !openThreads.some((thread) => thread.threadId === openStack.anchorId)
+      !openThreads.some((thread) => thread.threadId === openStack.anchorId) ||
+      // A thread measured alone holds nothing open, or a stack its block
+      // forms later would open by itself. One not measured yet, as when it is
+      // selected before the margin first lays out, keeps its anchor until it is.
+      (threadBlocks.has(openStack.anchorId) &&
+        !stackOfThread.has(openStack.anchorId))
     )
       setOpenStack(null);
   }, [
@@ -1272,6 +1277,8 @@ export function CommentsSidebar({
     pendingComment,
     pendingFoldsOpenStack,
     selectedThreadId,
+    stackOfThread,
+    threadBlocks,
   ]);
   // A highlight click opens its stack and touches its thread, even one already
   // selected, whose selection doesn't change.

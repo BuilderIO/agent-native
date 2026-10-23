@@ -483,6 +483,18 @@ describe("comment stacks in the margin", () => {
     ).not.toBeNull();
   });
 
+  it("opens a selected thread's stack once its highlight is measured", async () => {
+    const highlight = scroll.querySelector('[data-comment-thread="b"]')!;
+    highlight.removeAttribute("data-comment-thread");
+    render();
+    // Selected before the margin knows its block, as from a link.
+    act(() => harness.select("b"));
+    act(() => highlight.setAttribute("data-comment-thread", "b"));
+    await wait(60);
+    expect(margin()).toEqual(["a", "b", "c", "d", "solo", "stack:l2", "l3"]);
+    expect(collapseButton()).not.toBeNull();
+  });
+
   it("ignores hovering while its stack is open", async () => {
     render();
     act(() => harness.select("b"));
@@ -595,6 +607,35 @@ describe("comment stacks in the margin", () => {
       expect.arrayContaining(["a", "b", "c", "d", "new"]),
     );
     expect(collapseButton()).not.toBeNull();
+  });
+
+  it("folds the stack a posted comment makes with a block's only thread", async () => {
+    render();
+    // Selecting a lone thread opens nothing, so nothing is left to open the
+    // stack its block becomes.
+    act(() => harness.select("solo"));
+    markPending("solo");
+    act(() => harness.comment({ quotedText: "beside it", offsetTop: 0 }));
+    await wait(60);
+    actions.create.mockImplementation(async () => {
+      const slot = scroll.querySelector('[data-slot="solo"]')!;
+      slot.className = "";
+      slot.setAttribute("data-comment-thread", "new");
+      render([...THREADS, thread("new", [new Date().toISOString()])]);
+      return { id: "new-0", threadId: "new" };
+    });
+    await setRichEditorValue(
+      richEditor(container.querySelector("[data-comment-pending]")!)!,
+      "A second thread here",
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')!
+        .click(),
+    );
+    expect(harness.selected).toBe("new");
+    expect(margin()).toEqual(["stack:d", "stack:new", "stack:l2", "l3"]);
+    expect(collapseButton()).toBeNull();
   });
 
   it("puts a posted comment in front even when the newest thread was touched", async () => {
