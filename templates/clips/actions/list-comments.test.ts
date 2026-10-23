@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+
+import { signShortLivedToken } from "@agent-native/core/server/short-lived-token";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -111,4 +114,29 @@ describe("list-comments recording policy", () => {
       });
     },
   );
+});
+
+it("reads unlocked password comments with the same purpose-scoped proof", async () => {
+  const password = "fake-stored-password";
+  mockAssertAccess.mockResolvedValue({
+    role: "viewer",
+    resource: {
+      enableComments: true,
+      password,
+      sharePasswordVersion: "initial",
+    },
+  });
+  const scope = createHash("sha256")
+    .update(JSON.stringify(["recording-1", password, "initial"]))
+    .digest("hex");
+  const token = signShortLivedToken({
+    resourceId: `clips-comment:recording-1:${scope}`,
+    ttlSeconds: 600,
+  });
+  await expect(
+    listComments.run(
+      { recordingId: "recording-1" },
+      { requestHeaders: new Headers({ "x-clips-comment-token": token }) },
+    ),
+  ).resolves.toMatchObject({ comments: [{ id: "comment-1" }] });
 });

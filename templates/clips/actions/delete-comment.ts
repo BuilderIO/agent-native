@@ -15,7 +15,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Comment ID"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const [existing] = await db
       .select()
@@ -27,7 +27,11 @@ export default defineAction({
     const userEmail = getRequestUserEmail();
     const isAuthor = sameOwnerEmail(existing.authorEmail, userEmail);
 
-    await assertCommentAccess(existing.recordingId);
+    await assertCommentAccess(
+      existing.recordingId,
+      "write",
+      ctx?.requestHeaders,
+    );
 
     if (!isAuthor) {
       try {

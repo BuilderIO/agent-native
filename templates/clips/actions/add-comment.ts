@@ -56,8 +56,8 @@ export default defineAction({
       .optional()
       .describe("Organization members mentioned in the comment"),
   }),
-  run: async (args) => {
-    await assertCommentAccess(args.recordingId);
+  run: async (args, ctx) => {
+    await assertCommentAccess(args.recordingId, "write", ctx?.requestHeaders);
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {

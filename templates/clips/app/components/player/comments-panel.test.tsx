@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
@@ -14,6 +18,10 @@ import {
 } from "vitest";
 
 import {
+  useCommentAccessRefresh,
+  useCommentAccessToken,
+} from "../../hooks/use-comment-access-refresh";
+import {
   collectCommentSubtreeIds,
   type Comment,
   CommentsPanel,
@@ -26,28 +34,41 @@ const actionMocks = vi.hoisted(() => ({
   updateComment: vi.fn(),
   otherMutation: vi.fn(),
   mutationOptions: new Map<string, any>(),
+  requests: vi.fn(),
+  realMutations: false,
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
-  cn: (...classes: Array<string | false | null | undefined>) =>
-    classes.filter(Boolean).join(" "),
-  useActionMutation: (name: string, options?: any) => {
-    actionMocks.mutationOptions.set(name, options);
-    return {
-      mutate: (vars: any) => {
-        void options?.onMutate?.(vars);
-        return (
-          name === "add-comment"
-            ? actionMocks.addComment
-            : name === "update-comment"
-              ? actionMocks.updateComment
-              : actionMocks.otherMutation
-        )(vars);
-      },
-    };
-  },
-  useAvatarUrl: () => null,
-}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client/hooks")>();
+  return {
+    cn: (...classes: Array<string | false | null | undefined>) =>
+      classes.filter(Boolean).join(" "),
+    useActionMutation: (name: string, options?: any) => {
+      if (actionMocks.realMutations)
+        return actual.useActionMutation(name as any, options);
+      actionMocks.mutationOptions.set(name, options);
+      return {
+        mutate: (vars: any) => {
+          const headers =
+            typeof options?.headers === "function"
+              ? options.headers()
+              : options?.headers;
+          actionMocks.requests(name, vars, headers);
+          void options?.onMutate?.(vars);
+          return (
+            name === "add-comment"
+              ? actionMocks.addComment
+              : name === "update-comment"
+                ? actionMocks.updateComment
+                : actionMocks.otherMutation
+          )(vars);
+        },
+      };
+    },
+    useAvatarUrl: () => null,
+  };
+});
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -109,6 +130,24 @@ function setTextareaValue(element: HTMLTextAreaElement, value: string) {
   element.dispatchEvent(
     new InputEvent("input", { bubbles: true, data: value }),
   );
+}
+
+async function mentionMember(composer: HTMLTextAreaElement, text: string) {
+  const value = `${text} @`;
+  act(() => {
+    setTextareaValue(composer, value);
+    composer.setSelectionRange(value.length, value.length);
+    composer.dispatchEvent(
+      new KeyboardEvent("keyup", { bubbles: true, key: "@" }),
+    );
+  });
+  await act(async () => {
+    document.body
+      .querySelector<HTMLButtonElement>('button[role="option"]')
+      ?.click();
+    await Promise.resolve();
+  });
+  expect(composer.value).toBe(`${text} @Member `);
 }
 
 describe("comment timestamps", () => {
@@ -186,6 +225,90 @@ async function openMenu(trigger: HTMLButtonElement | null) {
   });
 }
 
+const fakeShareKey = ["public-recording", "fake-share"];
+
+function fakeShare(commentAccessToken: string, comments: Comment[]) {
+  return {
+    ok: true,
+    status: 200,
+    data: { recording: { commentAccessToken }, comments },
+  };
+}
+
+function ProofShare({
+  shareFetch,
+  getCurrentMs,
+}: {
+  shareFetch: (context: {
+    signal: AbortSignal;
+  }) => Promise<ReturnType<typeof fakeShare>>;
+  getCurrentMs?: () => number;
+}) {
+  const shareQ = useQuery({ queryKey: fakeShareKey, queryFn: shareFetch });
+  const getCommentAccessToken = useCommentAccessToken(shareQ, fakeShareKey);
+  const share = shareQ.data?.data;
+  if (!share) return null;
+  return (
+    <CommentsPanel
+      recordingId="recording-1"
+      comments={share.comments}
+      currentMs={34_000}
+      getCurrentMs={getCurrentMs}
+      currentUserEmail="viewer@example.com"
+      enableComments
+      canComment
+      onSeek={vi.fn()}
+      queryKey={fakeShareKey}
+      selectComments={(data: any) => data?.data?.comments}
+      applyComments={(data: any, next) =>
+        data ? { ...data, data: { ...data.data, comments: next } } : data
+      }
+      commentAccessToken={share.recording.commentAccessToken}
+      getCommentAccessToken={getCommentAccessToken}
+      presentation="share"
+    />
+  );
+}
+
+// Like the share and recording routes: the page owns the draft and whether the
+// bar is open, and the bar paints inside the player only while the player is
+// fullscreen.
+function FullscreenCommentPage({
+  fullscreen,
+  player,
+  initialDraft = "",
+  onClose,
+  ...bar
+}: Omit<
+  React.ComponentProps<typeof TimestampedCommentBar>,
+  "draft" | "onDraftChange" | "portalContainer"
+> & {
+  fullscreen: boolean;
+  player: HTMLElement;
+  initialDraft?: string;
+}) {
+  const [draft, setDraft] = React.useState(initialDraft);
+  const [open, setOpen] = React.useState(true);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        commentsPanel.commentButton
+      </button>
+      <TimestampedCommentBar
+        {...bar}
+        open={open}
+        draft={draft}
+        onDraftChange={setDraft}
+        onClose={() => {
+          onClose();
+          setOpen(false);
+        }}
+        portalContainer={fullscreen ? player : undefined}
+      />
+    </>
+  );
+}
+
 describe("CommentsPanel reply composer", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -196,11 +319,13 @@ describe("CommentsPanel reply composer", () => {
     comments: Comment[] = [rootComment],
     presentation: "default" | "share" | "inline" = "share",
     enableComments = true,
+    commentAccessToken?: string,
   ) {
     act(() => {
       root.render(
         <QueryClientProvider client={queryClient}>
           <CommentsPanel
+            commentAccessToken={commentAccessToken}
             recordingId="recording-1"
             comments={comments}
             currentMs={34_000}
@@ -236,6 +361,1338 @@ describe("CommentsPanel reply composer", () => {
     actionMocks.mutationOptions.clear();
     vi.clearAllMocks();
   });
+
+  async function renderProofShare(
+    shareFetch: Parameters<typeof ProofShare>[0]["shareFetch"],
+    getCurrentMs?: () => number,
+  ) {
+    act(() => root.render(null));
+    actionMocks.realMutations = true;
+    onTestFinished(() => {
+      actionMocks.realMutations = false;
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ProofShare shareFetch={shareFetch} getCurrentMs={getCurrentMs} />
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+
+  function renderFullscreenCommentPage(
+    props: Omit<
+      React.ComponentProps<typeof FullscreenCommentPage>,
+      "fullscreen" | "player"
+    >,
+  ) {
+    act(() => root.render(null));
+    actionMocks.realMutations = true;
+    const player = document.createElement("div");
+    document.body.appendChild(player);
+    onTestFinished(() => {
+      actionMocks.realMutations = false;
+      player.remove();
+    });
+    const setFullscreen = (fullscreen: boolean) =>
+      act(() =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <FullscreenCommentPage
+              {...props}
+              fullscreen={fullscreen}
+              player={player}
+            />
+          </QueryClientProvider>,
+        ),
+      );
+    setFullscreen(true);
+    const bar = () => {
+      const composer = document.body.querySelector("textarea");
+      const send =
+        document.body.querySelector<HTMLButtonElement>("button[aria-label]");
+      if (!composer || !send) throw new Error("Expected the comment bar");
+      return {
+        composer,
+        send,
+        alert: document.body.querySelector('[role="alert"]'),
+      };
+    };
+    const isOpen = () => document.body.querySelector("textarea") !== null;
+    const close = (how: "Cancel" | "Escape") =>
+      act(() => {
+        if (how === "Escape") {
+          bar().composer.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+          return;
+        }
+        Array.from(document.body.querySelectorAll("button"))
+          .find((button) => button.textContent === "common.cancel")
+          ?.click();
+      });
+    const reopen = () =>
+      act(() => {
+        Array.from(document.body.querySelectorAll("button"))
+          .find(
+            (button) => button.textContent === "commentsPanel.commentButton",
+          )
+          ?.click();
+      });
+    return { player, setFullscreen, bar, isOpen, close, reopen };
+  }
+
+  const commentCard = (content: string) =>
+    Array.from(container.querySelectorAll("li"))
+      .map((item) => item.firstElementChild)
+      .find((card) => card?.textContent?.includes(content));
+
+  const pressCommentButton = async (content: string, label: string) => {
+    await act(async () => {
+      Array.from(commentCard(content)?.querySelectorAll("button") ?? [])
+        .find((button) => button.textContent?.trim() === label)
+        ?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+
+  it("supplies current password proof to every comment mutation after rotation", () => {
+    for (const token of ["fake-first-grant", "fake-rotated-grant", undefined]) {
+      renderPanel("viewer@example.com", [rootComment], "share", true, token);
+      for (const name of [
+        "add-comment",
+        "react-to-comment",
+        "delete-comment",
+        "update-comment",
+      ]) {
+        const options = actionMocks.mutationOptions.get(name);
+        const headers =
+          typeof options?.headers === "function"
+            ? options.headers()
+            : options?.headers;
+        expect(headers?.["x-clips-comment-token"]).toBe(token);
+      }
+    }
+  });
+
+  it("refreshes proof before a fullscreen comment sends", async () => {
+    act(() => root.render(null));
+    actionMocks.realMutations = true;
+    onTestFinished(() => {
+      actionMocks.realMutations = false;
+    });
+    let completeRenewal!: (token: string) => void;
+    const renewal = new Promise<string>((resolve) => {
+      completeRenewal = resolve;
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify({ id: "comment-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    act(() =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TimestampedCommentBar
+            recordingId="recording-1"
+            atMs={12000}
+            draft="Fake fullscreen comment"
+            onClose={vi.fn()}
+            commentAccessToken="fake-expired-proof"
+            getCommentAccessToken={() => renewal}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    const send =
+      container.querySelector<HTMLButtonElement>("button[aria-label]");
+    expect(send).not.toBeNull();
+    await act(async () => {
+      send?.click();
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => {
+      completeRenewal("fake-fresh-proof");
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const init = fetch.mock.calls[0][1] as RequestInit;
+    expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+      "fake-fresh-proof",
+    );
+    expect(JSON.parse(String(init.body))).toEqual({
+      recordingId: "recording-1",
+      content: "Fake fullscreen comment",
+      videoTimestampMs: 12000,
+    });
+  });
+
+  it("waits for pending password renewal before cancelling queries or sending a mutation", async () => {
+    act(() => root.render(null));
+    actionMocks.realMutations = true;
+    onTestFinished(() => {
+      actionMocks.realMutations = false;
+    });
+    let completeRenewal!: (value: { token: string }) => void;
+    const deferred = new Promise<{ token: string }>((resolve) => {
+      completeRenewal = resolve;
+    });
+    const cancel = vi.spyOn(queryClient, "cancelQueries");
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify({ id: "comment-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const renew = () =>
+      queryClient
+        .fetchQuery({
+          queryKey: ["recording", "recording-1"],
+          queryFn: () => deferred,
+        })
+        .catch(() => null);
+    function PendingShare() {
+      useCommentAccessRefresh("fake-expired-proof", renew);
+      return (
+        <CommentsPanel
+          recordingId="recording-1"
+          comments={[
+            {
+              ...rootComment,
+              emojiReactionsJson: JSON.stringify({
+                "👍": ["other@example.com"],
+              }),
+            },
+          ]}
+          currentMs={0}
+          currentUserEmail="viewer@example.com"
+          enableComments
+          canComment
+          onSeek={vi.fn()}
+          queryKey={["recording", "recording-1"]}
+          commentAccessToken="fake-expired-proof"
+          getCommentAccessToken={async () => (await renew())?.token}
+        />
+      );
+    }
+    act(() =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <PendingShare />
+        </QueryClientProvider>,
+      ),
+    );
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    const reaction = container.querySelector<HTMLButtonElement>(
+      "button[aria-pressed]",
+    );
+    expect(reaction).not.toBeNull();
+    await act(async () => {
+      reaction?.click();
+    });
+    expect(cancel).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => {
+      completeRenewal({ token: "fake-fresh-proof" });
+    });
+    expect(cancel).toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const init = fetch.mock.calls[0][1] as RequestInit;
+    expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+      "fake-fresh-proof",
+    );
+    expect(JSON.parse(String(init.body))).toEqual({
+      commentId: "comment-1",
+      emoji: "👍",
+    });
+  });
+
+  it.each(["renewed", "rejected"] as const)(
+    "shows a comment at once while stale proof renews, then sends only %s proof",
+    async (outcome) => {
+      act(() => root.render(null));
+      actionMocks.realMutations = true;
+      onTestFinished(() => {
+        actionMocks.realMutations = false;
+      });
+      const shareKey = ["public-recording", "fake-share"];
+      let settleRenewal!: () => void;
+      const shareFetches = [
+        async () => ({ token: "fake-stale-proof", comments: [rootComment] }),
+        () =>
+          new Promise<{ token: string; comments: Comment[] }>(
+            (resolve, reject) => {
+              settleRenewal = () =>
+                outcome === "renewed"
+                  ? resolve({
+                      token: "fake-renewed-proof",
+                      comments: [rootComment],
+                    })
+                  : reject(new Error("fake renewal failure"));
+            },
+          ),
+      ];
+      const fetch = vi.fn<typeof globalThis.fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({ id: "comment-2", threadId: "comment-2" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      );
+      vi.stubGlobal("fetch", fetch);
+      function StaleShare() {
+        const shareQ = useQuery({
+          queryKey: shareKey,
+          queryFn: () => shareFetches.shift()!(),
+        });
+        if (!shareQ.data) return null;
+        return (
+          <CommentsPanel
+            recordingId="recording-1"
+            comments={shareQ.data.comments}
+            currentMs={0}
+            currentUserEmail="viewer@example.com"
+            enableComments
+            canComment
+            onSeek={vi.fn()}
+            queryKey={shareKey}
+            selectComments={(data: any) => data?.comments}
+            applyComments={(data: any, next) =>
+              data ? { ...data, comments: next } : data
+            }
+            commentAccessToken={shareQ.data.token}
+            getCommentAccessToken={async () => {
+              const result = await shareQ.refetch({ cancelRefetch: false });
+              if (result.error) throw result.error;
+              return result.data?.token;
+            }}
+            presentation="share"
+          />
+        );
+      }
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <StaleShare />
+          </QueryClientProvider>,
+        );
+      });
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      const composer = container.querySelector<HTMLTextAreaElement>(
+        'textarea[placeholder="commentsPanel.leaveComment"]',
+      );
+      expect(composer).not.toBeNull();
+      act(() => setTextareaValue(composer!, "Fake stale-proof comment"));
+      await act(async () => {
+        composer?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            ctrlKey: true,
+            key: "Enter",
+          }),
+        );
+      });
+      const feed = () =>
+        Array.from(container.querySelectorAll("li"))
+          .map((item) => item.textContent)
+          .join(" ");
+      expect(feed()).toContain("Fake stale-proof comment");
+      expect(fetch).not.toHaveBeenCalled();
+
+      await act(async () => {
+        settleRenewal();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      if (outcome === "rejected") {
+        expect(feed()).not.toContain("Fake stale-proof comment");
+        expect(fetch).not.toHaveBeenCalled();
+        return;
+      }
+      expect(feed()).toContain("Fake stale-proof comment");
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const init = fetch.mock.calls[0][1] as RequestInit;
+      expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+        "fake-renewed-proof",
+      );
+    },
+  );
+
+  it("sends every comment write on a fresh grant at once and renews only after a refusal", async () => {
+    const ownComment: Comment = {
+      ...rootComment,
+      authorEmail: "viewer@example.com",
+      emojiReactionsJson: JSON.stringify({ "👍": ["other@example.com"] }),
+    };
+    const shareFetch = vi.fn(async () =>
+      fakeShare(`fake-proof-${shareFetch.mock.calls.length}`, [ownComment]),
+    );
+    const responses: Array<(response: Response) => void> = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      () => new Promise((resolve) => responses.push(resolve)),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const flush = () =>
+      act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await renderProofShare(shareFetch);
+    const feed = () =>
+      Array.from(container.querySelectorAll("li"))
+        .map((item) => item.textContent)
+        .join(" ");
+    const sent = (index: number) => {
+      const init = fetch.mock.calls[index]?.[1] as RequestInit | undefined;
+      return {
+        token: new Headers(init?.headers).get("x-clips-comment-token"),
+        body: JSON.parse(String(init?.body)),
+      };
+    };
+    const composer = () =>
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[placeholder="commentsPanel.leaveComment"]',
+      );
+    const submitComment = async (content: string) => {
+      act(() => setTextareaValue(composer()!, content));
+      await act(async () => {
+        composer()?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            ctrlKey: true,
+            key: "Enter",
+          }),
+        );
+      });
+    };
+    const chooseMenuItem = async (label: string) => {
+      await openMenu(
+        container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]'),
+      );
+      const item = Array.from(
+        document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).find((candidate) => candidate.textContent?.trim() === label);
+      expect(item).toBeDefined();
+      await act(async () => {
+        item?.click();
+        await Promise.resolve();
+      });
+    };
+
+    await submitComment("Fake fresh-proof comment");
+    expect(feed()).toContain("Fake fresh-proof comment");
+    expect(sent(0)).toMatchObject({
+      token: "fake-proof-1",
+      body: { content: "Fake fresh-proof comment" },
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("button[aria-pressed]")
+        ?.click();
+    });
+    expect(feed()).toContain("👍 2");
+    expect(sent(1)).toMatchObject({
+      token: "fake-proof-1",
+      body: { commentId: "comment-1", emoji: "👍" },
+    });
+
+    await chooseMenuItem("commentsPanel.editComment");
+    act(() =>
+      setTextareaValue(
+        container.querySelector<HTMLTextAreaElement>(
+          'textarea[aria-label="commentsPanel.editComment"]',
+        )!,
+        "Fake fresh-proof edit",
+      ),
+    );
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "common.save")
+        ?.click();
+    });
+    expect(feed()).toContain("Fake fresh-proof edit");
+    expect(sent(2)).toMatchObject({
+      token: "fake-proof-1",
+      body: { id: "comment-1", content: "Fake fresh-proof edit" },
+    });
+
+    await chooseMenuItem("commentsPanel.delete");
+    expect(feed()).not.toContain("Fake fresh-proof edit");
+    expect(sent(3)).toMatchObject({
+      token: "fake-proof-1",
+      body: { id: "comment-1" },
+    });
+    expect(shareFetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      responses[0](
+        new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await submitComment("Fake retried comment");
+    await flush();
+    expect(shareFetch).toHaveBeenCalledTimes(2);
+    expect(sent(4)).toMatchObject({
+      token: "fake-proof-2",
+      body: { content: "Fake retried comment" },
+    });
+  });
+
+  it("joins a proof renewal already in flight instead of cancelling it", async () => {
+    let finishRenewal!: () => void;
+    let renewalAborted = false;
+    const shareFetch = vi.fn(async ({ signal }: { signal: AbortSignal }) => {
+      const proof = `fake-proof-${shareFetch.mock.calls.length}`;
+      if (proof !== "fake-proof-1") {
+        signal.addEventListener("abort", () => {
+          renewalAborted = true;
+        });
+        await new Promise<void>((resolve) => {
+          finishRenewal = resolve;
+        });
+      }
+      return fakeShare(proof, [rootComment]);
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({ id: "comment-2", threadId: "comment-2" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await renderProofShare(shareFetch);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(shareFetch).toHaveBeenCalledTimes(2);
+
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    act(() => setTextareaValue(composer!, "Fake comment during renewal"));
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="commentsPanel.commentButton"]',
+        )
+        ?.click();
+    });
+    expect(container.querySelectorAll("li")).toHaveLength(2);
+    expect(fetch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishRenewal();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(renewalAborted).toBe(false);
+    expect(shareFetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const init = fetch.mock.calls[0][1] as RequestInit;
+    expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+      "fake-proof-2",
+    );
+  });
+
+  it.each(["comment", "reply"] as const)(
+    "returns a failed %s to its composer with feedback when stale proof cannot renew",
+    async (kind) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      let playheadMs = 34_000;
+      let settleRenewal!: (renewed: boolean) => void;
+      const shareFetch = vi.fn(async () => {
+        const proof = `fake-proof-${shareFetch.mock.calls.length}`;
+        if (proof !== "fake-proof-1") {
+          await new Promise<void>((resolve, reject) => {
+            settleRenewal = (renewed) =>
+              renewed ? resolve() : reject(new Error("fake renewal failure"));
+          });
+        }
+        return fakeShare(proof, [rootComment]);
+      });
+      const fetch = vi.fn<typeof globalThis.fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({ id: "comment-2", threadId: "thread-1" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      );
+      vi.stubGlobal("fetch", fetch);
+      await renderProofShare(shareFetch, () => playheadMs);
+      if (kind === "reply") {
+        await act(async () => {
+          Array.from(container.querySelectorAll("button"))
+            .find(
+              (button) => button.textContent?.trim() === "commentsPanel.reply",
+            )
+            ?.click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+      const label =
+        kind === "reply"
+          ? "commentsPanel.writeReply"
+          : "commentsPanel.leaveComment";
+      const composer = () =>
+        container.querySelector<HTMLTextAreaElement>(
+          `textarea[placeholder="${label}"]`,
+        );
+      const send = async () => {
+        await act(async () => {
+          container
+            .querySelector<HTMLButtonElement>(
+              `button[aria-label="${
+                kind === "reply"
+                  ? "commentsPanel.writeReply"
+                  : "commentsPanel.commentButton"
+              }"]`,
+            )
+            ?.click();
+        });
+      };
+      await mentionMember(composer()!, "Hi");
+      playheadMs = 50_000;
+      vi.setSystemTime(Date.now() + 300_000);
+
+      await send();
+      expect(container.querySelectorAll("li")).toHaveLength(2);
+      expect(composer()?.value ?? "").toBe("");
+      expect(shareFetch).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        settleRenewal(false);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(container.querySelectorAll("li")).toHaveLength(1);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(composer()?.value).toBe("Hi @Member ");
+      expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+        "notificationsRoute.sendFailed",
+      );
+
+      await send();
+      await act(async () => {
+        settleRenewal(true);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const init = fetch.mock.calls[0][1] as RequestInit;
+      expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+        "fake-proof-3",
+      );
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        content: "Hi @Member",
+        mentions: [{ email: "member@example.com", name: "Member" }],
+        ...(kind === "reply"
+          ? {
+              videoTimestampMs: 12_000,
+              threadId: "thread-1",
+              parentId: "comment-1",
+            }
+          : { videoTimestampMs: 34_000 }),
+      });
+    },
+  );
+
+  it("keeps newer typing when a send fails behind it, and keeps the failed comment in the feed to retry", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    let playheadMs = 34_000;
+    const renewals: Array<(renewed: boolean) => void> = [];
+    const shareFetch = vi.fn(async () => {
+      const proof = `fake-proof-${shareFetch.mock.calls.length}`;
+      if (proof !== "fake-proof-1") {
+        await new Promise<void>((resolve, reject) => {
+          renewals.push((renewed) =>
+            renewed ? resolve() : reject(new Error("fake renewal failure")),
+          );
+        });
+      }
+      return fakeShare(proof, [rootComment]);
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async (): Promise<Response> => {
+        const id = `comment-sent-${fetch.mock.calls.length}`;
+        return new Response(JSON.stringify({ id, threadId: id }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetch);
+    await renderProofShare(shareFetch, () => playheadMs);
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    )!;
+    const send = () =>
+      act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="commentsPanel.commentButton"]',
+          )
+          ?.click();
+      });
+    const settleRenewal = (renewed: boolean) =>
+      act(async () => {
+        renewals.shift()?.(renewed);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    const sent = (index: number) => {
+      const init = fetch.mock.calls[index]?.[1] as RequestInit | undefined;
+      return {
+        token: new Headers(init?.headers).get("x-clips-comment-token"),
+        body: JSON.parse(String(init?.body)),
+      };
+    };
+    const alerts = () => container.querySelectorAll('[role="alert"]');
+
+    await mentionMember(composer, "Hi");
+    playheadMs = 50_000;
+    vi.setSystemTime(Date.now() + 300_000);
+    await send();
+    expect(commentCard("Hi @Member")).toBeDefined();
+    act(() => setTextareaValue(composer, "Fake newer draft"));
+    await settleRenewal(false);
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(composer.value).toBe("Fake newer draft");
+    expect(alerts()).toHaveLength(1);
+    expect(
+      commentCard("Hi @Member")?.querySelector('[role="alert"]')?.textContent,
+    ).toBe("notificationsRoute.sendFailed");
+
+    await send();
+    await settleRenewal(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(sent(0)).toMatchObject({
+      token: "fake-proof-3",
+      body: { content: "Fake newer draft", videoTimestampMs: 50_000 },
+    });
+    expect(commentCard("Fake newer draft")).toBeDefined();
+    expect(alerts()).toHaveLength(1);
+    expect(
+      commentCard("Hi @Member")?.querySelector('[role="alert"]'),
+    ).not.toBeNull();
+
+    await pressCommentButton("Hi @Member", "libraryGrid.retry");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(shareFetch).toHaveBeenCalledTimes(3);
+    expect(sent(1)).toMatchObject({
+      token: "fake-proof-3",
+      body: {
+        content: "Hi @Member",
+        mentions: [{ email: "member@example.com", name: "Member" }],
+        videoTimestampMs: 34_000,
+      },
+    });
+    expect(sent(1).body).not.toHaveProperty("parentId");
+    expect(alerts()).toHaveLength(0);
+    expect(container.querySelectorAll("li")).toHaveLength(3);
+    expect(commentCard("Fake newer draft")).toBeDefined();
+    expect(composer.value).toBe("");
+  });
+
+  it.each([
+    {
+      newer: "typed",
+      draft: "Fake newest draft",
+      failed: ["Fake first comment", "Fake second comment"],
+    },
+    {
+      newer: "nothing",
+      draft: "Fake first comment",
+      failed: ["Fake second comment"],
+    },
+  ])(
+    "keeps every comment that fails together without replacing an earlier one ($newer)",
+    async ({ newer, draft, failed }) => {
+      const shareFetch = vi.fn(async () =>
+        fakeShare(`fake-proof-${shareFetch.mock.calls.length}`, [rootComment]),
+      );
+      const responses: Array<(response: Response) => void> = [];
+      const fetch = vi.fn<typeof globalThis.fetch>(
+        () => new Promise((resolve) => responses.push(resolve)),
+      );
+      vi.stubGlobal("fetch", fetch);
+      await renderProofShare(shareFetch);
+      const composer = container.querySelector<HTMLTextAreaElement>(
+        'textarea[placeholder="commentsPanel.leaveComment"]',
+      )!;
+      const submit = async (content: string) => {
+        act(() => setTextareaValue(composer, content));
+        await act(async () => {
+          container
+            .querySelector<HTMLButtonElement>(
+              'button[aria-label="commentsPanel.commentButton"]',
+            )
+            ?.click();
+        });
+      };
+      const respond = (status: number) =>
+        act(async () => {
+          for (const resolve of responses.splice(0)) {
+            resolve(
+              new Response(
+                JSON.stringify(
+                  status === 200
+                    ? { id: "comment-sent", threadId: "comment-sent" }
+                    : { error: "Forbidden" },
+                ),
+                { status, headers: { "Content-Type": "application/json" } },
+              ),
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      const failedComments = () =>
+        ["Fake first comment", "Fake second comment"].filter((content) =>
+          commentCard(content)?.querySelector('[role="alert"]'),
+        );
+
+      await submit("Fake first comment");
+      await submit("Fake second comment");
+      if (newer === "typed") {
+        act(() => setTextareaValue(composer, "Fake newest draft"));
+      }
+      expect(fetch).toHaveBeenCalledTimes(2);
+      await respond(403);
+
+      expect(composer.value).toBe(draft);
+      expect(failedComments()).toEqual(failed);
+      expect(container.querySelectorAll("li")).toHaveLength(1 + failed.length);
+
+      await pressCommentButton("Fake second comment", "libraryGrid.retry");
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(shareFetch).toHaveBeenCalledTimes(2);
+      const init = fetch.mock.calls[2][1] as RequestInit;
+      expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+        "fake-proof-2",
+      );
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        content: "Fake second comment",
+      });
+      expect(failedComments()).toEqual(failed.slice(0, -1));
+      expect(container.querySelectorAll("li")).toHaveLength(1 + failed.length);
+
+      await respond(200);
+      expect(failedComments()).toEqual(failed.slice(0, -1));
+      expect(commentCard("Fake second comment")).toBeDefined();
+      if (newer === "typed") {
+        await pressCommentButton("Fake first comment", "commentsPanel.delete");
+        expect(commentCard("Fake first comment")).toBeUndefined();
+      }
+      expect(composer.value).toBe(draft);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it.each([
+    { otherReply: "kept open", restored: false },
+    { otherReply: "cancelled", restored: true },
+  ])(
+    "restores a failed reply only while no other comment's reply composer is open, and otherwise keeps it in the feed to retry ($otherReply)",
+    async ({ otherReply, restored }) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const otherComment: Comment = {
+        ...rootComment,
+        id: "comment-2",
+        threadId: "thread-2",
+        content: "Fake second thread",
+        videoTimestampMs: 20_000,
+      };
+      const renewals: Array<(renewed: boolean) => void> = [];
+      const shareFetch = vi.fn(async () => {
+        const proof = `fake-proof-${shareFetch.mock.calls.length}`;
+        if (proof !== "fake-proof-1") {
+          await new Promise<void>((resolve, reject) => {
+            renewals.push((renewed) =>
+              renewed ? resolve() : reject(new Error("fake renewal failure")),
+            );
+          });
+        }
+        return fakeShare(proof, [rootComment, otherComment]);
+      });
+      const fetch = vi.fn<typeof globalThis.fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({ id: "comment-sent", threadId: "thread-1" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      );
+      vi.stubGlobal("fetch", fetch);
+      await renderProofShare(shareFetch);
+      const openReply = (content: string) =>
+        pressCommentButton(content, "commentsPanel.reply");
+      const settleRenewal = (renewed: boolean) =>
+        act(async () => {
+          renewals.shift()?.(renewed);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      const replyComposer = () =>
+        container.querySelector<HTMLTextAreaElement>(
+          'textarea[placeholder="commentsPanel.writeReply"]',
+        );
+      const replyingTo = () =>
+        replyComposer()?.closest("li")?.firstElementChild?.textContent;
+      const alerts = () => container.querySelectorAll('[role="alert"]');
+
+      await openReply("Please take a look");
+      await mentionMember(replyComposer()!, "Fake failed reply");
+      vi.setSystemTime(Date.now() + 300_000);
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="commentsPanel.writeReply"]',
+          )
+          ?.click();
+      });
+      expect(container.textContent).toContain("Fake failed reply");
+      expect(replyComposer()).toBeNull();
+
+      await openReply("Fake second thread");
+      expect(replyingTo()).toContain("Fake second thread");
+      if (otherReply === "cancelled") {
+        act(() => {
+          replyComposer()?.dispatchEvent(
+            new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+          );
+        });
+        expect(replyComposer()).toBeNull();
+      }
+      await settleRenewal(false);
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(replyingTo()).toContain(
+        restored ? "Please take a look" : "Fake second thread",
+      );
+      expect(replyComposer()?.value).toBe(
+        restored ? "Fake failed reply @Member " : "",
+      );
+      expect(alerts()).toHaveLength(1);
+      expect(alerts()[0].textContent).toBe("notificationsRoute.sendFailed");
+      expect(Boolean(commentCard("Fake failed reply"))).toBe(!restored);
+      if (restored) return;
+
+      act(() => setTextareaValue(replyComposer()!, "Fake newer reply"));
+      expect(
+        commentCard("Fake failed reply")?.querySelector('[role="alert"]'),
+      ).not.toBeNull();
+      expect(
+        commentCard("Fake failed reply")?.closest("ul")?.closest("li")
+          ?.firstElementChild?.textContent,
+      ).toContain("Please take a look");
+      await pressCommentButton("Fake failed reply", "libraryGrid.retry");
+      await settleRenewal(true);
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const init = fetch.mock.calls[0][1] as RequestInit;
+      expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+        "fake-proof-3",
+      );
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        content: "Fake failed reply @Member",
+        mentions: [{ email: "member@example.com", name: "Member" }],
+        videoTimestampMs: 12_000,
+        threadId: "thread-1",
+        parentId: "comment-1",
+      });
+      expect(alerts()).toHaveLength(0);
+      expect(commentCard("Fake failed reply")).toBeDefined();
+      expect(replyingTo()).toContain("Fake second thread");
+      expect(replyComposer()?.value).toBe("Fake newer reply");
+    },
+  );
+
+  it("keeps a fullscreen draft with feedback when proof cannot renew, then sends it on retry after leaving fullscreen and reopening", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify({ id: "comment-2" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const getCommentAccessToken = vi
+      .fn<(refusedToken?: string | null) => Promise<string>>()
+      .mockRejectedValueOnce(new Error("fake password changed"))
+      .mockResolvedValueOnce("fake-renewed-proof");
+    const onAdded = vi.fn();
+    const onClose = vi.fn();
+    const { player, setFullscreen, bar, isOpen, close, reopen } =
+      renderFullscreenCommentPage({
+        recordingId: "recording-1",
+        atMs: 12000,
+        initialDraft: "Fake fullscreen comment",
+        onAdded,
+        onClose,
+        commentAccessToken: "fake-stale-proof",
+        getCommentAccessToken,
+      });
+    expect(player.contains(bar().composer)).toBe(true);
+    await act(async () => {
+      bar().send.click();
+    });
+    setFullscreen(false);
+    expect(player.contains(bar().composer)).toBe(false);
+    expect(bar().alert?.textContent).toBe("notificationsRoute.sendFailed");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(onAdded).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(bar().composer.value).toBe("Fake fullscreen comment");
+    expect(bar().send.disabled).toBe(false);
+    close("Escape");
+    expect(isOpen()).toBe(false);
+    reopen();
+    expect(bar().alert?.textContent).toBe("notificationsRoute.sendFailed");
+    expect(bar().composer.value).toBe("Fake fullscreen comment");
+    expect(bar().send.disabled).toBe(false);
+
+    await act(async () => {
+      bar().send.click();
+    });
+    expect(getCommentAccessToken).toHaveBeenLastCalledWith("fake-stale-proof");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const init = fetch.mock.calls[0][1] as RequestInit;
+    expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+      "fake-renewed-proof",
+    );
+    expect(onAdded).toHaveBeenCalledTimes(1);
+    expect(isOpen()).toBe(false);
+    reopen();
+    expect(bar().alert).toBeNull();
+    expect(bar().composer.value).toBe("");
+  });
+
+  it("sends a fullscreen comment once however often send repeats, the composer closes and reopens, or the player leaves fullscreen before it settles", async () => {
+    let completeRenewal!: (token: string) => void;
+    const renewal = new Promise<string>((resolve) => {
+      completeRenewal = resolve;
+    });
+    const getCommentAccessToken = vi.fn(() => renewal);
+    let completeRequest!: () => void;
+    const request = new Promise<void>((resolve) => {
+      completeRequest = resolve;
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      await request;
+      return new Response(JSON.stringify({ id: "comment-2" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const onAdded = vi.fn();
+    const { player, setFullscreen, bar, isOpen, close, reopen } =
+      renderFullscreenCommentPage({
+        recordingId: "recording-1",
+        atMs: 12000,
+        onAdded,
+        onClose: vi.fn(),
+        commentAccessToken: "fake-expired-proof",
+        getCommentAccessToken,
+      });
+    const pressSend = (modifier: "ctrlKey" | "metaKey") =>
+      bar().composer.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          [modifier]: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    act(() => setTextareaValue(bar().composer, "Fake fullscreen comment"));
+
+    // Same tick, before React Query publishes the pending state.
+    await act(async () => {
+      pressSend("ctrlKey");
+      bar().send.click();
+      pressSend("metaKey");
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(bar().send.disabled).toBe(true);
+    await act(async () => {
+      pressSend("ctrlKey");
+    });
+    const resend = async () => {
+      expect(bar().composer.value).toBe("Fake fullscreen comment");
+      expect(bar().send.disabled).toBe(true);
+      await act(async () => {
+        pressSend("ctrlKey");
+        bar().send.click();
+        pressSend("metaKey");
+      });
+    };
+    for (const fullscreen of [false, true]) {
+      setFullscreen(fullscreen);
+      expect(player.contains(bar().composer)).toBe(fullscreen);
+      await resend();
+    }
+    for (const how of ["Cancel", "Escape"] as const) {
+      close(how);
+      expect(isOpen()).toBe(false);
+      reopen();
+      await resend();
+    }
+    expect(getCommentAccessToken).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      completeRenewal("fake-fresh-proof");
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    setFullscreen(false);
+    await resend();
+    close("Escape");
+    reopen();
+    await resend();
+    expect(isOpen()).toBe(true);
+
+    await act(async () => {
+      completeRequest();
+    });
+    expect(getCommentAccessToken).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(
+      new Headers(fetch.mock.calls[0][1]?.headers).get("x-clips-comment-token"),
+    ).toBe("fake-fresh-proof");
+    expect(onAdded).toHaveBeenCalledTimes(1);
+    expect(isOpen()).toBe(false);
+    reopen();
+    expect(bar().composer.value).toBe("");
+    expect(bar().alert).toBeNull();
+
+    act(() => setTextareaValue(bar().composer, "Fake follow-up comment"));
+    await act(async () => {
+      pressSend("ctrlKey");
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({
+      recordingId: "recording-1",
+      content: "Fake follow-up comment",
+      videoTimestampMs: 12000,
+    });
+    expect(onAdded).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["Cancel", "Escape"] as const)(
+    "finishes a comment closed with %s while it sends, and reopens without the posted draft",
+    async (how) => {
+      let completeRenewal!: (token: string) => void;
+      const renewal = new Promise<string>((resolve) => {
+        completeRenewal = resolve;
+      });
+      let completeRequest!: () => void;
+      const request = new Promise<void>((resolve) => {
+        completeRequest = resolve;
+      });
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+        await request;
+        return new Response(JSON.stringify({ id: "comment-2" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+      vi.stubGlobal("fetch", fetch);
+      const onAdded = vi.fn();
+      const { bar, isOpen, close, reopen } = renderFullscreenCommentPage({
+        recordingId: "recording-1",
+        atMs: 12000,
+        initialDraft: "Fake fullscreen comment",
+        onAdded,
+        onClose: vi.fn(),
+        commentAccessToken: "fake-expired-proof",
+        getCommentAccessToken: () => renewal,
+      });
+      await act(async () => {
+        bar().send.click();
+      });
+      close(how);
+      await act(async () => {
+        completeRenewal("fake-fresh-proof");
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        completeRequest();
+      });
+      expect(onAdded).toHaveBeenCalledTimes(1);
+      expect(isOpen()).toBe(false);
+
+      reopen();
+      expect(bar().composer.value).toBe("");
+      expect(bar().alert).toBeNull();
+      await act(async () => {
+        bar().send.click();
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["stays open", "Cancel", "Escape", "leaves fullscreen"] as const)(
+    "keeps text typed while a fullscreen comment sends unsent after it posts, then sends it next (%s)",
+    async (meanwhile) => {
+      let completeRenewal!: (token: string) => void;
+      const renewal = new Promise<string>((resolve) => {
+        completeRenewal = resolve;
+      });
+      const getCommentAccessToken = vi.fn(() => renewal);
+      let completeRequest!: () => void;
+      const request = new Promise<void>((resolve) => {
+        completeRequest = resolve;
+      });
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+        await request;
+        return new Response(JSON.stringify({ id: "comment-2" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+      vi.stubGlobal("fetch", fetch);
+      const onAdded = vi.fn();
+      const { player, setFullscreen, bar, isOpen, close, reopen } =
+        renderFullscreenCommentPage({
+          recordingId: "recording-1",
+          atMs: 12000,
+          initialDraft: "Fake first comment",
+          onAdded,
+          onClose: vi.fn(),
+          commentAccessToken: "fake-expired-proof",
+          getCommentAccessToken,
+        });
+      const sentContent = (call: number) =>
+        JSON.parse(String(fetch.mock.calls[call][1]?.body)).content;
+      await act(async () => {
+        bar().send.click();
+      });
+      act(() => setTextareaValue(bar().composer, "Fake follow-up comment"));
+      if (meanwhile === "leaves fullscreen") {
+        setFullscreen(false);
+        expect(player.contains(bar().composer)).toBe(false);
+      } else if (meanwhile !== "stays open") {
+        close(meanwhile);
+        expect(isOpen()).toBe(false);
+      }
+
+      await act(async () => {
+        completeRenewal("fake-fresh-proof");
+      });
+      await act(async () => {
+        completeRequest();
+      });
+      // React Query publishes the settled state to render a tick later.
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(sentContent(0)).toBe("Fake first comment");
+      expect(onAdded).toHaveBeenCalledTimes(1);
+      if (meanwhile === "Cancel" || meanwhile === "Escape") {
+        expect(isOpen()).toBe(false);
+        reopen();
+      }
+      expect(isOpen()).toBe(true);
+      expect(bar().composer.value).toBe("Fake follow-up comment");
+      expect(bar().alert).toBeNull();
+      expect(bar().send.disabled).toBe(false);
+
+      await act(async () => {
+        bar().send.click();
+      });
+      expect(getCommentAccessToken).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(sentContent(1)).toBe("Fake follow-up comment");
+      expect(onAdded).toHaveBeenCalledTimes(2);
+      expect(isOpen()).toBe(false);
+      reopen();
+      expect(bar().composer.value).toBe("");
+    },
+  );
+
+  it.each(["active", "resumed"])(
+    "renews expired proof before a %s viewer submits",
+    async (mode) => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const refresh = vi.fn();
+      function UnlockedShare() {
+        const [token, setToken] = React.useState("fake-initial-proof");
+        const renew = React.useCallback(async () => {
+          refresh();
+          setToken(`fake-renewed-proof-${refresh.mock.calls.length}`);
+        }, []);
+        useCommentAccessRefresh(token, renew);
+        return (
+          <CommentsPanel
+            recordingId="recording-1"
+            comments={[
+              {
+                ...rootComment,
+                emojiReactionsJson: JSON.stringify({
+                  "👍": ["other@example.com"],
+                }),
+              },
+            ]}
+            currentMs={0}
+            currentUserEmail="viewer@example.com"
+            enableComments
+            canComment
+            onSeek={vi.fn()}
+            queryKey={["recording", "recording-1"]}
+            commentAccessToken={token}
+          />
+        );
+      }
+      act(() =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <UnlockedShare />
+          </QueryClientProvider>,
+        ),
+      );
+      if (mode === "active") {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(660_000);
+        });
+      } else {
+        vi.setSystemTime(Date.now() + 660_000);
+        await act(async () => {
+          window.dispatchEvent(new Event("focus"));
+        });
+      }
+      expect(refresh).toHaveBeenCalledTimes(mode === "active" ? 2 : 1);
+      const reaction = container.querySelector<HTMLButtonElement>(
+        "button[aria-pressed]",
+      );
+      expect(reaction).not.toBeNull();
+      act(() => reaction?.click());
+      expect(actionMocks.requests).toHaveBeenLastCalledWith(
+        "react-to-comment",
+        { commentId: "comment-1", emoji: "👍" },
+        {
+          "x-clips-comment-token": `fake-renewed-proof-${mode === "active" ? 2 : 1}`,
+        },
+      );
+    },
+  );
 
   it("renders comment URLs as safe external links without including punctuation", () => {
     const absoluteUrl = container.querySelector<HTMLAnchorElement>(

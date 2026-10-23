@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+
+import { signShortLivedToken } from "@agent-native/core/server/short-lived-token";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -141,6 +144,23 @@ beforeEach(() => {
 });
 
 describe("delete-comment", () => {
+  it("refuses a password-protected author's deletion without proof", async () => {
+    mockAssertAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        enableComments: true,
+        password: "fake-password",
+        sharePasswordVersion: "initial",
+      },
+    });
+    const original = [...state.rows];
+    await expect(action.run({ id: "comment-1" })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect(state.rows).toEqual(original);
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
   it.each([
     { role: "viewer", email: "author@example.com" },
     { role: "editor", email: "editor@example.com" },
@@ -250,5 +270,32 @@ describe("delete-comment", () => {
       "comment-2",
       "comment-1-cross-record-reply",
     ]);
+  });
+});
+
+it("deletes the unlocked author's comment with purpose-scoped proof", async () => {
+  const password = "fake-stored-password";
+  mockAssertAccess.mockResolvedValue({
+    role: "viewer",
+    resource: {
+      enableComments: true,
+      password,
+      sharePasswordVersion: "initial",
+    },
+  });
+  const scope = createHash("sha256")
+    .update(JSON.stringify(["recording-1", password, "initial"]))
+    .digest("hex");
+  const token = signShortLivedToken({
+    resourceId: `clips-comment:recording-1:${scope}`,
+    ttlSeconds: 600,
+  });
+  await expect(
+    action.run(
+      { id: "comment-1" },
+      { requestHeaders: new Headers({ "x-clips-comment-token": token }) },
+    ),
+  ).resolves.toMatchObject({
+    deletedCommentIds: ["comment-1", "comment-1-reply", "comment-1-reply-2"],
   });
 });
