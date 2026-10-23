@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
 import {
   evaluateFeatureFlagRules,
@@ -52,15 +53,19 @@ export type LiveBodyWriterPageRow = Pick<
   | "orgId"
 >;
 
-export const liveBodyWriterPageColumns = {
-  id: schema.documents.id,
-  liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
-  bodyRevision: schema.documents.bodyRevision,
-  collabBodyRevision: schema.documents.collabBodyRevision,
-  liveCopyVersion: schema.documents.liveCopyVersion,
-  ownerEmail: schema.documents.ownerEmail,
-  orgId: schema.documents.orgId,
-};
+// Built on call, not at import: this module loads wherever a page's write path
+// is checked, including tests that mock the schema without `documents`.
+export function liveBodyWriterPageColumns() {
+  return {
+    id: schema.documents.id,
+    liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
+    bodyRevision: schema.documents.bodyRevision,
+    collabBodyRevision: schema.documents.collabBodyRevision,
+    liveCopyVersion: schema.documents.liveCopyVersion,
+    ownerEmail: schema.documents.ownerEmail,
+    orgId: schema.documents.orgId,
+  };
+}
 
 /**
  * Decides the write path for a page row the caller read under its row lock;
@@ -84,6 +89,28 @@ export async function liveBodyWriterGateForRow(
       return (rows[0] as { version?: unknown } | undefined)?.version;
     },
     options,
+  );
+}
+
+/**
+ * Refuses a legacy body write to a page that now writes its body through its
+ * live copy. Call it in the write's transaction, on the page row read under
+ * its lock: a page can switch after the writer chose the legacy path, and a
+ * SQL write then would never reach the live copy or the tabs open on it.
+ */
+export async function assertLegacyBodyWritePath(
+  row: LiveBodyWriterPageRow,
+  options: { transaction?: DbExec } = {},
+): Promise<void> {
+  if ((await liveBodyWriterGateForRow(row, options)).writePath === "legacy")
+    return;
+  throw new ActionContractError(
+    `Page ${row.id} started taking writes through its live copy while this write was in flight. Read it again and retry.`,
+    {
+      errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+      statusCode: 409,
+      details: { documentId: row.id, reason: "live_copy" },
+    },
   );
 }
 
@@ -274,7 +301,7 @@ export async function liveBodyWriterGate(
   const context = readContext(options);
   const db = drizzleOverExec(context.executor);
   const [row] = await db
-    .select(liveBodyWriterPageColumns)
+    .select(liveBodyWriterPageColumns())
     .from(schema.documents)
     .where(eq(schema.documents.id, docId))
     .limit(1);
@@ -289,7 +316,7 @@ export async function liveBodyWriterGate(
   // guard:allow-unscoped — callers check access to the page first, and the gate returns only its write path.
   const [markers] = await db
     .select({
-      ...liveBodyWriterPageColumns,
+      ...liveBodyWriterPageColumns(),
       collabVersion: sql<unknown>`(SELECT collab.version FROM _collab_docs AS collab WHERE collab.doc_id = documents.id)`,
     })
     .from(schema.documents)

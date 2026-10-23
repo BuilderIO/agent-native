@@ -28,7 +28,7 @@ async function readPage(documentId: string) {
   // guard:allow-unscoped — set-live-body-switch checks editor access before it switches a page.
   const [page] = await getDb()
     .select({
-      ...liveBodyWriterPageColumns,
+      ...liveBodyWriterPageColumns(),
       content: schema.documents.content,
       sourceMode: schema.documents.sourceMode,
       sourceRootPath: schema.documents.sourceRootPath,
