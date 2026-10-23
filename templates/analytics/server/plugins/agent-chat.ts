@@ -827,11 +827,11 @@ function dbtQueryForResult(
       ? null
       : dbtQuerySpecKey(inputMetricName, output.querySpec);
   if (output.querySpec !== undefined && outputScope === null) return null;
-  const hasInputScope =
+  const hasInputQueryScope =
     input.groupBy !== undefined ||
     input.timeRange !== undefined ||
     input.allTime !== undefined;
-  const inputScope = hasInputScope
+  const inputScope = hasInputQueryScope
     ? dbtQuerySpecKey(inputMetricName, {
         groupBy: input.groupBy ?? [],
         ...(input.timeRange !== undefined
@@ -840,7 +840,7 @@ function dbtQueryForResult(
         ...(input.allTime !== undefined ? { allTime: input.allTime } : {}),
       })
     : null;
-  if (hasInputScope && inputScope === null) return null;
+  if (hasInputQueryScope && inputScope === null) return null;
   if (outputScope && inputScope && outputScope !== inputScope) return null;
   const querySpecKey = outputScope ?? inputScope;
   return {
