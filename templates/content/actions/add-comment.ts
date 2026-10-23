@@ -266,42 +266,60 @@ export async function addCommentWithGuard(
     actorKind === "agent"
       ? (ctx?.threadId ?? runContext?.threadId ?? null)
       : null;
-  const propertyTarget = args.propertyId
+  // A retry of a submission that was saved replays it, even after the
+  // Property or tab it targets was deleted or left the Page.
+  const savedSubmission = async () => {
+    if (!args.clientOperationId && !args.idempotencyKey) return undefined;
+    const [saved] = await db
+      .select({
+        propertyId: schema.documentComments.propertyId,
+        propertyName: schema.documentComments.propertyName,
+        propertyValue: schema.documentComments.propertyValue,
+        fieldId: schema.documentComments.fieldId,
+        fieldName: schema.documentComments.fieldName,
+      })
+      .from(schema.documentComments)
+      .where(
+        and(
+          eq(schema.documentComments.id, id),
+          eq(schema.documentComments.documentId, documentId),
+          eq(schema.documentComments.authorEmail, email),
+        ),
+      )
+      .limit(1);
+    return saved;
+  };
+  const propertyId = args.propertyId;
+  const propertyTarget = propertyId
     ? await resolveCommentPropertyTarget(
         access.resource as Parameters<typeof listPropertiesForDocument>[0],
-        args.propertyId,
+        propertyId,
         args.databaseId,
-      )
+      ).catch(async (error: unknown) => {
+        const saved = await savedSubmission();
+        if (saved?.propertyId === propertyId) {
+          return {
+            propertyId,
+            propertyName: saved.propertyName,
+            propertyValue: saved.propertyValue,
+          };
+        }
+        throw error;
+      })
     : null;
   const fieldTarget = await (
     args.threadId && args.parentId
       ? replyBlocksField(documentId, args.threadId, args.fieldId)
       : resolveCommentBlocksField(documentId, args.fieldId)
   ).catch(async (error: unknown) => {
-    // A retry of a submission that was saved replays it, even after its tab
-    // was deleted. The primary field is saved as the body (null), so a retry
-    // naming it matches a body comment.
-    if (args.clientOperationId || args.idempotencyKey) {
-      const [saved] = await db
-        .select({
-          fieldId: schema.documentComments.fieldId,
-          fieldName: schema.documentComments.fieldName,
-        })
-        .from(schema.documentComments)
-        .where(
-          and(
-            eq(schema.documentComments.id, id),
-            eq(schema.documentComments.documentId, documentId),
-            eq(schema.documentComments.authorEmail, email),
-          ),
-        )
-        .limit(1);
-      if (
-        saved &&
-        (saved.fieldId === null || saved.fieldId === (args.fieldId ?? null))
-      ) {
-        return saved;
-      }
+    // The primary field is saved as the body (null), so a retry naming it
+    // matches a body comment.
+    const saved = await savedSubmission();
+    if (
+      saved &&
+      (saved.fieldId === null || saved.fieldId === (args.fieldId ?? null))
+    ) {
+      return { fieldId: saved.fieldId, fieldName: saved.fieldName };
     }
     throw error;
   });
