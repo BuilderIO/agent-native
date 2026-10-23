@@ -7519,17 +7519,8 @@ export async function runAgentLoop(opts: {
   const unknownOutcomes = opts.unknownOutcomes ?? noUnknownOutcomes();
   // A recovered retry (a team attempt after a crash, an A2A redelivery)
   // re-plans from the task text, so a repeated write gets a new step id and
-  // only these journal entries show it may already have run. Writes declared
-  // retry-safe for their input may be corrected and re-run by contract, so
-  // only the others are held. Approval continuations stay out: their paused
-  // call is interrupted by design.
-  const recoveredRetryInterruptions =
-    opts.recoverCompletedExecutionSteps === true
-      ? (toolCallJournal?.interrupted ?? []).filter((entry) => {
-          const action = actions[entry.tool];
-          return !action || !actionCallIsRetrySafe(action, entry.input);
-        })
-      : [];
+  // only these journal entries show it may already have run. Approval
+  // continuations stay out: their paused call is interrupted by design.
   seedUnknownOutcomes(
     unknownOutcomes,
     messages,
@@ -7537,9 +7528,9 @@ export async function runAgentLoop(opts: {
     historyReadOnlyCalls,
     priorCallEffects,
     priorCallIdentities,
-    internalContinuationTurn
+    internalContinuationTurn || opts.recoverCompletedExecutionSteps === true
       ? (toolCallJournal?.interrupted ?? [])
-      : recoveredRetryInterruptions,
+      : [],
   );
   if (internalContinuationTurn) {
     for (const entry of toolCallJournal?.completed ?? []) {
@@ -9621,14 +9612,18 @@ export async function runAgentLoop(opts: {
       }
 
       // An unknown write cannot become fresh work merely by rewording its
-      // arguments, or by eliding its tool pair from the replayed history.
+      // arguments, or by eliding its tool pair from the replayed history. A
+      // write retry-safe for these arguments is the exception: its contract
+      // lets the model correct it and run it again.
       const priorInterruptionsBeforeStepReplay = actionIsReadOnly
         ? (unknownOutcomes.calls.get(preparedCallKey) ?? 0)
-        : (unknownOutcomes.tools.get(toolCall.name) ?? 0);
+        : actionRetrySafe
+          ? 0
+          : (unknownOutcomes.tools.get(toolCall.name) ?? 0);
       const priorInterruptions = ambiguousLegacyWrite
         ? Math.max(1, priorInterruptionsBeforeStepReplay)
         : (interruptedCallMatchesStep ||
-              ((actionIsReadOnly || actionRetrySafe) &&
+              (actionIsReadOnly &&
                 retryableInterruptedCallKeys.has(preparedCallKey))) &&
             priorInterruptionsBeforeStepReplay > 0
           ? 0
