@@ -8491,7 +8491,7 @@ const BUILDER_WRITE_MODE_OPTIONS: Array<{
   {
     mode: "stage_only",
     labelKey: "stageOnly",
-    descriptionKey: "savesDraftsNeverPublishes",
+    descriptionKey: "savesChangesNeverPublishes",
   },
   {
     mode: "publish_updates",
