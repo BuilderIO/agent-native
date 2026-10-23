@@ -978,6 +978,43 @@ describe("agent-native skills", () => {
     }
   });
 
+  it("keeps a finished sign-in when Ctrl+C only cuts short an optional step", async () => {
+    const root = tmpDir();
+    const connectLog: string[] = [];
+    let skipSignIn: (() => void) | undefined;
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "assets",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      {
+        baseDir: root,
+        isInteractive: () => true,
+        connectLog: (message) => connectLog.push(message),
+        listenForSignInSkip: (skip) => {
+          skipSignIn = skip;
+          return () => {};
+        },
+        // The sign-in finishes, then Ctrl+C lands during an optional step
+        // that runConnect treats as best-effort.
+        runConnect: async () => {
+          skipSignIn?.();
+        },
+        runCommand: async () => 0,
+      },
+    );
+
+    expect(result.connected).toBe(true);
+    expect(connectLog.some((line) => line.startsWith("Sign-in skipped"))).toBe(
+      false,
+    );
+  });
+
   it("stops polling for the browser sign-in once Ctrl+C skips it", async () => {
     const root = tmpDir();
     const connectLog: string[] = [];

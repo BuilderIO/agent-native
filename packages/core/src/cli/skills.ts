@@ -3682,14 +3682,9 @@ function connectCommandFor(
 // Ctrl+C there skips only the sign-in: the install has succeeded, and any
 // other selected skills still install.
 function listenForSigintSignInSkip(skip: () => void): () => void {
-  const onSigint = () => {
-    // Clears the device flow's "Waiting for approval…" line.
-    if (process.stdout.isTTY) process.stdout.write("\r\x1b[K");
-    skip();
-  };
-  process.once("SIGINT", onSigint);
+  process.once("SIGINT", skip);
   return () => {
-    process.removeListener("SIGINT", onSigint);
+    process.removeListener("SIGINT", skip);
   };
 }
 
@@ -3749,10 +3744,13 @@ async function connectAfterEnsure(
   const skipController = new AbortController();
   const signInSkipped = () => skipController.signal.aborted;
   const writeConnectLog = (message: string) => {
-    if (signInSkipped()) return;
     clearSpinner();
     writeAuthMessage();
     connectLog?.(message);
+  };
+  // After a skip, the aborted wait's error would only repeat it.
+  const writeConnectError = (message: string) => {
+    if (!signInSkipped()) writeConnectLog(message);
   };
   // Registered before the spinner starts so it runs ahead of the spinner's
   // own SIGINT listener.
@@ -3762,10 +3760,6 @@ async function connectAfterEnsure(
     if (signInSkipped()) return;
     skipController.abort();
     clearSpinner();
-    connectLog?.(
-      `Sign-in skipped. ${installTarget.displayName} is installed; ` +
-        `to finish the sign-in later, run: ${connectCommand}`,
-    );
   });
   if (spinner) {
     spinner.start(authMessage);
@@ -3774,10 +3768,18 @@ async function connectAfterEnsure(
     writeAuthMessage();
   }
   options.telemetry?.track("skills_cli connect started");
+  // runConnect reports a failed sign-in only through process.exitCode, so
+  // it starts clear here and is read once runConnect returns.
   const exitCodeBeforeConnect = process.exitCode;
+  process.exitCode = undefined;
+  let connectFailed = false;
   const skippedResult = () => {
-    // runConnect reports the aborted sign-in as a failure; skipping isn't one.
-    process.exitCode = exitCodeBeforeConnect;
+    // Clears the device flow's "Waiting for approval…" line.
+    if (process.stdout.isTTY) process.stdout.write("\r\x1b[K");
+    connectLog?.(
+      `Sign-in skipped. ${installTarget.displayName} is installed; ` +
+        `to finish the sign-in later, run: ${connectCommand}`,
+    );
     return { connected: false, connectCommand };
   };
   try {
@@ -3794,7 +3796,7 @@ async function connectAfterEnsure(
       await runConnect(connectArgs, {
         isInteractive: options.isInteractive,
         logOut: writeConnectLog,
-        logErr: writeConnectLog,
+        logErr: writeConnectError,
         fetchImpl: (input, init) =>
           fetch(input, {
             ...init,
@@ -3807,12 +3809,16 @@ async function connectAfterEnsure(
           runWithConnectSpinner(options, message, openBrowser),
       });
     }
-    if (signInSkipped()) return skippedResult();
+    connectFailed = Boolean(process.exitCode);
+    // A Ctrl+C after the sign-in finished only cut short an optional step,
+    // such as the Plans publish token, so runConnect still succeeded.
+    if (signInSkipped() && connectFailed) return skippedResult();
     clearSpinner();
     writeAuthMessage();
     options.telemetry?.track("skills_cli connect completed");
     return { connected: true, connectCommand: "" };
   } catch (err: any) {
+    connectFailed = Boolean(process.exitCode);
     if (signInSkipped()) return skippedResult();
     clearSpinner();
     writeAuthMessage();
@@ -3826,6 +3832,11 @@ async function connectAfterEnsure(
     return { connected: false, connectCommand };
   } finally {
     stopListeningForSkip();
+    // Skipping isn't a failure; only a sign-in that failed on its own keeps
+    // runConnect's exit code.
+    if (signInSkipped() || !connectFailed) {
+      process.exitCode = exitCodeBeforeConnect;
+    }
   }
 }
 
