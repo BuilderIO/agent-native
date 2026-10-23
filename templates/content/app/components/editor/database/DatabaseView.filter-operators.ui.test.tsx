@@ -57,9 +57,17 @@ function filter(
   return { key, label, operator, value };
 }
 
+function advancedRule(rule: DatabaseFilter): DatabaseFilter {
+  return { ...rule, filterGroupId: "advanced" };
+}
+
 // Renders the constraint row the way the table does, with one chip's editor
-// open, and keeps every filter change.
-function renderBar(initial: DatabaseFilter[], openIndex: number | null = null) {
+// or the advanced filter open, and keeps every filter change.
+function renderBar(
+  initial: DatabaseFilter[],
+  openIndex: number | null = null,
+  advancedOpen = false,
+) {
   const latest = { filters: initial };
 
   function Bar() {
@@ -80,7 +88,7 @@ function renderBar(initial: DatabaseFilter[], openIndex: number | null = null) {
         addFilterOpen={false}
         openSortIndex={null}
         openFilterIndex={openFilterIndex}
-        advancedFilterOpen={false}
+        advancedFilterOpen={advancedOpen}
         hasPersonalQueryChanges={false}
         savePending={false}
         onAddFilterOpenChange={() => {}}
@@ -117,6 +125,18 @@ function menuItems() {
   return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
     (item) => item.textContent?.trim(),
   );
+}
+
+// The icon-only menu button at the end of the advanced filter rule that holds
+// the control.
+function ruleActionsButton(control: HTMLElement) {
+  for (let node = control.parentElement; node; node = node.parentElement) {
+    const actions = [
+      ...node.querySelectorAll<HTMLElement>('button[aria-haspopup="menu"]'),
+    ].find((candidate) => !candidate.textContent?.trim());
+    if (actions) return actions;
+  }
+  throw new Error("No rule actions button");
 }
 
 async function chooseMenuItem(text: string) {
@@ -356,6 +376,49 @@ describe("date filter values", () => {
     await focus(button("Yesterday"));
     expect(end.value).toBe("2026-10-22T09:30");
     expect(latest.filters[0]?.value).toBe(range("2026-10-22T09:30"));
+  });
+
+  it("edits a timed value as text after an earlier rule is removed", async () => {
+    const latest = renderBar(
+      [
+        advancedRule(filter("due", "Due", "on_or_after", "2026-10-01")),
+        advancedRule(filter("due", "Due", "on_or_before", "2026-10-22T09:00")),
+      ],
+      null,
+      true,
+    );
+    const dueFields = () => [
+      ...document.querySelectorAll<HTMLInputElement>('input[aria-label="Due"]'),
+    ];
+    expect(dueFields().map((field) => field.type)).toEqual(["date", "text"]);
+
+    await click(ruleActionsButton(dueFields()[0]!));
+    await chooseMenuItem("Remove");
+    expect(latest.filters).toEqual([
+      advancedRule(filter("due", "Due", "on_or_before", "2026-10-22T09:00")),
+    ]);
+    // The timed rule moves up into the removed rule's field, time and all.
+    const [field] = dueFields();
+    expect(field?.type).toBe("text");
+    expect(field?.value).toBe("2026-10-22T09:00");
+  });
+
+  it("keeps a timed value's field as text until it's left", async () => {
+    const latest = renderBar(
+      [filter("due", "Due", "on_or_before", "2026-10-22T09:00")],
+      0,
+    );
+    const field = byLabel<HTMLInputElement>("Due");
+    expect(field.type).toBe("text");
+    await focus(field);
+
+    // Taking the time out doesn't switch it to a date input mid-edit.
+    await typeInto(field, "2026-10-21");
+    expect(latest.filters[0]?.value).toBe("2026-10-21");
+    expect(field.type).toBe("text");
+
+    await focus(button("Exact date"));
+    expect(byLabel<HTMLInputElement>("Due").type).toBe("date");
   });
 
   it("turns a relative day into the exact day it means today", async () => {

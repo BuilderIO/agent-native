@@ -18571,11 +18571,13 @@ function DatabaseDateValueField({
 }) {
   const value = rawValue.trim();
   const relative = isContentDatabaseRelativeDate(value) ? value : null;
-  // Decided once, so the field doesn't switch type while the time is edited.
-  const [editsText] = useState(() => contentDatabaseDateValueHasTime(value));
   // Typed text is passed on only once it reads as a date, so pausing partway
   // through a time doesn't save it. Leaving the field drops an unfinished edit.
   const [draft, setDraft] = useState<string | null>(null);
+  // Follows the value, since a removed filter can hand this field to another
+  // one, but stays text while being edited so taking the time out doesn't
+  // switch it to a date input mid-edit.
+  const editsText = draft !== null || contentDatabaseDateValueHasTime(value);
   const readable = (text: string) =>
     !text.trim() || !!contentDatabaseFilterDateBound(text, "2000-01-01");
   const choiceLabel = (choice: ContentDatabaseRelativeDate | null) =>
