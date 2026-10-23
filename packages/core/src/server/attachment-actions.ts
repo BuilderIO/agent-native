@@ -28,9 +28,28 @@ function attachmentResourcePath(
   return `attachments/${threadId}/${batch}-${index}-${safe}`;
 }
 
-/** The sanitized filename a stored path was written under, without its batch and index. */
-function storedAttachmentName(path: string): string {
-  return (path.split("/").pop() ?? "").replace(/^[a-z0-9]+-\d+-/, "");
+// Paths are `<batch>-<index>-<name>`; ones written before batches existed
+// are `<index>-<name>` and stay readable until they expire. A batch always
+// contains a letter, which is what tells the two formats apart.
+function parseStoredAttachmentPath(path: string): {
+  batch: string;
+  index: number;
+  name: string;
+} {
+  const basename = path.split("/").pop() ?? "";
+  const match =
+    basename.match(/^([a-z0-9]*[a-z][a-z0-9]*)-(\d+)-(.+)$/) ??
+    basename.match(/^()(\d+)-(.+)$/);
+  return match
+    ? { batch: match[1]!, index: Number(match[2]), name: match[3]! }
+    : { batch: "", index: -1, name: basename };
+}
+
+function compareNewestAttachmentFirst(a: string, b: string): number {
+  const left = parseStoredAttachmentPath(a);
+  const right = parseStoredAttachmentPath(b);
+  if (left.batch !== right.batch) return left.batch < right.batch ? 1 : -1;
+  return right.index - left.index;
 }
 
 // A truncation note names one path for the rest of the thread, so each
@@ -218,13 +237,15 @@ export function createCoreAttachmentActionEntries(): Record<
           const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
           const exact = path
             ? metas.filter((m) => m.path === path)
-            : metas.filter((m) => storedAttachmentName(m.path) === safeName);
+            : metas.filter(
+                (m) => parseStoredAttachmentPath(m.path).name === safeName,
+              );
           const candidates =
             exact.length > 0 || path
               ? exact
               : metas.filter(
                   (m) =>
-                    storedAttachmentName(m.path).toLowerCase() ===
+                    parseStoredAttachmentPath(m.path).name.toLowerCase() ===
                     safeName.toLowerCase(),
                 );
 
@@ -234,9 +255,25 @@ export function createCoreAttachmentActionEntries(): Record<
             };
           }
 
-          const [meta] = candidates.sort((a, b) =>
-            a.path < b.path ? 1 : a.path > b.path ? -1 : 0,
+          const [meta, next] = candidates.sort((a, b) =>
+            compareNewestAttachmentFirst(a.path, b.path),
           );
+          if (
+            next &&
+            parseStoredAttachmentPath(next.path).batch ===
+              parseStoredAttachmentPath(meta.path).batch
+          ) {
+            const paths = candidates
+              .filter(
+                (m) =>
+                  parseStoredAttachmentPath(m.path).batch ===
+                  parseStoredAttachmentPath(meta.path).batch,
+              )
+              .map((m) => m.path);
+            return {
+              error: `"${name}" matches more than one attachment sent together: ${paths.join(", ")}. Call again with one of these as path.`,
+            };
+          }
           const resource = await resourceGet(meta.id);
           if (!resource) {
             return { error: `Attachment resource "${name}" not found.` };

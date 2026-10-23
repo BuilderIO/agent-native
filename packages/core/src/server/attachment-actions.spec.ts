@@ -457,6 +457,60 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     );
   });
 
+  it("still finds attachments stored before paths had a batch id", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-legacy", path: "attachments/thread-1/0-2024-notes.md" },
+    ]);
+    resourceGetMock.mockResolvedValue(makeResource("legacy"));
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "2024-notes.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("legacy");
+  });
+
+  it("prefers a batched upload over a legacy one with the same name", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-legacy", path: "attachments/thread-1/0-DESIGN.md" },
+      { id: "res-new", path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md" },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-new" ? "new" : "legacy"),
+    );
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("new");
+  });
+
+  it("asks for a path when one message attached two files with the same name", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-2", path: "attachments/thread-1/mfh2a1b2-2-DESIGN.md" },
+      { id: "res-10", path: "attachments/thread-1/mfh2a1b2-10-DESIGN.md" },
+    ]);
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.error).toBe(
+      '"DESIGN.md" matches more than one attachment sent together: attachments/thread-1/mfh2a1b2-10-DESIGN.md, attachments/thread-1/mfh2a1b2-2-DESIGN.md. Call again with one of these as path.',
+    );
+    expect(resourceGetMock).not.toHaveBeenCalled();
+  });
+
   it("rejects a path outside stored attachments", async () => {
     const result = await createCoreAttachmentActionEntries()[
       "read-attachment"
