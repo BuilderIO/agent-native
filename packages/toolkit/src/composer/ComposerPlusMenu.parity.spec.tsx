@@ -793,8 +793,19 @@ describe("shared default action preservation", () => {
     )!;
     vi.useFakeTimers();
     try {
+      const scheduledTimeouts = vi.spyOn(globalThis, "setTimeout");
+      const clearedTimeouts = vi.spyOn(globalThis, "clearTimeout");
+      const timersBeforeCancel = vi.getTimerCount();
+      const timeoutCallIndex = scheduledTimeouts.mock.calls.length;
       act(() => input.dispatchEvent(new Event("cancel")));
+      expect(vi.getTimerCount()).toBe(timersBeforeCancel + 1);
+      const resumeTimer =
+        scheduledTimeouts.mock.results[timeoutCallIndex]?.value;
+      expect(resumeTimer).toBeDefined();
+
       await mount({ disabled: true }, false);
+      expect(clearedTimeouts).toHaveBeenCalledWith(resumeTimer);
+
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
