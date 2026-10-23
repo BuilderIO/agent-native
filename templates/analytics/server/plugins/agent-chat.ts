@@ -697,34 +697,69 @@ function isCompleteDbtSuccess(result: {
   return (payload.nextPage ?? null) === null && payload.truncated !== true;
 }
 
+const UNREADABLE_JSON = Symbol("unreadable json");
+
+function parseJsonContent(content: unknown): unknown {
+  try {
+    return JSON.parse(String(content ?? "")) as unknown;
+  } catch {
+    return UNREADABLE_JSON;
+  }
+}
+
+// Every string value in a parsed JSON value, at any depth.
+function stringValuesOf(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(stringValuesOf);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).flatMap(stringValuesOf);
+  }
+  return [];
+}
+
 // A failed metric query stays unresolved until a later complete success for the same
-// metric. Another metric's success does not resolve it: a value in a warehouse row could
-// steer the agent into an unrelated successful query. A failure with no metric name, such
-// as a connection-selection status, is resolved by a later complete success, since the
-// retry it asks for is the same question.
+// metric, or for a metric name that find-data returned after the failure. Another metric's
+// success does not resolve it: a value in a warehouse row could steer the agent into an
+// unrelated successful query. A failure with no metric name, such as a connection-selection
+// status, is resolved by a later complete success, since the retry it asks for is the same
+// question.
 function dbtFailureResolvedLater(
   results: NonNullable<AgentLoopFinalResponseGuardContext["toolResults"]>,
   index: number,
 ): boolean {
   const metricName = dbtMetricName(results[index]?.content);
   if (metricName === UNREADABLE_DBT_PAYLOAD) return false;
-  return results
-    .slice(index + 1)
-    .some(
-      (result) =>
-        isNamedTool(result.name, DBT_QUERY_TOOL) &&
-        isCompleteDbtSuccess(result) &&
-        (metricName === null || dbtMetricName(result.content) === metricName),
-    );
+  // find-data echoes the question as well as its candidates, so a name in the echo also
+  // counts. Only a name the agent typed can appear there, not a value from the rows.
+  const namesFound = new Set<string>();
+  for (const result of results.slice(index + 1)) {
+    if (isNamedTool(result.name, "find-data")) {
+      for (const name of stringValuesOf(parseJsonContent(result.content))) {
+        namesFound.add(name);
+      }
+      continue;
+    }
+    if (
+      !isNamedTool(result.name, DBT_QUERY_TOOL) ||
+      !isCompleteDbtSuccess(result)
+    ) {
+      continue;
+    }
+    const successName = dbtMetricName(result.content);
+    if (typeof successName !== "string") continue;
+    if (metricName === null || successName === metricName) return true;
+    if (namesFound.has(successName)) return true;
+  }
+  return false;
 }
 
 const DBT_QUERY_TOOL = "query-dbt-semantic-metric";
 
 // The only tools that cannot return warehouse or dashboard data. Nothing else is listed:
 // a tool that can return data is not known to be safe by its name, and a tool added later
-// is treated as one that can.
+// is treated as one that can. The dbt metric query is not listed: its rows are data, so a
+// dbt success for another metric can carry a figure the draft attributes to this one.
 const DBT_NON_DATA_TOOLS: ReadonlySet<string> = new Set([
-  DBT_QUERY_TOOL,
   "get-dbt-connection",
   "data-source-status",
   "tool-search",
@@ -732,8 +767,20 @@ const DBT_NON_DATA_TOOLS: ReadonlySet<string> = new Set([
   "navigate",
 ]);
 
-// Whether this turn holds a dbt failure no later query resolved and a tool result from
-// outside the non-data list, in any position. Default-deny: a figure may have come from
+// A tool result that could carry data. A failed metric query returned no rows, so it
+// cannot, and a dbt success for another metric can.
+function canReturnData(result: {
+  name?: string;
+  isError?: boolean;
+  content?: unknown;
+}): boolean {
+  const name = normalizedToolName(result.name);
+  if (DBT_NON_DATA_TOOLS.has(name)) return false;
+  return !(name === DBT_QUERY_TOOL && dbtQueryDidNotComplete(result));
+}
+
+// Whether this turn holds a dbt failure no later query resolved and a tool result that
+// could carry data, in any position. Default-deny: a figure may have come from
 // any tool that can return data, so only a turn of non-data tools is exempt.
 function hasUnresolvedDbtFailureInTurn(
   context: AgentLoopFinalResponseGuardContext,
@@ -745,19 +792,24 @@ function hasUnresolvedDbtFailureInTurn(
         isNamedTool(result.name, DBT_QUERY_TOOL) &&
         dbtQueryDidNotComplete(result) &&
         !dbtFailureResolvedLater(results, index),
-    ) &&
-    results.some(
-      (result) => !DBT_NON_DATA_TOOLS.has(normalizedToolName(result.name)),
-    )
+    ) && results.some(canReturnData)
   );
 }
 
 // A disclosed figure is released only when a successful BigQuery read in this turn
-// returned complete, non-empty rows to support it.
+// returned complete, non-empty rows to support it. A schema lookup returns rows too, and
+// the call and its result cannot be paired reliably, so a turn that made one cannot
+// support a figure this way.
 function warehouseReadHasRows(
-  results: NonNullable<AgentLoopFinalResponseGuardContext["toolResults"]>,
+  context: AgentLoopFinalResponseGuardContext,
 ): boolean {
-  return results.some((result) => {
+  const schemaLookup = (context.toolCalls ?? []).some(
+    (call) =>
+      isNamedTool(call.name, "bigquery") &&
+      /information_schema/i.test(JSON.stringify(call.input ?? "")),
+  );
+  if (schemaLookup) return false;
+  return (context.toolResults ?? []).some((result) => {
     if (!isNamedTool(result.name, "bigquery") || result.isError === true) {
       return false;
     }
@@ -793,7 +845,7 @@ function dbtFallbackGuard(
     DBT_FALLBACK_NOT_APPROVED.test(context.text) &&
     !claimsApproval(context.text);
   if (disclosed) {
-    if (warehouseReadHasRows(context.toolResults ?? [])) return null;
+    if (warehouseReadHasRows(context)) return null;
     return {
       retryMessage: DBT_FALLBACK_BLOCK_RETRY,
       fallbackMessage: DBT_FALLBACK_WITHHELD,
@@ -802,7 +854,7 @@ function dbtFallbackGuard(
   }
   // The disclosure retry names a BigQuery source, so it is asked only when one returned rows.
   // Without one the draft is withheld, not labeled warehouse-derived.
-  if (!warehouseReadHasRows(context.toolResults ?? [])) {
+  if (!warehouseReadHasRows(context)) {
     return {
       retryMessage: DBT_FALLBACK_BLOCK_RETRY,
       fallbackMessage: DBT_FALLBACK_WITHHELD,

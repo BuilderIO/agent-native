@@ -1634,6 +1634,128 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
+  it("clears a failed lookup once a complete success uses a name find-data returned after it", async () => {
+    const { asked, result } = await judged(
+      {
+        userText: "What were active accounts last month?",
+        draftText: "Signups were 3 last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolResults: [
+          {
+            ...dbtNotFound,
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "find-data",
+            isError: false,
+            content: JSON.stringify({
+              question: "active accounts",
+              results: [{ name: "signups" }],
+            }),
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "signups",
+              querySpec: {
+                timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+                groupBy: [],
+              },
+              rows: [{ signups: 3 }],
+            }),
+          },
+        ],
+      },
+      "YES",
+    );
+
+    expect(asked).toHaveLength(0);
+    expect(JSON.stringify(result ?? null)).not.toContain(
+      "Do not state any figure",
+    );
+  });
+
+  it("does not clear a failed lookup with a success under a name find-data did not return", async () => {
+    const { asked, result } = await judged(
+      {
+        userText: "What were active accounts last month?",
+        draftText: "Signups were 3 last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolResults: [
+          {
+            ...dbtNotFound,
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "find-data",
+            isError: false,
+            content: JSON.stringify({
+              question: "active accounts",
+              results: [{ name: "active_accounts_v2" }],
+            }),
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "signups",
+              querySpec: {
+                timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+                groupBy: [],
+              },
+              rows: [{ signups: 3 }],
+            }),
+          },
+        ],
+      },
+      "YES",
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("Do not state any figure"),
+    });
+  });
+
+  it("does not release a disclosed figure supported only by a schema lookup", async () => {
+    const schemaRows = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({ rows: [{ column_name: "active_accounts" }] }),
+    };
+    const { asked, result } = await judged(
+      {
+        userText: "Show the active accounts figure from BigQuery.",
+        draftText: disclosed,
+        toolCalls: [
+          {
+            name: "bigquery",
+            input: {
+              sql: "SELECT column_name FROM `proj.ds.INFORMATION_SCHEMA.COLUMNS`",
+            },
+          },
+        ],
+        toolResults: [dbtNotFound, schemaRows],
+      },
+      "NO",
+    );
+
+    expect(asked).toHaveLength(0);
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+    expect(result?.exhaustedDraftPrefix).toBeUndefined();
+  });
+
   it("clears a failed metric once a later query for the same metric succeeds", async () => {
     const activeSuccess = {
       name: "query-dbt-semantic-metric",
