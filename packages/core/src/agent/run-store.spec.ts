@@ -330,6 +330,7 @@ const mockCaptureError = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
+  getScopedTransactionDbExec: () => undefined,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({

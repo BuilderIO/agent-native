@@ -5,6 +5,8 @@ import { QueryClient } from "@tanstack/react-query";
 import { transformSync } from "esbuild";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createHubSpotEmailHtml } from "../shared/hubspot-email.js";
+
 const mocks = vi.hoisted(() => {
   let existingRows: Array<Record<string, unknown>> = [];
   let restoreClaimRows: Array<Record<string, unknown>> = [];
@@ -976,6 +978,36 @@ describe("create-file: canvas placement and landing URL", () => {
         return { data: next, updatedAt };
       },
     );
+  });
+
+  it("persists a semantic HubSpot email at email width and preserves the starter tokens", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "welcome-email.html",
+      content: createHubSpotEmailHtml({ title: "Welcome" }),
+      fileType: "html",
+      frameType: "hubspot-email",
+    });
+    expect(result.frameType).toBe("hubspot-email");
+    expect(mocks.getDesignData().canvasFrames).toMatchObject({
+      [result.id]: { width: 600, height: 800 },
+    });
+    expect(mocks.insertValues.mock.calls[0]![0].content).toContain(
+      "{{ unsubscribe_link }}",
+    );
+  });
+
+  it("rejects an ordinary web page requested as an email frame before writing", async () => {
+    await expect(
+      action.run({
+        designId: "design-1",
+        filename: "email.html",
+        content: "<main>A web page</main>",
+        fileType: "html",
+        frameType: "hubspot-email",
+      }),
+    ).rejects.toThrow("requires <meta");
+    expect(mocks.insertValues).not.toHaveBeenCalled();
   });
 
   it("gives a new renderable screen a default desktop placement and an overview landing URL", async () => {

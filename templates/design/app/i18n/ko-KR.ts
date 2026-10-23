@@ -2020,6 +2020,16 @@ export default {
     pinComment: "댓글 고정",
     export: "내보내다",
     downloadHtml: "HTML 다운로드",
+    exportHubspotHtml: "HubSpot HTML 내보내기",
+    hubspotConversion: {
+      title: "HubSpot용으로 변환할까요?",
+      description:
+        "{{name}}에 이메일 호환성을 위한 변경이 필요합니다. 원본 프레임은 보존됩니다.",
+      convert: "에이전트로 변환",
+      cancel: "취소",
+      prompt:
+        "이 프레임의 HubSpot 이메일 버전을 만들고 콘텐츠와 브랜드 및 원본을 보존해 주세요. HTML 내보내기를 검증하고 새 프레임을 열어 주세요.",
+    },
     downloadPng: "PNG 다운로드",
     downloadSvg: "SVG 다운로드",
     downloadFigmaSvg: "Figma용으로 다운로드(SVG)",
@@ -2211,6 +2221,9 @@ export default {
       htmlCreateError: "HTML 다운로드를 만들 수 없음",
       htmlDownloaded: "HTML 다운로드됨",
       htmlExportError: "HTML을 내보낼 수 없음",
+      hubspotHtmlExporting: "HubSpot HTML 준비 중…",
+      hubspotHtmlDownloaded: "HubSpot HTML을 다운로드했습니다",
+      hubspotHtmlExportError: "HubSpot HTML을 내보낼 수 없습니다",
       zipCreateError: "ZIP 다운로드를 만들 수 없음",
       zipDownloaded: "ZIP 다운로드됨",
       zipExportError: "ZIP을 내보낼 수 없음",
