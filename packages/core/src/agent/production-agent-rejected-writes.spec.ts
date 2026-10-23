@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+const currentTurnEvents = vi.hoisted(() =>
+  vi.fn<() => Promise<unknown[]>>(async () => []),
+);
+
 vi.mock("./run-store.js", () => ({
   writeLedgerEntry: vi.fn(async () => {}),
   readLedgerEntry: vi.fn(async () => null),
   clearLedgerForThread: vi.fn(async () => {}),
-  getCurrentTurnEventsForThread: vi.fn(async () => []),
+  getCurrentTurnEventsForThread: currentTurnEvents,
   insertRun: vi.fn(),
   updateRunHeartbeat: vi.fn(),
   getRunAbortState: vi.fn(async () => ({ aborted: false, reason: null })),
@@ -20,6 +24,7 @@ vi.mock("./run-store.js", () => ({
 }));
 
 const { runAgentLoop } = await import("./production-agent.js");
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { defineAction, fail, NoWriteError } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
@@ -68,9 +73,11 @@ function scriptedEngine(
 async function runCalls(
   actions: Record<string, ActionEntry>,
   calls: Array<{ name: string; input: Record<string, unknown> }>,
+  resumed?: { threadId: string },
 ): Promise<AgentChatEvent[]> {
   const events: AgentChatEvent[] = [];
   await runAgentLoop({
+    ...(resumed ? { ...resumed, internalContinuation: true } : {}),
     engine: scriptedEngine(calls),
     model: "test-model",
     systemPrompt: "system",
@@ -119,6 +126,7 @@ function patchAction(written: string[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  currentTurnEvents.mockResolvedValue([]);
 });
 
 describe("a write rejected before it wrote", () => {
@@ -357,6 +365,50 @@ describe("a write whose outcome is really unknown", () => {
       ),
     ).toBe(false);
   });
+
+  it.each([
+    ["rejection", "Error running send: Upstream rejected the request."],
+    ["interruption", "Tool call timed out after 20 seconds"],
+  ] as const)(
+    "names the recorded cause, %s, when a resumed turn repeats the call",
+    async (cause, result) => {
+      const input = { body: "Refund sent" };
+      currentTurnEvents.mockResolvedValue([
+        { type: "tool_start", id: "earlier", tool: "send", input },
+        {
+          type: "tool_done",
+          id: "earlier",
+          tool: "send",
+          input,
+          result,
+          isError: true,
+          outcomeUnknown: true,
+          argumentsHash: actionArgumentsHash(input),
+        },
+      ]);
+      const run = vi.fn(async () => "sent");
+      const action = defineAction({
+        description: "Send.",
+        schema: z.object({ body: z.string() }),
+        run,
+      }) as unknown as ActionEntry;
+      const events = await runCalls(
+        { send: action },
+        [{ name: "send", input }],
+        { threadId: `thread-${cause}` },
+      );
+
+      expect(run).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+          blockedTool: "send",
+          blockedBy: cause,
+        }),
+      );
+    },
+  );
 
   it("still reads a plain handler failure as possibly written", async () => {
     const run = vi.fn(async () => {

@@ -5195,6 +5195,16 @@ interface UnknownOutcomes {
  */
 type UnknownOutcomeCause = "rejection" | "interruption";
 
+/** The cause of an unknown outcome recorded with `result`, if one was. */
+function unknownOutcomeCauseOf(result: unknown): UnknownOutcomeCause {
+  return typeof result === "string" &&
+    result.length > 0 &&
+    !isInterruptedToolResult(result) &&
+    !isToolCallTimeoutResult(result)
+    ? "rejection"
+    : "interruption";
+}
+
 function noteUnknownOutcome(
   outcomes: UnknownOutcomes,
   tool: string,
@@ -5258,6 +5268,7 @@ function seedUnknownOutcomes(
     tool: string;
     argumentsHash?: string;
     input?: unknown;
+    unknownResult?: string;
   }[],
 ): void {
   const fromJournal = noUnknownOutcomes();
@@ -5266,7 +5277,7 @@ function seedUnknownOutcomes(
       fromJournal,
       entry.tool,
       entry.argumentsHash,
-      "interruption",
+      unknownOutcomeCauseOf(entry.unknownResult),
       entry.input,
     );
   }
@@ -5309,7 +5320,7 @@ function seedUnknownOutcomes(
         fromHistory,
         call.name,
         effect ? priorCallIdentities.get(call.identityKey ?? "") : undefined,
-        "interruption",
+        unknownOutcomeCauseOf(part.content),
         call.input,
       );
     }

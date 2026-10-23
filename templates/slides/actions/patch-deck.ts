@@ -1963,7 +1963,7 @@ export default defineAction({
         requestedSlideIds.length > 0 &&
         changedSlideIds.size === 0
       ) {
-        throw new Error(
+        throw new NoWriteError(
           `Nothing was written: every patched slide (${requestedSlideIds.join(", ")}) is identical to the deck's current content, so the deck is unchanged. Do not report these slides as edited. Re-read them with get-deck and send content that actually differs.`,
         );
       }
