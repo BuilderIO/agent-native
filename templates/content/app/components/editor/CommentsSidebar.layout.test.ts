@@ -59,7 +59,7 @@ describe("comments sidebar layout", () => {
       history.indexOf('if (historyStatus === "open" && thread.resolved)'),
     );
     expect(history).toMatch(
-      /threads,\s+selectedThreadId,\s+postedThreadId,?\s*\]/,
+      /threads,\s+selectedThreadId,\s+postedThreadIds,?\s*\]/,
     );
     expect(source).toContain(
       '(presentation === "inline" &&\n              (thread.threadId === selectedThreadId ||',
