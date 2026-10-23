@@ -239,12 +239,32 @@ describe("add-comment with fieldId", () => {
     ).rejects.toMatchObject({ errorCode: "comment_field_property_conflict" });
   });
 
+  it("refuses a new thread in a tab that quotes nothing", async () => {
+    const fixture = await seedCollection("no-quote");
+    await expect(
+      add({
+        documentId: fixture.row,
+        content: "Lorem",
+        fieldId: fixture.notesId,
+      }),
+    ).rejects.toMatchObject({ errorCode: "comment_field_quote_required" });
+    await expect(
+      add({
+        documentId: fixture.row,
+        content: "Lorem",
+        fieldId: fixture.notesId,
+        quotedText: "  ",
+      }),
+    ).rejects.toMatchObject({ errorCode: "comment_field_quote_required" });
+  });
+
   it("puts a reply in its thread's tab and refuses a reply to another tab", async () => {
     const fixture = await seedCollection("replies");
     const root = await add({
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
     });
     const reply = await add({
       documentId: fixture.row,
@@ -300,6 +320,7 @@ describe("add-comment with fieldId", () => {
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
       idempotencyKey: "retry-field-comment",
     };
     const first = await add(args);
@@ -313,6 +334,7 @@ describe("add-comment with fieldId", () => {
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
       idempotencyKey: "retry-deleted-field-comment",
     };
     const first = await add(args);
@@ -354,6 +376,7 @@ describe("listing comments by tab", () => {
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
     });
     await add({
       documentId: fixture.row,
@@ -430,6 +453,7 @@ describe("listing comments by tab", () => {
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
     });
     await getDb()
       .delete(schema.documentPropertyDefinitions)
@@ -460,6 +484,7 @@ describe("Ask AI on a tab's thread", () => {
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
     });
     await expect(
       as(() =>

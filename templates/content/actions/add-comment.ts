@@ -99,7 +99,7 @@ const commentSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Blocks field ID, to start a thread in that field's tab; quotedText and the anchor fields then come from that field's text. Omit for the page body (the primary Blocks field's ID also means the body). Field IDs are the Blocks-type properties get-document returns. Replies stay in their thread's tab, so omit it when replying. Not used with propertyId.",
+      "Blocks field ID, to start a thread in that field's tab; quotedText, which is then required, and the anchor fields come from that field's text. Omit for the page body (the primary Blocks field's ID also means the body). Field IDs are the Blocks-type properties get-document returns. Replies stay in their thread's tab, so omit it when replying. Not used with propertyId.",
     ),
   mentions: z
     .union([z.string(), z.array(z.unknown())])
@@ -305,6 +305,14 @@ export async function addCommentWithGuard(
     }
     throw error;
   });
+  // A new thread that quotes nothing is a comment on the whole page, which
+  // belongs to no tab.
+  if (!args.threadId && fieldTarget.fieldId && !args.quotedText?.trim()) {
+    fail(
+      "A thread in a Blocks field tab quotes text from that tab; pass quotedText, or omit fieldId to comment on the whole page",
+      { statusCode: 400, errorCode: "comment_field_quote_required" },
+    );
+  }
 
   const values = {
     id,
