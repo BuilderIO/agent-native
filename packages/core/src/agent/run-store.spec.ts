@@ -1135,7 +1135,8 @@ describe("run store", () => {
     );
     expect(repair?.args[4]).toBe("missing_api_key");
     expect(repair?.args[5]).toBe(false);
-    expect(repair?.args[6]).toBe("run-missing-key-event");
+    expect(repair?.args[6]).toBe(false);
+    expect(repair?.args[7]).toBe("run-missing-key-event");
   });
 
   it("keeps an earlier stream error from reconciling as a later successful terminal event", async () => {
@@ -1169,7 +1170,8 @@ describe("run store", () => {
     expect(repair?.args[3]).toBe("model returned 500");
     expect(repair?.args[4]).toBe("error:provider_failed");
     expect(repair?.args[5]).toBe(false);
-    expect(repair?.args[6]).toBe("run-error-then-done");
+    expect(repair?.args[6]).toBe(false);
+    expect(repair?.args[7]).toBe("run-error-then-done");
     const eventLookup = execCalls.find((call) =>
       /SELECT seq, event_data, event_at/i.test(call.sql),
     );
@@ -1203,7 +1205,8 @@ describe("run store", () => {
     expect(repair?.args[2]).toBe("missing_credentials");
     expect(repair?.args[4]).toBe("missing_api_key");
     expect(repair?.args[5]).toBe(false);
-    expect(repair?.args[6]).toBe("run-missing-then-done");
+    expect(repair?.args[6]).toBe(false);
+    expect(repair?.args[7]).toBe("run-missing-then-done");
   });
 
   it("still repairs a synthetic stale-run event when a later done event was persisted", async () => {
@@ -1233,7 +1236,8 @@ describe("run store", () => {
     expect(repair?.args[3]).toBeNull();
     expect(repair?.args[4]).toBe("done");
     expect(repair?.args[5]).toBe(false);
-    expect(repair?.args[6]).toBe("run-stale-then-done");
+    expect(repair?.args[6]).toBe(false);
+    expect(repair?.args[7]).toBe("run-stale-then-done");
   });
 
   it("reconciles legacy terminal events without stamping repair time", async () => {
@@ -1861,7 +1865,8 @@ describe("run store", () => {
     expect(update).toBeDefined();
     expect(update?.args[0]).toBe("completed");
     expect(update?.args[2]).toBe(false);
-    expect(update?.args[3]).toBe("run-alive");
+    expect(update?.args[3]).toBe(false);
+    expect(update?.args[4]).toBe("run-alive");
   });
 
   it("getRunStatus returns the current status string for a run", async () => {
@@ -2377,7 +2382,7 @@ describe("run store", () => {
     await updateRunStatusIfRunning("run-terminal-if-running", "errored");
 
     const update = execCalls.find((call) =>
-      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL,\s*thread_projection_pending = CASE WHEN \? THEN TRUE ELSE thread_projection_pending END\s*WHERE id = \? AND status = 'running'/i.test(
+      /UPDATE agent_runs SET status = \?, completed_at = \?, dispatch_payload = NULL,\s*thread_projection_retry_order = CASE WHEN \? THEN COALESCE\(thread_projection_retry_order, nextval\('agent_run_projection_retry_order_seq'\)\) ELSE thread_projection_retry_order END,\s*thread_projection_pending = CASE WHEN \? THEN TRUE ELSE thread_projection_pending END\s*WHERE id = \? AND status = 'running'/i.test(
         call.sql,
       ),
     );
@@ -2385,6 +2390,7 @@ describe("run store", () => {
     expect(update?.args).toEqual([
       "errored",
       expect.any(Number),
+      false,
       false,
       "run-terminal-if-running",
     ]);

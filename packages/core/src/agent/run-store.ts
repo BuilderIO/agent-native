@@ -288,7 +288,8 @@ export const agentRunsStore = defineStore({
           dispatch_payload TEXT,
           peak_rss_mb BIGINT,
           continuation_order BIGINT,
-          thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE
+          thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE,
+          thread_projection_retry_order BIGINT
         )
       `;
         const agentRunEventsCreateSql = `
@@ -354,6 +355,7 @@ export const agentRunsStore = defineStore({
           ["continuation_order", "BIGINT"],
           ["auto_continue_of", "TEXT"],
           ["thread_projection_pending", "BOOLEAN NOT NULL DEFAULT FALSE"],
+          ["thread_projection_retry_order", "BIGINT"],
         ] as const) {
           await ensureColumnExists(
             "agent_runs",
@@ -2461,6 +2463,7 @@ export async function reconcileTerminalRunFromEvents(
               error_code = ?,
               error_detail = ?,
               terminal_reason = ?,
+              thread_projection_retry_order = CASE WHEN ? THEN COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq')) ELSE thread_projection_retry_order END,
               thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
           WHERE id = ?
             AND (
@@ -2474,6 +2477,7 @@ export async function reconcileTerminalRunFromEvents(
           errorCode,
           errorDetail,
           terminalReason,
+          options.threadProjectionPending === true,
           options.threadProjectionPending === true,
           runId,
           STALE_RUN_ERROR_EVENT.errorCode,
@@ -3009,7 +3013,8 @@ async function reapSingleStaleRun(
       if (shouldProjectRepairedRun) {
         const projection = await tx.execute({
           sql: `UPDATE agent_runs
-                SET thread_projection_pending = TRUE
+                SET thread_projection_pending = TRUE,
+                    thread_projection_retry_order = COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq'))
                 WHERE id = ? AND status = ?
                 RETURNING id`,
           args: [runId, repaired.ending.status],
@@ -3056,7 +3061,8 @@ async function reapSingleStaleRun(
       if (outcome.outcome !== "execution_lease_changed") {
         const projection = await tx.execute({
           sql: `UPDATE agent_runs
-                SET thread_projection_pending = TRUE
+                SET thread_projection_pending = TRUE,
+                    thread_projection_retry_order = COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq'))
                 WHERE id = ? AND status = 'errored'
                 RETURNING id`,
           args: [runId],
@@ -3299,12 +3305,14 @@ export async function updateRunStatusIfRunning(
     (tx) =>
       tx.execute({
         sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL,
+                     thread_projection_retry_order = CASE WHEN ? THEN COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq')) ELSE thread_projection_retry_order END,
                      thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
                      ${terminalReason === undefined ? "" : ", terminal_reason = ?"}
               WHERE id = ? AND status = 'running'`,
         args: [
           status,
           Date.now(),
+          options.threadProjectionPending === true,
           options.threadProjectionPending === true,
           ...(terminalReason === undefined ? [] : [terminalReason]),
           runId,
@@ -5809,10 +5817,19 @@ async function projectRunThread(
 ): Promise<"projected" | "deferred"> {
   const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
   const disposition = await foldReapedRunIntoThread(runId);
-  if (disposition === "retry") return "deferred";
+  if (disposition === "retry") {
+    await getDbExec().execute({
+      sql: `UPDATE agent_runs
+            SET thread_projection_retry_order = nextval('agent_run_projection_retry_order_seq')
+            WHERE id = ? AND thread_projection_pending IS TRUE`,
+      args: [runId],
+    });
+    return "deferred";
+  }
   await getDbExec().execute({
     sql: `UPDATE agent_runs
-          SET thread_projection_pending = FALSE
+          SET thread_projection_pending = FALSE,
+              thread_projection_retry_order = NULL
           WHERE id = ? AND thread_projection_pending IS TRUE`,
     args: [runId],
   });
@@ -6033,7 +6050,8 @@ async function retryPendingStaleRunThreadProjections(
     sql: `SELECT id FROM agent_runs
           WHERE thread_projection_pending IS TRUE
             AND ${earlierTurnProjectionPendingSql()}
-          ORDER BY completed_at ASC, id ASC
+          ORDER BY thread_projection_retry_order ASC NULLS FIRST,
+                   completed_at ASC, id ASC
           LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
     args: [],
   });

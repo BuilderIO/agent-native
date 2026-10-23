@@ -1634,33 +1634,26 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
     currentClient = makeRawClient(true);
     const blockedCount = 201;
     const { runId, thread, turn } = ids();
-    await insertRun(runId, thread, turn, { continuationOrder: 0 });
-    await pglite
-      .prepare(
-        `UPDATE agent_runs
-         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
-         WHERE id = ?`,
-      )
-      .run(Date.now(), runId);
+    const deferredRunPrefix = `${runId}-deferred-`;
+    const completedAt = 1_000;
     const startedAt = 1;
     await pglite
       .prepare(
         `INSERT INTO agent_runs (
-           id, thread_id, status, started_at, heartbeat_at, last_progress_at,
-           turn_id, continuation_order, completed_at, thread_projection_pending
+           id, thread_id, status, started_at, turn_id, continuation_order,
+           completed_at, thread_projection_pending
          )
-         SELECT ? || '-blocked-' || order_number, ?, 'completed', ?, ?, ?, ?,
-                order_number, CAST(? AS BIGINT) + order_number, TRUE
+         SELECT ? || order_number, ? || order_number, 'completed', ?,
+                ? || order_number, 0,
+                CAST(? AS BIGINT) + order_number, TRUE
          FROM generate_series(1, ?) AS generated(order_number)`,
       )
       .run(
-        runId,
-        thread,
+        deferredRunPrefix,
+        `${thread}-deferred-`,
         startedAt,
-        startedAt,
-        startedAt,
-        turn,
-        startedAt,
+        `${turn}-deferred-`,
+        completedAt,
         blockedCount,
       );
     const eligible = ids();
@@ -1671,20 +1664,24 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
          SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
          WHERE id = ?`,
       )
-      .run(Date.now() + blockedCount + 1, eligible.runId);
+      .run(completedAt + blockedCount + 1, eligible.runId);
     foldReapedRunIntoThreadMock.mockImplementation(async (foldedRunId) =>
-      foldedRunId === runId ? "retry" : "projected",
+      foldedRunId.startsWith(deferredRunPrefix) ? "retry" : "projected",
     );
 
-    const swept = await reapAllStaleRuns();
+    const firstSweep = await reapAllStaleRuns();
 
-    expect(swept).toEqual({ reaped: 0, failed: 1, truncated: false });
+    expect(firstSweep).toEqual({ reaped: 0, failed: 200, truncated: true });
+    expect(foldReapedRunIntoThreadMock).not.toHaveBeenCalledWith(
+      eligible.runId,
+    );
+    await reapAllStaleRuns();
     expect(foldReapedRunIntoThreadMock).toHaveBeenCalledWith(eligible.runId);
     expect((await readRow(eligible.runId))?.thread_projection_pending).toBe(
       false,
     );
     expect(
-      (await readRow(`${runId}-blocked-1`))?.thread_projection_pending,
+      (await readRow(`${deferredRunPrefix}1`))?.thread_projection_pending,
     ).toBe(true);
   });
 

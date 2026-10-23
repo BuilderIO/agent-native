@@ -142,4 +142,19 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
         WHERE thread_projection_pending IS TRUE
     `,
   },
+  {
+    version: 10,
+    name: "agent-run-thread-projection-retry-fairness",
+    sql: `
+      CREATE SEQUENCE IF NOT EXISTS agent_run_projection_retry_order_seq;
+      ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_retry_order BIGINT;
+      UPDATE agent_runs
+      SET thread_projection_retry_order = nextval('agent_run_projection_retry_order_seq')
+      WHERE thread_projection_pending IS TRUE
+        AND thread_projection_retry_order IS NULL;
+      CREATE INDEX IF NOT EXISTS agent_runs_thread_projection_retry_order_idx
+        ON agent_runs (thread_projection_retry_order ASC NULLS FIRST, completed_at ASC, id ASC)
+        WHERE thread_projection_pending IS TRUE
+    `,
+  },
 ];
