@@ -9286,8 +9286,9 @@ export async function runAgentLoop(opts: {
           }
           const result =
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
-            `NOT execute — a human must approve this specific call before it ` +
-            `can run. The turn is paused; do not retry.`;
+            `NOT execute. The turn is paused until this specific call is ` +
+            `approved; do not retry it before then. Once approved, re-emit ` +
+            `this exact call once so it can run, then summarize its result.`;
           requestedActionStop ??= {
             message: `Waiting for your approval to run ${toolCall.name}.`,
             errorCode: "needs-approval",

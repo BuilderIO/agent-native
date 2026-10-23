@@ -1894,13 +1894,21 @@ function replyExplicitlyOwnsRecordedAction(
             .normalize("NFKC")
             .replace(/[’‘]/g, "'");
           const continuationParts = continuation.split(
-            /([.!?;:,—–]+|\b(?:while|whereas|although|though|unless|but|and|if|however|provided that|depending on)\b)/gi,
+            /([.!?;:,—–]+|\b(?:while|whereas|although|though|unless|but|and|if|however|provided that|depending on|once|when|after|until|pending|awaiting|subject to|dependent on)\b)/gi,
           );
           const conditionalConnectors = new Set([
             "unless",
             "if",
             "provided that",
             "depending on",
+            "once",
+            "when",
+            "after",
+            "until",
+            "pending",
+            "awaiting",
+            "subject to",
+            "dependent on",
           ]);
           const contrastiveConnectors = new Set([
             "and",
@@ -1910,6 +1918,7 @@ function replyExplicitlyOwnsRecordedAction(
             "however",
           ]);
           let currentActionReferences = actionReferences;
+          let continuationActionIsRecorded = true;
           const continuationNegatesAction = continuationParts.some(
             (part, partIndex) => {
               if (partIndex % 2 !== 0 || !part.trim()) return false;
@@ -1933,6 +1942,7 @@ function replyExplicitlyOwnsRecordedAction(
               if (
                 connector !== undefined &&
                 conditionalConnectors.has(connector) &&
+                continuationActionIsRecorded &&
                 (currentActionReferences.size === 0 ||
                   [...currentActionReferences].some((reference) =>
                     actionReferences.has(reference),
@@ -1940,12 +1950,58 @@ function replyExplicitlyOwnsRecordedAction(
               ) {
                 return true;
               }
+              const continuationVerb = normalizedPart.match(
+                /\b(?:(?:i|we)\s+)?(?:(?:will|can|could|would|am|are|have|has)\s+)?(take|taking|track|tracking|follow|following|handle|handling|own|owning|work|working|review|reviewing|investigate|investigating|fix|fixing|check|checking|monitor|monitoring|test|testing|build|building|implement|implementing|confirm|confirming|ship|shipping|post|posting|send|sending|share|sharing|update|updating|notify|notifying|tell|telling)\b/i,
+              )?.[1];
+              if (continuationVerb) {
+                const startsDifferentRecordedAction =
+                  ![...(verbForms[verb] ?? [verb])].includes(
+                    continuationVerb,
+                  ) &&
+                  !/\b(?:it|that|this|same|original)\b/i.test(normalizedPart);
+                const hasDifferentReference =
+                  actionReferences.size > 0 &&
+                  clauseReferences.size > 0 &&
+                  ![...clauseReferences].some((reference) =>
+                    actionReferences.has(reference),
+                  );
+                if (startsDifferentRecordedAction || hasDifferentReference) {
+                  continuationActionIsRecorded = false;
+                }
+              }
               if (
                 actionReferences.size > 0 &&
                 clauseReferences.size > 0 &&
                 ![...clauseReferences].some((reference) =>
                   actionReferences.has(reference),
                 )
+              ) {
+                return false;
+              }
+
+              const clearlyUnrelatedTarget =
+                /\b(?:other|another|different|unrelated|separate|second)\s+(?:pr|pull request|issue|ticket|task|project|request|bug|feature|work|item|action|repro)\b/i.test(
+                  normalizedPart,
+                );
+              if (clearlyUnrelatedTarget) return false;
+
+              const hasCoreferentialTarget =
+                /\b(?:it|that|this|same|original)\b/i.test(normalizedPart);
+              const actionPhraseWithoutReference = normalizeReplyPhrase(
+                actionSummary,
+              ).replace(
+                /\b(?:pr|pull request|issue|ticket)\s+[\p{L}\p{N}]+(?:[-_][\p{L}\p{N}]+)*\b/giu,
+                (reference) => reference.split(/\s+/)[0]!,
+              );
+              const repeatsRecordedAction =
+                actionPhraseWithoutReference.length > 0 &&
+                ` ${normalizedPart} `.includes(
+                  ` ${actionPhraseWithoutReference} `,
+                );
+              if (
+                !hasCoreferentialTarget &&
+                !repeatsRecordedAction &&
+                clauseReferences.size === 0
               ) {
                 return false;
               }
@@ -1964,6 +2020,12 @@ function replyExplicitlyOwnsRecordedAction(
                   part,
                 ) ||
                 /\b(?:i|we)\s+(?:(?:will\s+)?no longer\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)|(?:no longer|don't|do not)\s+(?:plan|intend|want)\s+to\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship))\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i|we)\s+(?:won't|will not|can't|cannot|don't|do not|wouldn't|would not|shouldn't|should not)\s+do\s+(?:it|that|this)\b/i.test(
+                  part,
+                ) ||
+                /\b(?:i|we)\s+(?:am not going to|are not going to|will not|won't|would not|wouldn't)\s+do\s+(?:it|that|this)\b/i.test(
                   part,
                 ) ||
                 (connector !== undefined &&
@@ -3837,7 +3899,9 @@ function validateUnreconciledTicketMark(
   if (
     !/ticket/i.test(status.text) ||
     !explicitlyIdentifiesMissingHumanTicketAction(status.text) ||
-    !explicitlyIdentifiesMissingHumanTicketAction(status.evidence)
+    !explicitlyIdentifiesMissingHumanTicketAction(status.evidence) ||
+    claimsHumanTicketAction(status.text) ||
+    claimsHumanTicketAction(status.evidence)
   ) {
     throw new Error(
       `${parentName}: current status and its evidence must identify the missing separate human action for the retained 🎫`,
@@ -3945,6 +4009,9 @@ function claimsHumanTicketAction(text: string): boolean {
         normalized,
       ) ||
       /\b(?:opened|created|filed|assigned|accepted|started|owned|took|taken|picked)\b.{0,40}\b(?:ticket|issue|action)\b/i.test(
+        normalized,
+      ) ||
+      /\b(?:i|we|they|owner|reporter|[a-z]{2,})\s+(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:accept(?:s|ed|ing)?|own(?:s|ed|ing)?|handle(?:s|d|ing)?|take|takes|took|taken|taking\s+on|pick(?:s|ed|ing)\s+up|work(?:s|ed|ing)\s+on|track(?:s|ed|ing)|follow(?:s|ed)?\s+up)\b.{0,50}\b(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)\b/i.test(
         normalized,
       )
     );
@@ -9109,6 +9176,70 @@ if (args[0] === "--self-test" && args.length === 1) {
         "USWEEPER",
       ),
     "identifies the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket mark with owner acceptance in a later sentence",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        unreconciledTicketParent,
+        true,
+        false,
+        0,
+        {
+          ...unreconciledTicketSnapshot,
+          replies: [
+            {
+              ...unreconciledTicketSnapshot.replies[0]!,
+              text: "No separate owner or reporter action is attached to the ticket. I accepted the work.",
+            },
+            ...unreconciledTicketSnapshot.replies.slice(1),
+          ],
+        },
+        "USWEEPER",
+      ),
+    "identifies the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket status with owner acceptance in its evidence",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            evidence:
+              "No separate owner or reporter action is attached to the ticket. I accepted the work.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "must identify the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket status with a prior ticket assignment",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            text: "In progress — no separate owner or reporter action is attached to the ticket. The ticket was assigned to Alex. this was sent from a bot.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "must identify the missing separate human action",
   );
   expectFocusedFailure(
     "unreconciled ticket status with only a mark mention",
@@ -16256,6 +16387,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       ["I will review PR #8008, but I won't take it on.", "review PR #8008"],
       ["I will review PR #8008. I won't take it on.", "review PR #8008"],
       ["I will review PR #8008, but I won’t take it on.", "review PR #8008"],
+      ["I will review PR #8008 once the owner confirms.", "review PR #8008"],
+      ["I will review PR #8008, pending approval.", "review PR #8008"],
       [
         "I will review PR #8008. I’m not going to review it.",
         "review PR #8008",
@@ -16266,6 +16399,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         "I will review PR #8008. I no longer plan to review it.",
         "review PR #8008",
       ],
+      ["I will review PR #8008. Actually, I won't do that.", "review PR #8008"],
       [
         "I will review PR #8008 unless someone else handles it.",
         "review PR #8008",
@@ -16335,6 +16469,39 @@ if (args[0] === "--self-test" && args.length === 1) {
     ) {
       throw new Error(
         "self-test rejected an unconditional commitment because a later unrelated action was conditional",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008. I won't take on the unrelated database issue.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test let an unreferenced unrelated decline cancel an owned action",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008. I won't take on more support work.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test let an unrelated unreferenced decline cancel an owned action",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008. I will post an update once it ships.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test rejected an unconditional commitment because a separate follow-up is conditional",
       );
     }
     const foreignSelfOwnedAction = structuredClone(

@@ -20436,7 +20436,9 @@ describe("runAgentLoop", () => {
       expect.objectContaining({
         type: "tool_done",
         tool: "send-email",
-        result: expect.stringContaining("did NOT execute"),
+        result: expect.stringContaining(
+          "NOT execute. The turn is paused until this specific call is approved; do not retry it before then. Once approved, re-emit this exact call once so it can run, then summarize its result.",
+        ),
       }),
     );
     expect(events).toContainEqual({
@@ -21023,6 +21025,9 @@ describe("runAgentLoop", () => {
   it("runs an approved call when the continuation has a new provider call id", async () => {
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
     const actions = {
       "send-email": {
         ...actionEntry({ readOnly: false }),
@@ -21037,7 +21042,7 @@ describe("runAgentLoop", () => {
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages,
       actions,
       send: (event) => events1.push(event),
       signal: new AbortController().signal,
@@ -21053,6 +21058,18 @@ describe("runAgentLoop", () => {
       async *stream(): AsyncIterable<EngineEvent> {
         continuationStreamCalls += 1;
         if (continuationStreamCalls === 1) {
+          const approvalPause = messages
+            .flatMap((message) => message.content)
+            .find(
+              (part) =>
+                part.type === "tool-result" &&
+                part.content.includes("Awaiting human approval"),
+            );
+          expect(approvalPause).toMatchObject({
+            content: expect.stringContaining(
+              "Once approved, re-emit this exact call once so it can run, then summarize its result.",
+            ),
+          });
           yield {
             type: "assistant-content",
             parts: [
@@ -21092,7 +21109,7 @@ describe("runAgentLoop", () => {
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages,
       actions,
       approvedToolCalls: [approvalKey],
       approvedToolCallAskId: approvalId,
@@ -21106,6 +21123,15 @@ describe("runAgentLoop", () => {
     expect(run).toHaveBeenCalledOnce();
     expect(events2.some((event) => event.type === "approval_required")).toBe(
       false,
+    );
+    expect(
+      events2.findIndex(
+        (event) => event.type === "tool_done" && event.tool === "send-email",
+      ),
+    ).toBeLessThan(
+      events2.findIndex(
+        (event) => event.type === "text" && event.text === "sent the email",
+      ),
     );
   });
 
