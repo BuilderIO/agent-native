@@ -4036,8 +4036,23 @@ function explicitlyIdentifiesMissingHumanTicketAction(text: string): boolean {
 function claimsHumanTicketAction(text: string): boolean {
   const humanActor =
     "(?:i|we|they|owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|someone|anyone)";
-  const namedActor =
-    "(?!(?:the|a|an|this|that|it|ticket|issue|action|task|work|request|handoff|bug|repro|pr|scope|fix|behavior|disposition|thread|root|mark|status|report|evidence|comment|message|system|bot|team|app|run|file|page|channel|calendar|database|service|agent|assistant|server|model|tool|api|Jira|Slack|GitHub|Linear|Salesforce|HubSpot|Notion|Builder)\\b)\\p{Lu}[\\p{L}'-]*";
+  const systemActorPattern = [
+    "Jira",
+    "Slack",
+    "GitHub",
+    "Linear",
+    "Salesforce",
+    "HubSpot",
+    "Notion",
+    "Builder",
+  ]
+    .map((name) =>
+      name.replace(/[A-Za-z]/g, (letter) => {
+        return `[${letter.toLowerCase()}${letter.toUpperCase()}]`;
+      }),
+    )
+    .join("|");
+  const namedActor = `(?!(?:the|a|an|this|that|it|ticket|issue|action|task|work|request|handoff|bug|repro|pr|scope|fix|behavior|disposition|thread|root|mark|status|report|evidence|comment|message|system|bot|team|app|run|file|page|channel|calendar|database|service|agent|assistant|server|model|tool|api|${systemActorPattern})\\b)\\p{Lu}[\\p{L}'-]*`;
   const actionTarget =
     "(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)";
 
@@ -4056,7 +4071,7 @@ function claimsHumanTicketAction(text: string): boolean {
         clause.normalize("NFKC"),
       );
     const hasHumanPassiveAssignment = new RegExp(
-      String.raw`\b(?:ticket|issue|action)\b.{0,40}\b(?:is|was|has been|had been)\s+assigned\s+to\s+(?!(?:[Nn]o one|[Nn]obody|[Aa]nyone|[Aa]nybody|[Tt]he (?:bot|system|automation|app|agent|assistant|server|model|tool|api)|Jira|Slack|GitHub|Linear|Salesforce|HubSpot|Notion|Builder)\b)(?:\p{Lu}[\p{L}'-]*|me|us|you|someone|somebody|the (?:owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|team))\b`,
+      String.raw`\b(?:ticket|issue|action)\b.{0,40}\b(?:is|was|has been|had been)\s+assigned\s+to\s+(?!(?:[Nn]o one|[Nn]obody|[Aa]nyone|[Aa]nybody|[Tt]he (?:bot|system|automation|app|agent|assistant|server|model|tool|api)|${systemActorPattern})\b)(?:\p{Lu}[\p{L}'-]*|me|us|you|someone|somebody|the (?:owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|team))\b`,
       "u",
     ).test(clause.normalize("NFKC"));
     return (
@@ -9386,6 +9401,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     "The ticket was not assigned to Alex.",
     "The ticket was created automatically by the system.",
     "Jira automatically created the ticket.",
+    "JIRA created a ticket.",
+    "SLACK opened an issue.",
     "A bot opened a ticket.",
     "Bot opened a ticket.",
   ]) {
