@@ -470,17 +470,19 @@ export function registerPendingTextHostCommit(
   };
 }
 
+/** Whether a mounted owner took the request; otherwise it waits for one. */
 export function beginTextEditForOwner(
   owner: OwnerIdentity,
   nodeId: string,
   options?: BeginTextEditOptions,
-): void {
+): boolean {
   const beginTextEdit = owners.get(owner)?.begin;
-  if (beginTextEdit?.(nodeId, options)) return;
+  if (beginTextEdit?.(nodeId, options)) return true;
   const capture = liveCapture();
   if (matches(capture, owner, nodeId)) {
     capture.pendingBegin = { options };
   }
+  return false;
 }
 
 export function takePendingTextCapture(
@@ -654,6 +656,16 @@ export function isPendingTextRequestLive(
   nodeId: string,
 ): boolean {
   return matches(liveCapture(), owner, nodeId);
+}
+
+// Once the owner has posted the text it owes, or the commit, its begin is the
+// one that has to land; another begin would reopen the node or race the text.
+export function isPendingTextDeliveryInFlight(
+  owner: OwnerIdentity,
+  nodeId: string,
+): boolean {
+  const capture = liveCapture();
+  return matches(capture, owner, nodeId) && capture.deliveryPosted;
 }
 
 export function isPendingTextInterceptionOpen(

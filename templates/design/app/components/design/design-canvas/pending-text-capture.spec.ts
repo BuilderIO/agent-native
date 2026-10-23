@@ -12,6 +12,7 @@ import {
   failPendingTextCapture,
   HOST_COMMIT_RETRY_DELAYS_MS,
   isPendingTextCaptureBound,
+  isPendingTextDeliveryInFlight,
   isPendingTextRequestLive,
   isPendingTextWriteInFlight,
   onPendingTextCaptureCancel,
@@ -322,6 +323,15 @@ describe("pending text capture", () => {
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
 
     expect(order).toEqual(["revoke-frame-copy", "host-commit"]);
+  });
+
+  it("reports a delivery in flight once the owner has posted the owed text, so retries stand down", () => {
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-1");
+    expect(isPendingTextDeliveryInFlight("board", "text-1")).toBe(false);
+    beginPendingTextDelivery("board", "text-1", "Sta");
+    expect(isPendingTextDeliveryInFlight("board", "text-1")).toBe(true);
+    expect(isPendingTextDeliveryInFlight("board", "text-2")).toBe(false);
   });
 
   it("commits owed text host-side when no owner ever becomes ready", () => {
