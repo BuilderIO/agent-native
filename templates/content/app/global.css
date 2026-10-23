@@ -2759,6 +2759,44 @@ audio.media-block__content {
   animation-play-state: paused;
 }
 
+/* A folded stack's new front comes up out of the sheets, over the card it
+   replaces; that card is drawn first, so it stays underneath as it sinks back. */
+@keyframes comment-stack-front-in {
+  from {
+    transform: translateY(14px) scale(0.95);
+  }
+}
+@keyframes comment-stack-front-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+@keyframes comment-stack-front-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes comment-stack-front-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.comment-stack-front-enter {
+  animation: comment-stack-front-in 220ms var(--ease-drawer);
+}
+.comment-stack-front-leave {
+  animation: comment-stack-front-out 220ms var(--ease-drawer) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .comment-stack-front-enter {
+    animation: comment-stack-front-fade-in 120ms linear;
+  }
+  .comment-stack-front-leave {
+    animation: comment-stack-front-fade-out 120ms linear forwards;
+  }
+}
+
 .slash-command-menu {
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
