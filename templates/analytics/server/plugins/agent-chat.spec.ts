@@ -710,7 +710,10 @@ describe("Analytics agent Plan mode policy", () => {
       "Resume results that carry `queryId` and `nextPage` with only their `metricName`, `queryId`, and `nextPage`",
     );
     expect(dataQueryingSkill).toContain(
-      "stop and report if a resume returns the same `nextPage` again",
+      "up to five resumes in one turn; then stop and report it as still running",
+    );
+    expect(dataQueryingSkill).toContain(
+      "If the retried query returns `not_found` again, stop and report",
     );
     expect(dataQueryingSkill).toContain("gets one resume");
     expect(dataQueryingSkill).toContain(
