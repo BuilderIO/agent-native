@@ -46,6 +46,12 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
             return null;
 
           const kept = new Map<number, string>();
+          // Resizing or moving a video replaces its node, so mapping loses
+          // it. One saved without an id has only its derived id to go by;
+          // the id-less video with its source that takes its place keeps it.
+          const derivedLost = new Map<string, string[]>();
+          const srcOf = (attrs: Record<string, unknown>) =>
+            typeof attrs.src === "string" ? attrs.src : "";
           for (const block of commentAnchorBlockList(oldState.doc)) {
             if (block.blockType !== "video") continue;
             let pos = block.pos;
@@ -55,11 +61,31 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
               deleted ||= mapped.deleted;
               pos = mapped.pos;
             }
-            if (!deleted) kept.set(pos, block.blockId);
+            if (!deleted) {
+              kept.set(pos, block.blockId);
+              continue;
+            }
+            const old = oldState.doc.nodeAt(block.pos);
+            if (!old || old.attrs.blockId) continue;
+            const src = srcOf(old.attrs);
+            derivedLost.set(src, [
+              ...(derivedLost.get(src) ?? []),
+              block.blockId,
+            ]);
           }
           const reserved = new Set(kept.values());
 
           const used = new Set<string>();
+          const free = (id: string | undefined): id is string =>
+            !!id && !reserved.has(id) && !used.has(id);
+          const takeLost = (src: string) => {
+            const lost = derivedLost.get(src) ?? [];
+            while (lost.length) {
+              const id = lost.shift();
+              if (free(id)) return id;
+            }
+            return undefined;
+          };
           const tr = newState.tr;
           newState.doc.descendants((node, pos) => {
             if (node.type.name !== "video") return true;
@@ -69,9 +95,10 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
             const id =
               keptId && !used.has(keptId)
                 ? keptId
-                : saved && !reserved.has(saved) && !used.has(saved)
+                : free(saved)
                   ? saved
-                  : createContentBlockId("video");
+                  : (!saved && takeLost(srcOf(node.attrs))) ||
+                    createContentBlockId("video");
             used.add(id);
             if (id !== saved) tr.setNodeAttribute(pos, "blockId", id);
             return false;

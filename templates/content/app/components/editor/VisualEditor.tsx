@@ -3398,10 +3398,20 @@ export function VisualEditor({
   const onVideoComment = useMemo<ContentVideoOptions["onVideoComment"]>(
     () =>
       canCommentOnBlocks
-        ? (doc, pos, offsetTop) => {
+        ? (view, pos, offsetTop) => {
+            const { doc } = view.state;
             const block = commentAnchorBlockAt(doc, pos);
             const node = doc.nodeAt(pos);
             if (!block || !node) return;
+            // A thread names a video saved without an id by its derived id.
+            // Writing that down saves the id with the page, so an agent that
+            // reads the page finds it instead of minting one that strands it.
+            if (!node.attrs.blockId && view.editable && !suggestingRef.current)
+              view.dispatch(
+                view.state.tr
+                  .setNodeAttribute(pos, "blockId", block.blockId)
+                  .setMeta("addToHistory", false),
+              );
             onBlockCommentRef.current?.(
               {
                 blockId: block.blockId,

@@ -64,6 +64,30 @@ describe("video block ids", () => {
     expect(videoIds(target)).toEqual([derivedVideoBlockId(A, 0)]);
   });
 
+  it("writes down the derived id when the first edit resizes the video", () => {
+    const target = open(`<video src="${A}"></video>\nIntro`);
+    const pos = videoPos(target, 0);
+    const { attrs } = target.state.doc.nodeAt(pos)!;
+    target.view.dispatch(
+      target.state.tr.setNodeMarkup(pos, undefined, { ...attrs, width: 320 }),
+    );
+    expect(videoIds(target)).toEqual([derivedVideoBlockId(A, 0)]);
+  });
+
+  it("keeps each video's derived id when the first edit moves one", () => {
+    const target = open(
+      `<video src="${A}"></video>\n<video src="${A}"></video>\nIntro`,
+    );
+    const pos = videoPos(target, 0);
+    const first = target.state.doc.nodeAt(pos)!;
+    const tr = target.state.tr.delete(pos, pos + first.nodeSize);
+    target.view.dispatch(tr.insert(tr.doc.content.size, first));
+    expect(videoIds(target)).toEqual([
+      derivedVideoBlockId(A, 1),
+      derivedVideoBlockId(A, 0),
+    ]);
+  });
+
   it("keeps the original's id when a copy is pasted above or below it", () => {
     const target = open(
       `Intro\n<video src="${A}" id="video-original"></video>`,

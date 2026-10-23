@@ -1,4 +1,4 @@
-import type { PMNode } from "./nfm";
+import { docToNfm, nfmToDoc, type PMNode } from "./nfm";
 
 /** Blocks a comment can point at as a whole, rather than at text in them. */
 export const COMMENT_ANCHOR_BLOCK_TYPES = ["video"] as const;
@@ -62,6 +62,48 @@ export function commentAnchorBlockNamer() {
     named.add(id);
     return id;
   };
+}
+
+function eachVideo(node: PMNode, visit: (video: PMNode, key: string) => void) {
+  const sources = new Map<string, number>();
+  const walk = (child: PMNode) => {
+    if (child.type === "video") {
+      const src = typeof child.attrs?.src === "string" ? child.attrs.src : "";
+      const occurrence = sources.get(src) ?? 0;
+      sources.set(src, occurrence + 1);
+      visit(child, `${occurrence}:${src}`);
+      return;
+    }
+    child.content?.forEach(walk);
+  };
+  walk(node);
+}
+
+/**
+ * `incoming` with the video ids `local` saved, matched by source and how many
+ * videos with that source come first. A provider such as Notion has nowhere to
+ * keep the ids, so its copy of a page comes back without them, and taking it
+ * as is would strand every comment on those videos.
+ */
+export function keepVideoBlockIds(
+  local: string | null | undefined,
+  incoming: string,
+): string {
+  const ids = new Map<string, string>();
+  eachVideo(nfmToDoc(local), (video, key) => {
+    if (typeof video.attrs?.blockId === "string" && video.attrs.blockId)
+      ids.set(key, video.attrs.blockId);
+  });
+  if (!ids.size) return incoming;
+  const doc = nfmToDoc(incoming);
+  let kept = false;
+  eachVideo(doc, (video, key) => {
+    const id = ids.get(key);
+    if (!id || video.attrs?.blockId) return;
+    video.attrs = { ...video.attrs, blockId: id };
+    kept = true;
+  });
+  return kept ? docToNfm(doc, { keepTrailingEmptyBlock: true }) : incoming;
 }
 
 /** Each anchorable block in a saved document, by the id comments use. */

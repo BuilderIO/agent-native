@@ -15,6 +15,8 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
+import { derivedVideoBlockId } from "@shared/comment-block-anchor";
+
 import { commentHighlightKey } from "./extensions/CommentHighlight";
 import { VisualEditor } from "./VisualEditor";
 
@@ -76,6 +78,7 @@ describe("VisualEditor comment highlights", () => {
     threads: CommentThread[],
     resetKey = "seed",
     showCommentIndicators = true,
+    props: Partial<Parameters<typeof VisualEditor>[0]> = {},
   ) {
     root.render(
       createElement(
@@ -95,6 +98,7 @@ describe("VisualEditor comment highlights", () => {
               editable: true,
               commentThreads: threads,
               showCommentIndicators,
+              ...props,
             }),
           ),
         ),
@@ -318,6 +322,43 @@ describe("VisualEditor comment highlights", () => {
       const element = marked("v1");
       expect(element?.querySelector("video")).not.toBeNull();
       expect(element?.className).toContain("comment-highlight--block");
+    });
+
+    it("writes down the id a new comment names on a video saved without one", async () => {
+      const onBlockComment = vi.fn();
+      await act(async () =>
+        render(
+          `Intro.
+<video src="${VIDEO}"></video>`,
+          [],
+          "seed",
+          true,
+          {
+            onBlockComment,
+          },
+        ),
+      );
+      await settle();
+      const button = container.querySelector<HTMLButtonElement>(
+        '[aria-label="editor.media.commentOnVideo"]',
+      );
+      await act(async () => button!.click());
+
+      const derived = derivedVideoBlockId(VIDEO, 0);
+      expect(onBlockComment).toHaveBeenCalledWith(
+        expect.objectContaining({ blockId: derived, blockType: "video" }),
+        expect.any(Number),
+      );
+      const editor = (
+        container.querySelector(".ProseMirror") as HTMLElement & {
+          editor: Editor;
+        }
+      ).editor;
+      const ids: unknown[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "video") ids.push(node.attrs.blockId);
+      });
+      expect(ids).toEqual([derived]);
     });
 
     it("anchors an old video comment to the page's only video", async () => {

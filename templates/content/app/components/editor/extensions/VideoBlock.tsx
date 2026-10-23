@@ -243,7 +243,7 @@ export function VideoBlock({
       : 0;
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
-    options.onVideoComment(editor.state.doc, position, offsetTop);
+    options.onVideoComment(editor.view, position, offsetTop);
   }
 
   function openReplacePanel() {
