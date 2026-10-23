@@ -594,6 +594,7 @@ describe("source vector stroke overlay reconciliation", () => {
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
+    "../../../../shared/export-image-source",
     "./native-region-export",
     "@agent-native/toolkit/canvas-interactions",
     "@jridgewell/trace-mapping",
@@ -11912,7 +11913,7 @@ it(
       ]);
       expect(snapshot.bodyRules).toContain("letter-spacing: 3px");
       expect(snapshot.imageSrc).toContain("id='chosen'");
-      expect(snapshot.imageSrcset).toBe(false);
+      expect(snapshot.imageSrcset).toBe(true);
       expect(snapshot.pictureSources).toBe(0);
     } finally {
       await browser.close();

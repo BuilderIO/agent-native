@@ -30,6 +30,10 @@
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
+import {
+  copyExportImageSource,
+  resolveExportImageSource,
+} from "../../../../shared/export-image-source";
 import { relativePositionContainingBlockDirection } from "../../../../shared/relative-position-containing-block";
 import {
   resolveSourceEquivalentSelector,
@@ -2382,10 +2386,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         sourceNode instanceof HTMLImageElement &&
         cloneNode instanceof HTMLImageElement
       ) {
-        if (sourceNode.currentSrc) {
-          cloneNode.setAttribute("src", sourceNode.currentSrc);
-        }
-        cloneNode.removeAttribute("srcset");
+        copyExportImageSource(sourceNode, cloneNode);
       }
       var provenance = elementDebugProvenance(sourceNode);
       if (provenance.sourceFile) {
@@ -3047,7 +3048,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
     var imageNodes = Array.from(
       parsed.querySelectorAll<HTMLElement>(
-        "img[src], image[href], image[xlink\\:href]",
+        "img[src], img[data-agent-native-export-image-natural-width], image[href], image[xlink\\:href]",
       ),
     );
     for (var imageIndex = 0; imageIndex < imageNodes.length; imageIndex += 1) {
@@ -3058,11 +3059,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           ? "href"
           : "xlink:href";
       var source = image.getAttribute(attribute);
-      if (!source || /^(?:data|about):/i.test(source)) continue;
-      var dataSource = await resourceDataUrl(source, document.baseURI);
+      if (!source) {
+        markFailure("image-unavailable");
+        continue;
+      }
+      var dataSource = /^(?:data|about):/i.test(source)
+        ? source
+        : await resourceDataUrl(source, document.baseURI);
       if (dataSource) image.setAttribute(attribute, dataSource);
       else markFailure("image-fetch");
-      if (image.localName === "img") image.removeAttribute("srcset");
+      if (image.localName === "img") {
+        try {
+          if (dataSource) {
+            await resolveExportImageSource(image, dataSource, resourceSignal);
+          }
+        } catch {
+          markFailure(
+            resourceTimedOut ? "resource-timeout" : "image-unavailable",
+          );
+        }
+      }
     }
 
     var tooLarge = failures.includes("export-resource-size-limit");
@@ -31411,6 +31427,20 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         "style",
         "title",
       ],
+    });
+    ["load", "error"].forEach(function (type) {
+      document.addEventListener(
+        type,
+        function (event) {
+          if (
+            event.target instanceof HTMLImageElement &&
+            !isOverlayElement(event.target)
+          ) {
+            scheduleRuntimeLayerSnapshot();
+          }
+        },
+        true,
+      );
     });
   }
   var frameLabelRefreshScheduled = false;

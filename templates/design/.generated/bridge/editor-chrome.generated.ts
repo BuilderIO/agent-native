@@ -903,6 +903,50 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/export-image-source.ts
+  var EXPORT_IMAGE_NATURAL_WIDTH = "data-agent-native-export-image-natural-width";
+  function copyExportImageSource(source, clone) {
+    if (source.currentSrc) clone.setAttribute("src", source.currentSrc);
+    if (source.hasAttribute("srcset") || source.closest("picture")?.querySelector("source[srcset]") || source.hasAttribute(EXPORT_IMAGE_NATURAL_WIDTH)) {
+      clone.setAttribute(EXPORT_IMAGE_NATURAL_WIDTH, String(source.naturalWidth));
+    }
+    clone.removeAttribute("srcset");
+  }
+  async function decodeExportImage(image, signal) {
+    signal.throwIfAborted();
+    let onAbort;
+    try {
+      await Promise.race([
+        image.decode(),
+        new Promise((_resolve, reject) => {
+          onAbort = () => reject(signal.reason);
+          signal.addEventListener("abort", onAbort, { once: true });
+        })
+      ]);
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+  async function resolveExportImageSource(image, source, signal) {
+    const naturalWidth = image.getAttribute(EXPORT_IMAGE_NATURAL_WIDTH);
+    if (naturalWidth === null) {
+      image.removeAttribute("srcset");
+      return;
+    }
+    const width = Number(naturalWidth);
+    if (!Number.isFinite(width) || width <= 0) {
+      throw new Error("Responsive export image is not ready.");
+    }
+    const intrinsic = new Image();
+    intrinsic.src = source;
+    await decodeExportImage(intrinsic, signal);
+    const density = intrinsic.naturalWidth / width;
+    if (!Number.isFinite(density) || density <= 0) {
+      throw new Error("Responsive export image dimensions are unavailable.");
+    }
+    image.setAttribute("srcset", \`\${source} \${density}x\`);
+  }
+
   // shared/relative-position-containing-block.ts
   function relativePositionContainingBlockDirection(element, getComputedStyle) {
     let ancestor = element.parentElement;
@@ -2726,10 +2770,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           snapshotFailures.push("foreign-object-unavailable");
         }
         if (sourceNode instanceof HTMLImageElement && cloneNode instanceof HTMLImageElement) {
-          if (sourceNode.currentSrc) {
-            cloneNode.setAttribute("src", sourceNode.currentSrc);
-          }
-          cloneNode.removeAttribute("srcset");
+          copyExportImageSource(sourceNode, cloneNode);
         }
         var provenance = elementDebugProvenance(sourceNode);
         if (provenance.sourceFile) {
@@ -3276,18 +3317,31 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var imageNodes = Array.from(
         parsed.querySelectorAll(
-          "img[src], image[href], image[xlink\\\\:href]"
+          "img[src], img[data-agent-native-export-image-natural-width], image[href], image[xlink\\\\:href]"
         )
       );
       for (var imageIndex = 0; imageIndex < imageNodes.length; imageIndex += 1) {
         var image = imageNodes[imageIndex];
         var attribute = image.hasAttribute("src") ? "src" : image.hasAttribute("href") ? "href" : "xlink:href";
         var source = image.getAttribute(attribute);
-        if (!source || /^(?:data|about):/i.test(source)) continue;
-        var dataSource = await resourceDataUrl(source, document.baseURI);
+        if (!source) {
+          markFailure("image-unavailable");
+          continue;
+        }
+        var dataSource = /^(?:data|about):/i.test(source) ? source : await resourceDataUrl(source, document.baseURI);
         if (dataSource) image.setAttribute(attribute, dataSource);
         else markFailure("image-fetch");
-        if (image.localName === "img") image.removeAttribute("srcset");
+        if (image.localName === "img") {
+          try {
+            if (dataSource) {
+              await resolveExportImageSource(image, dataSource, resourceSignal);
+            }
+          } catch {
+            markFailure(
+              resourceTimedOut ? "resource-timeout" : "image-unavailable"
+            );
+          }
+        }
       }
       var tooLarge = failures.includes("export-resource-size-limit");
       var outputHtml = "<!doctype html>" + parsed.documentElement.outerHTML;
@@ -24495,6 +24549,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           "style",
           "title"
         ]
+      });
+      ["load", "error"].forEach(function(type) {
+        document.addEventListener(
+          type,
+          function(event) {
+            if (event.target instanceof HTMLImageElement && !isOverlayElement(event.target)) {
+              scheduleRuntimeLayerSnapshot();
+            }
+          },
+          true
+        );
       });
     }
     var frameLabelRefreshScheduled = false;
