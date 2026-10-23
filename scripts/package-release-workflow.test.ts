@@ -440,6 +440,42 @@ describe("npm package release workflow", () => {
     assert.doesNotThrow(() =>
       assertReleaseCoordinatorStepActive(sequentialPhasePages, 123),
     );
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorStepActive(
+        [
+          {
+            jobs: [preparePhaseJob, { ...postMergePhaseJob, steps: [] }],
+          },
+        ],
+        123,
+      ),
+    );
+    for (const conclusion of ["failure", "cancelled"]) {
+      assert.throws(
+        () =>
+          assertReleaseCoordinatorStepActive(
+            [
+              {
+                jobs: [
+                  preparePhaseJob,
+                  {
+                    ...postMergePhaseJob,
+                    steps: [
+                      {
+                        name: RELEASE_COORDINATOR_STEP_NAME,
+                        status: "completed",
+                        conclusion,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            123,
+          ),
+        /no longer performing the release step/,
+      );
+    }
     assert.throws(
       () =>
         assertReleaseCoordinatorStepActive(

@@ -179,15 +179,25 @@ export function assertReleaseCoordinatorStepActive(
   const prepareSucceeded = prepareJobs.some(
     (job) => job.status === "completed" && job.conclusion === "success",
   );
+  const postMergeCoordinatorSteps = releaseSteps.filter(({ job }) =>
+    isReleasePhaseJob(job, "post-merge"),
+  );
+  const postMergeCoordinatorHasNotStarted = postMergeCoordinatorSteps.every(
+    ({ job, step }) =>
+      phaseJobIsQueuedOrRunning(job) &&
+      step.conclusion == null &&
+      ["queued", "pending", "waiting"].includes(String(step.status)),
+  );
   if (
     prepareSucceeded &&
     (postMergeJobs.length === 0 ||
-      postMergeJobs.some(phaseJobIsQueuedOrRunning))
+      (postMergeJobs.some(phaseJobIsQueuedOrRunning) &&
+        postMergeCoordinatorHasNotStarted))
   ) {
     return;
   }
 
-  if (activeReleaseSteps.length === 0 && releaseSteps.length === 1) {
+  if (activeReleaseSteps.length === 0 && releaseSteps.length > 0) {
     throw new Error(
       `Release everything coordinator run ${runId} is no longer performing the release step.`,
     );
