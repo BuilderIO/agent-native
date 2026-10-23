@@ -23,7 +23,7 @@ import { forwardRef } from "react";
 
 import { toast } from "../../../../hooks/use-toast.js";
 import type {
-  DataWidgetAction,
+  DataWidgetChartAction,
   DataWidgetActionIcon,
   DataWidgetDataSource,
   DataWidgetDisplay,
@@ -82,12 +82,15 @@ const WidgetActionLink = forwardRef<
     label: string;
     className: string;
     icon?: DataWidgetActionIcon;
+    iconOnly?: boolean;
   }
->(function WidgetActionLink({ href, label, className, icon }, ref) {
+>(function WidgetActionLink({ href, label, className, icon, iconOnly }, ref) {
   return (
     <a
       ref={ref}
       href={href}
+      aria-label={iconOnly ? label : undefined}
+      title={iconOnly ? label : undefined}
       onClick={(event) => {
         if (
           event.defaultPrevented ||
@@ -109,7 +112,7 @@ const WidgetActionLink = forwardRef<
       }}
       className={className}
     >
-      <span className="truncate">{label}</span>
+      <span className={iconOnly ? "sr-only" : "truncate"}>{label}</span>
       {icon === "explore" ? (
         <IconCompass aria-hidden="true" className="size-3.5 shrink-0" />
       ) : icon === "camera" ? (
@@ -144,7 +147,7 @@ export function DataWidgetDisplayControls({
   kind = "chart",
 }: {
   display?: DataWidgetDisplay;
-  chartActions?: DataWidgetAction[];
+  chartActions?: DataWidgetChartAction[];
   variant?: "primary" | "secondary";
   kind?: "chart" | "table";
 }) {
@@ -194,6 +197,13 @@ export function DataWidgetDisplayControls({
       key: action.id ?? `copy-${index}`,
     });
   }
+  const directActions = actions.filter(
+    (item): item is Extract<PreparedDisplayAction, { type: "link" }> =>
+      item.type === "link" && item.action.presentation === "icon",
+  );
+  const overflowActions = actions.filter(
+    (item) => item.type !== "link" || item.action.presentation !== "icon",
+  );
   const actionsLabel =
     kind === "table"
       ? t("agentChat.widget.tableActions", { defaultValue: "Table actions" })
@@ -213,7 +223,17 @@ export function DataWidgetDisplayControls({
           }
         />
       ) : null}
-      {actions.length > 0 ? (
+      {directActions.map((item) => (
+        <WidgetActionLink
+          key={item.key}
+          href={item.href}
+          label={item.action.label}
+          icon={item.action.icon}
+          iconOnly
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      ))}
+      {overflowActions.length > 0 ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -226,7 +246,7 @@ export function DataWidgetDisplayControls({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {actions.map((item) =>
+            {overflowActions.map((item) =>
               item.type === "copy" ? (
                 <DropdownMenuItem
                   key={item.key}

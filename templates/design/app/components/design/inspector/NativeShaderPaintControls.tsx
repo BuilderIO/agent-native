@@ -9,6 +9,7 @@ import { readFillField } from "./fill-field-reading";
 import {
   nativeEffectPaintFromCss,
   nativeEffectPaintToCss,
+  NativeShaderPaintValueError,
 } from "./native-shader-paint";
 import { useNativeShaderPropertyDraft } from "./native-shader-property-draft";
 
@@ -16,6 +17,7 @@ export function NativeShaderPaintControls({
   label,
   value,
   maxStops,
+  allowedKinds,
   disabled,
   onCommit,
   onPreview,
@@ -24,6 +26,7 @@ export function NativeShaderPaintControls({
   label: string;
   value: EffectPaint;
   maxStops: number;
+  allowedKinds?: EffectPaint["kind"][];
   disabled: boolean;
   onCommit: (value: EffectPaint) => Promise<boolean>;
   onPreview?: (value: EffectPaint) => void;
@@ -37,6 +40,12 @@ export function NativeShaderPaintControls({
   );
   const [pickerAnchor, setPickerAnchor] = useState<HTMLElement | null>(null);
   const css = nativeEffectPaintToCss(draft);
+  const parseAllowedPaint = (nextCss: string) => {
+    const next = nativeEffectPaintFromCss(nextCss, draft, maxStops);
+    if (allowedKinds && !allowedKinds.includes(next.kind))
+      throw new NativeShaderPaintValueError("native-paint-unsupported-kind");
+    return next;
+  };
   return (
     <>
       <button
@@ -68,7 +77,7 @@ export function NativeShaderPaintControls({
         ? renderColorPicker?.({
             anchor: pickerAnchor,
             css,
-            supportedPaintTypes: [
+            supportedPaintTypes: allowedKinds ?? [
               "solid",
               "linear",
               "radial",
@@ -79,11 +88,9 @@ export function NativeShaderPaintControls({
             showReverseStops: false,
             disabled,
             onChange: (nextCss) => {
-              const next = nativeEffectPaintFromCss(nextCss, draft, maxStops);
-              preview(next);
+              preview(parseAllowedPaint(nextCss));
             },
-            onCommit: (nextCss) =>
-              commit(nativeEffectPaintFromCss(nextCss, draft, maxStops)),
+            onCommit: (nextCss) => commit(parseAllowedPaint(nextCss)),
             onClose: () => {
               cancel();
               setPickerAnchor(null);

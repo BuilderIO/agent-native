@@ -55,11 +55,12 @@ describe("ComposerContextBanner", () => {
       "Improve answers by adding data definitions.",
     );
 
-    await act(async () =>
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent?.includes("Add context"))!
-        .click(),
-    );
+    const addContextButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Add context"))!;
+    expect(addContextButton.classList).toContain("px-1.5");
+
+    await act(async () => addContextButton.click());
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>(
@@ -70,5 +71,30 @@ describe("ComposerContextBanner", () => {
 
     expect(onAddContext).toHaveBeenCalledOnce();
     expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it("renders a host-provided decorative add-context icon", async () => {
+    await act(async () =>
+      root.render(
+        <ComposerContextBanner
+          ariaLabel="Context guidance"
+          addContextLabel="Add context"
+          addContextIcon={<svg data-testid="custom-action-icon" />}
+          onAddContext={vi.fn()}
+        >
+          Improve answers by adding data definitions.
+        </ComposerContextBanner>,
+      ),
+    );
+
+    const button = container.querySelector<HTMLButtonElement>("button")!;
+    const actionIcon = container.querySelector<SVGSVGElement>(
+      '[data-testid="custom-action-icon"]',
+    )!;
+
+    expect(button.textContent).toBe("Add context");
+    expect(button.classList).toContain("px-1.5");
+    expect(Array.from(button.querySelectorAll("svg"))).toEqual([actionIcon]);
+    expect(actionIcon.parentElement?.getAttribute("aria-hidden")).toBe("true");
   });
 });

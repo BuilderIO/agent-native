@@ -6604,6 +6604,26 @@ describe("upsertUserMessage", () => {
     expect(replay.repo.messages).toHaveLength(2);
   });
 
+  it("removes a same-ID queued retry when a direct run commits", () => {
+    const queued = { id: "message-direct-race", text: "Run once" };
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-direct-race",
+      agentKitMessageId: queued.id,
+    });
+
+    const result = applySubmittedUserMessage(
+      { messages: [], queuedMessages: [queued] },
+      userMessage,
+    );
+
+    expect(result.status).toBe("submitted");
+    if (!("repo" in result)) throw new Error("Expected a submitted result.");
+    expect(result.repo.queuedMessages).toEqual([]);
+    expect(result.repo.messages).toHaveLength(1);
+    expect(result.repo._claimedQueuedMessageIds).toContain(queued.id);
+  });
+
   it("submits a background operation once and reports a later run as already claimed", () => {
     const operation = {
       kind: "background-operation" as const,

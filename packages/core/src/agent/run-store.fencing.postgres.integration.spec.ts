@@ -1450,9 +1450,15 @@ describe.skipIf(!databaseUrl)(
           { type: "append", message },
           { actor },
         );
-        await mutateThreadQueuedMessages(threadId, {
-          type: "claim",
+        const initialReceipt = await getQueuedSubmissionReceipt(
+          threadId,
           messageId,
+        );
+        if (!initialReceipt)
+          throw new Error("Queued receipt disappeared before claim");
+        await mutateThreadQueuedMessages(threadId, {
+          type: "claimFromInbox",
+          receipt: initialReceipt,
           claimId: "stalled-promoter",
         });
 
@@ -1487,9 +1493,15 @@ describe.skipIf(!databaseUrl)(
           `;
           expect(expired.count).toBe(1);
 
-          const replacementClaim = await mutateThreadQueuedMessages(threadId, {
-            type: "claim",
+          const replacementReceipt = await getQueuedSubmissionReceipt(
+            threadId,
             messageId,
+          );
+          if (!replacementReceipt)
+            throw new Error("Queued receipt disappeared before replacement");
+          const replacementClaim = await mutateThreadQueuedMessages(threadId, {
+            type: "claimFromInbox",
+            receipt: replacementReceipt,
             claimId: "replacement-promoter",
           });
           expect(replacementClaim?.claimedMessage?.promotionClaim?.id).toBe(

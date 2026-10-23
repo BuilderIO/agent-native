@@ -22,6 +22,7 @@ import {
   parseSubmitFeedbackInput,
   parseResumeRunInput,
   parseAgentThreadSnapshot,
+  parseAgentQueuedSubmissionStatus,
   parseStartRunInput,
   persistableFilePart,
   isPersistableAttachmentUrl,
@@ -96,6 +97,24 @@ describe("AgentKit protocol validation", () => {
     expect(() =>
       parseQueueMessageResult({ message, submittedRunId: "run-1" }),
     ).toThrow("queueMessageResult.submittedRunId");
+  });
+
+  it("validates terminal and submitted durable queue receipt states", () => {
+    expect(parseAgentQueuedSubmissionStatus({ state: "expired" })).toEqual({
+      state: "expired",
+    });
+    expect(
+      parseAgentQueuedSubmissionStatus({
+        state: "submitted",
+        submittedRunId: "run-1",
+      }),
+    ).toEqual({ state: "submitted", submittedRunId: "run-1" });
+    expect(() =>
+      parseAgentQueuedSubmissionStatus({ state: "submitted" }),
+    ).toThrow("queuedSubmissionStatus.submittedRunId");
+    expect(() =>
+      parseAgentQueuedSubmissionStatus({ state: "unknown" }),
+    ).toThrow("queuedSubmissionStatus.state");
   });
 
   it("keeps custom choice responses distinct from predefined option ids", () => {

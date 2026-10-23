@@ -4,6 +4,10 @@ import type {
   EffectInstance,
 } from "../../../../shared/native-effects";
 import { planNativeExportRegion } from "../../../../shared/native-export-region";
+import {
+  nativeWorkerInputAssetId,
+  planNativeInputResources,
+} from "../../../../shared/native-input-resources";
 import { NativePreviewPolicyController } from "./native-preview-policy";
 import { planNativeWorkerBackdropRoute } from "./native-worker-backdrop-route";
 import {
@@ -94,7 +98,8 @@ function checkedScene(scene: NativeWorkerScene, gpu: NativeWorkerGpu): void {
     (scene.colorSpace !== "srgb" && scene.colorSpace !== "display-p3") ||
     (scene.frameRateTarget !== undefined &&
       scene.frameRateTarget !== 60 &&
-      scene.frameRateTarget !== 120)
+      scene.frameRateTarget !== 120) ||
+    (scene.compact !== undefined && typeof scene.compact !== "boolean")
   )
     throw new NativeWorkerSceneError(
       "scene-geometry-invalid",
@@ -142,7 +147,45 @@ function checkedScene(scene: NativeWorkerScene, gpu: NativeWorkerGpu): void {
   const instancesById = new Map(
     scene.instances.map((instance) => [instance.id, instance]),
   );
+  const definitionsByKey = new Map(
+    scene.definitions.map((definition) => [
+      `${definition.id}:${definition.version}`,
+      definition,
+    ]),
+  );
   for (const target of scene.targets) {
+    const instance = instancesById.get(target.instanceId);
+    const definition = instance
+      ? definitionsByKey.get(
+          `${instance.definitionId}:${instance.definitionVersion}`,
+        )
+      : undefined;
+    if (!instance || !definition)
+      throw new NativeWorkerSceneError(
+        "scene-effect-invalid",
+        `Effect ${target.instanceId} has no matching definition.`,
+      );
+    const plan = planNativeInputResources(definition, instance);
+    if (!plan.ok) throw new NativeWorkerSceneError(plan.code, plan.detail);
+    const expectedInputAssets = [...plan.inputs].flatMap(([resource, input]) =>
+      input.kind === "asset"
+        ? ([[resource, nativeWorkerInputAssetId(input)]] as const)
+        : [],
+    );
+    const supplied = Object.entries(target.inputAssetIds ?? {});
+    if (
+      expectedInputAssets.length !== supplied.length ||
+      expectedInputAssets.some(
+        ([resource, assetId]) =>
+          assetId === null ||
+          target.inputAssetIds?.[resource] !== assetId ||
+          !requirements.has(assetId),
+      )
+    )
+      throw new NativeWorkerSceneError(
+        "scene-input-asset-invalid",
+        `Effect ${target.instanceId} has invalid input asset bindings.`,
+      );
     if (!target.groupLocalOwnerId) continue;
     const child = instancesById.get(target.instanceId);
     const owner = instancesById.get(target.groupLocalOwnerId);
@@ -170,6 +213,7 @@ function compatibleCameraContent(
     candidate.pixelRatio === base.pixelRatio &&
     candidate.colorSpace === base.colorSpace &&
     candidate.frameRateTarget === base.frameRateTarget &&
+    candidate.compact === base.compact &&
     candidate.definitions === base.definitions &&
     candidate.instances === base.instances &&
     candidate.targets === base.targets &&
@@ -816,6 +860,9 @@ class NativeWorkerRenderer {
       localTime(instance, this.timeSeconds),
       this.encoder,
       new Map([
+        ...Object.entries(target.inputAssetIds ?? {}).map(
+          ([resource, assetId]) => [resource, this.asset(assetId)] as const,
+        ),
         ...(target.receiverGeometryAssetId
           ? [
               [
@@ -1125,7 +1172,7 @@ type FlightFenceResult =
 export class NativeWorkerRuntime {
   private readonly scenes = new Map<string, SceneState>();
   private readonly animationCadence = new Map<
-    60 | 120,
+    60 | 120 | "compact",
     NativePreviewPolicyController
   >();
   private timer: number | null = null;
@@ -1417,12 +1464,17 @@ export class NativeWorkerRuntime {
     }
   }
 
-  private cadenceForRate(rate: 60 | 120): NativePreviewPolicyController {
-    let cadence = this.animationCadence.get(rate);
+  private cadenceForRate(
+    rate: 60 | 120,
+    compact = false,
+  ): NativePreviewPolicyController {
+    const key = compact ? "compact" : rate;
+    let cadence = this.animationCadence.get(key);
     if (!cadence) {
       cadence = new NativePreviewPolicyController();
       cadence.setPolicy({ quality: "quality", frameRateTarget: rate });
-      this.animationCadence.set(rate, cadence);
+      cadence.setOverviewCompact(compact);
+      this.animationCadence.set(key, cadence);
     }
     return cadence;
   }
@@ -1859,7 +1911,7 @@ export class NativeWorkerRuntime {
         );
       if (this.flights.length && needsExclusive) return;
       const due: DueScene[] = [];
-      const dueRates = new Map<60 | 120, boolean>();
+      const dueRates = new Map<60 | 120 | "compact", boolean>();
       for (const [sceneId, state] of this.scenes) {
         const staged =
           state.staged !== null &&
@@ -1885,17 +1937,17 @@ export class NativeWorkerRuntime {
           continue;
         if (!staged && !scene.clock.playing) continue;
         if (state.failedGeneration === scene.generation) continue;
-        state.cadence.setPolicy({
-          quality: "quality",
-          frameRateTarget: scene.frameRateTarget ?? 60,
-        });
         const rate = scene.frameRateTarget ?? 60;
-        if (!dueRates.has(rate))
+        const compact = scene.compact === true;
+        state.cadence.setPolicy({ quality: "quality", frameRateTarget: rate });
+        state.cadence.setOverviewCompact(compact);
+        const key = compact ? "compact" : rate;
+        if (!dueRates.has(key))
           dueRates.set(
-            rate,
-            this.cadenceForRate(rate).isSubmissionDue(now, false, 2),
+            key,
+            this.cadenceForRate(rate, compact).isSubmissionDue(now, false, 2),
           );
-        if (dueRates.get(rate)) due.push({ sceneId, state, scene, staged });
+        if (dueRates.get(key)) due.push({ sceneId, state, scene, staged });
       }
       if (due.length && !needsExclusive) {
         for (const item of due) item.state.busy = true;
@@ -1911,10 +1963,16 @@ export class NativeWorkerRuntime {
           }
           if (flight) {
             await this.serializeGpu(() => this.presentFlight(flight));
-            for (const rate of new Set(
-              flight.items.map((item) => item.scene.frameRateTarget ?? 60),
-            ))
-              this.cadenceForRate(rate).commitSubmission(now, false);
+            const committedCadences = new Set<NativePreviewPolicyController>();
+            for (const item of flight.items) {
+              const cadence = this.cadenceForRate(
+                item.scene.frameRateTarget ?? 60,
+                item.scene.compact === true,
+              );
+              if (committedCadences.has(cadence)) continue;
+              committedCadences.add(cadence);
+              cadence.commitSubmission(now, false);
+            }
             void this.settleFlights();
           } else if (this.flights.length) {
             this.secondFlightUnavailable = true;
@@ -1994,6 +2052,7 @@ export class NativeWorkerRuntime {
           quality: "quality",
           frameRateTarget: scene.frameRateTarget ?? 60,
         });
+        state.cadence.setOverviewCompact(scene.compact === true);
         if (!state.cadence.isSubmissionDue(now, true, 2)) continue;
         this.stagedCursor = (index + 1) % scenes.length;
         state.busy = true;
@@ -2257,15 +2316,14 @@ export class NativeWorkerRuntime {
   ): void {
     if (lease) state.gpu.trimWork(lease);
     else state.gpu.trimWork(bank);
-    if (
-      staged &&
-      scene.clock.playing &&
-      !this.animationCadence.has(scene.frameRateTarget ?? 60)
-    )
-      this.cadenceForRate(scene.frameRateTarget ?? 60).commitSubmission(
-        now,
-        false,
-      );
+    const cadenceKey = scene.compact
+      ? "compact"
+      : (scene.frameRateTarget ?? 60);
+    if (staged && scene.clock.playing && !this.animationCadence.has(cadenceKey))
+      this.cadenceForRate(
+        scene.frameRateTarget ?? 60,
+        scene.compact === true,
+      ).commitSubmission(now, false);
     if (staged) {
       state.current = scene;
       state.staged = null;

@@ -84,6 +84,8 @@ describe("update content database personal view", () => {
                 value: "Alice",
                 filterGroupId: "advanced-nested",
                 parentFilterGroupId: "advanced",
+                filterGroupMode: "or",
+                parentFilterGroupMode: "and",
               },
             ],
             filterMode: "and",
@@ -95,6 +97,8 @@ describe("update content database personal view", () => {
     expect(parsed.overrides?.views[0]?.filters[0]).toMatchObject({
       filterGroupId: "advanced-nested",
       parentFilterGroupId: "advanced",
+      filterGroupMode: "or",
+      parentFilterGroupMode: "and",
     });
   });
 
