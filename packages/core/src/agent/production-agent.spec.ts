@@ -14252,7 +14252,7 @@ describe("runAgentLoop", () => {
       );
     });
 
-    it("still stops after a failed POST that may have written", async () => {
+    it("declines another POST after one that may have written, and stops an exact repeat", async () => {
       const executeRequest = vi.fn().mockResolvedValue(rejected);
       const create = (email: string) => ({
         provider: "hubspot",
@@ -14265,15 +14265,29 @@ describe("runAgentLoop", () => {
         [
           { name: "provider-api-request", input: create("a@example.com") },
           { name: "provider-api-request", input: create("b@example.com") },
+          { name: "provider-api-request", input: create("a@example.com") },
         ],
         { "provider-api-request": providerRequestAction(executeRequest) },
       );
 
       expect(executeRequest).toHaveBeenCalledTimes(1);
+      const done = events.filter(
+        (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+          event.type === "tool_done",
+      );
+      expect(done[1]).toMatchObject({
+        isError: true,
+        completedSideEffect: false,
+        result: expect.stringContaining(
+          "Not run: an earlier provider-api-request call in this turn may have already applied",
+        ),
+      });
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "error",
           errorCode: "write_tool_outcome_unknown",
+          blockedTool: "provider-api-request",
+          blockedBy: "rejection",
         }),
       );
     });
@@ -15348,7 +15362,7 @@ describe("runAgentLoop", () => {
     "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
     "'options' must be a non-empty JSON array.",
   ])(
-    "blocks a retry when a plain write handler throws without non-execution evidence (%s)",
+    "blocks a repeat when a plain write handler throws without non-execution evidence (%s)",
     async (message) => {
       const run = vi.fn(async () => {
         throw new Error(message);
@@ -15357,10 +15371,19 @@ describe("runAgentLoop", () => {
         [
           { name: "write", input: { id: "first" } },
           { name: "write", input: { id: "second" } },
+          { name: "write", input: { id: "first" } },
         ],
         { write: { ...actionEntry({ readOnly: false }), run } },
       );
       expect(run).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "write",
+          input: { id: "second" },
+          result: expect.stringContaining("Not run: an earlier write call"),
+        }),
+      );
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "tool_done",

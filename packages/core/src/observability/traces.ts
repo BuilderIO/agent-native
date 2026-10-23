@@ -277,7 +277,15 @@ type GenerationToolCall = {
   started_offset_ms: number;
   duration_ms: number;
   status: "success" | "error";
-  error_class: "tool_error" | "legacy_inferred_error" | "interrupted" | null;
+  error_class:
+    | "input_invalid"
+    | "rejected"
+    | "tool_error"
+    | "legacy_inferred_error"
+    | "interrupted"
+    | null;
+  /** What the call did: nothing, a write, or possibly a write. */
+  outcome: "no_side_effect" | "unknown" | "completed";
 };
 
 function prepareCapturedModelInput(messages: unknown): unknown {
@@ -1100,8 +1108,13 @@ export async function instrumentAgentLoop(opts: {
             error_class: !isError
               ? null
               : explicitError
-                ? "tool_error"
+                ? (event.errorClass ?? "tool_error")
                 : "legacy_inferred_error",
+            outcome: event.outcomeUnknown
+              ? "unknown"
+              : event.completedSideEffect === true
+                ? "completed"
+                : "no_side_effect",
           });
         }
 
@@ -1299,6 +1312,7 @@ export async function instrumentAgentLoop(opts: {
               duration_ms: Math.max(0, runEnd - pending.startMs),
               status: "error",
               error_class: "interrupted",
+              outcome: "unknown",
             });
           }
           if (pending.otelSpan) {
