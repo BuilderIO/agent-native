@@ -658,6 +658,28 @@ describe("shareable resource access helpers", () => {
     }
   });
 
+  it("asks the host about signed-out requests too", async () => {
+    await insertDoc({ id: "doc-hosted-anonymous" });
+    const asked: Array<string | undefined> = [];
+    registerHostAccessResolver(resourceType, async (resource, ctx) => {
+      asked.push(ctx.userEmail);
+      return resource.id === "doc-hosted-anonymous" ? "viewer" : undefined;
+    });
+    try {
+      await runWithRequestContext({}, async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-hosted-anonymous"),
+        ).resolves.toMatchObject({ role: "viewer" });
+        await expect(
+          assertAccess(resourceType, "doc-hosted-anonymous", "editor"),
+        ).rejects.toThrow();
+      });
+      expect(asked).toContain(undefined);
+    } finally {
+      registerHostAccessResolver(resourceType, null);
+    }
+  });
+
   it("resolves read and write roles without letting visibility imply edit access", async () => {
     await insertDoc({ id: "doc-private" });
     await insertDoc({ id: "doc-owned-other-org", orgId: otherOrgId });

@@ -54,6 +54,7 @@ Read this skill before:
 - **`recording_viewers`** + **`recording_events`** — view counting.
 - **`recording_views`** — append-only per-view log (who viewed, when) backing the owner-facing "Viewed by" popover. See "View counting" below.
 - **`recording_agent_views`** — outside agents reading a clip through its public agent APIs, counted separately from humans. See "Agent views" below.
+- **`recording_content_bindings`** — the Agent-Native Content documents a Clip is placed in. See "Clips in Content documents" below.
 
 ## Dropping in the share UI
 
@@ -135,6 +136,16 @@ async function canAccess(
 ```
 
 Framework first, Clips additions second. Don't invert this — the framework owns the "is this row visible at all" question.
+
+## Clips in Content documents
+
+A Clip placed in a Content document has one `recording_content_bindings` row per (recording, Content app, document). `origin` is `upload` (made in the document) or `link` (pasted); `state` is `active` or `trashed`. A duplicated document adds its own row.
+
+- Only an active `upload` binding grants access: a Content reader with no access of their own becomes a viewer of that one recording (`server/lib/content-doc-grant.ts`, a host access resolver). A reader's own Clips sharing, in their active workspace, still applies and is never lowered. A `link` binding, or none, leaves the Clip's own sharing in charge. When every binding is trashed, document readers lose access; the owner never does.
+- The Clip's own rules still apply on top: Trash, takedown and expiry refuse document readers, a password-protected Clip does not play through a document, and with comments off document readers see no comments and cannot write.
+- Content calls `/api/content-clips/:recordingId/playback` and `/comments` (GET to list, POST to add, reply, edit, delete, resolve or react) server to server with a one-minute A2A token. `shared/content-clip-contract.ts` is the contract: audience `<Clips URL>/content-clips`, one scope, and `document_id` + `recording_id` claims. A signed-out reader of a public document gets the `content-clip:public-read` scope: playback and the comment list, never a write.
+- Playback returns Clips media URLs with a one-hour `content_grant` that names the reader, not a role. `/api/video` and `/api/thumbnail` re-run every gate on each request, so trashing the binding stops a URL already handed out.
+- Create and change binding rows only through Content's upload and lifecycle flows.
 
 ## Embed URLs
 

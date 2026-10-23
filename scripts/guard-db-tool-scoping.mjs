@@ -78,6 +78,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:recording_comments": "child rows scoped through recordings",
   "clips:recording_context_items":
     "child rows scoped through recordings; every action checks access on the parent recording",
+  "clips:recording_content_bindings":
+    "access-granting child rows scoped through recordings; only Content's upload and lifecycle flows write them",
   "clips:recording_ctas": "child rows scoped through recordings",
   "clips:recording_events": "audit/event rows scoped through recordings",
   "clips:recording_playback_positions":

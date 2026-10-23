@@ -18,6 +18,10 @@
  *   - non-public: caller must have a share grant (owner / viewer / editor /
  *     admin) via `resolveAccess`. Password is still enforced on top.
  *   - expired recordings 410.
+ *   - a Content playback grant (`content_grant`, from the Content playback
+ *     route) names the reader in place of the browser session and never
+ *     unlocks a password; a grant that does not verify for this recording,
+ *     including an empty one, is a 404.
  *   - earlier-screen-time footage is a private recording of its own that is
  *     shared with the clip it is attached to: every rule above is evaluated
  *     against that clip, and the footage's bytes are served on its behalf.
@@ -72,6 +76,10 @@ import {
   youtubeWatchUrl,
 } from "../../../../shared/youtube.js";
 import { getDb, schema } from "../../../db/index.js";
+import {
+  readContentPlaybackGrant,
+  runWithContentPlayback,
+} from "../../../lib/content-playback-grant.js";
 import { contextClipIdForFootage } from "../../../lib/context-footage.js";
 import { allowsLegacyS3ObjectForPersistedMedia } from "../../../lib/media-storage-provenance.js";
 import {
@@ -333,13 +341,25 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Missing recordingId" };
   }
 
+  const contentGrant = await readContentPlaybackGrant(event, recordingId);
+  if (contentGrant.status === "invalid") {
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+
   const session = await getSession(event).catch(() => null);
   const orgCtx = await getOrgContext(event).catch(() => null);
-  const orgId = orgCtx?.orgId ?? session?.orgId ?? undefined;
+  // A Content grant names the reader in place of the browser's own session.
+  const granted = contentGrant.status === "granted";
+  const orgId = granted
+    ? contentGrant.orgId
+    : (orgCtx?.orgId ?? session?.orgId ?? undefined);
+  const viewerEmail = granted
+    ? (contentGrant.viewerEmail ?? undefined)
+    : session?.email;
 
-  return runWithRequestContext(
-    { userEmail: session?.email, orgId },
-    async () => {
+  return runWithRequestContext({ userEmail: viewerEmail, orgId }, () =>
+    runWithContentPlayback(contentGrant, async () => {
       const clipId = await contextClipIdForFootage(recordingId);
       // Access, expiry, redaction, and password are the clip's, not the footage's.
       const gateId = clipId ?? recordingId;
@@ -360,11 +380,11 @@ export default defineEventHandler(async (event: H3Event) => {
           return { error: "Not found" };
         }
         let viewerIsOrgMember = false;
-        if (session?.email && row.visibility === "org" && row.organizationId) {
+        if (viewerEmail && row.visibility === "org" && row.organizationId) {
           try {
             const orgRole = await getOrganizationRoleForEmail(
               row.organizationId,
-              session.email,
+              viewerEmail,
             );
             viewerIsOrgMember = Boolean(orgRole);
           } catch {
@@ -444,6 +464,12 @@ export default defineEventHandler(async (event: H3Event) => {
         t?: string;
       };
       if (gate.password && role !== "owner") {
+        // A document cannot supply a password, so nothing unlocks one for a
+        // Content reader; the Content playback route refuses it the same way.
+        if (granted) {
+          setResponseStatus(event, 401);
+          return { error: "Password required", passwordRequired: true };
+        }
         const token = typeof q.t === "string" ? q.t : "";
         const cookieToken =
           getCookie(event, protectedMediaCookieName(recordingId)) ?? "";
@@ -696,6 +722,6 @@ export default defineEventHandler(async (event: H3Event) => {
 
       setResponseHeader(event, "Content-Length", String(total));
       return bytes;
-    },
+    }),
   );
 });

@@ -668,7 +668,9 @@ async function loadAndResolveAccess(
  * to a Builder project), the host is the authority on who may open them. The
  * resolver returns a role, `null` to deny, or `undefined` to fall through to
  * AN's own owner/org/share rules. AN keeps no copy of the host's members,
- * orgs or roles: it asks, per resource, per request.
+ * orgs or roles: it asks, per resource, per request. It is asked for
+ * signed-out requests too (`ctx.userEmail` unset), so a resolver that only
+ * vouches for people must return `undefined` when there is no email.
  */
 export type HostAccessResolver = (
   resource: any,
@@ -727,10 +729,7 @@ async function accessToResource(
   // A host can deny outright. When it grants access, the resource's owner
   // and admins keep their own roles; the host's role covers everyone else.
   const hostResolver = hostAccessResolvers.get(reg.type);
-  const hosted =
-    hostResolver && normalizedUserEmail
-      ? await hostResolver(resource, ctx)
-      : undefined;
+  const hosted = hostResolver ? await hostResolver(resource, ctx) : undefined;
   if (hosted === null) return null;
 
   const managingRole = await ownerOrAdminRole(
