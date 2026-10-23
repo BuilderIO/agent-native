@@ -6528,6 +6528,27 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
+  it("does not mark a chat stuck while a run awaits approval", async () => {
+    chatMocks.thread.activeRunIds = ["approval-run"];
+    chatMocks.thread.runs = {
+      "approval-run": {
+        id: "approval-run",
+        status: "awaiting_approval",
+        lastSequence: 2,
+      },
+    };
+    chatMocks.thread.approvals = {
+      "approval-1": { id: "approval-1", title: "Continue?" },
+    };
+    chatMocks.thread.approvalRunIds = { "approval-1": "approval-run" };
+    chatMocks.thread.connectionRequests = {};
+    chatMocks.thread.connectionRequestRunIds = {};
+
+    await mount(baseProps());
+
+    expect(chatMocks.stuckBannerProps.isAwaitingResponse()).toBe(false);
+  });
+
   it("forwards slash commands, skills, and localized labels to AgentKit", async () => {
     const onSlashCommand = vi.fn();
     chatMocks.inBuilder = true;

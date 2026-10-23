@@ -634,7 +634,7 @@ describe("native agent follow-up publication", () => {
     ]);
   });
 
-  it("publishes grounded metadata before done without a second model request or visible tool activity", async () => {
+  it("publishes grounded metadata after provider tool_use without a second model request", async () => {
     const { opts, events, requests } = setup([
       [
         {
@@ -647,8 +647,16 @@ describe("native agent follow-up publication", () => {
           id: "follow-up-1",
           text: JSON.stringify({ suggestions: [followUp] }),
         },
-        ...step([reply(), call()], "end_turn"),
+        ...step(
+          [reply("No transactions in October 2026, total €0."), call()],
+          "tool_use",
+        ),
       ],
+      step([
+        reply(
+          "There are no transactions in October 2026, so total spending is €0.",
+        ),
+      ]),
     ]);
     const usage = await runAgentLoop(opts);
     expect(usage.llmCalls).toBe(1);
@@ -664,7 +672,7 @@ describe("native agent follow-up publication", () => {
     );
     expect(events.filter((event) => event.type !== "model_stream")).toEqual([
       { type: "suggestions", suggestions: [] },
-      { type: "text", text: "Created your design." },
+      { type: "text", text: "No transactions in October 2026, total €0." },
       {
         type: "suggestions",
         suggestions: [
@@ -781,18 +789,20 @@ describe("native agent follow-up publication", () => {
   it("preserves provider tool_use continuation when publication accompanies a preamble", async () => {
     const { opts, events, requests } = setup([
       step([reply("I'll wrap this up."), call()], "tool_use"),
-      step([reply("Here is the actual final response.")]),
+      step([reply("Here is the actual final response."), call()]),
     ]);
-    const guard = vi.fn(() => null);
+    const guard = vi
+      .fn()
+      .mockReturnValueOnce("Finish the response before ending the turn.")
+      .mockReturnValueOnce(null);
     opts.finalResponseGuard = guard;
     await runAgentLoop(opts);
     expect(requests).toHaveLength(2);
-    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard).toHaveBeenCalledTimes(2);
     expect(guard).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Here is the actual final response." }),
     );
     expect(events.filter((event) => event.type === "text")).toEqual([
-      { type: "text", text: "I'll wrap this up." },
       { type: "text", text: "Here is the actual final response." },
     ]);
     expect(published(events)).toHaveLength(1);

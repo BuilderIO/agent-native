@@ -748,11 +748,12 @@ async function accessToResource(
     resource,
     isOrgMember,
   );
+  const shareRole = role === "admin" && reg.canManageAccess ? "editor" : role;
   if (resource.visibility === "public" && reg.allowPublic !== false) {
     const publicRole = await publicAccessRoleForResource(reg, resource, ctx);
-    return { role: higherShareRole(publicRole, role), resource };
+    return { role: higherShareRole(publicRole, shareRole), resource };
   }
-  if (role) return { role, resource };
+  if (shareRole) return { role: shareRole, resource };
   if (
     resource.visibility === "org" &&
     resource.orgId &&

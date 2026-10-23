@@ -20393,13 +20393,19 @@ describe("runAgentLoop", () => {
     const run = vi.fn(async () => "delivered");
     const events: any[] = [];
     const outcomes: AgentLoopOutcome[] = [];
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "go" }],
+      },
+    ];
 
     await runAgentLoop({
       engine,
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages,
       actions: {
         "send-email": {
           ...actionEntry({ readOnly: false }),
@@ -20437,6 +20443,51 @@ describe("runAgentLoop", () => {
       type: "text",
       text: "Waiting for your approval to run send-email.",
     });
+    const waitingTextIndex = events.findIndex(
+      (event) =>
+        event.type === "text" &&
+        event.text === "Waiting for your approval to run send-email.",
+    );
+    const approvalResultIndex = events.findIndex(
+      (event) => event.type === "tool_done" && event.approvalPause === true,
+    );
+    expect(waitingTextIndex).toBeGreaterThanOrEqual(0);
+    expect(waitingTextIndex).toBeLessThan(approvalResultIndex);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "text" &&
+          event.text === "Waiting for your approval to run send-email.",
+      ),
+    ).toHaveLength(1);
+
+    const waitingHistoryIndex = messages.findIndex(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (part) =>
+            part.type === "text" &&
+            part.text === "Waiting for your approval to run send-email.",
+        ),
+    );
+    const approvalResultHistoryIndex = messages.findIndex(
+      (message) =>
+        message.role === "user" &&
+        message.content.some(
+          (part) =>
+            part.type === "tool-result" &&
+            part.toolCallId === "approval-call-1" &&
+            part.content.includes("Awaiting human approval"),
+        ),
+    );
+    expect(waitingHistoryIndex).toBeGreaterThanOrEqual(0);
+    expect(messages[waitingHistoryIndex]?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        id: "approval-call-1",
+      }),
+    );
+    expect(waitingHistoryIndex).toBeLessThan(approvalResultHistoryIndex);
     expect(events.some((event) => event.type === "done")).toBe(false);
     expect(outcomes).toEqual([
       {

@@ -31,6 +31,7 @@ const resourceType = "qa-doc";
 const ownerEmail = "owner+qa@example.com";
 const viewerEmail = "viewer+qa@example.com";
 const outsiderEmail = "outsider+qa@example.com";
+const orgAdminEmail = "org-admin+qa@example.com";
 const orgId = "org-qa";
 const otherOrgId = "org-other";
 
@@ -180,6 +181,16 @@ beforeEach(async () => {
     getDb: () => db,
     supportsGroupShares: true,
   });
+  registerShareableResource({
+    type: `${resourceType}-manager-policy`,
+    resourceTable: docs,
+    sharesTable: docShares,
+    displayName: "QA Workspace App",
+    titleColumn: "title",
+    getDb: () => db,
+    canManageAccess: (_resource, ctx) =>
+      ctx.userEmail === orgAdminEmail && ctx.orgId === orgId,
+  });
 });
 
 afterEach(async () => {
@@ -187,6 +198,54 @@ afterEach(async () => {
 });
 
 describe("shareable resource access helpers", () => {
+  it("keeps direct admin shares below a registration's manager policy", async () => {
+    const managedResourceType = `${resourceType}-manager-policy`;
+    await insertDoc({ id: "manager-policy-app" });
+    await db.insert(docShares).values({
+      id: "manager-policy-admin-share",
+      resourceId: "manager-policy-app",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "admin",
+      createdBy: ownerEmail,
+      createdAt: "2026-01-01",
+    });
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(managedResourceType, "manager-policy-app"),
+      ).resolves.toMatchObject({ role: "editor" });
+      await expect(
+        setResourceVisibility.run({
+          resourceType: managedResourceType,
+          resourceId: "manager-policy-app",
+          visibility: "org",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+    const [unchanged] = await db
+      .select()
+      .from(docs)
+      .where(eq(docs.id, "manager-policy-app"));
+    expect(unchanged?.visibility).toBe("private");
+
+    await runWithRequestContext(
+      { userEmail: orgAdminEmail, orgId },
+      async () => {
+        await expect(
+          resolveAccess(managedResourceType, "manager-policy-app"),
+        ).resolves.toMatchObject({ role: "admin" });
+        await expect(
+          setResourceVisibility.run({
+            resourceType: managedResourceType,
+            resourceId: "manager-policy-app",
+            visibility: "org",
+          }),
+        ).resolves.toMatchObject({ ok: true });
+      },
+    );
+  });
+
   it.each(["viewer", "editor", "admin"] as const)(
     "checks current membership for explicit organization %s grants while preserving direct admin grants",
     async (role) => {
