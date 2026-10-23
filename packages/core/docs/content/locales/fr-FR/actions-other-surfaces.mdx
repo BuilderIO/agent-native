@@ -70,7 +70,49 @@ de la même manière pour des exécutions manuelles simples et des scripts exist
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-C’est utile pour les boucles de développement d’agent, les scripts, et les tâches cron.
+Pour les appels `defineAction()`, la CLI évalue `needsApproval` sur les arguments préparés et analysés, avec les valeurs par défaut du schéma et l’appelant `cli`. Si stdin et stdout sont des TTY, elle affiche le nom de l’action et les arguments, puis demande `y/N`. Seuls `y` ou `yes` exécutent l’action.
+
+Sans ces deux TTY, la CLI demande à l’agent de solliciter l’accord de la personne. Après son accord pour cet appel précis, relancez les arguments exacts de la commande `pnpm action` d’origine en ajoutant `--approved` :
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` est une métadonnée réservée à la CLI, retirée avant l’analyse de l’entrée. Ce drapeau est sans effet indésirable sur les actions sans approbation obligatoire. Il exige l’accord préalable de la personne.
+
+Le pont de développement local envoie les métadonnées d’approbation hors de `input` dans le corps JSON :
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+Pour un appel protégé sans approbation, le pont renvoie HTTP `409` :
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+Après la confirmation en TTY, la CLI réessaie avec le `argumentsHash` de la réponse demandant l’approbation :
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+Si les arguments préparés ont changé après la confirmation, le pont renvoie HTTP `409` avec `errorCode: "approval_arguments_changed"`. Vérifiez les arguments actuels et réessayez.
+
+`arguments` contient les arguments préparés. Ce contrat du pont de développement local ne modifie pas les [règles d’approbation de l’API HTTP publique des actions](/docs/actions-access-control#needs-approval). Les appels CLI protégés et approuvés utilisent le système d’enregistrement des approbations existant avec l’appelant `cli` et le résumé `CLI approval via --approved` ou `CLI approval via prompt`. L’enregistrement spécial d’approbation exclut les arguments complets.
 
 ## L’appeler depuis un autre agent (A2A) {#a2a}
 

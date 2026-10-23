@@ -56,7 +56,49 @@ JSON 入力は、エージェントや複雑なオブジェクトに適した形
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-これは、エージェント開発ループ、スクリプト、cron ジョブに便利です。
+`defineAction()` の呼び出しでは、CLI は準備・解析済みでスキーマのデフォルト値が適用された引数と caller `cli` で `needsApproval` を評価します。stdin と stdout が両方 TTY の場合、アクション名と引数を表示して `y/N` を尋ねます。`y` または `yes` のみがアクションを実行します。
+
+両方の TTY が揃わない場合、CLI はエージェントに本人の承認を求めるよう指示します。その特定の呼び出しを本人が承認した後、元の `pnpm action` の引数を一切変えず、末尾に `--approved` を追加して再実行してください。
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` は CLI の予約済みメタデータで、入力解析前に取り除かれます。承認不要のアクションに付けても問題ありません。先に本人の承認を得る必要があります。
+
+ローカル開発ブリッジは、JSON 本文の `input` の外側に承認メタデータを送信します。
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+承認が必要な呼び出しに承認がない場合、ブリッジは HTTP `409` を返します。
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+TTY での確認後、CLI は承認要求のレスポンスに含まれる `argumentsHash` を使って再試行します。
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+確認後に準備済みの引数が変わった場合、ブリッジは HTTP `409` と `errorCode: "approval_arguments_changed"` を返します。現在の引数を確認して再試行してください。
+
+`arguments` には準備済みの引数が入ります。このローカル開発ブリッジの契約は、[公開 HTTP アクション API の承認ルール](/docs/actions-access-control#needs-approval)を変更しません。承認済みの承認対象 CLI 呼び出しは、既存の承認記録機能を使い、caller は `cli`、要約は `CLI approval via --approved` または `CLI approval via prompt` になります。専用の承認記録には引数の全内容を含めません。
 
 ## 別のエージェントから呼び出す (A2A) {#a2a}
 

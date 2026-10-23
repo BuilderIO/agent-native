@@ -159,6 +159,8 @@ pnpm action log-meal --name "Salad" --calories 350
 
 CLI flags become action input fields (`--key value` or `--key=value`); the runner does not read or write files for `--input` or `--output`. The default template dispatches through core's `runScript()` in `actions/run.ts`. Action names are lowercase-with-hyphens (`pnpm action my-action` → `actions/my-action.ts`).
 
+For a `needsApproval` action, the CLI checks parsed/defaulted input with caller `cli`. An interactive terminal shows the action and arguments and asks `y/N` (only `y` or `yes` runs). Without both stdin and stdout TTYs, ask the person to approve the specific call, then rerun the exact original `pnpm action` arguments with `--approved` appended. Never add `--approved` before the person approves. This reserved flag is removed before action input parsing and is harmless on ungated actions. See `references/action-fields.md` for approval details.
+
 ## Custom `/api/` Routes
 
 Complete exception list — justified only when the caller isn't your own UI/agent, or the payload isn't JSON: **file uploads** (actions take JSON, not multipart), **streaming** (SSE/chunked needing direct H3 control), **webhooks**, **OAuth callbacks** (fixed redirect URL patterns), **public unauthenticated endpoints** (SEO/OG images, share links), **binary/non-JSON responses**.

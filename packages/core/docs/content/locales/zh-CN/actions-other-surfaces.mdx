@@ -64,7 +64,49 @@ flag 的效果是一样的:
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-这对代理开发循环、脚本和定时任务都很有用。
+对于 `defineAction()` 调用，CLI 会使用已准备、解析并应用架构默认值的参数以及调用方 `cli` 来评估 `needsApproval`。如果 stdin 和 stdout 都是 TTY，它会显示 action 名称和参数，并提示 `y/N`。只有 `y` 或 `yes` 才会执行 action。
+
+如果缺少任一 TTY，CLI 会要求代理向本人请求批准。本人批准这次具体调用后，使用完全相同的原始 `pnpm action` 参数重新运行，并在末尾加上 `--approved`：
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` 是保留的 CLI 元数据，会在解析输入前移除。对无需审批的 action 使用它没有影响。必须先获得本人的批准。
+
+本地开发桥接会在 JSON 请求体中将审批元数据放在 `input` 之外：
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+对于尚未获批的受限调用，桥接返回 HTTP `409`：
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+在 TTY 中确认后，CLI 会使用审批请求响应中的 `argumentsHash` 重试：
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+如果准备好的参数在确认后发生变化，桥接会返回 HTTP `409` 和 `errorCode: "approval_arguments_changed"`。请检查当前参数并重试。
+
+`arguments` 包含准备好的参数。本地开发桥接的这一约定不会改变[公共 HTTP action API 的审批规则](/docs/actions-access-control#needs-approval)。已获批的受限 CLI 调用使用现有审批记录器，调用方为 `cli`，摘要为 `CLI approval via --approved` 或 `CLI approval via prompt`。专用审批记录不包含完整参数。
 
 ## 从另一个代理调用它(A2A) {#a2a}
 

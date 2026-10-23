@@ -72,7 +72,49 @@ funcionam da mesma forma para execuções manuais simples e scripts existentes:
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-Isso é útil para loops de agent-dev, scripts e cron jobs.
+Nas chamadas `defineAction()`, a CLI avalia `needsApproval` nos argumentos preparados e analisados, com os valores padrão do esquema e caller `cli`. Se stdin e stdout forem TTYs, ela mostra o nome da ação e os argumentos e pergunta `y/N`. Somente `y` ou `yes` executa a ação.
+
+Sem ambos os TTYs, a CLI pede ao agente que solicite a aprovação da pessoa. Depois que ela aprovar essa chamada específica, repita exatamente os argumentos originais de `pnpm action`, acrescentando `--approved`:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` é um metadado reservado da CLI, removido antes de analisar a entrada. É inofensivo em ações sem aprovação obrigatória. Ele exige a aprovação prévia da pessoa.
+
+A ponte local de desenvolvimento envia os metadados de aprovação fora de `input` no corpo JSON:
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+Para uma chamada protegida sem aprovação, a ponte retorna HTTP `409`:
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+Após a confirmação no TTY, a CLI tenta novamente com o `argumentsHash` da resposta que solicita aprovação:
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+Se os argumentos preparados mudarem após a confirmação, a ponte retorna HTTP `409` com `errorCode: "approval_arguments_changed"`. Revise os argumentos atuais e tente novamente.
+
+`arguments` contém os argumentos preparados. Esse contrato da ponte local de desenvolvimento não altera as [regras de aprovação da API HTTP pública de ações](/docs/actions-access-control#needs-approval). Chamadas CLI protegidas e aprovadas usam o registrador de aprovações existente com caller `cli` e resumo `CLI approval via --approved` ou `CLI approval via prompt`. O registro especial de aprovação exclui os argumentos completos.
 
 ## Chamando a partir de outro agente (A2A) {#a2a}
 

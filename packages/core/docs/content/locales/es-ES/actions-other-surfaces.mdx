@@ -72,7 +72,49 @@ funcionan igual para ejecuciones manuales simples y scripts existentes:
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-Esto es útil para bucles de desarrollo de agentes, scripts y tareas cron.
+Para las llamadas a `defineAction()`, la CLI evalúa `needsApproval` sobre los argumentos preparados y analizados, con los valores predeterminados del esquema y caller `cli`. Si stdin y stdout son TTY, muestra el nombre de la acción y los argumentos y pregunta `y/N`. Solo `y` o `yes` ejecuta la acción.
+
+Sin ambos TTY, la CLI indica al agente que pida aprobación a la persona. Cuando esta apruebe esa llamada concreta, repite exactamente los argumentos originales de `pnpm action` añadiendo `--approved`:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` son metadatos reservados de la CLI y se elimina antes de analizar la entrada. No tiene efecto adverso en acciones sin aprobación obligatoria. Requiere la aprobación previa de la persona.
+
+El puente local de desarrollo envía los metadatos de aprobación fuera de `input` en el cuerpo JSON:
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+Para una llamada protegida sin aprobación, el puente devuelve HTTP `409`:
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+Tras la confirmación en TTY, la CLI reintenta con el `argumentsHash` de la respuesta que solicita aprobación:
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+Si los argumentos preparados cambiaron después de la confirmación, el puente devuelve HTTP `409` con `errorCode: "approval_arguments_changed"`. Revisa los argumentos actuales e inténtalo de nuevo.
+
+`arguments` contiene los argumentos preparados. Este contrato del puente local de desarrollo no cambia las [reglas de aprobación de la API HTTP pública de acciones](/docs/actions-access-control#needs-approval). Las llamadas CLI protegidas y aprobadas usan el registro de aprobaciones existente con caller `cli` y resumen `CLI approval via --approved` o `CLI approval via prompt`. El registro especial de aprobación excluye los argumentos completos.
 
 ## Llamarla desde otro agente (A2A) {#a2a}
 

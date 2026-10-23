@@ -29,10 +29,16 @@ import { defineEventHandler, getHeader, readBody, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
 
 import { actionCallEmitsChange } from "../action-call-classification.js";
-import { runActionInvocation } from "../action-invocation.js";
+import {
+  actionCallIntent,
+  preparedCallArguments,
+  preparedCallNeedsApproval,
+  recordInvalidActionCall,
+} from "../action.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
+import { runApprovedCliAction } from "../cli/action-approval.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { notifyActionChange } from "./action-change.js";
@@ -273,6 +279,9 @@ export function mountDevActionForwardRoute(
       const body = (await readBody(event).catch(() => null)) as {
         name?: unknown;
         input?: unknown;
+        approved?: unknown;
+        approvalSource?: unknown;
+        approvalArgumentsHash?: unknown;
       } | null;
       const name = body?.name;
       if (typeof name !== "string") {
@@ -314,7 +323,49 @@ export function mountDevActionForwardRoute(
             caller: "cli",
             actionName: name,
           };
-          const result = await runActionInvocation(entry, params, ctx);
+          const prepared = await actionCallIntent(entry, params);
+          if (!prepared.valid) {
+            await recordInvalidActionCall(entry, params, ctx, prepared.error);
+            throw prepared.error;
+          }
+          const needsApproval = await preparedCallNeedsApproval(
+            entry,
+            prepared,
+            ctx,
+          );
+          if (needsApproval && body?.approved !== true) {
+            setResponseStatus(event, 409);
+            return {
+              ok: false,
+              errorCode: "approval_required",
+              error: `Action "${name}" requires human approval. Ask the person, then rerun with --approved.`,
+              arguments: preparedCallArguments(prepared),
+              argumentsHash: prepared.argumentsHash,
+            };
+          }
+          if (
+            body?.approved === true &&
+            body.approvalSource === "prompt" &&
+            body.approvalArgumentsHash !== prepared.argumentsHash
+          ) {
+            setResponseStatus(event, 409);
+            return {
+              ok: false,
+              errorCode: "approval_arguments_changed",
+              error: `Action "${name}" arguments changed after confirmation. Review the current arguments and try again.`,
+            };
+          }
+          const approval = needsApproval
+            ? body?.approvalSource === "prompt"
+              ? "prompt"
+              : "flag"
+            : undefined;
+          const result = await runApprovedCliAction(
+            entry,
+            prepared,
+            ctx,
+            approval,
+          );
           if (actionCallEmitsChange(entry, params, false)) {
             await notifyActionChange({ actionName: name }).catch(() => {});
           }
