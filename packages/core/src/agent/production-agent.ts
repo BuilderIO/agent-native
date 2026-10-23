@@ -9899,8 +9899,10 @@ export async function runAgentLoop(opts: {
             content: result,
           };
         }
-        // The most specific key matched speaks for the call, its cause and
-        // its count; a broader one can name a different call that shares it.
+        // The most specific key matched speaks for the call's cause; a
+        // broader one can name a different call that shares it. The count
+        // is every attempt the guard held back for, any of which may have
+        // saved changes.
         const [specific] = repeated;
         const blockedBy =
           (specific
@@ -9908,10 +9910,11 @@ export async function runAgentLoop(opts: {
                 `${specific[0]}:${repeatKeys[specific[0]]}`,
               )
             : undefined) ?? "interruption";
-        const attempts = specific
-          ? (specific[1].get(repeatKeys[specific[0]]) ?? priorInterruptions)
-          : priorInterruptions;
-        const result = unknownRepeatResult(toolCall.name, blockedBy, attempts);
+        const result = unknownRepeatResult(
+          toolCall.name,
+          blockedBy,
+          priorInterruptions,
+        );
         await send({
           type: "tool_start",
           id: toolCall.id,
@@ -9930,7 +9933,7 @@ export async function runAgentLoop(opts: {
         recordToolResult(result, true);
         requestedActionStop ??= {
           message:
-            `I stopped before running ${toolCall.name} again. ${attempts === 1 ? "An earlier attempt" : `${attempts} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
+            `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
             `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
           errorCode: "write_tool_outcome_unknown",
           blockedTool: toolCall.name,

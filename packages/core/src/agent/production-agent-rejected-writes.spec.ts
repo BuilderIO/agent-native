@@ -607,7 +607,8 @@ describe("a write whose outcome is really unknown", () => {
     expect(stop).toMatchObject({
       errorCode: "write_tool_outcome_unknown",
       blockedBy: "interruption",
-      error: expect.stringContaining("An earlier attempt may have"),
+      // Both earlier calls sent `{}`, and either may have saved changes.
+      error: expect.stringContaining("2 earlier attempts may have"),
     });
   });
 
