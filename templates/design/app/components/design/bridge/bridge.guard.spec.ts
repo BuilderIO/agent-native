@@ -11900,7 +11900,7 @@ it(
             ?.getAttribute("src"),
           imageSrcset: doc
             .querySelector("#responsive-image")
-            ?.hasAttribute("srcset"),
+            ?.getAttribute("srcset"),
           pictureSources: doc.querySelectorAll("picture source").length,
           resourceRequests: (window as any).__resourceRequests,
         };
@@ -11913,8 +11913,8 @@ it(
         "https://export.test/assets/pixel.svg",
       ]);
       expect(snapshot.bodyRules).toContain("letter-spacing: 3px");
-      expect(snapshot.imageSrc).toContain("id='chosen'");
-      expect(snapshot.imageSrcset).toBe(true);
+      expect(snapshot.imageSrc).toBeNull();
+      expect(snapshot.imageSrcset).toContain("id='chosen'");
       expect(snapshot.pictureSources).toBe(0);
     } finally {
       await browser.close();
