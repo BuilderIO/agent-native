@@ -273,6 +273,38 @@ export function fail(message: string, options: FailOptions = {}): never {
   });
 }
 
+/**
+ * A rejection raised before the action's first write: a missing target, an
+ * edit that matches nothing, a patch identical to what is saved. A caller may
+ * then retry with corrected arguments instead of treating the call as
+ * possibly applied. The framework accepts the claim only for the call that
+ * raised it, and only when no write action nested in that call entered its
+ * handler; otherwise it reads as any other failure. It cannot see the
+ * handler's own database or provider writes, so throw it before the first.
+ */
+export class NoWriteError extends ActionContractError {
+  readonly noWrite = true;
+
+  constructor(message: string, options: FailOptions = {}) {
+    super(message, {
+      errorCode: options.errorCode ?? "action_failed",
+      statusCode: options.statusCode ?? 400,
+      ...(options.details === undefined ? {} : { details: options.details }),
+    });
+    this.name = "NoWriteError";
+  }
+}
+
+export function isNoWriteError(error: unknown): error is NoWriteError {
+  return (
+    isActionContractError(error) &&
+    (error as { noWrite?: unknown }).noWrite === true
+  );
+}
+
+/** Each `NoWriteError` the call that raised it was verified to have written nothing in. */
+const verifiedNoWrites = new WeakSet<object>();
+
 export type { ActionMcpOutputContract } from "./action-output-contract.js";
 
 /** What a call that broke its output contract already did. `run` returned
@@ -352,12 +384,20 @@ export function isActionOutputContractError(
 /**
  * What a failed call had already done, when its failure came after `run`
  * returned: an output-contract error, or a stop or connection signal raised
- * while its result was checked. `undefined` when the failure carries no such
- * evidence, so the caller must not assume the call changed nothing.
+ * while its result was checked; or a verified `NoWriteError`. `undefined`
+ * when the failure carries no such evidence, so the caller must not assume
+ * the call changed nothing.
  */
 export function actionFailureEffect(
   error: unknown,
 ): ActionOutputEffect | undefined {
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    verifiedNoWrites.has(error)
+  ) {
+    return "none";
+  }
   if (isActionOutputContractError(error)) return error.effect;
   if (!isAgentActionStopError(error)) return undefined;
   const effect = (error as { effect?: unknown }).effect;
@@ -409,14 +449,22 @@ export function invocationEffect(
     readOnly?: boolean;
     retrySafe?: boolean;
     receipt?: { changed: boolean };
-    /** It failed, with what it threw; `lost` when its result never came. */
-    failed?: { error?: unknown; lost?: boolean };
+    /**
+     * It failed, with what it threw; `lost` when its result never came;
+     * `reported` when it returned an error result instead, such as an MCP
+     * tool's `isError`, which says the tool did not do its work.
+     */
+    failed?: { error?: unknown; lost?: boolean; reported?: boolean };
   },
 ): InvocationEffect {
   const { evidence, record } = outcome;
   const { failed, readOnly } = settled;
   if (outcome.refused) return { effect: "none", changed: false };
   if (outcome.keyed && !record) return { effect: "unknown", changed: true };
+  // The report speaks for the tool, not for a write nested in the call.
+  if (failed?.reported && !failed.lost && !evidence?.nestedWriteEntered) {
+    return { effect: "none", changed: false };
+  }
   // A typed effect speaks for the call that raised it, not for one it passed
   // through. Untracked, nothing names that call, so it stands.
   const typed =
@@ -431,7 +479,7 @@ export function invocationEffect(
   }
   const wrote = record ? record.evidence.writeEntered : readOnly !== true;
   const changed = record
-    ? record.evidence.changeEntered
+    ? record.evidence.changeEntered && !(failed && typed === "none")
     : entry.changeEvents !== false && (failed ? typed === "committed" : wrote);
   const effect = !failed
     ? (settled.receipt?.changed ?? wrote)
@@ -675,6 +723,14 @@ function postRunSignal(
  */
 function withCommittedEffect(error: unknown): unknown {
   if (actionFailureEffect(error) !== "none") return error;
+  // Its claim holds only for the call that raised it.
+  if (isNoWriteError(error)) {
+    return new ActionContractError(error.message, {
+      errorCode: error.errorCode,
+      statusCode: error.statusCode,
+      ...(error.details === undefined ? {} : { details: error.details }),
+    });
+  }
   if (isActionOutputContractError(error)) {
     return new ActionOutputContractError({
       actionName: error.actionName,
@@ -1243,6 +1299,19 @@ export function defineAction(options: any) {
         : output;
     } catch (thrown) {
       const error = readableFailure(thrown);
+      // Raised by this handler, not passed up through a nested call's
+      // boundary, with no nested write entered.
+      if (
+        !ran &&
+        frame &&
+        isNoWriteError(error) &&
+        !frame.nestedWriteEntered &&
+        actionExecutionStorage?.getStore()?.failures.get(error) === undefined
+      ) {
+        verifiedNoWrites.add(error);
+        frame.raised = error;
+        throw error;
+      }
       if (!ran && effect() !== "committed") throw error;
       const raised = ran ? error : withCommittedEffect(error);
       if (frame) frame.raised = raised;
