@@ -89,6 +89,7 @@ export function builderCmsWrittenSourceFields(
       .filter((name) => name !== "blocks")
       .map((name) => `data.${name}`),
     wroteBody: record.blocks !== undefined,
+    wroteName: typeof request.body.name === "string",
   };
 }
 

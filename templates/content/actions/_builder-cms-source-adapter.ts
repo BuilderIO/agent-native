@@ -368,6 +368,9 @@ function builderSourceValuesFromRecord(args: {
   if (blocks.length > 0) {
     values[BUILDER_CMS_BODY_BLOCKS_HASH_KEY] = builderBlocksHash(blocks);
     values[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = blocks.length;
+  } else if (Array.isArray(args.data.blocks)) {
+    // An empty body Builder returned, unlike a read that left the body out.
+    values[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = 0;
   }
   return values;
 }

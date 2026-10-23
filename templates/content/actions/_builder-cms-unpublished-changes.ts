@@ -3,6 +3,7 @@ import type {
   DocumentPropertyValue,
 } from "../shared/api.js";
 import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_LAST_UPDATED_KEY,
@@ -30,10 +31,18 @@ export interface BuilderCmsUnpublishedChanges {
    * with a reference field's id under its reference-id key.
    */
   liveValues: Record<string, DocumentPropertyValue>;
-  /** The live body's blocks hash when Content last saved a body over it. */
+  /**
+   * Builder's lastUpdated at the live check before Content's latest save. A
+   * read older than this was made before that save.
+   */
+  liveLastUpdated?: number | string;
+  /**
+   * The live body's blocks hash when Content last saved a body over it;
+   * absent when that live body was empty.
+   */
   liveBlocksHash?: string;
   /** Builder's lastUpdated when Content last saved a body over it. */
-  liveLastUpdated?: number | string;
+  liveBodyLastUpdated?: number | string;
 }
 
 export type BuilderCmsUnpublishedChangesRead =
@@ -71,6 +80,10 @@ function epochMs(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function isTimestamp(value: unknown): value is number | string {
+  return typeof value === "string" || typeof value === "number";
+}
+
 export function builderCmsStableValue(value: unknown): string {
   if (value === null || value === undefined) return "null";
   if (Array.isArray(value)) {
@@ -89,9 +102,10 @@ export function builderCmsStableValue(value: unknown): string {
 }
 
 /**
- * Whether `values` holds the same value for a source field as `expected`. A
- * reference compares by id: its stored value is a display label that two
- * references can share, and a saved row holds the reference object instead.
+ * Whether `values` holds the same value for a source field as `expected`.
+ * When both carry a reference id, the ids are compared: a stored reference
+ * value is a display label two references can share, and a saved row holds
+ * the reference object instead. A read without an id compares the values.
  */
 export function builderCmsSourceFieldMatches(args: {
   key: string;
@@ -100,7 +114,7 @@ export function builderCmsSourceFieldMatches(args: {
 }): boolean {
   const referenceKey = builderCmsReferenceIdKey(args.key);
   const compared =
-    hasKey(args.values, referenceKey) || hasKey(args.expected, referenceKey)
+    hasKey(args.values, referenceKey) && hasKey(args.expected, referenceKey)
       ? referenceKey
       : args.key;
   return (
@@ -133,15 +147,13 @@ export function readBuilderCmsUnpublishedChanges(
   ) {
     return { state: "invalid" };
   }
-  const liveBlocksHash = record.liveBlocksHash;
+  const { liveBlocksHash, liveLastUpdated, liveBodyLastUpdated } = record;
   if (liveBlocksHash !== undefined && typeof liveBlocksHash !== "string") {
     return { state: "invalid" };
   }
-  const liveLastUpdated = record.liveLastUpdated;
   if (
-    liveLastUpdated !== undefined &&
-    typeof liveLastUpdated !== "string" &&
-    typeof liveLastUpdated !== "number"
+    (liveLastUpdated !== undefined && !isTimestamp(liveLastUpdated)) ||
+    (liveBodyLastUpdated !== undefined && !isTimestamp(liveBodyLastUpdated))
   ) {
     return { state: "invalid" };
   }
@@ -149,14 +161,15 @@ export function readBuilderCmsUnpublishedChanges(
     state: "pending",
     changes: {
       liveValues: liveValues as Record<string, DocumentPropertyValue>,
-      ...(liveBlocksHash ? { liveBlocksHash } : {}),
       ...(liveLastUpdated !== undefined ? { liveLastUpdated } : {}),
+      ...(liveBlocksHash ? { liveBlocksHash } : {}),
+      ...(liveBodyLastUpdated !== undefined ? { liveBodyLastUpdated } : {}),
     },
   };
 }
 
 function hasBodyRecord(changes: BuilderCmsUnpublishedChanges) {
-  return !!changes.liveBlocksHash || changes.liveLastUpdated !== undefined;
+  return !!changes.liveBlocksHash || changes.liveBodyLastUpdated !== undefined;
 }
 
 export function withBuilderCmsUnpublishedChanges(
@@ -198,17 +211,20 @@ export function builderCmsEntryStatus(
  */
 export function builderCmsBodyStillSavedOver(
   changes: BuilderCmsUnpublishedChanges,
-  incoming: Record<string, DocumentPropertyValue>,
+  builderValues: Record<string, DocumentPropertyValue>,
 ): boolean {
   if (!hasBodyRecord(changes)) return false;
-  const incomingHash = incoming[BUILDER_CMS_BODY_BLOCKS_HASH_KEY];
-  if (incomingHash === undefined || incomingHash === null) return true;
-  if (changes.liveBlocksHash && incomingHash === changes.liveBlocksHash) {
+  const hash = builderValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY];
+  const readHash = typeof hash === "string" && hash ? hash : null;
+  // A read without the body says nothing about it; an empty one does.
+  if (!readHash && builderValues[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] !== 0) {
     return true;
   }
-  const recordedEpoch = epochMs(changes.liveLastUpdated);
+  if (readHash === (changes.liveBlocksHash ?? null)) return true;
+  const recordedEpoch = epochMs(changes.liveBodyLastUpdated);
   return (
-    recordedEpoch !== null && epochMs(incoming.lastUpdated) === recordedEpoch
+    recordedEpoch !== null &&
+    epochMs(builderValues.lastUpdated) === recordedEpoch
   );
 }
 
@@ -216,8 +232,8 @@ export function builderCmsBodyStillSavedOver(
  * The baseline a refresh or body read should keep. A field keeps Content's
  * saved value while Builder still reports the live value it was saved over;
  * once Builder publishes, discards, or edits that field, Builder's value wins.
- * A field Builder did not return says nothing about a change, so it keeps
- * Content's value too.
+ * A field Builder did not return says nothing about a change, and neither
+ * does a read made before Content's latest save, so both keep Content's value.
  */
 export function builderSourceValuesKeepingUnpublishedChanges(args: {
   incoming: Record<string, DocumentPropertyValue>;
@@ -228,10 +244,11 @@ export function builderSourceValuesKeepingUnpublishedChanges(args: {
    */
   incomingFilledFromRow?: boolean;
   /**
-   * Builder's own values for the body check, when `incoming` has had the
-   * stored body put back: that body's hash never matches the live one.
+   * Builder's own values, when `incoming` has the row's stored values mixed
+   * in. The entry's status, update time, and body are read from these: the
+   * row's copies are from before Content's save.
    */
-  builderBodyValues?: Record<string, DocumentPropertyValue>;
+  builderValues?: Record<string, DocumentPropertyValue>;
 }): Record<string, DocumentPropertyValue> {
   const read = readBuilderCmsUnpublishedChanges(args.existing);
   if (read.state === "invalid") {
@@ -242,14 +259,30 @@ export function builderSourceValuesKeepingUnpublishedChanges(args: {
   if (read.state !== "pending" || !args.existing) {
     return withBuilderCmsUnpublishedChanges(args.incoming, null);
   }
+  const existing = args.existing;
+  const recorded = read.changes;
+  const builder = args.builderValues ?? args.incoming;
+  const readEpoch = epochMs(builder.lastUpdated);
+  const checkedEpoch = epochMs(recorded.liveLastUpdated);
+  const readPredatesSave =
+    readEpoch !== null && checkedEpoch !== null && readEpoch < checkedEpoch;
+  // Builder's word that nothing is pending only counts from a read made after
+  // Content's save: an autosave leaves lastUpdated alone, so a read from just
+  // before the save carries the same time and an outdated answer.
+  const builderDiscardedChanges =
+    builder[BUILDER_CMS_HAS_AUTOSAVES_KEY] === false &&
+    readEpoch !== null &&
+    checkedEpoch !== null &&
+    readEpoch > checkedEpoch;
+  const published = hasKey(builder, "published")
+    ? builder.published
+    : args.incoming.published;
   if (
-    args.incoming.published !== "published" ||
-    args.incoming[BUILDER_CMS_HAS_AUTOSAVES_KEY] === false
+    !readPredatesSave &&
+    (published !== "published" || builderDiscardedChanges)
   ) {
     return withBuilderCmsUnpublishedChanges(args.incoming, null);
   }
-  const existing = args.existing;
-  const recorded = read.changes;
   const next = { ...args.incoming };
   const liveValues: Record<string, DocumentPropertyValue> = {};
   for (const key of Object.keys(recorded.liveValues)) {
@@ -258,6 +291,7 @@ export function builderSourceValuesKeepingUnpublishedChanges(args: {
     const builderReturned =
       hasKey(args.incoming, key) || hasKey(args.incoming, referenceKey);
     const builderStillLive =
+      readPredatesSave ||
       !builderReturned ||
       builderCmsSourceFieldMatches({
         key,
@@ -278,10 +312,9 @@ export function builderSourceValuesKeepingUnpublishedChanges(args: {
       }
     }
   }
-  const bodyKept = builderCmsBodyStillSavedOver(
-    recorded,
-    args.builderBodyValues ?? args.incoming,
-  );
+  const bodyKept = readPredatesSave
+    ? hasBodyRecord(recorded)
+    : builderCmsBodyStillSavedOver(recorded, builder);
   if (bodyKept) {
     for (const key of BODY_BASELINE_KEYS) {
       if (existing[key] !== undefined) next[key] = existing[key];
@@ -289,11 +322,14 @@ export function builderSourceValuesKeepingUnpublishedChanges(args: {
   }
   return withBuilderCmsUnpublishedChanges(next, {
     liveValues,
+    ...(recorded.liveLastUpdated !== undefined
+      ? { liveLastUpdated: recorded.liveLastUpdated }
+      : {}),
     ...(bodyKept && recorded.liveBlocksHash
       ? { liveBlocksHash: recorded.liveBlocksHash }
       : {}),
-    ...(bodyKept && recorded.liveLastUpdated !== undefined
-      ? { liveLastUpdated: recorded.liveLastUpdated }
+    ...(bodyKept && recorded.liveBodyLastUpdated !== undefined
+      ? { liveBodyLastUpdated: recorded.liveBodyLastUpdated }
       : {}),
   });
 }
@@ -320,8 +356,9 @@ export function builderCmsUnpublishedChangesAfterWrite(args: {
   const current: BuilderCmsUnpublishedChanges =
     read.state === "pending" ? read.changes : { liveValues: {} };
   const liveValues = { ...current.liveValues };
-  let liveBlocksHash = current.liveBlocksHash;
   let liveLastUpdated = current.liveLastUpdated;
+  let liveBlocksHash = current.liveBlocksHash;
+  let liveBodyLastUpdated = current.liveBodyLastUpdated;
   if (args.effect === "autosave") {
     const live = args.live.values;
     if (!live) {
@@ -342,9 +379,10 @@ export function builderCmsUnpublishedChangesAfterWrite(args: {
         delete liveValues[referenceKey];
       }
     }
+    liveLastUpdated = args.live.lastUpdated ?? undefined;
     if (args.wroteBody) {
       liveBlocksHash = args.live.blocksHash ?? undefined;
-      liveLastUpdated = args.live.lastUpdated ?? undefined;
+      liveBodyLastUpdated = args.live.lastUpdated ?? undefined;
     }
   } else {
     for (const key of args.writtenFieldKeys) {
@@ -353,12 +391,13 @@ export function builderCmsUnpublishedChangesAfterWrite(args: {
     }
     if (args.wroteBody) {
       liveBlocksHash = undefined;
-      liveLastUpdated = undefined;
+      liveBodyLastUpdated = undefined;
     }
   }
   return {
     liveValues,
-    ...(liveBlocksHash ? { liveBlocksHash } : {}),
     ...(liveLastUpdated !== undefined ? { liveLastUpdated } : {}),
+    ...(liveBlocksHash ? { liveBlocksHash } : {}),
+    ...(liveBodyLastUpdated !== undefined ? { liveBodyLastUpdated } : {}),
   };
 }

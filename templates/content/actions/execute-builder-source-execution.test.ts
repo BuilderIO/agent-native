@@ -2123,7 +2123,7 @@ describe("Builder unpublished saves", () => {
     const deps = depsFor({
       source: builderSource,
       execution,
-      readLiveEntry: args.readLiveEntry,
+      readLiveEntry: { name: "Old title", ...args.readLiveEntry },
       writeResult: args.writeResult,
     });
     const run = () =>
@@ -2214,6 +2214,42 @@ describe("Builder unpublished saves", () => {
       message:
         "Title changed in Builder since you edited it; refresh and re-review.",
     });
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("blocks a save that would overwrite an entry name Builder changed", async () => {
+    const { deps, run } = unpublishedSave({
+      rows: [
+        publishedRow({
+          lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
+        }),
+      ],
+      changeSet: changeSet({
+        fieldChanges: [
+          {
+            propertyId: null,
+            propertyName: "Blurb",
+            localFieldKey: "blurb",
+            sourceFieldKey: "data.blurb",
+            currentValue: "Old blurb",
+            proposedValue: "New blurb",
+          },
+        ],
+      }),
+      readLiveEntry: {
+        exists: true,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+        name: "Renamed in Builder",
+        values: { "data.title": "Renamed in Builder" },
+      },
+    });
+
+    await expect(run()).rejects.toThrow(
+      "Entry name changed in Builder since you edited it; refresh and re-review.",
+    );
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
@@ -2468,6 +2504,7 @@ describe("Builder unpublished saves", () => {
     expect(values["data.title"]).toBe("New title");
     expect(JSON.parse(values[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY])).toEqual({
       liveValues: { "data.title": "Old title" },
+      liveLastUpdated: BUILDER_LAST_UPDATED_MS,
     });
   });
 
@@ -2557,6 +2594,61 @@ describe("Builder unpublished saves", () => {
             livePreflight,
           }),
         }),
+      }),
+    );
+  });
+
+  it("says a recovered draft save went live when Builder's stored response says so", async () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({
+      rows: [
+        row({
+          sourceValues: { published: "draft", "data.title": "Old title" },
+        }),
+      ],
+      changeSets: [approvedChangeSet],
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      pushModeConfirmation: "autosave",
+    });
+    expect(plan.payload.effect).toBe("save_draft");
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      state: "failed",
+      payloadJson: JSON.stringify({
+        ...plan.payload,
+        response: {
+          ok: true,
+          status: 200,
+          entryId: "builder-entry-1",
+          body: { id: "builder-entry-1", published: "published" },
+        },
+      }),
+    });
+    const deps = depsFor({ source: builderSource, execution });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        executeBuilderSourceExecutionWithDeps(
+          {
+            databaseId: "database-1",
+            changeSetId: approvedChangeSet.id,
+            pushModeConfirmation: "autosave",
+          },
+          deps,
+        ),
+      ).resolves.toMatchObject(RESPONSE);
+    } finally {
+      warn.mockRestore();
+    }
+
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        summary: expect.stringContaining("this change is live"),
       }),
     );
   });

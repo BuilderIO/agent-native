@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_HAS_AUTOSAVES_KEY,
@@ -18,8 +19,9 @@ function saved(
   values: Record<string, string | null>,
   changes: {
     liveValues: Record<string, string | null>;
-    liveBlocksHash?: string;
     liveLastUpdated?: number;
+    liveBlocksHash?: string;
+    liveBodyLastUpdated?: number;
   },
 ) {
   return withBuilderCmsUnpublishedChanges(values, changes);
@@ -198,23 +200,79 @@ describe("Builder unpublished changes", () => {
     expect(next).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 
-  it("drops the record when Builder says the entry has no unpublished changes", () => {
+  it("drops the record when a read made after the save says nothing is pending", () => {
     const existing = saved(
       { published: "published", "data.title": "Saved title" },
-      { liveValues: { "data.title": "Live title" } },
+      { liveValues: { "data.title": "Live title" }, liveLastUpdated: 1000 },
+    );
+    const read = (lastUpdated: number) =>
+      builderSourceValuesKeepingUnpublishedChanges({
+        incoming: {
+          published: "published",
+          lastUpdated,
+          "data.title": "Live title",
+          [BUILDER_CMS_HAS_AUTOSAVES_KEY]: false,
+        },
+        existing,
+      });
+
+    const afterSave = read(2000);
+    expect(afterSave["data.title"]).toBe("Live title");
+    expect(afterSave).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+    // An autosave leaves lastUpdated alone, so a read with the save's own
+    // time may be from just before it.
+    expect(read(1000)["data.title"]).toBe("Saved title");
+  });
+
+  it("keeps the record through a read made before Content's latest save", () => {
+    const existing = saved(
+      { published: "published", "data.title": "Second save" },
+      {
+        liveValues: { "data.title": "First save, published in Builder" },
+        liveLastUpdated: 2000,
+      },
     );
 
     const next = builderSourceValuesKeepingUnpublishedChanges({
       incoming: {
-        published: "published",
-        "data.title": "Live title",
+        published: "draft",
+        lastUpdated: 1000,
+        "data.title": "Title before the first save",
         [BUILDER_CMS_HAS_AUTOSAVES_KEY]: false,
       },
       existing,
     });
 
-    expect(next["data.title"]).toBe("Live title");
-    expect(next).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+    expect(next["data.title"]).toBe("Second save");
+    expect(readBuilderCmsUnpublishedChanges(next)).toEqual(
+      readBuilderCmsUnpublishedChanges(existing),
+    );
+  });
+
+  it("reads the entry's status from Builder's own values, not the row's", () => {
+    const existing = saved(
+      {
+        published: "published",
+        "data.title": "Saved title",
+        [BUILDER_CMS_HAS_AUTOSAVES_KEY]: false,
+      },
+      { liveValues: { "data.title": "Live title" }, liveLastUpdated: 1000 },
+    );
+    const builderValues = {
+      published: "published",
+      lastUpdated: 2000,
+      "data.title": "Live title",
+    };
+
+    const next = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: { ...existing, ...builderValues },
+      existing,
+      incomingFilledFromRow: true,
+      builderValues,
+    });
+
+    expect(next["data.title"]).toBe("Saved title");
+    expect(next).toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 
   it("keeps the record when Builder does not report whether changes are pending", () => {
@@ -306,7 +364,11 @@ describe("Builder unpublished changes", () => {
         [BUILDER_CMS_BODY_CONTENT_KEY]: "Saved body",
         [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "saved-hash",
       },
-      { liveValues: {}, liveBlocksHash: "live-hash", liveLastUpdated: 1000 },
+      {
+        liveValues: {},
+        liveBlocksHash: "live-hash",
+        liveBodyLastUpdated: 1000,
+      },
     );
     const read = (lastUpdated: number) =>
       builderSourceValuesKeepingUnpublishedChanges({
@@ -336,7 +398,7 @@ describe("Builder unpublished changes", () => {
     const next = builderSourceValuesKeepingUnpublishedChanges({
       incoming: existing,
       existing,
-      builderBodyValues: {
+      builderValues: {
         published: "published",
         [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "live-hash",
       },
@@ -363,8 +425,9 @@ describe("Builder unpublished changes", () => {
     });
     expect(first).toEqual({
       liveValues: { "data.title": "Live title", "data.blurb": null },
-      liveBlocksHash: "live-hash",
       liveLastUpdated: 1000,
+      liveBlocksHash: "live-hash",
+      liveBodyLastUpdated: 1000,
     });
 
     const second = builderCmsUnpublishedChangesAfterWrite({
@@ -386,8 +449,9 @@ describe("Builder unpublished changes", () => {
         "data.title": "First save, published in Builder",
         "data.blurb": null,
       },
+      liveLastUpdated: 2000,
       liveBlocksHash: "live-hash",
-      liveLastUpdated: 1000,
+      liveBodyLastUpdated: 1000,
     });
   });
 
@@ -439,6 +503,7 @@ describe("Builder unpublished changes", () => {
         "data.author": "Sam Lee",
         "__agent_native_builder_reference_id:data.author": "author-1",
       },
+      liveLastUpdated: 1000,
     });
   });
 
@@ -450,7 +515,11 @@ describe("Builder unpublished changes", () => {
       wroteBody: true,
       live: { values: {}, blocksHash: null, lastUpdated: 1000 },
     });
-    expect(changes).toEqual({ liveValues: {}, liveLastUpdated: 1000 });
+    expect(changes).toEqual({
+      liveValues: {},
+      liveLastUpdated: 1000,
+      liveBodyLastUpdated: 1000,
+    });
     const existing = withBuilderCmsUnpublishedChanges(
       {
         published: "published",
@@ -479,6 +548,42 @@ describe("Builder unpublished changes", () => {
     expect(published).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 
+  it("lets an empty body Builder published win over a saved body", () => {
+    const existing = saved(
+      {
+        published: "published",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Saved body",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "saved-hash",
+      },
+      {
+        liveValues: {},
+        liveLastUpdated: 1000,
+        liveBlocksHash: "live-hash",
+        liveBodyLastUpdated: 1000,
+      },
+    );
+    const emptyRead = (lastUpdated: number) =>
+      builderSourceValuesKeepingUnpublishedChanges({
+        incoming: {
+          published: "published",
+          lastUpdated,
+          [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+        },
+        existing,
+      });
+
+    const emptied = emptyRead(2000);
+    expect(emptied).not.toHaveProperty(BUILDER_CMS_BODY_CONTENT_KEY);
+    expect(emptied).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+    // A read without the body at all still keeps it.
+    expect(
+      builderSourceValuesKeepingUnpublishedChanges({
+        incoming: { published: "published", lastUpdated: 2000 },
+        existing,
+      })[BUILDER_CMS_BODY_CONTENT_KEY],
+    ).toBe("Saved body");
+  });
+
   it("refuses to record an autosave without the live values", () => {
     expect(() =>
       builderCmsUnpublishedChangesAfterWrite({
@@ -496,8 +601,9 @@ describe("Builder unpublished changes", () => {
       { published: "published" },
       {
         liveValues: { "data.title": "Live title", "data.blurb": "Live blurb" },
+        liveLastUpdated: 900,
         liveBlocksHash: "live-hash",
-        liveLastUpdated: 1000,
+        liveBodyLastUpdated: 1000,
       },
     );
 
@@ -509,7 +615,10 @@ describe("Builder unpublished changes", () => {
         wroteBody: true,
         live: { values: null, blocksHash: null, lastUpdated: null },
       }),
-    ).toEqual({ liveValues: { "data.blurb": "Live blurb" } });
+    ).toEqual({
+      liveValues: { "data.blurb": "Live blurb" },
+      liveLastUpdated: 900,
+    });
     for (const effect of ["publish", "unpublish"] as const) {
       expect(
         builderCmsUnpublishedChangesAfterWrite({

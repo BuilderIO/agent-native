@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ContentDatabaseItem } from "../shared/api";
 import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_HAS_AUTOSAVES_KEY,
   buildBuilderCmsFixtureEntry,
   builderCmsQualifiedId,
@@ -221,6 +223,24 @@ describe("Builder CMS source adapter", () => {
         lastUpdated: "2026-06-08T12:00:00.000Z",
       },
     });
+  });
+
+  it("tells an empty body Builder returned apart from a read without the body", () => {
+    const entry = (data: Record<string, unknown>) =>
+      normalizeBuilderCmsApiEntry(
+        { id: "entry-1", published: "published", lastUpdated: 1, data },
+        "blog_article",
+      )?.sourceValues;
+
+    expect(entry({ title: "Title", blocks: [] })).toMatchObject({
+      [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+    });
+    expect(entry({ title: "Title", blocks: [] })).not.toHaveProperty(
+      BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+    );
+    expect(entry({ title: "Title" })).not.toHaveProperty(
+      BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
+    );
   });
 
   it("records whether Builder reports unpublished changes on an entry", () => {

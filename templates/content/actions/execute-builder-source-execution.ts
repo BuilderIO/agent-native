@@ -568,6 +568,8 @@ function livePreflightBlockMessage(args: {
   baselineLastUpdated: string | null;
   baselineBlocksHash: string | null;
   baselineValues: Record<string, DocumentPropertyValue> | undefined;
+  /** The entry name Content had when the change was reviewed. */
+  baselineName: string | null;
   effect: BuilderCmsExecutionPayload["effect"];
   request: BuilderCmsExecutionPayload["request"];
   fieldLabel: (sourceFieldKey: string) => string;
@@ -637,11 +639,20 @@ function livePreflightBlockMessage(args: {
     if (!fieldLevel || !liveValues || bodyUnverifiable) {
       return "Builder entry changed since this diff was approved; refresh and re-review.";
     }
-    const changedFields = written.fieldKeys.filter(
-      (key) => !fieldStillReviewed(key, liveValues),
-    );
+    const changedFields = written.fieldKeys
+      .filter((key) => !fieldStillReviewed(key, liveValues))
+      .map(args.fieldLabel);
+    // A safe-model write also sends the entry name, taken from the title
+    // Content has, so it would overwrite a name Builder changed since.
+    const liveName = args.liveState.name?.trim() || null;
+    if (
+      written.wroteName &&
+      (!liveName || liveName !== args.baselineName?.trim())
+    ) {
+      changedFields.push("Entry name");
+    }
     if (changedFields.length > 0) {
-      return `${changedFields.map(args.fieldLabel).join(", ")} changed in Builder since you edited it; refresh and re-review.`;
+      return `${changedFields.join(", ")} changed in Builder since you edited it; refresh and re-review.`;
     }
   }
   if (
@@ -710,6 +721,30 @@ function builderCmsLivePreflightRecord(args: {
         )
       : null,
   };
+}
+
+/**
+ * A draft save sends no published field, so an entry published after the
+ * live check takes the change live; the summary says so rather than "saved".
+ */
+function builderExecutionSucceededSummary(args: {
+  pushMode: string;
+  effect: BuilderCmsExecutionPayload["effect"];
+  writeResult: BuilderCmsWriteResult;
+  executionId: string;
+  changeSetId: string;
+}) {
+  const draftSaveWentLive =
+    args.effect === "save_draft" &&
+    builderCmsResponseValue(args.writeResult.responseBody, ["published"]) ===
+      "published";
+  if (!draftSaveWentLive)
+    return `Builder ${args.pushMode} execution succeeded.`;
+  console.warn("builder_source_draft_save_went_live", {
+    executionId: args.executionId,
+    changeSetId: args.changeSetId,
+  });
+  return `Builder ${args.pushMode} execution succeeded. Builder published this entry while Content was saving, so this change is live.`;
 }
 
 function builderSourceFieldLabel(source: ContentDatabaseSource) {
@@ -1934,7 +1969,13 @@ export async function executeBuilderSourceExecutionWithDeps(
       await deps.markExecutionSucceeded({
         executionId: execution.id,
         changeSetId: changeSet.id,
-        summary: `Builder ${plan.pushMode} execution succeeded.`,
+        summary: builderExecutionSucceededSummary({
+          pushMode: plan.pushMode,
+          effect: writtenPayload.effect,
+          writeResult: storedWriteResult,
+          executionId: execution.id,
+          changeSetId: changeSet.id,
+        }),
         payload: payloadWithResponse,
         now: reconciledAt,
       });
@@ -2072,6 +2113,8 @@ export async function executeBuilderSourceExecutionWithDeps(
         baselineLastUpdated,
         baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
         baselineValues: sourceRowForChangeSet(source, changeSet)?.sourceValues,
+        baselineName:
+          sourceRowForChangeSet(source, changeSet)?.sourceDisplayKey ?? null,
         effect: plan.payload.effect,
         request: plan.payload.request,
         fieldLabel: builderSourceFieldLabel(source),
@@ -2217,24 +2260,16 @@ export async function executeBuilderSourceExecutionWithDeps(
       });
       throw builderExecutionConflict(lastError);
     }
-    // A draft save sends no published field, so an entry published after
-    // the live check takes this change live; say so rather than "saved".
-    const draftSaveWentLive =
-      writePayload.effect === "save_draft" &&
-      builderCmsResponseValue(writeResult.responseBody, ["published"]) ===
-        "published";
-    if (draftSaveWentLive) {
-      console.warn("builder_source_draft_save_went_live", {
-        executionId: execution.id,
-        changeSetId: changeSet.id,
-      });
-    }
     await deps.markExecutionSucceeded({
       executionId: execution.id,
       changeSetId: changeSet.id,
-      summary: draftSaveWentLive
-        ? `Builder ${plan.pushMode} execution succeeded. Builder published this entry while Content was saving, so this change is live.`
-        : `Builder ${plan.pushMode} execution succeeded.`,
+      summary: builderExecutionSucceededSummary({
+        pushMode: plan.pushMode,
+        effect: writePayload.effect,
+        writeResult,
+        executionId: execution.id,
+        changeSetId: changeSet.id,
+      }),
       payload: payloadWithResponse,
       now: succeededAt,
       attemptToken,

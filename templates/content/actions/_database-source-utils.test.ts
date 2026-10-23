@@ -3037,20 +3037,92 @@ describe("database source helpers", () => {
     };
 
     const kept = builderBodyReadSourceValues(rowValues, {
-      published: "published",
-      "data.title": "Live title",
-      [BUILDER_CMS_BODY_CONTENT_KEY]: "Live body",
+      sourceValues: {
+        published: "published",
+        "data.title": "Live title",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Live body",
+      },
     });
     expect(kept["data.title"]).toBe("Saved title");
     expect(kept[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Live body");
     expect(kept).toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
 
     const published = builderBodyReadSourceValues(rowValues, {
-      published: "published",
-      "data.title": "Published title",
+      sourceValues: { published: "published", "data.title": "Published title" },
     });
     expect(published["data.title"]).toBe("Published title");
     expect(published).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+
+  it("keeps a newer save through a queued body read from before it", () => {
+    const rowValues = {
+      published: "published",
+      lastUpdated: "2000",
+      "data.title": "Second save",
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+        liveValues: { "data.title": "First save, published in Builder" },
+        liveLastUpdated: 2000,
+      }),
+    };
+
+    const next = builderBodyReadSourceValues(rowValues, {
+      sourceValues: {
+        published: "published",
+        lastUpdated: "1000",
+        "data.title": "Title before the first save",
+      },
+    });
+
+    expect(next["data.title"]).toBe("Second save");
+    expect(next).toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+
+  it("lets a reference Builder changed win through a body read", () => {
+    const authorId = "__agent_native_builder_reference_id:data.author";
+    const rowValues = {
+      published: "published",
+      "data.author": {
+        "@type": "@builder.io/core:Reference",
+        id: "author-b",
+        model: "blog-author",
+      },
+      [authorId]: "author-b",
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+        liveValues: { "data.author": "Author A", [authorId]: "author-a" },
+      }),
+    };
+
+    const labelOnly = builderBodyReadSourceValues(rowValues, {
+      sourceValues: { published: "published", "data.author": "Author C" },
+    });
+    expect(labelOnly["data.author"]).toBe("Author C");
+    expect(labelOnly).not.toHaveProperty(authorId);
+    expect(labelOnly).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+
+    const withRawEntry = builderBodyReadSourceValues(rowValues, {
+      sourceValues: { published: "published", "data.author": "Author A" },
+      rawEntry: {
+        id: "entry-1",
+        model: "blog_article",
+        data: {
+          author: {
+            "@type": "@builder.io/core:Reference",
+            id: "author-c",
+            model: "blog-author",
+          },
+        },
+      },
+    });
+    expect(withRawEntry[authorId]).toBe("author-c");
+    expect(withRawEntry).not.toHaveProperty(
+      BUILDER_CMS_UNPUBLISHED_CHANGES_KEY,
+    );
+
+    const unchanged = builderBodyReadSourceValues(rowValues, {
+      sourceValues: { published: "published", "data.author": "Author A" },
+    });
+    expect(unchanged[authorId]).toBe("author-b");
+    expect(unchanged).toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 
   it("keeps a saved unpublished body through a metadata refresh that puts the stored body back", () => {

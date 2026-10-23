@@ -2006,13 +2006,26 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
  */
 export function builderBodyReadSourceValues(
   rowValues: Record<string, DocumentPropertyValue>,
-  builderValues: Record<string, DocumentPropertyValue>,
+  entry: Pick<BuilderCmsSourceEntry, "sourceValues" | "rawEntry">,
 ) {
+  const builderValues = {
+    ...entry.sourceValues,
+    ...builderCmsReferenceIdSourceValues(entry.rawEntry?.data),
+  };
+  const rowBase = { ...rowValues };
+  // The row's reference id beside a value Builder returned would pair that
+  // value with an id Builder may have replaced.
+  for (const key of Object.keys(builderValues)) {
+    const referenceKey = builderCmsReferenceIdKey(key);
+    if (!Object.prototype.hasOwnProperty.call(builderValues, referenceKey)) {
+      delete rowBase[referenceKey];
+    }
+  }
   return builderSourceValuesKeepingUnpublishedChanges({
-    incoming: { ...rowValues, ...builderValues },
+    incoming: { ...rowBase, ...builderValues },
     existing: rowValues,
     incomingFilledFromRow: true,
-    builderBodyValues: builderValues,
+    builderValues,
   });
 }
 
@@ -2158,10 +2171,7 @@ async function processBuilderBodyHydrationJob(
       "Builder returned inconsistent body variants for the same lastUpdated value; the stored baseline and local document were preserved for retry.",
     );
   }
-  let nextValues = builderBodyReadSourceValues(
-    sourceValues,
-    entryWithBody.sourceValues,
-  );
+  let nextValues = builderBodyReadSourceValues(sourceValues, entryWithBody);
   let nextContent =
     stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
   let emptyBodyRead: Extract<
@@ -2226,10 +2236,7 @@ async function processBuilderBodyHydrationJob(
       });
       if (liveRead.state === "body") {
         const liveEntry = liveRead.entry;
-        const liveValues = builderBodyReadSourceValues(
-          sourceValues,
-          liveEntry.sourceValues,
-        );
+        const liveValues = builderBodyReadSourceValues(sourceValues, liveEntry);
         const liveContent =
           stringSourceValue(liveValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
         if (liveContent.trim()) {
@@ -2301,10 +2308,7 @@ async function processBuilderBodyHydrationJob(
             .update(schema.contentDatabaseSourceRows)
             .set({
               sourceValuesJson: JSON.stringify(
-                builderBodyReadSourceValues(
-                  sourceValues,
-                  emptyBodyRead.entry.sourceValues,
-                ),
+                builderBodyReadSourceValues(sourceValues, emptyBodyRead.entry),
               ),
               lastSyncedAt: now,
               lastSourceUpdatedAt: emptyBodyRead.entry.updatedAt ?? now,
@@ -2693,10 +2697,7 @@ async function preparePristineBuilderBodyHydration(args: {
       },
     }),
   );
-  const nextValues = builderBodyReadSourceValues(
-    sourceValues,
-    entryWithBody.sourceValues,
-  );
+  const nextValues = builderBodyReadSourceValues(sourceValues, entryWithBody);
   const content =
     stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
   if (!content.trim()) return null;
@@ -6040,7 +6041,7 @@ export function sourceValuesForSeededSourceRow(args: {
     return builderSourceValuesKeepingUnpublishedChanges({
       incoming: values,
       existing: existingSourceValues,
-      builderBodyValues: args.builderEntry.sourceValues,
+      builderValues: args.builderEntry.sourceValues,
     });
   }
   if (existingSourceValues) return existingSourceValues;
