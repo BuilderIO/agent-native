@@ -19,13 +19,13 @@ The analytics app connects to multiple data sources. This skill covers general p
 5. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 6. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it. Only present numbers you actually retrieved; never report a value you did not query.
 
-For a question about something an owner-defined dbt metric measures, even without its exact name (for example, a question about weekly active users), use `tool-search` to load
-`query-dbt-semantic-metric` and pass its exact dbt name. Resolve the exact metric name with `find-data` first, because metric names can change. Use dbt as the metric-
-definition and grain source; Sigma and Amplitude are examples or cross-checks.
+For a question about something an owner-defined dbt metric measures, even without its exact name (for example, a question about weekly active users), resolve the exact dbt name with `find-data` before using `query-dbt-semantic-metric`. If no dbt candidate appears, retry once with likely owner terminology that describes the measure, population, and grain. If it still has no candidate, treat the mapping as unknown and ask one business-definition question only when needed; otherwise report the resolution gap. An empty or weak search does not prove the metric is absent, and must not silently send the same question to saved SQL or a warehouse metric.
+
+Use `tool-search` to load `query-dbt-semantic-metric` for a matched metric and pass its exact name. Use dbt as the definition and grain source; Sigma and Amplitude are examples or cross-checks.
+
+Pass a listed `connectionId` on `connection_selection_required`. Call `get-dbt-connection` only on `connection_error` or `connection_unavailable`, and report its actual readiness or error, keeping unknown distinct from disconnected. Handle other statuses by their returned result and action guidance: use `success` rows, continue `pending` or `metadata_truncated` with the supplied cursor, search `find-data` for the exact name once and retry on `not_found`, and list matches and ask which one is meant on `ambiguous_metric`. Report `no_metrics_available`, `permission_denied`, and `provider_error` as returned. For `deployment_not_ready`, `empty_semantic_manifest`, or a confirmed missing connection or definition, use a warehouse path only when an independent source verifies the same measure, population, and grain.
 
 If no dbt connection is available, use the source-selection path below.
-If the metric is not defined or its deployment is not ready, report that state
-and use a verified warehouse path only when it answers the same definition.
 
 Use the metric's returned dimensions and `queryableGranularities` for a
 breakdown. Pass exact dimension names in `groupBy`; grouped MetricFlow queries

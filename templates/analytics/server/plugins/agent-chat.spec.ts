@@ -665,10 +665,26 @@ describe("Analytics agent Plan mode policy", () => {
     expect(ruleText("sources")).toContain("[Connect data sources](");
   });
 
-  it("routes named dbt metrics through tool discovery", () => {
+  it("routes meaning-matched dbt metrics through discovery and handles misses", () => {
     expect(ruleText("sources")).toContain(
-      "For a named dbt metric, use `tool-search` to load `query-dbt-semantic-metric`.",
+      "For questions an owner-defined dbt metric may answer",
     );
+    expect(ruleText("sources")).toContain(
+      "resolve its exact name with `find-data`; if no candidate appears, retry once",
+    );
+    expect(ruleText("sources")).toContain(
+      "use `tool-search` to load `query-dbt-semantic-metric` with its exact name",
+    );
+    expect(ruleText("sources")).toContain(
+      "Call `get-dbt-connection` only for `connection_error` or `connection_unavailable`",
+    );
+    expect(agentsGuide).toContain(
+      "retry no-candidate searches once with owner terms",
+    );
+    expect(agentsGuide).toContain("If still unmatched, report the gap");
+    expect(dataQueryingSkill).toContain("`metadata_truncated`");
+    expect(dataQueryingSkill).toContain("`no_metrics_available`");
+    expect(dataQueryingSkill).toContain("`permission_denied`");
   });
 
   it("routes internal usage and sibling-app questions without user-supplied SQL", () => {
