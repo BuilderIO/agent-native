@@ -59,7 +59,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "c5859b5435212b6d2f3ba94d1336ccd71a61fe17",
+    "syncCommit": "fecb1b3165ab3826c54978e7335d8404ff492f7f",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -257,6 +257,21 @@
         "file": "packages/core/src/action.ts",
         "name": "preparedCallArguments",
         "sha256": "d1dfad50db94bc94595513354aa83c302b1758d503aca4e3dafe53c2e0561f0e"
+      },
+      {
+        "file": "packages/core/src/action-input-coercion.ts",
+        "name": "coerceGatewayStringifiedArgs",
+        "sha256": "60998e423b73e217c6a318cc449596693ffb922792498ffbdc9dd39332e3d4a5"
+      },
+      {
+        "file": "packages/core/src/action.ts",
+        "name": "validateActionArgs",
+        "sha256": "e60d44389f87dba653a678136c3743b88ff16ab762c42ca63634961a7028b2b8"
+      },
+      {
+        "file": "packages/core/src/action-arguments-identity.ts",
+        "name": "snapshotActionArguments",
+        "sha256": "6c010fb9669b7a96b1b7419ef8ea7f5cb552fb956da8c84a6c55d185eb1bc90a"
       }
     ]
   }

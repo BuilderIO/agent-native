@@ -167,6 +167,15 @@ not reproduced.
 Paths are under `packages/core/src/`. Every action in `ExecutionLease.tla`
 cites the lines it models.
 
+Drift coverage (`manifest.json`, 42 entries) hashes the code in this map, the
+step-intent and replay-policy derivation in `production-agent.ts`, and the
+helpers that compute the policy's inputs: `classifyActionCall`,
+`actionCallIntent`, `preparedCallArguments`, `actionCallIsRetrySafe`,
+`coerceGatewayStringifiedArgs`, `validateActionArgs` and
+`snapshotActionArguments`. It stops there on purpose: hashing every transitive
+dependency would flag most core changes. Deeper helpers rely on their own unit
+tests.
+
 | Code                                                                                                       | Model action                                                                |
 | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `agent/run-store.ts` `claimExecutionLease`                                                                 | `Claim`                                                                     |
