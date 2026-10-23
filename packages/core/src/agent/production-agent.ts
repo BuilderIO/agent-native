@@ -99,6 +99,7 @@ import {
   decodeTextAttachmentData,
   isSvgTextAttachment,
   type TextAttachmentStorage,
+  unwrapTextAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
 import {
   formatBase64CharBudget,
@@ -2816,11 +2817,6 @@ function escapeAttachmentAttribute(value: string): string {
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-function unwrapTextAttachmentEnvelope(text: string): string {
-  const match = text.match(/^<attachment\b[^>]*>\n([\s\S]*)\n<\/attachment>$/);
-  return match ? match[1] : text;
 }
 
 function truncateTextAttachment(text: string, maxChars: number): string {

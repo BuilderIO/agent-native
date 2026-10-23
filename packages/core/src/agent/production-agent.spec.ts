@@ -2294,53 +2294,58 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("Use this logo in the deck");
   });
 
-  it("hydrates a URL-only SVG upload into source text", async () => {
-    const url = "https://storage.example.test/uploads/logo.svg";
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>';
-    const findProvider = vi
-      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
-      .mockResolvedValue({ id: "test-storage" } as any);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(svg, {
-            status: 200,
-            headers: { "content-type": "image/svg+xml" },
-          }),
-      ),
-    );
+  it.each([false, true])(
+    "hydrates a URL-only SVG upload into source text (referenceOnly: %s)",
+    async (referenceOnly) => {
+      const url = "https://storage.example.test/uploads/logo.svg";
+      const svg =
+        '<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>';
+      const findProvider = vi
+        .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+        .mockResolvedValue({ id: "test-storage" } as any);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(svg, {
+              status: 200,
+              headers: { "content-type": "image/svg+xml" },
+            }),
+        ),
+      );
 
-    try {
-      const prepared = await preUploadAttachmentsModule.preUploadAttachments({
-        attachments: [
-          {
-            type: "image",
-            name: "logo.svg",
-            contentType: "image/svg+xml",
-            url,
-          },
-        ],
-        ownerEmail: "alice@example.com",
-        includeFiles: true,
-      });
-      const content = buildUserContentWithAttachments({
-        text: "Make the circle bigger",
-        attachments: prepared.attachments,
-      });
+      try {
+        const prepared = await preUploadAttachmentsModule.preUploadAttachments({
+          attachments: [
+            {
+              type: "image",
+              name: "logo.svg",
+              contentType: "image/svg+xml",
+              url,
+              ...(referenceOnly ? { referenceOnly: true } : {}),
+            },
+          ],
+          ownerEmail: "alice@example.com",
+          includeFiles: true,
+        });
+        const content = buildUserContentWithAttachments({
+          text: "Make the circle bigger",
+          attachments: prepared.attachments,
+        });
 
-      const text = content
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n");
-      expect(text).toContain(svg);
-      expect(text).not.toContain("reference-only");
-      expect(prepared.readFailures).toEqual([]);
-    } finally {
-      findProvider.mockRestore();
-      vi.unstubAllGlobals();
-    }
-  });
+        const text = content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+        expect(text).toContain(svg);
+        expect(text).not.toContain("reference-only");
+        expect(prepared.readFailures).toEqual([]);
+      } finally {
+        findProvider.mockRestore();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   it("hydrates an earlier image reference into a later text-only turn", async () => {
     const url = "https://storage.example.test/uploads/reference.png";

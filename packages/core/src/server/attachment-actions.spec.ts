@@ -100,13 +100,15 @@ describe("persistTextAttachmentsAsResources", () => {
     expect(result.size).toBe(1);
     expect(result.get(0)).toMatchObject({
       kind: "stored",
-      path: "attachments/thread-1/0-data.csv",
+      path: expect.stringMatching(
+        /^attachments\/thread-1\/[a-z0-9]+-0-data\.csv$/,
+      ),
       totalChars: "id,name\n1,Alice".length,
     });
     expect(resourcePutMock).toHaveBeenCalledOnce();
     const [owner, path, content] = resourcePutMock.mock.calls[0];
     expect(owner).toBe("user@example.com");
-    expect(path).toBe("attachments/thread-1/0-data.csv");
+    expect(path).toMatch(/^attachments\/thread-1\/[a-z0-9]+-0-data\.csv$/);
     expect(content).toBe("id,name\n1,Alice");
   });
 
@@ -197,7 +199,7 @@ describe("persistTextAttachmentsAsResources", () => {
 
     expect(result.get(0)).toMatchObject({
       kind: "stored",
-      path: "attachments/thread-1/0-script.py",
+      path: expect.stringMatching(/-0-script\.py$/),
     });
   });
 
@@ -257,6 +259,46 @@ describe("persistTextAttachmentsAsResources", () => {
       [markdown, "text/markdown"],
       [svg, "text/plain"],
     ]);
+  });
+
+  it("gives each turn its own path so an earlier note keeps its file", async () => {
+    const persist = (text: string) =>
+      persistTextAttachmentsAsResources({
+        attachments: [
+          {
+            type: "file",
+            name: "DESIGN.md",
+            contentType: "text/markdown",
+            text,
+          },
+        ],
+        threadId: "thread-1",
+        ownerEmail: "user@example.com",
+      });
+
+    const first = (await persist("v1")).get(0);
+    const second = (await persist("v2")).get(0);
+
+    expect(first?.kind === "stored" && second?.kind === "stored").toBe(true);
+    if (first?.kind !== "stored" || second?.kind !== "stored") return;
+    expect(first.path).not.toBe(second.path);
+  });
+
+  it("stores the body of wrapped pasted text so offsets match the prompt", async () => {
+    await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "pasted-text.txt",
+          contentType: "text/plain",
+          text: "<attachment name=pasted-text.txt>\nbody\n</attachment>",
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(resourcePutMock.mock.calls[0]?.[2]).toBe("body");
   });
 
   it("does not store display-only attachments the prompt leaves out", async () => {
@@ -363,6 +405,25 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
       { includeAgentScratch: true },
     );
     expect(result.content).toBe("second");
+  });
+
+  it("reads the latest upload when looking up a repeated name", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-old", path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md" },
+      { id: "res-new", path: "attachments/thread-1/mfh9z9z9-0-DESIGN.md" },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-new" ? "new" : "old"),
+    );
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("new");
   });
 
   it("rejects a path outside stored attachments", async () => {

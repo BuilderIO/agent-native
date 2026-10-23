@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   decodeTextAttachmentData,
@@ -5,6 +7,7 @@ import {
   isTextLikeMimeType,
   MAX_ATTACHMENT_RESOURCE_CHARS,
   type TextAttachmentStorage,
+  unwrapTextAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
 import { resourceGet, resourcePut, resourceList } from "../resources/store.js";
 import { getRequestUserEmail } from "./request-context.js";
@@ -17,11 +20,18 @@ const ATTACHMENT_RESOURCE_PATH = /^attachments\/[^/]+\/[^/]+$/;
 
 function attachmentResourcePath(
   threadId: string,
+  batch: string,
   name: string,
   index: number,
 ): string {
   const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-  return `attachments/${threadId}/${index}-${safe}`;
+  return `attachments/${threadId}/${batch}-${index}-${safe}`;
+}
+
+// A truncation note names one path for the rest of the thread, so each
+// request writes its own; the time prefix makes later uploads sort first.
+function attachmentBatchId(): string {
+  return `${Date.now().toString(36)}${randomUUID().slice(0, 4)}`;
 }
 
 export async function persistTextAttachmentsAsResources(opts: {
@@ -38,6 +48,7 @@ export async function persistTextAttachmentsAsResources(opts: {
 }): Promise<Map<number, TextAttachmentStorage>> {
   const result = new Map<number, TextAttachmentStorage>();
   const owner = opts.ownerEmail || "anonymous";
+  const batch = attachmentBatchId();
 
   for (let i = 0; i < opts.attachments.length; i++) {
     const att = opts.attachments[i];
@@ -46,8 +57,10 @@ export async function persistTextAttachmentsAsResources(opts: {
     const text =
       decoded.kind === "text"
         ? decoded.text
-        : isTextLikeMimeType(att.contentType) || isTextLikeFilename(att.name)
-          ? att.text
+        : (isTextLikeMimeType(att.contentType) ||
+              isTextLikeFilename(att.name)) &&
+            att.text
+          ? unwrapTextAttachmentEnvelope(att.text)
           : undefined;
     if (!text) continue;
 
@@ -60,6 +73,7 @@ export async function persistTextAttachmentsAsResources(opts: {
 
     const path = attachmentResourcePath(
       opts.threadId,
+      batch,
       att.name || "attachment",
       i,
     );
@@ -204,7 +218,7 @@ export function createCoreAttachmentActionEntries(): Record<
               ? matching
               : metas.filter((m) => {
                   const basename = m.path.split("/").pop() || "";
-                  const withoutIndex = basename.replace(/^\d+-/, "");
+                  const withoutIndex = basename.replace(/^[a-z0-9]+-\d+-/, "");
                   return withoutIndex
                     .toLowerCase()
                     .includes(name.toLowerCase());
@@ -216,7 +230,9 @@ export function createCoreAttachmentActionEntries(): Record<
             };
           }
 
-          const meta = candidates[0];
+          const [meta] = candidates.sort((a, b) =>
+            a.path < b.path ? 1 : a.path > b.path ? -1 : 0,
+          );
           const resource = await resourceGet(meta.id);
           if (!resource) {
             return { error: `Attachment resource "${name}" not found.` };

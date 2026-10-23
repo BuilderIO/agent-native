@@ -38,6 +38,12 @@ export function isSvgTextAttachment(att: {
   );
 }
 
+/** Pasted text arrives wrapped; the model and read-attachment offsets see the body. */
+export function unwrapTextAttachmentEnvelope(text: string): string {
+  const match = text.match(/^<attachment\b[^>]*>\n([\s\S]*)\n<\/attachment>$/);
+  return match ? match[1] : text;
+}
+
 export type DecodedAttachmentText =
   | { kind: "text"; text: string }
   | { kind: "not-text" }

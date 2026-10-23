@@ -335,7 +335,11 @@ export async function preUploadAttachments(opts: {
   }
 
   for (const att of list) {
-    if (att.referenceOnly === true && typeof att.url === "string") {
+    if (
+      att.referenceOnly === true &&
+      typeof att.url === "string" &&
+      !(includeFiles && isSvgAttachment(att))
+    ) {
       const svg = isSvgAttachment(att);
       uploadedFiles.push({
         name: att.name,
