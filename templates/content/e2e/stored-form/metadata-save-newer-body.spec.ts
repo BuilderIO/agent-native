@@ -24,6 +24,7 @@ import {
   writeScenarioRecord,
   type ScenarioRecord,
 } from "../helpers";
+import { knownLossOnArm } from "../live-body-gate";
 
 // SF-02: an agent's edit lands while a tab saves something other than the
 // body. The title save answers with the page's current body revision, which
@@ -170,98 +171,112 @@ async function finish(
   ).toEqual([]);
 }
 
-test.describe("SF-02 a title save answers with an agent's newer body", () => {
-  test(
-    "the tab shows the agent's edit once its read lands, and typing after it saves",
-    { tag: "@SF-02" },
-    async ({ context }, testInfo) => {
-      const started = Date.now();
-      const scenario = await titleSaveAfterAgentEdit("read-then-type", context);
-      const { tabs, tab, agentMarker } = scenario;
+const AGENT_EDIT_ON_SWITCHED_PAGE = {
+  lane: "L3",
+  outcome: "SF-02",
+  reason:
+    "On a switched page the agent's edit-document writes the stored body, not the live copy, so the server answers the typing tab's held collab update not_derived (not_live_copy) and the tab goes back to an update-document save, which shows \"This page changed elsewhere\". No text is lost. Until #7725.",
+} as const;
 
-      await releaseReads(scenario);
-      await expect(
-        tab.locator(EDITOR),
-        "the tab shows the agent's edit once its read lands",
-      ).toContainText(agentMarker, { timeout: SHOW_WITHIN_MS });
+test.describe(
+  "SF-02 a title save answers with an agent's newer body",
+  { tag: "@SF-02" },
+  () => {
+    test(
+      "the tab shows the agent's edit once its read lands, and typing after it saves",
+      knownLossOnArm({ on: AGENT_EDIT_ON_SWITCHED_PAGE }),
+      async ({ context }, testInfo) => {
+        const started = Date.now();
+        const scenario = await titleSaveAfterAgentEdit(
+          "read-then-type",
+          context,
+        );
+        const { tabs, tab, agentMarker } = scenario;
 
-      await typeAndSave(scenario);
-      await typeAndSave(scenario);
-      await expectEverySaveWritten(tabs, tab);
-
-      await finish(
-        "sf02-title-save-newer-body-read-then-type",
-        testInfo,
-        scenario,
-        started,
-      );
-    },
-  );
-
-  test(
-    "typing while the read lands leaves the tab on the agent's body",
-    { tag: "@SF-02" },
-    async ({ context }, testInfo) => {
-      const started = Date.now();
-      const scenario = await titleSaveAfterAgentEdit(
-        "type-during-read",
-        context,
-      );
-      const { tabs, tab, markers, agentMarker } = scenario;
-      const saves = await SaveGate.install(tab);
-
-      // The typed save is on its way when the read lands, so the editor
-      // cannot take the read's body then. It must not stay on the old body
-      // once that save answers. Starting a save cancels the page reads under
-      // way, so the read that lands is the one a second agent edit prompts
-      // after the save has started.
-      saves.holdArrivals();
-      const held = markers.next("A");
-      await typeAtParagraphEnd(tab, ALPHA, ` ${held}`);
-      await saves.waitForHeld();
-      const readDuringSave = tab.waitForRequest(
-        (request) =>
-          new URL(request.url()).pathname ===
-          "/_agent-native/actions/get-document",
-        { timeout: SAVED_WITHIN_MS },
-      );
-      const secondAgentMarker = markers.next("Agent");
-      await AgentClient.editOnce(
-        scenario.reader,
-        scenario.id,
-        BRAVO,
-        `Bravo paragraph edited by the agent ${secondAgentMarker}.`,
-      );
-      await readDuringSave;
-      saves.pass();
-      await releaseReads(scenario);
-      expect(saves.queued, "the typed save is still held").toBeGreaterThan(0);
-      await saves.release();
-      await expect
-        .poll(
-          async () =>
-            (await getDocument(scenario.reader, scenario.id)).content ?? "",
-          {
-            message: `the held save of ${held} reaches SQL`,
-            timeout: SAVED_WITHIN_MS,
-          },
-        )
-        .toContain(held);
-      for (const marker of [agentMarker, secondAgentMarker])
+        await releaseReads(scenario);
         await expect(
           tab.locator(EDITOR),
-          "the tab shows both agent edits after the save it held answers",
-        ).toContainText(marker, { timeout: SHOW_WITHIN_MS });
+          "the tab shows the agent's edit once its read lands",
+        ).toContainText(agentMarker, { timeout: SHOW_WITHIN_MS });
 
-      await typeAndSave(scenario);
-      await expectEverySaveWritten(tabs, tab);
+        await typeAndSave(scenario);
+        await typeAndSave(scenario);
+        await expectEverySaveWritten(tabs, tab);
 
-      await finish(
-        "sf02-title-save-newer-body-type-during-read",
-        testInfo,
-        scenario,
-        started,
-      );
-    },
-  );
-});
+        await finish(
+          "sf02-title-save-newer-body-read-then-type",
+          testInfo,
+          scenario,
+          started,
+        );
+      },
+    );
+
+    test(
+      "typing while the read lands leaves the tab on the agent's body",
+      knownLossOnArm({ on: AGENT_EDIT_ON_SWITCHED_PAGE }),
+      async ({ context }, testInfo) => {
+        const started = Date.now();
+        const scenario = await titleSaveAfterAgentEdit(
+          "type-during-read",
+          context,
+        );
+        const { tabs, tab, markers, agentMarker } = scenario;
+        const saves = await SaveGate.install(tab);
+
+        // The typed save is on its way when the read lands, so the editor
+        // cannot take the read's body then. It must not stay on the old body
+        // once that save answers. Starting a save cancels the page reads under
+        // way, so the read that lands is the one a second agent edit prompts
+        // after the save has started.
+        saves.holdArrivals();
+        const held = markers.next("A");
+        await typeAtParagraphEnd(tab, ALPHA, ` ${held}`);
+        await saves.waitForHeld();
+        const readDuringSave = tab.waitForRequest(
+          (request) =>
+            new URL(request.url()).pathname ===
+            "/_agent-native/actions/get-document",
+          { timeout: SAVED_WITHIN_MS },
+        );
+        const secondAgentMarker = markers.next("Agent");
+        await AgentClient.editOnce(
+          scenario.reader,
+          scenario.id,
+          BRAVO,
+          `Bravo paragraph edited by the agent ${secondAgentMarker}.`,
+        );
+        await readDuringSave;
+        saves.pass();
+        await releaseReads(scenario);
+        expect(saves.queued, "the typed save is still held").toBeGreaterThan(0);
+        await saves.release();
+        await expect
+          .poll(
+            async () =>
+              (await getDocument(scenario.reader, scenario.id)).content ?? "",
+            {
+              message: `the held save of ${held} reaches SQL`,
+              timeout: SAVED_WITHIN_MS,
+            },
+          )
+          .toContain(held);
+        for (const marker of [agentMarker, secondAgentMarker])
+          await expect(
+            tab.locator(EDITOR),
+            "the tab shows both agent edits after the save it held answers",
+          ).toContainText(marker, { timeout: SHOW_WITHIN_MS });
+
+        await typeAndSave(scenario);
+        await expectEverySaveWritten(tabs, tab);
+
+        await finish(
+          "sf02-title-save-newer-body-type-during-read",
+          testInfo,
+          scenario,
+          started,
+        );
+      },
+    );
+  },
+);

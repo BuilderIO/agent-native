@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RecoveryIdentity } from "./recovery-attempt";
 import {
   useDocumentReconcileRecovery,
   type ReconcileSaveBase,
@@ -69,10 +70,10 @@ describe("document reconcile recovery", () => {
     async (flow) => {
       const old = deferred();
       const retain = vi.fn().mockResolvedValue(undefined);
-      let scope = "account-A:org-A:page";
+      let identity: RecoveryIdentity = ["account-a", "org-a", "page"];
       function Scoped() {
         recovery = useDocumentReconcileRecovery({
-          scopeKey: scope,
+          identity,
           save: () => old.promise,
           retain,
           getDraft: () => draft,
@@ -94,7 +95,7 @@ describe("document reconcile recovery", () => {
                   base,
                 );
       });
-      scope = "account-B:org-B:page";
+      identity = ["account-b", "org-b", "page"];
       draft = "B unsaved";
       act(() => root.render(<Scoped />));
       act(() => recovery.report("conflict", draft));

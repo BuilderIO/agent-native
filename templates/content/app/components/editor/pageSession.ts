@@ -1,3 +1,5 @@
+import { RecoveryAttemptEnded } from "./recovery-attempt";
+
 export function mayClearRecoveryDraft(
   draft: { title: string; content: string } | null,
   persisted: { title: string; content: string },
@@ -54,6 +56,19 @@ export class AbandonedPageSaveError extends Error {
   }
 }
 
+/**
+ * A save whose recovery step outlived the attempt that owned it: the editor
+ * left, or its account, org or page changed. The save's own answer is
+ * `result`; the recovery draft was neither kept nor cleared, so the page's
+ * journal and its next open carry the text. Never a success to report.
+ */
+export class PageSaveHandedOff extends Error {
+  constructor(readonly result: PageSaveResult) {
+    super("The save's recovery outlived the editor that started it.");
+    this.name = "PageSaveHandedOff";
+  }
+}
+
 export async function runPageSaveIfSessionActive(
   isActive: () => boolean,
   save: () => Promise<PageSaveResult>,
@@ -78,17 +93,29 @@ export async function savePageWithRecovery({
     if (error instanceof AbandonedPageSaveError) {
       return { contentPersisted: false, outcome: "abandoned" };
     }
-    await retain(null);
+    try {
+      await retain(null);
+    } catch (retainError) {
+      // An ended attempt keeps nothing, so the save's failure is still the one
+      // to report.
+      if (!(retainError instanceof RecoveryAttemptEnded)) throw retainError;
+    }
     throw error;
   }
 
-  if (!result.contentPersisted) {
-    if (result.outcome === "superseded" || result.outcome === "abandoned")
+  try {
+    if (!result.contentPersisted) {
+      if (result.outcome === "superseded" || result.outcome === "abandoned")
+        return result;
+      await retain(result.recoveryDraft ? null : "conflict", result);
       return result;
-    await retain(result.recoveryDraft ? null : "conflict", result);
-    return result;
-  }
+    }
 
-  await clear();
-  return result;
+    await clear();
+    return result;
+  } catch (error) {
+    if (error instanceof RecoveryAttemptEnded)
+      throw new PageSaveHandedOff(result);
+    throw error;
+  }
 }

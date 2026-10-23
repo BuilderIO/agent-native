@@ -1851,6 +1851,31 @@ describe("Page browser journal recovery", () => {
       expect(container.querySelector("textarea")).not.toBeNull();
     });
 
+    it("keeps that recovery while the account is briefly unknown", async () => {
+      const release = await holdJournalRereads("draft");
+      const counts = () => ({
+        upserts: state.upsert.mock.calls.length,
+        resolves: state.resolve.mock.calls.length,
+      });
+      const held = counts();
+      const session = state.session;
+      state.session = null;
+      await act(async () => render());
+      state.session = session;
+      await act(async () => render());
+      expect(counts()).toEqual(held);
+
+      await release();
+
+      expect(choicesFor("draft")).toHaveLength(1);
+      expect(choicesFor("draft")[0][0]).toMatchObject({
+        choice: "use_saved",
+        trigger: "automatic",
+      });
+      expect(state.entries).toEqual([]);
+      expect(container.querySelector("textarea")).not.toBeNull();
+    });
+
     it.each([
       "unmount",
       "account A to B to A",

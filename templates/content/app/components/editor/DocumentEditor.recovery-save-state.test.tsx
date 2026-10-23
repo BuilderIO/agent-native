@@ -16,9 +16,15 @@ import { Editor } from "@tiptap/core";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
+
+import {
+  markDocumentCreationConfirmed,
+  markDocumentCreationPending,
+} from "@/lib/optimistic-document";
 
 import type { PageEditorSession } from "./DocumentEditor";
 import type { DocumentReconcileRecovery } from "./DocumentReconcileRecovery";
@@ -1820,6 +1826,463 @@ it("ends a pending recovery save when another page takes over its id", async () 
       ]),
   ).toEqual([["Prior page edit", "2026-10-19T12:00:00.000Z"]]);
   expect(fixture.recovery!.state).toBeNull();
+});
+
+it("keeps a pending recovery save while an optimistic page's creation is confirmed", async () => {
+  fixture.page = { ...fixture.page!, createdAt: "2026-10-19T11:59:58.000Z" };
+  markDocumentCreationPending(queryClient, fixture.page!);
+  let finish!: (value: unknown) => void;
+  fixture.save.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await act(async () => renderEditor());
+  act(() => fixture.recovery!.report("conflict", "Recovered body"));
+  act(() => fixture.editor!.onChange("Recovered body"));
+  let resolved!: Promise<boolean>;
+  await act(async () => {
+    resolved = fixture.recovery!.resolve({
+      title: fixture.page!.title,
+      content: fixture.page!.content,
+      updatedAt: fixture.page!.updatedAt,
+      revision: fixture.page!.revision,
+    });
+  });
+  expect(fixture.save).toHaveBeenCalledOnce();
+
+  // The server's creation time replaces the client's clock once it answers.
+  fixture.page = { ...fixture.page!, createdAt: "2026-10-19T11:59:59.000Z" };
+  markDocumentCreationConfirmed(queryClient, fixture.page!);
+  await act(async () => renderEditor());
+  await act(async () => {
+    finish({
+      ...fixture.page!,
+      content: "Recovered body",
+      revision: "r2",
+      updatedAt: "2026-10-19T12:00:01.000Z",
+    });
+    await resolved;
+  });
+
+  expect(await resolved).toBe(true);
+  expect(fixture.recovery!.state).toBeNull();
+});
+
+describe("an editor that left while its save was in flight", () => {
+  async function typeAndSave() {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const toastError = vi.spyOn(toast, "error");
+    let settle!: {
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+    };
+    fixture.save.mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          settle = { resolve, reject };
+        }),
+    );
+    await act(async () => renderEditor());
+    act(() => fixture.editor!.onChange("Typed before leaving"));
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(fixture.save).toHaveBeenCalledOnce();
+    return { toastError, settle };
+  }
+  async function leaveDuringSave() {
+    const pending = await typeAndSave();
+    await act(async () => root.unmount());
+    return pending;
+  }
+  async function answer(settle: () => void) {
+    await act(async () => {
+      settle();
+      await realDelay(20);
+    });
+  }
+  // A refused save merges onto the page that won and tries again, so every
+  // try is refused for the save to end refused.
+  async function refuse(settle: { resolve: (value: unknown) => void }) {
+    const refusal = { conflict: true, document: fixture.page! };
+    fixture.save.mockResolvedValue(refusal);
+    await answer(() => settle.resolve(refusal));
+  }
+  const savesAfterTimers = async () => {
+    const saves = fixture.save.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    return fixture.save.mock.calls.length - saves;
+  };
+  const upserts = () =>
+    fixture.mutation.mutateAsync.mock.calls.filter(
+      ([input]) => input.operation === "upsert",
+    );
+
+  it("lets its late confirmation end quietly without clearing the next editor's draft", async () => {
+    const { toastError, settle } = await leaveDuringSave();
+    await answer(() =>
+      settle.resolve({
+        ...fixture.page!,
+        content: "Typed before leaving",
+        revision: "r2",
+        updatedAt: "2026-10-19T12:00:01.000Z",
+      }),
+    );
+    expect(await savesAfterTimers()).toBe(0);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.mutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("keeps nothing and retries nothing when its late refusal arrives", async () => {
+    const { toastError, settle } = await leaveDuringSave();
+    await refuse(settle);
+    expect(await savesAfterTimers()).toBe(0);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.mutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("still reports a save that failed after it left", async () => {
+    const { toastError, settle } = await leaveDuringSave();
+    await answer(() => settle.reject(new Error("Network down")));
+    expect(await savesAfterTimers()).toBe(0);
+    expect(toastError).toHaveBeenCalledExactlyOnceWith("empty.genericError", {
+      description: "Network down",
+    });
+    expect(fixture.mutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("keeps a refused edit for review while it stays", async () => {
+    const { toastError, settle } = await typeAndSave();
+    await refuse(settle);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(upserts()[0]?.[0]).toMatchObject({
+      draft: { content: "Typed before leaving" },
+    });
+  });
+
+  it("reports a failed save and keeps its edit while it stays", async () => {
+    const { toastError, settle } = await typeAndSave();
+    await answer(() => settle.reject(new Error("Network down")));
+    expect(toastError).toHaveBeenCalledExactlyOnceWith("empty.genericError", {
+      description: "Network down",
+    });
+    expect(upserts()[0]?.[0]).toMatchObject({
+      draft: { content: "Typed before leaving" },
+    });
+  });
+});
+
+describe("a peer title adopted while a recovery draft is retained", () => {
+  const JOURNAL_PREFIX = "content-page-draft-journal-v1:";
+  const peerTitle = "Peer title";
+  function journalTitles() {
+    const titles: { title: string; baseTitle: string; content: string }[] = [];
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index)!;
+      if (!key.startsWith(JOURNAL_PREFIX)) continue;
+      const { title, baseTitle, content } = JSON.parse(
+        localStorage.getItem(key)!,
+      ).snapshot;
+      titles.push({ title, baseTitle, content });
+    }
+    return titles;
+  }
+  // Poll in real time: vi.waitFor advances the fake clock, which would run the
+  // 800 ms save retry and re-retain the draft through a new save instead.
+  async function untilReal(predicate: () => boolean) {
+    const deadline = realPerformance.now() + 2_000;
+    while (!predicate() && realPerformance.now() < deadline) {
+      await act(async () => {
+        await realDelay(10);
+      });
+    }
+  }
+  function upserts() {
+    return fixture.mutation.mutateAsync.mock.calls
+      .map(([input]) => input)
+      .filter((input) => input.operation === "upsert");
+  }
+  function held() {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { promise, release };
+  }
+  // happy-dom binds Storage methods onto the instance, so only an instance
+  // override reaches the editor's writes.
+  function failNextJournalWrite() {
+    const setItem = localStorage.setItem;
+    let failedWrites = 0;
+    Object.defineProperty(localStorage, "setItem", {
+      configurable: true,
+      writable: true,
+      value: (key: string, value: string) => {
+        if (failedWrites === 0 && key.startsWith(JOURNAL_PREFIX)) {
+          failedWrites++;
+          throw new DOMException("Journal storage full", "QuotaExceededError");
+        }
+        setItem(key, value);
+      },
+    });
+    return {
+      failedWrites: () => failedWrites,
+      restore: () =>
+        Object.defineProperty(localStorage, "setItem", {
+          configurable: true,
+          writable: true,
+          value: setItem,
+        }),
+    };
+  }
+  async function retainBodyEdit({
+    beforeUpsert,
+    rename,
+  }: {
+    beforeUpsert?: (upsert: number) => Promise<void> | void;
+    rename?: string;
+  } = {}) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fixture.flushUpdates.mockResolvedValueOnce(false);
+    const journalAtUpsert: ReturnType<typeof journalTitles>[] = [];
+    fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+      if (input.operation !== "upsert")
+        return { status: "deleted", draft: null };
+      journalAtUpsert.push(journalTitles());
+      await beforeUpsert?.(journalAtUpsert.length);
+      return {
+        status: "saved",
+        draft: {
+          ...input.draft,
+          id: "retained-row",
+          version: (input.expectedVersion ?? 0) + 1,
+        },
+      };
+    });
+    await act(async () => renderEditor());
+    if (rename) pasteTitle(rename);
+    act(() => fixture.editor!.onChange("Local body"));
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    await untilReal(() => upserts().length === 1);
+    expect(upserts()).toHaveLength(1);
+    expect(upserts()[0]).toMatchObject({
+      expectedVersion: null,
+      draft: {
+        title: rename ?? "Saved title",
+        baseTitle: "Saved title",
+        content: "Local body",
+      },
+    });
+    return journalAtUpsert;
+  }
+  function renamePeerPage(
+    title = peerTitle,
+    updatedAt = "2026-10-19T12:00:02.000Z",
+  ) {
+    act(() => {
+      fixture.page = { ...fixture.page!, title, updatedAt };
+      fixture.pageVersion += 1;
+      for (const notify of fixture.pageSubscribers) notify();
+    });
+    expect(
+      container.querySelector<HTMLTextAreaElement>("textarea")!.value,
+    ).toBe(title);
+  }
+  function bodyBase(upsert: number) {
+    const { baseDocumentUpdatedAt, baseContentHash } = upserts()[upsert]!.draft;
+    return { baseDocumentUpdatedAt, baseContentHash };
+  }
+
+  it.each([false, true])(
+    "re-titles the body-only draft journal-first under the adopted title (journal write fails: %s)",
+    async (journalWriteFails) => {
+      const toastError = vi.spyOn(toast, "error");
+      const journalAtUpsert = await retainBodyEdit();
+      const failure = journalWriteFails ? failNextJournalWrite() : null;
+      try {
+        renamePeerPage();
+        await untilReal(() => upserts().length === 2);
+      } finally {
+        failure?.restore();
+      }
+      expect(failure?.failedWrites() ?? 0).toBe(journalWriteFails ? 1 : 0);
+      expect(upserts()).toHaveLength(2);
+      expect(upserts()[1]).toMatchObject({
+        expectedVersion: 1,
+        expectedDraftId: "retained-row",
+        draft: {
+          title: peerTitle,
+          baseTitle: peerTitle,
+          content: "Local body",
+        },
+      });
+      expect(bodyBase(1)).toEqual(bodyBase(0));
+      const journal = journalWriteFails
+        ? { title: "Saved title", baseTitle: "Saved title" }
+        : { title: peerTitle, baseTitle: peerTitle };
+      expect(journalAtUpsert[1]).toEqual([
+        expect.objectContaining({ ...journal, content: "Local body" }),
+      ]);
+      await act(async () => realDelay(20));
+      expect(journalTitles()).toEqual([
+        expect.objectContaining({ ...journal, content: "Local body" }),
+      ]);
+      if (journalWriteFails)
+        expect(toastError).toHaveBeenCalledExactlyOnceWith(
+          "editor.pageSaveBeforeNavigationFailed",
+        );
+      else expect(toastError).not.toHaveBeenCalled();
+      expect(fixture.save).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not re-title the draft after the editor's recovery scope ended", async () => {
+    const toastError = vi.spyOn(toast, "error");
+    const retention = held();
+    await retainBodyEdit({
+      beforeUpsert: (upsert) => (upsert === 1 ? retention.promise : undefined),
+    });
+    renamePeerPage();
+    await act(async () => root.unmount());
+    await act(async () => {
+      retention.release();
+      await realDelay(20);
+    });
+    expect(upserts()).toHaveLength(1);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.save).not.toHaveBeenCalled();
+  });
+
+  it("leaves the re-titled journal as written when the editor leaves while its re-title is in flight", async () => {
+    const toastError = vi.spyOn(toast, "error");
+    const retitle = held();
+    const journalAtUpsert = await retainBodyEdit({
+      beforeUpsert: (upsert) => (upsert === 2 ? retitle.promise : undefined),
+    });
+    renamePeerPage();
+    await untilReal(() => upserts().length === 2);
+    const retitled = expect.objectContaining({
+      title: peerTitle,
+      baseTitle: peerTitle,
+      content: "Local body",
+    });
+    expect(journalAtUpsert[1]).toEqual([retitled]);
+    await act(async () => root.unmount());
+    // The server applies the re-title after the editor has left.
+    await act(async () => {
+      retitle.release();
+      await realDelay(20);
+    });
+    expect(upserts()).toHaveLength(2);
+    expect(journalTitles()).toEqual([retitled]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.save).not.toHaveBeenCalled();
+  });
+
+  it("restores the journal when the re-title it wrote first fails to persist", async () => {
+    const toastError = vi.spyOn(toast, "error");
+    const journalAtUpsert = await retainBodyEdit({
+      beforeUpsert: (upsert) => {
+        if (upsert === 2) throw new Error("SQL unavailable");
+      },
+    });
+    renamePeerPage();
+    await untilReal(() => toastError.mock.calls.length > 0);
+    expect(upserts()).toHaveLength(2);
+    expect(journalAtUpsert[1]).toEqual([
+      expect.objectContaining({ title: peerTitle, baseTitle: peerTitle }),
+    ]);
+    expect(journalTitles()).toEqual([
+      expect.objectContaining({
+        title: "Saved title",
+        baseTitle: "Saved title",
+        content: "Local body",
+      }),
+    ]);
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      "editor.pageSaveBeforeNavigationFailed",
+    );
+    expect(fixture.save).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "re-titles a queued body-only retention journal-first when the editor adopts a title before it starts (journal write fails: %s)",
+    async (journalWriteFails) => {
+      const toastError = vi.spyOn(toast, "error");
+      const retitle = held();
+      const journalAtUpsert = await retainBodyEdit({
+        beforeUpsert: (upsert) => (upsert === 2 ? retitle.promise : undefined),
+      });
+      renamePeerPage();
+      await untilReal(() => upserts().length === 2);
+      // A second body edit whose save fails queues its body-only retention
+      // behind the held re-title.
+      fixture.flushUpdates.mockResolvedValueOnce(false);
+      act(() => fixture.editor!.onChange("Second body"));
+      await act(async () => vi.advanceTimersByTimeAsync(500));
+      await untilReal(() => fixture.flushUpdates.mock.calls.length === 2);
+      await act(async () => realDelay(20));
+      expect(upserts()).toHaveLength(2);
+      const queuedUnder = expect.objectContaining({
+        title: peerTitle,
+        baseTitle: peerTitle,
+        content: "Second body",
+      });
+      expect(journalTitles()).toEqual([queuedUnder]);
+      // The editor adopts a newer peer title before that retention starts.
+      renamePeerPage("Newest peer title", "2026-10-19T12:00:03.000Z");
+      const failure = journalWriteFails ? failNextJournalWrite() : null;
+      try {
+        retitle.release();
+        await untilReal(() => upserts().length === 3);
+        await act(async () => realDelay(20));
+      } finally {
+        failure?.restore();
+      }
+      expect(failure?.failedWrites() ?? 0).toBe(journalWriteFails ? 1 : 0);
+      expect(upserts()).toHaveLength(3);
+      expect(upserts()[2]).toMatchObject({
+        expectedVersion: 2,
+        expectedDraftId: "retained-row",
+        draft: {
+          title: "Newest peer title",
+          baseTitle: "Newest peer title",
+          content: "Second body",
+        },
+      });
+      const journal = journalWriteFails
+        ? queuedUnder
+        : expect.objectContaining({
+            title: "Newest peer title",
+            baseTitle: "Newest peer title",
+            content: "Second body",
+          });
+      expect(journalAtUpsert[2]).toEqual([journal]);
+      expect(journalTitles()).toEqual([journal]);
+      if (journalWriteFails)
+        expect(toastError).toHaveBeenCalledExactlyOnceWith(
+          "editor.pageSaveBeforeNavigationFailed",
+        );
+      else expect(toastError).not.toHaveBeenCalled();
+      expect(fixture.save).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps a retained rename's own title when the editor adopts a newer peer title", async () => {
+    const toastError = vi.spyOn(toast, "error");
+    await retainBodyEdit({ rename: "My rename" });
+    renamePeerPage();
+    await act(async () => realDelay(50));
+    expect(upserts()).toHaveLength(1);
+    expect(journalTitles()).toEqual([
+      expect.objectContaining({
+        title: "My rename",
+        baseTitle: "Saved title",
+        content: "Local body",
+      }),
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.save).not.toHaveBeenCalled();
+  });
 });
 
 it("republishes a newer acknowledged save when an obsolete retry is consumed", async () => {

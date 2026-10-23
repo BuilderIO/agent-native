@@ -214,7 +214,7 @@ describe("Page draft recovery", () => {
   });
 
   it.each([null, undefined])(
-    "keeps unknown legacy title lineage visible (%s)",
+    "keeps unknown legacy title lineage for review beside the editor (%s)",
     async (baseTitle) => {
       state.draft = {
         id: "selected-draft",
@@ -232,20 +232,8 @@ describe("Page draft recovery", () => {
       expect(state.resolve).not.toHaveBeenCalled();
       expect(state.update).not.toHaveBeenCalled();
       expect(state.remove).not.toHaveBeenCalled();
-      expect(container.textContent).toContain(
-        "editor.previewDraftTitleUnknown",
-      );
-      await act(async () => {
-        Array.from(container.querySelectorAll("button"))
-          .find((button) => button.textContent === "Save separately")
-          ?.click();
-      });
-      expect(state.resolve).toHaveBeenCalledWith(
-        expect.objectContaining({
-          choice: "save_separately",
-          expectedDraftBaseTitle: null,
-        }),
-      );
+      expect(container.querySelector("textarea")).not.toBeNull();
+      expect(container.textContent).toContain("editor.previewDraftRecovery");
     },
   );
 
@@ -541,6 +529,85 @@ describe("Page draft recovery", () => {
     });
     await act(async () => render());
     expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "keep_mine", trigger: "automatic" }),
+    );
+    expect(state.remove).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('[data-testid="recovery-comparison"]'),
+    ).not.toBeNull();
+  });
+
+  it.each([
+    ["settles it", { status: "resolved", choice: "keep_mine" }, false],
+    [
+      "still refuses a prior choice",
+      {
+        status: "recovery_required",
+        reason: "prior_choice",
+        choice: "save_separately",
+      },
+      true,
+    ],
+  ])(
+    "retries a held draft once against a page that only moved its version, and the server %s",
+    async (_case, retried, reviewed) => {
+      state.draft = {
+        id: "selected-draft",
+        title: "Saved",
+        baseTitle: "Saved",
+        content: "Saved body",
+        version: 3,
+        baseDocumentUpdatedAt: "v1",
+        loadedContentWasEmpty: 0,
+        editorSessionId: "tab:page",
+        editGeneration: 4,
+      };
+      const moved = { ...page, updatedAt: "v3" };
+      state.resolve
+        .mockResolvedValueOnce({ status: "document_conflict", document: moved })
+        .mockResolvedValueOnce(retried);
+      await act(async () => render());
+      const identity = {
+        choice: "keep_mine",
+        trigger: "automatic",
+        documentId: "page",
+        ...expectedPreviewDraftIdentity(state.draft!),
+        expectedDraftVersion: 3,
+        expectedDraftTitle: "Saved",
+        expectedDraftContent: "Saved body",
+        expectedDraftBaseTitle: "Saved",
+        expectedDocumentTitle: "Saved",
+      };
+      expect(state.resolve.mock.calls).toEqual([
+        [{ ...identity, expectedDocumentUpdatedAt: "v2" }],
+        [{ ...identity, expectedDocumentUpdatedAt: "v3" }],
+      ]);
+      expect(state.remove).not.toHaveBeenCalled();
+      expect(
+        container.querySelector('[data-testid="recovery-comparison"]') !== null,
+      ).toBe(reviewed);
+    },
+  );
+
+  it("does not retry a draft the moved page does not hold", async () => {
+    state.draft = {
+      id: "selected-draft",
+      title: "Saved",
+      baseTitle: "Saved",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    state.resolve.mockResolvedValue({
+      status: "document_conflict",
+      document: { ...page, updatedAt: "v3" },
+    });
+    await act(async () => render());
+    expect(state.resolve).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ choice: "keep_mine", trigger: "automatic" }),
     );
     expect(state.remove).not.toHaveBeenCalled();

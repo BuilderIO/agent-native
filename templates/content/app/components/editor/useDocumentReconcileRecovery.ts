@@ -9,6 +9,7 @@ import {
 import {
   useRecoveryAttemptOwner,
   type RecoveryAttempt,
+  type RecoveryIdentity,
 } from "./recovery-attempt";
 
 export interface ReconcileSaveBase {
@@ -61,7 +62,7 @@ export function useDocumentReconcileRecovery({
   getTitle,
   getSaveIdentity = getDraft,
   stateRef,
-  scopeKey = null,
+  identity = [],
 }: {
   save: (
     draft: ReconcileRecoveryDraft,
@@ -72,9 +73,9 @@ export function useDocumentReconcileRecovery({
   getTitle?: () => string;
   getSaveIdentity?: () => string;
   stateRef?: MutableRefObject<DocumentReconcileRecoveryState | null>;
-  scopeKey?: string | null;
+  identity?: RecoveryIdentity;
 }) {
-  const beginAttempt = useRecoveryAttemptOwner(scopeKey);
+  const beginAttempt = useRecoveryAttemptOwner(identity);
   const [state, setState] = useState<DocumentReconcileRecoveryState | null>(
     null,
   );
@@ -114,7 +115,7 @@ export function useDocumentReconcileRecovery({
     automaticSave.current = null;
     current.current = null;
     setState(null);
-  }, [scopeKey]);
+  }, [beginAttempt.epoch]);
 
   useEffect(
     () => () => {

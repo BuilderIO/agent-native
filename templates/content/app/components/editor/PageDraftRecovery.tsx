@@ -12,6 +12,13 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   documentQueryFilter,
   ensurePreviewDocumentDraftRead,
@@ -31,10 +38,17 @@ import {
 } from "@/lib/page-startup-hints";
 
 import { documentBodyHydrationIsPending } from "./body-hydration";
+import {
+  flushSnapshotUnchanged,
+  type FlushLocalSnapshot,
+} from "./document-flush-participant";
 import { saveDocumentWithRebase } from "./document-save-rebase";
 import { authoredCandidateMatchesContent } from "./document-save-retry";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
-import { LiveEditorSessionContext } from "./live-editor-session";
+import {
+  LiveEditorSessionContext,
+  type LiveEditor,
+} from "./live-editor-session";
 import {
   clearPageDraftJournal,
   liveDraftWriterIds,
@@ -44,6 +58,8 @@ import {
   type PageDraftJournalEntry,
 } from "./page-draft-journal";
 import {
+  pageRecoveryIdentity,
+  RecoveryAttemptEnded,
   useRecoveryAttemptOwner,
   type RecoveryAttempt,
 } from "./recovery-attempt";
@@ -64,13 +80,16 @@ async function resolvePreviewDraftWithRefresh(
   refresh: () => Promise<PreviewDocumentDraftRecord | null>,
 ) {
   const result = await attempt.step(() => resolve(request));
-  // History preservation never replaces the page. Retry its exact draft once
-  // against a freshly observed page; all other choices still require review.
+  // History preservation never replaces the page, and neither does restoring
+  // a draft the page already holds. Retry its exact draft once against a
+  // freshly observed page; all other choices still require review.
   if (
     request.trigger === "automatic" &&
-    request.choice === "use_saved" &&
     result.status === "document_conflict" &&
-    result.document
+    result.document &&
+    (request.choice === "use_saved" ||
+      (request.choice === "keep_mine" &&
+        pageHoldsDraft(selected, result.document)))
   ) {
     if (current() && !sameRecoveryDraft(selected, current()))
       return {
@@ -189,10 +208,12 @@ export function PageDraftRecovery({
         document.createdAt ?? null,
       ])
     : null;
-  const beginAttempt = useRecoveryAttemptOwner(scopeKey);
   const queryClient = useQueryClient();
-  const openedIncarnationRef = useRef(incarnation);
   const creationPending = isDocumentCreationPending(queryClient, document);
+  const beginAttempt = useRecoveryAttemptOwner(
+    pageRecoveryIdentity(session, document, creationPending),
+  );
+  const openedIncarnationRef = useRef(incarnation);
   // Creation state outlives the creating editor's hold on it, and an
   // optimistic page takes the server's creation time once it is confirmed.
   // A confirmation names the page it confirmed; a later page under the same
@@ -281,9 +302,26 @@ export function PageDraftRecovery({
   }
   const automaticRecoveryRef = useRef<string | null>(null);
   const automaticLegacyRecoveryRef = useRef<string | null>(null);
-  const [liveEditorSessionId, setLiveEditorSessionId] = useState<string | null>(
-    null,
-  );
+  const [liveEditor, setLiveEditor] = useState<LiveEditor | null>(null);
+  const liveEditorSessionId = liveEditor?.editorSessionId ?? null;
+  // A legacy draft of unknown lineage waits for review beside the open
+  // editor, so its review also covers the editor's own edits. A choice runs
+  // only while the editor holds the saved edit the review was prepared
+  // against; anything typed or synced since needs a new review and a new
+  // click.
+  const [legacyReview, setLegacyReview] = useState<
+    | { status: "preparing" }
+    | { status: "held"; reason: "unsaved" | "changed" | "error" }
+    | {
+        status: "ready";
+        epoch: number;
+        draftKey: string;
+        editor: FlushLocalSnapshot;
+      }
+    | { status: "chosen" }
+    | null
+  >(null);
+  const legacyReviewRunRef = useRef(0);
   // The live editor settles drafts it wrote itself; swapping it for a
   // skeleton here would remount it and jump the page to the top.
   const draft =
@@ -389,7 +427,9 @@ export function PageDraftRecovery({
     setJournalState("checking");
     journalAttemptRef.current = null;
     pendingJournalRef.current = null;
-  }, [document.createdAt, document.id, session?.email, session?.orgId]);
+    legacyReviewRunRef.current += 1;
+    setLegacyReview(null);
+  }, [beginAttempt.epoch]);
 
   function completeJournalRecovery(
     settled: PreviewDocumentDraftRecord,
@@ -1020,6 +1060,85 @@ export function PageDraftRecovery({
     });
   }
 
+  // Saves the editor's edits, then reads the page and draft again, so the
+  // review shows what a choice would act on.
+  async function reviewLegacyDraft() {
+    if (!draft || busy) return;
+    const run = ++legacyReviewRunRef.current;
+    const attempt = beginAttempt();
+    const epoch = beginAttempt.epoch;
+    const flush = liveEditor?.flush ?? null;
+    const settle = (next: typeof legacyReview) => {
+      if (attempt.isActive() && legacyReviewRunRef.current === run)
+        setLegacyReview(next);
+    };
+    setLegacyReview({ status: "preparing" });
+    if (!flush) return settle({ status: "held", reason: "unsaved" });
+    try {
+      await attempt.step(() => flush.drain());
+    } catch (error) {
+      if (!(error instanceof RecoveryAttemptEnded))
+        settle({ status: "held", reason: "unsaved" });
+      return;
+    }
+    let reviewed: PreviewDocumentDraftRecord | null;
+    try {
+      await attempt.step(() =>
+        queryClient.refetchQueries(documentQueryFilter(document.id), {
+          throwOnError: true,
+        }),
+      );
+      const refreshed = await attempt.step(() =>
+        drafts.refetch({ throwOnError: true }),
+      );
+      reviewed = refreshed.data?.draft ?? null;
+    } catch (error) {
+      if (!(error instanceof RecoveryAttemptEnded))
+        settle({ status: "held", reason: "error" });
+      return;
+    }
+    const editor = flush.snapshot();
+    if (!editor.clean) return settle({ status: "held", reason: "unsaved" });
+    if (!reviewed) return settle(null);
+    settle({
+      status: "ready",
+      epoch,
+      draftKey: recoveryDraftKey(reviewed),
+      editor,
+    });
+  }
+
+  // Checked when clicked, not only when rendered: an edit typed after the
+  // review re-renders nothing here.
+  function chooseReviewedLegacy(
+    choice: "keep_mine" | "use_saved" | "save_separately",
+  ) {
+    const current = liveEditor?.flush?.snapshot();
+    if (
+      legacyReview?.status !== "ready" ||
+      legacyReview.epoch !== beginAttempt.epoch ||
+      !draft ||
+      legacyReview.draftKey !== recoveryDraftKey(draft) ||
+      !current?.clean ||
+      !flushSnapshotUnchanged(legacyReview.editor, current)
+    ) {
+      legacyReviewRunRef.current += 1;
+      setLegacyReview({ status: "held", reason: "changed" });
+      return;
+    }
+    setLegacyReview({ status: "chosen" });
+    void resolveConflict(choice);
+  }
+
+  function copyDraft(content: string) {
+    const owner = beginAttempt();
+    void writeClipboardText(content).then((copied) => {
+      if (!owner.isActive()) return;
+      if (copied) toast.success(t("editor.unsavedTextCopied"));
+      else toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
+    });
+  }
+
   const hasEditIdentity = Boolean(
     draft?.editorSessionId && draft.editGeneration !== null,
   );
@@ -1139,7 +1258,7 @@ export function PageDraftRecovery({
 
   // Keep the editor at one tree position so a notice never remounts it.
   const withNotice = (notice: ReactNode) => (
-    <LiveEditorSessionContext.Provider value={setLiveEditorSessionId}>
+    <LiveEditorSessionContext.Provider value={setLiveEditor}>
       {notice}
       {children}
     </LiveEditorSessionContext.Provider>
@@ -1192,6 +1311,94 @@ export function PageDraftRecovery({
       />
     );
   if (!draft || draftOpenElsewhere) return withNotice(null);
+  const savedVersion = conflictDocument ?? document;
+  const keepMineDisabled =
+    documentBodyHydrationIsPending(document) ||
+    draft.baseTitle == null ||
+    failure === "unknown";
+  // No automatic choice settles a legacy draft of unknown lineage, so it waits
+  // for review in a notice while the editor stays open. Journaled text waiting
+  // behind the draft still goes first: recovering it after the editor opened
+  // would replace the editor.
+  if (!hasEditIdentity && draft.baseTitle == null && journalState === "ready") {
+    const reviewHeld =
+      legacyReview?.status === "held" ||
+      (legacyReview?.status === "chosen" && !busy);
+    return withNotice(
+      <Dialog
+        open={legacyReview !== null}
+        onOpenChange={(open) => {
+          if (open || busy) return;
+          legacyReviewRunRef.current += 1;
+          setLegacyReview(null);
+        }}
+      >
+        <div
+          className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+          data-page-draft-recovery-notice
+        >
+          <span className="me-auto min-w-0 flex-1 basis-56" role="status">
+            {t("editor.previewDraftRecovery")}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => copyDraft(draft.content)}
+          >
+            {t("editor.copyUnsavedText")}
+          </Button>
+          <DialogTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy}
+              onClick={() => void reviewLegacyDraft()}
+            >
+              {t("editor.reconcileReview")}
+            </Button>
+          </DialogTrigger>
+        </div>
+        <DialogContent className="flex h-[min(46rem,calc(100dvh-2rem))] max-w-[min(72rem,calc(100vw-2rem))] flex-col overflow-hidden p-0 sm:max-w-[min(72rem,calc(100vw-2rem))]">
+          <DialogTitle className="sr-only">
+            {t("editor.reconcileReview")}
+          </DialogTitle>
+          <RecoveryComparison
+            mine={{ title: draft.title, content: draft.content }}
+            saved={{ title: savedVersion.title, content: savedVersion.content }}
+            busy={
+              busy ||
+              legacyReview?.status === "preparing" ||
+              legacyReview?.status === "chosen"
+            }
+            keepMineDisabled={keepMineDisabled}
+            failure={
+              legacyReview?.status === "held"
+                ? legacyReview.reason === "unsaved"
+                  ? t("editor.reconcileSaveFailed")
+                  : legacyReview.reason === "changed"
+                    ? t("editor.reconcileReviewStale")
+                    : t("empty.genericError")
+                : failure === "conflict"
+                  ? t("editor.previewDraftConflict")
+                  : failure === "error"
+                    ? t("empty.genericError")
+                    : t("editor.previewDraftTitleUnknown")
+            }
+            stale={reviewHeld}
+            onRefresh={() => void reviewLegacyDraft()}
+            onKeepMine={() => {
+              if (keepMineDisabled) return;
+              chooseReviewedLegacy("keep_mine");
+            }}
+            onUseSaved={() => chooseReviewedLegacy("use_saved")}
+            onSaveSeparately={() => chooseReviewedLegacy("save_separately")}
+            onCopy={() => copyDraft(draft.content)}
+          />
+        </DialogContent>
+      </Dialog>,
+    );
+  }
   // Legacy drafts are preserved automatically; that path toasts once.
   if (!hasEditIdentity && !failure) return withNotice(null);
   if (!failure)
@@ -1202,17 +1409,12 @@ export function PageDraftRecovery({
         shape={readDocumentShapeHint(document)}
       />
     );
-  const savedVersion = conflictDocument ?? document;
   return (
     <RecoveryComparison
       mine={{ title: draft.title, content: draft.content }}
       saved={{ title: savedVersion.title, content: savedVersion.content }}
       busy={busy}
-      keepMineDisabled={
-        documentBodyHydrationIsPending(document) ||
-        draft.baseTitle == null ||
-        failure === "unknown"
-      }
+      keepMineDisabled={keepMineDisabled}
       failure={
         failure === "unknown"
           ? t("editor.previewDraftTitleUnknown")
@@ -1221,24 +1423,12 @@ export function PageDraftRecovery({
             : t("empty.genericError")
       }
       onKeepMine={() => {
-        if (
-          documentBodyHydrationIsPending(document) ||
-          draft.baseTitle == null ||
-          failure === "unknown"
-        )
-          return;
+        if (keepMineDisabled) return;
         void resolveConflict("keep_mine");
       }}
       onUseSaved={() => void resolveConflict("use_saved")}
       onSaveSeparately={() => void resolveConflict("save_separately")}
-      onCopy={() => {
-        const owner = beginAttempt();
-        void writeClipboardText(draft.content).then((copied) => {
-          if (!owner.isActive()) return;
-          if (copied) toast.success(t("editor.unsavedTextCopied"));
-          else toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
-        });
-      }}
+      onCopy={() => copyDraft(draft.content)}
     />
   );
 }

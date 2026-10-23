@@ -272,7 +272,10 @@ import { isEditorContentClean } from "./editor-clean";
 import type { EditorDraftSaveResult } from "./editor-draft-save";
 import { EmojiPicker } from "./EmojiPicker";
 import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
-import { useRegisterLiveEditorSession } from "./live-editor-session";
+import {
+  useRegisterLiveEditorSession,
+  type LiveEditorFlush,
+} from "./live-editor-session";
 import {
   classifyLocalSourceRead,
   localSourceRevisionForQueuedEdit,
@@ -283,12 +286,15 @@ import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournalGeneration,
   listPageDraftJournal,
+  PageDraftJournalError,
+  syncPageDraftJournalBeforePersistingRecoveryDraft,
   writePageDraftJournal,
 } from "./page-draft-journal";
 import { PageDraftRecovery } from "./PageDraftRecovery";
 import {
   AbandonedPageSaveError,
   mayClearRecoveryDraft,
+  PageSaveHandedOff,
   ownRecoveryDraftSupersededBySave,
   runPageSaveIfSessionActive,
   savePageWithRecovery,
@@ -307,6 +313,8 @@ import {
   type PropertyCommentsValue,
 } from "./property-comments";
 import {
+  pageRecoveryIdentity,
+  RecoveryAttemptEnded,
   useRecoveryAttemptOwner,
   type RecoveryAttempt,
 } from "./recovery-attempt";
@@ -2593,15 +2601,12 @@ function PageEditorSessionBody({
   });
   const queryClient = useQueryClient();
   const { session } = useSession();
-  // A page created later under a deleted page's id reuses this session, so
-  // only its creation time ends the old page's recovery work.
-  const recoveryScopeKey = JSON.stringify([
-    session?.email?.trim().toLowerCase() ?? null,
-    session?.orgId ?? null,
-    documentId,
-    document.createdAt ?? null,
-  ]);
-  const beginRecoveryAttempt = useRecoveryAttemptOwner(recoveryScopeKey);
+  const recoveryIdentity = pageRecoveryIdentity(
+    session,
+    { id: documentId, createdAt: document.createdAt },
+    isDocumentCreationPending(queryClient, document),
+  );
+  const beginRecoveryAttempt = useRecoveryAttemptOwner(recoveryIdentity);
   const lastLocationScope = filesRootHintScope(session?.email, session?.orgId);
   useEffect(() => {
     if (host !== "page" || document.database?.systemRole) return;
@@ -3157,6 +3162,7 @@ function PageEditorSessionBody({
     baseTitle: string | null;
     supersedable?: boolean;
   } | null>(null);
+  const syncRecoveryDraftTitleRef = useRef<(title: string) => void>(() => {});
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
   );
@@ -3195,10 +3201,20 @@ function PageEditorSessionBody({
     editorSessionIdRef.current = `${TAB_ID}:${documentId}:${crypto.randomUUID()}`;
   }
   const editorSessionActiveRef = useRef(true);
-  useRegisterLiveEditorSession(editorSessionIdRef.current);
+  const liveEditorFlushRef = useRef<LiveEditorFlush | null>(null);
+  if (!liveEditorFlushRef.current) {
+    liveEditorFlushRef.current = {
+      snapshot: () => flushParticipantInputsRef.current.snapshot(),
+      drain: () => flushParticipantInputsRef.current.drain(),
+    };
+  }
+  useRegisterLiveEditorSession(
+    editorSessionIdRef.current,
+    liveEditorFlushRef.current,
+  );
   localContentRef.current = localContent;
   const reconcileRecovery = useDocumentReconcileRecovery({
-    scopeKey: recoveryScopeKey,
+    identity: recoveryIdentity,
     save: (draft, base) => reconcileSaveRef.current(draft, base),
     retain: (draft) => reconcileRetainRef.current(draft),
     getDraft: () => localContentRef.current,
@@ -3252,6 +3268,10 @@ function PageEditorSessionBody({
   documentRevisionRef.current = document.revision;
   const handleBackgroundSaveError = useCallback(
     (error: unknown) => {
+      // The save's recovery outlived this editor's attempt: the journal and
+      // the page's next open carry the text, so there is nothing to retry or
+      // report here, and the save's answer is not this editor's to settle.
+      if (error instanceof PageSaveHandedOff) return;
       toast.error(t("empty.genericError"), {
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
@@ -3665,6 +3685,7 @@ function PageEditorSessionBody({
         title: serverTitle,
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
       };
+      syncRecoveryDraftTitleRef.current(serverTitle);
     }
   }, [document, isLinkedLocalSourceDocument, titleExternalIsNewer, localTitle]);
 
@@ -4684,23 +4705,178 @@ function PageEditorSessionBody({
           ? (originatingJournal?.snapshot.baseTitle ?? null)
           : baseTitle;
       const owner = beginRecoveryAttempt();
-      return enqueueDocumentSave(recoveryDraftRetentionQueueRef, () => {
-        owner.assertActive();
-        return retainRecoveryDraft(
-          title,
-          content,
-          deferredReason,
-          editorSessionId,
-          editGeneration,
-          capturedBase,
-          supersedable,
-          capturedTitleBase,
-          owner,
+      const queued = enqueueDocumentSave(
+        recoveryDraftRetentionQueueRef,
+        async () => {
+          owner.assertActive();
+          // A body-only draft takes the title the editor adopted meanwhile, as
+          // its base too; a draft that renames the page keeps its own title.
+          const adoptedTitle =
+            supersedable &&
+            capturedTitleBase === title &&
+            localTitleRef.current !== title &&
+            localTitleRef.current === lastSavedTitleRef.current.title
+              ? localTitleRef.current
+              : null;
+          if (adoptedTitle === null)
+            return retainRecoveryDraft(
+              title,
+              content,
+              deferredReason,
+              editorSessionId,
+              editGeneration,
+              capturedBase,
+              supersedable,
+              capturedTitleBase,
+              owner,
+            );
+          // Later title syncs skip a draft SQL already holds under the adopted
+          // title, so this is the only chance to move its journal entry first.
+          let retained = false;
+          const persist = async () => {
+            await retainRecoveryDraft(
+              adoptedTitle,
+              content,
+              deferredReason,
+              editorSessionId,
+              editGeneration,
+              capturedBase,
+              true,
+              adoptedTitle,
+              owner,
+            );
+            retained = true;
+          };
+          const scope = journalScope();
+          try {
+            if (scope) {
+              await syncPageDraftJournalBeforePersistingRecoveryDraft({
+                persist,
+                scope,
+                owner,
+                title: adoptedTitle,
+                editGeneration,
+                content,
+              });
+            } else {
+              await persist();
+            }
+          } catch (error) {
+            // The draft is retained; only its journal entry kept the old title.
+            if (!retained || !(error instanceof PageDraftJournalError))
+              throw error;
+            if (!recoveryWriteErrorShownRef.current) {
+              toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+              recoveryWriteErrorShownRef.current = true;
+            }
+          }
+        },
+      );
+      if (supersedable) {
+        void queued.then(
+          () => {
+            const current = recoveryDraftRef.current;
+            const adoptedTitle =
+              localTitleRef.current === lastSavedTitleRef.current.title
+                ? localTitleRef.current
+                : null;
+            if (
+              adoptedTitle &&
+              current?.supersedable &&
+              current.title !== adoptedTitle
+            ) {
+              syncRecoveryDraftTitleRef.current(adoptedTitle);
+            }
+          },
+          // The caller handles the retention's own failure.
+          () => undefined,
         );
+      }
+      return queued;
+    },
+    [journalScope, retainRecoveryDraft, t],
+  );
+  const syncRecoveryDraftTitle = useCallback(
+    (title: string) => {
+      const owner = beginRecoveryAttempt();
+      const sync = async () => {
+        owner.assertActive();
+        const scope = journalScope();
+        // Read the latest draft only after earlier retained writes settle. A
+        // queued title-only update must never replay the content it captured
+        // before a newer, non-supersedable recovery draft was retained.
+        const latest = recoveryDraftRef.current;
+        // Only a body-only draft follows the page title. A draft that renames
+        // the page, or whose title base is unknown, keeps the title it has.
+        if (
+          !latest?.supersedable ||
+          latest.title === title ||
+          latest.baseTitle !== latest.title
+        )
+          return;
+        const latestSessionId =
+          latest.editorSessionId ?? editorSessionIdRef.current!;
+        const latestEditGeneration =
+          latest.editGeneration ?? editorEditGenerationRef.current;
+        const persist = () =>
+          retainRecoveryDraft(
+            title,
+            latest.content,
+            latest.deferredReason,
+            latestSessionId,
+            latestEditGeneration,
+            latest.contentBase,
+            true,
+            title,
+            owner,
+          );
+        if (scope) {
+          await syncPageDraftJournalBeforePersistingRecoveryDraft({
+            persist,
+            scope,
+            owner,
+            title,
+            editGeneration: latestEditGeneration,
+            content: latest.content,
+          });
+        } else {
+          await persist();
+        }
+        owner.assertActive();
+        recoveryWriteErrorShownRef.current = false;
+        const retained = recoveryDraftRef.current;
+        if (
+          !retained ||
+          retained.editorSessionId !== latestSessionId ||
+          retained.editGeneration !== latestEditGeneration ||
+          retained.content !== latest.content ||
+          retained.title !== title
+        ) {
+          if (!recoveryWriteErrorShownRef.current) {
+            toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+            recoveryWriteErrorShownRef.current = true;
+          }
+          return;
+        }
+      };
+
+      const queued = enqueueRecoveryDraftTitleSync(
+        recoveryDraftRetentionQueueRef,
+        title,
+        () => recoveryDraftRef.current,
+        sync,
+      );
+      void queued.catch((error) => {
+        if (error instanceof RecoveryAttemptEnded) return;
+        if (!recoveryWriteErrorShownRef.current) {
+          toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+          recoveryWriteErrorShownRef.current = true;
+        }
       });
     },
-    [journalScope, retainRecoveryDraft],
+    [journalScope, retainRecoveryDraft, t],
   );
+  syncRecoveryDraftTitleRef.current = syncRecoveryDraftTitle;
   const clearRecoveryDraft = useCallback(
     async (
       persistedTitle: string,

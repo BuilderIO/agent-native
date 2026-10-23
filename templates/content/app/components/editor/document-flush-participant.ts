@@ -23,6 +23,8 @@ export type FlushLocalSnapshot = {
   claim: DocumentFlushClaim | null;
 };
 
+export { unchanged as flushSnapshotUnchanged };
+
 function unchanged(a: FlushLocalSnapshot, b: FlushLocalSnapshot): boolean {
   return (
     a.identity === b.identity &&

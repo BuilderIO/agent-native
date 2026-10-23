@@ -4,9 +4,11 @@ import {
   AbandonedPageSaveError,
   mayClearRecoveryDraft,
   ownRecoveryDraftSupersededBySave,
+  PageSaveHandedOff,
   runPageSaveIfSessionActive,
   savePageWithRecovery,
 } from "./pageSession";
+import { RecoveryAttemptEnded } from "./recovery-attempt";
 
 describe("savePageWithRecovery", () => {
   it("retains a rejected primary edit before surfacing the failure", async () => {
@@ -126,6 +128,58 @@ describe("savePageWithRecovery", () => {
       }),
     ).rejects.toThrow("cleanup conflict");
     expect(retain).not.toHaveBeenCalled();
+  });
+
+  describe("after the editor that started it ended", () => {
+    const ended = () => Promise.reject(new RecoveryAttemptEnded());
+
+    it.each([
+      ["a persisted save", { contentPersisted: true }],
+      ["a refused save", { contentPersisted: false }],
+      [
+        "a save that kept a recovery draft",
+        {
+          contentPersisted: false,
+          recoveryDraft: { title: "Page", content: "Mine" },
+        },
+      ],
+    ] as const)("hands off %s with its own result", async (_case, result) => {
+      const outcome = savePageWithRecovery({
+        save: async () => result,
+        retain: ended,
+        clear: ended,
+      });
+
+      await expect(outcome).rejects.toBeInstanceOf(PageSaveHandedOff);
+      await expect(outcome).rejects.toMatchObject({ result });
+    });
+
+    it("still reports a save that failed", async () => {
+      await expect(
+        savePageWithRecovery({
+          save: () => Promise.reject(new Error("offline")),
+          retain: ended,
+          clear: vi.fn(),
+        }),
+      ).rejects.toThrow("offline");
+    });
+
+    it("reports a recovery step that failed for another reason", async () => {
+      await expect(
+        savePageWithRecovery({
+          save: async () => ({ contentPersisted: true }),
+          retain: vi.fn(),
+          clear: () => Promise.reject(new Error("cleanup conflict")),
+        }),
+      ).rejects.not.toBeInstanceOf(PageSaveHandedOff);
+      await expect(
+        savePageWithRecovery({
+          save: () => Promise.reject(new Error("offline")),
+          retain: () => Promise.reject(new Error("journal full")),
+          clear: vi.fn(),
+        }),
+      ).rejects.toThrow("journal full");
+    });
   });
 });
 
