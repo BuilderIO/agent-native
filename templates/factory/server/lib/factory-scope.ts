@@ -428,7 +428,12 @@ function frontmatterKey(line: string): string | undefined {
 
 function automationFrontmatter(content: string) {
   const match = content.match(FACTORY_FRONTMATTER_RE);
-  if (!match) throw new Error("Invalid Factory automation frontmatter.");
+  if (!match) {
+    fail(
+      "Restore complete Factory automation frontmatter (--- header ---) before saving outside-agent or marked content.",
+      { statusCode: 400, errorCode: "invalid_request" },
+    );
+  }
   return {
     lines: match[1].split(/\r?\n/),
     suffix: content.slice(match[0].length),
@@ -493,6 +498,36 @@ export function normalizeFactoryAutomationFrontmatter(
   });
   if (managed && !last.has("mcpManaged")) normalized.push("mcpManaged: true");
   return `---\n${normalized.join("\n")}\n---${suffix}`;
+}
+
+export function normalizeFactoryAutomationWriteContent(
+  content: string,
+  origin?: { context: ActionRunContext | undefined; currentContent?: string },
+): string {
+  const carriesMarker = (candidate: string) => {
+    // An unfinished header can still carry provenance; prompt-body lines cannot.
+    const header = candidate.match(/^---\r?\n([\s\S]*?)(?:\r?\n---|$)/)?.[1];
+    return (
+      header
+        ?.split(/\r?\n/)
+        .some(
+          (line) =>
+            frontmatterKey(line) === "mcpManaged" &&
+            parseJobResource(`---\n${line}\n---`).meta.mcpManaged === true,
+        ) === true
+    );
+  };
+  if (
+    (origin !== undefined && isOutsideAgentCall(origin.context)) ||
+    carriesMarker(content) ||
+    (origin?.currentContent !== undefined &&
+      carriesMarker(origin.currentContent))
+  ) {
+    return normalizeFactoryAutomationFrontmatter(content, origin);
+  }
+  return FACTORY_FRONTMATTER_RE.test(content)
+    ? normalizeFactoryAutomationFrontmatter(content)
+    : content;
 }
 
 export function readAutomationDisplayName(content: string): string | null {

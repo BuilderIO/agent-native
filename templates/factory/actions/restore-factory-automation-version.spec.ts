@@ -142,6 +142,134 @@ describe("restore-factory-automation-version", () => {
     expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
   });
 
+  it.each(
+    (["frontend", "tool"] as const).flatMap((caller) =>
+      [
+        {
+          kind: "headerless to headerless",
+          liveContent: "Current legacy prompt.\r\nSecond paragraph.\r\n",
+          historical:
+            "Historical prompt.\r\nmodel: body text\u0085detail\u2028more\u2029text\r\n",
+          expected:
+            "Historical prompt.\r\nmodel: body text\u0085detail\u2028more\u2029text\r\n",
+          meta: { schedule: "", enabled: false },
+        },
+        {
+          kind: "headered to headerless",
+          liveContent:
+            "---\npromptVersion: 2\nenabled: true\nlastRun: retained\n---\nCurrent prompt.\n",
+          historical: "Historical prompt.\r\nSecond paragraph.\r\n",
+          expected: "Historical prompt.\r\nSecond paragraph.\r\n",
+          meta: { schedule: "", enabled: false },
+        },
+        {
+          kind: "headerless to headered",
+          liveContent: "Current legacy prompt.\r\nSecond paragraph.\r\n",
+          historical:
+            "---\npromptVersion: 1\nfactoryId: myfact\n---\nHistorical prompt.\n",
+          expected:
+            "---\npromptVersion: 3\nfactoryId: myfact\nalignmentRevision: 3\nconfigSavedAt: 2026-10-23T12:00:00.000Z\n---\nHistorical prompt.\n",
+          meta: {
+            schedule: "",
+            enabled: true,
+            _extraFrontmatterLines: [
+              "promptVersion: 3",
+              "factoryId: myfact",
+              "alignmentRevision: 3",
+              "configSavedAt: 2026-10-23T12:00:00.000Z",
+            ],
+          },
+        },
+      ].map((fixture) => ({ caller, ...fixture })),
+    ),
+  )(
+    "legacy compatibility: previews and restores $kind for trusted $caller with exact main bytes",
+    async ({ caller, liveContent, historical, expected, meta }) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-10-23T12:00:00.000Z"));
+      try {
+        let live = { ...resource, content: liveContent, updatedAt: 42 };
+        resourceGetByPathMock.mockImplementation(async () => live);
+        resourcePutIfCurrentMock.mockImplementation(async (candidate) => {
+          live = {
+            ...live,
+            content: candidate.content,
+            updatedAt: live.updatedAt + 1,
+          };
+          return live;
+        });
+        versionMock.mockResolvedValue({
+          id: "version-1",
+          automationId: "resource-1",
+          factoryId: "myfact",
+          version: 1,
+          rawContent: historical,
+        });
+        const { default: preview } =
+          await import("./get-factory-automation-version.js");
+        const { default: action } =
+          await import("./restore-factory-automation-version.js");
+        const context = { caller, userEmail: "teammate@example.com" };
+        const before = await preview.run(input, context);
+        expect(before.rawContent).toBe(historical);
+        expect(insertValuesMock).not.toHaveBeenCalled();
+        expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+        const result = await runWithoutExecutionFence(() =>
+          executeAgentToolCall({
+            actions: { "restore-factory-automation-version": action },
+            name: "restore-factory-automation-version",
+            callId: "legacy-restore",
+            input,
+            caller,
+            ownerEmail: "teammate@example.com",
+          }),
+        );
+        expect(result.status).toBe("completed");
+        expect(JSON.parse(result.output)).toMatchObject({
+          ok: true,
+          version: 3,
+          configSavedAt: "2026-10-23T12:00:00.000Z",
+          displayName: null,
+        });
+        expect(live.content).toBe(expected);
+        const { parseJobResource } =
+          await import("@agent-native/core/jobs/frontmatter");
+        expect(parseJobResource(live.content).meta).toEqual(meta);
+        expect(parseJobResource(live.content).body).toBe(
+          historical.startsWith("---") ? "Historical prompt." : historical,
+        );
+        expect(resourcePutIfCurrentMock).toHaveBeenCalledExactlyOnceWith({
+          owner: resource.owner,
+          path: resource.path,
+          content: expected,
+          mimeType: "text/markdown",
+          expectedId: resource.id,
+          expectedUpdatedAt: 42,
+          expectedContent: liveContent,
+        });
+        expect(insertValuesMock).toHaveBeenCalledOnce();
+        expect(insertValuesMock.mock.calls[0][0]).toMatchObject({
+          rawContent: liveContent,
+          version: 2,
+          displayName: null,
+          source: "restore",
+        });
+        const after = await preview.run(input, context);
+        expect(after.rawContent).toBe(historical);
+        await action.run(input, context);
+        expect(live.content).toBe(expected);
+        expect(resourcePutIfCurrentMock.mock.calls[1][0]).toMatchObject({
+          expectedContent: expected,
+          expectedUpdatedAt: 43,
+        });
+        expect(insertValuesMock).toHaveBeenCalledOnce();
+        expect(deleteReturningMock).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("keeps marked CRLF settings through save, restore and preview", async () => {
     const { parseJobResource } =
       await import("@agent-native/core/jobs/frontmatter");

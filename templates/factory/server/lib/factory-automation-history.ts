@@ -20,6 +20,7 @@ import {
 import { findFactoryAutomationByResourceId } from "./factory-automation-resources.js";
 import {
   normalizeFactoryAutomationFrontmatter,
+  normalizeFactoryAutomationWriteContent,
   readAutomationDisplayName,
   setAutomationFrontmatterField,
 } from "./factory-scope.js";
@@ -235,12 +236,12 @@ export async function insertFactoryAutomationVersionIfChanged(input: {
   version?: number;
 }): Promise<FactoryAutomationVersionRow | null> {
   const previousSnapshot = snapshotFromAutomationResource(
-    normalizeFactoryAutomationFrontmatter(input.previousContent),
+    normalizeFactoryAutomationWriteContent(input.previousContent),
     input.automationName,
     input.factoryId,
   );
   const nextSnapshot = snapshotFromAutomationResource(
-    normalizeFactoryAutomationFrontmatter(input.nextContent),
+    normalizeFactoryAutomationWriteContent(input.nextContent),
     input.automationName,
     input.factoryId,
   );
@@ -342,10 +343,26 @@ function preserveOperationalFrontmatterFields(
   restoredContent: string,
   currentContent: string,
 ): string {
-  const restored = normalizeFactoryAutomationFrontmatter(restoredContent);
-  const current = normalizeFactoryAutomationFrontmatter(currentContent);
+  const restored = restoredContent;
+  const current = currentContent;
   const restoredEnd = restored.indexOf("\n---", 4);
   const currentEnd = current.indexOf("\n---", 4);
+  if (
+    !restored.startsWith("---\n") ||
+    restoredEnd === -1 ||
+    !current.startsWith("---\n") ||
+    currentEnd === -1
+  ) {
+    let next = restored;
+    for (const key of OPERATIONAL_FRONTMATTER_FIELDS) {
+      next = setAutomationFrontmatterField(
+        next,
+        key,
+        readFrontmatterValue(current, key) ?? "",
+      );
+    }
+    return next;
+  }
   const keys = new Set<string>(OPERATIONAL_FRONTMATTER_FIELDS);
   const operational = (line: string) => {
     const colon = line.indexOf(":");
@@ -390,9 +407,16 @@ export async function restoreFactoryAutomationVersion(
   if (!current) {
     throw new Error("Factory automation not found.");
   }
-  const currentContent = normalizeFactoryAutomationFrontmatter(current.content);
-  const historicalContent = normalizeFactoryAutomationFrontmatter(
+  const currentContent = normalizeFactoryAutomationWriteContent(
+    current.content,
+    {
+      context,
+      currentContent: input.historicalContent,
+    },
+  );
+  const historicalContent = normalizeFactoryAutomationWriteContent(
     input.historicalContent,
+    { context, currentContent: current.content },
   );
 
   const previousSnapshot = snapshotFromAutomationResource(
@@ -453,7 +477,7 @@ export async function restoreFactoryAutomationVersion(
     );
   }
 
-  content = normalizeFactoryAutomationFrontmatter(content, {
+  content = normalizeFactoryAutomationWriteContent(content, {
     context,
     currentContent,
   });

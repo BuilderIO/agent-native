@@ -37,7 +37,7 @@ import { findFactoryAutomationDefinition } from "../server/lib/factory-automatio
 import {
   factoryIdSchema,
   assertSingleLineFactoryAutomationSettings,
-  normalizeFactoryAutomationFrontmatter,
+  normalizeFactoryAutomationWriteContent,
   readAutomationDisplayName,
   readAutomationEnabled,
   readAutomationModel,
@@ -151,8 +151,9 @@ export default defineAction({
       definition.resource.path,
     );
     if (!resource) throw new Error("Factory automation not found.");
-    const normalizedContent = normalizeFactoryAutomationFrontmatter(
+    const normalizedContent = normalizeFactoryAutomationWriteContent(
       resource.content,
+      { context },
     );
     const storedDisplayName = readAutomationDisplayName(normalizedContent);
     const current = readFactoryAutomationConfig(normalizedContent, input.name);
@@ -362,7 +363,7 @@ export default defineAction({
       ).toISOString();
       content = setAutomationFrontmatterField(content, "nextRun", nextRun);
     }
-    content = normalizeFactoryAutomationFrontmatter(content, {
+    content = normalizeFactoryAutomationWriteContent(content, {
       context,
       currentContent: normalizedContent,
     });

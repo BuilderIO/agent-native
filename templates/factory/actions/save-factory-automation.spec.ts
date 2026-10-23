@@ -276,9 +276,117 @@ describe("save-factory-automation", () => {
     },
   );
 
-  it.each(["Body only", "---\nenabled: false\nBody"])(
-    "requires complete saved settings for %j",
-    async (content) => {
+  it.each(
+    (["frontend", "tool"] as const).flatMap((caller) =>
+      [
+        {
+          kind: "headerless",
+          original: "Legacy prompt.\r\nSecond paragraph.\r\n",
+        },
+        {
+          kind: "unfinished header",
+          original: "---\nenabled: false\nLegacy prompt.\n",
+        },
+      ].map((fixture) => ({ caller, ...fixture })),
+    ),
+  )(
+    "legacy compatibility: saves $kind for trusted $caller with exact main bytes",
+    async ({ caller, original }) => {
+      resourceGetByPathMock.mockResolvedValue({
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-slack-feedback.md",
+        content: original,
+        updatedAt: 42,
+      });
+      const { default: action } = await import("./save-factory-automation.js");
+      const prompt =
+        "Revised prompt.\nmodel: body text\u0085detail\u2028more\u2029text";
+      const result = await runWithoutExecutionFence(() =>
+        executeAgentToolCall({
+          actions: { "save-factory-automation": action },
+          name: "save-factory-automation",
+          callId: "legacy-save",
+          input: { ...input, prompt },
+          caller,
+          ownerEmail: "teammate@example.com",
+        }),
+      );
+      expect(result.status).toBe("completed");
+      expect(JSON.parse(result.output)).toMatchObject({
+        ok: true,
+        prompt,
+        promptVersion: 0,
+        configSavedAt: null,
+        model: null,
+        reasoningEffort: null,
+        schedule: null,
+        enabled: false,
+      });
+      expect(resourcePutIfCurrentMock).toHaveBeenCalledExactlyOnceWith({
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-slack-feedback.md",
+        content: prompt,
+        mimeType: "text/markdown",
+        expectedId: "resource-1",
+        expectedUpdatedAt: 42,
+        expectedContent: original,
+      });
+      const { parseJobResource } =
+        await import("@agent-native/core/jobs/frontmatter");
+      expect(parseJobResource(prompt)).toMatchObject({
+        meta: { schedule: "", enabled: false },
+        body: prompt,
+      });
+      expect(insertValuesMock).toHaveBeenCalledOnce();
+      expect(insertValuesMock.mock.calls[0][0]).toMatchObject({
+        rawContent: original,
+        version: 0,
+        displayName: null,
+        source: "save",
+      });
+      expect(deleteReturningMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(
+    (["frontend", "tool"] as const).flatMap((caller) =>
+      [
+        "mcpManaged: true\n mcpManaged : false",
+        " mcpManaged : false\nmcpManaged: true",
+      ].map((marker) => ({ caller, marker })),
+    ),
+  )(
+    "refuses an unfinished marked save for trusted $caller/$marker before effects",
+    async ({ caller, marker }) => {
+      resourceGetByPathMock.mockResolvedValue({
+        content: `---\n${marker}\nLegacy prompt.`,
+      });
+      const { default: action } = await import("./save-factory-automation.js");
+      await expect(
+        action.run(input, { caller, userEmail: "teammate@example.com" }),
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        statusCode: 400,
+        errorCode: "invalid_request",
+        message: expect.stringMatching(/complete.*frontmatter/i),
+      });
+      expect(selectMaxMock).not.toHaveBeenCalled();
+      expect(insertValuesMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(
+    (["mcp", "a2a"] as const).flatMap((networkProtocol) =>
+      ["Body only", "---\nenabled: false\nBody"].map((content) => ({
+        networkProtocol,
+        content,
+      })),
+    ),
+  )(
+    "requires complete saved settings for $networkProtocol/$content",
+    async ({ networkProtocol, content }) => {
       resourceGetByPathMock.mockResolvedValue({
         id: "resource-1",
         owner: "__organization__:org-1",
@@ -290,10 +398,16 @@ describe("save-factory-automation", () => {
       await expect(
         action.run(input, {
           caller: "tool",
-          networkProtocol: "mcp",
+          networkProtocol,
           userEmail: "teammate@example.com",
         }),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        statusCode: 400,
+        errorCode: "invalid_request",
+        message: expect.stringMatching(/complete.*frontmatter/i),
+      });
+      expect(selectMaxMock).not.toHaveBeenCalled();
       expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
       expect(insertValuesMock).not.toHaveBeenCalled();
     },

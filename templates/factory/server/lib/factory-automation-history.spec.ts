@@ -9,12 +9,6 @@ const deleteReturningMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", () => ({ getDb: getDbMock }));
 
-vi.mock("@agent-native/core/action", () => ({
-  fail: (message: string): never => {
-    throw new Error(message);
-  },
-}));
-
 vi.mock("@agent-native/core/db", () => ({
   isUniqueViolation: (error: { code?: string }) => error?.code === "23505",
 }));
@@ -502,21 +496,68 @@ describe("restoreFactoryAutomationVersion", () => {
     ).toBeUndefined();
   });
 
-  it.each(["Body only", "---\nenabled: false\nBody"])(
-    "requires complete restored settings for %j",
-    async (historicalContent) => {
+  it.each([
+    ...(["mcp", "a2a"] as const).flatMap((networkProtocol) =>
+      ["Body only", "---\nenabled: false\nBody"].map((historical) => ({
+        kind: `outside ${networkProtocol}`,
+        live: currentContent,
+        historical,
+        context: { caller: "tool" as const, networkProtocol },
+      })),
+    ),
+    ...[
+      "mcpManaged: true\n mcpManaged : false",
+      " mcpManaged : false\nmcpManaged: true",
+    ].flatMap((marker) => [
+      {
+        kind: "trusted current true to headerless",
+        live: currentContent.replace(
+          "factoryId: myfact",
+          `factoryId: myfact\n${marker}`,
+        ),
+        historical: "Body only",
+        context: { caller: "frontend" as const },
+      },
+      {
+        kind: "trusted headerless to historical true",
+        live: "Body only",
+        historical: historicalContent.replace(
+          "factoryId: myfact",
+          `factoryId: myfact\n${marker}`,
+        ),
+        context: { caller: "tool" as const },
+      },
+      {
+        kind: "trusted unfinished current true",
+        live: `---\n${marker}\nBody`,
+        historical: historicalContent,
+        context: { caller: "tool" as const },
+      },
+      {
+        kind: "trusted unfinished historical true",
+        live: "Body only",
+        historical: `---\n${marker}\nBody`,
+        context: { caller: "frontend" as const },
+      },
+    ]),
+  ])(
+    "requires complete restored settings before effects for $kind/$historical",
+    async ({ live, historical, context }) => {
+      resourceGetByPathMock.mockResolvedValue({ ...resource, content: live });
       const { restoreFactoryAutomationVersion } =
         await import("./factory-automation-history.js");
       await expect(
         restoreFactoryAutomationVersion(
-          { ...restoreInput, historicalContent },
-          {
-            caller: "tool",
-            networkProtocol: "mcp",
-            userEmail: "owner@example.com",
-          },
+          { ...restoreInput, historicalContent: historical },
+          { ...context, userEmail: "owner@example.com" },
         ),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        statusCode: 400,
+        errorCode: "invalid_request",
+        message: expect.stringMatching(/complete.*frontmatter/i),
+      });
+      expect(selectMaxMock).not.toHaveBeenCalled();
       expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
       expect(insertValuesMock).not.toHaveBeenCalled();
     },
