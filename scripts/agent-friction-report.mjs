@@ -966,25 +966,30 @@ function isOtherProductMergeGate(sentence, gate) {
 }
 
 const PR_REVIEW_LINKED_COMMENT_URL = String.raw`(?:\[\s*)?(?:https?:\/\/)?github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+(?:#(?:issuecomment-\d+|discussion_r\d+|pullrequestreview-\d+)|\/comments\/\d+)`;
-const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+(?:(?:they|the\s+author|the\s+contributor)\s+)?(?:(?:should\s+)?do|to\s+do)(?:\s+next)?|what\s+happens\s+next)`;
+const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+should\s+(?:the\s+author|the\s+contributor|they|them)\s+do(?:\s+next)?|what\s+(?:(?:they|the\s+author|the\s+contributor)\s+)?(?:(?:should\s+)?do|to\s+do)(?:\s+next)?|what\s+happens\s+next)`;
 const PR_REVIEW_NO_FEEDBACK_ACTION = String.raw`(?:say|saying|write|writing|use|using|tell|telling|reply|replying|post|posting|send|sending|end|ending|close|closing)`;
 const PR_REVIEW_NO_FEEDBACK_BRIDGE = String.raw`(?:\s+(?:with|that|to|as|me|them|someone|anyone|the\s+author|the\s+contributor|saying))?`;
 const PR_REVIEW_NO_FEEDBACK_GAP = String.raw`(?:(?!\b(?:and|but|or|while)\b)[^.!?;\n])`;
 const PR_REVIEW_CONTEXT_KIND = String.raw`(?:comments?|repl(?:y|ies)|responses?|reviews?|threads?)`;
 const PR_REVIEW_NON_RESPONSE_OBJECT = String.raw`(?:(?:PR|pull\s+request)\s+)?(?:(?:comment|reply|review)\s+)?(?:templates?|descriptions?|titles?|bodies|commits?(?:\s+messages?)?|release\s+notes?|docs?|documentation|guides?|examples?|samples?|readmes?)`;
-const PR_REVIEW_NON_RESPONSE_CONTEXT = String.raw`(?!\s+(?:${PR_REVIEW_NON_RESPONSE_OBJECT}\b|${PR_REVIEW_CONTEXT_KIND}\s+${PR_REVIEW_NON_RESPONSE_OBJECT}\b|(?:in|within|inside|from|as)\s+(?:the\s+)?${PR_REVIEW_NON_RESPONSE_OBJECT}\b))`;
-const PR_REVIEW_NON_RESPONSE_TAIL = String.raw`(?![^.!?\n]{0,80}\b(?:in|within|inside|from|as)\s+(?:the\s+)?${PR_REVIEW_NON_RESPONSE_OBJECT}\b)`;
+const PR_REVIEW_NON_RESPONSE_CONTEXT = String.raw`(?!\s+(?:${PR_REVIEW_NON_RESPONSE_OBJECT}\b|${PR_REVIEW_CONTEXT_KIND}\s+${PR_REVIEW_NON_RESPONSE_OBJECT}\b|(?:in|within|inside|from|as|about)\s+(?:the\s+)?${PR_REVIEW_NON_RESPONSE_OBJECT}\b))`;
+const PR_REVIEW_NON_RESPONSE_TAIL = String.raw`(?![^.!?\n]{0,80}\b(?:in|within|inside|from|as|about)\s+(?:the\s+)?${PR_REVIEW_NON_RESPONSE_OBJECT}\b)`;
 const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as|during)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)(?:\s+${PR_REVIEW_CONTEXT_KIND})?\b${PR_REVIEW_NON_RESPONSE_CONTEXT}`;
 const PR_REVIEW_DIRECT_REPLY_CONTEXT = String.raw`\b(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)\s+${PR_REVIEW_CONTEXT_KIND}\b${PR_REVIEW_NON_RESPONSE_CONTEXT}`;
 const PR_REVIEW_AUDIENCE_CONTEXT = String.raw`(?:\b(?:PRs?|pull\s+requests?)\s+(?:authors?|contributors?)(?:['’]s)?\b|\bto\s+(?:the\s+)?(?:PR|pull\s+request)\s+(?:author|contributor)s?\b|\b(?:PRs?|pull\s+requests?)\s+${PR_REVIEW_CONTEXT_KIND}\s+(?:to|for)\s+(?:the\s+)?(?:author|contributor)s?\b|\b${PR_REVIEW_CONTEXT_KIND}\s+(?:to|for)\s+(?:the\s+)?(?:PR|pull\s+request)\s+(?:author|contributor)s?\b|\b(?:PR|pull\s+request)\s+(?:review\s+)?threads?\b)${PR_REVIEW_NON_RESPONSE_CONTEXT}`;
 const PR_REVIEW_NO_FEEDBACK_CONTEXT = String.raw`(?:${PR_REVIEW_PR_CONTEXT}|${PR_REVIEW_DIRECT_REPLY_CONTEXT}|${PR_REVIEW_AUDIENCE_CONTEXT})`;
 const PR_REVIEW_NO_FEEDBACK_TEXT = String.raw`(?:(?:I|you|we)\s+have\s+)?no\s+(?:further|more)\s+(?:check\s+)?feedback(?:\s+or\s+thanks?)?`;
+const PR_REVIEW_NO_FEEDBACK_END = String.raw`(?:[.!?]?['"”’]?)`;
 const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
-  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_BRIDGE}\s+['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b${PR_REVIEW_NON_RESPONSE_TAIL}(?:${PR_REVIEW_NO_FEEDBACK_GAP}{0,80}${PR_REVIEW_NO_FEEDBACK_CONTEXT}|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_GAP}{0,40}${PR_REVIEW_NO_FEEDBACK_CONTEXT}${PR_REVIEW_NO_FEEDBACK_GAP}{0,50}\b${PR_REVIEW_NO_FEEDBACK_TEXT}\b${PR_REVIEW_NON_RESPONSE_TAIL})`,
+  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_BRIDGE}\s+['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b${PR_REVIEW_NO_FEEDBACK_END}${PR_REVIEW_NON_RESPONSE_TAIL}(?:${PR_REVIEW_NO_FEEDBACK_GAP}{0,80}${PR_REVIEW_NO_FEEDBACK_CONTEXT}|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_GAP}{0,40}${PR_REVIEW_NO_FEEDBACK_CONTEXT}${PR_REVIEW_NO_FEEDBACK_GAP}{0,50}\b${PR_REVIEW_NO_FEEDBACK_TEXT}\b${PR_REVIEW_NO_FEEDBACK_END}${PR_REVIEW_NON_RESPONSE_TAIL})`,
   "i",
 );
 const PR_REVIEW_NO_FEEDBACK_LIST_RE = new RegExp(
-  String.raw`\b(?:don['’]t|do\s+not|never|avoid|stop)\b[^.!?\n]{0,40}\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b[^.!?\n]{0,100}\b${PR_REVIEW_DIRECT_REPLY_CONTEXT}\b[^.!?\n]{0,80}:\s*\r?\n\s*(?:[-*]|\d+[.)])\s*['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b`,
+  String.raw`\b(?:don['’]t|do\s+not|never|avoid|stop)\b[^.!?\n]{0,40}\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b[^.!?\n]{0,100}\b${PR_REVIEW_DIRECT_REPLY_CONTEXT}\b[^.!?\n]{0,80}:\s*\r?\n\s*(?:[-*]|\d+[.)])\s*['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b${PR_REVIEW_NO_FEEDBACK_END}`,
+  "i",
+);
+const PR_REVIEW_NO_FEEDBACK_OBSERVATION_RE = new RegExp(
+  String.raw`\b(?:why\s+)?(?:does|did)\s+${PR_REVIEW_DIRECT_REPLY_CONTEXT}\s+(?:say|read|end|close|contain)\b[^.!?\n]{0,60}['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b${PR_REVIEW_NO_FEEDBACK_END}${PR_REVIEW_NON_RESPONSE_TAIL}`,
   "i",
 );
 const PR_REVIEW_AMBIGUOUS_COMMENT_CORE = String.raw`(?:\b(?:I|you|we)\b[^.!?\n]{0,30}\b(?:should|must|need to)\s+(?:never|not)\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b)`;
@@ -992,6 +997,10 @@ const PR_REVIEW_AUTHOR_NEXT_STEP_CUE = String.raw`(?:\b(?:tell|say|state|name|ex
 const PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE = String.raw`(?:\b(?:tell|say|state|name|explain)\s+(?:(?:the|this|their|our|your)\s+)?(?:PR\s+)?(?:author|contributor|them)\b[^.!?\n]{0,80}\b${PR_REVIEW_NEXT_ACTION_CUE}\b|\b${PR_REVIEW_NEXT_ACTION_CUE}\b[^.!?\n]{0,80}\b(?:PR\s+)?(?:author|contributor)\b|${PR_REVIEW_AUTHOR_NEXT_STEP_CUE})`;
 const PR_REVIEW_AMBIGUOUS_COMMENT_RE = new RegExp(
   String.raw`(?:${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}[^.!?\n]{0,100}\b${PR_REVIEW_NEXT_ACTION_CUE}\b|\b${PR_REVIEW_NEXT_ACTION_CUE}\b[^.!?\n]{0,100}${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}|${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}[^.!?\n]{0,100}${PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE}|${PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE}[^.!?\n]{0,100}${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}|${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}[^.!?\n]{0,80}[.!?]\s*[^.!?\n]{0,80}${PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE}|${PR_REVIEW_AMBIGUOUS_AUTHOR_ACTION_CUE}[^.!?\n]{0,80}[.!?]\s*[^.!?\n]{0,80}${PR_REVIEW_AMBIGUOUS_COMMENT_CORE})`,
+  "i",
+);
+const PR_REVIEW_AMBIGUOUS_OBSERVATION_RE = new RegExp(
+  String.raw`(?:\bwhy\s+(?:is|was)\s+${PR_REVIEW_DIRECT_REPLY_CONTEXT}\b[^?\n]{0,80}\b(?:ambiguous|vague|unclear)\b[^?\n]{0,20}\?\s*[^.!?\n]{0,80}\b${PR_REVIEW_NEXT_ACTION_CUE}\b|\b(?:the|this|that)\s+${PR_REVIEW_DIRECT_REPLY_CONTEXT}\b[^.!?\n]{0,80}\b(?:ambiguous|vague|unclear)\b\s*[,;]\s*(?:the\s+)?(?:author|contributor)\b[^.!?\n]{0,60}\b(?:doesn't|does\s+not|can't|cannot)\s+know\b[^.!?\n]{0,80}\b${PR_REVIEW_NEXT_ACTION_CUE}\b)`,
   "i",
 );
 const PR_REVIEW_AMBIGUOUS_LINKED_COMMENT_RE = new RegExp(
@@ -1003,7 +1012,9 @@ const PR_REVIEW_VAGUE_CLOSURE_RE = {
     return (
       PR_REVIEW_NO_FEEDBACK_RE.test(text) ||
       PR_REVIEW_NO_FEEDBACK_LIST_RE.test(text) ||
+      PR_REVIEW_NO_FEEDBACK_OBSERVATION_RE.test(text) ||
       PR_REVIEW_AMBIGUOUS_COMMENT_RE.test(text) ||
+      PR_REVIEW_AMBIGUOUS_OBSERVATION_RE.test(text) ||
       PR_REVIEW_AMBIGUOUS_LINKED_COMMENT_RE.test(text)
     );
   },
@@ -1121,6 +1132,10 @@ const PR_REVIEW_DISPOSITION_MATCHER = {
 
 const PR_REVIEW_DISPOSITION_REGEX_CASES = [
   [true, "Stop saying 'I have no further feedback' on PRs."],
+  [true, "Don't say 'I have no further feedback.' in the PR reply."],
+  [true, "Why does the PR reply say ‘I have no further feedback.’?"],
+  [true, "The PR reply is vague; the author doesn't know what to do next."],
+  [true, "Why is the PR reply unclear? What should the author do next?"],
   [
     true,
     "Don't say 'no further feedback' during PR review; tell them what to do next.",
@@ -1218,6 +1233,8 @@ const PR_REVIEW_DISPOSITION_REGEX_CASES = [
   [false, "Don't say 'I have no further feedback' in a PR comment template."],
   [false, "Don't say 'I have no further feedback' in the PR release notes."],
   [false, "Don't end a PR reply with 'no further feedback' in the docs."],
+  [false, "Don't end the PR reply with no further feedback about the docs."],
+  [false, "The PR reply is vague about the docs."],
   [true, "Don't leave the PR reply vague. Tell the author the next step."],
   [true, "Don't leave the PR reply vague. Tell them the next step."],
   [
