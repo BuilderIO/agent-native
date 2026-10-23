@@ -480,6 +480,7 @@ pub async fn notify_meeting_starting(
         "scheduledStart": scheduled_start,
         "scheduledEnd": scheduled_end,
         "autoStart": auto_start.unwrap_or(false),
+        "debugSnapshots": crate::debug::debug_enabled(),
     });
     let state = app.state::<MeetingNotificationState>();
     let should_show = {

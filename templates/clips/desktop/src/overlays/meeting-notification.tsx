@@ -35,6 +35,9 @@ interface NotificationData {
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
   autoStart?: boolean;
+  // Set by the Rust side only when CLIPS_DEBUG is on, so release builds get no
+  // snapshot IPC at all.
+  debugSnapshots?: boolean;
 }
 
 interface TranscriptionStatusPayload {
@@ -291,12 +294,14 @@ export function MeetingNotification() {
     const win = getCurrentWindow();
     if (data) {
       win.show().catch(() => {});
-      requestAnimationFrame(() =>
-        setTimeout(() => writeDebugSnapshot("shown", data), 250),
-      );
-    } else {
-      win.hide().catch(() => {});
+      // Cleanup cancels the timer when the card changes, so a snapshot can
+      // only describe the card it was scheduled for.
+      const timer = window.setTimeout(() => {
+        if (data.debugSnapshots) writeDebugSnapshot("shown", data);
+      }, 250);
+      return () => window.clearTimeout(timer);
     }
+    win.hide().catch(() => {});
   }, [data]);
 
   useEffect(() => {
