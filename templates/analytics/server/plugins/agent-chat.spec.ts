@@ -698,9 +698,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(bigquerySkill).toContain(
       "stop at the mapping gap for this metric; do not fall through to steps 1–3.",
     );
-    expect(ruleText("references")).toContain(
-      "only dbt routing searches again",
-    );
+    expect(ruleText("references")).toContain("only dbt routing searches again");
     expect(dataQueryingSkill).toContain(
       "search `find-data` for the exact name once and retry the query",
     );
