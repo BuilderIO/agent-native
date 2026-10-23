@@ -127,6 +127,8 @@ const database = {
   githubSyncingProgress: "جارٍ جلب التغييرات: {{done}} من أصل {{total}} ملفات",
   githubPicturesWaiting:
     "لن تظهر بعض الصور حتى يُعدّ مشرف مساحة العمل تخزين الملفات.",
+  githubPicturesNotSaved:
+    "تعذّر حفظ بعض الصور في تخزين الملفات. تحاول كل مزامنة حفظها مجددًا.",
   githubReconnect: "إعادة توصيل GitHub",
   githubProblemConnection:
     "توقّف التحديث: يطلب GitHub منك تسجيل الدخول مرة أخرى.",
