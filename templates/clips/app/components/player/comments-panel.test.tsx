@@ -1085,6 +1085,110 @@ describe("CommentsPanel reply composer", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("sends a fullscreen comment once however often send repeats before it settles", async () => {
+    act(() => root.render(null));
+    actionMocks.realMutations = true;
+    onTestFinished(() => {
+      actionMocks.realMutations = false;
+    });
+    let completeRenewal!: (token: string) => void;
+    const renewal = new Promise<string>((resolve) => {
+      completeRenewal = resolve;
+    });
+    const getCommentAccessToken = vi.fn(() => renewal);
+    let completeRequest!: () => void;
+    const request = new Promise<void>((resolve) => {
+      completeRequest = resolve;
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      await request;
+      return new Response(JSON.stringify({ id: "comment-2" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const onAdded = vi.fn();
+    const onClose = vi.fn();
+    act(() =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <TimestampedCommentBar
+            recordingId="recording-1"
+            atMs={12000}
+            onAdded={onAdded}
+            onClose={onClose}
+            commentAccessToken="fake-expired-proof"
+            getCommentAccessToken={getCommentAccessToken}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    const composer = container.querySelector("textarea");
+    const send =
+      container.querySelector<HTMLButtonElement>("button[aria-label]");
+    if (!composer || !send) throw new Error("Expected the comment bar");
+    const pressSend = (modifier: "ctrlKey" | "metaKey") =>
+      composer.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          [modifier]: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    act(() => setTextareaValue(composer, "Fake fullscreen comment"));
+
+    // Same tick, before React Query publishes the pending state.
+    await act(async () => {
+      pressSend("ctrlKey");
+      send.click();
+      pressSend("metaKey");
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(send.disabled).toBe(true);
+    await act(async () => {
+      pressSend("ctrlKey");
+    });
+    expect(getCommentAccessToken).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      completeRenewal("fake-fresh-proof");
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      pressSend("metaKey");
+    });
+    expect(composer.value).toBe("Fake fullscreen comment");
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      completeRequest();
+    });
+    expect(getCommentAccessToken).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(
+      new Headers(fetch.mock.calls[0][1]?.headers).get("x-clips-comment-token"),
+    ).toBe("fake-fresh-proof");
+    expect(onAdded).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(composer.value).toBe("");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+
+    act(() => setTextareaValue(composer, "Fake follow-up comment"));
+    await act(async () => {
+      pressSend("ctrlKey");
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({
+      recordingId: "recording-1",
+      content: "Fake follow-up comment",
+      videoTimestampMs: 12000,
+    });
+    expect(onAdded).toHaveBeenCalledTimes(2);
+  });
+
   it.each(["active", "resumed"])(
     "renews expired proof before a %s viewer submits",
     async (mode) => {

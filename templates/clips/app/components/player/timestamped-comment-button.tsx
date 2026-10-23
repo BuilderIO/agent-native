@@ -83,6 +83,8 @@ export function TimestampedCommentBar({
   );
   // Toasts do not paint over real fullscreen, so failure shows in the bar.
   const [failed, setFailed] = useState(false);
+  // Every mutate() posts again, and isPending reaches render a tick late.
+  const sendingRef = useRef(false);
   const addComment = useActionMutation("add-comment", {
     headers: () =>
       commentAccessTokenRef.current
@@ -99,6 +101,9 @@ export function TimestampedCommentBar({
       refusedCommentAccessTokenRef.current = commentAccessTokenRef.current;
       setFailed(true);
     },
+    onSettled: () => {
+      sendingRef.current = false;
+    },
   });
 
   useEffect(() => {
@@ -107,7 +112,8 @@ export function TimestampedCommentBar({
 
   const submit = () => {
     const content = draft.trim();
-    if (!content) return;
+    if (!content || sendingRef.current) return;
+    sendingRef.current = true;
     setFailed(false);
     addComment.mutate(
       { recordingId, content, videoTimestampMs: atMs },
