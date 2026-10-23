@@ -57,6 +57,18 @@ const MAX_SUMMARY_CLASSES = 40;
 const MAX_SUMMARY_CLASS_LENGTH = 200;
 const MAX_SUMMARY_TEXT_LENGTH = 200;
 const SELECTION_PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+const frameTypeByFile = new WeakMap<
+  DesignFile,
+  { content: string; frameType: "hubspot-email" | null }
+>();
+
+function frameTypeForFile(file: DesignFile): "hubspot-email" | null {
+  const cached = frameTypeByFile.get(file);
+  if (cached && cached.content === file.content) return cached.frameType;
+  const frameType = isHubSpotEmailHtml(file.content) ? "hubspot-email" : null;
+  frameTypeByFile.set(file, { content: file.content, frameType });
+  return frameType;
+}
 
 // The agent targets an element by these ids; its subtree style snapshot stays
 // in the frame, where copy reads it on demand.
@@ -181,17 +193,14 @@ export function runPublishAgentSelectionContext({
     designTitle: design?.title ?? null,
     activeFileId: activeFile?.id ?? null,
     activeFilename: activeFile?.filename ?? null,
-    activeFrameType:
-      activeFile && isHubSpotEmailHtml(activeFile.content)
-        ? "hubspot-email"
-        : null,
+    activeFrameType: activeFile ? frameTypeForFile(activeFile) : null,
     viewMode,
     zoom,
     screens: files.map((file) => ({
       id: file.id,
       filename: file.filename,
       fileType: file.fileType,
-      frameType: isHubSpotEmailHtml(file.content) ? "hubspot-email" : null,
+      frameType: frameTypeForFile(file),
     })),
     selectedScreenIds,
     selectedElement,

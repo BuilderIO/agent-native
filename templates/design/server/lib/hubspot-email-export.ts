@@ -4,6 +4,7 @@ import { parse, serialize, type DefaultTreeAdapterTypes } from "parse5";
 import postcss, { type Declaration } from "postcss";
 
 import { inspectEmailCssValue } from "./email-css-values.js";
+import { verifyEmailImageResponse } from "./email-image-bytes.js";
 import { classifyEmailTextColor } from "./email-text-color.js";
 import { parseHubLInterpolation } from "./hubl-interpolation.js";
 
@@ -13,7 +14,7 @@ type Specificity = [number, number, number];
 type SelectorPart = { compound: string; combinator: " " | ">" | "+" | "~" };
 type ImageReference = { url: string; location: string };
 type EmailExportOptions = { preserveLinksFromHtml?: string };
-type ConditionalVisibilityRule = {
+type ConditionalStyleRule = {
   parts: SelectorPart[];
   declarations: Declaration[];
 };
@@ -375,14 +376,44 @@ function winningDeclarations(declarations: Declaration[]) {
   return result;
 }
 
-function inlineDeclarations(element: Element) {
+function styleDeclarations(style: string | undefined) {
   const declarations: Declaration[] = [];
-  parseStyles(`email { ${attribute(element, "style") ?? ""} }`).walkDecls(
-    (declaration) => {
-      declarations.push(declaration);
-    },
-  );
+  parseStyles(`email { ${style ?? ""} }`).walkDecls((declaration) => {
+    declarations.push(declaration);
+  });
   return winningDeclarations(declarations);
+}
+
+function inlineDeclarations(element: Element) {
+  return styleDeclarations(attribute(element, "style"));
+}
+
+function assertResponsiveInlining(
+  element: Element,
+  css: string,
+  rules: ConditionalStyleRule[],
+): void {
+  const base = styleDeclarations(css);
+  const original = inlineDeclarations(element);
+  for (const rule of rules) {
+    if (!matchesSelector(element, rule.parts)) continue;
+    for (const declaration of rule.declarations) {
+      const property = declaration.prop.toLowerCase();
+      const inlined = base.get(property);
+      const existing = original.get(property);
+      if (
+        !inlined ||
+        inlined.value === declaration.value ||
+        existing?.important ||
+        (existing && !inlined.important)
+      )
+        continue;
+      if (inlined.important || !declaration.important)
+        invalid(
+          `Responsive CSS for ${property} at ${location(element)} would be overridden after inlining. Use !important on the responsive override and keep the base declaration non-important.`,
+        );
+    }
+  }
 }
 
 function mayHideText(declaration: Declaration): boolean {
@@ -486,7 +517,7 @@ function visibleTextByElement(document: Node): Map<Node, string> {
 
 function assertResponsiveFooterVisibility(
   visibleText: Map<Node, string>,
-  rules: ConditionalVisibilityRule[],
+  rules: ConditionalStyleRule[],
   restoreTokens: (value: string) => string,
 ): void {
   if (!rules.length) return;
@@ -610,6 +641,7 @@ export function prepareHubSpotEmailHtml(
   const images: ImageReference[] = [];
   const forbidden = new Set([
     "script",
+    "noscript",
     "iframe",
     "object",
     "embed",
@@ -705,7 +737,7 @@ export function prepareHubSpotEmailHtml(
     css: string;
     order: number;
   }> = [];
-  const conditionalVisibilityRules: ConditionalVisibilityRule[] = [];
+  const conditionalStyleRules: ConditionalStyleRule[] = [];
   let order = 0;
   for (const element of all.filter((entry) => entry.tagName === "style")) {
     const root = parseStyles(textNodes(element.childNodes[0] ?? element));
@@ -724,10 +756,8 @@ export function prepareHubSpotEmailHtml(
           rule.walkDecls((declaration) => {
             declarations.push(declaration);
           });
-          const hiding = [...winningDeclarations(declarations).values()].filter(
-            mayHideText,
-          );
-          if (!hiding.length) return;
+          const winners = [...winningDeclarations(declarations).values()];
+          if (!winners.length) return;
           if (
             rule.parent !== node ||
             rule.nodes.some(
@@ -735,12 +765,12 @@ export function prepareHubSpotEmailHtml(
             )
           )
             invalid(
-              "Nested responsive visibility rules cannot be validated for email footer content.",
+              "Nested responsive rules cannot be validated for email export.",
             );
           for (const selector of rule.selectors)
-            conditionalVisibilityRules.push({
+            conditionalStyleRules.push({
               parts: parseSelector(selector).parts,
-              declarations: hiding,
+              declarations: winners,
             });
         });
         media.push(node.toString());
@@ -797,11 +827,16 @@ export function prepareHubSpotEmailHtml(
     }
     const css = inlinedStyles.get(element)!;
     if (css) {
+      assertResponsiveInlining(element, css, conditionalStyleRules);
       const existing = element.attrs.find((attr) => attr.name === "style");
       if (existing) existing.value = css + existing.value;
       else element.attrs.push({ name: "style", value: css });
     }
   }
+  const conditionalVisibilityRules = conditionalStyleRules.map((rule) => ({
+    ...rule,
+    declarations: rule.declarations.filter(mayHideText),
+  }));
   const visibleText = visibleTextByElement(document);
   const footerTokens = (
     restoreTokens(visibleText.get(body) ?? "").match(/{{[\s\S]*?}}/g) ?? []
@@ -894,20 +929,38 @@ export async function exportHubSpotEmailHtml(
             `Image at ${image.location} could not be verified as publicly reachable: ${image.url.slice(0, 180)}. Host it on a public HTTPS image URL and retry.`,
           );
         }
-        await response.body?.cancel();
-        if (!response.ok)
+        if (!response.ok) {
+          await response.body?.cancel();
           invalid(
             `Image at ${image.location} returned HTTP ${response.status}: ${image.url.slice(0, 180)}.`,
           );
+        }
         const type = response.headers
           .get("content-type")
           ?.split(";")[0]
           .trim()
           .toLowerCase();
-        if (!type || !["image/png", "image/jpeg", "image/gif"].includes(type))
+        if (!type || !["image/png", "image/jpeg", "image/gif"].includes(type)) {
+          await response.body?.cancel();
           invalid(
             `Image at ${image.location} must serve a PNG, JPEG, or GIF (received ${type ?? "no content type"}): ${image.url.slice(0, 180)}.`,
           );
+        }
+        const verdict = await verifyEmailImageResponse(response, type);
+        if (verdict.kind !== "valid") {
+          const reason =
+            verdict.kind === "mime-mismatch"
+              ? `is labelled ${type} but contains ${verdict.actual}`
+              : {
+                  invalid: "returned invalid image data",
+                  truncated: "returned incomplete image data",
+                  unreadable: "could not be fully downloaded",
+                  "too-large": "exceeds the 5 MiB image validation limit",
+                }[verdict.kind];
+          invalid(
+            `Image at ${image.location} ${reason}: ${image.url.slice(0, 180)}.`,
+          );
+        }
       }
     }),
   );

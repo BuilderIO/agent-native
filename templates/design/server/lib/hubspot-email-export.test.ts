@@ -13,6 +13,11 @@ import {
   prepareHubSpotEmailHtml,
 } from "./hubspot-email-export.js";
 
+const PNG_BYTES = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
+
 function withContent(content: string, css = ""): string {
   return createHubSpotEmailHtml()
     .replace(
@@ -50,8 +55,11 @@ function findElement(
 describe("HubSpot email HTML export", () => {
   beforeEach(() => {
     safeFetch.mockReset();
-    safeFetch.mockResolvedValue(
-      new Response(null, { headers: { "content-type": "image/png" } }),
+    safeFetch.mockImplementation(
+      async () =>
+        new Response(new Uint8Array(PNG_BYTES), {
+          headers: { "content-type": "image/png" },
+        }),
     );
   });
 
@@ -110,6 +118,16 @@ describe("HubSpot email HTML export", () => {
 
   it.each([
     ["script", "<script>alert(1)</script>", "Remove <script>"],
+    [
+      "noscript link",
+      '<noscript><a href="javascript:alert(1)">Click</a></noscript>',
+      "Remove <noscript>",
+    ],
+    [
+      "noscript image",
+      '<noscript><img src="http://images.example.com/a.png"></noscript>',
+      "Remove <noscript>",
+    ],
     ["Alpine", '<span x-text="message">hello</span>', 'Attribute "x-text"'],
     [
       "embedded frame",
@@ -499,11 +517,30 @@ describe("HubSpot email HTML export", () => {
   it("preserves responsive spacing and unrelated conditional artwork", () => {
     const html = withContent(
       '<div class="art">Decoration</div>',
-      "@media(max-width:620px){.email-footer{padding:12px;font-size:14px}.art{display:none!important}}",
+      "@media(max-width:620px){.email-footer{padding:12px!important;font-size:14px}.art{display:none!important}}",
     );
     expect(prepareHubSpotEmailHtml(html).html).toContain(
       ".art{display:none!important}",
     );
+  });
+
+  it("rejects responsive overrides that would lose to newly inlined base styles", () => {
+    expect(() =>
+      prepareHubSpotEmailHtml(
+        withContent(
+          '<h2 class="title">Hello</h2>',
+          ".title{font-size:32px}@media(max-width:620px){.title{font-size:20px}}",
+        ),
+      ),
+    ).toThrow("would be overridden after inlining");
+    expect(
+      prepareHubSpotEmailHtml(
+        withContent(
+          '<h2 class="title">Hello</h2>',
+          ".title{font-size:32px}@media(max-width:620px){.title{font-size:20px!important}}",
+        ),
+      ).html,
+    ).toContain("font-size:20px!important");
   });
 
   it("preserves explicit font properties, zero indentation, and visibility resets", () => {
@@ -906,6 +943,16 @@ describe("HubSpot email HTML export", () => {
           new Response(null, { headers: { "content-type": "text/html" } }),
         ),
       "PNG, JPEG, or GIF",
+    ],
+    [
+      "HTML disguised as a PNG",
+      () =>
+        safeFetch.mockResolvedValue(
+          new Response("<html>Sign in</html>", {
+            headers: { "content-type": "image/png" },
+          }),
+        ),
+      "invalid image data",
     ],
     [
       "SSRF/private DNS/redirect",
