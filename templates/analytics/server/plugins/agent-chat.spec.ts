@@ -1075,7 +1075,14 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       guardContext({
         userText: "What were active accounts last month?",
         draftText: "Active accounts were twelve last month.",
-        toolResults: [dbtNotFound, bigQueryOk],
+        toolResults: [
+          dbtNotFound,
+          {
+            name: "bigquery",
+            isError: false,
+            content: JSON.stringify({ rows: [{ n: 12 }], totalRows: 1 }),
+          },
+        ],
       }),
     );
 
@@ -1118,6 +1125,19 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
         draftText:
           "The active list is not a complete count, so no total is given.",
         toolResults: [dbtNotFound, statusRows],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not withhold ordinary prose that uses the word one", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "One connection needs setup before dbt can answer this metric.",
+        toolResults: [dbtNotFound, bigQueryOk],
       }),
     );
 

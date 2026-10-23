@@ -1756,6 +1756,21 @@ export function isSuccessfulDbtMetricResult(content: unknown): boolean {
   return Array.isArray(rows) && rows.length > 0;
 }
 
+// Every string value in a parsed payload, however it is nested. A name matches only
+// one of these exactly, so a longer name that contains it does not count.
+function stringLeavesOf(
+  value: unknown,
+  leaves = new Set<string>(),
+): Set<string> {
+  if (typeof value === "string") leaves.add(value);
+  else if (Array.isArray(value)) {
+    value.forEach((item) => stringLeavesOf(item, leaves));
+  } else if (value !== null && typeof value === "object") {
+    Object.values(value).forEach((item) => stringLeavesOf(item, leaves));
+  }
+  return leaves;
+}
+
 // A metadata page or an exact-name miss is a lookup step, not an answer. A later
 // dbt metric query that returns rows answers the same question under the name it
 // found, so the lookup is recovered rather than left as a failure.
@@ -1798,7 +1813,9 @@ function isRecoveredByLaterDbtSuccess(
       .some(
         (between) =>
           isToolName(String(between.name ?? ""), "find-data") &&
-          String(between.content ?? "").includes(answeredName),
+          stringLeavesOf(
+            tryParseJsonContent(String(between.content ?? "")),
+          ).has(answeredName),
       );
     if (foundAfterLookup) return true;
   }
