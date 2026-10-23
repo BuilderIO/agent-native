@@ -2013,18 +2013,18 @@ export async function syncGitHubSource(
         })() ?? "",
       ]),
     );
-    work.sort(
-      (a, b) =>
-        (cutShort.get(a.repoPath) ?? 0) - (cutShort.get(b.repoPath) ?? 0) ||
-        failedAt.get(a)!.localeCompare(failedAt.get(b)!),
-    );
+    const inLine = (a: PlannedFile, b: PlannedFile) =>
+      (cutShort.get(a.repoPath) ?? 0) - (cutShort.get(b.repoPath) ?? 0) ||
+      failedAt.get(a)!.localeCompare(failedAt.get(b)!);
+    work.sort(inLine);
     result.commitSha = head.sha;
     result.unchanged = planned.length - work.length - stillSkipped.length;
     const readSkips: GitHubReadSkip[] = [...stillSkipped];
     readSkipsSoFar = readSkips;
     let done = 0;
     let cutShortPath: string | null = null;
-    for (const file of work) {
+    for (let index = 0; index < work.length; index += 1) {
+      const file = work[index]!;
       if (outOfTime()) break;
       // Once storage is down, a page rebuilt only to add its images would
       // come out the same, so it waits for a later sync without reading GitHub.
@@ -2059,6 +2059,17 @@ export async function syncGitHubSource(
               folderRelative(run, file.repoPath),
               match[1].documentId,
             );
+            // It takes its old page's place in line, so one whose images
+            // failed to upload still goes after the files still to come.
+            failedAt.set(file, rowState(match[1])?.imagesFailedAt ?? "");
+            let to = index + 1;
+            while (to < work.length && inLine(work[to]!, file) <= 0) to += 1;
+            if (to > index + 1) {
+              work.splice(to, 0, file);
+              work.splice(index, 1);
+              index -= 1;
+              continue;
+            }
           }
         }
         outcome = await applyFile(run, file);

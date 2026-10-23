@@ -39,6 +39,8 @@ const github = vi.hoisted(() => {
     /** Uploads of a file with this name throw, as storage rejecting one file does. */
     rejectFilename: null as string | null,
     uploadFailures: 0,
+    /** The file name of every upload tried, in order. */
+    uploadAttempts: [] as string[],
     /** Runs once, during the next blob read, to race something against a sync. */
     duringBlobRead: null as null | (() => Promise<void>),
     /** Blob reads after this many wait until the sync's time runs out. */
@@ -65,6 +67,7 @@ const github = vi.hoisted(() => {
       state.storageDown = false;
       state.rejectFilename = null;
       state.uploadFailures = 0;
+      state.uploadAttempts = [];
       state.duringBlobRead = null;
       state.hangAfterBlobReads = null;
       state.slowContents.clear();
@@ -228,6 +231,7 @@ vi.mock("@agent-native/core/file-upload", () => ({
     github.state.noStorage ? null : { id: "test" },
   uploadFile: async (input: { filename: string }) => {
     if (github.state.noStorage) return null;
+    github.state.uploadAttempts.push(input.filename);
     if (github.state.storageDown) {
       github.state.uploadFailures += 1;
       throw new Error("S3 PutObject failed (503): Service Unavailable");
@@ -1902,6 +1906,43 @@ describe("GitHub folder source", () => {
         imagesWaiting: 0,
         problem: null,
       });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps a page whose image failed after the rest when only its frontmatter id shows it moved", async () => {
+    github.state.rejectFilename = "poster.png";
+    github.commit({
+      ...BASE_FILES,
+      "docs/a-poster.md":
+        "---\nid: poster\n---\n# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      expect(github.state.uploadFailures).toBe(1);
+
+      // Moved and edited, so only its frontmatter id ties it to its page. A
+      // new page with an image of its own comes after it by name.
+      github.commit({
+        ...BASE_FILES,
+        "docs/a-moved.md":
+          "---\nid: poster\n---\n# Poster, moved\n\n![Poster](images/poster.png)\n",
+        "docs/images/poster.png": "PNGPOSTER",
+        "docs/b-new.md": "# New\n\n![New](images/new.png)\n",
+        "docs/images/new.png": "PNGNEW",
+      });
+      github.state.uploadAttempts = [];
+      const synced = await as(() =>
+        syncFolder.run({ databaseId: database.id }),
+      );
+      expect(synced.sync).toMatchObject({ renamed: 1, created: 1 });
+      expect(github.state.uploadAttempts).toEqual(["new.png", "poster.png"]);
     } finally {
       warn.mockRestore();
     }
