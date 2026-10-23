@@ -941,6 +941,7 @@ jobs:
 
             async function findSuccessfulDocsPushDeployment() {
               const deadline = phaseDeadline(60 * 60_000);
+              const docsComparisonWarnings = new Set();
               while (Date.now() < deadline) {
                 const mainSha = (await github.rest.git.getRef({
                   owner,
@@ -972,7 +973,21 @@ jobs:
                   ) {
                     continue;
                   }
-                  if (!(await docsSourceHasCurrentInputs(run.head_sha.toLowerCase(), mainSha))) {
+                  const sourceSha = run.head_sha.toLowerCase();
+                  let hasCurrentInputs;
+                  try {
+                    hasCurrentInputs = await docsSourceHasCurrentInputs(sourceSha, mainSha);
+                  } catch (error) {
+                    const warningKey = `${run.id}:${sourceSha}:${mainSha}`;
+                    if (!docsComparisonWarnings.has(warningKey)) {
+                      docsComparisonWarnings.add(warningKey);
+                      core.warning(
+                        `Could not verify docs source freshness for run ${run.id} (${sourceSha}) against current main ${mainSha}; continuing through the remaining docs push runs: ${error instanceof Error ? error.message : String(error)}`,
+                      );
+                    }
+                    continue;
+                  }
+                  if (!hasCurrentInputs) {
                     continue;
                   }
 
