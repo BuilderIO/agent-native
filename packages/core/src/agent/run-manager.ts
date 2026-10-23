@@ -12,6 +12,7 @@ import { recordAgentRun } from "../observability/metrics.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
+import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
 import {
   isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -1722,7 +1723,7 @@ export function startRun(
             error?.code === "stale_execution_fence" &&
             !completionInProgress
           ) {
-            abortInMemoryRun(run, "execution-lease-lost");
+            abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
           }
           consecutiveHeartbeatFailures += 1;
           if (consecutiveHeartbeatFailures >= 3) {
@@ -2449,7 +2450,7 @@ export function startRun(
         } else if (
           !executionLeaseClaimFailed &&
           (run.abortReason === "superseded" ||
-            run.abortReason === "execution_lease_lost")
+            run.abortReason === EXECUTION_LEASE_LOST_ABORT_REASON)
         ) {
           terminalPersistenceEstablished = false;
         } else {
