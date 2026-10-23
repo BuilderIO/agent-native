@@ -157,47 +157,7 @@ Returns clip metadata, transcript status, chapters, CTAs, recommended frames, an
 
 ### CRM の通話証拠
 
-CRM ツールには、完全な録画なしで通話が行われた証拠が必要になることがあります。クリップが渡すのは不透明なクリップ ID と確かなリンクだけで、動画やトランスクリプトを渡すことはありません。これは、あなたが既に見られる録画に対してのみ機能し、あなたが頼んだとき、または承認された自動化がトリガーしたときにのみ機能します。
-
-<Diagram id="doc-block-clips-crm" title="CRM の通話証拠" summary={"clip.created 自動化が、メディア自体ではなく確かなリンクを CRM ワークフローに渡します。"}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">録画の準備完了</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">承認済みの自動化</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">証拠リンク</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">CRM レコード</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+CRM から Clips への通話自動化の設定はまだ利用できません。
 
 ### Dispatch を介した自然言語での委任
 

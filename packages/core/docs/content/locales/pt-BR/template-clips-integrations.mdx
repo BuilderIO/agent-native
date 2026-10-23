@@ -157,47 +157,7 @@ Depois que seu workspace conecta o Brain, o Clipes envia as transcrições pront
 
 ### Evidência de chamada para CRM
 
-Ferramentas de CRM às vezes precisam de prova de que uma chamada aconteceu, sem a gravação completa. O Clipes entrega apenas um ID de clipe opaco e um link durável, nunca o vídeo ou uma transcrição. Isso só funciona para uma gravação que você já pode ver, e apenas quando você pede ou uma automação aprovada dispara isso.
-
-<Diagram id="doc-block-clips-crm" title="Evidência de chamada para CRM" summary={"Uma automação de clip.created entrega a um fluxo de trabalho de CRM um link durável, nunca a mídia em si."}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">Gravação pronta</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">automação aprovada</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">Link de evidência</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">Registro no CRM</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+A configuração de automações de chamadas do CRM para o Clips ainda não está disponível.
 
 ### Delegação em linguagem natural através do Dispatch
 

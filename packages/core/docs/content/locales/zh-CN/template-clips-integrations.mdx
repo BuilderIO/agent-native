@@ -157,47 +157,7 @@ description: "剪辑如何与 Dispatch 及其他应用连接、代理可读的�
 
 ### CRM 通话证据
 
-CRM 工具有时需要证明一次通话确实发生过，而不需要完整的录制内容。剪辑只会交出一个不透明的剪辑 ID 和一个持久链接，绝不会交出视频或转录文本。这只对你已经能看到的一段录制内容有效，并且只在你主动要求，或一个已批准的自动化触发时才会发生。
-
-<Diagram id="doc-block-clips-crm" title="CRM 通话证据" summary={"一个 clip.created 自动化会把一个持久链接交给 CRM 工作流，绝不会交出媒体本身。"}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">录制已就绪</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">已批准的自动化</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">证据链接</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">CRM 记录</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+目前尚不支持设置从 CRM 到 Clips 的通话自动化。
 
 ### 通过 Dispatch 进行自然语言委托
 

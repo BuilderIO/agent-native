@@ -6,7 +6,7 @@ import {
 } from "./crm-automation-recipes.js";
 
 describe("Clips CRM automation recipe", () => {
-  it("is disabled by default and locks the recipe to one selected record", () => {
+  it("reports setup as unavailable for the selected record", () => {
     const recipe = buildClipsCallEvidenceRecipe({
       recordId: "opportunity_42",
       recordLabel: "Northstar renewal",
@@ -21,12 +21,18 @@ describe("Clips CRM automation recipe", () => {
         requiresDurablePageUrl: true,
       },
     });
-    expect(recipe.agentContext).toContain("prepare-crm-call-evidence");
+    expect(recipe.description).toBe(
+      "Setting up CRM-to-Clips call automations isn't available yet.",
+    );
+    expect(recipe.agentContext).toContain(recipe.description);
     expect(recipe.agentContext).not.toContain("approvedActions");
     expect(recipe.agentContext).toContain(
-      "Clips must obtain its own local approval",
+      "Do not delegate setup through call-agent",
     );
-    expect(recipe.agentContext).toContain("manage-automations");
+    expect(recipe.agentContext).not.toContain("Ask Clips to define and enable");
+    expect(recipe.agentContext).not.toContain(
+      "If the user explicitly approves activation",
+    );
     expect(recipe.agentContext).toContain("Northstar renewal");
   });
 

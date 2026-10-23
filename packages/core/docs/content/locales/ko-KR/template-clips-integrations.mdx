@@ -181,47 +181,7 @@ Dispatch → 에이전트 → 외부 에이전트 추가에서 공유 시크릿�
 
 ### CRM 통화 증거
 
-CRM 도구는 때때로 전체 녹화 없이 통화가 있었다는 증거만 필요로 합니다. 클립은 동영상이나 전사가 아니라 불투명한 클립 ID와 지속되는 링크만 건네줍니다. 이는 여러분이 이미 볼 수 있는 녹화에서만, 그리고 여러분이 요청하거나 승인된 자동화가 트리거될 때만 동작합니다.
-
-<Diagram id="doc-block-clips-crm" title="CRM 통화 증거" summary={"clip.created 자동화가 미디어 자체가 아니라 지속되는 링크를 CRM 워크플로에 건네줍니다."}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">녹화 준비 완료</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">승인된 자동화</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">증거 링크</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">CRM 레코드</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+CRM에서 Clips로의 통화 자동화 설정은 아직 사용할 수 없습니다.
 
 ### Dispatch를 통한 자연어 위임
 

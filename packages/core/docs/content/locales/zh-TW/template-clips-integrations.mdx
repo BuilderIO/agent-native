@@ -157,47 +157,7 @@ description: "剪輯如何連接到調度和其他應用程式、代理可讀的
 
 ### CRM 通話證明
 
-CRM 工具有時需要證明一通電話確實發生過，但不需要完整的錄音。剪輯只會交出一個不透明的剪輯 ID 和一個持久連結，絕不會交出影片或逐字稿。這只適用於您已經能看到的錄音，而且只有在您提出要求，或核准的自動化觸發時才會發生。
-
-<Diagram id="doc-block-clips-crm" title="CRM 通話證明" summary={"clip.created 自動化會把一個持久連結交給 CRM 工作流程，絕不會交出媒體檔案本身。"}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">錄音已就緒</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">已核准的自動化</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">證明連結</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">CRM 紀錄</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+目前尚不支援設定從 CRM 到 Clips 的通話自動化。
 
 ### 透過調度進行自然語言委派
 

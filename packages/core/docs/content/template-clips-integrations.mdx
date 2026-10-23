@@ -157,47 +157,7 @@ Once your workspace connects Brain, Clips sends ready transcripts over automatic
 
 ### CRM call evidence
 
-CRM tools sometimes need proof a call happened, without the full recording. Clips hands over just an opaque clip ID and a durable link, never the video or a transcript. This only works for a recording you can already see, and only when you ask for it or an approved automation triggers it.
-
-<Diagram id="doc-block-clips-crm" title="CRM call evidence" summary={"A clip.created automation hands a CRM workflow a durable link, never the media itself."}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">Recording ready</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">approved automation</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">Evidence link</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">CRM record</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+Setting up CRM-to-Clips call automations isn't available yet.
 
 ### Natural-language delegation through Dispatch
 
