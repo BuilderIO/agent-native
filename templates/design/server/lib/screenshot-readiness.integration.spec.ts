@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -13,6 +15,137 @@ afterAll(async () => {
 });
 
 describe("screenshot readiness in Chromium", () => {
+  it("loads native lazy images below the viewport before capture", async () => {
+    const context = await browser.newContext({
+      viewport: { width: 600, height: 800 },
+    });
+    try {
+      const page = await context.newPage();
+      await page.route("https://example.test/lazy.png", (route) =>
+        route.fulfill({
+          contentType: "image/png",
+          body: Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+            "base64",
+          ),
+        }),
+      );
+      await prepareScreenshotPage(
+        page,
+        '<html><body><div style="height:12000px"></div><img loading="lazy" src="https://example.test/lazy.png" width="1" height="1" alt="Footer artwork"></body></html>',
+      );
+      expect(
+        await page.locator("img").evaluate((element) => {
+          const image = element as HTMLImageElement;
+          return {
+            complete: image.complete,
+            width: image.naturalWidth,
+            belowViewport: image.getBoundingClientRect().top > innerHeight,
+          };
+        }),
+      ).toEqual({ complete: true, width: 1, belowViewport: true });
+    } finally {
+      await context.close();
+    }
+  });
+
+  it.each(["link", "import"])(
+    "waits for a delayed %s stylesheet and its font declarations",
+    async (kind) => {
+      const context = await browser.newContext();
+      const pendingRoutes: Promise<void>[] = [];
+      try {
+        const page = await context.newPage();
+        const font = await readFile(
+          new URL(
+            import.meta
+              .resolve("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2"),
+          ),
+        );
+        await page.route("https://example.test/delayed.css", (route) => {
+          const pending = new Promise<void>((resolve) =>
+            setTimeout(resolve, 1_200),
+          ).then(() =>
+            route.fulfill({
+              contentType: "text/css",
+              body: '@font-face{font-family:ScreenshotReadiness;src:url("https://example.test/font.woff2")}h1{color:rgb(1,2,3);font-family:ScreenshotReadiness}',
+            }),
+          );
+          pendingRoutes.push(pending);
+          return pending;
+        });
+        await page.route("https://example.test/font.woff2", (route) => {
+          const pending = new Promise<void>((resolve) =>
+            setTimeout(resolve, 200),
+          ).then(() =>
+            route.fulfill({ contentType: "font/woff2", body: font }),
+          );
+          pendingRoutes.push(pending);
+          return pending;
+        });
+        const stylesheet =
+          kind === "link"
+            ? '<link rel="stylesheet" href="https://example.test/delayed.css">'
+            : '<style>@import url("https://example.test/delayed.css");</style>';
+        await prepareScreenshotPage(
+          page,
+          `<html><head>${stylesheet}</head><body><h1>Ready styles</h1></body></html>`,
+        );
+        expect(
+          await page.locator("h1").evaluate((heading) => ({
+            color: getComputedStyle(heading).color,
+            fontReady: document.fonts.check("24px ScreenshotReadiness"),
+          })),
+        ).toEqual({ color: "rgb(1, 2, 3)", fontReady: true });
+      } finally {
+        await Promise.all(pendingRoutes);
+        await context.close();
+      }
+    },
+  );
+
+  it.each(["network", "http"])(
+    "reports a failed %s stylesheet instead of capturing unstyled content",
+    async (failure) => {
+      const context = await browser.newContext();
+      try {
+        const page = await context.newPage();
+        await page.route("https://example.test/failed.css", (route) =>
+          failure === "network"
+            ? route.abort()
+            : route.fulfill({ status: 404, contentType: "text/css", body: "" }),
+        );
+        await expect(
+          prepareScreenshotPage(
+            page,
+            '<html><head><link rel="stylesheet" href="https://example.test/failed.css"></head><body>Unstyled</body></html>',
+          ),
+        ).rejects.toMatchObject({ errorCode: "screenshot_styles_failed" });
+      } finally {
+        await context.close();
+      }
+    },
+  );
+
+  it("reports pending stylesheets when a stylesheet never finishes", async () => {
+    const context = await browser.newContext();
+    try {
+      const page = await context.newPage();
+      await page.route("https://example.test/stalled.css", () => {});
+      await expect(
+        prepareScreenshotPage(
+          page,
+          '<html><head><link rel="stylesheet" href="https://example.test/stalled.css"></head><body>Unstyled</body></html>',
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "screenshot_styles_unready",
+        details: { pendingStylesheets: ["https://example.test/stalled.css"] },
+      });
+    } finally {
+      await context.close();
+    }
+  });
+
   it("captures ready content while an unrelated network request remains open", async () => {
     const context = await browser.newContext();
     try {

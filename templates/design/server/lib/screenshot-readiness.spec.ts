@@ -5,6 +5,8 @@ import { prepareScreenshotPage } from "./screenshot-readiness.js";
 
 function pageWithPendingImage(error: Error) {
   return {
+    on: vi.fn(),
+    off: vi.fn(),
     setContent: vi.fn().mockResolvedValue(undefined),
     evaluate: vi.fn().mockResolvedValue(["https://example.test/pending.png"]),
     waitForFunction: vi.fn().mockRejectedValue(error),
