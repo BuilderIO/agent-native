@@ -666,6 +666,7 @@ async function placeSuggestion(
 async function lockSuggestionTarget(tx: DbExec, documentId: string) {
   const eligiblePrimaryIds = await assertSuggestionBodyTarget(tx, documentId);
   const identityTx = drizzleTransactionForExec(tx);
+  // guard:allow-unscoped — core's decide action asserted edit access to this Page before applying.
   await tx.execute({
     sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
     args: [documentId],
