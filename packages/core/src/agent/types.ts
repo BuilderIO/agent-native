@@ -450,6 +450,12 @@ export type AgentChatEvent =
       /** False marks current completed events; absence is reserved for older journals. */
       approvalPause?: boolean;
       outcomeUnknown?: true;
+      /**
+       * With `outcomeUnknown`: `rejection` when the call failed and said so
+       * without showing it wrote nothing, `interruption` when its result never
+       * came.
+       */
+      unknownCause?: "rejection" | "interruption";
       /** Why a failed call failed, where the loop could tell. */
       errorClass?: ToolErrorClass;
       replayed?: true;

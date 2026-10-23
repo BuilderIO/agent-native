@@ -328,7 +328,10 @@ describe("a write whose outcome is really unknown", () => {
     ]);
 
     expect(run).toHaveBeenCalledTimes(1);
-    expect(toolDones(events)[0]).toMatchObject({ outcomeUnknown: true });
+    expect(toolDones(events)[0]).toMatchObject({
+      outcomeUnknown: true,
+      unknownCause: "interruption",
+    });
     expect(toolDones(events)[1]?.result).toContain(
       "The send action was interrupted 1 time(s)",
     );
@@ -367,11 +370,19 @@ describe("a write whose outcome is really unknown", () => {
   });
 
   it.each([
-    ["rejection", "Error running send: Upstream rejected the request."],
-    ["interruption", "Tool call timed out after 20 seconds"],
+    [
+      "rejection",
+      "Error running send: Upstream rejected the request.",
+      { unknownCause: "rejection" },
+    ],
+    [
+      "interruption",
+      "The send action was interrupted and its result is unknown.",
+      {},
+    ],
   ] as const)(
     "names the recorded cause, %s, when a resumed turn repeats the call",
-    async (cause, result) => {
+    async (cause, result, recorded) => {
       const input = { body: "Refund sent" };
       currentTurnEvents.mockResolvedValue([
         { type: "tool_start", id: "earlier", tool: "send", input },
@@ -383,6 +394,7 @@ describe("a write whose outcome is really unknown", () => {
           result,
           isError: true,
           outcomeUnknown: true,
+          ...recorded,
           argumentsHash: actionArgumentsHash(input),
         },
       ]);
@@ -425,6 +437,7 @@ describe("a write whose outcome is really unknown", () => {
 
     expect(toolDones(events)[0]).toMatchObject({
       outcomeUnknown: true,
+      unknownCause: "rejection",
     });
     expect(toolDones(events)[0]?.errorClass).toBeUndefined();
   });

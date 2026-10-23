@@ -5195,16 +5195,6 @@ interface UnknownOutcomes {
  */
 type UnknownOutcomeCause = "rejection" | "interruption";
 
-/** The cause of an unknown outcome recorded with `result`, if one was. */
-function unknownOutcomeCauseOf(result: unknown): UnknownOutcomeCause {
-  return typeof result === "string" &&
-    result.length > 0 &&
-    !isInterruptedToolResult(result) &&
-    !isToolCallTimeoutResult(result)
-    ? "rejection"
-    : "interruption";
-}
-
 function noteUnknownOutcome(
   outcomes: UnknownOutcomes,
   tool: string,
@@ -5268,7 +5258,7 @@ function seedUnknownOutcomes(
     tool: string;
     argumentsHash?: string;
     input?: unknown;
-    unknownResult?: string;
+    unknownCause?: UnknownOutcomeCause;
   }[],
 ): void {
   const fromJournal = noUnknownOutcomes();
@@ -5277,7 +5267,8 @@ function seedUnknownOutcomes(
       fromJournal,
       entry.tool,
       entry.argumentsHash,
-      unknownOutcomeCauseOf(entry.unknownResult),
+      // Recorded with the event; one recorded without it was an interruption.
+      entry.unknownCause ?? "interruption",
       entry.input,
     );
   }
@@ -5320,7 +5311,7 @@ function seedUnknownOutcomes(
         fromHistory,
         call.name,
         effect ? priorCallIdentities.get(call.identityKey ?? "") : undefined,
-        unknownOutcomeCauseOf(part.content),
+        "interruption",
         call.input,
       );
     }
@@ -8894,6 +8885,9 @@ export async function runAgentLoop(opts: {
         const persisted = Promise.resolve(
           send({
             ...event,
+            ...(event.outcomeUnknown
+              ? { unknownCause: unknownOutcomeCause }
+              : {}),
             ...(argumentsHash ? { argumentsHash } : {}),
             ...(executionStepId ? { executionStepId } : {}),
           }),
