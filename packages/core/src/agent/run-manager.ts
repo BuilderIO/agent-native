@@ -2265,23 +2265,29 @@ export function startRun(
               persistedStatus,
               terminalStatusOptions,
             );
-      const persistOwnTerminalStatus = async () => {
-        const write = withWorkerFence(persistTerminalStatus);
+      const persistOwnTerminalState = async (
+        persist: () => Promise<boolean>,
+      ) => {
+        const write = withWorkerFence(persist);
         terminalStatusWrite = write;
         try {
-          const updated = await write;
-          if (updated) ownTerminalStatusEstablished = true;
-          return updated;
+          const established = await write;
+          if (established) ownTerminalStatusEstablished = true;
+          return established;
         } finally {
           if (terminalStatusWrite === write) terminalStatusWrite = null;
         }
       };
+      const persistOwnTerminalStatus = () =>
+        persistOwnTerminalState(persistTerminalStatus);
       const reconcileTerminalRun = () =>
-        threadProjectionPending
-          ? reconcileTerminalRunFromEvents(runId, {
-              threadProjectionPending: true,
-            })
-          : reconcileTerminalRunFromEvents(runId);
+        persistOwnTerminalState(() =>
+          threadProjectionPending
+            ? reconcileTerminalRunFromEvents(runId, {
+                threadProjectionPending: true,
+              })
+            : reconcileTerminalRunFromEvents(runId),
+        );
       const reportTerminalStatusPersistenceError = (error: unknown) => {
         captureError(error, {
           route: "/_agent-native/agent-chat",
@@ -2330,7 +2336,7 @@ export function startRun(
               continuationStatusPersistedBeforeEvent =
                 await persistOwnTerminalStatus();
               if (!continuationStatusPersistedBeforeEvent) {
-                await withWorkerFence(reconcileTerminalRun);
+                await reconcileTerminalRun();
                 const persistedRun = await getRunById(runId);
                 continuationStatusPersistedBeforeEvent =
                   persistedRun?.status === "truncated" &&
@@ -2420,7 +2426,7 @@ export function startRun(
               : await withWorkerFence(persistAtomicAbort);
             terminalPersistenceEstablished = aborted
               ? true
-              : await withWorkerFence(reconcileTerminalRun);
+              : await reconcileTerminalRun();
           } catch (error) {
             terminalPersistenceEstablished = false;
             reportTerminalStatusPersistenceError(error);
@@ -2450,8 +2456,7 @@ export function startRun(
               }
               terminalPersistenceEstablished = !terminalPersistenceError;
             } else {
-              terminalPersistenceEstablished =
-                await withWorkerFence(reconcileTerminalRun);
+              terminalPersistenceEstablished = await reconcileTerminalRun();
             }
           }
         } catch (error) {
@@ -2510,7 +2515,7 @@ export function startRun(
       if (terminalPersistenceError) {
         const reconciled = eventPersistenceError
           ? false
-          : await withWorkerFence(reconcileTerminalRun);
+          : await reconcileTerminalRun();
         if (!reconciled) throw terminalPersistenceError;
         terminalPersistenceEstablished = true;
       }
