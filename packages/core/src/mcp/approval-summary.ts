@@ -72,25 +72,49 @@ export function humanizeIdentifier(identifier: string): string {
 }
 
 /**
- * The addresses a string names when it names nothing else, as recipient
- * arguments often do: `a@x.com, Ana <b@x.com>`.
+ * A recipient string's parts, as it lists them: `a@x.com, "Doe, Jo" <b@x.com>`.
+ * A separator inside a quoted name doesn't split it, unless a quote is left
+ * open and every separator does.
  */
-function addressList(text: string): string[] | undefined {
-  const addresses: string[] = [];
-  for (const part of text.split(ADDRESS_SEPARATOR)) {
-    if (!part.trim()) continue;
-    const named = NAMED_ADDRESS.exec(part.trim());
-    const address = (named ? named[1] : part).trim();
-    if (!EMAIL.test(address)) return undefined;
-    addresses.push(address);
+function addressParts(text: string): string[] {
+  const parts: string[] = [];
+  let part = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (quoted && char === "\\") {
+      part += text.slice(i, i + 2);
+      i++;
+      continue;
+    }
+    if (char === '"') quoted = !quoted;
+    if (!quoted && ADDRESS_SEPARATOR.test(char)) {
+      parts.push(part);
+      part = "";
+    } else {
+      part += char;
+    }
   }
-  return addresses.length > 0 ? addresses : undefined;
+  parts.push(part);
+  return (quoted ? text.split(ADDRESS_SEPARATOR) : parts)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/** The address a part names, bare or after a name (`Ana <a@x.com>`). */
+function partAddress(part: string): string | undefined {
+  const address = (NAMED_ADDRESS.exec(part)?.[1] ?? part).trim();
+  return EMAIL.test(address) ? address : undefined;
 }
 
 function collectEmails(value: unknown, into: Set<string>, depth: number) {
   if (depth > MAX_DEPTH) return;
   if (typeof value === "string") {
-    for (const address of addressList(value) ?? []) into.add(address);
+    // A part that names no one, such as `Team`, hides none of the others.
+    for (const part of addressParts(value)) {
+      const address = partAddress(part);
+      if (address) into.add(address);
+    }
     return;
   }
   if (Array.isArray(value)) {

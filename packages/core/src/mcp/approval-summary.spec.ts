@@ -299,9 +299,10 @@ describe("summarizeMcpApproval", () => {
       entry: undefined,
       actionName: "send-email",
       argumentsJson: JSON.stringify({
-        to: "ana@example.com, Bo <bo@example.com>",
-        cc: "cy@example.com;\ndee@example.com",
-        bcc: "Team, eve@example.com",
+        to: 'ana@example.com, Bo <bo@example.com>, "Doe, Cy" <cy@example.com>',
+        cc: "dee@example.com;\neve@example.com",
+        bcc: "Team, fay@example.com",
+        guests: '"Gus <gus@example.com>, hal@example.com',
       }),
       labels,
     });
@@ -310,6 +311,10 @@ describe("summarizeMcpApproval", () => {
       "bo@example.com",
       "cy@example.com",
       "dee@example.com",
+      "eve@example.com",
+      "fay@example.com",
+      "gus@example.com",
+      "hal@example.com",
     ]);
   });
 

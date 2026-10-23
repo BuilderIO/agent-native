@@ -76,6 +76,14 @@ describe("redactArgsToJson", () => {
       "Authorization: [redacted]\r\nBody: visible",
     ],
     [
+      "Authorization: fake-token\nBody: visible",
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
+      "Authorization: Bearer-ish\nBody: visible",
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
       "Authorization:\nContent-Type: application/json\nBody: visible",
       "Authorization:\n[redacted]\nBody: visible",
     ],

@@ -59,11 +59,14 @@ const EMBEDDED_BEARER = new RegExp(
   String.raw`\b(bearer\s+)(${QUOTED_CREDENTIAL}|[^\s"',}]+)`,
   "gi",
 );
+// HTTP's registered authentication schemes, and common unregistered ones.
+const AUTH_SCHEME = String.raw`(?:basic|bearer|concealed|digest|dpop|gnap|hoba|mutual|negotiate|ntlm|oauth|privatetoken|scram-sha-(?:1|256)|vapid|token|apikey|aws4-hmac-sha256)(?![\w-])`;
 // A scheme alone on its line (`Bearer`, `Basic`) takes the credential on the
 // next one; stopping at the newline would strip the scheme the bearer pass
-// needs and leave the credential bare.
+// needs and leave the credential bare. Any other word is the credential
+// itself, and the next line is content a reviewer must still see.
 const EMBEDDED_AUTHORIZATION = new RegExp(
-  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(${QUOTED_CREDENTIAL}|(?:[\w-]+[ \t]*\r?\n\s*)?[^\r\n]+)`,
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(${QUOTED_CREDENTIAL}|(?:${AUTH_SCHEME}[ \t]*\r?\n\s*)?[^\r\n]+)`,
   "gi",
 );
 const EMBEDDED_CREDENTIAL_FIELD = new RegExp(
