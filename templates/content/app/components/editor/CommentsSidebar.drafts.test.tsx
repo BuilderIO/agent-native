@@ -22,6 +22,13 @@ function createRoot(container: Parameters<typeof createReactRoot>[0]) {
     );
   return root;
 }
+
+/** Reply composers; the Discussion panel's composer for the page is not one. */
+function replyEditors(root: ParentNode) {
+  return [...root.querySelectorAll<HTMLElement>(".ProseMirror")].filter(
+    (editor) => !editor.closest("[data-discussion-composer]"),
+  );
+}
 import { expect, it, vi } from "vitest";
 
 import {
@@ -193,7 +200,14 @@ it("interleaves ordinary, saved, and draft discussions by creation time", async 
   }
   try {
     await act(async () => root.render(<Harness />));
-    const text = container.textContent!;
+    // Page order puts comments on the whole page before suggested edits.
+    let text = container.textContent!;
+    expect(text.indexOf("Ordinary 2")).toBeLessThan(
+      text.indexOf("Saved middle"),
+    );
+    expect(text.indexOf("Ordinary 2")).toBeLessThan(text.indexOf("Draft last"));
+    await act(async () => controller.setHistoryFilters({ sort: "oldest" }));
+    text = container.textContent!;
     expect(text.indexOf("Ordinary 0")).toBeLessThan(
       text.indexOf("Saved middle"),
     );
@@ -207,6 +221,10 @@ it("interleaves ordinary, saved, and draft discussions by creation time", async 
     expect(container.textContent).toContain("Ordinary 0");
   } finally {
     await act(async () => root.unmount());
+    localStorage.removeItem(`content-discussion-sort:${JSON.stringify("")}`);
+    localStorage.removeItem(
+      `content-discussion-filters:${JSON.stringify(["", "chronology"])}`,
+    );
   }
 });
 
@@ -564,7 +582,7 @@ it("renders exact marked hard-break replacement summaries without delimiter leak
   }
 });
 
-it("preserves all history filters across rail and Sheet remounts, resetting only for a new document or reveal intent", async () => {
+it("preserves all history filters across rail and Sheet remounts, keeping them per document and resetting only for a reveal intent", async () => {
   const container = document.createElement("div");
   const root = createRoot(container);
   let controller!: ReturnType<typeof useCommentReplyDrafts>;
@@ -591,6 +609,19 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     kind: "suggestions" as const,
     author: "reviewer@example.test",
     tab: "notes",
+    target: "all" as const,
+    mentionsMe: false,
+    query: "",
+    sort: "page" as const,
+  };
+  const unfiltered = {
+    kind: "all",
+    author: null,
+    tab: null,
+    target: "all",
+    mentionsMe: false,
+    query: "",
+    sort: "page",
   };
   try {
     await act(async () =>
@@ -606,12 +637,7 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     );
     expect(controller.historyFilters).toEqual(filters);
     await act(async () => controller.revealHistory("conflict", null));
-    expect(controller.historyFilters).toEqual({
-      status: "all",
-      kind: "all",
-      author: null,
-      tab: null,
-    });
+    expect(controller.historyFilters).toEqual({ status: "all", ...unfiltered });
     await act(async () => controller.setHistoryFilters(filters));
     await act(async () => controller.revealHistory("conflict", null));
     expect(controller.historyFilters).toEqual(filters);
@@ -623,16 +649,20 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     );
     expect(controller.historyFilters).toEqual({
       status: "open",
-      kind: "all",
-      author: null,
-      tab: null,
+      ...unfiltered,
     });
+    // Each Page keeps the filters someone chose on it.
     await act(async () =>
       root.render(<Harness documentId="one" layout="rail" />),
     );
-    expect(controller.historyFilters.status).toBe("open");
+    expect(controller.historyFilters).toEqual(filters);
   } finally {
     await act(async () => root.unmount());
+    for (const documentId of ["one", "two"])
+      localStorage.removeItem(
+        `content-discussion-filters:${JSON.stringify(["", documentId])}`,
+      );
+    localStorage.removeItem(`content-discussion-sort:${JSON.stringify("")}`);
   }
 });
 
@@ -830,10 +860,12 @@ it.each(["ordinary", "suggestion"] as const)(
         },
       ],
     });
+    // On text, so the margin rail shows it too; a page comment stays in the
+    // Discussion panel.
     const thread = {
       threadId: "ordinary-responsive",
       resolved: false,
-      quotedText: null,
+      quotedText: "Quoted line",
       prefix: null,
       suffix: null,
       startOffset: null,
@@ -844,7 +876,7 @@ it.each(["ordinary", "suggestion"] as const)(
           thread_id: "ordinary-responsive",
           parent_id: null,
           content: "Review this",
-          quoted_text: null,
+          quoted_text: "Quoted line",
           anchor_prefix: null,
           anchor_suffix: null,
           anchor_start_offset: null,
@@ -892,13 +924,13 @@ it.each(["ordinary", "suggestion"] as const)(
         drafts.setText(threadId, "First line\nSecond line"),
       );
       await settle();
-      let input = container.querySelector<HTMLElement>(".ProseMirror")!;
+      let input = replyEditors(container)[0];
       await setRichEditorSelection(input, 3, 15, "backward");
       for (const surface of ["sheet", "rail"]) {
         await act(async () => root.render(<Harness surface={surface} />));
         await settle();
-        expect(container.querySelectorAll(".ProseMirror")).toHaveLength(1);
-        input = container.querySelector<HTMLElement>(".ProseMirror")!;
+        expect(replyEditors(container)).toHaveLength(1);
+        input = replyEditors(container)[0];
         expect(richEditorValue(input)).toBe("First line\nSecond line");
         expect(document.activeElement).toBe(input);
         expect(selectedRichText(input)).toBe("st lineSec");
@@ -906,12 +938,10 @@ it.each(["ordinary", "suggestion"] as const)(
       input.blur();
       await act(async () => root.render(<Harness surface="sheet" />));
       await settle();
-      expect(document.activeElement).not.toBe(
-        container.querySelector(".ProseMirror"),
-      );
+      expect(document.activeElement).not.toBe(replyEditors(container)[0]);
       await act(async () => drafts.setOpenReply(null));
       await act(async () => root.render(<Harness surface="rail" />));
-      expect(container.querySelector(".ProseMirror")).toBeNull();
+      expect(replyEditors(container)).toEqual([]);
       expect(drafts.get(threadId).text).toBe("First line\nSecond line");
     } finally {
       await act(async () => root.unmount());
@@ -984,23 +1014,19 @@ it("hands focus from a retained inert history rail to the sheet without clearing
       drafts.setText(saved.threadId, "First line\nSecond line"),
     );
     await settle();
-    const oldInput = container.querySelector<HTMLElement>(".ProseMirror")!;
+    const oldInput = replyEditors(container)[0];
     await setRichEditorSelection(oldInput, 3, 15, "backward");
     await act(async () => root.render(<Harness compact />));
     expect(oldInput.isConnected).toBe(true);
     expect(oldInput.closest("[inert]")).not.toBeNull();
     oldInput.blur();
     await settle();
-    const input = container.querySelector<HTMLElement>(
-      "[data-sheet] .ProseMirror",
-    )!;
+    const input = replyEditors(container.querySelector("[data-sheet]")!)[0];
     expect(document.activeElement).toBe(input);
     expect(richEditorValue(input)).toBe("First line\nSecond line");
     expect(selectedRichText(input)).toBe("st lineSec");
     expect(
-      [...container.querySelectorAll(".ProseMirror")].filter(
-        (element) => !element.closest("[inert]"),
-      ),
+      replyEditors(container).filter((element) => !element.closest("[inert]")),
     ).toEqual([input]);
     await act(async () => root.render(<Harness compact retained={false} />));
     expect(document.activeElement).toBe(input);
@@ -1009,9 +1035,7 @@ it("hands focus from a retained inert history rail to the sheet without clearing
     expect(drafts.focus.current).toBeNull();
     await act(async () => root.render(<Harness />));
     await settle();
-    expect(document.activeElement).not.toBe(
-      container.querySelector(".ProseMirror"),
-    );
+    expect(document.activeElement).not.toBe(replyEditors(container)[0]);
   } finally {
     await act(async () => root.unmount());
     container.remove();
@@ -1235,6 +1259,8 @@ it("names suggestion authors by display name before their email", async () => {
     anchor: { from: 0, to: 5, prefix: "", suffix: "" },
   };
   const container = document.createElement("div");
+  // Attached, so the Filter menu can open inside the panel.
+  document.body.append(container);
   const root = createRoot(container);
   function Harness({ presentation }: { presentation: "inline" | "history" }) {
     const replyDrafts = useCommentReplyDrafts("document-authors");
@@ -1262,13 +1288,23 @@ it("names suggestion authors by display name before their email", async () => {
     expect(container.textContent).not.toContain("an-e2e-probe-agent");
 
     await act(async () => root.render(<Harness presentation="history" />));
-    const authorFilters = [...container.querySelectorAll("button")].map(
-      (button) => button.textContent,
+    // The people to filter by are in the Filter menu.
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-discussion-filter-trigger]")!
+        .click(),
     );
+    const authorFilters = [
+      ...document.querySelectorAll(
+        '[data-discussion-filter-group="person"] [data-discussion-filter-option]',
+      ),
+    ].map((option) => option.textContent);
     expect(authorFilters).toContain("Probe Agent");
     expect(container.textContent).not.toContain("an-e2e-probe-agent");
+    expect(document.body.textContent).not.toContain("an-e2e-probe-agent");
   } finally {
     await act(async () => root.unmount());
+    container.remove();
   }
 });
 
@@ -1383,9 +1419,10 @@ it("shows an explicit unavailable label for invalid provided suggestion context"
 });
 
 it("shares hover, focus, and reduced-motion behavior across comment and suggestion cards", async () => {
+  // On text: the rail leaves a comment on the whole page to the panel.
   const thread = {
     threadId: "ordinary-thread",
-    quotedText: null,
+    quotedText: "Quoted line",
     prefix: null,
     suffix: null,
     startOffset: null,
@@ -1397,7 +1434,7 @@ it("shares hover, focus, and reduced-motion behavior across comment and suggesti
         thread_id: "ordinary-thread",
         parent_id: null,
         content: "A focused comment",
-        quoted_text: null,
+        quoted_text: "Quoted line",
         anchor_prefix: null,
         anchor_suffix: null,
         anchor_start_offset: null,

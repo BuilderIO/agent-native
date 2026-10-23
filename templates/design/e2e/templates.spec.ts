@@ -98,14 +98,6 @@ async function getAction(
   return response.json();
 }
 
-// A template card opens a read-only preview; its Use template button copies it.
-async function useTemplateFromPreview(page: Page) {
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Use template", exact: true })
-    .click({ timeout: 30_000 });
-}
-
 function watchBrowserErrors(page: Page) {
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
@@ -155,6 +147,12 @@ test("built-in template preserves its dimensions and locks and can be saved agai
     });
     await expect(templateButton).toBeVisible({ timeout: 30_000 });
 
+    await templateButton.click();
+    const previewDialog = page.getByRole("dialog", {
+      name: "Event story — vertical",
+      exact: true,
+    });
+    await expect(previewDialog).toBeVisible({ timeout: 15_000 });
     const createResponse = page.waitForResponse(
       (response) =>
         response
@@ -162,8 +160,9 @@ test("built-in template preserves its dimensions and locks and can be saved agai
           .includes("/_agent-native/actions/create-design-from-template") &&
         response.request().method() === "POST",
     );
-    await templateButton.click();
-    await useTemplateFromPreview(page);
+    await previewDialog
+      .getByRole("button", { name: "Use template", exact: true })
+      .click();
     const createResponseResult = await createResponse;
     expect(createResponseResult.ok()).toBe(true);
     expect(createResponseResult.request().postDataJSON()).toMatchObject({
@@ -334,6 +333,17 @@ test("the Home Templates tab opens a fresh copy of a built-in template in the ed
 }) => {
   await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
   await page.getByRole("tab", { name: "Templates", exact: true }).click();
+  const templateButton = page.getByRole("button", {
+    name: "Event story — vertical",
+    exact: true,
+  });
+  await expect(templateButton).toBeVisible({ timeout: 15_000 });
+  await templateButton.click();
+  const previewDialog = page.getByRole("dialog", {
+    name: "Event story — vertical",
+    exact: true,
+  });
+  await expect(previewDialog).toBeVisible({ timeout: 15_000 });
   const createResponse = page.waitForResponse(
     (response) =>
       response
@@ -341,10 +351,9 @@ test("the Home Templates tab opens a fresh copy of a built-in template in the ed
         .includes("/_agent-native/actions/create-design-from-template") &&
       response.request().method() === "POST",
   );
-  await page
-    .getByRole("button", { name: "Event story — vertical", exact: true })
+  await previewDialog
+    .getByRole("button", { name: "Use template", exact: true })
     .click();
-  await useTemplateFromPreview(page);
   const response = await createResponse;
   expect(response.ok()).toBe(true);
   expect(response.request().postDataJSON()).toMatchObject({

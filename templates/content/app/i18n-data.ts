@@ -2,6 +2,10 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import {
+  discussionMessages,
+  discussionMessagesByLocale,
+} from "./discussion-messages";
 import { importMessagesByLocale } from "./import-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
@@ -1634,6 +1638,7 @@ const enUS = {
   },
   comments: {
     ...commentAttributionMessagesByLocale["en-US"],
+    ...discussionMessages,
     filter: "Filter",
     add: "Add a comment...",
     title: "Comments",
@@ -2546,6 +2551,7 @@ function mergeMessagesForLocale(
       ...base.comments,
       ...bundle.comments,
       ...bundle.reviewDiscussions,
+      ...discussionMessagesByLocale[locale],
     },
     landing: { ...base.landing, ...bundle.landing },
     root: { ...base.root, ...rawLiteralOverrides.root },
