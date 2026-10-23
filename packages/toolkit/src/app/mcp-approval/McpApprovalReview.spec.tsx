@@ -427,6 +427,48 @@ describe("deciding", () => {
     expect(button("Approve").disabled).toBe(false);
   });
 
+  it("shows the decision the server saved when its answer was lost", async () => {
+    let saved = false;
+    serve(
+      () =>
+        respond(
+          200,
+          saved
+            ? { ...pendingView(), state: "denied", csrfToken: undefined }
+            : pendingView(),
+        ),
+      () => {
+        saved = true;
+        return Promise.reject(new TypeError("offline"));
+      },
+    );
+    await renderPage();
+
+    await click("Deny");
+
+    expect(text()).toContain("Denied. Nothing ran.");
+    expect(text()).not.toContain("wasn't saved");
+  });
+
+  it("says it can't confirm a decision when the review can't be read either", async () => {
+    let reads = 0;
+    serve(
+      () =>
+        reads++ === 0
+          ? respond(200, pendingView())
+          : Promise.reject(new TypeError("offline")),
+      () => Promise.reject(new TypeError("offline")),
+    );
+    await renderPage();
+
+    await click("Approve");
+
+    expect(text()).toContain(
+      "Your decision couldn't be confirmed. Reload this page to see whether it was saved.",
+    );
+    expect(button("Approve").disabled).toBe(false);
+  });
+
   it.each([
     [403, {}, "This page is out of date. Reload it and decide again."],
     [401, {}, "Sign in to review this request."],

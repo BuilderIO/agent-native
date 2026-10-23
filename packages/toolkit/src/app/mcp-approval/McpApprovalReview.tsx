@@ -59,6 +59,7 @@ type Loaded =
 /** Why the last decision didn't land, in the page's own words. */
 type DecisionProblem =
   | "saveFailed"
+  | "decisionUnconfirmed"
   | "pageOutOfDate"
   | "signInToReview"
   | "signInUnavailable";
@@ -522,6 +523,23 @@ function Review({
   const { summary } = view;
   const pending = view.state === "pending";
 
+  // A lost or unreadable answer doesn't mean the decision wasn't saved; only
+  // the grant's own state says.
+  const recheck = async () => {
+    try {
+      const current = await fetchMcpApproval(id);
+      if (current.status !== "ready") {
+        setProblem("decisionUnconfirmed");
+      } else if (current.view.state === "pending") {
+        setProblem("saveFailed");
+      } else {
+        onDecided(current.view.state, current.view.expiresAt);
+      }
+    } catch {
+      setProblem("decisionUnconfirmed");
+    }
+  };
+
   const decide = async (decision: "approve" | "deny") => {
     if (!view.csrfToken) return;
     setSaving(decision);
@@ -540,14 +558,15 @@ function Review({
         setProblem(UNDECIDABLE[result.status]);
       }
     } catch {
-      setProblem("saveFailed");
+      await recheck();
     }
     setSaving(null);
   };
 
   // The token or session behind this page is gone: deciding again here would
   // fail the same way, so the buttons stay off until a reload.
-  const stuck = problem !== null && problem !== "saveFailed";
+  const stuck =
+    problem !== null && Object.values(UNDECIDABLE).includes(problem);
 
   return (
     <>

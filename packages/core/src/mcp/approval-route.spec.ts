@@ -256,8 +256,8 @@ const getHtml = (id: string, headers: Record<string, string> = {}) =>
     headers: { accept: "text/html,application/xhtml+xml", ...headers },
   });
 
-/** The text of the plain page's times once its own script has run over them. */
-function localizedTimes(html: string): string[] {
+/** The plain page's data and its own script. */
+function pageParts(html: string) {
   const data =
     /<script type="application\/json" id="approval-data">([\s\S]*?)<\/script>/.exec(
       html,
@@ -266,6 +266,12 @@ function localizedTimes(html: string): string[] {
   if (data === undefined || script === undefined) {
     throw new Error("The page has no script");
   }
+  return { data, script };
+}
+
+/** The text of the plain page's times once its own script has run over them. */
+function localizedTimes(html: string): string[] {
+  const { data, script } = pageParts(html);
   const times = [...html.matchAll(/<time ([^>]*)>/g)].map(([, attributes]) => {
     const values = new Map(
       [...attributes.matchAll(/([\w-]+)="([^"]*)"/g)].map(
@@ -319,14 +325,7 @@ function pageScript(
   html: string,
   fetch: (path: string, init?: { method?: string; body?: string }) => unknown,
 ) {
-  const data =
-    /<script type="application\/json" id="approval-data">([\s\S]*?)<\/script>/.exec(
-      html,
-    )?.[1];
-  const script = /<script nonce="[^"]+">([\s\S]*?)<\/script>/.exec(html)?.[1];
-  if (data === undefined || script === undefined) {
-    throw new Error("The page has no script");
-  }
+  const { data, script } = pageParts(html);
   const result = { textContent: "" };
   const buttons = [{ disabled: false }, { disabled: false }];
   const listeners = new Map<string, () => void>();
