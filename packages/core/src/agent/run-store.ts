@@ -5940,6 +5940,7 @@ async function retryPendingStaleRunThreadProjections(
   const { rows } = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE thread_projection_pending IS TRUE
+            AND ${earlierTurnProjectionPendingSql()}
           ORDER BY completed_at ASC, id ASC
           LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
     args: [],

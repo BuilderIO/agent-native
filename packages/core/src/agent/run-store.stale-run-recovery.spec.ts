@@ -1630,6 +1630,56 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
     expect((await readRow(eligible.runId))?.status).toBe("errored");
   });
 
+  it("does not let deferred projection markers starve later projections", async () => {
+    currentClient = makeRawClient(true);
+    const blockedCount = 201;
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { continuationOrder: 0 });
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(Date.now(), runId);
+    for (let order = 1; order <= blockedCount; order += 1) {
+      const blockedRunId = `${runId}-blocked-${order}`;
+      await insertRun(blockedRunId, thread, turn, {
+        continuationOrder: order,
+      });
+      await pglite
+        .prepare(
+          `UPDATE agent_runs
+           SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+           WHERE id = ?`,
+        )
+        .run(Date.now() + order, blockedRunId);
+    }
+    const eligible = ids();
+    await insertRun(eligible.runId, eligible.thread, eligible.turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(Date.now() + blockedCount + 1, eligible.runId);
+    foldReapedRunIntoThreadMock.mockImplementation(async (foldedRunId) =>
+      foldedRunId === runId ? "retry" : "projected",
+    );
+
+    const swept = await reapAllStaleRuns();
+
+    expect(swept).toEqual({ reaped: 0, failed: 1, truncated: false });
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledWith(eligible.runId);
+    expect((await readRow(eligible.runId))?.thread_projection_pending).toBe(
+      false,
+    );
+    expect(
+      (await readRow(`${runId}-blocked-1`))?.thread_projection_pending,
+    ).toBe(true);
+  });
+
   it("defers recovered successors until their predecessor projection can be retried", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
