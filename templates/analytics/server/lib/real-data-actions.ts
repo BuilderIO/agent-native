@@ -1667,7 +1667,7 @@ const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
 const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
 
 const EXPLICIT_PARTIAL_DISCLOSURE =
-  /\b(?:partial\s+(?:results?|rows?|data)|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
+  /\b(?:not\s+(?:yet\s+)?complete|partial\s+(?:results?|rows?|data)|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
 
 const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
   /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
@@ -1756,10 +1756,35 @@ export function isSuccessfulDbtMetricResult(content: unknown): boolean {
   return Array.isArray(rows) && rows.length > 0;
 }
 
-// A metadata page or an exact-name miss is a lookup step, not an answer. Only the
-// lookup's own continuation clears it: a later dbt query under the same metric name
-// that returns rows. A different name is a lead, not a replacement, so the failure
-// stays and the final answer has to disclose the lookup.
+function isCompleteDbtMetricResult(result: {
+  name?: string;
+  isError?: boolean;
+  content?: string;
+}): boolean {
+  if (
+    !isDbtSemanticMetricActionName(String(result.name ?? "")) ||
+    result.isError === true
+  ) {
+    return false;
+  }
+  const payload = tryParseJsonContent(String(result.content ?? ""));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  const record = payload as Record<string, unknown>;
+  return (
+    record.status === "success" &&
+    Array.isArray(record.rows) &&
+    record.truncated === false &&
+    (record.nextPage === undefined ||
+      record.nextPage === null ||
+      record.nextPage === "")
+  );
+}
+
+// A metadata page or an exact-name miss is a lookup step, not an answer. A later
+// complete result under the same metric name clears it, even when the result is empty.
+// A different name is a lead, not a replacement, so the failure stays visible.
 const DBT_LOOKUP_STATUSES = new Set([
   "not_found",
   "ambiguous_metric",
@@ -1778,13 +1803,7 @@ function isRecoveredByLaterDbtSuccess(
   const record = payload as Record<string, unknown>;
   if (!DBT_LOOKUP_STATUSES.has(String(record.status))) return false;
   return results.slice(index + 1).some((candidate) => {
-    if (
-      !isDbtSemanticMetricActionName(String(candidate.name ?? "")) ||
-      candidate.isError === true ||
-      !isSuccessfulDbtMetricResult(candidate.content)
-    ) {
-      return false;
-    }
+    if (!isCompleteDbtMetricResult(candidate)) return false;
     const answered = tryParseJsonContent(
       String(candidate.content ?? ""),
     ) as Record<string, unknown> | null;

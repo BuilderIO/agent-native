@@ -2214,6 +2214,9 @@ describe("incomplete evidence detection", () => {
         "The coverage is limited to the first 20 calls.",
       ),
     ).toBe(true);
+    expect(
+      hasExplicitPartialDisclosure("The review is not yet complete."),
+    ).toBe(true);
   });
 
   it("detects failed corpus workflows and overstated full-coverage confidence", () => {
@@ -2261,6 +2264,11 @@ describe("incomplete evidence detection", () => {
     expect(
       hasOverstatedCoverageConfidenceClaim(
         "Partial coverage: I found 0 matches in the 200 calls inspected; this is a defensible interim read.",
+      ),
+    ).toBe(false);
+    expect(
+      hasOverstatedCoverageConfidenceClaim(
+        "I reviewed the complete cohort, but the review is not yet complete.",
       ),
     ).toBe(false);
   });
