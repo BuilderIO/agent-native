@@ -123,8 +123,9 @@ Counterexample, with a deploy that changes the action's replay policy between
 runs of one turn:
 
 1. Run 2 (retry-safe) dispatches the step and the effect runs.
-2. Run 2 records `completed`. Run 3 (retry-safe) claims, and begin re-adopts
-   the dispatched step, which is allowed for retry-safe. The status goes back
+2. Run 2's run row ends (`completed`) before it completes the step, so the step
+   stays `dispatched`. Run 3 (retry-safe) claims, and begin re-adopts the
+   dispatched step, which is allowed for retry-safe. The step status goes back
    to `prepared`.
 3. Run 3 stops before dispatching.
 4. Run 1, on the deploy where the action is now `never`, claims. Begin sees
