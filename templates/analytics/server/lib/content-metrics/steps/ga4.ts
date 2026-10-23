@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { runFullReport } from "../../google-analytics.js";
 import { ContentStepStop, type ContentStep } from "../step.js";
 import { listContentItems } from "../store.js";
@@ -22,6 +24,18 @@ function ga4Date(value: string): string {
 export const ga4Step: ContentStep = {
   id: "ga4",
   async run({ collection, now, signal }) {
+    const propertyId = collection.config.ga4.propertyId;
+    if (!propertyId) {
+      throw new ContentStepStop({
+        status: "not_configured",
+        errorCode: "ga4_property_not_configured",
+        errorMessage:
+          "Set ga4PropertyId with configure-content-collection to the GA4 property that measures the blog. The collection does not use the shared GA4_PROPERTY_ID.",
+      });
+    }
+    const configFingerprint = createHash("sha256")
+      .update(propertyId)
+      .digest("hex");
     const articles = await listContentItems(collection, "builder_blog");
     if (articles.length === 0) {
       throw new ContentStepStop({
@@ -43,8 +57,10 @@ export const ga4Step: ContentStep = {
       "ga4",
       now,
       LOOKBACK_DAYS,
+      configFingerprint,
     );
     const rows = await runFullReport({
+      propertyId,
       dimensions: ["date", "pagePath"],
       metrics: ["screenPageViews"],
       dateRange: window,
@@ -77,7 +93,7 @@ export const ga4Step: ContentStep = {
       // is not the one that measures it. Recording that as a quiet window
       // would show zeros for every article.
       throw new Error(
-        `The GA4 property returned no pageviews for ${blog.hostname}${blog.pathname} between ${window.startDate} and ${window.endDate}. Check which property GA4_PROPERTY_ID points at.`,
+        `GA4 property ${propertyId} returned no pageviews for ${blog.hostname}${blog.pathname} between ${window.startDate} and ${window.endDate}. Check the collection's ga4PropertyId.`,
       );
     }
 
@@ -109,6 +125,7 @@ export const ga4Step: ContentStep = {
         rowCount: snapshots.length,
         windowStart: window.startDate,
         windowEnd: lastReturnedDate,
+        configFingerprint,
       },
     };
   },

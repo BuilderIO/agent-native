@@ -88,7 +88,7 @@ function onlySteps(
     enabled: true,
     config: {
       builderBlog: { enabled: steps.builderBlog ?? false },
-      ga4: { enabled: steps.ga4 ?? false },
+      ga4: { enabled: steps.ga4 ?? false, propertyId: "123456789" },
       searchConsole: { enabled: steps.searchConsole ?? false, sites },
       signups: {
         ...signupsConfigSchema.parse({ enabled: false }),
@@ -493,6 +493,7 @@ describe("content collection", () => {
     ]);
     expect(mocks.runFullReport).toHaveBeenCalledWith(
       expect.objectContaining({
+        propertyId: "123456789",
         dateRange: { startDate: "2026-07-17", endDate: "2026-10-14" },
       }),
     );
@@ -531,6 +532,54 @@ describe("content collection", () => {
     );
   });
 
+  it("backfills GA4 history when the collection changes properties", async () => {
+    const collection = await onlySteps({ builderBlog: true, ga4: true });
+    feed(article("a1"));
+    mocks.runFullReport.mockResolvedValueOnce([
+      ga4Row("20261001", "/blog/post-a1", 90),
+      ga4Row("20261014", "/blog/post-a1", 4),
+    ]);
+    await collectContentForAllTenants({
+      now: new Date("2026-10-15T07:00:00Z"),
+    });
+    await writeContentCollection(ORG_A, {
+      enabled: true,
+      config: {
+        ...collection.config,
+        ga4: { enabled: true, propertyId: "987654321" },
+      },
+    });
+    mocks.runFullReport.mockResolvedValueOnce([
+      ga4Row("20261001", "/blog/post-a1", 7),
+      ga4Row("20261015", "/blog/post-a1", 2),
+    ]);
+    await collectContentForAllTenants({
+      now: new Date("2026-10-16T07:00:00Z"),
+    });
+
+    expect(mocks.runFullReport).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        propertyId: "987654321",
+        dateRange: { startDate: "2026-07-18", endDate: "2026-10-15" },
+      }),
+    );
+    expect(await snapshots("ga4_pageviews")).toContainEqual({
+      external_id: "a1",
+      metric_date: "2026-10-01",
+      value: 7,
+      source: "ga4",
+    });
+    const runs = await rows(
+      "SELECT config_fingerprint FROM analytics_content_collection_runs WHERE step = 'ga4' ORDER BY window_end",
+    );
+    expect(runs).toHaveLength(2);
+    expect(runs[0]!.config_fingerprint).toEqual(expect.any(String));
+    expect(runs[1]!.config_fingerprint).toEqual(expect.any(String));
+    expect(runs[0]!.config_fingerprint).not.toEqual(
+      runs[1]!.config_fingerprint,
+    );
+  });
+
   it("fails a GA4 run whose property reports no blog pages instead of writing zeros", async () => {
     await onlySteps({ builderBlog: true, ga4: true });
     feed(article("a1"));
@@ -544,24 +593,38 @@ describe("content collection", () => {
     expect(await snapshots("ga4_pageviews")).toEqual([]);
   });
 
-  it("records GA4 without a property as not configured", async () => {
-    await onlySteps({ builderBlog: true, ga4: true });
+  it("does not query the shared property when the collection has no GA4 property", async () => {
+    const collection = await onlySteps({ builderBlog: true, ga4: true });
+    await writeContentCollection(ORG_A, {
+      enabled: true,
+      config: {
+        ...collection.config,
+        ga4: { enabled: true, propertyId: null },
+      },
+    });
     feed(article("a1"));
-    mocks.runFullReport.mockRejectedValueOnce(
-      Object.assign(new Error("GA4_PROPERTY_ID not configured"), {
-        errorCode: "ga4_not_configured",
-        statusCode: 424,
-      }),
-    );
 
     const [, ga4] = await collectContentForAllTenants();
 
     expect(ga4).toEqual(
       expect.objectContaining({
         status: "not_configured",
-        reason: "ga4_not_configured",
+        reason: "ga4_property_not_configured",
       }),
     );
+    expect(mocks.runFullReport).not.toHaveBeenCalled();
+    expect(await snapshots("ga4_pageviews")).toEqual([]);
+    expect(
+      await rows(
+        "SELECT status, row_count, error_code FROM analytics_content_collection_runs WHERE step = 'ga4'",
+      ),
+    ).toEqual([
+      {
+        status: "not_configured",
+        row_count: null,
+        error_code: "ga4_property_not_configured",
+      },
+    ]);
   });
 
   it("attaches Search Console pages to articles and stores other pages as their own items", async () => {

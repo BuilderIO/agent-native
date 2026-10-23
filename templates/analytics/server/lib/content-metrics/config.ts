@@ -20,6 +20,15 @@ export type ContentCollectionStepId = (typeof CONTENT_COLLECTION_STEPS)[number];
 
 const stepToggleSchema = z.object({ enabled: z.boolean() });
 
+export const ga4PropertyIdSchema = z
+  .string()
+  .trim()
+  .regex(/^[0-9]+$/);
+
+const ga4ConfigSchema = stepToggleSchema.extend({
+  propertyId: ga4PropertyIdSchema.nullable().default(null),
+});
+
 /**
  * A Search Console property: `sc-domain:example.com` or a URL-prefix
  * property such as `https://www.example.com/`. `pathPrefix` keeps a large
@@ -103,7 +112,7 @@ export type SignupsConfig = z.infer<typeof signupsConfigSchema>;
 
 export const contentCollectionConfigSchema = z.object({
   builderBlog: stepToggleSchema.default({ enabled: true }),
-  ga4: stepToggleSchema.default({ enabled: true }),
+  ga4: ga4ConfigSchema.default({ enabled: true, propertyId: null }),
   // Off until a property owner grants the service account access; a run
   // before then would only record "no access".
   searchConsole: stepToggleSchema

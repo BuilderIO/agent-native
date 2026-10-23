@@ -138,7 +138,12 @@ collection on with `configure-content-collection`, check it with
 
 Metrics are `ga4_pageviews` (per blog article) and `search_console_clicks` /
 `search_console_impressions` (per article, plus non-article pages stored as
-`search_console` items). Search Console data is two to three days late, so the
+`search_console` items). GA4 reads the collection's `ga4.propertyId`, set with
+`configure-content-collection --ga4PropertyId <numeric-id>`; it never falls back
+to the shared `GA4_PROPERTY_ID` used by other dashboards. An unset property
+reports `not_configured` without querying. Changing the property starts a fresh
+90-day backfill. Pass `ga4PropertyId: null` to clear it; omitted settings keep
+their saved values. Search Console data is two to three days late, so the
 newest days have no row yet; read them as still arriving. Search Console
 collection stays off until a property owner adds the service account that
 `get-content-collection` returns as `serviceAccount.email`; then set its
