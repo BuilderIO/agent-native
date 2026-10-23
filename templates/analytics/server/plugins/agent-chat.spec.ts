@@ -1582,6 +1582,21 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
+  it("withholds a warehouse calculation over comma-separated tables", () => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(disclosed, {
+        query:
+          "SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts, subscriptions WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
+        rows: [{ active_accounts: 10 }],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+      retryMessage: expect.stringContaining("calculation"),
+    });
+  });
+
   it("rejects a literal even when it is returned under the metric alias", () => {
     const result = realDataFinalGuard(
       explicitWarehouseContext(
@@ -1620,6 +1635,10 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     [
       "parenthesized constant",
       "SELECT (10 + 0) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
+    ],
+    [
+      "combined aggregates",
+      "SELECT COUNT(*) + SUM(revenue) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
     ],
   ])("rejects a computed SQL constant: %s", (_case, query) => {
     const result = realDataFinalGuard(
@@ -3095,6 +3114,70 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(JSON.stringify(result ?? null)).not.toContain(
       "Do not state any figure",
     );
+  });
+
+  it("does not treat a find-data echoed question as a returned metric candidate", async () => {
+    const { asked, result } = await judged(
+      {
+        userText: "What were active accounts last month?",
+        draftText: "Signups were 3 last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolResults: [
+          {
+            ...dbtNotFound,
+            toolCallId: "dbt-failure",
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "find-data",
+            isError: false,
+            content: JSON.stringify({ question: "signups", results: [] }),
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            toolCallId: "dbt-success",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "signups",
+              truncated: false,
+              querySpec: {
+                timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+                groupBy: [],
+              },
+              rows: [{ signups: 3 }],
+            }),
+          },
+        ],
+        toolCalls: [
+          {
+            toolCallId: "dbt-failure",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+          {
+            toolCallId: "dbt-success",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "signups",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+        ],
+      },
+      "YES",
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(result).toMatchObject(withheld);
   });
 
   it("does not clear a failed lookup with a success under a name find-data did not return", async () => {

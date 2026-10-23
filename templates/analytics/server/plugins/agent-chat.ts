@@ -1087,12 +1087,7 @@ function findDataMetricNames(
             : [];
         })
       : [];
-  return [
-    ...(typeof parsed.record.question === "string"
-      ? [parsed.record.question]
-      : []),
-    ...names,
-  ];
+  return names;
 }
 
 // Query failures need matching metric and scope. A scope-less metric lookup can only be
@@ -1116,8 +1111,8 @@ function dbtFailureResolvedLater(
     ) &&
     normalizedDbtMetricName(metricName) === failedQuery.metricKey;
   if (!failedQuery.querySpecKey && !isScopeLessMetricLookup) return false;
-  // find-data echoes the question as well as its candidates, so a name in the echo also
-  // counts. Only a name the agent typed can appear there, not a value from the rows.
+  // Only returned candidates can establish an alternate metric name; the echoed search
+  // question is input, not evidence that a metric definition was found.
   const namesFound = new Set<string>();
   for (const [offset, result] of results.slice(index + 1).entries()) {
     if (isNamedTool(result.name, "find-data")) {
@@ -1400,7 +1395,7 @@ function warehouseQueryMatchesDbtScope(
   const aggregateArgument = `(?:\\*|1|${aggregateColumn})`;
   const aggregateExpression = `(?:COUNT\\s*\\(\\s*(?:DISTINCT\\s+)?${aggregateArgument}\\s*\\)|(?:SUM|AVG|MIN|MAX)\\s*\\(\\s*(?:DISTINCT\\s+)?${aggregateColumn}\\s*\\))`;
   const metricAggregate = new RegExp(
-    "\\b" +
+    "^\\s*" +
       aggregateExpression +
       "\\s+AS\\s+(?:`" +
       escapedMetricName +
@@ -1408,22 +1403,30 @@ function warehouseQueryMatchesDbtScope(
       escapedMetricName +
       '"|' +
       escapedMetricName +
-      ")(?![\\w$])",
+      ")(?![\\w$])\\s*$",
     "i",
   );
   const select = sql.match(/^\s*SELECT\b([\s\S]*?)\bFROM\b/i)?.[1];
-  const from = sql.match(
-    /\bFROM\s+(?:`[^`]+`|[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)*)(?:\s+(?:AS\s+)?[A-Za-z_]\w*)?/i,
-  )?.[0];
+  const from = sql
+    .match(
+      /\bFROM\s+([\s\S]*?)(?=\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|$)/i,
+    )?.[1]
+    ?.trim();
+  const fromIsSingleTable =
+    typeof from === "string" &&
+    /^(?:`[^`]+`|[A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)*)(?:\s+(?:AS\s+)?[A-Za-z_]\w*)?$/i.test(
+      from,
+    );
   if (
     !metricName ||
     !select ||
-    !metricAggregate.test(select) ||
-    !from ||
+    !sqlTopLevelExpressions(select).some((expression) =>
+      metricAggregate.test(expression),
+    ) ||
+    !fromIsSingleTable ||
     /\b(?:WITH|JOIN|UNNEST|UNION|INTERSECT|EXCEPT)\b|;/i.test(sql) ||
     /\b(?:HAVING|QUALIFY|LIMIT)\b/i.test(sql) ||
-    [...sql.matchAll(/\bSELECT\b/gi)].length !== 1 ||
-    /,/.test(from.replace(/^\s*FROM\s+/i, ""))
+    [...sql.matchAll(/\bSELECT\b/gi)].length !== 1
   ) {
     return false;
   }
