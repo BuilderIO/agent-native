@@ -1096,9 +1096,14 @@ describe("content collection", () => {
       },
     );
 
-    it.each([0, undefined])(
-      "preserves a returned usage of %s without substituting the estimate",
-      async (bytesProcessed) => {
+    it.each([
+      { bytesProcessed: 0, cached: false, expected: 0 },
+      { bytesProcessed: undefined, cached: false, expected: null },
+      { bytesProcessed: 400, cached: true, expected: 0 },
+      { bytesProcessed: undefined, cached: true, expected: 0 },
+    ])(
+      "records $expected bytes for cached=$cached and returned usage=$bytesProcessed",
+      async ({ bytesProcessed, cached, expected }) => {
         await onlySteps({ builderBlog: true, signups: true }, [], {
           ...WAREHOUSE,
           maxBytesBilled: 1_000,
@@ -1113,6 +1118,7 @@ describe("content collection", () => {
           totalRows: 0,
           schema: [],
           bytesProcessed,
+          cached,
         });
 
         await collectContentForAllTenants({
@@ -1126,7 +1132,7 @@ describe("content collection", () => {
         ).toEqual([
           {
             status: "succeeded",
-            bytes_processed: bytesProcessed ?? null,
+            bytes_processed: expected,
             bytes_cap: 1_000,
           },
         ]);

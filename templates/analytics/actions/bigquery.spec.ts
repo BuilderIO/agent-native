@@ -235,6 +235,7 @@ describe("bigquery action error handling", () => {
       query_status: "error",
       error_category: "schema_or_sql",
     });
+    expect(properties).not.toHaveProperty("bytes_processed");
     expect(properties).not.toHaveProperty("error_message");
     expect(JSON.stringify(properties)).not.toContain("event_time");
   });
@@ -242,8 +243,10 @@ describe("bigquery action error handling", () => {
   it("forwards the agent run signal and stops cleanly when the run is cancelled", async () => {
     const controller = new AbortController();
     const aborted = new DOMException("BigQuery query aborted", "AbortError");
-    controller.abort();
-    runQuery.mockRejectedValue(aborted);
+    runQuery.mockImplementation(async () => {
+      controller.abort();
+      throw aborted;
+    });
 
     await expect(
       bigquery.run(
@@ -263,5 +266,9 @@ describe("bigquery action error handling", () => {
     expect(runQuery).toHaveBeenCalledWith("SELECT 1", {
       signal: controller.signal,
     });
+    expect(track.mock.calls[0]?.[1]).toMatchObject({
+      query_status: "cancelled",
+    });
+    expect(track.mock.calls[0]?.[1]).not.toHaveProperty("bytes_processed");
   });
 });

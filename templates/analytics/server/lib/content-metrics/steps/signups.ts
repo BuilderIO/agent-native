@@ -195,7 +195,7 @@ export const signupsStep: ContentStep = {
         }
         throw error;
       }
-      bytesProcessed = result.bytesProcessed ?? null;
+      bytesProcessed = result.cached ? 0 : (result.bytesProcessed ?? null);
       if (result.truncated || result.rows.length >= MAX_ROWS) {
         throw new Error(
           `The signups join returned ${result.rows.length} rows, more than this step reads; nothing was written.`,

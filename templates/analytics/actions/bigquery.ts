@@ -222,7 +222,6 @@ export default defineAction({
         query_duration_ms: Math.max(0, Date.now() - startedAt),
         row_count: 0,
         total_rows: 0,
-        bytes_processed: 0,
         cache_hit: false,
         truncated: false,
       });
