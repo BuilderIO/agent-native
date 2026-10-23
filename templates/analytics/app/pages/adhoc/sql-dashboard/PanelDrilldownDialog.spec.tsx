@@ -256,6 +256,30 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     expect(mocks.sqlQueries.every((query) => !query.enabled)).toBe(true);
   });
 
+  it.each([
+    ["a catalog", undefined, true],
+    ["a declared", { sql: "SELECT record FROM events LIMIT 500" }, false],
+  ])(
+    "compares the chart value with the record count only for %s drill-down",
+    async (_kind, drilldown, warns) => {
+      mocks.actionQuery = {
+        data: { drilldown: { sql: "SELECT record FROM events LIMIT 500" } },
+        isSuccess: true,
+      };
+      mocks.sqlRows = [{ record: "only", total_matching: 1 }];
+      await render(drilldown ? { ...PANEL, config: { drilldown } } : PANEL, {
+        ...DATUM,
+        value: 1234.5,
+      });
+      expect(container.textContent).toContain(
+        'sqlDashboard.drilldownShowing {"shown":"localized:1","total":"localized:1"}',
+      );
+      expect(
+        container.textContent?.includes("sqlDashboard.drilldownCountMismatch"),
+      ).toBe(warns);
+    },
+  );
+
   it("keeps identical record SQL from different sources out of each other's cache", async () => {
     const drilldown = { sql: "SELECT record FROM events LIMIT 500" };
     mocks.actionQuery = { data: { drilldown }, isSuccess: true };

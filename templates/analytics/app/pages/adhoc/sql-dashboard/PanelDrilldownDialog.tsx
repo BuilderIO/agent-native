@@ -250,8 +250,11 @@ export function PanelDrilldownDialog({
     columns.some((column) => cellText(row[column]) === datum.x);
 
   const chartValue = Number(datum?.value);
+  // Catalog drill-downs belong to count metrics. A declared template's chart
+  // can plot a sum or a rate, which no record count would match.
   const showMismatch =
     hasRecordQuery &&
+    panel.config?.drilldown == null &&
     totalMatching !== null &&
     Number.isFinite(chartValue) &&
     datum?.value !== undefined &&
