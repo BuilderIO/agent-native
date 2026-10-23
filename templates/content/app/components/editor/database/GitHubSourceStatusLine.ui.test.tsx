@@ -346,6 +346,21 @@ describe("GitHub source status line", () => {
     expect(statusLine().textContent).not.toContain("couldn’t be saved");
   });
 
+  it("doesn't ask for file storage while a sync adds pictures once it's set up", () => {
+    renderLine(
+      githubSource({
+        imagesWaiting: 3,
+        pendingCommitSha: "abcdef1234567",
+        progress: { done: 40, total: 120 },
+      }),
+    );
+    expect(statusLine().textContent).toContain(
+      "Bringing in changes: 40 of 120 files",
+    );
+    expect(statusLine().textContent).not.toContain("sets up file storage");
+    expect(statusLine().textContent).not.toContain("couldn’t be saved");
+  });
+
   it("shows how far an update has got", () => {
     renderLine(
       githubSource({

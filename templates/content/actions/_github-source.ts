@@ -758,6 +758,9 @@ function waitingImages(planned: readonly PlannedFile[]) {
   let waiting = 0;
   let failed = false;
   for (const file of planned) {
+    // A skipped file's page keeps its last version until the file changes,
+    // so no sync can add its images before then, storage or not.
+    if (file.skipped) continue;
     const linked = file.row ?? file.renamedFrom;
     const last = linked ? rowState(linked) : null;
     const count = file.imagesWaiting ?? last?.imagesWaiting ?? 0;
@@ -952,6 +955,8 @@ interface PlannedFile {
   imagesWaiting?: number;
   /** Whether any of those failed to upload, this sync or an earlier one. */
   imagesFailed?: boolean;
+  /** Whether the file can't become a page, this sync or an earlier one. */
+  skipped?: boolean;
 }
 
 interface SyncRun {
@@ -2014,6 +2019,7 @@ export async function syncGitHubSource(
       const skip = readSkipsByPath.get(file.entry.path);
       if (skip?.blobSha === file.entry.sha) {
         stillSkipped.push(skip);
+        file.skipped = true;
         return false;
       }
       const previous = file.row ? rowState(file.row) : null;
@@ -2142,12 +2148,14 @@ export async function syncGitHubSource(
         throw error;
       }
       if (typeof outcome === "string") result[outcome] += 1;
-      else
+      else {
+        file.skipped = true;
         readSkips.push({
           path: file.entry.path,
           reason: outcome.skipped,
           blobSha: file.entry.sha,
         });
+      }
       done += 1;
     }
     const remainingFiles = work.length - done;

@@ -1575,6 +1575,45 @@ describe("GitHub folder source", () => {
     ]);
   });
 
+  it("stops counting a page's waiting images once its file can't be read", async () => {
+    github.state.noStorage = true;
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const linked = await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(linked.sync).toMatchObject({ imagesWaiting: 1 });
+
+    // The guide keeps its last version, image left out, until its file can
+    // be read again, so no sync can add that image before then.
+    github.commit({ ...BASE_FILES, "docs/getting-started.md": "BINARY" });
+    const skipped = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(skipped.sync).toMatchObject({
+      state: "synced",
+      imagesWaiting: 0,
+      problem: null,
+    });
+
+    // A later sync that reads other files still leaves it out.
+    github.commit({
+      ...BASE_FILES,
+      "docs/getting-started.md": "BINARY",
+      "docs/faq.md": "# Short answers\n",
+    });
+    const later = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(later.sync).toMatchObject({
+      state: "synced",
+      updated: 1,
+      imagesWaiting: 0,
+      problem: null,
+    });
+
+    // Storage arriving doesn't make every sync go back over the folder.
+    github.state.noStorage = false;
+    const settled = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(settled.sync.state).toBe("unchanged");
+  });
+
   it("adds images once file storage is set up, without a new commit", async () => {
     github.state.noStorage = true;
     github.commit(BASE_FILES);
