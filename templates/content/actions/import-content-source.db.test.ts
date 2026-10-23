@@ -19,6 +19,9 @@ let getDb: () => any;
 let schema: Schema;
 let importContentSourceAction: typeof import("./import-content-source.js").default;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
+let putPageOnLiveCopy: typeof import("../server/test-support/live-copy-page.js").putPageOnLiveCopy;
+let liveCopyVersionOf: typeof import("../server/test-support/live-copy-page.js").liveCopyVersionOf;
+let turnLiveCopyFlagsOff: typeof import("../server/test-support/live-copy-page.js").turnLiveCopyFlagsOff;
 
 const OWNER = "owner@example.com";
 const EDITOR = "editor@example.com";
@@ -34,6 +37,8 @@ beforeAll(async () => {
     .default;
   provisionContentSpaces = (await import("./_content-spaces.js"))
     .provisionContentSpaces;
+  ({ putPageOnLiveCopy, liveCopyVersionOf, turnLiveCopyFlagsOff } =
+    await import("../server/test-support/live-copy-page.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
@@ -63,6 +68,37 @@ function sourceWithDescription(description: string) {
     hideFromSearch: false,
     visibility: "private",
   });
+}
+
+function liveCopySource(id: string, content: string) {
+  return serializeContentSourceDocument({
+    id,
+    parentId: null,
+    title: "Live copy import",
+    content,
+    icon: null,
+    position: 0,
+    isFavorite: false,
+    hideFromSearch: false,
+    visibility: "private",
+  });
+}
+
+async function pageBodyState(documentId: string) {
+  const [page] = await getDb()
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  const history = await getDb()
+    .select({ content: schema.documentVersions.content })
+    .from(schema.documentVersions)
+    .where(eq(schema.documentVersions.documentId, documentId))
+    .orderBy(asc(schema.documentVersions.createdAt));
+  return {
+    page,
+    history: history.map((version: { content: string }) => version.content),
+    liveCopyVersion: await liveCopyVersionOf(documentId),
+  };
 }
 
 function sourceWithFavorite(isFavorite: boolean) {
@@ -261,6 +297,77 @@ describe("import-content-source descriptions", () => {
         .from(schema.documentVersions)
         .where(eq(schema.documentVersions.documentId, id)),
     ).resolves.toEqual([]);
+  });
+
+  it("refuses the file that changes the body of a page that takes body writes through its live copy, and imports the rest", async () => {
+    const id = "doc_import_live_copy";
+    const path = `content/import-live-copy--${id}.mdx`;
+    const otherId = "doc_import_live_copy_other";
+    const otherPath = `content/import-live-copy-other--${otherId}.mdx`;
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: liveCopySource(id, "state A") },
+        dryRun: false,
+      }),
+    );
+    await putPageOnLiveCopy(id);
+    const before = await pageBodyState(id);
+    const files = {
+      [path]: liveCopySource(id, "state B"),
+      [otherPath]: liveCopySource(otherId, "other body"),
+    };
+    const refusal = {
+      path,
+      reason: expect.stringContaining(
+        "takes body writes through its live copy",
+      ),
+    };
+
+    for (const dryRun of [true, false]) {
+      const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+        importContentSourceAction.run({ files, dryRun }),
+      );
+
+      expect(result.errors).toEqual([refusal]);
+      expect(result.updated).toEqual([]);
+      expect(result.created).toEqual([
+        expect.objectContaining({ id: otherId, path: otherPath }),
+      ]);
+      expect(await pageBodyState(id)).toEqual(before);
+    }
+    expect(before.page.content).toBe("state A");
+    expect((await pageBodyState(otherId)).page.content).toBe("other body");
+  });
+
+  it("takes an import's body change to a switched page as before while the live-copy flags are off (SF-11)", async () => {
+    const id = "doc_import_live_copy_flags_off";
+    const path = `content/import-live-copy-flags-off--${id}.mdx`;
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: liveCopySource(id, "state A") },
+        dryRun: false,
+      }),
+    );
+    await putPageOnLiveCopy(id);
+    await turnLiveCopyFlagsOff();
+    const before = await pageBodyState(id);
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: liveCopySource(id, "state B") },
+        dryRun: false,
+      }),
+    );
+
+    expect(result.updated).toEqual([expect.objectContaining({ id, path })]);
+    expect(await pageBodyState(id)).toEqual({
+      page: expect.objectContaining({
+        content: "state B",
+        bodyRevision: before.page.bodyRevision + 1,
+      }),
+      history: [...before.history, "state A"],
+      liveCopyVersion: before.liveCopyVersion,
+    });
   });
 
   it("creates and updates visibility while preserving it when omitted", async () => {

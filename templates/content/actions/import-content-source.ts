@@ -9,7 +9,11 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  assertLegacyBodyWriter,
+  isUnsupportedBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
   syncPrivateCalloutReferences,
@@ -417,6 +421,35 @@ export default defineAction({
           continue;
         }
 
+        // A page on its live copy refuses the file's body, and a membership
+        // added while it locked refuses the file. Earlier files have committed;
+        // none of this one lands, and the rest of the import still does.
+        const refuseFile = (error: unknown) => {
+          if (
+            !isUnsupportedBodyWriter(error) &&
+            !(
+              error instanceof ActionContractError &&
+              error.errorCode === "DATABASE_MEMBERSHIPS_CHANGED"
+            )
+          ) {
+            throw error;
+          }
+          errors.push({ path: file.path, reason: error.message });
+          desiredParentById.delete(id);
+          desiredPositionById.delete(id);
+          return null;
+        };
+        if (contentChanged) {
+          try {
+            await assertLegacyBodyWriter(id, {
+              operation: "import-content-source",
+            });
+          } catch (error) {
+            refuseFile(error);
+            continue;
+          }
+        }
+
         if (dryRun) {
           updated.push({ id, path: file.path, title: file.title });
           continue;
@@ -522,8 +555,12 @@ export default defineAction({
           if (lockedSpaceChanged) updates.spaceId = existingSpaceId;
           if (lockedTitleChanged) updates.title = file.title;
           if (lockedContentChanged) {
+            const legacy = await lockLegacyBodyWrites(tx, [id], {
+              operation: "import-content-source",
+              content: file.content,
+            });
             updates.content = file.content;
-            updates.bodyRevision = bodyRevisionForContent(file.content);
+            updates.bodyRevision = legacy.bodyRevision(file.content);
           }
           if (lockedDescriptionChanged) updates.description = file.description;
           if (lockedIconChanged) updates.icon = file.icon ?? null;
@@ -600,23 +637,9 @@ export default defineAction({
           }
           return { changed: true, visibilityForbidden: false };
         };
-        let mutation: Awaited<ReturnType<typeof applyUpdate>>;
-        try {
-          mutation = await db.transaction(applyUpdate);
-        } catch (err) {
-          // Earlier files have committed; one file's conflict fails only it.
-          if (
-            !(err instanceof ActionContractError) ||
-            err.errorCode !== "DATABASE_MEMBERSHIPS_CHANGED"
-          ) {
-            throw err;
-          }
-          errors.push({ path: file.path, reason: err.message });
-          desiredParentById.delete(id);
-          desiredPositionById.delete(id);
-          continue;
-        }
+        const mutation = await db.transaction(applyUpdate).catch(refuseFile);
 
+        if (!mutation) continue;
         if (mutation.trashed) {
           skipped.push({ path: file.path, reason: TRASHED_PAGE_SKIP });
           desiredParentById.delete(id);
