@@ -2,12 +2,10 @@ import {
   createBoundedTaskRunner,
   defineLiveCopy,
 } from "@agent-native/core/collab";
-import { getDbExec } from "@agent-native/core/db";
 
 import { LIVE_BODY_FIELD } from "../../shared/live-body.js";
 import { liveBodyWriterGate } from "../lib/live-body-writer.js";
 import { APPLY_SUGGESTION_EDIT } from "./apply-suggestion-edit.js";
-import { drizzleOverExec } from "./exec-db.js";
 import { persistContentLiveCopy } from "./persist.js";
 import source from "./tasks.ts?bounded-task";
 import { liveBodyConversionFor } from "./write-cause.js";
@@ -21,15 +19,15 @@ export const CONTENT_LIVE_COPY_EDITS = {
 
 /**
  * Content's page bodies as live copies. A page is covered while the D2 gate
- * says `live_copy`, and while it is being switched. The gate reads through
- * `getDbExec()` so a caller's transaction sees its own writes.
+ * says `live_copy`, and while it is being switched. Eligibility uses the
+ * request's flag snapshot; persist rechecks flags in its locked transaction.
  */
 export const contentLiveCopy = defineLiveCopy({
   name: "content-body",
-  appliesTo: async (documentId) =>
-    liveBodyConversionFor(documentId) !== undefined ||
-    (await liveBodyWriterGate(documentId, { db: drizzleOverExec(getDbExec()) }))
-      .writePath === "live_copy",
+  appliesTo: async (documentId) => {
+    if (liveBodyConversionFor(documentId) !== undefined) return true;
+    return (await liveBodyWriterGate(documentId)).writePath === "live_copy";
+  },
   runner: createBoundedTaskRunner({ source }),
   field: LIVE_BODY_FIELD,
   persist: persistContentLiveCopy,

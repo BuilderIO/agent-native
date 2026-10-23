@@ -69,6 +69,7 @@ function useLiveMicrophoneMeter({
   const [level, setLevel] = useState<number | null>(null);
   const [silentForMs, setSilentForMs] = useState(0);
   const hadLiveAnalyserRef = useRef(false);
+  const hasHeardAudioRef = useRef(false);
   const getMicrophoneTrackRef = useRef(getMicrophoneTrack);
   getMicrophoneTrackRef.current = getMicrophoneTrack;
 
@@ -77,6 +78,7 @@ function useLiveMicrophoneMeter({
     setSilentForMs(0);
     if (!active) {
       hadLiveAnalyserRef.current = false;
+      hasHeardAudioRef.current = false;
       return;
     }
     if (isPaused || !microphoneEnabled) return;
@@ -85,6 +87,11 @@ function useLiveMicrophoneMeter({
     let trackRetryTimeoutId: number | null = null;
     let cleanupAnalyser: (() => void) | null = null;
     const missingTrackStartedAt = performance.now();
+    const markMicrophoneTrackEnded = () => {
+      hasHeardAudioRef.current = false;
+      setLevel(null);
+      setSilentForMs(MIC_SILENCE_WARNING_MS);
+    };
 
     const attachAnalyser = (track: MediaStreamTrack) => {
       const AudioContextCtor = getAudioContextCtor();
@@ -161,8 +168,7 @@ function useLiveMicrophoneMeter({
       const handleTrackEnded = () => {
         cleanup();
         if (disposed) return;
-        setLevel(null);
-        setSilentForMs(MIC_SILENCE_WARNING_MS);
+        markMicrophoneTrackEnded();
       };
 
       const sample = () => {
@@ -178,6 +184,7 @@ function useLiveMicrophoneMeter({
         const now = performance.now();
 
         if (audible) {
+          hasHeardAudioRef.current = true;
           silenceStartedAt = null;
           clearSilenceWarningTimeout();
           setLevel(rms);
@@ -212,25 +219,28 @@ function useLiveMicrophoneMeter({
     const checkForTrack = () => {
       if (disposed) return;
       const track = getMicrophoneTrackRef.current();
-      if (track && track.readyState !== "ended") {
-        attachAnalyser(track);
+      if (!track) {
+        if (hadLiveAnalyserRef.current) {
+          markMicrophoneTrackEnded();
+          return;
+        }
+        const remaining =
+          MIC_SILENCE_WARNING_MS - (performance.now() - missingTrackStartedAt);
+        if (remaining <= 0) {
+          setSilentForMs(MIC_SILENCE_WARNING_MS);
+          return;
+        }
+        trackRetryTimeoutId = window.setTimeout(
+          checkForTrack,
+          Math.min(MICROPHONE_TRACK_RETRY_MS, remaining),
+        );
         return;
       }
-      if (hadLiveAnalyserRef.current) {
-        setSilentForMs(MIC_SILENCE_WARNING_MS);
+      if (track.readyState === "ended") {
+        markMicrophoneTrackEnded();
         return;
       }
-
-      const remaining =
-        MIC_SILENCE_WARNING_MS - (performance.now() - missingTrackStartedAt);
-      if (remaining <= 0) {
-        setSilentForMs(MIC_SILENCE_WARNING_MS);
-        return;
-      }
-      trackRetryTimeoutId = window.setTimeout(
-        checkForTrack,
-        Math.min(MICROPHONE_TRACK_RETRY_MS, remaining),
-      );
+      attachAnalyser(track);
     };
 
     checkForTrack();
@@ -250,6 +260,7 @@ function useLiveMicrophoneMeter({
       microphoneEnabled,
       paused: isPaused || !active,
       silentForMs,
+      hasHeardAudio: hasHeardAudioRef.current,
     }),
   };
 }

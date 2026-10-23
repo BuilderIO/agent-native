@@ -116,6 +116,7 @@ import {
   replaceAcceptedSuggestionPresentations,
   suggestionPresentations,
 } from "./DocumentEditor";
+import { EDITOR_NON_EDIT_META } from "./editor-transaction-meta";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
   EMPTY_TOGGLE_BODY_PLACEHOLDER,
@@ -146,6 +147,8 @@ import {
   EmptyLineParagraph,
   getRecentEditPresenceMarkerRect,
   hasAncestorType,
+  hasDirectUserEditEvidence,
+  isLocalEditorEdit,
   parseNfmForCollabReconcile,
   parseMarkdownClipboardSlice,
   ensurePendingImageUpload,
@@ -154,11 +157,8 @@ import {
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
-  isUserInitiatedCollaborativeEditorUpdate,
   shouldApplyExternalContentSync,
   shouldPersistEffectivelyEmptyEditorUpdate,
-  shouldPersistCollaborativeEditorUpdate,
-  shouldPersistLocalFileEditorUpdate,
   shouldFlushVisualEditorDraft,
   shouldSkipMediaDraftPersistence,
   shouldSeedCollaborativeContent,
@@ -526,7 +526,7 @@ function createFullEditor(content = "") {
 }
 
 const EMPTY_TOGGLE_BODY_SELECTOR =
-  ".notion-toggle__body-placeholder--empty-node";
+  ".content-toggle__body-placeholder--empty-node";
 
 // React node views render only under a mounted EditorContent; a headless
 // editor gives them an empty placeholder element, so tests that read their DOM
@@ -2928,8 +2928,8 @@ describe("live suggestion presentation", () => {
           if (presentation === "draft") {
             expect(
               editor.view.dom.querySelector(".suggestion-delete-widget")
-                ?.textContent,
-            ).toBe("Upper↵Lower");
+                ?.innerHTML,
+            ).toBe("<strong>Upper</strong><br><strong>Lower</strong>");
             expect(
               editor.view.dom.querySelectorAll(
                 ".suggestion-delete-widget strong",
@@ -3561,21 +3561,125 @@ describe("placeholder ancestry", () => {
   });
 });
 
-describe("collaborative update persistence", () => {
-  it("does not let an unfocused normalization borrow recent user intent", () => {
+describe("local edit persistence", () => {
+  const openPage = (...content: JSONContent[]) =>
+    new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: { type: "doc", content },
+    });
+  const paragraph = (text: string): JSONContent => ({
+    type: "paragraph",
+    content: [{ type: "text", text }],
+  });
+
+  it("saves a local change wherever focus is", () => {
+    const editor = openPage(paragraph("Alpha sample."));
+    try {
+      expect(editor.isFocused).toBe(false);
+      expect(isLocalEditorEdit(editor.state.tr.insertText("x", 1))).toBe(true);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("does not save selection, focus or the editor's own fix-ups", () => {
+    const editor = openPage(paragraph("Alpha sample."));
+    try {
+      const { tr } = editor.state;
+      expect(
+        isLocalEditorEdit(
+          tr.setSelection(TextSelection.create(editor.state.doc, 3)),
+        ),
+      ).toBe(false);
+      expect(
+        isLocalEditorEdit(
+          editor.state.tr.setMeta("focus", { event: new FocusEvent("focus") }),
+        ),
+      ).toBe(false);
+      expect(
+        isLocalEditorEdit(
+          editor.state.tr
+            .insertText("x", 1)
+            .setMeta(EDITOR_NON_EDIT_META, true),
+        ),
+      ).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("does not save a click whose appended trailing paragraph changes the page", () => {
+    const editor = openPage(paragraph("Alpha sample."), {
+      type: "horizontalRule",
+    });
+    const updates: Array<{ root: boolean; saved: boolean }> = [];
+    editor.on("update", ({ transaction }) => {
+      updates.push({
+        root: transaction.docChanged,
+        saved: isLocalEditorEdit(transaction),
+      });
+    });
+    try {
+      const before = editor.state.doc.childCount;
+      editor.view.dispatch(
+        editor.state.tr.setSelection(TextSelection.create(editor.state.doc, 3)),
+      );
+      expect(editor.state.doc.childCount).toBe(before + 1);
+      expect(updates).toEqual([{ root: false, saved: false }]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("does not save the header repair it makes to a table it has just opened", async () => {
+    const cell = (type: string, text: string): JSONContent => ({
+      type,
+      content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+    });
+    const editor = openPage(
+      {
+        type: "table",
+        attrs: { headerRow: false, headerColumn: false },
+        content: [
+          {
+            type: "tableRow",
+            content: [cell("tableHeader", "A"), cell("tableHeader", "B")],
+          },
+          {
+            type: "tableRow",
+            content: [cell("tableCell", "1"), cell("tableCell", "2")],
+          },
+        ],
+      },
+      { type: "paragraph" },
+    );
+    const updates: Array<{ changed: boolean; saved: boolean }> = [];
+    editor.on("update", ({ transaction }) => {
+      updates.push({
+        changed: transaction.docChanged,
+        saved: isLocalEditorEdit(transaction),
+      });
+    });
+    try {
+      await Promise.resolve();
+      expect(editor.state.doc.firstChild?.attrs.headerRow).toBe(true);
+      expect(updates).toEqual([{ changed: true, saved: false }]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("lets an empty page save only with direct evidence of a user edit", () => {
     expect(
-      isUserInitiatedCollaborativeEditorUpdate({
+      hasDirectUserEditEvidence({
         editorFocused: false,
         explicitUserEdit: false,
         recentUserEditIntent: true,
         transactionUiEvent: undefined,
       }),
     ).toBe(false);
-  });
-
-  it("keeps exact transaction provenance and focused intent persistable", () => {
     expect(
-      isUserInitiatedCollaborativeEditorUpdate({
+      hasDirectUserEditEvidence({
         editorFocused: false,
         explicitUserEdit: true,
         recentUserEditIntent: false,
@@ -3583,7 +3687,7 @@ describe("collaborative update persistence", () => {
       }),
     ).toBe(true);
     expect(
-      isUserInitiatedCollaborativeEditorUpdate({
+      hasDirectUserEditEvidence({
         editorFocused: false,
         explicitUserEdit: false,
         recentUserEditIntent: false,
@@ -3591,7 +3695,7 @@ describe("collaborative update persistence", () => {
       }),
     ).toBe(true);
     expect(
-      isUserInitiatedCollaborativeEditorUpdate({
+      hasDirectUserEditEvidence({
         editorFocused: true,
         explicitUserEdit: false,
         recentUserEditIntent: true,
@@ -3600,59 +3704,14 @@ describe("collaborative update persistence", () => {
     ).toBe(true);
   });
 
-  it("rejects unfocused normalization without user intent", () => {
-    expect(
-      shouldPersistCollaborativeEditorUpdate({
-        collab: true,
-        editorFocused: false,
-        userInitiated: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("keeps focused commands and explicit user edits persistable", () => {
-    expect(
-      shouldPersistCollaborativeEditorUpdate({
-        collab: true,
-        editorFocused: true,
-        userInitiated: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldPersistCollaborativeEditorUpdate({
-        collab: true,
-        editorFocused: false,
-        userInitiated: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("does not change non-collaborative persistence", () => {
-    expect(
-      shouldPersistCollaborativeEditorUpdate({
-        collab: false,
-        editorFocused: false,
-        userInitiated: false,
-      }),
-    ).toBe(true);
-  });
-
-  it("flushes only an editable editor with local user intent", () => {
+  it("flushes local user intent through the permission-checked save callback", () => {
     expect(
       shouldFlushVisualEditorDraft({
-        editable: true,
         hasUserEditIntent: true,
       }),
     ).toBe(true);
     expect(
       shouldFlushVisualEditorDraft({
-        editable: false,
-        hasUserEditIntent: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldFlushVisualEditorDraft({
-        editable: true,
         hasUserEditIntent: false,
       }),
     ).toBe(false);
@@ -4213,7 +4272,7 @@ describe("VisualEditor markdown round-tripping", () => {
         "tableCell",
       ]);
       expect(
-        editor.view.dom.querySelectorAll(".notion-table-header-cell"),
+        editor.view.dom.querySelectorAll(".content-table-header-cell"),
       ).toHaveLength(4);
     } finally {
       editor.destroy();
@@ -4646,7 +4705,7 @@ describe("VisualEditor markdown round-tripping", () => {
         ),
       ).toBe(false);
       expect(
-        container.querySelector<HTMLInputElement>(".notion-toggle__summary")
+        container.querySelector<HTMLInputElement>(".content-toggle__summary")
           ?.value,
       ).toBe("Parent");
     } finally {
@@ -4728,14 +4787,14 @@ describe("VisualEditor markdown round-tripping", () => {
       });
       await vi.waitFor(() => {
         expect(controller).not.toBeNull();
-        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        expect(container.querySelector(".content-editor")?.textContent).toBe(
           "Draft A body",
         );
       });
       onChange.mockClear();
 
       const editorElement =
-        container.querySelector<HTMLElement>(".notion-editor");
+        container.querySelector<HTMLElement>(".content-editor");
       const mountedEditor = (editorElement as HTMLElement & { editor?: Editor })
         .editor;
       expect(mountedEditor).toBeDefined();
@@ -4794,7 +4853,7 @@ describe("VisualEditor markdown round-tripping", () => {
       });
 
       expect(applied).toBe(true);
-      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+      expect(container.querySelector(".content-editor")?.textContent).toBe(
         "Draft A body",
       );
       expect(docToNfm(mountedEditor!.getJSON() as any)).toBe("Draft A body");
@@ -4810,7 +4869,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
       await act(() => waitForDeferredCallback());
-      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+      expect(container.querySelector(".content-editor")?.textContent).toBe(
         "Draft A body",
       );
       expect(onChange).not.toHaveBeenCalled();
@@ -4827,7 +4886,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
       await vi.waitFor(() => {
-        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        expect(container.querySelector(".content-editor")?.textContent).toBe(
           "Newer C body",
         );
       });
@@ -4843,7 +4902,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
       await act(() => waitForDeferredCallback());
-      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+      expect(container.querySelector(".content-editor")?.textContent).toBe(
         "Newer C body",
       );
       expect(onChange).not.toHaveBeenCalled();
@@ -4851,7 +4910,7 @@ describe("VisualEditor markdown round-tripping", () => {
       act(() => {
         controller!.undo();
       });
-      expect(container.querySelector(".notion-editor")?.textContent).toBe(
+      expect(container.querySelector(".content-editor")?.textContent).toBe(
         "Newer C body",
       );
       expect(onChange).not.toHaveBeenCalled();
@@ -4868,7 +4927,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
       await vi.waitFor(() => {
-        expect(container.querySelector(".notion-editor")?.textContent).toBe(
+        expect(container.querySelector(".content-editor")?.textContent).toBe(
           "Older Page B body",
         );
       });
@@ -4955,7 +5014,7 @@ describe("VisualEditor markdown round-tripping", () => {
 
     const editorParagraphs = () =>
       Array.from(
-        container.querySelectorAll<HTMLElement>(".notion-editor > p"),
+        container.querySelectorAll<HTMLElement>(".content-editor > p"),
         (node) => node.textContent,
       );
     const waitForParagraphs = (expected: string[]) =>
@@ -5094,7 +5153,7 @@ describe("VisualEditor markdown round-tripping", () => {
       await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
 
       expect(
-        container.querySelector("pre.notion-code-block code")?.textContent,
+        container.querySelector("pre.content-code-block code")?.textContent,
       ).toBe("const answer = 42");
     } finally {
       await act(async () => root.unmount());
@@ -5184,42 +5243,6 @@ describe("VisualEditor markdown round-tripping", () => {
         now: 10_000,
       }),
     ).toBe(false);
-  });
-
-  it("does not persist local-file mount-time normalization transactions", () => {
-    expect(
-      shouldPersistLocalFileEditorUpdate({
-        docChanged: true,
-        editorFocused: false,
-        recentUserEditIntent: false,
-        transactionUiEvent: undefined,
-      }),
-    ).toBe(false);
-    expect(
-      shouldPersistLocalFileEditorUpdate({
-        docChanged: true,
-        editorFocused: true,
-        recentUserEditIntent: false,
-        transactionUiEvent: undefined,
-      }),
-    ).toBe(true);
-    expect(
-      shouldPersistLocalFileEditorUpdate({
-        docChanged: false,
-        editorFocused: true,
-        recentUserEditIntent: true,
-        transactionUiEvent: "paste",
-      }),
-    ).toBe(false);
-    expect(
-      shouldPersistLocalFileEditorUpdate({
-        docChanged: true,
-        editorFocused: false,
-        explicitLocalFileUserEdit: true,
-        recentUserEditIntent: false,
-        transactionUiEvent: undefined,
-      }),
-    ).toBe(true);
   });
 
   it("rejects a ghost empty transition over a rich saved body", () => {
@@ -5639,7 +5662,7 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(
         editor.view.dom.querySelector(EMPTY_TOGGLE_BODY_SELECTOR),
       ).toBeNull();
-      const body = editor.view.dom.querySelector(".notion-toggle__content p");
+      const body = editor.view.dom.querySelector(".content-toggle__content p");
       expect(body).not.toBeNull();
       expect(body?.getAttribute("data-placeholder")).toBeNull();
     } finally {
@@ -5670,7 +5693,7 @@ describe("VisualEditor markdown round-tripping", () => {
 
       expect(
         editor.view.dom
-          .querySelector(".notion-toggle__content p")
+          .querySelector(".content-toggle__content p")
           ?.getAttribute("data-placeholder"),
       ).toBe("Press ‘/’ for commands");
     } finally {
@@ -5700,7 +5723,8 @@ describe("VisualEditor markdown round-tripping", () => {
         editor.view.dom.querySelector(EMPTY_TOGGLE_BODY_SELECTOR),
       ).toBeNull();
       expect(
-        editor.view.dom.querySelector(".notion-toggle__content p")?.textContent,
+        editor.view.dom.querySelector(".content-toggle__content p")
+          ?.textContent,
       ).toBe("Body text");
     } finally {
       await dispose();
@@ -5720,7 +5744,7 @@ describe("VisualEditor markdown round-tripping", () => {
     });
 
     try {
-      expect(editor.view.dom.querySelector(".notion-toggle__content p")).toBe(
+      expect(editor.view.dom.querySelector(".content-toggle__content p")).toBe(
         null,
       );
       expect(
@@ -5738,7 +5762,8 @@ describe("VisualEditor markdown round-tripping", () => {
         editor.view.dom.querySelector(EMPTY_TOGGLE_BODY_SELECTOR),
       ).toBeNull();
       expect(
-        editor.view.dom.querySelector(".notion-toggle__content p")?.textContent,
+        editor.view.dom.querySelector(".content-toggle__content p")
+          ?.textContent,
       ).toBe("Dropped block");
     } finally {
       await dispose();

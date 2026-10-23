@@ -1,5 +1,108 @@
 # @agent-native/agentkit
 
+## 0.219.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.218.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.217.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.216.0
+
+### Minor Changes
+
+- b28df00: Agent chat now validates durable queued submission receipts against the original session and message identity, preserves retry context after an unreadable acknowledgement, and prevents attachment payloads from being admitted under a mismatched receipt. Queued follow-ups keep their attachment references, drain at completed-turn boundaries, and expose terminal receipt states so mobile turns can settle when admission expires or is blocked.
+
+### Patch Changes
+
+- b28df00: Preserve accepted inbox order, bounded retry behavior, effective run settings, and inline attachment identity when Agent-Native chat submissions are queued or promoted.
+- b28df00: Keep receipt-backed queue promotion under the durable inbox retry policy and report cancellation failures without marking queued mobile turns stopped.
+- Release all public npm packages with a patch version bump.
+
+## 0.215.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.214.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.213.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.213.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.212.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.212.0
+
+### Patch Changes
+
+- d24c71c: Reloading a chat no longer shows a second copy of a reply when folded runs streamed into the same assistant message, and that message keeps streaming when an earlier folded run settles. A continuation that starts after its predecessor finished now appends to that reply, and one that fails or never writes no longer changes its status. Reloading while a continuation is still carrying an earlier run's reply no longer leaves that reply streaming after the continuation finishes.
+- Release all public npm packages with a patch version bump.
+
+## 0.211.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.210.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.210.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.210.0
+
+### Minor Changes
+
+- 41f86eb: Persist fenced agent execution steps and submission receipts across chat, automation, team, and A2A runs.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 0cfbd4d: Include the MIT license text in the published package.
+- 69b873f: Keep attachment submissions available without Web Crypto and reject leased run writes that lack an execution fence.
+
+## 0.209.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.209.1
 
 ### Patch Changes

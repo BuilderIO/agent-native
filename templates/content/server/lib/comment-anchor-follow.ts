@@ -38,7 +38,8 @@ export async function followCommentAnchors(
     await tx.execute({
       sql: `SELECT c.id,c.quoted_text,c.anchor_prefix,c.anchor_suffix,c.anchor_start_offset
             FROM document_comments c
-            WHERE c.document_id = ? AND c.quoted_text IS NOT NULL AND c.quoted_text <> ''
+            WHERE c.document_id = ? AND c.field_id IS NULL
+              AND c.quoted_text IS NOT NULL AND c.quoted_text <> ''
               AND NOT EXISTS (
                 SELECT 1 FROM comment_ai_requests r
                 WHERE r.document_id = c.document_id AND r.thread_id = c.thread_id

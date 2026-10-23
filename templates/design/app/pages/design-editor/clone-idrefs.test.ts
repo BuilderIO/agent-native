@@ -103,6 +103,30 @@ describe("reassignClonedAuthoredIds", () => {
   });
 });
 
+describe("reassignClonedAuthoredIds with a destination", () => {
+  it("keeps ids the destination does not use and rewrites the ones it does", () => {
+    const root = parseRoot(`
+      <svg>
+        <path id="first" />
+        <path id="taken" />
+        <path id="first" />
+        <use href="#first" />
+      </svg>
+    `);
+    let sequence = 0;
+    reassignClonedAuthoredIds(
+      root,
+      () => `copy-${++sequence}`,
+      (id) => id === "taken",
+    );
+
+    expect(
+      Array.from(root.querySelectorAll("[id]"), (node) => node.id),
+    ).toEqual(["first", "copy-1", "copy-2"]);
+    expect(root.querySelector("use")?.getAttribute("href")).toBe("#first");
+  });
+});
+
 describe("reassignClonedSourceIdentity", () => {
   const INHERITED = [
     "data-code-layer-id",

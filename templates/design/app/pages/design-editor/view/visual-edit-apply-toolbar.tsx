@@ -24,6 +24,7 @@ export function renderVisualEditApplyToolbar({
   editorModes,
   editorExportAndHandoff,
   canApplyPendingVisualEditsWithAgent,
+  belowAppBar = false,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -31,6 +32,8 @@ export function renderVisualEditApplyToolbar({
   editorModes: EditorModes;
   editorExportAndHandoff: EditorExportAndHandoff;
   canApplyPendingVisualEditsWithAgent: boolean;
+  /** A full-app bar owns the top-center slot; stack under it instead of on it. */
+  belowAppBar?: boolean;
 }) {
   const {
     isVisualEditSurface,
@@ -73,7 +76,10 @@ export function renderVisualEditApplyToolbar({
       {showVisualEditApply ? (
         <div
           data-design-pending-visual-style-toolbar
-          className="pointer-events-none absolute inset-x-0 top-4 z-[70] flex justify-center px-4"
+          className={cn(
+            "pointer-events-none absolute inset-x-0 z-[70] flex justify-center px-4",
+            belowAppBar ? "top-14" : "top-4",
+          )}
         >
           <div className="pointer-events-auto flex w-fit max-w-full items-center overflow-x-auto">
             <Button

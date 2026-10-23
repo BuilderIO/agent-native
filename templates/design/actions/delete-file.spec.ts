@@ -234,6 +234,12 @@ vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
     mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
 }));
 
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
+
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import action from "./delete-file.js";
 
 describe("delete-file", () => {
@@ -245,12 +251,18 @@ describe("delete-file", () => {
         { caller: "mcp", actionName: "delete-file" },
       ),
     ).toBe(true);
-    // MCP checks approval on raw tool args before schema boolean coercion.
+    // Every caller's gate judges the call as prepared, so a stringified
+    // flag arrives as the boolean the schema coerces it to.
+    const intent = await actionCallIntent(action, {
+      id: "file-b",
+      allowLockedLayers: "true",
+    });
+    if (!intent.valid) throw intent.error;
     expect(
-      await action.needsApproval?.(
-        { id: "file-b", allowLockedLayers: "true" } as never,
-        { caller: "mcp", actionName: "delete-file" },
-      ),
+      await action.needsApproval?.(preparedCallArguments(intent) as never, {
+        caller: "mcp",
+        actionName: "delete-file",
+      }),
     ).toBe(true);
     expect(
       await action.needsApproval?.(
@@ -419,6 +431,24 @@ describe("delete-file", () => {
     expect(mocks.db.transaction).not.toHaveBeenCalled();
   });
 
+  it("receipts a scoped no-op when the Design id is provided", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([]);
+
+    await expect(
+      action.run({ id: "missing-file", designId: "design_123" }),
+    ).resolves.toEqual({
+      id: "missing-file",
+      deleted: false,
+      alreadyMissing: true,
+      _receipt: designOutputWriteReceipt("design_123", 0),
+    });
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "design_123",
+      "editor",
+    );
+  });
+
   it("refuses a locked screen by default so the agent cannot drop template branding", async () => {
     mocks.fileSelectChain.limit.mockResolvedValue([
       {
@@ -517,7 +547,11 @@ describe("delete-file", () => {
 
     await expect(
       action.run({ id: "file-b", allowLockedLayers: true }),
-    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+    ).resolves.toMatchObject({
+      id: "file-b",
+      deleted: true,
+      _receipt: designOutputWriteReceipt("design_123", 1),
+    });
   });
 
   it("does not lock org_members for an owner on an embedded org-visible design", async () => {
@@ -666,6 +700,7 @@ describe("delete-file", () => {
       id: "file-b",
       deleted: false,
       alreadyMissing: true,
+      _receipt: designOutputWriteReceipt("design_123", 0),
     });
     expect(mocks.tx.update).not.toHaveBeenCalled();
   });
@@ -1204,6 +1239,7 @@ describe("delete-file", () => {
       id: "file-b",
       deleted: true,
       deletedIds: ["file-b", "file-c"],
+      _receipt: designOutputWriteReceipt("design_123", 2),
     });
     expect(mocks.db.transaction).toHaveBeenCalledTimes(1);
     expect(

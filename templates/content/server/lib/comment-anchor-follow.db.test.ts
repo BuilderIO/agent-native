@@ -44,8 +44,11 @@ let sequence = 0;
 
 const page = "Keep the plan here.\n\nMove the plan there.";
 
-/** A comment on the last copy of `quote`, captured from `markdown`. */
-async function addComment(markdown: string, quote: string) {
+/**
+ * A comment on the last copy of `quote`, captured from `markdown`, on the
+ * page body unless `fieldId` names another Blocks field.
+ */
+async function addComment(markdown: string, quote: string, fieldId?: string) {
   sequence += 1;
   const documentId = `follow-page-${sequence}`;
   const id = `follow-comment-${sequence}`;
@@ -63,6 +66,8 @@ async function addComment(markdown: string, quote: string) {
       anchorPrefix: text.slice(Math.max(0, at - 32), at),
       anchorSuffix: text.slice(at + quote.length, at + quote.length + 32),
       anchorStartOffset: at,
+      fieldId: fieldId ?? null,
+      fieldName: fieldId ? "Notes" : null,
       authorEmail: ownerEmail,
       createdAt: created,
       updatedAt: created,
@@ -141,6 +146,16 @@ describe("followCommentAnchors", () => {
     const { documentId, id } = await addComment(page, "the plan");
     const captured = await commentRow(id);
     const next = page.replace("Keep", "**Keep**");
+    expect(await commit(documentId, page, next)).toEqual([]);
+    expect(await commentRow(id)).toEqual(captured);
+  });
+
+  it("leaves a comment on another Blocks field alone", async () => {
+    // The field holds the same words as the body, so the body's diff would
+    // move the comment.
+    const { documentId, id } = await addComment(page, "the plan", "notes");
+    const captured = await commentRow(id);
+    const next = `Intro.\n\n${page}`;
     expect(await commit(documentId, page, next)).toEqual([]);
     expect(await commentRow(id)).toEqual(captured);
   });

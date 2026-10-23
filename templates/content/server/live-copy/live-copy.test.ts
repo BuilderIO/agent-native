@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { getDbExec, withDbExec, type DbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putSetting } from "@agent-native/core/settings";
 import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
@@ -32,6 +32,83 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   >()),
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
+// Runs once, after the next write-path read from another module: a server
+// writer reads its path after it read the body it changes.
+const { afterWritePathRead } = vi.hoisted(() => ({
+  afterWritePathRead: { current: null as null | (() => Promise<void>) },
+}));
+vi.mock("../lib/live-body-writer.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../lib/live-body-writer.js")>();
+  const thenHook =
+    <A extends unknown[], R>(read: (...args: A) => Promise<R>) =>
+    async (...args: A) => {
+      const result = await read(...args);
+      const hook = afterWritePathRead.current;
+      afterWritePathRead.current = null;
+      await hook?.();
+      return result;
+    };
+  return {
+    ...actual,
+    liveBodyWriterGate: thenHook(actual.liveBodyWriterGate),
+    isLiveBodyWriterPage: thenHook(actual.isLiveBodyWriterPage),
+  };
+});
+// Counts the edit bases rebuilt from body steps. History can record a base
+// after the agent read it, so only this tells which edits the steps served.
+const { rebuiltBases } = vi.hoisted(() => ({ rebuiltBases: { count: 0 } }));
+vi.mock("../lib/document-body-steps.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../lib/document-body-steps.js")>();
+  return {
+    ...actual,
+    rebuildDocumentBodyBase: async (
+      ...args: Parameters<typeof actual.rebuildDocumentBodyBase>
+    ) => {
+      const base = await actual.rebuildDocumentBodyBase(...args);
+      if (base !== null) rebuiltBases.count += 1;
+      return base;
+    },
+  };
+});
+
+// The live copy's worker bundles its own Yjs and serializer, so these record
+// only what ran on this thread, and only while `recording` is set. They record
+// every call and construction of every export: an export reaches the others'
+// work through the module's own bindings, which a wrapper never sees.
+const { thisThread, recordedOnThisThread } = vi.hoisted(() => {
+  const thisThread = { recording: false, calls: [] as string[] };
+  const record = (name: string) => {
+    if (thisThread.recording) thisThread.calls.push(name);
+  };
+  function recordedOnThisThread<T extends object>(actual: T): T {
+    const recorded = { ...actual } as Record<string, unknown>;
+    for (const [name, value] of Object.entries(recorded)) {
+      if (typeof value !== "function") continue;
+      recorded[name] = new Proxy(value, {
+        apply(target, self, args) {
+          record(name);
+          return Reflect.apply(target, self, args);
+        },
+        construct(target, args, newTarget) {
+          record(`new ${name}`);
+          return Reflect.construct(target, args, newTarget);
+        },
+      });
+    }
+    return recorded as T;
+  }
+  return { thisThread, recordedOnThisThread };
+});
+vi.mock("yjs", async (importOriginal) =>
+  recordedOnThisThread(await importOriginal<typeof import("yjs")>()),
+);
+vi.mock("../../shared/nfm.js", async (importOriginal) =>
+  recordedOnThisThread(
+    await importOriginal<typeof import("../../shared/nfm.js")>(),
+  ),
+);
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -236,6 +313,22 @@ async function appendParagraphUpdate(id: string, text: string) {
   return update;
 }
 
+/** A client that synced the live copy types `text` at the end of the page. */
+async function keystrokeUpdate(id: string, text: string) {
+  const live = await collab.readLiveCopy(binding.contentLiveCopy, id);
+  if (live.kind !== "live") throw new Error(`${id} is ${live.kind}`);
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, live.state);
+  const before = Y.encodeStateVector(doc);
+  const fragment = doc.getXmlFragment("default");
+  const paragraph = fragment.get(fragment.length - 1) as Y.XmlElement;
+  const content = paragraph.get(0) as Y.XmlText;
+  content.insert(content.length, text);
+  const update = Y.encodeStateAsUpdate(doc, before);
+  doc.destroy();
+  return update;
+}
+
 /** What an editor synced to the live copy sends after its doc becomes `blocks`. */
 async function editorUpdate(id: string, blocks: unknown[]) {
   const live = await collab.readLiveCopy(binding.contentLiveCopy, id);
@@ -256,23 +349,31 @@ function markdownBlocks(markdown: string) {
   return nfm.nfmToDoc(markdown).content ?? [];
 }
 
-/** Runs `run`, recording the longest stretch this thread could not tick. */
-async function longestStall(run: () => Promise<unknown>) {
-  let last = performance.now();
-  let stall = 0;
-  const timer = setInterval(() => {
-    const now = performance.now();
-    stall = Math.max(stall, now - last);
-    last = now;
-  }, 10);
+/**
+ * Runs `run`, recording the tasks it handed the live copy's bounded runner and
+ * the Yjs decodes and serializer calls it made on this thread.
+ */
+async function whereItRan(run: () => Promise<unknown>) {
+  const runner = binding.contentLiveCopy.runner;
+  const send = runner.run.bind(runner);
+  const tasks: string[] = [];
+  const spy = vi
+    .spyOn(runner, "run")
+    .mockImplementation(async (task, ...rest) => {
+      tasks.push(task);
+      return send(task, ...rest);
+    });
+  thisThread.calls.length = 0;
+  thisThread.recording = true;
   try {
     const outcome = await run().then(
       (value) => ({ value }),
       (error: unknown) => ({ error }),
     );
-    return { ...outcome, stall: Math.max(stall, performance.now() - last) };
+    return { ...outcome, tasks, thisThread: [...thisThread.calls] };
   } finally {
-    clearInterval(timer);
+    thisThread.recording = false;
+    spy.mockRestore();
   }
 }
 
@@ -361,16 +462,20 @@ describe("switching a page to its live copy", () => {
     expect(await collabVersion("off")).toBeUndefined();
   });
 
-  it("refuses to switch a page whose stored body the parser would drop part of", async () => {
-    const stored = "Hello\n<callout>\nOnly text\n</callout>";
-    await insertPage("drops-on-switch", stored);
+  it("refuses to switch a page whose stored body the parser can't keep in full", async () => {
+    // The parser drops text directly inside a table, so both serializations
+    // of the built tree agree on the shortened body.
+    await insertPage(
+      "parse-loss",
+      "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>",
+    );
+    const before = await page("parse-loss");
 
     await expect(
-      switching.switchPageToLiveCopy("drops-on-switch"),
-    ).rejects.toMatchObject({ code: "build_refused", reason: "lossy" });
-    const row = await page("drops-on-switch");
-    expect(row.content).toBe(stored);
-    expect(row.liveBodySwitchedAt).toBeNull();
+      switching.switchPageToLiveCopy("parse-loss"),
+    ).rejects.toMatchObject({ name: "LiveCopyError", reason: "lossy" });
+    expect(await page("parse-loss")).toEqual(before);
+    expect(await collabVersion("parse-loss")).toBeUndefined();
   });
 
   it("converts again after a legacy write, and the stored body wins over the stale copy", async () => {
@@ -424,6 +529,113 @@ describe("switching a page to its live copy", () => {
       ),
     ).rejects.toMatchObject({ code: "base_changed" });
     expect((await page("moved")).liveBodySwitchedAt).toBeNull();
+  });
+});
+
+describe("GitHub source policy on a live copy", () => {
+  it("keeps mutable and missing legacy collab documents on the ordinary path", async () => {
+    await switchedPage("legacy-mutable-policy", "Canonical body");
+    const update = await appendParagraphUpdate(
+      "legacy-mutable-policy",
+      "Allowed edit",
+    );
+    const version = await collabVersion("legacy-mutable-policy");
+    await setFlags(false);
+    await expect(
+      collab.applyUpdate("legacy-mutable-policy", update),
+    ).resolves.toMatchObject({ liveCopy: "not_derived" });
+    expect((await page("legacy-mutable-policy")).content).toBe(
+      "Canonical body",
+    );
+    expect(await collabVersion("legacy-mutable-policy")).toBe(
+      (version as number) + 1,
+    );
+    await expect(gateFor("missing-policy-page")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "no_page",
+    });
+    await expect(
+      collab.applyText("missing-policy-page", "Other app body"),
+    ).resolves.toBe("Other app body");
+  });
+
+  it("refuses to switch a GitHub page without changing its body or live copy", async () => {
+    await switchedPage("github-store-fixture", "Other body");
+    await insertPage("github-switch", "Canonical body");
+    await getDb()
+      .update(schema.documents)
+      .set({ sourceMode: "github" })
+      .where(eq(schema.documents.id, "github-switch"));
+    const before = await page("github-switch");
+
+    await expect(
+      switching.switchPageToLiveCopy("github-switch"),
+    ).rejects.toMatchObject({ errorCode: "SOURCE_READ_ONLY" });
+    expect(await page("github-switch")).toEqual(before);
+    expect(await collabVersion("github-switch")).toBeUndefined();
+    expect(await history("github-switch")).toEqual([]);
+  });
+
+  it.each(["editor", "server", "unchanged"] as const)(
+    "refuses an existing live copy's %s write after its page becomes GitHub-backed",
+    async (kind) => {
+      const id = `github-${kind}`;
+      await switchedPage(id, "Canonical body");
+      const update = await appendParagraphUpdate(id, "Unapproved edit");
+      const before = await page(id);
+      const version = await collabVersion(id);
+      const previousHistory = await history(id);
+      await getDb()
+        .update(schema.documents)
+        .set({ sourceMode: "github" })
+        .where(eq(schema.documents.id, id));
+
+      await expect(
+        asOwner(async () =>
+          kind === "editor"
+            ? collab.applyUpdate(id, update)
+            : writer.editContentLiveCopy(id, {
+                cause: { operation: "test-source-policy", origin: "test" },
+                edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+                input: {
+                  content:
+                    kind === "unchanged" ? "Canonical body" : "Unapproved edit",
+                  expected: "Canonical body",
+                },
+              }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "SOURCE_READ_ONLY" });
+      expect(await page(id)).toEqual(before);
+      expect(await collabVersion(id)).toBe(version);
+      expect(await history(id)).toEqual(previousHistory);
+      expect(await bodyIntents(id)).toEqual([]);
+    },
+  );
+
+  it("rechecks source policy when a GitHub link arrives after conversion is built", async () => {
+    const id = "github-conversion-race";
+    await insertPage(id, "Canonical body");
+    const before = await page(id);
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    const spy = vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+      const result = await run(...args);
+      await getDb()
+        .update(schema.documents)
+        .set({ sourceMode: "github" })
+        .where(eq(schema.documents.id, id));
+      return result;
+    });
+    try {
+      await expect(switching.switchPageToLiveCopy(id)).rejects.toMatchObject({
+        errorCode: "SOURCE_READ_ONLY",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await page(id)).toEqual(before);
+    expect(await collabVersion(id)).toBeUndefined();
+    expect(await history(id)).toEqual([]);
   });
 });
 
@@ -591,6 +803,30 @@ describe("writes through a switched page's live copy", () => {
     ).rejects.toMatchObject({ errorCode: "DOCUMENT_NOT_FOUND" });
     expect((await page("trashed")).content).toBe("Hello there");
     expect(await collabVersion("trashed")).toBe(version);
+  });
+
+  it("refuses a server replacement the parser can't keep in full, and commits nothing", async () => {
+    await switchedPage("parse-loss-edit", "Hello there");
+    const before = await page("parse-loss-edit");
+    const version = await collabVersion("parse-loss-edit");
+
+    await expect(
+      cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
+        collab.mutateLiveCopy(binding.contentLiveCopy, "parse-loss-edit", {
+          edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: {
+            content:
+              "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "LiveCopyError",
+      code: "build_refused",
+      reason: "lossy",
+    });
+    expect(await page("parse-loss-edit")).toEqual(before);
+    expect(await collabVersion("parse-loss-edit")).toBe(version);
   });
 
   it("locks collections, then memberships, then the page, and trashes an inline collection the body dropped", async () => {
@@ -887,29 +1123,22 @@ describe("a page whose write path changes mid-write", () => {
           args: ["torn"],
         });
       });
-    const db = getDb();
+    const context = getDbExec();
     let reads = 0;
-    const racing = {
-      select: (fields: never) => ({
-        from: (table: never) => ({
-          where: (where: never) => ({
-            limit: async (count: number) => {
-              const rows = await db
-                .select(fields)
-                .from(table)
-                .where(where)
-                .limit(count);
-              if (++reads === 1) await peerCommit();
-              return rows;
-            },
-          }),
-        }),
-      }),
-    } as unknown as NonNullable<Parameters<typeof liveBodyWriterGate>[1]>["db"];
+    const racing: ReturnType<typeof getDbExec> = {
+      transaction: context.transaction?.bind(context),
+      execute: async (statement) => {
+        const result = await context.execute(statement);
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        if (/from\s+"documents"/i.test(sql) && ++reads === 1)
+          await peerCommit();
+        return result;
+      },
+    };
 
-    await expect(liveBodyWriterGate("torn", { db: racing })).resolves.toEqual({
-      writePath: "live_copy",
-    });
+    await expect(
+      withDbExec(racing, () => liveBodyWriterGate("torn")),
+    ).resolves.toEqual({ writePath: "live_copy" });
     await expect(gateFor("torn")).resolves.toEqual({ writePath: "live_copy" });
   });
 });
@@ -1178,6 +1407,7 @@ describe("edit-document on a switched page", () => {
       receipt: {
         outcome: string;
         revisions: { before: string; after: string };
+        bodyRevision: { before: number; after: number };
         idempotency: { result: string };
       };
     }>;
@@ -1490,6 +1720,187 @@ describe("edit-document on a switched page", () => {
     ).toBe(true);
   });
 
+  it("lands every edit an agent loops while a tab types for 30 s", async () => {
+    // SF-02 liveness. The tab types into its own paragraph at the e2e
+    // harness's pace, a keystroke every 40 ms, each sent on its own; a real
+    // tab sends less often, once 80 ms pass without a keystroke. The agent
+    // loops get-document and edit-document on its own paragraph. The bound is
+    // in tries, not time, which a busy machine stretches: every edit lands on
+    // its first.
+    const getDocument = (await import("../../actions/get-document.js")).default;
+    await switchedPage("liveness", "Agent 0\n\nTab");
+    let typing = true;
+    let keystrokes = 0;
+    // A keystroke that throws ends the agent's wait with its error, not with
+    // a timeout.
+    const tabFailure: { error?: unknown } = {};
+    const tab = (async () => {
+      while (typing) {
+        const next = Date.now() + 40;
+        await asOwner(async () =>
+          collab.applyUpdate(
+            "liveness",
+            await keystrokeUpdate("liveness", "x"),
+          ),
+        );
+        keystrokes += 1;
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.max(0, next - Date.now())),
+        );
+      }
+    })().catch((error: unknown) => {
+      tabFailure.error = error;
+    });
+    const keystrokesLand = async (count: number) => {
+      const typed = keystrokes;
+      const deadline = Date.now() + 10_000;
+      while (keystrokes < typed + count) {
+        if ("error" in tabFailure) throw tabFailure.error;
+        if (Date.now() > deadline) throw new Error("the tab is not typing");
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+    };
+    let edits = 0;
+    let stale = 0;
+    rebuiltBases.count = 0;
+    try {
+      const until = Date.now() + 30_000;
+      while (Date.now() < until) {
+        // The agent reads while the tab types: past the row its own last edit
+        // wrote, and past the row a keystroke opening an interval writes.
+        await keystrokesLand(2);
+        const read = (await asOwner(async () =>
+          getDocument.run(
+            { id: "liveness" } as never,
+            { caller: "mcp", userEmail: OWNER } as never,
+          ),
+        )) as { bodyRevision: number; content: string };
+        // The tab types on while the agent thinks. A base History lacks is
+        // rebuilt from at most 256 body steps, about 10 s at this pace.
+        await keystrokesLand(2);
+        const result = await agentEdit(
+          "liveness",
+          read,
+          [{ find: `Agent ${edits}`, replace: `Agent ${edits + 1}` }],
+          `liveness-${edits}`,
+        );
+        expect(result.receipt.outcome).toBe("applied");
+        if (result.receipt.bodyRevision.before > read.bodyRevision) stale += 1;
+        edits += 1;
+      }
+    } finally {
+      typing = false;
+      await tab;
+    }
+    if ("error" in tabFailure) throw tabFailure.error;
+
+    expect(edits).toBeGreaterThan(10);
+    expect(keystrokes).toBeGreaterThan(100);
+    // Every edit was made on a body the tab had since typed past. Unless
+    // History missed some of those bases, the loop proves nothing.
+    expect(stale).toBe(edits);
+    expect(rebuiltBases.count).toBeGreaterThan(0);
+    expect((await page("liveness")).content).toBe(
+      `Agent ${edits}\nTab${"x".repeat(keystrokes)}`,
+    );
+    expect(await gateFor("liveness")).toEqual({ writePath: "live_copy" });
+  }, 120_000);
+
+  it("rebuilds an unrecorded base 256 tab commits back, and refuses one 257 back", async () => {
+    await switchedPage("step-limit", "Agent\n\nTab");
+    const keystroke = () =>
+      asOwner(async () =>
+        collab.applyUpdate(
+          "step-limit",
+          await keystrokeUpdate("step-limit", "x"),
+        ),
+      );
+    const now = Date.now();
+    // Time stands still, so no keystroke opens a History interval and
+    // neither base is recorded.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(now + 10);
+      await keystroke();
+      await keystroke();
+      const older = await page("step-limit");
+      await keystroke();
+      const newer = await page("step-limit");
+      for (let typed = 0; typed < 256; typed += 1) await keystroke();
+      expect(await historyHolds("step-limit", older)).toBe(false);
+      expect(await historyHolds("step-limit", newer)).toBe(false);
+      const typed = (await page("step-limit")).content;
+
+      await expect(
+        agentEdit(
+          "step-limit",
+          older,
+          [{ find: "Agent", replace: "Agent A" }],
+          "step-limit-older",
+        ),
+      ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+      const result = await agentEdit(
+        "step-limit",
+        newer,
+        [{ find: "Agent", replace: "Agent A" }],
+        "step-limit-newer",
+      );
+
+      expect(result.receipt.outcome).toBe("applied");
+      expect(result.receipt.bodyRevision.before - newer.bodyRevision).toBe(256);
+      expect((await page("step-limit")).content).toBe(
+        typed.replace("Agent", "Agent A"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 120_000);
+
+  it("refuses an unrecorded base a commit replacing more than 64 KB has passed, and lands the edit on a fresh read", async () => {
+    await switchedPage("big-step", `Agent\n\n${"a".repeat(70_000)}`);
+    const now = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(now + 10);
+      await typeInTab("big-step", `Agent\n\n${"a".repeat(70_000)}x`);
+      await typeInTab("big-step", `Agent\n\n${"a".repeat(70_000)}xy`);
+      const before = await page("big-step");
+      // The tab replaces the long paragraph in one commit, which records no
+      // step.
+      await typeInTab("big-step", `Agent\n\n${"b".repeat(70_000)}`);
+      expect(await historyHolds("big-step", before)).toBe(false);
+
+      await expect(
+        agentEdit(
+          "big-step",
+          before,
+          [{ find: "Agent", replace: "Agent A" }],
+          "big-step-before",
+        ),
+      ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+      const after = await page("big-step");
+      await typeInTab("big-step", `Agent\n\n${"b".repeat(70_000)}x`);
+      expect(await historyHolds("big-step", after)).toBe(false);
+      const typed = (await page("big-step")).content;
+      rebuiltBases.count = 0;
+      const result = await agentEdit(
+        "big-step",
+        after,
+        [{ find: "Agent", replace: "Agent A" }],
+        "big-step-after",
+      );
+
+      expect(result.receipt.outcome).toBe("applied");
+      expect(rebuiltBases.count).toBe(1);
+      expect((await page("big-step")).content).toBe(
+        typed.replace("Agent", "Agent A"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 120_000);
+
   it("refuses an edit made on an unrecorded base where a tab has since changed the text it replaces", async () => {
     await switchedPage("unrecorded-typed", "First\n\nSecond");
     await typeInTab("unrecorded-typed", "First\n\nSecond B");
@@ -1685,8 +2096,8 @@ describe("edit-document on a switched page", () => {
     await switchedPage("drops-text", "Hello");
     const loaded = await page("drops-text");
     const version = await collabVersion("drops-text");
-    // A callout's child must be indented; this one would be dropped.
-    const replace = "Hello\n<callout>\nOnly text\n</callout>";
+    // The parser drops text directly inside a table.
+    const replace = "Hello\n<table>\nStray text\n<tr><td>a</td></tr>\n</table>";
 
     await expect(
       agentEdit("drops-text", loaded, [{ find: "Hello", replace }]),
@@ -1756,18 +2167,61 @@ describe("edit-document on a switched page", () => {
     expect((await page("no-revision")).content).toBe("Hello world");
     expect(await gateFor("no-revision")).toEqual({ writePath: "live_copy" });
   });
+
+  it("refuses an edit without a revision whose editor access was revoked before it committed", async () => {
+    await switchedPage("no-revision-revoked", "Hello there");
+    await getDb().insert(schema.documentShares).values({
+      id: "no-revision-revoked-share",
+      resourceId: "no-revision-revoked",
+      principalType: "user",
+      principalId: OTHER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const version = await collabVersion("no-revision-revoked");
+    const action = (await import("../../actions/edit-document.js")).default;
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    const spy = vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+      const result = await run(...args);
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, "no-revision-revoked-share"));
+      return result;
+    });
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OTHER }, async () =>
+          action.run(
+            {
+              id: "no-revision-revoked",
+              find: "there",
+              replace: "world",
+            } as never,
+            { caller: "frontend", userEmail: OTHER } as never,
+          ),
+        ),
+      ).rejects.toThrow("No access to document no-revision-revoked");
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("no-revision-revoked")).content).toBe("Hello there");
+    expect(await collabVersion("no-revision-revoked")).toBe(version);
+  });
 });
 
 describe("a server rewrite of a switched page's body", () => {
   const IMAGE = "https://example.com/cat.png";
 
-  async function setAltText(id: string, altText: string) {
+  async function setAltText(id: string, altText: string, userEmail = OWNER) {
     const action = (await import("../../actions/set-image-alt-text.js"))
       .default;
-    return asOwner(async () =>
+    return runWithRequestContext({ userEmail }, async () =>
       action.run(
         { documentId: id, imageUrl: IMAGE, altText } as never,
-        { caller: "tool", userEmail: OWNER } as never,
+        { caller: "tool", userEmail } as never,
       ),
     );
   }
@@ -1826,6 +2280,70 @@ describe("a server rewrite of a switched page's body", () => {
     expect(after.content).toContain(`![peer](${IMAGE})`);
     expect(after.content).toContain(`Original\n![A cat](${IMAGE})`);
     expect(after.content).not.toContain("![original]");
+  });
+
+  it("writes alt text to the image it read, though a tab added one with the same URL before the write began", async () => {
+    await switchedPage(
+      "alt-text-early-tab",
+      `Original\n\n![original](${IMAGE})`,
+    );
+    afterWritePathRead.current = async () => {
+      await asOwner(async () =>
+        collab.applyUpdate(
+          "alt-text-early-tab",
+          await editorUpdate(
+            "alt-text-early-tab",
+            markdownBlocks(
+              `Inserted\n\n![peer](${IMAGE})\n\nOriginal\n\n![original](${IMAGE})`,
+            ),
+          ),
+        ),
+      );
+    };
+    try {
+      await setAltText("alt-text-early-tab", "A cat");
+    } finally {
+      afterWritePathRead.current = null;
+    }
+
+    const after = await page("alt-text-early-tab");
+    expect(after.content).toContain(`![peer](${IMAGE})`);
+    expect(after.content).toContain(`Original\n![A cat](${IMAGE})`);
+    expect(after.content).not.toContain("![original]");
+  });
+
+  it("refuses alt text whose editor access was revoked before it committed", async () => {
+    await switchedPage("alt-text-revoked", `Intro\n\n![](${IMAGE})`);
+    await getDb().insert(schema.documentShares).values({
+      id: "alt-text-revoked-share",
+      resourceId: "alt-text-revoked",
+      principalType: "user",
+      principalId: OTHER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const loaded = await page("alt-text-revoked");
+    const version = await collabVersion("alt-text-revoked");
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    const spy = vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+      const result = await run(...args);
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, "alt-text-revoked-share"));
+      return result;
+    });
+    try {
+      await expect(
+        setAltText("alt-text-revoked", "A cat", OTHER),
+      ).rejects.toThrow("No access to document alt-text-revoked");
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("alt-text-revoked")).content).toBe(loaded.content);
+    expect(await collabVersion("alt-text-revoked")).toBe(version);
   });
 
   it("writes alt text through update-document with the flags off, as on main", async () => {
@@ -2006,6 +2524,62 @@ describe("a browser save to a switched page's body", () => {
     });
   });
 
+  it.each(["authored candidate", "submitted body", "snapshot"] as const)(
+    "keeps an unheld draft when only the %s differs from the live copy",
+    async (kind) => {
+      const id = `unheld-${kind}`;
+      await switchedPage(id, "Canonical body");
+      const loaded = await page(id);
+      const unsent = "Unsent body";
+      await keepDraft(id, unsent);
+      const version = await collabVersion(id);
+      const previousHistory = await history(id);
+      const saved = await browserSave(
+        id,
+        loaded,
+        kind === "submitted body" ? unsent : loaded.content,
+        {
+          authoredCandidateContent:
+            kind === "authored candidate" ? unsent : loaded.content,
+          editorSnapshotTitle: id,
+          editorSnapshotContent: unsent,
+        },
+      );
+      expect(saved).toMatchObject({ bodySave: { matchesLiveCopy: false } });
+      expect(saved).not.toHaveProperty("bodyIntentOutcome");
+      expect(saved).not.toHaveProperty("browserSaveAttempt");
+      expect(await drafts(id)).toEqual([{ content: unsent }]);
+      expect(await receipts(id)).toEqual([]);
+      expect(await bodyIntents(id)).toEqual([]);
+      expect(await page(id)).toEqual(loaded);
+      expect(await collabVersion(id)).toBe(version);
+      expect(await history(id)).toEqual(previousHistory);
+    },
+  );
+
+  it("settles distinct submitted and authored bodies when the live copy holds both", async () => {
+    const id = "distinct-held";
+    await switchedPage(id, "First\n\nSecond");
+    const loaded = await page(id);
+    await typeInTab(id, ["First A\n\nSecond"]);
+    const authored = (await page(id)).content;
+    await typeInTab(id, ["First A\n\nSecond B"]);
+    const current = await page(id);
+    await keepDraft(id, current.content);
+    const saved = await browserSave(id, loaded, current.content, {
+      authoredCandidateContent: authored,
+      editorSnapshotTitle: id,
+      editorSnapshotContent: current.content,
+    });
+    expect(saved).toMatchObject({
+      bodyIntentOutcome: { status: "applied" },
+      browserSaveAttempt: { result: "live_copy" },
+    });
+    expect(await drafts(id)).toEqual([]);
+    expect(await receipts(id)).toEqual([{ attemptId: `${id}-attempt` }]);
+    expect(await page(id)).toEqual(current);
+  });
+
   it("settles a save the live copy holds, though a peer committed after it", async () => {
     await switchedPage("held", "First\n\nSecond");
     const loaded = await page("held");
@@ -2068,6 +2642,47 @@ describe("a browser save to a switched page's body", () => {
     expect(await drafts("headed")).toEqual([]);
   });
 
+  it("settles an exact title-heading body without an authored comparison", async () => {
+    const id = "heading-exact";
+    await switchedPage(id, `# ${id}\n\nBody`);
+    const loaded = await page(id);
+    const body = loaded.content;
+    await keepDraft(id, body);
+    await expect(
+      browserSave(id, loaded, body, {
+        authoredBaseRevision: undefined,
+        authoredBaseContent: undefined,
+        authoredCandidateContent: undefined,
+        editorSnapshotTitle: id,
+        editorSnapshotContent: body,
+      }),
+    ).resolves.toMatchObject({
+      bodySave: { matchesLiveCopy: true },
+      bodyIntentOutcome: { status: "applied" },
+    });
+    expect(await drafts(id)).toEqual([]);
+    expect(await receipts(id)).toEqual([{ attemptId: `${id}-attempt` }]);
+  });
+
+  it("keeps an unsent title heading even when SQL normalization matches the stored body", async () => {
+    const id = "heading-unsent";
+    await switchedPage(id, "Body");
+    const loaded = await page(id);
+    const candidate = nfm.docToNfm(nfm.nfmToDoc(`# ${id}\n\nBody`));
+    await keepDraft(id, candidate);
+    const result = await browserSave(id, loaded, candidate, {
+      editorSnapshotTitle: id,
+      editorSnapshotContent: candidate,
+    });
+    expect(result).toMatchObject({
+      content: "Body",
+      bodySave: { matchesLiveCopy: false },
+    });
+    expect(result).not.toHaveProperty("bodyIntentOutcome");
+    expect(await drafts(id)).toEqual([{ content: candidate }]);
+    expect(await receipts(id)).toEqual([]);
+  });
+
   it("keeps a tab's draft when only part of its typing reached the live copy", async () => {
     await switchedPage("partial", "Hello");
     const loaded = await page("partial");
@@ -2092,11 +2707,12 @@ describe("a browser save to a switched page's body", () => {
   it("keeps a tab's draft when its save is not its own serialization", async () => {
     await switchedPage("noncanonical", "Hello");
     const loaded = await page("noncanonical");
-    await typeInTab("noncanonical", ["Hello\n<callout>\n</callout>"]);
+    await typeInTab("noncanonical", ["Hello\n*Hi*"]);
     const stored = (await page("noncanonical")).content;
-    // The parse drops the unindented callout child, so this compares as the
-    // empty callout the live copy holds.
-    const candidate = "Hello\n<callout>\nOnly text\n</callout>";
+    // Another spelling of the body the live copy holds, one the editor never
+    // writes.
+    const candidate = "Hello\n_Hi_";
+    expect(candidate).not.toBe(stored);
     expect(nfm.docToNfm(nfm.nfmToDoc(candidate))).toBe(stored);
     await keepDraft("noncanonical", candidate);
 
@@ -2112,17 +2728,16 @@ describe("a browser save to a switched page's body", () => {
     expect(await receipts("noncanonical")).toEqual([]);
   });
 
-  it("keeps a tab's draft when the live copy cannot compare its save in time", async () => {
+  it("keeps a tab's draft when the live copy cannot compare its save within the worker's limits", async () => {
     await switchedPage("unchecked", "Hello there");
     const loaded = await page("unchecked");
     await keepDraft("unchecked", "Hello there\nOnly in tab A");
     const { documentRevisionToken } =
       await import("../../actions/_document-edit-mutation.js");
-    // Unclosed backtick runs, as in the SF-07 deadline test, under the
-    // 500,000-character bound on an authored body.
-    const base = Array.from({ length: 990 }, (_, index) =>
-      "`".repeat(index + 1),
-    ).join(" ");
+    // A 122,000-row table, under the 500,000-character bound on an authored
+    // body. Its parsed form outgrows the worker's heap, which a fast machine
+    // can't outrun; a slow one hits the deadline first.
+    const base = "|a|\n|-|\n" + "|a|\n".repeat(122_000);
 
     const saved = await browserSave(
       "unchecked",
@@ -2164,6 +2779,40 @@ describe("a browser save to a switched page's body", () => {
       content: "Hello there",
       bodyRevision: loaded.bodyRevision,
     });
+  });
+
+  it("refuses a stale title that arrives with a live-copy body save after a rename", async () => {
+    await switchedPage("stale-title", "Hello there");
+    const loaded = await page("stale-title");
+    const titleAndTime = async () => {
+      const [row] = await getDb()
+        .select({
+          title: schema.documents.title,
+          updatedAt: schema.documents.updatedAt,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "stale-title"));
+      return row;
+    };
+    const { updatedAt } = await titleAndTime();
+    await browserSave("stale-title", loaded, "Hello there", {
+      title: "Renamed",
+      baseTitle: "stale-title",
+    });
+    const renamed = await titleAndTime();
+    expect(renamed.title).toBe("Renamed");
+
+    // A save checked by snapshot time carries the title the tab loaded and
+    // no baseTitle.
+    await expect(
+      browserSave("stale-title", loaded, "Hello there", {
+        title: "stale-title",
+        baseRevision: undefined,
+        baseUpdatedAt: updatedAt,
+        browserSaveAttemptId: "stale-title-old",
+      }),
+    ).resolves.toMatchObject({ conflict: true });
+    expect(await titleAndTime()).toEqual(renamed);
   });
 
   it("keeps a recovery replay's receipt only for a body the live copy holds", async () => {
@@ -2416,20 +3065,26 @@ describe("the slash menu's page-insert save, on a switched page", () => {
 describe("the SF-07 bound on Content's derive and build", () => {
   // The stored-form review's counterexamples, through Content's own schema
   // and serializer. Each ends in a typed refusal that leaves the page alone,
-  // or in a derived body, and never stalls the request thread.
-  const STALL_LIMIT_MS = 500;
+  // or in a derived body, with the decode and serializer work in the worker.
+  // These check where the work ran, not how long this thread stalled: a
+  // stall bound fails on a busy machine.
   const hello = () => markdownBlocks("Hello there");
+  // A derived body's persist parses it once on this thread, to reconcile the
+  // page's inline databases.
+  const PERSIST_PARSES = ["nfmToDoc"];
 
   async function expectRefused(
     id: string,
     run: () => Promise<unknown>,
     expected: { code: string; reason: string },
+    tasks: string[],
   ) {
-    const result = await longestStall(run);
+    const result = await whereItRan(run);
     expect(result).toMatchObject({
       error: { name: "LiveCopyError", ...expected },
     });
-    expect(result.stall).toBeLessThan(STALL_LIMIT_MS);
+    expect(result.tasks).toEqual(tasks);
+    expect(result.thisThread).toEqual([]);
     expect(await page(id)).toMatchObject({
       content: "Hello there",
       bodyRevision: 3,
@@ -2437,13 +3092,35 @@ describe("the SF-07 bound on Content's derive and build", () => {
   }
 
   async function expectDerived(id: string, run: () => Promise<unknown>) {
-    const result = await longestStall(run);
+    const result = await whereItRan(run);
     expect(result).toMatchObject({ value: { liveCopy: "derived" } });
-    expect(result.stall).toBeLessThan(STALL_LIMIT_MS);
+    expect(result.tasks).toEqual(["liveCopy.apply"]);
+    expect(result.thisThread).toEqual(PERSIST_PARSES);
     const row = await page(id);
     expect(row.bodyRevision).toBe(4);
     return row.content;
   }
+
+  it("records the decode of an update to a page off its live copy on this thread", async () => {
+    await insertPage("decoded-here", "Hello there");
+    const doc = new Y.Doc();
+    doc.getXmlFragment("default").insert(0, [new Y.XmlElement("paragraph")]);
+    const update = Y.encodeStateAsUpdate(doc);
+    doc.destroy();
+
+    const result = await whereItRan(() =>
+      asOwner(() => collab.applyUpdate("decoded-here", update)),
+    );
+    expect(result.tasks).toEqual([]);
+    expect(result.thisThread).toContain("applyUpdate");
+  });
+
+  it("records serializer work this thread reaches through any export", async () => {
+    const result = await whereItRan(async () =>
+      nfm.canonicalizeNfm("Hello there"),
+    );
+    expect(result.thisThread).toEqual(["canonicalizeNfm"]);
+  });
 
   it("refuses indent feeding repeat() (about 100 MB) as output_too_large", async () => {
     await switchedPage("indent", "Hello there");
@@ -2459,6 +3136,7 @@ describe("the SF-07 bound on Content's derive and build", () => {
       "indent",
       () => asOwner(() => collab.applyUpdate("indent", update)),
       { code: "derive_failed", reason: "output_too_large" },
+      ["liveCopy.apply"],
     );
   });
 
@@ -2478,11 +3156,13 @@ describe("the SF-07 bound on Content's derive and build", () => {
     await expectRefused(
       "latex",
       () => asOwner(() => collab.applyUpdate("latex", update)),
+      // The runner refuses an input this size before it posts it to a worker.
       { code: "derive_failed", reason: "input_too_large" },
+      ["liveCopy.apply"],
     );
   });
 
-  it("derives a table whose colMeta holds 3M tabs inside the bound", async () => {
+  it("derives a table whose colMeta holds 3M tabs in the worker", async () => {
     await switchedPage("colmeta", "Hello there");
     const update = await editorUpdate("colmeta", [
       ...hello(),
@@ -2527,7 +3207,9 @@ describe("the SF-07 bound on Content's derive and build", () => {
     await expectRefused(
       "marks",
       () => asOwner(() => collab.applyUpdate("marks", update)),
+      // The runner refuses an input this size before it posts it to a worker.
       { code: "derive_failed", reason: "input_too_large" },
+      ["liveCopy.apply"],
     );
   });
 
@@ -2556,10 +3238,11 @@ describe("the SF-07 bound on Content's derive and build", () => {
       "nesting",
       () => asOwner(() => collab.applyUpdate("nesting", update)),
       { code: "derive_failed", reason: "task_threw" },
+      ["liveCopy.apply"],
     );
   });
 
-  it("derives a 200,000-line code block inside the bound", async () => {
+  it("derives a 200,000-line code block in the worker", async () => {
     await switchedPage("code", "Hello there");
     const code = Array.from({ length: 200_000 }, (_, i) => `v${i % 10}`);
     const update = await editorUpdate("code", [
@@ -2577,24 +3260,24 @@ describe("the SF-07 bound on Content's derive and build", () => {
     expect(content.split("\n")).toHaveLength(200_003);
   });
 
-  it("stops building a body of 1,000 unmatched backtick runs at the deadline", async () => {
-    await switchedPage("backticks", "Hello there");
-    // Runs of 1 to 1,000 backticks, none closed. Building it takes over 20 s
-    // with either NFM parser; 1M `[` stopped tripping once the parser got fast.
-    const content = Array.from({ length: 1_000 }, (_, index) =>
-      "`".repeat(index + 1),
-    ).join(" ");
+  it("stops building a paragraph of 500,000 unclosed `$` runs at the deadline", async () => {
+    await switchedPage("dollars", "Hello there");
+    // About 5 s to parse on a fast machine, in under half the worker's heap.
+    // Parser fixes retire inputs like this: 1M `[` and 1,000 unclosed
+    // backtick runs both stopped tripping.
+    const content = "$a ".repeat(500_000);
 
     await expectRefused(
-      "backticks",
+      "dollars",
       () =>
         cause.withContentBodyWriteCause({ operation: "test-replace" }, () =>
-          collab.mutateLiveCopy(binding.contentLiveCopy, "backticks", {
+          collab.mutateLiveCopy(binding.contentLiveCopy, "dollars", {
             edit: binding.CONTENT_LIVE_COPY_EDITS.replaceBody,
             input: { content },
           }),
         ),
       { code: "build_failed", reason: "deadline_exceeded" },
+      ["liveCopy.edit"],
     );
   });
 });

@@ -136,13 +136,8 @@ export default defineAction({
 
     const wroteLiveCopy = await rewriteContentLiveCopyBody(documentId, {
       cause: { ctx, operation: "set-image-alt-text" },
-      rewrite: (content) =>
-        updateImageAltInContent({
-          content,
-          imageUrl,
-          altText: trimmedAlt,
-          imageOccurrence,
-        }),
+      base: existingContent,
+      candidate: nextContent,
     });
     if (!wroteLiveCopy) {
       await updateDocument.run({ id: documentId, content: nextContent });

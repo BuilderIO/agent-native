@@ -127,7 +127,8 @@ export async function rebaselinePageForCanonicalBody(
   const comments = (
     await tx.execute({
       sql: `SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments
-            WHERE document_id = ? AND quoted_text IS NOT NULL AND quoted_text <> ''
+            WHERE document_id = ? AND field_id IS NULL
+              AND quoted_text IS NOT NULL AND quoted_text <> ''
             ORDER BY id FOR UPDATE`,
       args: [input.documentId],
     })

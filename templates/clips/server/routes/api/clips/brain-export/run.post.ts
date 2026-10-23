@@ -42,13 +42,35 @@ export default defineEventHandler(async (event) => {
     !headerMatchesSecret(getHeader(event, "authorization"), secret)
   )
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
-  const uploads = await reapExpiredUploads();
-  const transactionalEmails = await runTransactionalEmailsOnce().catch(
-    (error) => {
+  const [uploads, transactionalEmails, brainExport] = await Promise.allSettled([
+    reapExpiredUploads(),
+    runTransactionalEmailsOnce().catch((error) => {
       console.error("[transactional-emails] scheduled run failed:", error);
       return null;
-    },
-  );
-  await runBrainExportSweepOnce();
-  return { ok: true, uploads, transactionalEmails };
+    }),
+    runBrainExportSweepOnce(),
+  ]);
+  const failures = [
+    ["uploads", uploads],
+    ["brain-export", brainExport],
+  ] as const;
+  for (const [name, result] of failures) {
+    if (result.status === "rejected") {
+      console.error(`[${name}] scheduled run failed:`, result.reason);
+    }
+  }
+  if (uploads.status === "rejected" || brainExport.status === "rejected") {
+    throw createError({
+      statusCode: 500,
+      statusMessage: "One or more scheduled Clips jobs failed",
+    });
+  }
+  return {
+    ok: true,
+    uploads: uploads.value,
+    transactionalEmails:
+      transactionalEmails.status === "fulfilled"
+        ? transactionalEmails.value
+        : null,
+  };
 });

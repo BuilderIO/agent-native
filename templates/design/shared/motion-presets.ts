@@ -14,7 +14,6 @@ export interface CreateMotionPresetTracksOptions {
   currentTimeMs: number;
   timelineDurationMs: number;
   currentValues?: Readonly<Record<string, string>>;
-  existingTracks: readonly MotionTrack[];
 }
 
 export interface CreatedMotionPresetTracks {
@@ -37,24 +36,12 @@ export function createMotionPresetTracks({
   currentTimeMs,
   timelineDurationMs,
   currentValues = {},
-  existingTracks,
 }: CreateMotionPresetTracksOptions): CreatedMotionPresetTracks {
   if (!Number.isFinite(timelineDurationMs) || timelineDurationMs <= 0) {
     throw new Error("Motion timeline duration must be a positive number.");
   }
 
   const properties = preset.additionalProperties ?? [preset.property];
-  const missingProperties = properties.filter(
-    (property) =>
-      !existingTracks.some(
-        (track) =>
-          track.targetNodeId === targetNodeId && track.property === property,
-      ),
-  );
-  if (missingProperties.length === 0) {
-    return { tracks: [], timelineDurationMs };
-  }
-
   const startMs = Math.min(
     timelineDurationMs,
     Math.max(0, Math.round(Number.isFinite(currentTimeMs) ? currentTimeMs : 0)),
@@ -63,12 +50,8 @@ export function createMotionPresetTracks({
     MOTION_PRESET_MIN_DURATION_MS,
     timelineDurationMs - startMs,
   );
-  const nextTimelineDurationMs = Math.max(
-    timelineDurationMs,
-    startMs + trackDurationMs,
-  );
 
-  const tracks = missingProperties.map((property) => {
+  const tracks = properties.map((property) => {
     const trackPreset = { ...preset, property };
     if (property === "width" || property === "height") {
       trackPreset.from = "0px";
@@ -87,7 +70,7 @@ export function createMotionPresetTracks({
     return track;
   });
 
-  return { tracks, timelineDurationMs: nextTimelineDurationMs };
+  return { tracks, timelineDurationMs };
 }
 
 export function createMotionPresetTracksForTargets(args: {
@@ -96,7 +79,6 @@ export function createMotionPresetTracksForTargets(args: {
   defaultEase: MotionEase;
   currentTimeMs: number;
   timelineDurationMs: number;
-  existingTracks: readonly MotionTrack[];
 }): { tracks: MotionPresetTrack[]; timelineDurationMs: number } {
   const tracks: MotionPresetTrack[] = [];
   let timelineDurationMs = args.timelineDurationMs;
@@ -109,7 +91,6 @@ export function createMotionPresetTracksForTargets(args: {
       currentTimeMs: args.currentTimeMs,
       timelineDurationMs,
       currentValues: target.currentValues,
-      existingTracks: [...args.existingTracks, ...tracks],
     });
     timelineDurationMs = Math.max(
       timelineDurationMs,

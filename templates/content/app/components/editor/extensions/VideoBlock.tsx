@@ -46,6 +46,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import {
+  deleteNodeFromMenu,
+  EDITOR_NON_EDIT_META,
+} from "../editor-transaction-meta";
 import { uploadVideoFile, videoUploadErrorMessage } from "../image-upload";
 import type { ContentVideoOptions } from "./VideoNode";
 
@@ -145,7 +149,6 @@ async function copyVideo(
 export function VideoBlock({
   node,
   editor,
-  deleteNode,
   selected,
   updateAttributes,
   extension,
@@ -170,6 +173,7 @@ export function VideoBlock({
   const options = extension.options as ContentVideoOptions;
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
   const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const sourcePanelOpen = node.attrs.sourcePanelOpen === true;
@@ -181,14 +185,29 @@ export function VideoBlock({
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
 
-  function setSourcePanelOpen(open: boolean) {
+  // The panel's state lives on the node, so it reaches other tabs, but it
+  // isn't part of the page and changing it doesn't save.
+  function setSourcePanel(panel: {
+    sourcePanelOpen: boolean;
+    sourceTab?: VideoSourceTab;
+  }) {
     if (!canMutateMediaNow()) return;
-    updateAttributes({ sourcePanelOpen: open });
+    editor.commands.command(({ tr }) => {
+      const pos = typeof getPos === "function" ? getPos() : undefined;
+      const current = typeof pos === "number" ? tr.doc.nodeAt(pos) : null;
+      if (typeof pos !== "number" || !current) return false;
+      tr.setNodeMarkup(pos, undefined, { ...current.attrs, ...panel });
+      tr.setMeta(EDITOR_NON_EDIT_META, true).setMeta("addToHistory", false);
+      return true;
+    });
+  }
+
+  function setSourcePanelOpen(open: boolean) {
+    setSourcePanel({ sourcePanelOpen: open });
   }
 
   function setSourceTab(tab: VideoSourceTab) {
-    if (!canMutateMediaNow()) return;
-    updateAttributes({ sourcePanelOpen: true, sourceTab: tab });
+    setSourcePanel({ sourcePanelOpen: true, sourceTab: tab });
   }
 
   useEffect(() => {
@@ -232,7 +251,7 @@ export function VideoBlock({
     if (!canMutateMediaNow()) return;
     setVideoUrl("");
     setSourcePanelDismissed(false);
-    updateAttributes({ sourcePanelOpen: true, sourceTab: "upload" });
+    setSourcePanel({ sourcePanelOpen: true, sourceTab: "upload" });
   }
 
   function handleLightboxOpenChange(open: boolean) {
@@ -321,7 +340,7 @@ export function VideoBlock({
   }
 
   function videoResizeMaxWidth() {
-    const wrapper = mediaBlockRef.current?.closest(".notion-editor");
+    const wrapper = mediaBlockRef.current?.closest(".content-editor");
     const maxWidth =
       wrapper?.getBoundingClientRect().width ??
       mediaBlockRef.current?.parentElement?.getBoundingClientRect().width ??

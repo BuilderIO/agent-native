@@ -3,7 +3,7 @@ import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -12,7 +12,7 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -43,8 +43,13 @@ import {
   recordContentSaveOutcome,
   type ContentSaveOutcomeDimensions,
 } from "./_content-save-outcomes.js";
-import { mutateDocumentBody } from "./_document-edit-mutation.js";
+import {
+  assertEditableDocument,
+  mutateDocumentBody,
+} from "./_document-edit-mutation.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
+import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 
 interface TextEdit {
   find: string;
@@ -108,12 +113,13 @@ const editDocumentSchema = z.object({
     .optional()
     .describe(
       'Replacement text in single-edit mode; omit to delete the matched text (default: ""). ' +
-        'Plain Markdown body, no admonition/callout shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+        'NFM body: each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. Plain CommonMark blank lines are not preserved. No admonition/callout shorthand like "> [!TIP]" — use a <callout icon="💡"> block. ' +
+        NFM_CONTAINER_SYNTAX,
     ),
   edits: textEditsSchema
     .optional()
     .describe(
-      "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace.",
+      "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace. Each replace is NFM, written as for replace.",
     ),
   initializeContent: z
     .string()
@@ -123,7 +129,8 @@ const editDocumentSchema = z.object({
     })
     .optional()
     .describe(
-      "Exact Markdown containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits.",
+      "Exact NFM containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits. Each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. " +
+        NFM_CONTAINER_SYNTAX,
     ),
   contextPackId: z
     .string()
@@ -253,6 +260,10 @@ async function editThroughLiveCopy(args: {
       edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
       input: { content: args.content, expected: args.expected },
       persist: async (tx, change) => {
+        await assertAccess("document", args.id, "editor", {
+          ...currentAccess(),
+          transaction: tx,
+        });
         if (!change.changed || !args.creativeContext) return;
         await recordGenerationCreativeContext(
           {
@@ -280,7 +291,7 @@ async function editThroughLiveCopy(args: {
 
 export default defineAction({
   description:
-    "Edit an existing document's Markdown with exact search-and-replace operations, or initialize a literally empty body with initializeContent. Every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
+    "Edit an existing document's NFM with exact search-and-replace operations, or initialize a literally empty body with initializeContent. NFM uses one block per line, <br> for hard breaks, and <empty-block/> for empty paragraphs; plain CommonMark blank lines are not preserved. Every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
   deferLoading: false,
   mcpTool: true,
   agentInputSchema: externalEditDocumentSchema,
@@ -347,6 +358,7 @@ export default defineAction({
 
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
+    assertSourceAllowsPageEdit(existing);
     const isExternalCaller =
       ctx?.caller === "tool" ||
       ctx?.caller === "mcp" ||
@@ -443,6 +455,7 @@ export default defineAction({
       return result;
     }
 
+    assertEditableDocument(existing);
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;
@@ -599,10 +612,16 @@ export default defineAction({
             and(
               eq(schema.documents.id, id),
               eq(schema.documents.updatedAt, existing.updatedAt),
+              isNull(schema.documents.trashedAt),
             ),
           )
           .returning({ id: schema.documents.id });
         if (mirrored.length !== 1) {
+          const [current] = await tx
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id));
+          assertEditableDocument(current);
           throw new Error(
             "The document changed before Content history could be updated.",
           );

@@ -171,8 +171,7 @@ test("editing opacity and width per interaction state saves each under its own p
   );
 });
 
-// fixme: product bug: Opacity field shows the previous state's 91% on Focus (line 146); VisualScrubInput pendingCommitRef holds the stale value across a state
-test.fixme("choosing a state with nothing authored shows the element's default opacity, not the last edited state's", async ({
+test("choosing a state with nothing authored shows the element's default opacity, not the last edited state's", async ({
   app,
 }) => {
   const id = await openWithAlphaSelected(app, BUTTONS);
@@ -190,8 +189,7 @@ test.fixme("choosing a state with nothing authored shows the element's default o
   await expect.poll(() => computedOpacity(app.node("alpha"))).toBe("0.97");
 });
 
-// fixme: product bug: Redo restores the saved :active rule but drops the inspector back to Default state and clears the preview (line 173
-test.fixme("undo and redo of a state edit restore that state's saved rule and keep the state selected", async ({
+test("undo and redo of a state edit restore that state's saved rule and keep the state selected", async ({
   app,
 }) => {
   const id = await openWithAlphaSelected(app, BUTTONS);

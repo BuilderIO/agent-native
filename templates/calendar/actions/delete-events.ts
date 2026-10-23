@@ -19,7 +19,6 @@ import {
   isBookedOnAccount,
   mapWithConcurrency,
   normalizeWritableGoogleEventId,
-  rawCliBoolean,
   requireActionUserEmail,
   requireExplicitBound,
   resolveBulkGoogleEventAccountEmail,
@@ -121,7 +120,7 @@ export default defineAction({
       .describe("Return the matched events without deleting anything"),
   }),
   toolCallable: false,
-  needsApproval: ({ dryRun }) => !rawCliBoolean(dryRun),
+  needsApproval: ({ dryRun }) => !dryRun,
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {

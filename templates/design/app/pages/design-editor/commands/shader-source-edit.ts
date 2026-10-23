@@ -1,7 +1,7 @@
 import type {
   ShaderSourceEditResult,
   ShaderSourceTransform,
-} from "@/components/design/inspector/GlslShaderPanel";
+} from "@/components/design/shader-source-coordination";
 
 export interface ShaderSourceEditArgs {
   /** The editor's own latest copy of the file, including edits not yet saved. */

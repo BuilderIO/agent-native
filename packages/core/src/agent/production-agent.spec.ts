@@ -7,11 +7,14 @@ import path from "node:path";
 import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+  MAX_AGENT_REQUEST_ATTACHMENTS,
+  fingerprintAgentSubmissionAttachment,
 } from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
   AgentActionStopError,
   AgentConnectionRequiredError,
@@ -37,13 +40,16 @@ import {
   pngBase64OfAtLeast,
   PNG_BASE64,
 } from "../file-upload/test-image-fixtures.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
 import * as appRoles from "../org/app-roles.js";
+import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
@@ -51,12 +57,16 @@ import {
 import * as settingsStore from "../settings/store.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
-import { approvalKeyForHistory } from "./approval-key.js";
+import {
+  approvalKeyForHistory,
+  approvalKeyWithArguments,
+} from "./approval-key.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
 } from "./durable-background.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
+import * as journalSeed from "./engine/tool-call-journal-seed.js";
 import type {
   AgentEngine,
   EngineContentPart,
@@ -84,10 +94,13 @@ import {
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
+  createRunSafeBoundaryGuards,
+  confirmQueuedRunInterrupt,
   appendRequestAttachmentContextToResumedHistory,
   endsAtContinuationBoundary,
   preloadPlanModeEngineTools,
   queuedPromotionAttachments,
+  readAdmittedQueuedMessagePromotion,
   normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
   readPersistedAllowedActionNames,
@@ -142,15 +155,47 @@ import {
   type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import * as runManager from "./run-manager.js";
 import * as runStore from "./run-store.js";
 import { threadDataToEngineMessages } from "./thread-data-builder.js";
 import * as toolApprovalStore from "./tool-approval-store.js";
-import {
-  classifyToolCallJournal,
-  findCompletedJournalEntry,
-} from "./tool-call-journal.js";
+import { classifyToolCallJournal } from "./tool-call-journal.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatAttachment, AgentChatEvent, RunEvent } from "./types.js";
+
+/**
+ * Gives this test's continued turns a journal recording the arguments each
+ * earlier call ran with, as `tool_done` records them: a call reused from
+ * history is one that recorded them.
+ */
+function recordEarlierCalls(
+  calls: Record<string, [tool: string, input: Record<string, unknown>]>,
+) {
+  const events = Object.entries(calls).flatMap(
+    ([id, [tool, input]]): AgentChatEvent[] => [
+      { type: "tool_start", id, tool, input },
+      {
+        type: "tool_done",
+        id,
+        tool,
+        input,
+        result: "",
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ],
+  );
+  const read = vi
+    .spyOn(journalSeed, "loadPriorTurnToolCallJournal")
+    .mockResolvedValue({
+      status: "read",
+      events,
+      toolCallJournal: null,
+      priorToolCalls: [],
+      priorToolResults: [],
+      priorToolCallSequence: [],
+    });
+  onTestFinished(() => read.mockRestore());
+}
 
 function createProductionAgentHandler(
   options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
@@ -169,8 +214,16 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
-const mockPersistRunEventsInMemory = vi.hoisted(() => ({ enabled: false }));
+const completedTurnReplay = vi.hoisted(() => ({
+  stream: null as ReadableStream<Uint8Array> | null,
+}));
+const startRunOptionsSeen = vi.hoisted(
+  () => [] as Array<{ userId?: string } | undefined>,
+);
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
+const mockRunManagerFlush = vi.hoisted(() => ({
+  onFlush: undefined as (() => Promise<void>) | undefined,
+}));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -220,16 +273,35 @@ vi.mock("./run-manager.js", async () => {
   return {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
-      if (!mockPersistRunEventsInMemory.enabled)
-        return actual.startRun(...args);
       const [runId, threadId, runFn, onComplete, options] = args;
-      return actual.startRun(runId, threadId, runFn, onComplete, {
-        ...options,
-        persistEvent: async () => {},
-      });
+      startRunOptionsSeen.push(options);
+      return actual.startRun(
+        runId,
+        threadId,
+        (send, signal, control) =>
+          runFn(send, signal, {
+            ...control,
+            flushEvents: async () => {
+              await mockRunManagerFlush.onFlush?.();
+              await control.flushEvents();
+            },
+          }),
+        onComplete,
+        {
+          ...options,
+          executionLease: false,
+          persistEvent: async () => {},
+        },
+      );
     },
     tryClaimRunSlot: mockTryClaimRunSlot,
     getSlotHoldingRunId: mockGetSlotHoldingRunId,
+    replayCompletedTurn: (
+      ...args: Parameters<typeof actual.replayCompletedTurn>
+    ) =>
+      completedTurnReplay.stream
+        ? Promise.resolve(completedTurnReplay.stream)
+        : actual.replayCompletedTurn(...args),
   };
 });
 
@@ -396,7 +468,7 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
 async function runToolCallSequence(
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   actions: Record<string, ActionEntry>,
-  options?: { threadId: string; turnId: string },
+  options?: { threadId?: string; turnId?: string; messages?: EngineMessage[] },
 ) {
   let nextCall = 0;
   const events: AgentChatEvent[] = [];
@@ -491,20 +563,6 @@ describe("approvalKeyForHistory", () => {
 });
 
 describe("resolveAgentRequestReasoningEffort", () => {
-  it("narrates a retry the user waited through, and stays silent on a blip", async () => {
-    const src = readFileSync(
-      new URL("./production-agent.ts", import.meta.url),
-      "utf8",
-    );
-    const idx = src.indexOf("const stalledMs = Date.now() - attemptStartedAt;");
-    expect(idx).toBeGreaterThan(0);
-    const block = src.slice(idx, idx + 600);
-    expect(block).toContain("VISIBLE_RETRY_THRESHOLD_MS");
-    expect(block.indexOf("Model did not respond")).toBeLessThan(
-      block.indexOf('send({ type: "clear" })'),
-    );
-  });
-
   it("defaults missing effort to High", () => {
     expect(
       resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
@@ -1267,6 +1325,71 @@ describe("queuedPromotionAttachments", () => {
     ]);
 
     expect(attachment?.type).toBe("image");
+  });
+});
+
+describe("readAdmittedQueuedMessagePromotion", () => {
+  it("accepts persisted queues above the current attachment limit", async () => {
+    const threadId = "thread-legacy-queued-attachments";
+    const messageId = "queued-legacy-attachments";
+    const attachments = Array.from(
+      { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+      (_, index) => ({
+        type: "file",
+        name: `file-${index}.pdf`,
+        mediaType: "application/pdf",
+        url: `https://files.example.test/file-${index}.pdf`,
+      }),
+    );
+    const requestAttachments = Array.from(
+      { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+      (_, index) => ({
+        type: "image",
+        name: `image-${index}.png`,
+        contentType: "image/png",
+        url: `https://files.example.test/image-${index}.png`,
+      }),
+    );
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: threadId,
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: messageId,
+              text: "Use the legacy attachments",
+              attachments,
+              requestAttachments,
+              promotionClaim: {
+                id: "claim-legacy-attachments",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+
+    try {
+      const promoted = await readAdmittedQueuedMessagePromotion({
+        ownerEmail: "alice@example.com",
+        orgId: "acme",
+        threadId,
+        messageId,
+        claimId: "claim-legacy-attachments",
+        message: "Use the legacy attachments",
+        continuationRequested: false,
+      });
+
+      expect(promoted?.attachments).toHaveLength(
+        MAX_AGENT_REQUEST_ATTACHMENTS + 1,
+      );
+      expect(promoted?.requestAttachments).toHaveLength(
+        MAX_AGENT_REQUEST_ATTACHMENTS + 1,
+      );
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
   });
 });
 
@@ -3126,6 +3249,187 @@ describe("buildUserContentWithAttachments", () => {
     expect(tools[0].inputSchema).toMatchObject({ type: "object", anyOf });
   });
 
+  describe("an app action whose schema cannot be sent", () => {
+    const listNotes = {
+      tool: {
+        description: "List notes",
+        parameters: {
+          type: "object",
+          properties: { q: { type: "string" } },
+        } as any,
+      },
+      run: async () => ({}),
+    };
+
+    it("is left out of the tools, and logged and captured once", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const provider = vi.fn(() => "evt_unusable_agent_tool");
+      const unregister = registerErrorCaptureProvider(
+        "agent-unusable-tool-schema-test",
+        provider,
+      );
+      const actions = {
+        "list-notes": listNotes,
+        "link-note": {
+          tool: {
+            description: "Broken reference",
+            parameters: {
+              type: "object",
+              properties: { item: { $ref: "#/$defs/Missing" } },
+            } as any,
+          },
+          run: async () => ({}),
+        },
+        "string-note": {
+          tool: {
+            description: "Not an object",
+            parameters: { type: "string" } as any,
+          },
+          run: async () => ({}),
+        },
+        "false-note": {
+          tool: { description: "Accepts nothing", parameters: false as any },
+          run: async () => ({}),
+        },
+        "tone-note": {
+          tool: {
+            description: "Empty choice",
+            parameters: {
+              type: "object",
+              properties: { tone: { anyOf: [] } },
+            } as any,
+          },
+          run: async () => ({}),
+        },
+      };
+      const toneMessage = `Action "tone-note" is left out of the agent's tools: its input schema declares an empty anyOf, so it accepts no value at /properties/tone.`;
+
+      try {
+        const first = actionsToEngineTools(actions);
+        const second = actionsToEngineTools(actions);
+
+        expect(first.map((tool) => tool.name)).toEqual(["list-notes"]);
+        expect(second.map((tool) => tool.name)).toEqual(["list-notes"]);
+        const logged = consoleError.mock.calls.map(([line]) => line);
+        expect(logged).toEqual([
+          expect.stringMatching(
+            /^\[agent\] Action "link-note" is left out of the agent's tools: its input schema references "#\/\$defs\/Missing", .* at \/properties\/item\.$/,
+          ),
+          `[agent] Action "string-note" is left out of the agent's tools: its input schema is not an object schema at /.`,
+          `[agent] Action "false-note" is left out of the agent's tools: its input schema is not an object schema at /.`,
+          `[agent] ${toneMessage}`,
+        ]);
+        expect(provider).toHaveBeenCalledTimes(4);
+        expect(provider).toHaveBeenLastCalledWith(
+          expect.objectContaining({ message: toneMessage }),
+          expect.objectContaining({
+            tags: expect.objectContaining({
+              source: "agent",
+              failureClass: "unusable-tool-schema",
+            }),
+            extra: expect.objectContaining({
+              action: "tone-note",
+              path: "/properties/tone",
+              reason: "declares an empty anyOf, so it accepts no value",
+            }),
+          }),
+        );
+      } finally {
+        unregister();
+        consoleError.mockRestore();
+      }
+    });
+
+    it("leaves out an action whose parameters cannot be read", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        expect(
+          actionsToEngineTools({
+            "list-notes": listNotes,
+            "pick-note": {
+              tool: {
+                description: "Empty enum",
+                parameters: {
+                  type: "object",
+                  properties: { kind: { enum: [] } },
+                } as any,
+              },
+              run: async () => ({}),
+            },
+            "read-note": {
+              tool: {
+                description: "Unreadable schema",
+                get parameters(): never {
+                  throw new Error("parameters exploded");
+                },
+              },
+              run: async () => ({}),
+            },
+          }).map(({ name }) => name),
+        ).toEqual(["list-notes"]);
+        expect(consoleError.mock.calls).toContainEqual([
+          `[agent] Action "read-note" is left out of the agent's tools: its input schema could not be converted: parameters exploded at /.`,
+        ]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("reports a verdict whose reason or path is not text", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const withVerdict = (malform: (failure: any) => void) => {
+        const failure = new UnusableSchemaError("/safe", "not usable");
+        malform(failure);
+        return defineAction({
+          description: "Malformed verdict",
+          schema: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: (value: unknown) => ({ value }),
+              jsonSchema: {
+                input: () => {
+                  throw failure;
+                },
+              },
+            },
+          } as never,
+          run: async () => ({}),
+        });
+      };
+      try {
+        expect(
+          actionsToEngineTools({
+            "list-notes": listNotes,
+            "number-reason": withVerdict((failure) => (failure.reason = 123)),
+            "number-path": withVerdict((failure) => (failure.path = 123)),
+            "object-reason": withVerdict(
+              (failure) =>
+                (failure.reason = {
+                  replace() {
+                    throw new Error("/_agent-native/embed/start?ticket=x");
+                  },
+                }),
+            ),
+          }).map(({ name }) => name),
+        ).toEqual(["list-notes"]);
+        expect(consoleError.mock.calls.map(([line]) => line)).toEqual([
+          `[agent] Action "number-reason" is left out of the agent's tools: its input schema 123 at /safe.`,
+          `[agent] Action "number-path" is left out of the agent's tools: its input schema not usable at 123.`,
+          `[agent] Action "object-reason" is left out of the agent's tools: its input schema [not text] at /safe.`,
+        ]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+  });
+
   it("keeps the default initial catalog to discovery/runtime tools", () => {
     const tools = actionsToEngineTools(
       attachToolSearch({
@@ -3648,6 +3952,1362 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("waits for the durable queue receipt and replays it after a lost acknowledgement", async () => {
+    const threadId = "thread-durable-admission";
+    const messageId = "message-durable-admission";
+    const references = [
+      {
+        type: "file" as const,
+        path: "/uploads/report.pdf",
+        name: "report.pdf",
+        source: "upload",
+      },
+    ];
+    const attachment = {
+      type: "file" as const,
+      name: "report.pdf",
+      mediaType: "application/pdf",
+      contentType: "application/pdf",
+      url: "https://files.example.test/report.pdf",
+    };
+    const queuedAttachment = {
+      type: "file" as const,
+      name: attachment.name,
+      mediaType: attachment.mediaType,
+      url: attachment.url,
+    };
+    const options = {
+      model: "options-model",
+      mode: "act",
+      reasoningEffort: "low" as const,
+    };
+    const metadata = { boundMarker: "payload" };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Summarize the report",
+      attachments: [
+        {
+          type: "file" as const,
+          name: attachment.name,
+          mediaType: attachment.mediaType,
+          fingerprint: fingerprintAgentSubmissionAttachment(attachment, "file"),
+        },
+      ],
+      references,
+      metadata,
+      options,
+    };
+    const effectiveOptions = {
+      ...options,
+      model: "request-model",
+      mode: "plan",
+      reasoningEffort: "medium" as const,
+    };
+    const effectiveMetadata = { ...metadata, engine: "request-engine" };
+    const acceptedPayload = {
+      ...submissionPayload,
+      metadata: effectiveMetadata,
+      options: effectiveOptions,
+    };
+    const persistedMessage = {
+      id: messageId,
+      threadId,
+      text: submissionPayload.text,
+      createdAt: "2026-10-21T00:00:00.000Z",
+      attachments: [queuedAttachment],
+      references,
+      metadata: effectiveMetadata,
+      options: effectiveOptions,
+    };
+    const receipt = {
+      threadId,
+      messageId,
+      state: "queued" as const,
+      actor: {
+        email: "alice@example.com",
+        orgId: "acme",
+        orgScope: null,
+        anonymous: false,
+      },
+      message: persistedMessage,
+      payloadHash: chatThreadStore.hashQueuedSubmissionPayload(
+        threadId,
+        acceptedPayload,
+      ),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    let finishMutation!: (value: any) => void;
+    const mutationCommit = new Promise<any>((resolve) => {
+      finishMutation = resolve;
+    });
+    const append = vi
+      .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+      .mockImplementation(() => mutationCommit as never);
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const readReceiptStatus = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceiptStatus")
+      .mockResolvedValue({ state: "queued" });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-active",
+    });
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const makeEvent = (
+      model = effectiveOptions.model,
+      effort = "medium",
+      engine = "request-engine",
+    ) =>
+      mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: submissionPayload.text,
+            threadId,
+            turnId: "turn-durable-admission",
+            agentKitMessageId: messageId,
+            submissionPayload,
+            references,
+            attachments: [attachment],
+            metadata: { boundMarker: "unbound-body-value" },
+            options,
+            model,
+            engine,
+            effort,
+            mode: "plan",
+          }),
+        }),
+      );
+
+    try {
+      const event = makeEvent();
+      let responseSettled = false;
+      const responsePromise = runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      ).then((response) => {
+        responseSettled = true;
+        return response;
+      });
+      await vi.waitFor(() => expect(append).toHaveBeenCalledOnce(), {
+        timeout: 10_000,
+      });
+      expect(responseSettled).toBe(false);
+      expect(append.mock.calls[0]?.[1]).toMatchObject({
+        type: "append",
+        hashInput: acceptedPayload,
+        message: {
+          id: messageId,
+          threadId,
+          text: submissionPayload.text,
+          attachments: [queuedAttachment],
+          references,
+          metadata: effectiveMetadata,
+          options: effectiveOptions,
+        },
+      });
+
+      finishMutation({
+        queuedMessages: [persistedMessage],
+        message: persistedMessage,
+      });
+      await expect(responsePromise).resolves.toEqual({
+        state: "queued",
+        message: persistedMessage,
+        activeRunId: "run-active",
+      });
+      expect(event.res.status).toBe(202);
+
+      readReceipt.mockResolvedValueOnce(receipt as never);
+      const retryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(retryEvent),
+        ),
+      ).resolves.toEqual({
+        state: "queued",
+        message: persistedMessage,
+        activeRunId: "run-active",
+      });
+      expect(retryEvent.res.status).toBe(202);
+      expect(append).toHaveBeenCalledOnce();
+
+      readReceiptStatus.mockResolvedValueOnce({ state: "expired" });
+      readReceipt.mockResolvedValueOnce(receipt as never);
+      const expiredRetryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(expiredRetryEvent),
+        ),
+      ).resolves.toEqual({
+        error: "This message ID is no longer available for submission",
+        code: "queued_message_id_terminal",
+        retryable: false,
+      });
+      expect(expiredRetryEvent.res.status).toBe(409);
+      expect(append).toHaveBeenCalledOnce();
+
+      readReceipt.mockResolvedValueOnce(receipt as never);
+      const changedSelectorEvent = makeEvent(
+        "changed-model",
+        "high",
+        "changed-engine",
+      );
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(changedSelectorEvent),
+        ),
+      ).resolves.toEqual({
+        error: "This message ID was already used for a different submission",
+        code: "queued_message_id_conflict",
+        retryable: false,
+      });
+      expect(changedSelectorEvent.res.status).toBe(409);
+
+      // A replay names the replayed run's own turn: a drained run's turn is
+      // the queue's, and a direct start keeps the turn its request sent.
+      const replayStream = new ReadableStream<Uint8Array>({
+        start: (controller) => controller.close(),
+      });
+      const subscribeToRun = vi
+        .spyOn(runManager, "subscribeToRun")
+        .mockReturnValue(replayStream);
+      onTestFinished(() => subscribeToRun.mockRestore());
+      const getRun = vi.spyOn(runManager, "getRun");
+      onTestFinished(() => getRun.mockRestore());
+
+      readReceiptStatus.mockResolvedValueOnce({
+        state: "submitted",
+        submittedRunId: "run-drained",
+      });
+      readReceipt.mockResolvedValueOnce(receipt as never);
+      getRun.mockReturnValueOnce({ turnId: `queued-${messageId}` } as never);
+      const submittedRetryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(submittedRetryEvent),
+        ),
+      ).resolves.toBe(replayStream);
+      expect(getRun).toHaveBeenLastCalledWith("run-drained");
+      expect(submittedRetryEvent.res.headers.get("X-Dispatch-Mode")).toBe(
+        "replay",
+      );
+      expect(submittedRetryEvent.res.headers.get("X-Run-Id")).toBe(
+        "run-drained",
+      );
+      expect(submittedRetryEvent.res.headers.get("X-Turn-Id")).toBe(
+        `queued-${messageId}`,
+      );
+
+      append.mockResolvedValueOnce({
+        queuedMessages: [],
+        alreadySubmitted: true,
+        submittedRunId: "run-direct",
+        message: persistedMessage,
+      } as never);
+      getRun.mockReturnValueOnce({ turnId: "turn-direct" } as never);
+      const consumedRetryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(consumedRetryEvent),
+        ),
+      ).resolves.toBe(replayStream);
+      expect(getRun).toHaveBeenLastCalledWith("run-direct");
+      expect(consumedRetryEvent.res.headers.get("X-Run-Id")).toBe("run-direct");
+      expect(consumedRetryEvent.res.headers.get("X-Turn-Id")).toBe(
+        "turn-direct",
+      );
+    } finally {
+      append.mockRestore();
+      readReceipt.mockRestore();
+      readReceiptStatus.mockRestore();
+      resolveThreadAccess.mockRestore();
+      preUpload.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("rejects an invalid queued-promotion claim before claiming a run slot", async () => {
+    const threadId = "thread-invalid-queued-promotion";
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: threadId,
+        threadData: JSON.stringify({ queuedMessages: [] }),
+      } as never);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "This stale queue claim must not start a normal run",
+          threadId,
+          turnId: "turn-invalid-queued-promotion",
+          queuedMessageId: "queued-missing",
+          queuedMessageClaimId: "claim-stale",
+        }),
+      }),
+    );
+    mockTryClaimRunSlot.mockReset();
+    mockGetSlotHoldingRunId.mockReset();
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).resolves.toEqual({
+        error: "This queued message can no longer be promoted",
+        code: "queued_message_claim_invalid",
+        retryable: false,
+      });
+
+      expect(event.res.status).toBe(409);
+      expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("queues a direct start behind an already accepted inbox submission", async () => {
+    const threadId = "thread-queued-order-barrier";
+    const messageId = "message-after-queued-order-barrier";
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Follow the accepted prompt",
+    };
+    const append = vi
+      .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+      .mockImplementation(
+        async (_id, mutation) =>
+          ({
+            queuedMessages:
+              mutation.type === "append" ? [mutation.message] : [],
+            message: mutation.type === "append" ? mutation.message : undefined,
+          }) as never,
+      );
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: null,
+      queuedSubmissionPending: true,
+    } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-after-queued-order-barrier",
+          agentKitMessageId: messageId,
+          submissionPayload,
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(202);
+      expect(result).toMatchObject({
+        state: "queued",
+        message: {
+          id: messageId,
+          threadId,
+          text: submissionPayload.text,
+        },
+      });
+      expect(append).toHaveBeenCalledOnce();
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+      expect(
+        (mockTryClaimRunSlot.mock.calls[0] as unknown as unknown[])[3],
+      ).toEqual(
+        expect.objectContaining({
+          hasPendingQueuedSubmission: expect.any(Function),
+        }),
+      );
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      append.mockRestore();
+      readReceipt.mockRestore();
+      resolveThreadAccess.mockRestore();
+      isTurnAborted.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("does not let request-supplied internal continuation bypass inbox ordering", async () => {
+    const threadId = "thread-legacy-queued-order-barrier";
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: null,
+      queuedSubmissionPending: true,
+    } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A fresh direct start",
+          threadId,
+          turnId: "turn-after-accepted-queue",
+          internalContinuation: true,
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(409);
+      expect(result).toMatchObject({
+        code: "run_slot_busy",
+        retryable: true,
+      });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+      expect(
+        (mockTryClaimRunSlot.mock.calls[0] as unknown as unknown[])[3],
+      ).toEqual(
+        expect.objectContaining({
+          hasPendingQueuedSubmission: expect.any(Function),
+        }),
+      );
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      isTurnAborted.mockRestore();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("uploads inline attachment bytes before queue commit and retries after a failed commit", async () => {
+    const threadId = "thread-attachment-admission";
+    const messageId = "message-attachment-admission";
+    const inlineAttachment = {
+      type: "image",
+      name: "chart.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${PNG_BASE64}`,
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Review this chart",
+      requestAttachments: [
+        {
+          type: "image" as const,
+          name: "chart.png",
+          contentType: "image/png",
+          fingerprint: fingerprintAgentSubmissionAttachment(inlineAttachment),
+        },
+      ],
+    };
+    let uploadAttempt = 0;
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => {
+        uploadAttempt += 1;
+        if (attachments?.[0]) {
+          attachments[0].url = `https://files.example.test/chart-${uploadAttempt}.png`;
+          attachments[0].uploadProvider = "test-storage";
+        }
+        return {
+          attachments: attachments ?? [],
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        };
+      });
+    const append = vi
+      .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+      .mockImplementationOnce(async () => {
+        throw new Error("queue transaction interrupted before commit");
+      })
+      .mockImplementationOnce(
+        async (_id, mutation) =>
+          ({
+            queuedMessages: [
+              mutation.type === "append" ? mutation.message : {},
+            ] as never,
+            message: mutation.type === "append" ? mutation.message : undefined,
+          }) as never,
+      );
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const makeEvent = () =>
+      mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: submissionPayload.text,
+            threadId,
+            turnId: "turn-attachment-admission",
+            agentKitMessageId: messageId,
+            submissionPayload,
+            attachments: [inlineAttachment],
+          }),
+        }),
+      );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(makeEvent()),
+        ),
+      ).rejects.toThrow("queue transaction interrupted before commit");
+      expect(uploadAttempt).toBe(1);
+
+      const retryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(retryEvent),
+        ),
+      ).resolves.toMatchObject({ state: "queued", message: { id: messageId } });
+      expect(retryEvent.res.status).toBe(202);
+      expect(uploadAttempt).toBe(2);
+      expect(append).toHaveBeenCalledTimes(2);
+      const committedMutation = append.mock.calls[1]?.[1];
+      expect(committedMutation).toMatchObject({
+        type: "append",
+        hashInput: submissionPayload,
+        message: {
+          requestAttachments: [
+            {
+              type: "image",
+              name: "chart.png",
+              contentType: "image/png",
+              url: "https://files.example.test/chart-2.png",
+            },
+          ],
+        },
+      });
+      expect(JSON.stringify(committedMutation?.message)).not.toContain(
+        "data:image/",
+      );
+    } finally {
+      preUpload.mockRestore();
+      append.mockRestore();
+      readReceipt.mockRestore();
+      resolveThreadAccess.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it("preserves optimized image references through busy admission and promotion", async () => {
+    const threadId = "thread-optimized-image-admission";
+    const messageId = "message-optimized-image-admission";
+    const referenceUrl = "https://files.example.test/reference-original.png";
+    const resizedUrl = "https://files.example.test/reference-resized.jpg";
+    const reference = {
+      type: "file" as const,
+      name: "reference-original.png",
+      mediaType: "image/png",
+      contentType: "image/png",
+      url: referenceUrl,
+      referenceOnly: true,
+    };
+    const optimizedImage = {
+      type: "image" as const,
+      name: "reference-original.png",
+      contentType: "image/jpeg",
+      data: `data:image/jpeg;base64,${JPEG_BASE64}`,
+      url: resizedUrl,
+      referenceUrl,
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Use this reference",
+      attachments: [
+        {
+          type: "file" as const,
+          name: reference.name,
+          mediaType: reference.mediaType,
+          fingerprint: fingerprintAgentSubmissionAttachment(reference, "file"),
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image" as const,
+          name: optimizedImage.name,
+          contentType: optimizedImage.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(
+            optimizedImage,
+            "image",
+          ),
+        },
+      ],
+    };
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const upload = vi
+      .spyOn(fileUploadRegistry, "uploadFile")
+      .mockResolvedValue({
+        url: "https://files.example.test/reference-resized-durable.jpg",
+        provider: "test-storage",
+      });
+    const append = vi
+      .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+      .mockImplementation(
+        async (_id, mutation) =>
+          ({
+            queuedMessages: [
+              mutation.type === "append" ? mutation.message : {},
+            ] as never,
+            message: mutation.type === "append" ? mutation.message : undefined,
+          }) as never,
+      );
+    const readReceipt = vi
+      .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+      .mockResolvedValue(null);
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-optimized-image-admission",
+          agentKitMessageId: messageId,
+          submissionPayload,
+          attachments: [reference, optimizedImage],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(202);
+      expect(result).toMatchObject({
+        state: "queued",
+        message: { id: messageId },
+      });
+      expect(upload).toHaveBeenCalledOnce();
+      const mutation = append.mock.calls[0]?.[1];
+      expect(mutation?.type).toBe("append");
+      if (mutation?.type === "append") {
+        expect(mutation.message.attachments).toEqual([
+          {
+            type: "file",
+            name: reference.name,
+            mediaType: reference.mediaType,
+            url: referenceUrl,
+          },
+        ]);
+        expect(mutation.message.requestAttachments).toEqual([
+          {
+            type: "image",
+            name: optimizedImage.name,
+            contentType: optimizedImage.contentType,
+            url: "https://files.example.test/reference-resized-durable.jpg",
+            referenceUrl,
+          },
+        ]);
+        expect(
+          queuedPromotionAttachments(
+            mutation.message.attachments ?? [],
+            mutation.message.requestAttachments,
+          ),
+        ).toEqual([
+          {
+            type: "file",
+            name: reference.name,
+            mediaType: reference.mediaType,
+            contentType: reference.contentType,
+            url: referenceUrl,
+            referenceOnly: true,
+          },
+          {
+            type: "image",
+            name: optimizedImage.name,
+            contentType: optimizedImage.contentType,
+            url: "https://files.example.test/reference-resized-durable.jpg",
+            referenceUrl,
+          },
+        ]);
+      }
+    } finally {
+      preUpload.mockRestore();
+      upload.mockRestore();
+      append.mockRestore();
+      readReceipt.mockRestore();
+      resolveThreadAccess.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it.each([
+    [
+      "matching URL",
+      {
+        url: "https://files.example.test/unchanged.png",
+        referenceUrl: "https://files.example.test/unchanged.png",
+      },
+    ],
+    [
+      "reference URL only",
+      { referenceUrl: "https://files.example.test/unchanged.png" },
+    ],
+  ])(
+    "accepts an unchanged image that shares its file part's URL (%s)",
+    async (_label, imageUrls) => {
+      const threadId = "thread-unchanged-image-admission";
+      const messageId = "message-unchanged-image-admission";
+      const originalUrl = "https://files.example.test/unchanged.png";
+      const file = {
+        type: "file" as const,
+        name: "unchanged.png",
+        mediaType: "image/png",
+        url: originalUrl,
+      };
+      const unchangedImage = {
+        type: "image" as const,
+        name: "unchanged.png",
+        contentType: "image/png",
+        data: `data:image/png;base64,${PNG_BASE64}`,
+        ...imageUrls,
+      };
+      const submissionPayload = {
+        threadId,
+        id: messageId,
+        text: "Use this image",
+        attachments: [
+          {
+            type: "file" as const,
+            name: file.name,
+            mediaType: file.mediaType,
+            fingerprint: fingerprintAgentSubmissionAttachment(file, "file"),
+          },
+        ],
+        requestAttachments: [
+          {
+            type: "image" as const,
+            name: unchangedImage.name,
+            contentType: unchangedImage.contentType,
+            fingerprint: fingerprintAgentSubmissionAttachment(
+              unchangedImage,
+              "image",
+            ),
+          },
+        ],
+      };
+      // The request body the client's protocol adapter maps for this turn.
+      const mappedAttachments = [
+        {
+          type: "file",
+          name: file.name,
+          contentType: "image/png",
+          mediaType: "image/png",
+          url: originalUrl,
+          referenceOnly: true,
+        },
+        unchangedImage,
+      ];
+      const append = vi
+        .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+        .mockImplementation(
+          async (_id, mutation) =>
+            ({
+              queuedMessages: [
+                mutation.type === "append" ? mutation.message : {},
+              ] as never,
+              message:
+                mutation.type === "append" ? mutation.message : undefined,
+            }) as never,
+        );
+      const preUpload = vi
+        .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+        .mockImplementation(async ({ attachments }) => ({
+          attachments: attachments ?? [],
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        }));
+      const upload = vi
+        .spyOn(fileUploadRegistry, "uploadFile")
+        .mockResolvedValue({
+          url: "https://files.example.test/unchanged-durable.png",
+          provider: "test-storage",
+        });
+      const readReceipt = vi
+        .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+        .mockResolvedValue(null);
+      const resolveThreadAccess = vi
+        .spyOn(chatThreadStore, "resolveThreadAccess")
+        .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: engineWithUncalledStream(),
+        actions: {},
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: submissionPayload.text,
+            threadId,
+            turnId: "turn-unchanged-image-admission",
+            agentKitMessageId: messageId,
+            submissionPayload,
+            attachments: mappedAttachments,
+          }),
+        }),
+      );
+
+      try {
+        const result = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+
+        expect(result).not.toEqual({
+          error: "submissionPayload does not match this message",
+        });
+        expect(event.res.status).toBe(202);
+        expect(result).toMatchObject({
+          state: "queued",
+          message: { id: messageId },
+        });
+        expect(append.mock.calls[0]?.[1]?.type).toBe("append");
+      } finally {
+        preUpload.mockRestore();
+        upload.mockRestore();
+        append.mockRestore();
+        readReceipt.mockRestore();
+        resolveThreadAccess.mockRestore();
+        mockGetSlotHoldingRunId.mockReset();
+        mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+      }
+    },
+  );
+
+  it("rejects mismatched attachments before a free-slot run can dispatch", async () => {
+    const threadId = "thread-attachment-identity-mismatch";
+    const messageId = "message-attachment-identity-mismatch";
+    const expectedAttachment = {
+      type: "image",
+      name: "chart.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${PNG_BASE64}`,
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Review this chart",
+      requestAttachments: [
+        {
+          type: "image" as const,
+          name: expectedAttachment.name,
+          contentType: expectedAttachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(expectedAttachment),
+        },
+      ],
+    };
+    const append = vi.spyOn(chatThreadStore, "mutateThreadQueuedMessages");
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-attachment-identity-mismatch",
+          agentKitMessageId: messageId,
+          submissionPayload,
+          attachments: [
+            {
+              ...expectedAttachment,
+              data: `data:image/png;base64,${JPEG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    mockTryClaimRunSlot.mockClear();
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).resolves.toEqual({
+        error: "submissionPayload does not match this message",
+      });
+      expect(event.res.status).toBe(400);
+      expect(append).not.toHaveBeenCalled();
+      expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+    } finally {
+      append.mockRestore();
+      preUpload.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
+    }
+  });
+
+  it("does not upload queued attachments when the thread is inaccessible", async () => {
+    const threadId = "thread-inaccessible-queued-upload";
+    const messageId = "message-inaccessible-queued-upload";
+    const attachment = {
+      type: "image" as const,
+      name: "chart.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${PNG_BASE64}`,
+    };
+    const submissionPayload = {
+      threadId,
+      id: messageId,
+      text: "Review this chart",
+      requestAttachments: [
+        {
+          type: "image" as const,
+          name: attachment.name,
+          contentType: attachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(attachment),
+        },
+      ],
+    };
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementation(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const upload = vi
+      .spyOn(fileUploadRegistry, "uploadFile")
+      .mockResolvedValue({
+        url: "https://files.example.test/uploaded.png",
+        provider: "test-storage",
+      });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue(null);
+    mockGetSlotHoldingRunId.mockReset();
+    mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: submissionPayload.text,
+          threadId,
+          turnId: "turn-inaccessible-queued-upload",
+          agentKitMessageId: messageId,
+          submissionPayload,
+          attachments: [attachment],
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).resolves.toEqual({ error: "Thread not found" });
+
+      expect(event.res.status).toBe(404);
+      expect(upload).not.toHaveBeenCalled();
+    } finally {
+      preUpload.mockRestore();
+      upload.mockRestore();
+      resolveThreadAccess.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
+  it.each([
+    {
+      label: "a data URL in the attachment URL field",
+      attachment: {
+        type: "image",
+        name: "chart.png",
+        contentType: "image/png",
+        url: `data:image/png;base64,${PNG_BASE64}`,
+      },
+      expectsUpload: true,
+    },
+    {
+      label: "a text file",
+      attachment: {
+        type: "file",
+        name: "notes.txt",
+        contentType: "text/plain",
+        text: "Remember the agreed deadline",
+      },
+      expectsUpload: true,
+    },
+    {
+      label: "a durable URL",
+      attachment: {
+        type: "file",
+        name: "notes.txt",
+        contentType: "text/plain",
+        url: "https://files.example.test/notes.txt",
+      },
+      expectsUpload: false,
+    },
+    {
+      label: "a durable file ID",
+      attachment: {
+        type: "file",
+        name: "notes.txt",
+        contentType: "text/plain",
+        fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+      },
+      expectsUpload: false,
+    },
+    {
+      label: "a file with mediaType only",
+      attachment: {
+        type: "file",
+        name: "report.pdf",
+        mediaType: "application/pdf",
+        url: "https://files.example.test/report.pdf",
+      },
+      expectsUpload: false,
+    },
+  ])(
+    "queues $label as a durable reference",
+    async ({ attachment, expectsUpload }) => {
+      const threadId = `thread-attachment-${attachment.name}`;
+      const messageId = `message-attachment-${attachment.name}`;
+      const identity = {
+        name: attachment.name,
+        contentType: attachment.contentType ?? attachment.mediaType,
+        fingerprint: fingerprintAgentSubmissionAttachment(attachment),
+      };
+      const submissionPayload = {
+        threadId,
+        id: messageId,
+        text: "Use this attachment later",
+        ...(attachment.type === "image"
+          ? { requestAttachments: [{ type: "image" as const, ...identity }] }
+          : {
+              attachments: [
+                {
+                  type: "file" as const,
+                  name: attachment.name,
+                  mediaType: attachment.mediaType ?? attachment.contentType,
+                  fingerprint: identity.fingerprint,
+                },
+              ],
+            }),
+      };
+      const preUpload = vi
+        .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+        .mockImplementation(async ({ attachments }) => ({
+          attachments: attachments ?? [],
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        }));
+      const upload = vi
+        .spyOn(fileUploadRegistry, "uploadFile")
+        .mockResolvedValue({
+          url: "https://files.example.test/uploaded.txt",
+          provider: "test-storage",
+        });
+      const append = vi
+        .spyOn(chatThreadStore, "mutateThreadQueuedMessages")
+        .mockImplementation(
+          async (_id, mutation) =>
+            ({
+              queuedMessages: [
+                mutation.type === "append" ? mutation.message : {},
+              ],
+              message:
+                mutation.type === "append" ? mutation.message : undefined,
+            }) as never,
+        );
+      const readReceipt = vi
+        .spyOn(chatThreadStore, "getQueuedSubmissionReceipt")
+        .mockResolvedValue(null);
+      const resolveThreadAccess = vi
+        .spyOn(chatThreadStore, "resolveThreadAccess")
+        .mockResolvedValue({ id: threadId, threadData: "{}" } as never);
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue("run-active");
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: engineWithUncalledStream(),
+        actions: {},
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: submissionPayload.text,
+            threadId,
+            turnId: `turn-attachment-${attachment.name}`,
+            agentKitMessageId: messageId,
+            submissionPayload,
+            attachments: [attachment],
+          }),
+        }),
+      );
+
+      try {
+        const result = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+
+        expect(event.res.status).toBe(202);
+        expect(upload).toHaveBeenCalledTimes(expectsUpload ? 1 : 0);
+        if (expectsUpload) {
+          expect(resolveThreadAccess.mock.invocationCallOrder[0]).toBeLessThan(
+            upload.mock.invocationCallOrder[0]!,
+          );
+        }
+        expect(result).toMatchObject({
+          state: "queued",
+          message: { id: messageId },
+        });
+        const saved = append.mock.calls[0]?.[1];
+        expect(saved?.type).toBe("append");
+        if (saved?.type === "append") {
+          if (attachment.type === "image") {
+            expect(saved.message.requestAttachments?.[0]).toMatchObject({
+              type: "image",
+              name: attachment.name,
+              contentType: "image/png",
+              url: expect.any(String),
+            });
+          } else {
+            expect(saved.message.attachments?.[0]).toMatchObject(
+              attachment.fileId
+                ? {
+                    type: "file",
+                    name: attachment.name,
+                    fileId: attachment.fileId,
+                  }
+                : {
+                    type: "file",
+                    name: attachment.name,
+                    ...(attachment.mediaType || attachment.contentType
+                      ? {
+                          mediaType:
+                            attachment.mediaType ?? attachment.contentType,
+                        }
+                      : {}),
+                    url: expect.any(String),
+                  },
+            );
+          }
+          expect(JSON.stringify(saved.message)).not.toContain("data:");
+          expect(saved.message.attachments?.[0]?.text).toBeUndefined();
+          expect(saved.message.requestAttachments?.[0]?.data).toBeUndefined();
+        }
+      } finally {
+        preUpload.mockRestore();
+        upload.mockRestore();
+        append.mockRestore();
+        readReceipt.mockRestore();
+        resolveThreadAccess.mockRestore();
+        mockGetSlotHoldingRunId.mockReset();
+        mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+      }
+    },
+  );
+
   it.each([
     [
       "redacted after inline-byte scrubbing",
@@ -3803,7 +5463,11 @@ describe("createProductionAgentHandler", () => {
       const resolveApproval = vi
         .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
         .mockResolvedValue("turn-inline-approval");
-      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
       mockTryClaimRunSlot.mockResolvedValueOnce({
         claimed: false,
         activeRunId: "run-existing",
@@ -3840,6 +5504,7 @@ describe("createProductionAgentHandler", () => {
             threadId: "thread-inline-approval",
             approvedToolCalls: [approvalKey],
             approvedToolCallAskIds: [approvalId],
+            internalContinuation: true,
             structuredHistory: [
               {
                 role: "assistant",
@@ -3895,6 +5560,7 @@ describe("createProductionAgentHandler", () => {
           dispatchMode: "foreground",
         });
         expect(slotOptions).not.toHaveProperty("dispatchPayload");
+        expect(slotOptions).not.toHaveProperty("hasPendingQueuedSubmission");
         expect(runAction).not.toHaveBeenCalled();
         expect(mockFireInternalDispatch).not.toHaveBeenCalled();
       } finally {
@@ -3923,8 +5589,22 @@ describe("createProductionAgentHandler", () => {
     const isTurnAborted = vi
       .spyOn(runStore, "isTurnAborted")
       .mockResolvedValue(false);
-    mockPersistRunEventsInMemory.enabled = true;
-    const runAction = vi.fn(async () => "sent");
+    let releaseFlush = () => {};
+    let flushStarted = false;
+    let flushCompleted = false;
+    let actionStartedBeforeFlush = false;
+    const flushGate = new Promise<void>((resolve) => {
+      releaseFlush = resolve;
+    });
+    mockRunManagerFlush.onFlush = async () => {
+      flushStarted = true;
+      await flushGate;
+      flushCompleted = true;
+    };
+    const runAction = vi.fn(async () => {
+      actionStartedBeforeFlush = !flushCompleted;
+      return "sent";
+    });
     let completedRun: ActiveRun | undefined;
     const modelMessages: EngineMessage[][] = [];
     const engine: AgentEngine = {
@@ -3938,6 +5618,7 @@ describe("createProductionAgentHandler", () => {
         yield { type: "stop", reason: "end_turn" };
       },
     };
+    let responseText: Promise<string> | undefined;
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
       engine,
@@ -4002,9 +5683,14 @@ describe("createProductionAgentHandler", () => {
         () => handler(event),
       );
       expect(response).toBeInstanceOf(ReadableStream);
-      if (response instanceof ReadableStream) {
-        await new Response(response).text();
-      }
+      responseText =
+        response instanceof ReadableStream
+          ? new Response(response).text()
+          : Promise.resolve("");
+      await vi.waitFor(() => expect(flushStarted).toBe(true));
+      expect(runAction).not.toHaveBeenCalled();
+      releaseFlush();
+      await responseText;
       await vi.waitFor(() => expect(completedRun).toBeDefined());
 
       expect(resolveApproval).toHaveBeenCalledWith(
@@ -4015,6 +5701,7 @@ describe("createProductionAgentHandler", () => {
       );
       expect(consumeApproval).toHaveBeenCalledOnce();
       expect(runAction).toHaveBeenCalledOnce();
+      expect(actionStartedBeforeFlush).toBe(false);
       const continuedMessages = modelMessages.find((messages) =>
         messages.some(
           (message) =>
@@ -4048,7 +5735,9 @@ describe("createProductionAgentHandler", () => {
         ]),
       );
     } finally {
-      mockPersistRunEventsInMemory.enabled = false;
+      releaseFlush();
+      await responseText?.catch(() => {});
+      mockRunManagerFlush.onFlush = undefined;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       isTurnAborted.mockRestore();
@@ -4077,7 +5766,6 @@ describe("createProductionAgentHandler", () => {
     const updateRunHeartbeat = vi
       .spyOn(runStore, "updateRunHeartbeat")
       .mockResolvedValue(undefined);
-    mockPersistRunEventsInMemory.enabled = true;
     const runAction = vi.fn(async () => "sent");
     let completedRun: ActiveRun | undefined;
     const engine: AgentEngine = {
@@ -4192,7 +5880,6 @@ describe("createProductionAgentHandler", () => {
       expect(runAction).toHaveBeenCalledOnce();
       expect(consumeApproval).toHaveBeenCalledOnce();
     } finally {
-      mockPersistRunEventsInMemory.enabled = false;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       claimBackgroundRun.mockRestore();
@@ -4222,7 +5909,6 @@ describe("createProductionAgentHandler", () => {
     const consumeApproval = vi
       .spyOn(toolApprovalStore, "consumeAgentToolApproval")
       .mockResolvedValue(true);
-    mockPersistRunEventsInMemory.enabled = true;
     const onRunComplete = vi.fn();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -4305,7 +5991,6 @@ describe("createProductionAgentHandler", () => {
       expect(outerStream).not.toHaveBeenCalled();
     } finally {
       consumeApproval.mockRestore();
-      mockPersistRunEventsInMemory.enabled = false;
     }
   });
 
@@ -4530,7 +6215,6 @@ describe("createProductionAgentHandler", () => {
       ).rejects.toBe(setupRequired);
 
       expect(assertAiSetupReady).toHaveBeenCalledOnce();
-      expect(getDbExec).not.toHaveBeenCalled();
       expect(readTurnStartedAt).not.toHaveBeenCalled();
       expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
       expect(engine.stream).not.toHaveBeenCalled();
@@ -4708,7 +6392,6 @@ describe("createProductionAgentHandler", () => {
                   name: "notes.txt",
                   fileId: "file-1",
                   mediaType: "text/plain",
-                  data: "data:text/plain;base64,SGVsbG8=",
                   url: "https://files.example/notes.txt",
                 },
                 {
@@ -4724,7 +6407,6 @@ describe("createProductionAgentHandler", () => {
                   type: "image",
                   name: "scan.png",
                   contentType: "image/png",
-                  data: "data:image/png;base64,SGVsbG8=",
                   url: "https://files.example/scan-resized.png",
                   referenceUrl: "https://files.example/scan-original.png",
                   fileId: "file-image-1",
@@ -4733,7 +6415,6 @@ describe("createProductionAgentHandler", () => {
                   type: "image",
                   name: "scan.png",
                   contentType: "image/png",
-                  data: "data:image/png;base64,SGVsbG8=",
                   url: "https://files.example/scan-resized.png",
                   referenceUrl: "https://files.example/scan-original.png",
                   fileId: "file-image-1",
@@ -4818,7 +6499,6 @@ describe("createProductionAgentHandler", () => {
             id: "file-1",
             mediaType: "text/plain",
             contentType: "text/plain",
-            data: "data:text/plain;base64,SGVsbG8=",
             url: "https://files.example/notes.txt",
           },
           {
@@ -4834,7 +6514,6 @@ describe("createProductionAgentHandler", () => {
             type: "image",
             name: "scan.png",
             contentType: "image/png",
-            data: "data:image/png;base64,SGVsbG8=",
             url: "https://files.example/scan-resized.png",
             id: "file-image-1",
           },
@@ -5427,6 +7106,75 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it("refuses an unqueueable busy attachment before pre-upload", async () => {
+    mockGetSlotHoldingRunId.mockResolvedValueOnce("run-active");
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockResolvedValue({
+        attachments: [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A legacy attachment send",
+          threadId: "thread-1",
+          attachments: [
+            {
+              type: "image",
+              name: "chart.png",
+              contentType: "image/png",
+              data: "data:image/png;base64,AA==",
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(409);
+      expect(result).toMatchObject({ code: "run_slot_busy" });
+      expect(preUpload).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      preUpload.mockRestore();
+      mockGetSlotHoldingRunId.mockReset();
+      mockGetSlotHoldingRunId.mockResolvedValue(undefined);
+    }
+  });
+
   it("returns a typed conflict when another run owns the thread slot", async () => {
     mockTryClaimRunSlot.mockResolvedValueOnce({
       claimed: false,
@@ -5590,6 +7338,47 @@ describe("createProductionAgentHandler", () => {
       await resume({ agentNativeResumeAfterSetup: undefined });
       expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
     });
+  });
+
+  it("names the replayed turn on a completed-turn replay", async () => {
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Again",
+          threadId: "thread-replay",
+          turnId: "turn-finished",
+        }),
+      }),
+    );
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: null,
+      completedRunId: "run-finished",
+    } as never);
+    completedTurnReplay.stream = new ReadableStream({
+      start: (controller) => controller.close(),
+    });
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+
+      expect(response).toBe(completedTurnReplay.stream);
+      expect(event.res.headers.get("X-Dispatch-Mode")).toBe("replay");
+      expect(event.res.headers.get("X-Run-Id")).toBe("run-finished");
+      expect(event.res.headers.get("X-Turn-Id")).toBe("turn-finished");
+    } finally {
+      completedTurnReplay.stream = null;
+    }
   });
 
   it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
@@ -7260,6 +9049,114 @@ describe("createProductionAgentHandler", () => {
     );
   });
 
+  it("replays the accepted run when onRunPrepared finds an existing submission receipt", async () => {
+    const onRunPrepared = vi.fn(async () => ({
+      duplicateRunId: "run-already-submitted",
+    }));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    const subscribeToRun = vi
+      .spyOn(runManager, "subscribeToRun")
+      .mockReturnValue(stream);
+    onTestFinished(() => subscribeToRun.mockRestore());
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "should not start a new run" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Repeat the queued prompt",
+          queuedMessageId: "queued-duplicate",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(result).toBe(stream);
+    expect(subscribeToRun).toHaveBeenCalledWith("run-already-submitted", 0);
+    expect(event.res.headers.get("X-Dispatch-Mode")).toBe("replay");
+    // The accepted run lives in another process here, so its turn is not
+    // known without a read, and the replay names none rather than guessing.
+    expect(event.res.headers.get("X-Turn-Id")).toBeNull();
+  });
+
+  it("names the accepted run's turn when a duplicate submission replays it", async () => {
+    const onRunPrepared = vi.fn(async () => ({
+      duplicateRunId: "run-already-submitted",
+    }));
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => controller.close(),
+    });
+    const subscribeToRun = vi
+      .spyOn(runManager, "subscribeToRun")
+      .mockReturnValue(stream);
+    onTestFinished(() => subscribeToRun.mockRestore());
+    const getRun = vi
+      .spyOn(runManager, "getRun")
+      .mockImplementation((runId) =>
+        runId === "run-already-submitted"
+          ? ({ turnId: "turn-accepted" } as never)
+          : null,
+      );
+    onTestFinished(() => getRun.mockRestore());
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Repeat the queued prompt",
+          turnId: "turn-retry",
+          queuedMessageId: "queued-duplicate",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(result).toBe(stream);
+    expect(event.res.headers.get("X-Run-Id")).toBe("run-already-submitted");
+    expect(event.res.headers.get("X-Turn-Id")).toBe("turn-accepted");
+  });
+
   it("anchors retry deadlines to the server request time", async () => {
     const onRunPrepared = vi.fn();
     const engine: AgentEngine = {
@@ -7383,6 +9280,7 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
+    const firstRunOption = startRunOptionsSeen.length;
     await startRun("visitor-1", undefined, "session-anonymous", true);
     expect(assertAiSetupReady).not.toHaveBeenCalled();
 
@@ -7400,6 +9298,14 @@ describe("createProductionAgentHandler", () => {
 
     await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(4));
     expect(assertAiSetupReady).toHaveBeenCalledTimes(3);
+    // An anonymous visitor's run reports no user; signed-in runs report theirs.
+    const runUserIds = startRunOptionsSeen
+      .slice(firstRunOption)
+      .map((options) => options?.userId);
+    expect(runUserIds[0]).toBeUndefined();
+    expect(runUserIds).toEqual(
+      expect.arrayContaining(["alice@example.com", "bob@example.com"]),
+    );
     const sources = onRunComplete.mock.calls.map(([, , source]) => source);
     expect(sources).toContainEqual({
       userId: "alice@example.com",
@@ -7672,6 +9578,41 @@ describe("filterActionsByAllowedNames", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("defers a queued interrupt when the durable abort declines", async () => {
+    const abort = vi.fn(async () => false);
+    const defer = vi.fn(async () => true);
+
+    await expect(confirmQueuedRunInterrupt({ abort, defer })).resolves.toBe(
+      "pending",
+    );
+    expect(abort).toHaveBeenCalledOnce();
+    expect(defer).toHaveBeenCalledOnce();
+  });
+
+  it("blocks model and write dispatch while an interrupt waits for a safe boundary", async () => {
+    const order: string[] = [];
+    const guards = createRunSafeBoundaryGuards({
+      signal: new AbortController().signal,
+      flushEvents: async () => {
+        order.push("flush");
+      },
+      interruptRequestedAtBoundary: async () => {
+        order.push("interrupt");
+        return "pending";
+      },
+    });
+    const dispatch = vi.fn(() => "dispatched");
+
+    await expect(guards.beforeModelDispatch(dispatch)).resolves.toEqual({
+      started: false,
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+    await expect(guards.beforeWrite()).rejects.toThrow(
+      "Run aborted at a safe boundary",
+    );
+    expect(order).toEqual(["flush", "interrupt", "flush", "interrupt"]);
+  });
+
   it("reuses the original invocation receipt after an action mutates its arguments", async () => {
     const original = {
       destination: "fixture@example.test",
@@ -7698,13 +9639,9 @@ describe("runAgentLoop", () => {
       (event) => event.type === "tool_start" || event.type === "tool_done",
     ))
       expect(event.input).toEqual(original);
-    expect(
-      findCompletedJournalEntry(
-        classifyToolCallJournal(persisted),
-        "send-report",
-        original,
-      )?.result,
-    ).toBe(result);
+    expect(classifyToolCallJournal(persisted).completed).toEqual([
+      expect.objectContaining({ tool: "send-report", input: original, result }),
+    ]);
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
       .mockResolvedValue(persisted);
@@ -7742,7 +9679,8 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        options.onModelDispatchStarted?.();
         streamCalls += 1;
         if (streamCalls === 1) {
           yield {
@@ -8149,6 +10087,11 @@ describe("runAgentLoop", () => {
     expect(seenTools[1]).toContain("query-data");
     expect(streamCalls).toBe(3);
     expect(guard).toHaveBeenCalledTimes(2);
+    const guardStartTimes = guard.mock.calls.map(
+      ([context]) => context.runStartedAt,
+    );
+    expect(guardStartTimes[0]).toEqual(expect.any(Number));
+    expect(new Set(guardStartTimes).size).toBe(1);
   });
 
   it("passes the central default max output token cap to the engine", async () => {
@@ -9954,6 +11897,7 @@ describe("runAgentLoop", () => {
   });
 
   it("does not re-run identical read-only tools already present in continuation history", async () => {
+    recordEarlierCalls({ "tool-original": ["get-document", { id: "doc-1" }] });
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -10269,6 +12213,13 @@ describe("runAgentLoop", () => {
   });
 
   it("stops after the third visible duplicate across continuation invocations", async () => {
+    // Each continuation appends its call to `messages`; the journal records
+    // the arguments every one of them ran with.
+    recordEarlierCalls({
+      "original-call": ["get-document", { id: "doc-1" }],
+      "repeat-1": ["get-document", { id: "doc-1" }],
+      "repeat-2": ["get-document", { id: "doc-1" }],
+    });
     const messages: EngineMessage[] = [
       {
         role: "user",
@@ -10387,71 +12338,165 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("does not cache repeated reads when the action opts out of deduping", async () => {
-    let streamCalls = 0;
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        streamCalls += 1;
-        if (streamCalls <= 2) {
+  it.each(["status", "read-result"])(
+    "keeps bounded task %s waits fresh past the repeat threshold",
+    async (action) => {
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          streamCalls += 1;
+          if (streamCalls <= 9) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call" as const,
+                  id: `poll-${streamCalls}`,
+                  name: "agent-teams",
+                  input: { action, taskId: "task-1", waitMs: 20_000 },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "complete" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      let polls = 0;
+      const pollAction = vi.fn(async () => ({
+        status: ++polls === 9 ? "complete" : "running",
+      }));
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "wait" }] }],
+        actions: {
+          "agent-teams": {
+            ...actionEntry({
+              planMode: {
+                effect: (args) =>
+                  args.action === "status" || args.action === "read-result"
+                    ? "read"
+                    : "write",
+              },
+            }),
+            dedupe: false,
+            run: pollAction,
+          },
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(pollAction).toHaveBeenCalledTimes(9);
+      expect(JSON.stringify(events)).not.toContain(
+        "Skipped duplicate read-only",
+      );
+      const completedPoll = events.find(
+        (event) => event.type === "tool_done" && event.id === "poll-9",
+      );
+      expect(completedPoll).toBeDefined();
+      expect(JSON.parse(completedPoll.result)).toEqual({ status: "complete" });
+      expect(events).toContainEqual({ type: "text", text: "complete" });
+    },
+  );
+
+  it.each([
+    ["export-hubspot-html", { designId: "design-1", frameId: "frame-1" }],
+    ["agent-teams", { action: "status", taskId: "task-1", waitMs: 0 }],
+    ["agent-teams", { action: "read-result", taskId: "task-1" }],
+    ["agent-teams", { action: "list", waitMs: 20_000 }],
+    ["agent-teams", { action: "status", taskId: "task-1", waitMs: 20_001 }],
+  ])(
+    "stops repeated uncached %s reads without a bounded task wait (%j)",
+    async (name, input) => {
+      let streamCalls = 0;
+      const run = vi.fn(async () => "fresh result");
+      const events: any[] = [];
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(options): AsyncIterable<EngineEvent> {
+          streamCalls += 1;
+          if (isLoopBreakerCloseout(options) || streamCalls > 9) {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text" as const, text: "Finished." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+            return;
+          }
           yield {
             type: "assistant-content",
             parts: [
               {
                 type: "tool-call" as const,
-                id: `poll-${streamCalls}`,
-                name: "poll-run",
-                input: { id: "run-1" },
+                id: `read-${streamCalls}`,
+                name,
+                input,
               },
             ],
           };
           yield { type: "stop", reason: "tool_use" };
-          return;
-        }
-        yield {
-          type: "assistant-content",
-          parts: [{ type: "text" as const, text: "complete" }],
-        };
-        yield { type: "stop", reason: "end_turn" };
-      },
-    };
-    const pollAction = vi
-      .fn()
-      .mockResolvedValueOnce({ status: "running" })
-      .mockResolvedValueOnce({ status: "complete" });
-    const events: any[] = [];
-
-    await runAgentLoop({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "wait" }] }],
-      actions: {
-        "poll-run": {
-          ...actionEntry({ readOnly: true }),
-          dedupe: false,
-          run: pollAction,
         },
-      },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-    });
+      };
 
-    expect(pollAction).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
-    expect(events).toContainEqual({ type: "text", text: "complete" });
-  });
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "check" }] },
+        ],
+        actions: {
+          [name]: { ...actionEntry({ readOnly: true }), dedupe: false, run },
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+      expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+        MAX_IDENTICAL_TOOL_CALLS,
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "error" }),
+      );
+    },
+  );
 
   it("does not treat a suffix collision as the visible cached read result", () => {
     const contextMessages: EngineMessage[] = [
@@ -10604,6 +12649,10 @@ describe("runAgentLoop", () => {
   });
 
   it("keeps the original cached body across a continuation with a pointer-only duplicate result", async () => {
+    recordEarlierCalls({
+      "original-call": ["get-document", { id: "doc-1" }],
+      "pointer-call": ["get-document", { id: "doc-1" }],
+    });
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -11673,96 +13722,6 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("stops a turn that keeps issuing the same successful tool call with identical arguments", async () => {
-    let streamCalls = 0;
-    const run = vi.fn(async () => "same answer every time");
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: false,
-      },
-      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
-        streamCalls += 1;
-        if (isLoopBreakerCloseout(options)) {
-          yield {
-            type: "assistant-content",
-            parts: [
-              {
-                type: "text" as const,
-                text: "Stopped after eight repeated reads; nothing remains.",
-              },
-            ],
-          };
-          yield { type: "stop", reason: "end_turn" };
-          return;
-        }
-        yield {
-          type: "assistant-content",
-          parts: [
-            {
-              type: "tool-call" as const,
-              id: `tool-loop-${streamCalls}`,
-              name: "spinning-read",
-              input: { q: "same" },
-            },
-          ],
-        };
-        yield { type: "stop", reason: "tool_use" };
-      },
-    };
-    const events: any[] = [];
-
-    await runAgentLoop({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: {
-        "spinning-read": {
-          ...actionEntry({ readOnly: true }),
-          dedupe: false,
-          run,
-        },
-      },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-      maxIterations: MAX_IDENTICAL_TOOL_CALLS,
-    });
-
-    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
-    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "tool_done",
-        tool: "spinning-read",
-        result: "same answer every time",
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "text",
-        text: "Stopped after eight repeated reads; nothing remains.",
-      }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "error" }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "loop_limit" }),
-    );
-  });
-
   it("allows nine identical reads when each successful write changes the deck", async () => {
     let streamCalls = 0;
     let reads = 0;
@@ -12246,6 +14205,136 @@ describe("runAgentLoop", () => {
         errorCode: "write_tool_outcome_unknown",
       }),
     );
+  });
+
+  describe("provider-api-request POST retries", () => {
+    const providerRequestAction = (
+      executeRequest: (args: unknown) => Promise<unknown>,
+    ): ActionEntry => ({
+      ...actionEntry({}),
+      ...createProviderApiRequestAction({
+        executeRequest: executeRequest as never,
+      }),
+    });
+    const rejected = {
+      response: { ok: false, status: 400, statusText: "Bad Request", json: {} },
+    };
+    const accepted = {
+      response: { ok: true, status: 200, json: { rows: [] } },
+    };
+
+    it("retries a failed GA4 report with corrected arguments", async () => {
+      const executeRequest = vi
+        .fn()
+        .mockResolvedValueOnce(rejected)
+        .mockResolvedValueOnce(accepted);
+      const report = (dimension: string) => ({
+        provider: "ga4",
+        method: "POST",
+        path: "/properties/{propertyId}:runReport",
+        body: { dimensions: [{ name: dimension }] },
+      });
+
+      const events = await runToolCallSequence(
+        [
+          { name: "provider-api-request", input: report("sessionSourc") },
+          { name: "provider-api-request", input: report("sessionSource") },
+        ],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(2);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ outcomeUnknown: true }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "write_tool_outcome_unknown" }),
+      );
+    });
+
+    it("still stops after a failed POST that may have written", async () => {
+      const executeRequest = vi.fn().mockResolvedValue(rejected);
+      const create = (email: string) => ({
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: { properties: { email } },
+      });
+
+      const events = await runToolCallSequence(
+        [
+          { name: "provider-api-request", input: create("a@example.com") },
+          { name: "provider-api-request", input: create("b@example.com") },
+        ],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    });
+
+    it("runs the write again when the user replies continue in a new turn", async () => {
+      const executeRequest = vi.fn().mockResolvedValue(accepted);
+      const input = {
+        provider: "hubspot",
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: { properties: { email: "a@example.com" } },
+      };
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "add the contact" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "earlier-create",
+              name: "provider-api-request",
+              input,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "earlier-create",
+              toolName: "provider-api-request",
+              content: "Error running provider-api-request: timed out",
+              isError: true,
+              outcome: "unknown",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: 'I stopped before running provider-api-request again. Reply "continue" and I will verify it.',
+            },
+          ],
+        },
+        { role: "user", content: [{ type: "text", text: "continue" }] },
+      ];
+
+      const events = await runToolCallSequence(
+        [{ name: "provider-api-request", input }],
+        { "provider-api-request": providerRequestAction(executeRequest) },
+        { messages },
+      );
+
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ errorCode: "write_tool_outcome_unknown" }),
+      );
+    });
   });
 
   it("resets other tools' repeat-error counts after a successful write", async () => {
@@ -12748,6 +14837,160 @@ describe("runAgentLoop", () => {
         type: "tool_done",
         tool: "get-meeting",
         result: "Error running get-meeting: No such meeting",
+      }),
+    );
+  });
+
+  it("gives the model the details a fail() attached", async () => {
+    let streamCalls = 0;
+    let secondRequest = "";
+    const run = vi.fn(async () => {
+      fail("A transcript import is already running", {
+        errorCode: "import_in_progress",
+        statusCode: 409,
+        details: { importId: "imp_1", apiKey: "SENSITIVE_VALUE" },
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          secondRequest = JSON.stringify(options.messages);
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "call-1",
+              name: "import-transcript",
+              input: { recordingId: "rec_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "import-transcript": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const expected =
+      "Error running import-transcript: A transcript import is already running (errorCode: import_in_progress)\n" +
+      'Error details: {"importId":"imp_1","apiKey":"[REDACTED]"}';
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "import-transcript",
+        result: expected,
+      }),
+    );
+    expect(secondRequest).toContain(JSON.stringify(expected).slice(1, -1));
+    expect(JSON.stringify(events)).not.toContain("SENSITIVE_VALUE");
+  });
+
+  it("still stops a repeated failure whose details change on every attempt", async () => {
+    let streamCalls = 0;
+    let attempts = 0;
+    const run = vi.fn(async () => {
+      attempts += 1;
+      fail("Recording rec_1 is still processing", {
+        errorCode: "recording_processing",
+        details: { attempt: attempts, checkedAt: `t${attempts}` },
+      });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The repeated action failures stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `tool-repeat-${streamCalls}`,
+              name: "get-recording",
+              input: { id: "rec_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-recording": { ...actionEntry({ readOnly: true }), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-recording",
+        result: expect.stringMatching(
+          /^Stopped after 3 identical errors[\s\S]*\nError details: \{"attempt":3,"checkedAt":"t3"\}$/,
+        ),
       }),
     );
   });
@@ -15566,6 +17809,7 @@ describe("runAgentLoop", () => {
         }),
         isError: true,
         completedSideEffect: false,
+        argumentsHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       },
       {
         type: "error",
@@ -15926,6 +18170,166 @@ describe("runAgentLoop", () => {
         },
       ],
     });
+  });
+
+  it("keeps validation errors on their call when provider IDs are reused", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "reused-call-id",
+            name: "write-record",
+            input: { value: 1 },
+            error: "input/value must be string",
+          };
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "reused-call-id",
+                name: "write-record",
+                input: { value: "valid sibling" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "saved");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "Write." }] }],
+      actions: {
+        "write-record": {
+          tool: {
+            description: "Write a record",
+            parameters: {
+              type: "object",
+              properties: { value: { type: "string" } },
+              required: ["value"],
+            },
+          },
+          run,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith(
+      { value: "valid sibling" },
+      expect.any(Object),
+    );
+  });
+
+  it("does not assign a schema error to a successful reused-ID sibling", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "reused-call-id",
+            name: "write-record",
+            input: { value: "same input" },
+            error: "input/value is invalid for one call",
+          };
+          yield {
+            type: "tool-call",
+            id: "reused-call-id",
+            name: "write-record",
+            input: { value: "same input" },
+          };
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "reused-call-id",
+                name: "write-record",
+                input: { value: "same input" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "saved");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "Write." }] }],
+      actions: {
+        "write-record": {
+          tool: {
+            description: "Write a record",
+            parameters: {
+              type: "object",
+              properties: { value: { type: "string" } },
+              required: ["value"],
+            },
+          },
+          run,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith(
+      { value: "same input" },
+      expect.any(Object),
+    );
   });
 
   it("names the output-token cap when a tool call is cut off mid-arguments, and raises the ceiling for the retry", async () => {
@@ -16421,6 +18825,7 @@ describe("runAgentLoop", () => {
       result: "Error calling MCP tool mcp__x__fail: boom",
       isError: true,
       completedSideEffect: false,
+      argumentsHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(seenMessages[1].at(-1)).toMatchObject({
       role: "user",
@@ -16519,6 +18924,18 @@ describe("runAgentLoop", () => {
       "act",
       "act",
     ]);
+    expect(guard.mock.calls[1]?.[0].toolCalls).toContainEqual({
+      toolCallId: "query-1",
+      name: "query-data",
+      input: { sql: "select count(*)" },
+    });
+    expect(guard.mock.calls[1]?.[0].toolResults).toContainEqual(
+      expect.objectContaining({
+        toolCallId: "query-1",
+        name: "query-data",
+        isError: false,
+      }),
+    );
     expect(visibleEvents(events).slice(0, 2)).toEqual([
       {
         type: "text",
@@ -17587,6 +20004,106 @@ describe("runAgentLoop", () => {
     }
   });
 
+  it("holds back in the main loop a read a custom agent profile left unknown, and no read of other arguments", async () => {
+    const agents = await import("../resources/agents.js");
+    const findProfile = vi
+      .spyOn(agents, "findAccessibleCustomAgent")
+      .mockImplementation(async (_owner, identifier) => ({
+        id: identifier,
+        path: `agents/${identifier}.md`,
+        name: identifier,
+        instructions: "Help out.",
+        model: `${identifier}-model`,
+      }));
+    // The profile runs before the main loop.
+    const modes: Record<string, string[]> = {
+      "reviewer-model": ["check"],
+      "claude-sonnet-5": ["other", "check"],
+    };
+    const calls = new Map<string, number>();
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5", "reviewer-model"],
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        const call = calls.get(opts.model) ?? 0;
+        calls.set(opts.model, call + 1);
+        const mode = modes[opts.model]?.[call];
+        yield {
+          type: "assistant-content",
+          parts: mode
+            ? [
+                {
+                  type: "tool-call",
+                  id: `${opts.model}-${call}`,
+                  name: "check",
+                  input: { mode },
+                },
+              ]
+            : [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: mode ? "tool_use" : "end_turn" };
+      },
+    };
+    const ran: string[] = [];
+    const save = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      run: async () => {
+        throw new Error("Save lost its connection.");
+      },
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        check: defineAction({
+          description: "Check the draft.",
+          schema: z.object({ mode: z.string() }),
+          readOnly: true,
+          run: async (args, ctx) => {
+            ran.push(args.mode);
+            if (args.mode === "check") await save.run({}, ctx);
+            return "ok";
+          },
+        }) as unknown as ActionEntry,
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "go",
+          threadId: "thread-profile-unknown",
+          references: [
+            { type: "custom-agent", name: "Reviewer", refId: "reviewer" },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "owner@example.com", run: {} },
+        () => handler(event),
+      );
+      let text = "";
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        for (let chunk = await reader.read(); !chunk.done; ) {
+          text += new TextDecoder().decode(chunk.value);
+          chunk = await reader.read();
+        }
+      }
+
+      expect(text).toContain("could not recover its result");
+      expect(ran).toEqual(["check", "other"]);
+    } finally {
+      findProfile.mockRestore();
+    }
+  });
+
   it("does not surface the empty-response fallback when text was streamed", async () => {
     const engine: AgentEngine = {
       name: "test",
@@ -17684,7 +20201,7 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
-  it("collapses duplicate assistant tool-call ids before execution and replay", async () => {
+  it("deduplicates streamed tool-call delivery against final assistant content", async () => {
     let streamCalls = 0;
     let replayedMessages: EngineMessage[] | undefined;
     const events: AgentChatEvent[] = [];
@@ -17705,14 +20222,14 @@ describe("runAgentLoop", () => {
         streamCalls += 1;
         if (streamCalls === 1) {
           yield {
+            type: "tool-call",
+            id: "call_duplicate",
+            name: "list-session-recordings",
+            input: { userId: "tim@builder.io", limit: 1 },
+          };
+          yield {
             type: "assistant-content",
             parts: [
-              {
-                type: "tool-call" as const,
-                id: "call_duplicate",
-                name: "list-session-recordings",
-                input: { userId: "tim@builder.io", limit: 1 },
-              },
               {
                 type: "tool-call" as const,
                 id: "call_duplicate",
@@ -18370,7 +20887,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
+  it("re-running with the approval key bound to its arguments DOES run the action", async () => {
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");
     const events1: any[] = [];
@@ -18393,13 +20910,33 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    const approvalKey = events1.find(
+    const approval = events1.find(
       (event) => event.type === "approval_required",
-    )?.approvalKey as string;
+    );
+    const approvalKey = approval?.approvalKey as string;
     expect(approvalKey).toBeTruthy();
     expect(run).not.toHaveBeenCalled();
     expect(events1).toContainEqual(
       expect.objectContaining({ type: "tool_done", approvalPause: true }),
+    );
+
+    // A plain key names the call as sent, not the arguments it runs with, and
+    // with no `consumeApproval` to check those, it approves nothing.
+    const plain: any[] = [];
+    await runAgentLoop({
+      engine: approvalEngine().engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      send: (event) => plain.push(event),
+      signal: new AbortController().signal,
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(plain.some((event) => event.type === "approval_required")).toBe(
+      true,
     );
 
     const phase2 = approvalEngine();
@@ -18412,7 +20949,9 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions,
-      approvedToolCalls: [approvalKey],
+      approvedToolCalls: [
+        approvalKeyWithArguments(approvalKey, approval?.argumentsHash),
+      ],
       send: (event) => events2.push(event),
       signal: new AbortController().signal,
     });
@@ -18587,9 +21126,13 @@ describe("runAgentLoop", () => {
       send: (event) => firstEvents.push(event),
       signal: new AbortController().signal,
     });
-    const approvalKey = firstEvents.find(
+    const approval = firstEvents.find(
       (event) => event.type === "approval_required",
-    ).approvalKey;
+    );
+    const approvalKey = approvalKeyWithArguments(
+      approval.approvalKey,
+      approval.argumentsHash,
+    );
 
     let streamCalls = 0;
     const duplicateEngine: AgentEngine = {
@@ -20522,30 +23065,24 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("marks a successfully chained background chunk terminal before the worker returns", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => true);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => true);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "no_progress",
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(true);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-old",
-      "completed",
-    );
-    expect(setRunTerminalReason).toHaveBeenCalledWith("run-old", "no_progress");
-    expect(setRunError).not.toHaveBeenCalled();
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith("run-old", {
+      status: "completed",
+      terminalReason: "no_progress",
+    });
   });
 
   it("marks a recoverable error continuation chunk errored with its durable failure details", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => true);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => true);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
@@ -20558,44 +23095,36 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
           details: "upstream returned 500",
           recoverable: true,
         },
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(true);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith(
       "run-error-boundary",
-      "errored",
-    );
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
-      "run-error-boundary",
-      "error:provider_failed",
-    );
-    expect(setRunError).toHaveBeenCalledWith(
-      "run-error-boundary",
-      "provider_failed",
-      "upstream returned 500",
+      {
+        status: "errored",
+        terminalReason: "error:provider_failed",
+        errorCode: "provider_failed",
+        errorDetail: "upstream returned 500",
+      },
     );
   });
 
   it("does not overwrite terminal reason when another process already finished the chunk", async () => {
-    const updateRunStatusIfRunning = vi.fn(async () => false);
-    const setRunError = vi.fn(async () => {});
-    const setRunTerminalReason = vi.fn(async () => {});
+    const updateRunTerminalStateIfRunning = vi.fn(async () => false);
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "run_timeout",
-        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+        deps: { updateRunTerminalStateIfRunning },
       }),
     ).resolves.toBe(false);
 
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-      "run-old",
-      "completed",
-    );
-    expect(setRunTerminalReason).not.toHaveBeenCalled();
-    expect(setRunError).not.toHaveBeenCalled();
+    expect(updateRunTerminalStateIfRunning).toHaveBeenCalledWith("run-old", {
+      status: "completed",
+      terminalReason: "run_timeout",
+    });
   });
 });
 
@@ -21109,6 +23638,54 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
       reason: "worker-never-claimed",
     });
     expect(readClaim).toHaveBeenCalledTimes(4);
+  });
+
+  it("claim throws once then succeeds on retry -> claimed inline", async () => {
+    const readClaim = vi.fn().mockResolvedValue(null);
+    const claim = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary network error"))
+      .mockResolvedValueOnce(true);
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: false,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      sleep,
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "dispatch-failed",
+    });
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+  });
+
+  it("claim throws twice -> subscribe and logs the failure", async () => {
+    const readClaim = vi.fn().mockResolvedValue(null);
+    const claim = vi
+      .fn()
+      .mockRejectedValue(new Error("database connection lost"));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const consoleErrorSpy = vi.spyOn(console, "error");
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: false,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      sleep,
+    });
+    expect(outcome).toEqual({ action: "subscribe" });
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("inline claim failed twice for runId=run-x"),
+      "database connection lost",
+    );
+    consoleErrorSpy.mockRestore();
   });
 });
 

@@ -1,0 +1,185 @@
+import { defineAction, fail } from "@agent-native/core/action";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { and, asc, desc, eq, like } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { parseDeckVersionChatContext } from "../server/lib/deck-versions.js";
+import { assertSlides2DeckData } from "./_deck-app-scope.js";
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/&#x[0-9a-f]+;/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function summarizeVersionData(rawData: string) {
+  try {
+    const data = JSON.parse(rawData);
+    const slides = Array.isArray(data?.slides) ? data.slides : [];
+    return {
+      slideCount: slides.length,
+      aspectRatio: data?.aspectRatio ?? null,
+      designSystemId: data?.designSystemId ?? null,
+      slidePreviews: slides.slice(0, 3).map((slide: any, index: number) => ({
+        slideNumber: index + 1,
+        id: slide?.id ?? null,
+        layout: slide?.layout ?? null,
+        textPreview:
+          typeof slide?.content === "string"
+            ? stripHtml(slide.content).slice(0, 120)
+            : "",
+      })),
+    };
+  } catch {
+    return {
+      slideCount: 0,
+      aspectRatio: null,
+      designSystemId: null,
+      slidePreviews: [],
+    };
+  }
+}
+
+export default defineAction({
+  description:
+    "List saved history snapshots for an accessible deck with timestamps, change labels, and bounded slide summaries. Use this to choose a version before reading or restoring it.",
+  schema: z.object({
+    deckId: z.string().describe("ID of the deck whose history to list."),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .default(50)
+      .describe("Maximum number of snapshots to return; defaults to 50."),
+    threadId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Optional chat thread ID used to include its starting snapshot.",
+      ),
+  }),
+  readOnly: true,
+  retrySafe: true,
+  http: { method: "GET" },
+  run: async ({ deckId, limit, threadId }) => {
+    let access;
+    try {
+      access = await assertAccess("deck", deckId, "viewer");
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        fail("Deck not found.", {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
+      }
+      throw error;
+    }
+    assertSlides2DeckData(access.resource.data);
+    const ownerEmail = access.resource.ownerEmail as string;
+    const db = getDb();
+
+    const where = and(
+      eq(schema.deckVersions.deckId, deckId),
+      eq(schema.deckVersions.ownerEmail, ownerEmail),
+    );
+    const versions = await db
+      .select({
+        id: schema.deckVersions.id,
+        deckId: schema.deckVersions.deckId,
+        title: schema.deckVersions.title,
+        data: schema.deckVersions.data,
+        changeLabel: schema.deckVersions.changeLabel,
+        chatContext: schema.deckVersions.chatContext,
+        createdAt: schema.deckVersions.createdAt,
+      })
+      .from(schema.deckVersions)
+      .where(where)
+      .orderBy(desc(schema.deckVersions.createdAt))
+      .limit(limit);
+    const beginningVersions = await db
+      .select({
+        id: schema.deckVersions.id,
+        deckId: schema.deckVersions.deckId,
+        title: schema.deckVersions.title,
+        data: schema.deckVersions.data,
+        changeLabel: schema.deckVersions.changeLabel,
+        chatContext: schema.deckVersions.chatContext,
+        createdAt: schema.deckVersions.createdAt,
+      })
+      .from(schema.deckVersions)
+      .where(
+        threadId
+          ? and(
+              where,
+              eq(schema.deckVersions.changeGroup, `start:thread:${threadId}`),
+            )
+          : and(
+              where,
+              like(schema.deckVersions.chatContext, '%"phase":"start"%'),
+            ),
+      )
+      .orderBy(
+        threadId
+          ? asc(schema.deckVersions.createdAt)
+          : desc(schema.deckVersions.createdAt),
+      )
+      .limit(threadId ? 1 : limit);
+    const versionsById = new Map(
+      [...beginningVersions, ...versions].map((version) => [
+        version.id,
+        version,
+      ]),
+    );
+    const allVersions = [...versionsById.values()];
+    for (const version of allVersions) {
+      assertSlides2DeckData(version.data);
+    }
+    allVersions.sort(
+      (left, right) =>
+        new Date(right.createdAt).getTime() -
+        new Date(left.createdAt).getTime(),
+    );
+    const limitedVersions = allVersions.slice(0, limit);
+    const activeStart = threadId
+      ? allVersions.find((version) => beginningVersions.includes(version))
+      : undefined;
+    if (activeStart && !limitedVersions.includes(activeStart)) {
+      limitedVersions[limitedVersions.length - 1] = activeStart;
+      limitedVersions.sort(
+        (left, right) =>
+          new Date(right.createdAt).getTime() -
+          new Date(left.createdAt).getTime(),
+      );
+    }
+
+    return {
+      deckId,
+      count: limitedVersions.length,
+      versions: limitedVersions.map((version) => {
+        let chatContext;
+        try {
+          chatContext = parseDeckVersionChatContext(version.chatContext);
+        } catch {
+          chatContext = undefined;
+        }
+        return {
+          id: version.id,
+          deckId: version.deckId,
+          title: version.title,
+          label: version.changeLabel,
+          createdAt: version.createdAt,
+          editable: Boolean(chatContext),
+          ...(chatContext ? { chatContext } : {}),
+          ...summarizeVersionData(version.data),
+        };
+      }),
+    };
+  },
+});

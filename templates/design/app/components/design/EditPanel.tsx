@@ -17,6 +17,7 @@ import type {
   MotionAnimationStyleMetadata,
   MotionAnimationStyleTrackDefinition,
 } from "@shared/motion-animation-styles";
+import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type {
@@ -25,7 +26,6 @@ import type {
 } from "@shared/motion-native-style";
 import type { MotionTextAnimation } from "@shared/motion-text-code";
 import type { MotionPropertyPreset } from "@shared/motion-timeline";
-import { removeShaderFill } from "@shared/shader-fills";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -78,6 +78,7 @@ import {
 import type { UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
 import { runInIdleSlices } from "@/pages/design-editor/idle-slices";
+import { selectionHasOutermostFrame } from "@/pages/design-editor/motion-add-menu";
 import type { MotionAnimationStyle } from "@/pages/design-editor/motion-animation-style";
 import type { EditorMode } from "@/pages/design-editor/types";
 
@@ -206,6 +207,7 @@ import type { TextContrastContext } from "./edit-panel/text-contrast";
 import {
   mergeRotationValue,
   normalizeRotationDegrees,
+  sharedRotationValue,
 } from "./edit-panel/transform-helpers";
 import {
   displayFontFamilyName,
@@ -231,14 +233,10 @@ import {
 } from "./inspector/color-picker-fill-field";
 import { IconText } from "./inspector/design-icons";
 import { readFillField, showsOpacity } from "./inspector/fill-field-reading";
-import {
-  usePersistShaderEdit,
-  type GlslShaderPanelContext,
-  type ShaderSourceEditResult,
-  type ShaderSourceTransform,
-} from "./inspector/GlslShaderPanel";
+import { useRemoveSavedGlslShader } from "./inspector/saved-glsl-shader";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { MotionAudioTracks } from "./MotionAudioTracks";
+import { MotionCodeView, type MotionCodeInput } from "./MotionCodeView";
 import { AddTrackMenu, getMotionDockPrimaryStyles } from "./MotionDock";
 import {
   MotionNativeStyleEditor,
@@ -255,6 +253,11 @@ import {
 } from "./multi-screen/screen-sizing";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
+import type {
+  ShaderEditorContext,
+  ShaderSourceEditResult,
+  ShaderSourceTransform,
+} from "./shader-source-coordination";
 import type { StatesPanelProps } from "./StatesPanel";
 import type { ElementInfo, TextEditingState } from "./types";
 
@@ -336,7 +339,7 @@ export function mergeOptimisticInteractionStateStyles(
   return { ...(persisted ?? {}), ...(pending ?? {}) };
 }
 
-const NO_SHADER_CONTEXT: GlslShaderPanelContext = {};
+const NO_SHADER_CONTEXT: ShaderEditorContext = {};
 
 /**
  * The Fill section with its shader removal wired. Removing a shader fill takes
@@ -347,18 +350,14 @@ const NO_SHADER_CONTEXT: GlslShaderPanelContext = {};
 function ShaderAwareFillProperties(
   props: ComponentProps<typeof FillProperties>,
 ) {
-  const { persist } = usePersistShaderEdit(
-    props.glslShaderContext ?? NO_SHADER_CONTEXT,
+  const { remove } = useRemoveSavedGlslShader(
+    props.shaderContext ?? NO_SHADER_CONTEXT,
   );
-  const nodeId = props.glslShaderContext?.nodeId;
+  const nodeId = props.shaderContext?.nodeId;
   return (
     <FillProperties
       {...props}
-      onRemoveShaderFill={
-        nodeId
-          ? () => void persist((html) => removeShaderFill(html, nodeId))
-          : undefined
-      }
+      onRemoveShaderFill={nodeId ? () => void remove("fill") : undefined}
     />
   );
 }
@@ -471,6 +470,7 @@ interface EditPanelProps {
     fileId: string,
     content: string,
     updatedAt?: string,
+    beforeContent?: string,
   ) => void;
   /**
    * Edits a file's HTML through the editor. A shader on a frame drawn on the
@@ -495,6 +495,7 @@ interface EditPanelProps {
   componentInstanceHasLocalOverrides?: boolean;
   onResetComponentInstanceOverrides?: (nodeId: string) => void;
   onRestoreComponent?: (nodeId: string) => void;
+  onGoToMainComponent?: () => void;
   componentSwapPickerRequest?: number;
   sourceCapabilities?: string[];
   onCreateComponent?: (name: string) => void;
@@ -504,11 +505,7 @@ interface EditPanelProps {
   aiActions?: ReactNode;
   activeTool?: string;
   scaleToolControls?: ScaleToolControls;
-  onCreateScreenFromPreset?: (preset: {
-    name: string;
-    width: number;
-    height: number;
-  }) => void;
+  onCreateScreenFromPreset?: (preset: FrameSizePreset) => void;
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   onAlignSelection?: (
@@ -517,7 +514,6 @@ interface EditPanelProps {
   alignSelectionDisabled?: boolean;
   onInteractionStateChange?: (state: ActiveInteractionState) => void;
   availableInteractionStates?: readonly InteractionState[];
-  onEditCode?: (shaderId: string) => void;
   motionKeyframeState?: {
     hasTimeline: boolean;
     keyframedProperties: readonly string[];
@@ -544,6 +540,7 @@ interface EditPanelProps {
   motionAnimationStyles?: MotionAnimationStyleDefinition[];
   motionAnimationStyleTargetTracks?: MotionAnimationStyleTrackDefinition[];
   onApplyMotionAnimationStyle?: (style: MotionAnimationStyleDefinition) => void;
+  onApplyMotionRecipe?: (recipe: MotionBuiltInRecipe) => void;
   onSaveMotionAnimationStyle?: (
     metadata: MotionAnimationStyleMetadata,
     tracks: MotionAnimationStyleTrackDefinition[],
@@ -558,6 +555,7 @@ interface EditPanelProps {
   onMotionAudioDurationChange?: (durationMs: number) => void;
   motionWriteUnavailable?: boolean;
   motionWriteUnavailableReason?: string;
+  motionCode?: MotionCodeInput;
   breakpointContext?: {
     breakpointWidths: readonly number[];
     baseWidthPx: number;
@@ -2107,6 +2105,7 @@ function GroupFillProperties({
       documentColorPalette={documentColors}
       hideAddFill={disabled}
       cancelOpacityGestureOnHistoryUndo={!disabled}
+      allowDesignHistoryHotkeys={!disabled}
       onAddFill={onAddFill}
       uploadScopeKey={uploadScopeKey}
     />
@@ -2242,6 +2241,7 @@ export const EditPanel = memo(function EditPanel({
   componentInstanceHasLocalOverrides = false,
   onResetComponentInstanceOverrides,
   onRestoreComponent,
+  onGoToMainComponent,
   componentSwapPickerRequest,
   sourceCapabilities = [],
   onCreateComponent,
@@ -2258,7 +2258,6 @@ export const EditPanel = memo(function EditPanel({
   onApplyLayoutFlow,
   onInteractionStateChange,
   availableInteractionStates,
-  onEditCode,
   motionKeyframeState,
   onToggleMotionKeyframe,
   motionSelectedTarget,
@@ -2274,6 +2273,7 @@ export const EditPanel = memo(function EditPanel({
   motionAnimationStyles = [],
   motionAnimationStyleTargetTracks = [],
   onApplyMotionAnimationStyle,
+  onApplyMotionRecipe,
   onSaveMotionAnimationStyle,
   onCreateMotionTextAnimation,
   motionTextAnimations,
@@ -2285,6 +2285,7 @@ export const EditPanel = memo(function EditPanel({
   onMotionAudioDurationChange,
   motionWriteUnavailable = false,
   motionWriteUnavailableReason,
+  motionCode,
   breakpointContext,
 }: EditPanelProps) {
   const recentFillColorRef = useRef<string | undefined>(undefined);
@@ -2307,6 +2308,27 @@ export const EditPanel = memo(function EditPanel({
     useState(false);
   const [animationStyleBrowserOpen, setAnimationStyleBrowserOpen] =
     useState(false);
+  const animationStyleBrowserTriggerRef = useRef<HTMLButtonElement | null>(
+    null,
+  );
+  const [animationStyleBrowserSideOffset, setAnimationStyleBrowserSideOffset] =
+    useState(0);
+  const handleAnimationStyleBrowserOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      const trigger = animationStyleBrowserTriggerRef.current;
+      const section = trigger?.closest<HTMLElement>(
+        "[data-design-inspector-section]",
+      );
+      if (trigger && section) {
+        setAnimationStyleBrowserSideOffset(
+          trigger.getBoundingClientRect().left -
+            section.getBoundingClientRect().left +
+            2,
+        );
+      }
+    }
+    setAnimationStyleBrowserOpen(open);
+  }, []);
 
   const effectiveSelectedElements = useMemo(
     () =>
@@ -2331,6 +2353,13 @@ export const EditPanel = memo(function EditPanel({
       breakpointContext?.upperBoundPx,
       effectiveSelectedElements,
     ],
+  );
+  const sharedSelectionRotation = useMemo(
+    () =>
+      effectiveSelectedElements.length > 1
+        ? sharedRotationValue(effectiveSelectedElements)
+        : undefined,
+    [effectiveSelectedElements],
   );
   const inspectorElement = useMemo(() => {
     const element =
@@ -2387,8 +2416,10 @@ export const EditPanel = memo(function EditPanel({
   // the active one: a frame drawn on the board lives in the board file.
   const shaderFileId =
     inspectorElement?.sourceLayerIdentity?.screenId ?? fileId;
-  const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
+  const shaderContext: ShaderEditorContext | undefined = useMemo(() => {
     if (!designId || !shaderFileId || selectedCount > 1) return undefined;
+    // A screen deleted while selected is gone; reading it would 404.
+    if (!files?.some((file) => file.id === shaderFileId)) return undefined;
     const nodeId = inspectorElement?.sourceId;
     if (!nodeId) return undefined;
     const base = {
@@ -2397,7 +2428,6 @@ export const EditPanel = memo(function EditPanel({
       nodeId,
       selector: inspectorElement?.selector,
       onApplied: onShaderSourceApplied,
-      onEditCode,
     };
     if (shaderFileId === boardFileId) {
       // The board is held by the editor and cannot be fetched or written
@@ -2429,7 +2459,6 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.selector,
     onShaderSourceApplied,
     onShaderSourceEdit,
-    onEditCode,
   ]);
   const textContrastContext: TextContrastContext | undefined = useMemo(() => {
     if (selectedCount > 1 || !inspectorElement) return undefined;
@@ -2452,27 +2481,26 @@ export const EditPanel = memo(function EditPanel({
     inspectorElement?.sourceLayerIdentity?.screenId,
     selectedCount,
   ]);
-  const screenGlslShaderContext: GlslShaderPanelContext | undefined =
-    useMemo(() => {
-      const screenFileId = selectedScreenGeometry?.id;
-      const nodeId = selectedScreenElement?.sourceId;
-      if (!designId || !screenFileId || !nodeId) return undefined;
-      return {
-        designId,
-        fileId: screenFileId,
-        nodeId,
-        selector: selectedScreenElement?.selector,
-        onApplied: onShaderSourceApplied,
-        onEditCode,
-      };
-    }, [
+  const screenShaderContext: ShaderEditorContext | undefined = useMemo(() => {
+    const screenFileId = selectedScreenGeometry?.id;
+    const nodeId = selectedScreenElement?.sourceId;
+    if (!designId || !screenFileId || !nodeId) return undefined;
+    if (!files?.some((file) => file.id === screenFileId)) return undefined;
+    return {
       designId,
-      selectedScreenGeometry?.id,
-      selectedScreenElement?.sourceId,
-      selectedScreenElement?.selector,
-      onShaderSourceApplied,
-      onEditCode,
-    ]);
+      fileId: screenFileId,
+      nodeId,
+      selector: selectedScreenElement?.selector,
+      onApplied: onShaderSourceApplied,
+    };
+  }, [
+    designId,
+    files,
+    selectedScreenGeometry?.id,
+    selectedScreenElement?.sourceId,
+    selectedScreenElement?.selector,
+    onShaderSourceApplied,
+  ]);
   const documentColorPalette = useDocumentColorPalette(files);
   const selectedScreenElements = useMemo(
     () => (selectedScreenElement ? [selectedScreenElement] : []),
@@ -2927,6 +2955,7 @@ export const EditPanel = memo(function EditPanel({
                         ? () => onRestoreComponent(componentNodeId)
                         : undefined
                     }
+                    onGoToMainComponent={onGoToMainComponent}
                     onComponentPropApplied={onComponentPropApplied}
                     sourceCapabilities={sourceCapabilities}
                   />
@@ -3020,7 +3049,7 @@ export const EditPanel = memo(function EditPanel({
                           onStyleChange={onSelectedScreenStyleChange}
                           onStylesChange={onSelectedScreenStylesChange}
                           documentColorPalette={documentColorPalette}
-                          glslShaderContext={screenGlslShaderContext}
+                          shaderContext={screenShaderContext}
                           readSubtreeColorStyles={readSubtreeColorStyles}
                         />
                         <StrokeProperties
@@ -3034,7 +3063,7 @@ export const EditPanel = memo(function EditPanel({
                           element={selectedScreenElement}
                           onStyleChange={onSelectedScreenStyleChange}
                           onStylesChange={onSelectedScreenStylesChange}
-                          glslShaderContext={screenGlslShaderContext}
+                          shaderContext={screenShaderContext}
                         />
                         <SelectionColorsProperties
                           elements={selectedScreenElements}
@@ -3106,17 +3135,20 @@ export const EditPanel = memo(function EditPanel({
                         title={t("designEditor.motion.animations")}
                         actions={
                           motionSelectedTarget ? (
-                            <div className="flex items-center gap-1">
+                            <div className="flex -translate-x-[11px] items-center gap-1">
                               <Popover
                                 open={animationStyleBrowserOpen}
-                                onOpenChange={setAnimationStyleBrowserOpen}
+                                onOpenChange={
+                                  handleAnimationStyleBrowserOpenChange
+                                }
                               >
                                 <PopoverTrigger asChild>
                                   <Button
                                     type="button"
+                                    ref={animationStyleBrowserTriggerRef}
                                     size="sm"
                                     variant="ghost"
-                                    className="h-6 px-2 text-[11px]"
+                                    className="h-6 w-6 px-0 text-[11px]"
                                     aria-label={t(
                                       "designEditor.motion.animationStyles.title",
                                     )}
@@ -3130,11 +3162,12 @@ export const EditPanel = memo(function EditPanel({
                                   </Button>
                                 </PopoverTrigger>
                                 <PopoverContent
-                                  align="end"
+                                  align="start"
                                   side="left"
-                                  className="w-[244px] p-0"
+                                  sideOffset={animationStyleBrowserSideOffset}
+                                  className="h-[min(485px,calc(100dvh-4rem))] w-[240px] overflow-hidden p-0"
                                 >
-                                  <div className="h-[min(480px,calc(100dvh-4rem))]">
+                                  <div className="h-full min-h-0 overflow-hidden">
                                     <AnimationStyleBrowser
                                       styles={motionAnimationStyles}
                                       basicStyles={getMotionDockPrimaryStyles(
@@ -3147,6 +3180,9 @@ export const EditPanel = memo(function EditPanel({
                                       onApply={(style) => {
                                         onApplyMotionAnimationStyle?.(style);
                                       }}
+                                      onApplyRecipe={(recipe) =>
+                                        onApplyMotionRecipe?.(recipe)
+                                      }
                                       onApplyPreset={(style) =>
                                         onCreateMotionStyle?.(style)
                                       }
@@ -3177,7 +3213,13 @@ export const EditPanel = memo(function EditPanel({
                                       t(
                                         "designEditor.motion.sourceWriteUnavailable",
                                       ))
-                                    : undefined
+                                    : selectionHasOutermostFrame(
+                                          effectiveSelectedElements,
+                                        )
+                                      ? t(
+                                          "designEditor.motion.addMenu.outermostFrame",
+                                        )
+                                      : undefined
                                 }
                                 onCreateTrack={
                                   onCreateMotionTrack ?? (() => undefined)
@@ -3196,21 +3238,36 @@ export const EditPanel = memo(function EditPanel({
                           </p>
                         ) : null}
                         {motionSelectedTarget ? (
-                          <MotionNativeStyleEditor
-                            styles={motionNativeStyles}
-                            targetNodeId={motionSelectedTarget.nodeId}
-                            disabled={motionWriteUnavailable}
-                            easingVariables={motionEasingVariables}
-                            onEasingVariablesChange={
-                              onMotionEasingVariablesChange
-                            }
-                            onChange={(instance, identity) =>
-                              onMotionNativeStyleChange?.(instance, identity)
-                            }
-                            onRemove={(identity) =>
-                              onRemoveMotionNativeStyle?.(identity)
-                            }
+                          <MotionCodeView
+                            input={motionCode}
+                            hasList={motionNativeStyles.some(
+                              (style) =>
+                                style.targetNodeId ===
+                                motionSelectedTarget.nodeId,
+                            )}
                             t={t}
+                            list={
+                              <MotionNativeStyleEditor
+                                styles={motionNativeStyles}
+                                targetNodeId={motionSelectedTarget.nodeId}
+                                isText={motionSelectedTarget.isText}
+                                disabled={motionWriteUnavailable}
+                                easingVariables={motionEasingVariables}
+                                onEasingVariablesChange={
+                                  onMotionEasingVariablesChange
+                                }
+                                onChange={(instance, identity) =>
+                                  onMotionNativeStyleChange?.(
+                                    instance,
+                                    identity,
+                                  )
+                                }
+                                onRemove={(identity) =>
+                                  onRemoveMotionNativeStyle?.(identity)
+                                }
+                                t={t}
+                              />
+                            }
                           />
                         ) : null}
                       </PanelSection>
@@ -3232,6 +3289,7 @@ export const EditPanel = memo(function EditPanel({
                       element={
                         stateResolvedInspectorElement ?? inspectorElement
                       }
+                      sharedRotation={sharedSelectionRotation}
                       onStyleChange={onStyleChange}
                       onStylesChange={onStylesChange}
                       onAlignSelection={onAlignSelection}
@@ -3353,7 +3411,7 @@ export const EditPanel = memo(function EditPanel({
                         onStylesChange={onStylesChange}
                         capturedStyleTargets={capturedStyleTargets}
                         documentColorPalette={documentColorPalette}
-                        glslShaderContext={glslShaderContext}
+                        shaderContext={shaderContext}
                         contrastContext={textContrastContext}
                         motionKeyframeContext={motionKeyframeFieldContext}
                         breakpointOverrideContext={
@@ -3380,7 +3438,7 @@ export const EditPanel = memo(function EditPanel({
                       }
                       onStyleChange={onStyleChange}
                       onStylesChange={onStylesChange}
-                      glslShaderContext={glslShaderContext}
+                      shaderContext={shaderContext}
                       motionKeyframeContext={motionKeyframeFieldContext}
                     />
                     {/* The breakpoint control also sits in the Screen section; an

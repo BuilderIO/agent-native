@@ -384,6 +384,70 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(generation!.properties).not.toHaveProperty("terminal_state");
   });
 
+  it.each([
+    { turnId: "turn-ai-1", expected: "turn-ai-1" },
+    { turnId: undefined, expected: undefined },
+  ])(
+    "carries the run's turn id on the AI trace and generation events only when known (turnId: $turnId)",
+    async ({ turnId, expected }) => {
+      const events: TrackingEvent[] = [];
+      registerTrackingProvider({
+        name: "qa-ai-generation",
+        track(event) {
+          if (event.name === "$ai_trace" || event.name === "$ai_generation") {
+            events.push(event);
+          }
+        },
+      });
+
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({ type: "text", text: "answer" });
+          send({ type: "done" });
+          return {
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "claude-test",
+            usageReported: true,
+          };
+        },
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-turn-ai-1",
+        threadId: "thread-turn-ai-1",
+        turnId,
+        userId: null,
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      const traces = events.filter((event) => event.name === "$ai_trace");
+      const generations = events.filter(
+        (event) => event.name === "$ai_generation",
+      );
+      expect(traces).toHaveLength(1);
+      expect(generations).toHaveLength(1);
+      for (const event of [...traces, ...generations]) {
+        expect(event.properties.turn_id).toBe(expected);
+        expect(event.properties.$ai_trace_id).toBe("run-turn-ai-1");
+        if (expected === undefined) {
+          expect(event.properties).not.toHaveProperty("turn_id");
+        }
+      }
+    },
+  );
+
   it("carries the caller's span name and run metadata into LLM analytics", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({

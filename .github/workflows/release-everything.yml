@@ -53,6 +53,7 @@ jobs:
             const releaseType = process.env.RELEASE_TYPE;
             const startedAt = Date.now();
             const coordinatorDeadline = startedAt + 350 * 60_000;
+            const postMergeReserveMs = 60 * 60_000;
             const pollIntervalMs = 15_000;
             const reservedTags = new Map();
             let downstreamNotificationFailureUrl;
@@ -60,6 +61,87 @@ jobs:
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             const phaseDeadline = (timeoutMs) =>
               Math.min(coordinatorDeadline, Date.now() + timeoutMs);
+            let dispatchSequence = 0;
+            const dispatchReconciliationPolls = 5;
+
+            function isTransientDispatchFailure(error) {
+              const status = error?.status ?? error?.response?.status;
+              return !Number.isInteger(status) || (status >= 500 && status <= 599);
+            }
+
+            async function findDispatchedRun(workflow, ref, coordinatorRunId) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflow,
+                per_page: 100,
+              });
+              const runs = response.data?.workflow_runs;
+              if (!Array.isArray(runs)) {
+                throw new Error(`GitHub returned no workflow runs while reconciling ${workflow}.`);
+              }
+              return runs.find(
+                (run) =>
+                  run.event === "workflow_dispatch" &&
+                  run.head_branch === ref &&
+                  run.display_title?.includes(`[release:${coordinatorRunId}]`),
+              );
+            }
+
+            async function waitForDispatchedRun(workflow, ref, coordinatorRunId) {
+              const lookupErrors = [];
+              for (let poll = 0; poll < dispatchReconciliationPolls; poll += 1) {
+                try {
+                  const run = await findDispatchedRun(workflow, ref, coordinatorRunId);
+                  if (run) {
+                    if (!Number.isInteger(run.id) || typeof run.html_url !== "string") {
+                      throw new Error(`GitHub returned an incomplete workflow run for ${workflow}.`);
+                    }
+                    return {
+                      run: { id: run.id, url: run.html_url },
+                      lookupErrors,
+                    };
+                  }
+                } catch (error) {
+                  lookupErrors.push(error);
+                }
+                if (poll + 1 < dispatchReconciliationPolls) {
+                  await sleep(pollIntervalMs);
+                }
+              }
+              return { run: null, lookupErrors };
+            }
+
+            async function recoverAmbiguousDispatch(
+              workflow,
+              ref,
+              coordinatorRunId,
+              dispatchError,
+            ) {
+              const reconciliation = await waitForDispatchedRun(
+                workflow,
+                ref,
+                coordinatorRunId,
+              );
+              if (reconciliation.run) {
+                if (dispatchError) {
+                  core.warning(
+                    `Recovered ${workflow} after an ambiguous GitHub dispatch response: ${reconciliation.run.url}`,
+                  );
+                }
+                return reconciliation.run;
+              }
+
+              const lookupSummary = reconciliation.lookupErrors.length
+                ? `Run reconciliation failed ${reconciliation.lookupErrors.length}/${dispatchReconciliationPolls} times; last error: ${reconciliation.lookupErrors.at(-1)?.message ?? String(reconciliation.lookupErrors.at(-1))}.`
+                : `No matching run appeared after ${dispatchReconciliationPolls} lookups, which does not prove the dispatch was rejected.`;
+              const dispatchSummary = dispatchError
+                ? `${dispatchError.message ?? String(dispatchError)} (HTTP ${dispatchError.status ?? dispatchError.response?.status ?? "unknown"})`
+                : "GitHub returned a successful response without a workflow run ID";
+              throw new Error(
+                `Could not confirm ${workflow} dispatch (${dispatchSummary}). ${lookupSummary} Check the Actions history for [release:${coordinatorRunId}] before rerunning this release.`,
+              );
+            }
 
             async function readJsonAt(ref, path) {
               const response = await github.rest.repos.getContent({
@@ -76,25 +158,45 @@ jobs:
             }
 
             async function dispatch(workflow, ref, inputs) {
-              const response = await github.request(
-                "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
-                {
-                  owner,
-                  repo,
-                  workflow_id: workflow,
-                  ref,
-                  inputs,
-                  return_run_details: true,
-                  headers: {
-                    accept: "application/vnd.github+json",
-                    "X-GitHub-Api-Version": apiVersion,
+              const coordinatorRunId = `${context.runId}-${context.runAttempt}-${++dispatchSequence}`;
+              const dispatchInputs = {
+                ...inputs,
+                coordinator_run_id: coordinatorRunId,
+              };
+              let response;
+              try {
+                response = await github.request(
+                  "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+                  {
+                    owner,
+                    repo,
+                    workflow_id: workflow,
+                    ref,
+                    inputs: dispatchInputs,
+                    return_run_details: true,
+                    headers: {
+                      accept: "application/vnd.github+json",
+                      "X-GitHub-Api-Version": apiVersion,
+                    },
                   },
-                },
-              );
+                );
+              } catch (error) {
+                if (!isTransientDispatchFailure(error)) throw error;
+                return recoverAmbiguousDispatch(
+                  workflow,
+                  ref,
+                  coordinatorRunId,
+                  error,
+                );
+              }
+
               const runId = response.data?.workflow_run_id;
               if (!Number.isInteger(runId)) {
-                throw new Error(
-                  `GitHub did not return a workflow run id for ${workflow} (HTTP ${response.status}).`,
+                return recoverAmbiguousDispatch(
+                  workflow,
+                  ref,
+                  coordinatorRunId,
+                  undefined,
                 );
               }
               const url = `https://github.com/${owner}/${repo}/actions/runs/${runId}`;
@@ -108,6 +210,16 @@ jobs:
                 repo,
                 run_id: runId,
               })).data;
+            }
+
+            async function dispatchAndWait(workflow, ref, inputs, label, timeoutMs) {
+              const run = await dispatch(workflow, ref, inputs);
+              try {
+                await waitForRun(run, label, timeoutMs);
+                return { run, error: null };
+              } catch (error) {
+                return { run, error };
+              }
             }
 
             async function listAutoPublishRuns() {
@@ -630,7 +742,15 @@ jobs:
             }
 
             async function waitForReleaseMerge(pr) {
-              const deadline = phaseDeadline(45 * 60_000);
+              const deadline = Math.min(
+                phaseDeadline(210 * 60_000),
+                coordinatorDeadline - postMergeReserveMs,
+              );
+              if (deadline <= Date.now()) {
+                throw new Error(
+                  `Not enough coordinator time remains to wait for stable release PR #${pr.number} while preserving the post-merge release window.`,
+                );
+              }
               while (Date.now() < deadline) {
                 const current = (await github.rest.pulls.get({
                   owner,
@@ -708,6 +828,210 @@ jobs:
                 await sleep(Math.min(pollIntervalMs, remaining));
               }
               throw new Error(`Stable npm publication was not started for ${mergeSha}.`);
+            }
+
+            const docsDeploymentPaths = [
+              ".nvmrc",
+              "package.json",
+              "pnpm-lock.yaml",
+              "pnpm-workspace.yaml",
+              "packages/agentkit/**",
+              "packages/core/**",
+              "packages/core-corpus/**",
+              "packages/docs/**",
+              "packages/recap-cli/**",
+              "packages/toolkit/**",
+              "scripts/netlify-prebuilt-target.ts",
+              "scripts/netlify-prebuilt-build.ts",
+              "scripts/netlify-migration-url.ts",
+              "scripts/netlify-api-error.ts",
+              "scripts/netlify-api-request.ts",
+              "scripts/netlify-production-sites.json",
+              "scripts/check-function-size-baseline.mjs",
+              "scripts/ssr-boot-smoke.mjs",
+              "scripts/check-production-cache-contract.mjs",
+              ".github/actions/docs-source-freshness/action.yml",
+              ".github/workflows/deploy-docs-production.yml",
+              ".github/workflows/deploy-netlify-prebuilt.yml",
+            ];
+            const docsSourceFreshnessCache = new Map();
+
+            function matchesDocsDeploymentPath(path) {
+              if (typeof path !== "string") return false;
+              return docsDeploymentPaths.some((pattern) => {
+                if (!pattern.endsWith("/**")) return path === pattern;
+                const directory = pattern.slice(0, -3);
+                return path === directory || path.startsWith(`${directory}/`);
+              });
+            }
+
+            async function docsSourceHasCurrentInputs(sourceSha, mainSha) {
+              if (!/^[0-9a-f]{40}$/.test(sourceSha || "")) return false;
+              if (sourceSha === mainSha) return true;
+              const cacheKey = `${sourceSha}:${mainSha}`;
+              if (docsSourceFreshnessCache.has(cacheKey)) {
+                return docsSourceFreshnessCache.get(cacheKey);
+              }
+
+              const firstPage = (await github.rest.repos.compareCommits({
+                owner,
+                repo,
+                base: sourceSha,
+                head: mainSha,
+                per_page: 100,
+                page: 1,
+              })).data;
+              const totalCommits = firstPage.total_commits;
+              const files = firstPage.files;
+              if (
+                !["ahead", "identical"].includes(firstPage.status) ||
+                !Number.isInteger(totalCommits) ||
+                totalCommits < 0 ||
+                !Array.isArray(firstPage.commits) ||
+                !Array.isArray(files) ||
+                !files.every(
+                  (file) =>
+                    typeof file?.filename === "string" &&
+                    (file.previous_filename === undefined ||
+                      typeof file.previous_filename === "string"),
+                ) ||
+                files.length >= 300
+              ) {
+                return false;
+              }
+
+              const pageSize = 100;
+              const pageCount = Math.max(1, Math.ceil(totalCommits / pageSize));
+              const commitShas = new Set();
+              let commitCount = 0;
+              for (let page = 1; page <= pageCount; page += 1) {
+                const data = page === 1
+                  ? firstPage
+                  : (await github.rest.repos.compareCommits({
+                      owner,
+                      repo,
+                      base: sourceSha,
+                      head: mainSha,
+                      per_page: pageSize,
+                      page,
+                    })).data;
+                const expectedPageCommits = Math.min(
+                  pageSize,
+                  totalCommits - commitCount,
+                );
+                if (
+                  data.status !== firstPage.status ||
+                  data.total_commits !== totalCommits ||
+                  !Array.isArray(data.commits) ||
+                  data.commits.length !== expectedPageCommits
+                ) {
+                  return false;
+                }
+                for (const commit of data.commits) {
+                  if (typeof commit.sha !== "string" || commitShas.has(commit.sha)) {
+                    return false;
+                  }
+                  commitShas.add(commit.sha);
+                  commitCount += 1;
+                }
+              }
+              if (commitCount !== totalCommits) return false;
+
+              const isCurrent = !files.some((file) =>
+                [file.filename, file.previous_filename].some(matchesDocsDeploymentPath),
+              );
+              docsSourceFreshnessCache.set(cacheKey, isCurrent);
+              return isCurrent;
+            }
+
+            async function findSuccessfulDocsPushDeployment() {
+              const deadline = phaseDeadline(60 * 60_000);
+              const docsComparisonWarnings = new Set();
+              while (Date.now() < deadline) {
+                const mainSha = (await github.rest.git.getRef({
+                  owner,
+                  repo,
+                  ref: "heads/main",
+                })).data.object.sha.toLowerCase();
+                const response = await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: "deploy-docs-production.yml",
+                  branch: "main",
+                  event: "push",
+                  per_page: 100,
+                });
+                const runs = response.data?.workflow_runs;
+                if (!Array.isArray(runs)) {
+                  throw new Error("GitHub returned no docs push runs while reconciling the release.");
+                }
+
+                for (const run of runs) {
+                  if (
+                    run.event !== "push" ||
+                    run.head_branch !== "main" ||
+                    !Number.isInteger(run.id) ||
+                    typeof run.head_sha !== "string" ||
+                    typeof run.html_url !== "string" ||
+                    run.status !== "completed" ||
+                    run.conclusion !== "success"
+                  ) {
+                    continue;
+                  }
+                  const sourceSha = run.head_sha.toLowerCase();
+                  let hasCurrentInputs;
+                  try {
+                    hasCurrentInputs = await docsSourceHasCurrentInputs(sourceSha, mainSha);
+                  } catch (error) {
+                    const warningKey = `${run.id}:${sourceSha}:${mainSha}`;
+                    if (!docsComparisonWarnings.has(warningKey)) {
+                      docsComparisonWarnings.add(warningKey);
+                      core.warning(
+                        `Could not verify docs source freshness for run ${run.id} (${sourceSha}) against current main ${mainSha}; continuing through the remaining docs push runs: ${error instanceof Error ? error.message : String(error)}`,
+                      );
+                    }
+                    continue;
+                  }
+                  if (!hasCurrentInputs) {
+                    continue;
+                  }
+
+                  const jobsResponse = await github.rest.actions.listJobsForWorkflowRun({
+                    owner,
+                    repo,
+                    run_id: run.id,
+                    filter: "latest",
+                    per_page: 100,
+                  });
+                  const jobs = jobsResponse.data?.jobs;
+                  if (
+                    !Array.isArray(jobs) ||
+                    (Number.isInteger(jobsResponse.data?.total_count) &&
+                      jobsResponse.data.total_count > jobs.length)
+                  ) {
+                    continue;
+                  }
+                  const deploy = jobs.find(
+                    (job) =>
+                      job.name === "docs production prebuilt deploy / production fw prebuilt deploy",
+                  );
+                  if (deploy?.conclusion !== "success") continue;
+
+                  const currentMainSha = (await github.rest.git.getRef({
+                    owner,
+                    repo,
+                    ref: "heads/main",
+                  })).data.object.sha.toLowerCase();
+                  if (currentMainSha === mainSha) {
+                    return { id: run.id, url: run.html_url };
+                  }
+                }
+
+                const remaining = deadline - Date.now();
+                if (remaining <= 0) break;
+                await sleep(Math.min(pollIntervalMs, remaining));
+              }
+              return null;
             }
 
             const previousReleaseNumbers = new Set(
@@ -839,47 +1163,130 @@ jobs:
             }
 
             // Downstream workflows own these reserved tags after dispatch.
-            const [desktop, clips, production, docs] = await Promise.all([
-              publicationError
-                ? null
-                : dispatch("desktop-release.yml", workflowRef, {
-                    channel: "production",
-                    version: desktopVersion,
+            // Each child waits independently so one ambiguous dispatch cannot
+            // abandon siblings that GitHub already accepted.
+            let reconciledDocsRun = null;
+            async function reconcileDocsDeploymentFailure() {
+              try {
+                reconciledDocsRun = await findSuccessfulDocsPushDeployment();
+                if (reconciledDocsRun) {
+                  core.warning(
+                    `The docs workflow_dispatch failed, but a successful main push deployment verified the current docs inputs: ${reconciledDocsRun.url}`,
+                  );
+                }
+              } catch (error) {
+                core.warning(
+                  `Could not reconcile the docs workflow_dispatch failure against a main push deployment: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+              return reconciledDocsRun;
+            }
+
+            async function dispatchDocsAndReconcile() {
+              let docsResult;
+              try {
+                docsResult = await dispatchAndWait(
+                  "deploy-docs-production.yml",
+                  siteWorkflowRef,
+                  {
                     source_ref: releaseSha,
-                  }),
-              publicationError
-                ? null
-                : dispatch("clips-desktop-release.yml", workflowRef, {
-                    channel: "production",
-                    version: clipsVersion,
-                    source_ref: releaseSha,
-                  }),
-              dispatch("deploy-production-sites-prebuilt.yml", siteWorkflowRef, {
-                sites: productionSites.join(","),
-                source_ref: releaseSha,
-                beta_e2e: "false",
-                smoke: "true",
-              }),
-              dispatch("deploy-docs-production.yml", siteWorkflowRef, {
-                source_ref: releaseSha,
-                smoke: "true",
-              }),
-            ]);
+                    smoke: "true",
+                  },
+                  "Agent-Native docs production site",
+                  120 * 60_000,
+                );
+              } catch (error) {
+                if (await reconcileDocsDeploymentFailure()) {
+                  return { run: reconciledDocsRun, error: null };
+                }
+                throw error;
+              }
+
+              if (!docsResult.error) return docsResult;
+              if (await reconcileDocsDeploymentFailure()) {
+                return { ...docsResult, run: reconciledDocsRun, error: null };
+              }
+              return docsResult;
+            }
 
             const downstream = await Promise.allSettled([
-              desktop && waitForRun(desktop, "Agent-Native desktop stable release", 120 * 60_000),
-              clips && waitForRun(clips, "Clips desktop stable release", 120 * 60_000),
-              waitForRun(production, "Production site fleet", 120 * 60_000),
-              waitForRun(docs, "Agent-Native docs production site", 120 * 60_000),
+              publicationError
+                ? Promise.resolve(null)
+                : dispatchAndWait(
+                    "desktop-release.yml",
+                    workflowRef,
+                    {
+                      channel: "production",
+                      version: desktopVersion,
+                      source_ref: releaseSha,
+                    },
+                    "Agent-Native desktop stable release",
+                    120 * 60_000,
+                  ),
+              publicationError
+                ? Promise.resolve(null)
+                : dispatchAndWait(
+                    "clips-desktop-release.yml",
+                    workflowRef,
+                    {
+                      channel: "production",
+                      version: clipsVersion,
+                      source_ref: releaseSha,
+                    },
+                    "Clips desktop stable release",
+                    120 * 60_000,
+                  ),
+              dispatchAndWait(
+                "deploy-production-sites-prebuilt.yml",
+                siteWorkflowRef,
+                {
+                  sites: productionSites.join(","),
+                  source_ref: releaseSha,
+                  beta_e2e: "false",
+                  smoke: "true",
+                },
+                "Production site fleet",
+                120 * 60_000,
+              ),
+              dispatchDocsAndReconcile(),
             ]);
             const failures = publicationError ? [publicationError.message] : [];
-            const outcomes = downstream.map((result, index) => {
-              if (![desktop, clips, production, docs][index]) {
-                return "skipped: stable npm publication failed";
+            const targetLabels = [
+              "Agent-Native desktop stable release",
+              "Clips desktop stable release",
+              "Production site fleet",
+              "Agent-Native docs production site",
+            ];
+            const childResults = downstream.map((result, index) => {
+              if (index === 3 && reconciledDocsRun) {
+                return { run: reconciledDocsRun, error: null, dispatchFailed: false, skipped: false };
               }
-              if (result.status === "fulfilled") return "released";
-              failures.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
-              return "failed";
+              if (result.status === "rejected") {
+                const error = result.reason instanceof Error
+                  ? result.reason.message
+                  : String(result.reason);
+                failures.push(`${targetLabels[index]} dispatch failed: ${error}`);
+                return { run: null, error, dispatchFailed: true, skipped: false };
+              }
+              if (result.value === null) {
+                return { run: null, error: null, dispatchFailed: false, skipped: true };
+              }
+              if (result.value.error) {
+                const error = result.value.error instanceof Error
+                  ? result.value.error.message
+                  : String(result.value.error);
+                failures.push(`${targetLabels[index]} failed: ${error}`);
+                return { run: result.value.run, error, dispatchFailed: false, skipped: false };
+              }
+              return { run: result.value.run, error: null, dispatchFailed: false, skipped: false };
+            });
+            const [desktop, clips, production, docs] = childResults.map(
+              (result) => result.run,
+            );
+            const outcomes = childResults.map((result) => {
+              if (result.skipped) return "skipped: stable npm publication failed";
+              if (result.dispatchFailed) return "failed: dispatch";
+              return result.error ? "failed" : "released";
             });
             if (downstreamNotificationFailureUrl) {
               failures.push(

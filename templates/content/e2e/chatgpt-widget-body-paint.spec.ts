@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 import { getMcpDirectoryWidgetResourceUri } from "@agent-native/core/mcp";
 import {
@@ -20,7 +19,8 @@ import {
   EMBED_SESSION_COOKIE,
 } from "../../../packages/core/src/shared/embed-auth";
 import { CHATGPT_DIRECTORY_PROFILE } from "../server/lib/chatgpt-directory-tools.js";
-import { postAction } from "./helpers";
+import { AUTH_FILES } from "./auth-files";
+import { postAction, presentUiCapability } from "./helpers";
 
 async function removeDocument(page: Page, id: string) {
   await postAction(page, "delete-document", { id });
@@ -32,6 +32,7 @@ async function removeDocument(page: Page, id: string) {
     documentIds: [id],
   });
   if (!plan.planId || !plan.scopeToken) return;
+  await presentUiCapability(page);
   await postAction(page, "permanently-delete-document", {
     id,
     planId: plan.planId,
@@ -135,10 +136,7 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
   if (!scope) {
     throw new Error("Could not create a scoped Content widget capability");
   }
-  const reviewerEmail = readFileSync(
-    fileURLToPath(new URL("../.auth/email.txt", import.meta.url)),
-    "utf8",
-  ).trim();
+  const reviewerEmail = readFileSync(AUTH_FILES.email, "utf8").trim();
   const ticket = await createEmbedSessionTicket({
     ownerEmail: reviewerEmail,
     targetPath: `/page/${encodeURIComponent(documentId)}`,
@@ -246,7 +244,7 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
         contentEditor.locator('[data-block-fields-state="solo"]'),
       ).toBeVisible({ timeout: 5_000 });
       await expect(
-        contentEditor.locator(".notion-editor.ProseMirror"),
+        contentEditor.locator(".content-editor.ProseMirror"),
       ).toContainText(marker, { timeout: 10_000 });
     } catch (error) {
       await captureWidgetFailure(
@@ -270,6 +268,9 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
         const storageWindow = frameWindow as Window & {
           __e2eBlockedStorageReads: string[];
         };
+        const blockedBeforeExplicitIndexedDbProbe = [
+          ...new Set(storageWindow.__e2eBlockedStorageReads),
+        ].sort();
         const memoryShimNames = ["localStorage", "sessionStorage"].filter(
           (name) => {
             const storage = Reflect.get(frameWindow, name) as
@@ -288,13 +289,13 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
               : "Error";
         }
         return {
-          blockedAtBoot: storageWindow.__e2eBlockedStorageReads,
+          blockedBeforeExplicitIndexedDbProbe,
           memoryShimNames,
           indexedDbError,
         };
       }),
     ).toEqual({
-      blockedAtBoot: ["localStorage", "sessionStorage", "indexedDB"],
+      blockedBeforeExplicitIndexedDbProbe: ["localStorage", "sessionStorage"],
       memoryShimNames: ["localStorage", "sessionStorage"],
       indexedDbError: "SecurityError",
     });

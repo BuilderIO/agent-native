@@ -141,6 +141,29 @@ describe("cleanup-transcript", () => {
     );
   });
 
+  it("sends BYOK requests to Gemini 3.5 Flash-Lite without sampling parameters", async () => {
+    mockResolveHasBuilderGatewayCredential.mockResolvedValue(false);
+
+    for (const task of ["cleanup", "title", "summary"] as const) {
+      await cleanupTranscript.run({ transcript: "raw transcript", task });
+    }
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    for (const [url, init] of vi.mocked(fetch).mock.calls) {
+      expect(url).toBe(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+      );
+      const body = JSON.parse(
+        typeof init?.body === "string" ? init.body : "",
+      ) as {
+        generationConfig: Record<string, unknown>;
+      };
+      for (const key of ["temperature", "topP", "topK", "top_p", "top_k"]) {
+        expect(body.generationConfig).not.toHaveProperty(key);
+      }
+    }
+  });
+
   it("scales cleanup output budgets with transcript length for both providers", async () => {
     const transcript = "x".repeat(28_445);
 

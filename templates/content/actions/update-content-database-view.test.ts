@@ -75,6 +75,52 @@ describe("update content database view", () => {
     });
   });
 
+  it("keeps each filter group's mode on saved views", () => {
+    const filters = [
+      {
+        key: "status",
+        label: "Status",
+        operator: "equals",
+        value: "done",
+        filterGroupId: "advanced",
+        filterGroupMode: "or",
+      },
+      {
+        key: "author",
+        label: "Author",
+        operator: "contains",
+        value: "Alice",
+        filterGroupId: "advanced-nested",
+        parentFilterGroupId: "advanced",
+        filterGroupMode: "and",
+        parentFilterGroupMode: "or",
+      },
+    ];
+    const parsed = action.schema.parse({
+      databaseId: "database",
+      viewConfig: {
+        views: [{ id: "table", name: "Table", type: "table", filters }],
+      },
+    });
+
+    expect(parsed.viewConfig.views[0]?.filters).toEqual(filters);
+    expect(() =>
+      action.schema.parse({
+        databaseId: "database",
+        viewConfig: {
+          views: [
+            {
+              id: "table",
+              name: "Table",
+              type: "table",
+              filters: [{ ...filters[0], filterGroupMode: "xor" }],
+            },
+          ],
+        },
+      }),
+    ).toThrow();
+  });
+
   it("preserves explicit null freeze and rejects malformed presentation values", () => {
     const parsed = action.schema.parse({
       databaseId: "database",
@@ -183,6 +229,53 @@ describe("update content database view", () => {
       type: "form",
       formQuestions: [{ key: "name", enabled: true, required: true }],
     });
+  });
+
+  it("saves a list view's row layout and clears it with null", () => {
+    const itemLayout = {
+      leading: { kind: "checkbox", propertyId: "done" },
+      titleWeight: "bold",
+      line2: { propertyId: "pitch", lines: 2 },
+      line3: ["due"],
+      trailing: ["owner"],
+    } as const;
+    const parsed = action.schema.parse({
+      databaseId: "database",
+      viewConfig: {
+        activeViewId: "list",
+        views: [
+          { id: "list", name: "Ideas", type: "list", itemLayout },
+          { id: "plain", name: "Plain", type: "list", itemLayout: null },
+        ],
+      },
+    });
+    if (!("viewConfig" in parsed) || !("databaseId" in parsed)) {
+      throw new Error("Expected the full view config shape");
+    }
+    expect(parsed.viewConfig.views?.[0].itemLayout).toEqual(itemLayout);
+
+    const saved = parseDatabaseViewConfig(JSON.stringify(parsed.viewConfig));
+    expect(saved.views[0].itemLayout).toEqual(itemLayout);
+    expect(saved.views[1]).toHaveProperty("itemLayout", null);
+
+    expect(() =>
+      action.schema.parse({
+        databaseId: "database",
+        viewConfig: {
+          views: [
+            {
+              id: "list",
+              name: "Ideas",
+              type: "list",
+              itemLayout: {
+                ...itemLayout,
+                line2: { propertyId: null, lines: 4 },
+              },
+            },
+          ],
+        },
+      }),
+    ).toThrow();
   });
 
   it("fails loudly when stored column presentation state is malformed", () => {

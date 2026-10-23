@@ -18,7 +18,12 @@ import {
   LIVE_BODY_FIELD,
   materializeLiveBody,
 } from "../../shared/live-body.js";
-import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
+import {
+  docToNfm,
+  nfmToDoc,
+  parseNfmWithLosses,
+  type NfmParseLoss,
+} from "../../shared/nfm.js";
 import {
   APPLY_SUGGESTION_EDIT,
   applySuggestionEdit,
@@ -71,37 +76,20 @@ function deriveBody(doc: Y.Doc, field: string): string | LiveCopyTaskRefusal {
   }
 }
 
-const WORD = /[\p{L}\p{N}]+/gu;
-
-/**
- * Whether the parse of `markdown` lost words of it, such as an unindented
- * callout child. Comparing two serializations of the parse cannot see that,
- * since both have already lost them. A structure the parse changes with
- * every word kept, such as a flattened list, still passes.
- */
-function parseDropsText(markdown: string): boolean {
-  const kept = new Map<string, number>();
-  for (const word of docToNfm(nfmToDoc(markdown)).match(WORD) ?? []) {
-    kept.set(word, (kept.get(word) ?? 0) + 1);
-  }
-  for (const word of markdown.match(WORD) ?? []) {
-    const count = kept.get(word) ?? 0;
-    if (count === 0) return true;
-    kept.set(word, count - 1);
-  }
-  return false;
+function parseLossRefusal(losses: NfmParseLoss[]): LiveCopyTaskRefusal {
+  const kinds = [...new Set(losses.map((loss) => loss.kind))].join(", ");
+  return refused("lossy", `the parser drops part of this body (${kinds})`);
 }
 
 /**
- * The tree a Markdown body becomes in the editor. A body the parse or the
- * schema cannot represent in full is refused: the live copy would keep the
- * rest and the page would lose that part on its next commit.
+ * The tree a Markdown body becomes in the editor. A body the parser or the
+ * schema cannot keep in full is refused: the live copy would keep the rest
+ * and the page would lose that part on its next commit.
  */
 function buildBody(markdown: string): PMNode | LiveCopyTaskRefusal {
-  if (parseDropsText(markdown)) {
-    return refused("lossy", "the Markdown parser drops part of this body");
-  }
-  const parsed = nfmToDoc(markdown);
+  // What the parser dropped is in neither serialization compared below.
+  const { doc: parsed, losses } = parseNfmWithLosses(markdown);
+  if (losses.length > 0) return parseLossRefusal(losses);
   let root: PMNode;
   try {
     root = schema().nodeFromJSON(parsed);
@@ -293,9 +281,8 @@ const liveCopyTasks = defineLiveCopyTasks({
       if (isRefusal(current)) return current;
       // The rebase keeps the candidate's blocks in their parsed form, which
       // has already lost whatever the parse drops.
-      if (parseDropsText(edit.candidate)) {
-        return refused("lossy", "the Markdown parser drops part of this body");
-      }
+      const { losses } = parseNfmWithLosses(edit.candidate);
+      if (losses.length > 0) return parseLossRefusal(losses);
       const content =
         current === edit.base
           ? edit.candidate
@@ -323,7 +310,7 @@ export const tasks = {
   async [CONTENT_HOLDS_BODY_TASK](input: unknown): Promise<HoldsBodyResult> {
     const { base, stored, candidate } = holdsBodyInput(input);
     // The comparison reads the candidate in its parsed form, and a parse can
-    // drop text, such as an unindented callout child. Only an editor's own
+    // drop text, such as text directly inside a table. Only an editor's own
     // serialization says what the save holds.
     if (!isCanonical(candidate)) return "noncanonical";
     return bodyHoldsChanges(base, stored, candidate) ? "held" : "unheld";

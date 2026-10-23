@@ -11,6 +11,7 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 const schemaInput = z.object({
   assetUrl: z
@@ -380,6 +381,7 @@ export default defineAction({
 
     return {
       designId: file.designId,
+      _receipt: designOutputWriteReceipt(file.designId, 1),
       fileId: file.id,
       filename: file.filename,
       inserted: true,

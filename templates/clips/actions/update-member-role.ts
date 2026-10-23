@@ -30,6 +30,8 @@ export default defineAction({
     email: z.string().email().describe("Member email"),
     role: ClipsRoleEnum.describe("New role"),
   }),
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args) => {
     const db = getDb();
     const { organizationId } = await requireOrganizationAccess(

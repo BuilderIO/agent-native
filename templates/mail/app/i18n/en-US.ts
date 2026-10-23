@@ -305,7 +305,11 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Contact enrichment & company data",
       hubspotDescription: "CRM contacts, deals & tickets",
-      gongDescription: "Recent calls & conversation intelligence",
+      gongDescription: "Gong call history",
+      gongAccessCheckFailed: "Couldn't check whether you can connect to Gong.",
+      gongKeyPlaceholder: "Gong API key",
+      gongKeyFormatHint:
+        "Enter the access key and secret as access_key:secret.",
       pylonDescription: "Support issues & account data",
       gongCalls: "Gong Calls",
       deals: "Deals",
@@ -426,6 +430,7 @@ const messages = {
       tryDifferentKeywords: "Try different keywords",
       nothingHere: "Nothing here yet",
       loadingMore: "Loading more...",
+      openAllMailForOlder: "Open All Mail for older messages",
     },
     toasts: {
       noEmailSelected: "No email selected.",
@@ -456,6 +461,8 @@ const messages = {
       failedToSendEmail: "Failed to send email",
       messageSent: "Message sent.",
       failedToSaveDraft: "Failed to save draft.",
+      failedToRefreshInbox:
+        "Couldn't refresh your inbox. Try again in a moment.",
       failedToDeleteDraft: "Failed to delete draft.",
       failedToScheduleEmailDraftKeptOpen:
         "Failed to schedule email - draft kept open",

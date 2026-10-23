@@ -235,6 +235,115 @@ describe("AgentInteractionItem replay privacy", () => {
 });
 
 describe("AgentKitChat interactions", () => {
+  it("applies transcript layout values through clamped shared styles", async () => {
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-transcript-layout" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-layout">
+            <AgentKitChat
+              transcriptLayout={{
+                topInset: 5,
+                messageLaneWidth: 730,
+                messageLaneOffsetInline: -33,
+                messageLaneOffsetMode: "responsive",
+                messageGap: 12,
+                messageLineHeight: 20,
+                fontFamily: "IBM Plex Sans",
+                userBubbleLineHeight: 18,
+                userBubbleMaxWidth: 600,
+                userBubbleOffsetInline: -10,
+                userBubblePadding: { block: 8, inline: 13 },
+              }}
+              composerProps={{
+                autoFocus: false,
+                modelStatusChecksEnabled: false,
+                voiceEnabled: false,
+              }}
+            />
+          </AgentKitProvider>,
+        );
+      });
+
+      const transcript = container.querySelector<HTMLElement>(
+        ".agentkit-transcript-content",
+      );
+      expect(transcript).not.toBeNull();
+      expect(transcript!.dataset.laneOffsetMode).toBe("responsive");
+      expect(
+        transcript!.style.getPropertyValue("--agentkit-transcript-top-inset"),
+      ).toBe("5px");
+      expect(
+        transcript!.style.getPropertyValue("--agentkit-transcript-lane-width"),
+      ).toBe("730px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-transcript-lane-offset-inline",
+        ),
+      ).toBe("-33px");
+      expect(
+        transcript!.style.getPropertyValue("--agentkit-transcript-message-gap"),
+      ).toBe("12px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-transcript-message-line-height",
+        ),
+      ).toBe("20px");
+      expect(
+        transcript!.style.getPropertyValue("--agentkit-transcript-font-family"),
+      ).toBe("IBM Plex Sans");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-user-bubble-line-height",
+        ),
+      ).toBe("18px");
+      expect(
+        transcript!.style.getPropertyValue("--agentkit-user-bubble-max-width"),
+      ).toBe("600px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-user-bubble-offset-inline",
+        ),
+      ).toBe("-10px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-user-bubble-padding-block",
+        ),
+      ).toBe("8px");
+      expect(
+        transcript!.style.getPropertyValue(
+          "--agentkit-user-bubble-padding-inline",
+        ),
+      ).toBe("13px");
+    } finally {
+      await act(async () => root.unmount());
+      await client.shutdown();
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it("preserves host submission disablement", async () => {
     const client = new AgentKitClient({
       transport: {
@@ -1150,6 +1259,23 @@ describe("AgentKitChat interactions", () => {
     };
     const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const nestedAttachment = vi.fn();
+    const receiveNestedAttachment = (event: Event) => {
+      nestedAttachment(
+        (event as CustomEvent<{ threadId: string; files: File[] }>).detail,
+      );
+    };
+    const dispatchFileDrop = async (target: HTMLElement, file: File) => {
+      const drop = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, "dataTransfer", {
+        value: { types: ["Files"], files: [file], dropEffect: "none" },
+      });
+      await act(async () => {
+        target.dispatchEvent(drop);
+        await Promise.resolve();
+      });
+      return drop;
+    };
 
     try {
       await act(async () => {
@@ -1218,6 +1344,70 @@ describe("AgentKitChat interactions", () => {
       expect(container.textContent).not.toContain("Drop files to attach");
       expect(container.textContent).toContain("drop.txt");
 
+      const nestedEditor = document.createElement("div");
+      nestedEditor.addEventListener("drop", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      chat?.appendChild(nestedEditor);
+
+      const nestedDragEnter = new Event("dragenter", {
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(nestedDragEnter, "dataTransfer", {
+        value: dataTransfer,
+      });
+      await act(async () => {
+        nestedEditor.dispatchEvent(nestedDragEnter);
+        await Promise.resolve();
+      });
+      expect(container.textContent).toContain("Drop files to attach");
+
+      const nestedFile = new File(["nested attachment"], "nested-drop.txt", {
+        type: "text/plain",
+      });
+      window.addEventListener("agentkit:attach-files", receiveNestedAttachment);
+      const nestedDrop = await dispatchFileDrop(nestedEditor, nestedFile);
+      expect(nestedDrop.defaultPrevented).toBe(true);
+      expect(nestedAttachment).not.toHaveBeenCalled();
+
+      const preventOnlyEditor = document.createElement("div");
+      preventOnlyEditor.addEventListener("drop", (event) => {
+        event.preventDefault();
+      });
+      chat?.appendChild(preventOnlyEditor);
+      const preventOnlyFile = new File(["prevent only"], "prevent-only.txt", {
+        type: "text/plain",
+      });
+      const preventOnlyDrop = await dispatchFileDrop(
+        preventOnlyEditor,
+        preventOnlyFile,
+      );
+      expect(preventOnlyDrop.defaultPrevented).toBe(true);
+      expect(nestedAttachment).not.toHaveBeenCalled();
+
+      const stopOnlyEditor = document.createElement("div");
+      stopOnlyEditor.addEventListener("drop", (event) => {
+        event.stopPropagation();
+      });
+      chat?.appendChild(stopOnlyEditor);
+      const stopOnlyFile = new File(["stop only"], "stop-only.txt", {
+        type: "text/plain",
+      });
+      const stopOnlyDrop = await dispatchFileDrop(stopOnlyEditor, stopOnlyFile);
+      window.removeEventListener(
+        "agentkit:attach-files",
+        receiveNestedAttachment,
+      );
+      expect(container.textContent).not.toContain("Drop files to attach");
+      expect(stopOnlyDrop.defaultPrevented).toBe(true);
+      expect(nestedAttachment).toHaveBeenCalledTimes(1);
+      expect(nestedAttachment).toHaveBeenCalledWith({
+        threadId: "thread-drop",
+        files: [stopOnlyFile],
+      });
+
       const oversizedFile = new Proxy(
         new File(["small body"], "too-large.txt", { type: "text/plain" }),
         {
@@ -1246,6 +1436,10 @@ describe("AgentKitChat interactions", () => {
         expect.stringContaining("too-large.txt"),
       );
     } finally {
+      window.removeEventListener(
+        "agentkit:attach-files",
+        receiveNestedAttachment,
+      );
       await act(async () => {
         root.unmount();
         await Promise.resolve();

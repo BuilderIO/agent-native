@@ -21,6 +21,7 @@ type DbExec = import("@agent-native/core/db").DbExec;
 let getDb: DbModule["getDb"];
 let schema: DbModule["schema"];
 let getDbExec: typeof import("@agent-native/core/db").getDbExec;
+let ensureSuggestionTables: typeof import("@agent-native/core/review").ensureSuggestionTables;
 let adapterKind: string;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
 let documentRevisionToken: typeof import("../../actions/_document-edit-mutation.js").documentRevisionToken;
@@ -35,6 +36,8 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   getDbExec = (await import("@agent-native/core/db")).getDbExec;
+  ensureSuggestionTables = (await import("@agent-native/core/review"))
+    .ensureSuggestionTables;
   adapterKind = (await import("./suggested-edits.js"))
     .CONTENT_DOCUMENT_SUGGESTION_ADAPTER;
   getDocumentAction = (await import("../../actions/get-document.js")).default;
@@ -148,7 +151,13 @@ async function pendingSuggestions(documentId: string) {
   ).suggestions.filter((suggestion) => suggestion.status === "pending");
 }
 
-async function addComment(documentId: string, text: string, quote: string) {
+/** A comment on the page body, or on another Blocks field `fieldId` names. */
+async function addComment(
+  documentId: string,
+  text: string,
+  quote: string,
+  fieldId?: string,
+) {
   const at = text.indexOf(quote);
   if (at < 0) throw new Error(`"${quote}" is not in the page text`);
   const id = `comment-${documentId}-${at}`;
@@ -165,6 +174,8 @@ async function addComment(documentId: string, text: string, quote: string) {
       anchorPrefix: text.slice(Math.max(0, at - 32), at),
       anchorSuffix: text.slice(at + quote.length, at + quote.length + 32),
       anchorStartOffset: at,
+      fieldId: fieldId ?? null,
+      fieldName: fieldId ? "Notes" : null,
       authorEmail: ownerEmail,
       createdAt: now,
       updatedAt: now,
@@ -177,6 +188,7 @@ async function addComment(documentId: string, text: string, quote: string) {
  * inside it. A body that is already canonical keeps its revision.
  */
 async function convert(documentId: string, previousLiveText: string | null) {
+  await ensureSuggestionTables();
   return getDbExec().transaction!(async (tx: DbExec) => {
     const row = (
       await tx.execute({
@@ -380,5 +392,30 @@ describe("rebaselinePageForCanonicalBody", () => {
       reason: "comment_quote_changes",
       ids: [commentId],
     });
+  });
+
+  it("leaves a comment on another Blocks field out of the conversion", async () => {
+    // Its words aren't the body's, so as a body quote it would block.
+    const documentId = await seedPage("The dog sat on the mat.");
+    const previousText = "The cat sat on the mat.";
+    const commentId = await addComment(
+      documentId,
+      previousText,
+      "cat sat",
+      "notes",
+    );
+    const { eq } = await import("drizzle-orm");
+    const comment = () =>
+      getDb()
+        .select()
+        .from(schema.documentComments)
+        .where(eq(schema.documentComments.id, commentId));
+    const before = await comment();
+    expect(await convert(documentId, previousText)).toEqual({
+      status: "rebaselined",
+      suggestions: [],
+      comments: [],
+    });
+    expect(await comment()).toEqual(before);
   });
 });

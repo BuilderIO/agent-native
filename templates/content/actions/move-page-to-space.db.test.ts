@@ -197,7 +197,7 @@ describe("moving a page between Content spaces", () => {
     expect(version.ownerEmail).toBe(OWNER);
   });
 
-  it("makes the person moving the owner and closes the page to everyone else in Personal", async () => {
+  it("makes the person moving the owner of the page, its History, body steps and body intents, and closes it to everyone else in Personal", async () => {
     const orgSpaceId = organizationContentSpaceId(ORG_ID);
     const page = await as(OWNER, () =>
       createDocument.run({ title: "Handoff", spaceId: orgSpaceId }),
@@ -224,6 +224,34 @@ describe("moving a page between Content spaces", () => {
       threadId: "thread-handoff",
       content: "Over to you",
       authorEmail: OWNER,
+    });
+    await getDb().insert(schema.documentVersions).values({
+      id: "version-handoff",
+      ownerEmail: OWNER,
+      documentId: page.id,
+      title: "Handoff",
+      content: "Draft",
+    });
+    await getDb()
+      .insert(schema.documentBodySteps)
+      .values({
+        id: `${page.id}:1`,
+        ownerEmail: OWNER,
+        documentId: page.id,
+        bodyRevision: 1,
+        startOffset: 0,
+        endOffset: 0,
+        text: "Draft",
+      });
+    await getDb().insert(schema.documentBodyIntents).values({
+      id: "intent-handoff",
+      ownerEmail: OWNER,
+      orgId: ORG_ID,
+      documentId: page.id,
+      writerId: "agent",
+      operationId: "op-handoff",
+      authoredBaseRevision: 0,
+      committedRevision: 1,
     });
     await as(EDITOR, () =>
       moveDocument.run({
@@ -255,6 +283,27 @@ describe("moving a page between Content spaces", () => {
     await expect(
       as(OWNER, () => listComments.run({ documentId: page.id })),
     ).rejects.toThrow();
+    // An edit rebuilds its base from the steps its page's owner holds, and
+    // merges a stale edit by the intents that owner holds; a permanent
+    // delete removes only the owner's steps.
+    const [version] = await getDb()
+      .select({ ownerEmail: schema.documentVersions.ownerEmail })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.id, "version-handoff"));
+    expect(version.ownerEmail).toBe(EDITOR);
+    const [step] = await getDb()
+      .select({ ownerEmail: schema.documentBodySteps.ownerEmail })
+      .from(schema.documentBodySteps)
+      .where(eq(schema.documentBodySteps.documentId, page.id));
+    expect(step.ownerEmail).toBe(EDITOR);
+    const [intent] = await getDb()
+      .select({
+        ownerEmail: schema.documentBodyIntents.ownerEmail,
+        orgId: schema.documentBodyIntents.orgId,
+      })
+      .from(schema.documentBodyIntents)
+      .where(eq(schema.documentBodyIntents.id, "intent-handoff"));
+    expect(intent).toEqual({ ownerEmail: EDITOR, orgId: "" });
   });
 
   it("only nests under a page the mover owns in the destination", async () => {

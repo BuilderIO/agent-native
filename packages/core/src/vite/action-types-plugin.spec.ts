@@ -51,6 +51,8 @@ describe("generateActionRegistryForProject", () => {
       expect(registry).toContain('"save-observability-review-feedback"');
       expect(registry).toContain('"list-resource-history"');
       expect(registry).toContain('"list-review-comments"');
+      expect(registry).toContain('"list-automations"');
+      expect(registry).toContain('"search-automation-accounts"');
       expect(registry).toContain('"update-review-comment"');
       expect(registry).toContain('"set-review-threads-unread"');
       expect(registry).toContain('"update-resource-suggestion"');
@@ -70,6 +72,8 @@ describe("generateActionRegistryForProject", () => {
       expect(types).toContain('"save-observability-review-feedback"');
       expect(types).toContain('"list-resource-history"');
       expect(types).toContain('"list-review-comments"');
+      expect(types).toContain('"list-automations"');
+      expect(types).toContain('"search-automation-accounts"');
       expect(types).toContain('"update-review-comment"');
       expect(types).toContain('"set-review-threads-unread"');
       expect(types).toContain('"update-resource-suggestion"');
