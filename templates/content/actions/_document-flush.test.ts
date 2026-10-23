@@ -222,8 +222,15 @@ describe("flushOpenDocumentEditorToSql", () => {
     mocks.isLiveBodyWriterPage.mockResolvedValue(true);
 
     expect(await settle()).toEqual({ value: { status: "live_copy" } });
-    expect(mocks.awareness).not.toHaveBeenCalled();
+    expect(mocks.isLiveBodyWriterPage).toHaveBeenCalledWith("doc-1");
     expect(mocks.cas).not.toHaveBeenCalled();
+  });
+
+  it("reads no page write path when no editor is open", async () => {
+    mocks.awareness.mockResolvedValue([]);
+
+    expect(await settle()).toEqual({ value: { status: "no_open_editor" } });
+    expect(mocks.isLiveBodyWriterPage).not.toHaveBeenCalled();
   });
 
   it("still asks a switched page's editor to save a Blocks field", async () => {
