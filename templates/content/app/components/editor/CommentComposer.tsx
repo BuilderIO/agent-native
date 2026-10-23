@@ -378,6 +378,8 @@ export const CommentComposer = forwardRef<
   const [focused, setFocused] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [modelMenuRect, setModelMenuRect] = useState<DOMRect | null>(null);
+  // The Escape that closes the model menu; it must not cancel the draft too.
+  const modelMenuEscapeRef = useRef<KeyboardEvent | null>(null);
   const [avatarUrls, setAvatarUrls] = useState<Record<string, string | null>>(
     {},
   );
@@ -727,6 +729,12 @@ export const CommentComposer = forwardRef<
           event.stopPropagation();
           return;
         }
+        // The model menu keeps focus in the editor and closes on this
+        // Escape before it reaches here.
+        if (event.nativeEvent === modelMenuEscapeRef.current) {
+          event.stopPropagation();
+          return;
+        }
         if (!composerRef.current?.dismissPopover()) escape();
         event.stopPropagation();
       }}
@@ -820,6 +828,9 @@ export const CommentComposer = forwardRef<
           sideOffset={6}
           className="w-64 p-1"
           onOpenAutoFocus={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => {
+            modelMenuEscapeRef.current = event;
+          }}
         >
           <CommentAiModelList
             models={connectedModels}
