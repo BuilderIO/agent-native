@@ -44,6 +44,8 @@ Helper invariants, checked in the same runs:
 | ---------------------------------------------------------------- | ------------------------------- | --------------- | ----- |
 | `ExecutionLease.cfg` (policy `never`, prune on)                  | pass                            | 38,030          | 5 s   |
 | `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely) | pass                            | 1,883,858       | 183 s |
+| `sufficiency/fence-alone.cfg` dispatch keeps only the fence      | P8 and P1 hold                  | 38,030          | 12 s  |
+| `sufficiency/clause-alone.cfg` dispatch keeps only the clause    | P8 holds                        | 48,052          | 13 s  |
 | `mutations/a` dispatch without the fence (ownership clause kept) | P1 violated                     | 144             | 4 s   |
 | `mutations/b` begin replays a dispatched never step              | P8 violated                     | 7,445           | 4 s   |
 | `mutations/c` action starts before the dispatch commits          | P8 violated                     | 2,634           | 3 s   |
