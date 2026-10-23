@@ -365,6 +365,10 @@
     {
       "name": "chat-thread-inbox-retry-count",
       "checksum": "b25ff25b6a61ccc9"
+    },
+    {
+      "name": "viewer-state",
+      "checksum": "12d60e0fc4587fc5"
     }
   ],
   "checkpoints": [

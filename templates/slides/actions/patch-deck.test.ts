@@ -1,6 +1,7 @@
 import {
   isActionContractError,
   isAgentActionStopError,
+  isNoWriteError,
 } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
@@ -5648,6 +5649,116 @@ describe("run() — patch-slide edits", () => {
       eyebrow("#8a4a33"),
       eyebrow("#8a4a33"),
     ]);
+  });
+
+  it("rejects an edit that matches nothing before writing", async () => {
+    const error = await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          operations: [
+            OperationSchema.parse({
+              op: "patch-slide",
+              slideId: "slide-1",
+              edits: [{ find: "#000000", replace: "#111111" }],
+            }),
+          ],
+        },
+        { caller: "tool" },
+      )
+      .catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "slide_content_edit_failed",
+      message: expect.stringContaining("found no matches"),
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+    expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("lets the agent run a corrected edit after one that matched nothing", async () => {
+    const { runAgentLoop } = await import("@agent-native/core/server");
+    const calls = ["#000000", "#a85f43"].map((find) => ({
+      deckId: "deck-1",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          edits: [{ find, replace: "#8a4a33" }],
+        },
+      ],
+    }));
+    let turn = 0;
+    const events: Array<Record<string, unknown>> = [];
+    await runAgentLoop({
+      engine: {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream() {
+          const input = calls[turn];
+          turn++;
+          if (input) {
+            yield {
+              type: "assistant-content" as const,
+              parts: [
+                {
+                  type: "tool-call" as const,
+                  id: `call-${turn}`,
+                  name: "patch-deck",
+                  input,
+                },
+              ],
+            };
+            yield { type: "stop" as const, reason: "tool_use" as const };
+            return;
+          }
+          yield {
+            type: "assistant-content" as const,
+            parts: [{ type: "text" as const, text: "Done." }],
+          };
+          yield { type: "stop" as const, reason: "end_turn" as const };
+        },
+      },
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Darken it." }] },
+      ],
+      actions: { "patch-deck": patchDeckAction as never },
+      send: (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+      signal: new AbortController().signal,
+    });
+
+    const done = events.filter((event) => event.type === "tool_done");
+    expect(done[0]).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+      errorClass: "rejected",
+    });
+    expect(done[1]).toMatchObject({ completedSideEffect: true });
+    expect(events.some((event) => event.outcomeUnknown === true)).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "error" &&
+          event.errorCode === "write_tool_outcome_unknown",
+      ),
+    ).toBe(false);
+    const saved = JSON.parse(String(lastUpdatedDeckData));
+    expect(saved.slides[0].content).toBe(eyebrow("#8a4a33"));
   });
 
   it("applies several edit ops on the same slide in order", async () => {

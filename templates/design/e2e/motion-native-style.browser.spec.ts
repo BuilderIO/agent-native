@@ -19,7 +19,7 @@ let restoreMotionLab: (() => Promise<void>) | null = null;
 const MOTION_FIXTURE_HTML = FIXTURE_HTML.replace(
   '      <p style="font-size:18px;line-height:1.6;margin:0;color:#a1a1aa">Second fixture paragraph for selection tests.</p>',
   `      <p style="font-size:18px;line-height:1.6;margin:0;color:#a1a1aa">Second fixture paragraph for selection tests.</p>
-      <script src="./alpinejs.js" defer></script>
+      <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>
       <main id="e2e-motion-text-alpine-root" x-data="{ visible: true }">
         <h2 id="e2e-motion-text-alpine" data-agent-native-node-id="e2e-motion-text-alpine">Alpine Motion Text</h2>
       </main>

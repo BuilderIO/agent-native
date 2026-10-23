@@ -722,6 +722,8 @@ function emitRunTerminalTrackingEvent(args: {
   engineName?: string;
   userId?: string;
   attemptCount?: number;
+  blockedTool?: string;
+  blockedBy?: "rejection" | "interruption";
 }): void {
   try {
     recordAgentRun({
@@ -754,6 +756,8 @@ function emitRunTerminalTrackingEvent(args: {
       model: args.model,
       engineName: args.engineName,
       attemptCount: args.attemptCount,
+      blockedTool: args.blockedTool,
+      blockedBy: args.blockedBy,
     },
     { userId: args.userId },
   );
@@ -2081,6 +2085,8 @@ export function startRun(
       let terminalPersistenceError: unknown = null;
       let eventPersistenceError: unknown = null;
       let runTerminalErrorCode: string | undefined;
+      let runTerminalBlockedTool: string | undefined;
+      let runTerminalBlockedBy: "rejection" | "interruption" | undefined;
       let terminalPersistenceEstablished = false;
       let continuationStatusPersistedBeforeEvent = false;
       let suppressContinuationEvent = false;
@@ -2516,6 +2522,8 @@ export function startRun(
             error?: string;
             errorCode?: string;
             details?: string;
+            blockedTool?: string;
+            blockedBy?: "rejection" | "interruption";
           };
           if (ev.type === "missing_api_key") {
             errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
@@ -2524,6 +2532,8 @@ export function startRun(
           } else if (ev.type === "error") {
             errorCode = ev.errorCode;
             errorDetail = ev.error ?? ev.details;
+            runTerminalBlockedTool = ev.blockedTool;
+            runTerminalBlockedBy = ev.blockedBy;
             break;
           }
         }
@@ -2575,6 +2585,8 @@ export function startRun(
           status: persistedStatus,
           terminalReason,
           errorCode: runTerminalErrorCode,
+          blockedTool: runTerminalBlockedTool,
+          blockedBy: runTerminalBlockedBy,
           dispatchMode: options?.dispatchMode,
           abortReason: run.abortReason,
           durationMs: Date.now() - run.startedAt,

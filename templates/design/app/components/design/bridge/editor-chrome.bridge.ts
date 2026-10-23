@@ -2278,7 +2278,17 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         );
         style.textContent = cssText;
         return style;
-      } catch {
+      } catch (error) {
+        // An opaque linked sheet is still recoverable through the required
+        // resource fetch; inline styles have no equivalent source URL.
+        if (
+          sourceNode instanceof HTMLLinkElement &&
+          sourceNode.href &&
+          error instanceof DOMException &&
+          error.name === "SecurityError"
+        ) {
+          return cloneNode;
+        }
         if (!snapshotFailures.includes("stylesheet-cssom-unavailable")) {
           snapshotFailures.push("stylesheet-cssom-unavailable");
         }
@@ -2580,7 +2590,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var resourceData = new Map<string, string>();
     var resourceRequests = new Map<string, Promise<string | null>>();
     var totalBytes = 0;
-    var complete = true;
     var maxResourceBytes = 4_000_000;
     var maxTotalBytes = 8_000_000;
     var failures = (
@@ -2590,6 +2599,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     )
       .split(",")
       .filter(Boolean);
+    var complete = failures.length === 0;
 
     function markFailure(reason: string): void {
       complete = false;

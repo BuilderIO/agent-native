@@ -139,6 +139,8 @@ const databaseMessages = {
   githubSyncingProgress: "Bringing in changes: {{done}} of {{total}} files",
   githubPicturesWaiting:
     "Some pictures won’t show until a workspace admin sets up file storage.",
+  githubPicturesNotSaved:
+    "Some pictures couldn’t be saved to file storage. Each sync tries them again.",
   githubReconnect: "Reconnect GitHub",
   githubProblemConnection:
     "Stopped updating: GitHub needs you to sign in again.",
@@ -1667,6 +1669,13 @@ const enUS = {
       "Could not confirm saving. Check this thread before trying again.",
     backToList: "Back to comments",
     cancel: "Cancel",
+    discardCommentQuestion: "Discard comment?",
+    discardReplyQuestion: "Discard reply?",
+    discardEditQuestion: "Discard changes?",
+    discardDescription: "What you've written will be lost.",
+    discardEditDescription: "Your comment will stay as it was.",
+    discard: "Discard",
+    keepEditing: "Keep editing",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",
@@ -1748,6 +1757,10 @@ const enUS = {
     proposalEditCount_other: "{{count}} edits",
     acceptRemaining: "Accept remaining",
     rejectRemaining: "Reject remaining",
+    acceptAll: "Accept all",
+    rejectAll: "Reject all",
+    suggestionReviewReadOnly:
+      "Only people who can edit this page can accept or reject its suggestions.",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",

@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
-
-import { gitBlobSha } from "./sync-community-qr-core-lock.ts";
+import { createHash } from "node:crypto";
 
 const repo = process.env.REPO;
 const baseSha = process.env.BASE_SHA;
@@ -10,6 +9,13 @@ const communityAppsPath = "packages/dispatch/src/server/lib/community-apps.ts";
 const communityQrPackagePath = "templates/community/qr/package.json";
 const communityQrTemplatePath = "templates/community/qr";
 const pullRequestFilesLimit = 3_000;
+
+export function gitBlobSha(content: Buffer): string {
+  return createHash("sha1")
+    .update(`blob ${content.length}\0`)
+    .update(content)
+    .digest("hex");
+}
 
 export function assertCompletePullRequestFiles(
   files: string[],

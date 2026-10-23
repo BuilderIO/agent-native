@@ -503,7 +503,7 @@ export function scrollToCommentAnchor(
   return true;
 }
 
-export function preserveCommentReplyEscape(event: KeyboardEvent) {
+export function preserveCommentComposerEscape(event: KeyboardEvent) {
   const target = event.target;
   if (
     event.key === "Escape" &&
@@ -512,11 +512,10 @@ export function preserveCommentReplyEscape(event: KeyboardEvent) {
       target instanceof HTMLInputElement ||
       target.getAttribute("contenteditable") === "true") &&
     target === target.ownerDocument.activeElement &&
-    // Replies, the page composer and the Discussion search close their own
-    // menus and boxes; Escape there must not close the panel too.
-    target.closest(
-      "[data-comment-reply-composer], [data-discussion-composer], [data-discussion-toolbar]",
-    )
+    // Comment composers, including the Discussion page composer, and the
+    // Discussion search close their own menus and boxes; Escape there must
+    // not close the panel too.
+    target.closest("[data-comment-composer], [data-discussion-toolbar]")
   ) {
     event.preventDefault();
   }
@@ -751,6 +750,8 @@ export function useCommentReplyDrafts(
       update(threadId, (draft) => ({ ...draft, aiDraft })),
     clear: (threadId: string) =>
       update(threadId, () => ({ text: "", mentions: [], aiDraft: null })),
+    discard: (threadId: string) =>
+      draftStore.discard(`reply:${documentId}:${threadId}`),
     beginSubmission: (threadId: string, operationId: string) => {
       const key = `reply:${documentId}:${threadId}`;
       return draftStore.beginSubmission(
@@ -3462,9 +3463,8 @@ export function CommentsSidebar({
                       : undefined
                   }
                   onCancel={handlePendingCancel}
-                  onEscape={() => {
-                    if (!pendingText.trim()) handlePendingCancel();
-                  }}
+                  onEscape={handlePendingCancel}
+                  confirmEscape={pendingText.trim() ? "comment" : false}
                   onFocus={() => {
                     const selection = pendingInputRef.current?.getSelection();
                     if (selection && pendingFocus)
@@ -3648,6 +3648,7 @@ function ProposalGroup({
     return () => observer.disconnect();
   }, [onHeightChange]);
   const pending = members.filter((member) => member.status === "pending");
+  const undecided = pending.length === totalCount;
   return (
     <div
       ref={groupRef}
@@ -3698,7 +3699,7 @@ function ProposalGroup({
             onClick={() => onDecide("accepted")}
             className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
           >
-            {t("comments.acceptRemaining")}
+            {t(undecided ? "comments.acceptAll" : "comments.acceptRemaining")}
           </button>
           <button
             type="button"
@@ -3706,7 +3707,7 @@ function ProposalGroup({
             onClick={() => onDecide("rejected")}
             className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
           >
-            {t("comments.rejectRemaining")}
+            {t(undecided ? "comments.rejectAll" : "comments.rejectRemaining")}
           </button>
         </div>
       ) : null}
@@ -4947,9 +4948,14 @@ function ThreadView({
             onAiDraftChange={onAiDraftChange}
             aiModelStorageKey={aiModelStorageKey}
             onEscape={() => {
+              // A reply on its way out keeps its draft until the save lands.
+              if (!isReplySubmitting) replyDrafts?.discard(thread.threadId);
               onCollapse();
               requestAnimationFrame(() => cardRef.current?.focus());
             }}
+            confirmEscape={
+              replyText.trim() && !isReplySubmitting ? "reply" : false
+            }
             onFocus={() => {
               const selection = replyInputRef.current?.getSelection();
               if (!selection || !replyDrafts || !documentId) return;
