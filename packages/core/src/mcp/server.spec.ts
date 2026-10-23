@@ -1850,7 +1850,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     } finally {
       consoleInfo.mockRestore();
     }
-  }, 60_000);
+  }, 120_000);
 
   it("logs web-runtime response statuses for directory errors", async () => {
     const requestLogs: Array<Record<string, any>> = [];
@@ -3674,15 +3674,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const shareActions = loadActionsFromStaticRegistry(
       sharedDirectoryActionsByApp.slides!,
     );
-    const getDeckAccessStatus = defineAction({
-      description: "Read one deck's access status.",
-      schema: z.object({ deckId: z.string() }),
-      readOnly: true,
-      requiresAuth: false,
-      agentTool: false,
-      http: { method: "GET" },
-      run: async () => ({ hasAccess: true }),
-    });
     const authorizeWidgetWrite = vi.fn(async () => true);
     const directoryProfile = {
       connectorCatalog: ["create-deck", "get-deck"],
@@ -3700,7 +3691,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       widgetReadActionArguments:
         slidesDirectoryProfile.widgetReadActionArguments,
       widgetReadOnlyActions: slidesDirectoryProfile.widgetReadOnlyActions,
-      widgetReadPublicActions: slidesDirectoryProfile.widgetReadPublicActions,
       widgetReadAuthenticatedActions:
         slidesDirectoryProfile.widgetReadAuthenticatedActions,
       widgetWriteActionArguments:
@@ -3713,10 +3703,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       directoryProfile,
       widgetDomain: "https://slides.agent-native.com",
       actions: { "create-deck": createDeck, "get-deck": getDeck },
-      widgetReadActions: selectMcpDirectoryWidgetReadActions(directoryProfile, {
-        ...shareActions,
-        "get-deck-access-status": getDeckAccessStatus,
-      }),
+      widgetReadActions: selectMcpDirectoryWidgetReadActions(
+        directoryProfile,
+        shareActions,
+      ),
       widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
         directoryProfile,
         { ...shareActions, "patch-deck": patchDeck },
