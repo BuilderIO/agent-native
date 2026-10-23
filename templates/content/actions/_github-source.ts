@@ -1458,6 +1458,9 @@ async function applyFile(
           ? linkedRow
           : null;
       if (linked) {
+        // guard:allow-unscoped — the id comes from the collection's own
+        // source record, which this transaction just found still linked
+        // under the collection's lock.
         const [document] = await tx
           .select()
           .from(schema.documents)
@@ -1606,6 +1609,8 @@ async function applyNewFiles(
 async function takenDocumentIds(db: Db, ids: string[]) {
   const taken = new Set<string>();
   for (const chunk of chunks(ids, bulkChunkSizeForColumnCount(1))) {
+    // guard:allow-unscoped — page ids are unique across every owner, so a
+    // new page's id must be free of all of them. Only ids are read.
     const rows = await db
       .select({ id: schema.documents.id })
       .from(schema.documents)

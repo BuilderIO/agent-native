@@ -216,7 +216,8 @@ function useKeepFilling(
       try {
         ({ sync: result } = await syncNow({ databaseId }));
       } catch {
-        // The status line shows what went wrong once the collection refreshes.
+        // coercion-ok: no result reads as a failed sync below, which waits
+        // and refreshes, and the status line shows what went wrong then.
       }
       running = false;
       if (stopped) return;
