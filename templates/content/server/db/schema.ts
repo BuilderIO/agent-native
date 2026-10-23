@@ -20,6 +20,8 @@ export const documents = table("documents", {
   bodyRevision: integer("body_revision").notNull().default(0),
   collabBodyRevision: integer("collab_body_revision"),
   liveBodySwitchedAt: text("live_body_switched_at"),
+  // `_collab_docs.version` the stored body was last derived from.
+  liveCopyVersion: integer("live_copy_version"),
   description: text("description").notNull().default(""),
   icon: text("icon"),
   position: integer("position").notNull().default(0),
@@ -805,6 +807,24 @@ export const contentDatabaseSourceExecutions = table(
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
+);
+
+export const contentDatabaseBuilderBlobCleanup = table(
+  "content_database_builder_blob_cleanup",
+  {
+    blobReference: text("blob_reference").primaryKey(),
+    createdAt: text("created_at").notNull().default(now()),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at")
+      .notNull()
+      .default("1970-01-01T00:00:00.000Z"),
+  },
+  (cleanup) => [
+    index("content_database_builder_blob_cleanup_due_idx").on(
+      cleanup.nextAttemptAt,
+      cleanup.createdAt,
+    ),
+  ],
 );
 
 export const contentDatabaseSourceExecutionClaims = table(

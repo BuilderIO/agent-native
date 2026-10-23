@@ -194,6 +194,10 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 A failed request sets `error` and keeps the rows already loaded. It never looks like an empty list. `<ShareButton>` and `<ShareDialog>` refresh mounted chat lists after they save. If you change a chat's sharing some other way, call `notifyChatThreadsUpdated()` so mounted lists refetch.
 
+For a ready-made sidebar that combines owned chats, shared chats, and eligible started drafts, import `useOwnershipChatHistory()` and `OwnershipChatHistoryRail` from `@agent-native/toolkit/app/chat/ownership-history`. The adapter keeps owner and access-basis details on shared rows, pages each section independently, and retains rows and local optimistic changes when a refresh fails. Its mutation callbacks return `Promise<boolean>`, allowing the app to navigate only after a write succeeds. See [Sharing Kit](/docs/toolkit-sharing#shared-chat-history) for an example.
+
+An active empty draft remains selectable and runnable while its first save is pending. Until persistence is confirmed, hide pin, rename, and archive actions, and the adapter rejects calls to those callbacks. `ownDraftRows` supplies persistence provenance for owned drafts, while confirmed owned rows from the server list keep their normal actions. For custom `OwnDraftRow` values, set optional `persisted?: boolean` to `true` only for a confirmed persisted server row owned by the current user. Do not infer persistence from message count or active ID. Role, privacy, and whether the active draft is empty remain separate facts.
+
 ## Same model, agent and UI {#agent-and-ui}
 
 The framework auto-mounts these actions in every template — the agent calls them as tools, and the UI calls them through `useActionQuery` / `useActionMutation`:

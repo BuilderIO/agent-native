@@ -1232,6 +1232,18 @@ function DatabaseTable({
     if (panel !== "source") sourceHandoffActiveRef.current = false;
     setSettingsPanel(panel);
   };
+  // Opens Sources at one source's own page, as the GitHub status line's
+  // "From the … folder" does; each request has a new id so a repeat opens it.
+  const [sourceNavRequest, setSourceNavRequest] =
+    useState<SourceNavRequest | null>(null);
+  const openGitHubSource = () => {
+    changeDatabaseSettingsPanel("source");
+    setSourceNavRequest((request) => ({
+      id: (request?.id ?? 0) + 1,
+      stack: [{ kind: "github" }],
+    }));
+    setSettingsOpen(true);
+  };
   const [savedViewConfig, setSavedViewConfig] =
     useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
   const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
@@ -3532,6 +3544,7 @@ function DatabaseTable({
         documentId={document.id}
         canEdit={canEdit}
         pageCount={totalItemCount}
+        onOpenSource={canEditWidgetRows ? undefined : openGitHubSource}
       />
       {canEdit &&
       databaseId &&
@@ -4082,6 +4095,7 @@ function DatabaseTable({
         }
         sourcePendingOperations={sourcePendingOperations}
         preserveSourceNavigationOnClose={preserveSourceNavigationOnClose}
+        sourceNavRequest={sourceNavRequest}
         onViewTypeChange={(type) =>
           setViewConfig(updateDatabaseViewType(viewConfig, activeView.id, type))
         }
@@ -7927,6 +7941,9 @@ type SourceNavStep =
   | { kind: "fieldPicker"; sourceId: string; sourceName: string }
   | { kind: "github" };
 
+/** A request to open Sources at a given page; a new id repeats it. */
+type SourceNavRequest = { id: number; stack: SourceNavStep[] };
+
 function sourceNavTitle(stack: SourceNavStep[]): string {
   const top = stack[stack.length - 1];
   if (!top) return dbText("sources");
@@ -8007,6 +8024,7 @@ function DatabaseSettingsPanelSheet({
   sourceActionPending,
   sourcePendingOperations,
   preserveSourceNavigationOnClose,
+  sourceNavRequest,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
@@ -8060,6 +8078,7 @@ function DatabaseSettingsPanelSheet({
   sourceActionPending: boolean;
   sourcePendingOperations: DatabaseSourcePendingOperations;
   preserveSourceNavigationOnClose: boolean;
+  sourceNavRequest: SourceNavRequest | null;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
@@ -8113,6 +8132,10 @@ function DatabaseSettingsPanelSheet({
       setSourceNavStack([]);
     }
   }, [open, panel, preserveSourceNavigationOnClose]);
+  // Runs after the reset above, so a request that opens the sheet keeps its page.
+  useEffect(() => {
+    if (sourceNavRequest) setSourceNavStack(sourceNavRequest.stack);
+  }, [sourceNavRequest]);
 
   const title =
     panel === "main"

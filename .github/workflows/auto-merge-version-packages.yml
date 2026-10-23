@@ -4,21 +4,41 @@ on:
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Bot-generated release PR number
+        required: true
+        type: number
+      base_sha:
+        description: Current base commit SHA for the release PR
+        required: true
+        type: string
+      head_sha:
+        description: Current head commit SHA for the release PR
+        required: true
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: auto-merge-version-packages-${{ github.event.pull_request.number }}
+  group: auto-merge-version-packages-${{ github.event.pull_request.number || inputs.pull_request_number }}
   cancel-in-progress: true
 
 jobs:
   auto-merge:
     name: Force-merge changeset-release/main
     if: |
-      github.event.pull_request.head.ref == 'changeset-release/main' &&
-      github.event.pull_request.user.login == 'builder-io-integration[bot]' &&
-      github.event.sender.login == 'builder-io-integration[bot]' &&
-      !github.event.pull_request.draft
+      (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.ref == 'changeset-release/main' &&
+        github.event.pull_request.user.login == 'builder-io-integration[bot]' &&
+        github.event.sender.login == 'builder-io-integration[bot]' &&
+        !github.event.pull_request.draft) ||
+      (github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/main' &&
+        inputs.pull_request_number != '' &&
+        inputs.base_sha != '' &&
+        inputs.head_sha != '')
     runs-on: ubuntu-latest
     steps:
       - name: Generate app token
@@ -28,27 +48,77 @@ jobs:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
-      - name: Verify event-bound head
+      - name: Verify manual release dispatcher is an administrator
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DISPATCH_ACTOR: ${{ github.triggering_actor }}
         run: |
-          actual_head=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
-          if [ "$actual_head" != "$HEAD_SHA" ]; then
-            echo "::error::PR head moved from verified event SHA $HEAD_SHA to $actual_head — refusing admin-merge." >&2
+          set -euo pipefail
+          dispatch_permission=$(gh api "repos/$REPO/collaborators/$DISPATCH_ACTOR/permission" --jq '.permission')
+          if [ "$dispatch_permission" != "admin" ]; then
+            echo "::error::Manual release merge dispatch requires repository administrator access." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.base.sha }}
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.22.0"
+
+      - name: Verify release PR identity and event-bound SHAs
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if ! gh api "repos/$REPO/pulls/$PR_NUMBER" | jq -e \
+            --arg repo "$REPO" \
+            --arg base "$BASE_SHA" \
+            --arg head "$HEAD_SHA" \
+            '.state == "open" and .draft == false and
+              .user.login == "builder-io-integration[bot]" and
+              .head.ref == "changeset-release/main" and
+              .head.repo.full_name == $repo and
+              .head.sha == $head and
+              .base.ref == "main" and .base.repo.full_name == $repo and
+              .base.sha == $base' >/dev/null; then
+            echo "::error::Release PR is not the expected open bot PR at the verified base and head SHAs; refusing admin-merge." >&2
+            exit 1
+          fi
+
+      - name: Wait for required release PR checks
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh pr checks "$PR_NUMBER" --repo "$REPO" --required --watch --fail-fast --interval 15
+          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
+          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
+            echo "::error::Required release PR checks are missing or not green; refusing admin-merge." >&2
             exit 1
           fi
 
       - name: Verify release-only diff
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+
           files_dir="$RUNNER_TEMP/release-pr-files"
           mkdir -p "$files_dir"
           gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/files" \
@@ -136,87 +206,86 @@ jobs:
                 ;;
             esac
           done < "$files_dir/files.jsonl"
+          node --experimental-strip-types scripts/verify-release-package-files.ts
+
+      - name: Verify community QR template pins
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: node --experimental-strip-types scripts/verify-community-qr-release-pin.ts
 
       - name: Refuse unattended major promotions
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: node --experimental-strip-types scripts/verify-release-package-version-changes.ts
+
+      - name: Revalidate release PR before merge
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          node <<'NODE'
-          const { execFileSync } = require("node:child_process");
-
-          const repo = process.env.REPO;
-          const gh = (args) =>
-            execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-
-          /** Read one package.json at a ref, or null when it does not exist there. */
-          function versionAt(file, ref) {
-            let raw;
-            try {
-              raw = gh(["api", `repos/${repo}/contents/${file}?ref=${ref}`, "--jq", ".content"]);
-            } catch {
-              return null; // added in this PR, or unreadable at this ref
-            }
-            const text = Buffer.from(raw.replace(/\s/g, ""), "base64").toString("utf8");
-            let parsed;
-            try {
-              parsed = JSON.parse(text);
-            } catch {
-              throw new Error(`${file} at ${ref} is not valid JSON`);
-            }
-            return typeof parsed.version === "string" ? parsed.version : null;
-          }
-
-          const versionParts = (version) => {
-            const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
-            if (!match) throw new Error(`unparseable version "${version}"`);
-            return match.slice(1).map(Number);
-          };
-
-          const files = gh([
-            "api", "--paginate", `repos/${repo}/pulls/${process.env.PR_NUMBER}/files`,
-            "--jq", ".[].filename",
-          ])
-            .split("\n")
-            .map((line) => line.trim())
-            .filter((line) => line === "package.json" || line.endsWith("/package.json"));
-
-          const promotions = [];
-          for (const file of files) {
-            const before = versionAt(file, process.env.BASE_SHA);
-            const after = versionAt(file, process.env.HEAD_SHA);
-            if (!before || !after || before === after) continue;
-            const beforeParts = versionParts(before);
-            const afterParts = versionParts(after);
-            const majorPromotion = afterParts[0] > beforeParts[0];
-            if (majorPromotion) {
-              promotions.push(`${file}: ${before} -> ${after}`);
-            }
-          }
-
-          if (promotions.length > 0) {
-            console.error(
-              "::error::This release PR contains a forbidden major promotion:\n" +
-                promotions.map((line) => `  ${line}`).join("\n") +
-                "\nMajor promotions remain human-only. Leaving the PR open for deliberate release handling.",
-            );
-            process.exit(1);
-          }
-          console.log(
-            files.length > 0
-              ? `No forbidden promotion in ${files.length} changed package.json file(s).`
-              : "No package.json changes in this release PR.",
-          );
-          NODE
+          if ! gh api "repos/$REPO/pulls/$PR_NUMBER" | jq -e \
+            --arg repo "$REPO" \
+            --arg base "$BASE_SHA" \
+            --arg head "$HEAD_SHA" \
+            '.state == "open" and .draft == false and
+              .user.login == "builder-io-integration[bot]" and
+              .head.ref == "changeset-release/main" and
+              .head.repo.full_name == $repo and
+              .head.sha == $head and
+              .base.ref == "main" and .base.repo.full_name == $repo and
+              .base.sha == $base' >/dev/null; then
+            echo "::error::Release PR changed during validation; refusing admin-merge." >&2
+            exit 1
+          fi
+          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
+          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
+            echo "::error::Required release PR checks are no longer green; refusing admin-merge." >&2
+            exit 1
+          fi
 
       - name: Force-merge with admin bypass
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"
+        run: |
+          set -euo pipefail
+          pull_request=$(gh api "repos/$REPO/pulls/$PR_NUMBER")
+          if ! jq -e \
+            --arg repo "$REPO" \
+            --arg base "$BASE_SHA" \
+            --arg head "$HEAD_SHA" \
+            '.state == "open" and .draft == false and
+              .user.login == "builder-io-integration[bot]" and
+              .head.ref == "changeset-release/main" and
+              .head.repo.full_name == $repo and .head.sha == $head and
+              .base.ref == "main" and .base.repo.full_name == $repo and
+              .base.sha == $base' <<< "$pull_request" >/dev/null; then
+            echo "::error::Release PR changed immediately before merge; refusing admin-merge." >&2
+            exit 1
+          fi
+          current_main=$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')
+          if [ "$current_main" != "$BASE_SHA" ]; then
+            echo "::error::Main advanced after validation; refusing to merge against an unvalidated base." >&2
+            exit 1
+          fi
+          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
+          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
+            echo "::error::Required release PR checks are no longer green; refusing admin-merge." >&2
+            exit 1
+          fi
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"

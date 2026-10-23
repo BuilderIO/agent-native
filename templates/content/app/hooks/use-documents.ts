@@ -29,6 +29,7 @@ import type {
 import type { ContentSidebarSections } from "@shared/content-personal-navigation";
 import type { ContentRecentResult } from "@shared/content-personal-navigation";
 import { applyContentPersonalNavigationPatch } from "@shared/content-personal-navigation-patch";
+import { buildListRowExcerpt } from "@shared/og-description";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   hashKey,
@@ -88,6 +89,7 @@ import {
 } from "./use-content-action-mutation";
 import {
   contentDatabaseConstrainedQueryFilter,
+  contentDatabaseExcerptContainingDocumentFilter,
   contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
@@ -455,6 +457,17 @@ export function patchDocumentInDatabaseCache<
     return {
       ...item,
       document: { ...item.document, ...patch },
+      // A saved body, even an empty one, replaces the excerpt the read sent.
+      ...(patch.content !== undefined &&
+      "excerpt" in item &&
+      item.excerpt !== undefined
+        ? {
+            excerpt: buildListRowExcerpt({
+              content: patch.content,
+              title: patch.title ?? item.document.title,
+            }),
+          }
+        : {}),
     };
   });
   return changed ? ({ ...current, items } as T) : current;
@@ -1617,6 +1630,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
         if (variables.title !== undefined) {
           invalidateContentQueries(queryClient, [
             contentDatabaseConstrainedQueryFilter(),
+            contentDatabaseExcerptContainingDocumentFilter(variables.id),
             ...contentRowTargets(queryClient, [variables.id]),
             ["action", "search-documents"],
           ]);

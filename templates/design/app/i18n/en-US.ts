@@ -164,6 +164,23 @@ export default {
     expandSidebar: "Expand sidebar",
     collapseSidebar: "Collapse sidebar",
   },
+  gettingStarted: {
+    title: "Getting started",
+    progress: "{{completeCount}} of {{totalCount}} complete",
+    collapse: "Collapse",
+    expand: "Expand",
+    completed: "Completed",
+    loadError: "Couldn't load your checklist",
+    retry: "Retry",
+    steps: {
+      createDesign: "Create your first design",
+      addBrand: "Add your brand",
+      useRealData: "Use your real data",
+      shareFeedback: "Share for feedback",
+      inviteTeammate: "Invite a teammate",
+      saveTemplate: "Save a design as a template",
+    },
+  },
   settings: {
     agentTitle: "Manage agent",
     agentDescription:
@@ -1442,7 +1459,7 @@ export default {
       sourceWriteUnavailable:
         "Motion code can currently be written only to inline HTML designs.",
       unresolvedStylesheets:
-        "Resolve external stylesheets before editing or adding Motion.",
+        "Resolve external or runtime-generated styles before editing or adding Motion.",
       sourceConflict:
         "Motion source changed while this timeline had unsaved edits. Reload from code to discard those edits and use the current source.",
       reloadFromSource: "Reload from code",

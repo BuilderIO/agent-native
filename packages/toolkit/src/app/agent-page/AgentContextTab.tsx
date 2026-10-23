@@ -328,6 +328,7 @@ export function AgentContextTab({ scope }: AgentPageTabProps) {
   const threads = useChatThreads(undefined, "agent-context-page", null, {
     autoCreate: false,
     restoreActiveThread: false,
+    ownership: "mine",
   });
   const latestThread = mostRecentlyUpdatedThread(threads.threads);
   const liveManifestQuery = useActionQuery(
