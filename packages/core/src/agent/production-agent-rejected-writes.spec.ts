@@ -278,6 +278,9 @@ describe("a NoWriteError the framework cannot vouch for", () => {
 
     expect(run).toHaveBeenCalledTimes(1);
     expect(toolDones(events)[0]).toMatchObject({ outcomeUnknown: true });
+    expect(toolDones(events)[1]?.result).toContain(
+      "The parent action failed 1 time(s) without confirming whether it saved changes",
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",

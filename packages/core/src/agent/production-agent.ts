@@ -5235,6 +5235,29 @@ function noteUnknownOutcome(
   }
 }
 
+/** Why a repeat of a call whose outcome is unknown did not run. */
+function unknownRepeatResult(
+  tool: string,
+  cause: UnknownOutcomeCause,
+  times?: number,
+): string {
+  const count = times === undefined ? "" : ` ${times} time(s)`;
+  const happened =
+    cause === "rejection"
+      ? `failed${count} without confirming whether it saved changes`
+      : `was interrupted${count}`;
+  const outcome =
+    times === undefined
+      ? "its result is unknown"
+      : "I could not recover its result";
+  const joined =
+    cause === "interruption" && times === undefined ? " and " : ", and ";
+  return (
+    `The ${tool} action ${happened}${joined}${outcome}. ` +
+    "I stopped without running it again. Check whether it completed before asking me to retry."
+  );
+}
+
 /** Why a write of a tool with an unknown earlier call did not run. */
 function unknownSiblingResult(tool: string): string {
   return `Not run: an earlier ${tool} call in this turn may have already applied, and its result is unknown. Running ${tool} again could apply the change twice. Check the current state with a read, then tell the user what you found instead of calling ${tool} again in this turn.`;
@@ -8859,7 +8882,9 @@ export async function runAgentLoop(opts: {
       let actionInvoked = false;
       // Live once invoked, so an abandoned call still reads what ran in it.
       const actionExecutionOutcome: ActionExecutionOutcome = { refused: false };
-      let unknownOutcomeCause: UnknownOutcomeCause = "interruption";
+      // Unset when nothing recorded why, so the call cannot overwrite a cause
+      // another call recorded under a key they share.
+      let unknownOutcomeCause: UnknownOutcomeCause | undefined;
       const ranEffect = (settled: Parameters<typeof invocationEffect>[2]) =>
         actionInvoked && actionEntry
           ? invocationEffect(actionEntry, actionExecutionOutcome, {
@@ -8903,7 +8928,7 @@ export async function runAgentLoop(opts: {
         const persisted = Promise.resolve(
           send({
             ...event,
-            ...(event.outcomeUnknown
+            ...(event.outcomeUnknown && unknownOutcomeCause
               ? { unknownCause: unknownOutcomeCause }
               : {}),
             ...(argumentsHash ? { argumentsHash } : {}),
@@ -9600,12 +9625,13 @@ export async function runAgentLoop(opts: {
       }
       if (executionStepAdmission?.status === "unknown") {
         // The step records no cause; the journal may, for this exact call.
-        unknownOutcomeCause =
-          unknownOutcomes.causes.get(`call:${preparedCallKey}`) ??
-          "interruption";
-        const result =
-          `The ${toolCall.name} action was interrupted and its result is unknown. ` +
-          "I stopped without running it again. Check whether it completed before asking me to retry.";
+        unknownOutcomeCause = unknownOutcomes.causes.get(
+          `call:${preparedCallKey}`,
+        );
+        const result = unknownRepeatResult(
+          toolCall.name,
+          unknownOutcomeCause ?? "interruption",
+        );
         await send({
           type: "tool_start",
           id: toolCall.id,
@@ -9628,7 +9654,7 @@ export async function runAgentLoop(opts: {
           message: result,
           errorCode: "write_tool_outcome_unknown",
           blockedTool: toolCall.name,
-          blockedBy: unknownOutcomeCause,
+          blockedBy: unknownOutcomeCause ?? "interruption",
         };
         return {
           type: "tool-result" as const,
@@ -9827,9 +9853,19 @@ export async function runAgentLoop(opts: {
             content: result,
           };
         }
-        const result =
-          `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s), and I could not recover its result. ` +
-          `I stopped without running it again. Check whether it completed before asking me to retry.`;
+        // The most specific key matched speaks for the call; a broader one
+        // can name a different call that shares it.
+        const blockedBy =
+          (repeated[0]
+            ? unknownOutcomes.causes.get(
+                `${repeated[0][0]}:${repeatKeys[repeated[0][0]]}`,
+              )
+            : undefined) ?? "interruption";
+        const result = unknownRepeatResult(
+          toolCall.name,
+          blockedBy,
+          priorInterruptions,
+        );
         await send({
           type: "tool_start",
           id: toolCall.id,
@@ -9852,14 +9888,7 @@ export async function runAgentLoop(opts: {
             `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
           errorCode: "write_tool_outcome_unknown",
           blockedTool: toolCall.name,
-          blockedBy:
-            // The most specific key matched speaks for the call; a broader
-            // one can name a different call that shares it.
-            (repeated[0]
-              ? unknownOutcomes.causes.get(
-                  `${repeated[0][0]}:${repeatKeys[repeated[0][0]]}`,
-                )
-              : undefined) ?? "interruption",
+          blockedBy,
         };
         return {
           type: "tool-result" as const,
@@ -10596,6 +10625,7 @@ export async function runAgentLoop(opts: {
       } finally {
         if (!toolDoneEmitted && !toolDonePersistenceFailed) {
           const result = `Error running ${toolCall.name}: tool execution ended before returning a result.`;
+          unknownOutcomeCause = "interruption";
           toolDonePersistenceFailed = true;
           await emitToolDone({
             type: "tool_done",

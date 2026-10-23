@@ -202,9 +202,76 @@ describe("durable execution step replay", () => {
     expect(actionRun).not.toHaveBeenCalled();
     expect(events).toContainEqual(
       expect.objectContaining({
+        type: "tool_done",
+        unknownCause: "rejection",
+        result: expect.stringContaining(
+          "The create-deck action failed without confirming whether it saved changes",
+        ),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
         type: "error",
         errorCode: "write_tool_outcome_unknown",
         blockedBy: "rejection",
+      }),
+    );
+  });
+
+  it("records no cause for a step stored as unknown that nothing explains", async () => {
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", { id: "deck-2" })], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [text("Create the deck.")] }],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Deck deck-2"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const done = events.find(
+      (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+        event.type === "tool_done",
+    );
+    expect(done).toMatchObject({
+      outcomeUnknown: true,
+      result: expect.stringContaining(
+        "was interrupted and its result is unknown",
+      ),
+    });
+    expect(done?.unknownCause).toBeUndefined();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "interruption",
       }),
     );
   });
