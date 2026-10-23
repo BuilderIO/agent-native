@@ -5188,9 +5188,19 @@ interface UnknownOutcomes {
   /**
    * What made one unknown, under each key it is counted by in `calls`,
    * `inputs` and `unidentified`, so a call names the cause of the earlier
-   * call it repeats, not of another call of its tool.
+   * call it repeats, not of another call of its tool. `null` where calls
+   * sharing a key recorded different causes: none speaks for the key.
    */
-  causes: Map<string, UnknownOutcomeCause>;
+  causes: Map<string, UnknownOutcomeCause | null>;
+}
+
+function recordUnknownCause(
+  causes: Map<string, UnknownOutcomeCause | null>,
+  key: string,
+  cause: UnknownOutcomeCause | null,
+): void {
+  const recorded = causes.get(key);
+  causes.set(key, recorded === undefined || recorded === cause ? cause : null);
 }
 
 /** The keys an unknown outcome is counted, and its cause recorded, under. */
@@ -5227,7 +5237,7 @@ function noteUnknownOutcome(
     const key = keys[kind];
     if (key === undefined) continue;
     map.set(key, (map.get(key) ?? 0) + 1);
-    if (cause) outcomes.causes.set(`${kind}:${key}`, cause);
+    if (cause) recordUnknownCause(outcomes.causes, `${kind}:${key}`, cause);
   }
 }
 
@@ -5274,7 +5284,9 @@ function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
       into[kind].set(key, Math.max(into[kind].get(key) ?? 0, count));
     }
   }
-  for (const [tool, cause] of from.causes) into.causes.set(tool, cause);
+  for (const [key, cause] of from.causes) {
+    recordUnknownCause(into.causes, key, cause);
+  }
 }
 
 /**
@@ -5366,8 +5378,10 @@ function seedUnknownOutcomes(
     }
   }
 
-  const ambiguousUnknownCalls = new Set<
-    Extract<EngineContentPart, { type: "tool-call" }>
+  // Each call, with the cause its results recorded, when they agree.
+  const ambiguousUnknownCalls = new Map<
+    Extract<EngineContentPart, { type: "tool-call" }>,
+    UnknownOutcomeCause | undefined
   >();
   for (const message of turnMessages) {
     if (message.role === "assistant") continue;
@@ -5390,18 +5404,18 @@ function seedUnknownOutcomes(
       for (const call of namedCandidates.length > 0
         ? namedCandidates
         : candidates) {
-        if (!readOnlyCalls.has(call)) ambiguousUnknownCalls.add(call);
+        if (readOnlyCalls.has(call)) continue;
+        const cause = ambiguousUnknownCalls.has(call)
+          ? ambiguousUnknownCalls.get(call) === part.unknownCause
+            ? part.unknownCause
+            : undefined
+          : part.unknownCause;
+        ambiguousUnknownCalls.set(call, cause);
       }
     }
   }
-  for (const call of ambiguousUnknownCalls) {
-    noteUnknownOutcome(
-      fromHistory,
-      call.name,
-      undefined,
-      undefined,
-      call.input,
-    );
+  for (const [call, cause] of ambiguousUnknownCalls) {
+    noteUnknownOutcome(fromHistory, call.name, undefined, cause, call.input);
   }
 
   mergeUnknownOutcomes(outcomes, fromHistory);
@@ -9619,9 +9633,8 @@ export async function runAgentLoop(opts: {
       }
       if (executionStepAdmission?.status === "unknown") {
         // The step records no cause; the journal may, for this exact call.
-        unknownOutcomeCause = unknownOutcomes.causes.get(
-          `call:${preparedCallKey}`,
-        );
+        unknownOutcomeCause =
+          unknownOutcomes.causes.get(`call:${preparedCallKey}`) ?? undefined;
         const result = unknownRepeatResult(
           toolCall.name,
           unknownOutcomeCause ?? "interruption",
