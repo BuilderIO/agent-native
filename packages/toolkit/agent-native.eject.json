@@ -4,6 +4,27 @@
   "catalogs": ["toolkit-ui", "remote-mcp-presets", "setup-readiness-ui"],
   "units": [
     {
+      "id": "toolkit/ownership-chat-history",
+      "label": "Ownership chat history",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["ownership-chat-history"],
+      "entrypoints": ["./app/chat/ownership-history"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/chat/ownership-history"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["@agent-native/core", "react", "sonner"],
+      "protectedImports": [
+        "@agent-native/core/client/agent-chat",
+        "@agent-native/core/client/api-path",
+        "@agent-native/core/client/i18n",
+        "@agent-native/core/client/use-avatar",
+        "@agent-native/toolkit/chat-history/ChatHistoryRail",
+        "@agent-native/toolkit/chat-history/ChatHistoryList",
+        "@agent-native/toolkit/chat-history/useChatHistoryRailController"
+      ],
+      "verification": ["pnpm typecheck"]
+    },
+    {
       "id": "toolkit/root",
       "label": "Complete Toolkit source",
       "catalog": "toolkit-ui",
@@ -1096,6 +1117,7 @@
         "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-label",
         "@radix-ui/react-popover",
+        "@radix-ui/react-progress",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
         "@radix-ui/react-slot",
@@ -1144,6 +1166,7 @@
         "@agent-native/core/client/onboarding/first-run-registry",
         "@agent-native/core/client/onboarding/first-run-status",
         "@agent-native/core/client/onboarding/use-onboarding",
+        "@agent-native/core/client/onboarding/use-onboarding-checklist",
         "@agent-native/core/client/onboarding/use-preview-mode",
         "@agent-native/core/client/use-dev-mode",
         "@agent-native/core/client/use-session",

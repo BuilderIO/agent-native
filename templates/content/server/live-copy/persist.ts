@@ -16,11 +16,13 @@ import { assertSourceAllowsPageEdit } from "../../actions/_document-source.js";
 import { HISTORY_IDLE_MS } from "../../app/components/editor/document-history-session.js";
 import { changedBlocksBetween } from "../../shared/document-intent-merge.js";
 import { getDb, schema } from "../db/index.js";
+import { followCommentAnchors } from "../lib/comment-anchor-follow.js";
 import {
   documentAttributionActor,
   documentEditAttribution,
 } from "../lib/document-attribution.js";
 import { recordDocumentBodyIntent } from "../lib/document-body-intents.js";
+import { recordDocumentBodyStep } from "../lib/document-body-steps.js";
 import {
   recordDocumentHistoryTransition,
   type DocumentHistoryCause,
@@ -48,6 +50,8 @@ export interface PersistedContentBodyCommit {
   before: string;
   /** The page body this commit wrote: the live copy's derived text. */
   after: string;
+  /** The page's `updatedAt` before this commit. */
+  beforeUpdatedAt: string;
   bodyRevision: number;
   updatedAt: string;
   /** Inline collections the new body no longer holds, now in Trash. */
@@ -83,9 +87,11 @@ export class LiveBodyConversionError extends Error {
 }
 
 // A typing session sends a commit every few hundred milliseconds. History
-// keeps one row per this interval, and each commit inside it updates that
-// row, so a session's last row always holds its final state. A row changes
-// only within the interval after it was created.
+// writes at most one row per this interval, and never rewrites one. A commit
+// inside the interval writes none, and the next row written records the state
+// it replaces, so a session's final state reaches History with the next
+// commit. An agent's edit made on a body no row holds finds it from the
+// commits' body steps.
 const LIVE_COPY_HISTORY_INTERVAL_MS = 2_000;
 
 const pageColumns = {
@@ -283,11 +289,11 @@ export async function lockLiveCopyPage(
 
 type EditorHistory =
   | { kind: "record"; cause: DocumentHistoryCause }
-  | { kind: "update"; versionId: string };
+  | { kind: "skip" };
 
 /**
  * History for a commit no server writer caused: the editor's own updates.
- * They join the actor's open session, one row per interval.
+ * They join the actor's open session, at most one row per interval.
  */
 async function editorHistory(
   db: ContentDb,
@@ -298,7 +304,6 @@ async function editorHistory(
 ): Promise<EditorHistory> {
   const [latest] = await db
     .select({
-      id: schema.documentVersions.id,
       groupId: schema.documentVersions.groupId,
       groupKind: schema.documentVersions.groupKind,
       checkpointKind: schema.documentVersions.checkpointKind,
@@ -337,7 +342,7 @@ async function editorHistory(
       Date.parse(now) - Date.parse(latest.createdAt) <
         LIVE_COPY_HISTORY_INTERVAL_MS
     ) {
-      return { kind: "update", versionId: latest.id };
+      return { kind: "skip" };
     }
     return {
       kind: "record",
@@ -345,7 +350,6 @@ async function editorHistory(
         ...base,
         groupId: latest.groupId,
         groupKind: "human_session",
-        skipBeforeCheckpoint: true,
       },
     };
   }
@@ -432,6 +436,7 @@ async function writeBody(args: {
   const updatedAt = changed
     ? nextDocumentUpdatedAt(page.updatedAt)
     : page.updatedAt;
+  const title = changed ? (cause?.title ?? page.title) : page.title;
   const actor = documentAttributionActor(cause?.ctx);
   // guard:allow-unscoped — writes the page row this transaction locked, for a write already authorized.
   await db
@@ -445,6 +450,7 @@ async function writeBody(args: {
             content: text,
             bodyRevision,
             updatedAt,
+            ...(title !== page.title ? { title } : {}),
             ...(actor ? documentEditAttribution(actor) : {}),
           }
         : {}),
@@ -453,6 +459,15 @@ async function writeBody(args: {
 
   let softDeletedDatabaseIds: string[] = [];
   if (changed) {
+    await recordDocumentBodyStep({
+      db,
+      ownerEmail: page.ownerEmail,
+      documentId,
+      bodyRevision: page.bodyRevision,
+      before: page.content,
+      after: text,
+      now: updatedAt,
+    });
     for (const field of blocksFields) {
       await persistBlocksFieldIdentity({
         db,
@@ -471,6 +486,7 @@ async function writeBody(args: {
       userEmail: actor ?? page.ownerEmail,
       ownerEmail: page.ownerEmail,
       orgId: page.orgId,
+      ...(cause?.calloutSource ? { source: cause.calloutSource } : {}),
     });
     const history: EditorHistory = cause
       ? { kind: "record", cause: serverHistoryCause(cause, actor) }
@@ -481,28 +497,12 @@ async function writeBody(args: {
         ownerEmail: page.ownerEmail,
         documentId,
         before: { title: page.title, content: page.content },
-        after: { title: page.title, content: text },
+        after: { title, content: text },
         beforeBodyRevision: page.bodyRevision,
         afterBodyRevision: bodyRevision,
         cause: history.cause,
         now: updatedAt,
       });
-    } else {
-      await db
-        .update(schema.documentVersions)
-        .set({
-          title: page.title,
-          content: text,
-          bodyRevision,
-          updatedAt,
-        })
-        .where(
-          and(
-            eq(schema.documentVersions.id, history.versionId),
-            eq(schema.documentVersions.ownerEmail, page.ownerEmail),
-            eq(schema.documentVersions.documentId, documentId),
-          ),
-        );
     }
     softDeletedDatabaseIds = await reconcileInlineDatabasesForDocumentWithDb({
       db,
@@ -511,6 +511,11 @@ async function writeBody(args: {
       ownerEmail: page.ownerEmail,
       now: updatedAt,
       lockedDatabaseIds,
+    });
+    await followCommentAnchors(args.tx, {
+      documentId,
+      before: page.content,
+      after: text,
     });
   }
   if (cause?.intent) {
@@ -523,6 +528,7 @@ async function writeBody(args: {
   const persisted = {
     before: page.content,
     after: text,
+    beforeUpdatedAt: page.updatedAt,
     bodyRevision,
     updatedAt,
     softDeletedDatabaseIds,

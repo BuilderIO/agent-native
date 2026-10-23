@@ -505,11 +505,7 @@ interface EditPanelProps {
   aiActions?: ReactNode;
   activeTool?: string;
   scaleToolControls?: ScaleToolControls;
-  onCreateScreenFromPreset?: (preset: {
-    name: string;
-    width: number;
-    height: number;
-  }) => void;
+  onCreateScreenFromPreset?: (preset: FrameSizePreset) => void;
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   onAlignSelection?: (

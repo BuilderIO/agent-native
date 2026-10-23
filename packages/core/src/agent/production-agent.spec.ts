@@ -214,6 +214,12 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
+const completedTurnReplay = vi.hoisted(() => ({
+  stream: null as ReadableStream<Uint8Array> | null,
+}));
+const startRunOptionsSeen = vi.hoisted(
+  () => [] as Array<{ userId?: string } | undefined>,
+);
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 const mockRunManagerFlush = vi.hoisted(() => ({
   onFlush: undefined as (() => Promise<void>) | undefined,
@@ -268,6 +274,7 @@ vi.mock("./run-manager.js", async () => {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
       const [runId, threadId, runFn, onComplete, options] = args;
+      startRunOptionsSeen.push(options);
       return actual.startRun(
         runId,
         threadId,
@@ -289,6 +296,12 @@ vi.mock("./run-manager.js", async () => {
     },
     tryClaimRunSlot: mockTryClaimRunSlot,
     getSlotHoldingRunId: mockGetSlotHoldingRunId,
+    replayCompletedTurn: (
+      ...args: Parameters<typeof actual.replayCompletedTurn>
+    ) =>
+      completedTurnReplay.stream
+        ? Promise.resolve(completedTurnReplay.stream)
+        : actual.replayCompletedTurn(...args),
   };
 });
 
@@ -4179,6 +4192,62 @@ describe("createProductionAgentHandler", () => {
         retryable: false,
       });
       expect(changedSelectorEvent.res.status).toBe(409);
+
+      // A replay names the replayed run's own turn: a drained run's turn is
+      // the queue's, and a direct start keeps the turn its request sent.
+      const replayStream = new ReadableStream<Uint8Array>({
+        start: (controller) => controller.close(),
+      });
+      const subscribeToRun = vi
+        .spyOn(runManager, "subscribeToRun")
+        .mockReturnValue(replayStream);
+      onTestFinished(() => subscribeToRun.mockRestore());
+      const getRun = vi.spyOn(runManager, "getRun");
+      onTestFinished(() => getRun.mockRestore());
+
+      readReceiptStatus.mockResolvedValueOnce({
+        state: "submitted",
+        submittedRunId: "run-drained",
+      });
+      readReceipt.mockResolvedValueOnce(receipt as never);
+      getRun.mockReturnValueOnce({ turnId: `queued-${messageId}` } as never);
+      const submittedRetryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(submittedRetryEvent),
+        ),
+      ).resolves.toBe(replayStream);
+      expect(getRun).toHaveBeenLastCalledWith("run-drained");
+      expect(submittedRetryEvent.res.headers.get("X-Dispatch-Mode")).toBe(
+        "replay",
+      );
+      expect(submittedRetryEvent.res.headers.get("X-Run-Id")).toBe(
+        "run-drained",
+      );
+      expect(submittedRetryEvent.res.headers.get("X-Turn-Id")).toBe(
+        `queued-${messageId}`,
+      );
+
+      append.mockResolvedValueOnce({
+        queuedMessages: [],
+        alreadySubmitted: true,
+        submittedRunId: "run-direct",
+        message: persistedMessage,
+      } as never);
+      getRun.mockReturnValueOnce({ turnId: "turn-direct" } as never);
+      const consumedRetryEvent = makeEvent();
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(consumedRetryEvent),
+        ),
+      ).resolves.toBe(replayStream);
+      expect(getRun).toHaveBeenLastCalledWith("run-direct");
+      expect(consumedRetryEvent.res.headers.get("X-Run-Id")).toBe("run-direct");
+      expect(consumedRetryEvent.res.headers.get("X-Turn-Id")).toBe(
+        "turn-direct",
+      );
     } finally {
       append.mockRestore();
       readReceipt.mockRestore();
@@ -7271,6 +7340,47 @@ describe("createProductionAgentHandler", () => {
     });
   });
 
+  it("names the replayed turn on a completed-turn replay", async () => {
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Again",
+          threadId: "thread-replay",
+          turnId: "turn-finished",
+        }),
+      }),
+    );
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: null,
+      completedRunId: "run-finished",
+    } as never);
+    completedTurnReplay.stream = new ReadableStream({
+      start: (controller) => controller.close(),
+    });
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+
+      expect(response).toBe(completedTurnReplay.stream);
+      expect(event.res.headers.get("X-Dispatch-Mode")).toBe("replay");
+      expect(event.res.headers.get("X-Run-Id")).toBe("run-finished");
+      expect(event.res.headers.get("X-Turn-Id")).toBe("turn-finished");
+    } finally {
+      completedTurnReplay.stream = null;
+    }
+  });
+
   it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
     const seenActionNames: string[][] = [];
     const mcpToolName = `mcp__user_${hashEmail("alice@example.com")}_calendar__list`;
@@ -8995,6 +9105,56 @@ describe("createProductionAgentHandler", () => {
 
     expect(result).toBe(stream);
     expect(subscribeToRun).toHaveBeenCalledWith("run-already-submitted", 0);
+    expect(event.res.headers.get("X-Dispatch-Mode")).toBe("replay");
+    // The accepted run lives in another process here, so its turn is not
+    // known without a read, and the replay names none rather than guessing.
+    expect(event.res.headers.get("X-Turn-Id")).toBeNull();
+  });
+
+  it("names the accepted run's turn when a duplicate submission replays it", async () => {
+    const onRunPrepared = vi.fn(async () => ({
+      duplicateRunId: "run-already-submitted",
+    }));
+    const stream = new ReadableStream<Uint8Array>({
+      start: (controller) => controller.close(),
+    });
+    const subscribeToRun = vi
+      .spyOn(runManager, "subscribeToRun")
+      .mockReturnValue(stream);
+    onTestFinished(() => subscribeToRun.mockRestore());
+    const getRun = vi
+      .spyOn(runManager, "getRun")
+      .mockImplementation((runId) =>
+        runId === "run-already-submitted"
+          ? ({ turnId: "turn-accepted" } as never)
+          : null,
+      );
+    onTestFinished(() => getRun.mockRestore());
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Repeat the queued prompt",
+          turnId: "turn-retry",
+          queuedMessageId: "queued-duplicate",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(result).toBe(stream);
+    expect(event.res.headers.get("X-Run-Id")).toBe("run-already-submitted");
+    expect(event.res.headers.get("X-Turn-Id")).toBe("turn-accepted");
   });
 
   it("anchors retry deadlines to the server request time", async () => {
@@ -9120,6 +9280,7 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
+    const firstRunOption = startRunOptionsSeen.length;
     await startRun("visitor-1", undefined, "session-anonymous", true);
     expect(assertAiSetupReady).not.toHaveBeenCalled();
 
@@ -9137,6 +9298,14 @@ describe("createProductionAgentHandler", () => {
 
     await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(4));
     expect(assertAiSetupReady).toHaveBeenCalledTimes(3);
+    // An anonymous visitor's run reports no user; signed-in runs report theirs.
+    const runUserIds = startRunOptionsSeen
+      .slice(firstRunOption)
+      .map((options) => options?.userId);
+    expect(runUserIds[0]).toBeUndefined();
+    expect(runUserIds).toEqual(
+      expect.arrayContaining(["alice@example.com", "bob@example.com"]),
+    );
     const sources = onRunComplete.mock.calls.map(([, , source]) => source);
     expect(sources).toContainEqual({
       userId: "alice@example.com",
@@ -12169,71 +12338,165 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("does not cache repeated reads when the action opts out of deduping", async () => {
-    let streamCalls = 0;
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        streamCalls += 1;
-        if (streamCalls <= 2) {
+  it.each(["status", "read-result"])(
+    "keeps bounded task %s waits fresh past the repeat threshold",
+    async (action) => {
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          streamCalls += 1;
+          if (streamCalls <= 9) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call" as const,
+                  id: `poll-${streamCalls}`,
+                  name: "agent-teams",
+                  input: { action, taskId: "task-1", waitMs: 20_000 },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "complete" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      let polls = 0;
+      const pollAction = vi.fn(async () => ({
+        status: ++polls === 9 ? "complete" : "running",
+      }));
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "wait" }] }],
+        actions: {
+          "agent-teams": {
+            ...actionEntry({
+              planMode: {
+                effect: (args) =>
+                  args.action === "status" || args.action === "read-result"
+                    ? "read"
+                    : "write",
+              },
+            }),
+            dedupe: false,
+            run: pollAction,
+          },
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(pollAction).toHaveBeenCalledTimes(9);
+      expect(JSON.stringify(events)).not.toContain(
+        "Skipped duplicate read-only",
+      );
+      const completedPoll = events.find(
+        (event) => event.type === "tool_done" && event.id === "poll-9",
+      );
+      expect(completedPoll).toBeDefined();
+      expect(JSON.parse(completedPoll.result)).toEqual({ status: "complete" });
+      expect(events).toContainEqual({ type: "text", text: "complete" });
+    },
+  );
+
+  it.each([
+    ["export-hubspot-html", { designId: "design-1", frameId: "frame-1" }],
+    ["agent-teams", { action: "status", taskId: "task-1", waitMs: 0 }],
+    ["agent-teams", { action: "read-result", taskId: "task-1" }],
+    ["agent-teams", { action: "list", waitMs: 20_000 }],
+    ["agent-teams", { action: "status", taskId: "task-1", waitMs: 20_001 }],
+  ])(
+    "stops repeated uncached %s reads without a bounded task wait (%j)",
+    async (name, input) => {
+      let streamCalls = 0;
+      const run = vi.fn(async () => "fresh result");
+      const events: any[] = [];
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(options): AsyncIterable<EngineEvent> {
+          streamCalls += 1;
+          if (isLoopBreakerCloseout(options) || streamCalls > 9) {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text" as const, text: "Finished." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+            return;
+          }
           yield {
             type: "assistant-content",
             parts: [
               {
                 type: "tool-call" as const,
-                id: `poll-${streamCalls}`,
-                name: "poll-run",
-                input: { id: "run-1" },
+                id: `read-${streamCalls}`,
+                name,
+                input,
               },
             ],
           };
           yield { type: "stop", reason: "tool_use" };
-          return;
-        }
-        yield {
-          type: "assistant-content",
-          parts: [{ type: "text" as const, text: "complete" }],
-        };
-        yield { type: "stop", reason: "end_turn" };
-      },
-    };
-    const pollAction = vi
-      .fn()
-      .mockResolvedValueOnce({ status: "running" })
-      .mockResolvedValueOnce({ status: "complete" });
-    const events: any[] = [];
-
-    await runAgentLoop({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "wait" }] }],
-      actions: {
-        "poll-run": {
-          ...actionEntry({ readOnly: true }),
-          dedupe: false,
-          run: pollAction,
         },
-      },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-    });
+      };
 
-    expect(pollAction).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
-    expect(events).toContainEqual({ type: "text", text: "complete" });
-  });
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "check" }] },
+        ],
+        actions: {
+          [name]: { ...actionEntry({ readOnly: true }), dedupe: false, run },
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+      expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+        MAX_IDENTICAL_TOOL_CALLS,
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+      );
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "error" }),
+      );
+    },
+  );
 
   it("does not treat a suffix collision as the visible cached read result", () => {
     const contextMessages: EngineMessage[] = [
@@ -13456,96 +13719,6 @@ describe("runAgentLoop", () => {
         tool: "get-document",
         result: "fresh document after write",
       }),
-    );
-  });
-
-  it("stops a turn that keeps issuing the same successful tool call with identical arguments", async () => {
-    let streamCalls = 0;
-    const run = vi.fn(async () => "same answer every time");
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: false,
-      },
-      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
-        streamCalls += 1;
-        if (isLoopBreakerCloseout(options)) {
-          yield {
-            type: "assistant-content",
-            parts: [
-              {
-                type: "text" as const,
-                text: "Stopped after eight repeated reads; nothing remains.",
-              },
-            ],
-          };
-          yield { type: "stop", reason: "end_turn" };
-          return;
-        }
-        yield {
-          type: "assistant-content",
-          parts: [
-            {
-              type: "tool-call" as const,
-              id: `tool-loop-${streamCalls}`,
-              name: "spinning-read",
-              input: { q: "same" },
-            },
-          ],
-        };
-        yield { type: "stop", reason: "tool_use" };
-      },
-    };
-    const events: any[] = [];
-
-    await runAgentLoop({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: {
-        "spinning-read": {
-          ...actionEntry({ readOnly: true }),
-          dedupe: false,
-          run,
-        },
-      },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-      maxIterations: MAX_IDENTICAL_TOOL_CALLS,
-    });
-
-    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
-    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "tool_done",
-        tool: "spinning-read",
-        result: "same answer every time",
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "text",
-        text: "Stopped after eight repeated reads; nothing remains.",
-      }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "error" }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "loop_limit" }),
     );
   });
 

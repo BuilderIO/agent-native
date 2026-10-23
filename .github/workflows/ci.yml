@@ -33,7 +33,11 @@ jobs:
       brain_evals: ${{ steps.scope.outputs.brain_evals }}
       build: ${{ steps.scope.outputs.build }}
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
+      trusted_acceptance_apps: ${{ steps.scope.outputs.trusted_acceptance_apps }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
+      scaffold_cli: ${{ steps.scope.outputs.scaffold_cli }}
+      scaffold_workspace: ${{ steps.scope.outputs.scaffold_workspace }}
+      scaffold_workspace_apps: ${{ steps.scope.outputs.scaffold_workspace_apps }}
       builder_code_starter_scaffold: ${{ steps.scope.outputs.builder_code_starter_scaffold }}
       deploy_paths: ${{ steps.scope.outputs.deploy_paths }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
@@ -48,8 +52,12 @@ jobs:
       pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       design_canvas_e2e_diagnostic_specs: ${{ steps.scope.outputs.design_canvas_e2e_diagnostic_specs }}
+      design_canvas_broad_workflow_shards: ${{ steps.scope.outputs.design_canvas_broad_workflow_shards }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
-      slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
+      slides_caret_e2e: ${{ steps.scope.outputs.slides_caret_e2e }}
+      slides_typing_chat_e2e: ${{ steps.scope.outputs.slides_typing_chat_e2e }}
+      slides_mobile_import_e2e: ${{ steps.scope.outputs.slides_mobile_import_e2e }}
+      slides_text_surface_e2e: ${{ steps.scope.outputs.slides_text_surface_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
       slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
       changeset: ${{ steps.scope.outputs.changeset }}
@@ -588,14 +596,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard:
-          [
-            ai-sidebar-loopback,
-            music-app-workflow,
-            home-system-selection,
-            autolayout-vertical-center-trailing,
-            landing-page-build,
-          ]
+        shard: ${{ fromJSON(needs.change-scope.outputs.design_canvas_broad_workflow_shards) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -1489,7 +1490,7 @@ jobs:
   slides-chat-e2e:
     name: Slides chat caret in Chromium
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    if: ${{ needs.change-scope.outputs.slides_caret_e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1517,7 +1518,7 @@ jobs:
   slides-chat-typing-e2e:
     name: Slides chat typing during slide editing
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    if: ${{ needs.change-scope.outputs.slides_typing_chat_e2e == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1545,7 +1546,7 @@ jobs:
   slides-macos-caret-qa:
     name: Slides caret navigation in macOS
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    if: ${{ needs.change-scope.outputs.slides_caret_e2e == 'true' }}
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -1569,6 +1570,79 @@ jobs:
         working-directory: templates/slides
         timeout-minutes: 10
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform darwin
+
+  slides-mobile-import-e2e:
+    name: Slides mobile PowerPoint import status
+    needs: change-scope
+    if: needs.change-scope.outputs.slides_mobile_import_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Check mobile PowerPoint import pending status
+        working-directory: templates/slides
+        timeout-minutes: 15
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
+
+  slides-text-surface-e2e:
+    name: Slides text surfaces (${{ matrix.browser }})
+    needs: change-scope
+    if: needs.change-scope.outputs.slides_text_surface_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright browser
+        run: |
+          if [ "${{ matrix.browser }}" = chromium ]; then
+            pnpm exec playwright install --only-shell --with-deps chromium
+          else
+            pnpm exec playwright install --with-deps "${{ matrix.browser }}"
+          fi
+
+      - name: Check IME Escape preserves slide text editing
+        if: matrix.browser == 'chromium'
+        working-directory: templates/slides
+        timeout-minutes: 15
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+
+      - name: Check typing fidelity across Slides text surfaces
+        working-directory: templates/slides
+        timeout-minutes: 20
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+          ${{ matrix.browser == 'webkit' && '--browser webkit' || '' }}
 
   slides-authoring-e2e:
     name: Slides rich-text authoring (${{ matrix.shard }})
@@ -1609,26 +1683,6 @@ jobs:
               pnpm exec playwright install --with-deps "$browser"
             fi
           done
-
-      - name: Check IME Escape preserves inline slide text editing
-        if: matrix.shard == 'chromium-authoring'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
-
-      - name: Check mobile PowerPoint import pending status
-        if: matrix.shard == 'chromium-authoring'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
-
-      - name: Check typing fidelity across Slides text surfaces in Chromium
-        if: matrix.shard == 'chromium-authoring'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
-
-      - name: Check typing fidelity across Slides text surfaces in WebKit
-        if: matrix.shard == 'webkit'
-        working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
 
       - name: Check rich-text authoring parity in Slides
         if: matrix.shard == 'chromium-authoring'
@@ -1927,17 +1981,24 @@ jobs:
           AGENT_NATIVE_BUILD_SHA: ${{ github.sha }}
           NITRO_PRESET: netlify
         run: |
-          pnpm --filter calendar build
-          pnpm --filter content build
-          test -d templates/calendar/dist
-          test -f templates/calendar/.netlify/functions-internal/server/main.mjs
-          test -d templates/content/dist
-          test -f templates/content/.netlify/functions-internal/server/main.mjs
+          mapfile -t apps < <(jq -r '.[]' <<< '${{ needs.change-scope.outputs.trusted_acceptance_apps }}')
+          if [ "${#apps[@]}" -eq 0 ]; then
+            echo "::error::trusted acceptance was selected without an affected app."
+            exit 1
+          fi
+          for app in "${apps[@]}"; do
+            pnpm --filter "$app" build
+            test -d "templates/$app/dist"
+            test -f "templates/$app/.netlify/functions-internal/server/main.mjs"
+          done
 
   scaffold-e2e:
     name: Scaffold E2E — create + pnpm install
     needs: change-scope
-    if: needs.change-scope.outputs.scaffold == 'true'
+    if: >-
+      needs.change-scope.outputs.scaffold_cli == 'true' ||
+      needs.change-scope.outputs.scaffold_workspace == 'true' ||
+      needs.change-scope.outputs.builder_code_starter_scaffold == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1950,9 +2011,11 @@ jobs:
           restore-dist-cache: "true"
 
       - name: Headless scaffold — pnpm install + typecheck + action
+        if: needs.change-scope.outputs.scaffold_cli == 'true'
         run: pnpm --filter @agent-native/core exec vitest run src/cli/create-e2e.spec.ts
 
       - name: Headless onboarding — local core install + typecheck + action
+        if: needs.change-scope.outputs.scaffold_cli == 'true'
         env:
           AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
         run: >-
@@ -1971,11 +2034,14 @@ jobs:
           pnpm install
           pnpm typecheck
 
-      - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
+      - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install
+        if: needs.change-scope.outputs.scaffold_workspace == 'true'
         env:
           AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
         run: |
-          cd "$(mktemp -d)"
+          workspace_root="$(mktemp -d)"
+          echo "SCAFFOLD_WORKSPACE=$workspace_root/test-workspace" >> "$GITHUB_ENV"
+          cd "$workspace_root"
           node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template chat,calendar,dispatch
           cd test-workspace
           # Required package must be scaffolded
@@ -2032,10 +2098,13 @@ jobs:
             }
           '
           pnpm install
-          # Build generated apps to catch missing peer/runtime deps that
-          # `pnpm install` alone won't surface.
-          pnpm --filter ./apps/calendar build
-          pnpm --filter ./apps/dispatch build
+      - name: Build generated Calendar app
+        if: contains(fromJSON(needs.change-scope.outputs.scaffold_workspace_apps), 'calendar')
+        run: cd "$SCAFFOLD_WORKSPACE" && pnpm --filter ./apps/calendar build
+
+      - name: Build generated Dispatch app
+        if: contains(fromJSON(needs.change-scope.outputs.scaffold_workspace_apps), 'dispatch')
+        run: cd "$SCAFFOLD_WORKSPACE" && pnpm --filter ./apps/dispatch build
 
   ssr-boot-smoke:
     name: SSR cold-start smoke

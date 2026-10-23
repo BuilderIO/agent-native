@@ -33,6 +33,7 @@ function TemplatePreviewContent({
   width,
   height,
   className,
+  fit = "contain",
   interactive = false,
   recordSessionReplay = false,
   onNavigate,
@@ -44,6 +45,7 @@ function TemplatePreviewContent({
   width?: number | null;
   height?: number | null;
   className?: string;
+  fit?: "contain" | "cover";
   interactive?: boolean;
   recordSessionReplay?: boolean;
   onNavigate?: (href: string) => void;
@@ -140,8 +142,9 @@ function TemplatePreviewContent({
       const availableWidth = element.clientWidth;
       const availableHeight = element.clientHeight;
       if (availableWidth > 0 && availableHeight > 0) {
+        const fitScale = fit === "cover" ? Math.max : Math.min;
         setScale(
-          Math.min(
+          fitScale(
             availableWidth / naturalWidth,
             availableHeight / naturalHeight,
           ),
@@ -152,7 +155,7 @@ function TemplatePreviewContent({
     const observer = new ResizeObserver(update);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [naturalHeight, naturalWidth]);
+  }, [fit, naturalHeight, naturalWidth]);
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -289,6 +292,7 @@ function TemplatePreviewContent({
               designId,
             );
         }}
+        data-fit={fit}
         tabIndex={interactive ? 0 : -1}
         aria-hidden={!interactive || undefined}
         className={cn(

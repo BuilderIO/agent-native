@@ -5,18 +5,26 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-22
 
+### Added
+
+- Prototype links can play code-authored screen transitions.
+
 ### Fixed
 
+- Collapsed shader layers no longer interrupt other shaders on the canvas
+- Shader fills keep rendering when other screen content cannot be captured
 - Shader fills and effects render correctly on canvas elements created or updated in the editor.
 
 ## 2026-10-21
 
 ### Added
 
+- A Getting started checklist at the bottom of the sidebar tracks your first design, brand, sharing, teammates, and templates, and checks steps off as you finish them
 - Pulsing Border adds moving color highlights along an element’s outline, with concentrated bright cores, colored falloff, and controls for motion and shape.
 
 ### Improved
 
+- Templates now open a read-only preview from the card, and the home library shows more starters, including dashboard, messaging, task board and design studio screens.
 - Effect thumbnails now show how shaders treat the Agent-Native mark against a quiet tonal background, making their differences easier to judge.
 - Native shader previews use less GPU memory when many mesh effects are visible.
 - Pulsing Border uses the standard Linear and Angular gradient picker for its moving border colors, with up to eight editable stops and a separate Background color. Thickness sets the bright edge, Softness feathers it, Bloom adjusts glow brightness, and Glow spread sets the halo radius. Smoke, margins, offsets, and layout settings stay grouped in collapsible sections.
@@ -49,6 +57,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The Design / Full app toggle on the home page no longer hides behind the Connect AI card.
 - Read-only Design views render native shader previews in nested frames.
 - Selected screens with shader effects can be exported together as a PNG
 - Shader previews stay aligned while you zoom.
@@ -126,6 +135,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Design pages use localized visibility badges and a shared ownership filter.
 - Animated shader fills render together more efficiently and pause work outside the visible canvas.
 - Shader property sliders preview changes while dragging
 - Canvas selection, layer controls, text insertion, grouping, and auto-layout behave more predictably.
