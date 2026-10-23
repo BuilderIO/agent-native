@@ -955,6 +955,8 @@ function isOtherProductMergeGate(sentence, gate) {
 const PR_REVIEW_HANDOFF_RE = new RegExp(
   [
     String.raw`\b(?:you|we|${PR_REVIEW_HANDOFF_SUBJECTS})\b[^.!?]{0,80}\b(?:${PR_REVIEW_HANDOFF_MISS_ACTIONS})\b`,
+    String.raw`\b(?:don't|do not|never|avoid)\b[^.!?]{0,80}\b(?:say|write|use|leave)\b[^.!?]{0,80}\b(?:i\s+have\s+no\s+further(?:\s+check)?\s+feedback|no\s+further(?:\s+check)?\s+feedback)\b`,
+    String.raw`\b(?:i|you|we)\b[^.!?]{0,50}\b(?:should|must|need to)\b[^.!?]{0,30}\b(?:never|not)\b[^.!?]{0,30}\bleave\b[^.!?]{0,80}\b(?:ambiguous|vague|unclear)\b`,
     String.raw`\b(?:you|we)\s+missed\s*:\s*(?:\r?\n\s*[-*]\s*)+(?:${PR_REVIEW_HANDOFF_DETAILS})\b`,
     String.raw`\b(?:you|we)\s+(?:marked|called|classified)\s+(?:it|the\s+PR|the\s+pull\s+request)\s+(?:as\s+)?ready\b[^.!?]{0,80}\b(?:despite|although|without|ignoring)\b[^.!?]{0,40}\b(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)\b`,
     String.raw`\b(?:stop\s+saying|no\s+saying|don't\s+say|do\s+not\s+say|never\s+say)\s+["'“‘]?(?:someone else|another maintainer|another reviewer)\b[^.!?]{0,40}\b(?:needs?\s+to\s+approve|needs?\s+approval|must\s+approve|approval\s+is\s+required)\b`,
@@ -1057,6 +1059,15 @@ const PR_REVIEW_HANDOFF_MATCHER = {
 };
 
 const PR_REVIEW_HANDOFF_REGEX_CASES = [
+  [
+    true,
+    "Don't ever say 'I have no further feedback'; state what they should do next.",
+  ],
+  [
+    true,
+    "I should never leave the PR comment ambiguous about the next action.",
+  ],
+  [false, "I have no further feedback on this check."],
   [
     true,
     "If there are no changes needed, merge it instead of waiting for another reviewer to approve.",
@@ -4039,9 +4050,10 @@ const PATTERNS = [
   },
   {
     key: "pr-review-handoff",
-    label: "Had to correct PR merge handoffs or repeated external follow-ups",
+    label:
+      "Had to correct vague PR dispositions or repeated external follow-ups",
     fixedBy:
-      ".agents/skills/review-prs (ready-PR merge action and external reply gate)",
+      ".agents/skills/review-prs + ship (clear reply disposition and next action)",
     re: PR_REVIEW_HANDOFF_MATCHER,
   },
   {

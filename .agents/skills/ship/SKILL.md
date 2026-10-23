@@ -45,6 +45,13 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   recap, unless the current request explicitly authorizes commenting on that
   exact PR. Review, monitor, fix, push, or merge authorization alone does not
   authorize comments.
+- When an authorized reply is needed, begin by thanking the other person for
+  the PR or their substantive update since the last message. If they have not
+  made a substantive update since then, do not reply again. Never write “I have
+  no further feedback” or another vague closing; state the disposition, exact
+  next action, and who owns it. If the next step is a product, UX, or app-owner
+  decision, keep the PR thread silent and record the gate in the ship ledger
+  and final recap.
 - Before asking for any approval during a resumed shipment, inspect the
   current task transcript for the user's authorization. Record its exact PR,
   repository, branch, and allowed endpoint there once; reuse it across replies,
