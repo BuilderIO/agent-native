@@ -1433,6 +1433,100 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
+  it.each([
+    [
+      "Object.assign on a ref",
+      `Object.assign($refs.hero, { style: 'color: red' })`,
+    ],
+    ["Reflect.set on the root", `Reflect.set($root, 'innerHTML', '')`],
+    [
+      "Object.defineProperty on a ref",
+      `Object.defineProperty($refs.hero, 'className', { value: 'fade' })`,
+    ],
+  ])("rejects %s that reaches a Motion target", (_label, expression) => {
+    const source = html
+      .replace('<main class="card">', '<main class="card" x-data>')
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 data-agent-native-node-id="hero-title" x-ref="hero">',
+      )
+      .replace("</main>", `  <p x-text="(${expression}) && ''"></p>\n  </main>`)
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    [
+      "a sibling replacing its parent's content",
+      (source: string) =>
+        source.replace(
+          "</main>",
+          `  <p x-text="($el.parentElement.innerHTML = '') || ''"></p>\n  </main>`,
+        ),
+    ],
+    [
+      "an ancestor binding replacing its own content",
+      (source: string) =>
+        source.replace(
+          '<main class="card">',
+          `<main class="card" x-bind:title="($el.innerHTML = '') || ''">`,
+        ),
+    ],
+  ])("rejects %s around a Motion target", (_label, edit) => {
+    const source = edit(html).replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("allows a nested component's ref that shadows a Motion target's ref of the same name", () => {
+    const source = html
+      .replace('<main class="card">', '<main class="card" x-data>')
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 data-agent-native-node-id="hero-title" x-ref="hero">',
+      )
+      .replace(
+        "</main>",
+        `  <div x-data><span x-ref="hero"></span><p x-text="($refs.hero.classList.add('seen')) && ''"></p></div>\n  </main>`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
+  it("still rejects an outer component's Motion target ref that no nested ref shadows", () => {
+    const source = html
+      .replace('<main class="card">', '<main class="card" x-data>')
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 data-agent-native-node-id="hero-title" x-ref="hero">',
+      )
+      .replace(
+        "</main>",
+        `  <div x-data><span x-ref="note"></span><p x-text="($refs.hero.classList.add('seen')) && ''"></p></div>\n  </main>`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
   it("allows a $root selector whose root does not contain the Motion target", () => {
     const source = html.replace(
       "</body>",

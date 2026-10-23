@@ -982,6 +982,12 @@ function handlerMayMutateMotionTarget(
   ) {
     return true;
   }
+  if (
+    DIRECT_ELEMENT_CONTENT_REPLACEMENT.test(value) &&
+    containsMotionTarget(handlerNode, nodes, targetIds, generatedIds)
+  ) {
+    return true;
+  }
   const directTargetMutation =
     DIRECT_ELEMENT_MUTATION.test(value) || handlerTargetAliasMayMutate(value);
   if (
@@ -1028,12 +1034,7 @@ function alpineMagicMayMutateMotionTarget(
   targetIds: ReadonlySet<string>,
   generatedIds: Map<number | undefined, string>,
 ): boolean {
-  if (
-    !MUTATION_MEMBER_ACCESS_PATTERN.test(value) &&
-    !CONTENT_REPLACEMENT_ACCESS.test(value)
-  ) {
-    return false;
-  }
+  if (!mayWriteElement(value)) return false;
   const roots = alpineRoots(handlerNode);
   if (roots.length === 0) return false;
   const reachesTarget = (node: HtmlNode) =>
@@ -1044,22 +1045,28 @@ function alpineMagicMayMutateMotionTarget(
 
   const refs =
     /\$refs\b(?:\s*\??\.\s*([A-Za-z_$][\w$]*)|\s*\[\s*(["'])([^"']*)\2\s*\])?/g;
-  for (const match of value.matchAll(refs)) {
-    const name = match[1] ?? match[3];
-    const referenced = nodes.filter(
+  // Alpine merges the refs of every component around the expression, the
+  // nearest first, so a name resolves in the nearest component defining it.
+  const refsIn = (root: HtmlNode, name: string | undefined) =>
+    nodes.filter(
       (node) =>
-        roots.includes(alpineRoots(node)[0]!) &&
+        alpineRoots(node)[0] === root &&
         attributes(node, "x-ref").some(
           ({ value: ref }) => name === undefined || ref === name,
         ),
     );
+  for (const match of value.matchAll(refs)) {
+    const name = match[1] ?? match[3];
+    const referenced =
+      name === undefined
+        ? roots.flatMap((root) => refsIn(root, undefined))
+        : (roots
+            .map((root) => refsIn(root, name))
+            .find((found) => found.length > 0) ?? []);
     if (referenced.some(reachesTarget)) return true;
   }
   return false;
 }
-
-const CONTENT_REPLACEMENT_ACCESS =
-  /(?:\?\.|\.)\s*(?:innerHTML|outerHTML|textContent|innerText|outerText|replaceChildren|replaceWith|remove|removeChild|insertAdjacentHTML)\b|\[\s*["'](?:innerHTML|outerHTML|textContent|innerText|outerText|replaceChildren|replaceWith|remove|removeChild|insertAdjacentHTML)["']\s*\]/;
 
 function alpineRoots(node: HtmlNode): HtmlNode[] {
   const roots: HtmlNode[] = [];
@@ -1071,6 +1078,24 @@ function alpineRoots(node: HtmlNode): HtmlNode[] {
     if (attributes(current, "x-data").length > 0) roots.push(current);
   }
   return roots;
+}
+
+const CONTENT_REPLACEMENT_MEMBERS = String.raw`innerHTML|outerHTML|textContent|innerText|outerText|replaceChildren|replaceWith|remove|removeChild|insertAdjacentHTML`;
+const CONTENT_REPLACEMENT_MEMBER_ACCESS = String.raw`(?:\?\.|\.)\s*(?:${CONTENT_REPLACEMENT_MEMBERS})\b|\[\s*["'](?:${CONTENT_REPLACEMENT_MEMBERS})["']\s*\]`;
+const CONTENT_REPLACEMENT_ACCESS = new RegExp(
+  CONTENT_REPLACEMENT_MEMBER_ACCESS,
+);
+// These write any property named by a string or key, so the member checks
+// cannot tell what they change.
+const REFLECTIVE_WRITE =
+  /\b(?:Object\s*\.\s*(?:assign|defineProperty|defineProperties)|Reflect\s*\.\s*(?:set|defineProperty))\s*\(/;
+
+function mayWriteElement(value: string): boolean {
+  return (
+    MUTATION_MEMBER_ACCESS_PATTERN.test(value) ||
+    CONTENT_REPLACEMENT_ACCESS.test(value) ||
+    REFLECTIVE_WRITE.test(value)
+  );
 }
 
 const MUTATION_MEMBER_ACCESS = String.raw`(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute(?:NS)?\s*\(|removeAttribute\s*\(|toggleAttribute\s*\(|animate\s*\()|\[\s*["'](?:style|classList|className|setAttribute(?:NS)?|removeAttribute|toggleAttribute|animate)["']\s*\]`;
@@ -1118,6 +1143,11 @@ const DIRECT_ELEMENT_MUTATION = new RegExp(
   "i",
 );
 
+const DIRECT_ELEMENT_CONTENT_REPLACEMENT = new RegExp(
+  String.raw`(?:\bthis\b|\$el|\b(?:event|e|\$event)\s*(?:\.\s*currentTarget|\[\s*["']currentTarget["']\s*\]))\s*(?:${CONTENT_REPLACEMENT_MEMBER_ACCESS})`,
+  "i",
+);
+
 const DIRECT_EVENT_TARGET_MUTATION = new RegExp(
   String.raw`(?:\b(?:event|e|\$event)\s*(?:\.\s*target|\[\s*["']target["']\s*\]))\s*(?:${MUTATION_MEMBER_ACCESS})`,
   "i",
@@ -1150,7 +1180,7 @@ function mayMutateThroughDomTraversal(value: string): boolean {
     /(?:\.\s*(?:parentElement|parentNode|children|childNodes|firstElementChild|lastElementChild|firstChild|lastChild|nextElementSibling|previousElementSibling|nextSibling|previousSibling|closest|matches)\b|\[\s*["'](?:parentElement|parentNode|children|childNodes|firstElementChild|lastElementChild|firstChild|lastChild|nextElementSibling|previousElementSibling|nextSibling|previousSibling|closest|matches)["']\s*\])/i.test(
       value,
     );
-  return traversesDom && MUTATION_MEMBER_ACCESS_PATTERN.test(value);
+  return traversesDom && mayWriteElement(value);
 }
 
 function mayMutateThroughAlternateDomRoot(
