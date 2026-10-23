@@ -1,16 +1,23 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { CHATGPT_DIRECTORY_PROFILE as content } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as design } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slides2 } from "../../../../templates/slides-2/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slides } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import {
+  createMcpDirectoryWidgetReadCapability,
   createMcpDirectoryWidgetWriteCapability,
   normalizeMcpDirectoryWidgetReadActionArguments,
   normalizeMcpDirectoryWidgetWriteActionArguments,
   type McpDirectoryWidgetReadArgument,
 } from "../shared/embed-auth.js";
-import type { McpDirectoryWidgetTarget } from "./build-server.js";
+import { defineAction, MCP_APP_MIME_TYPE } from "../action.js";
+import {
+  mcpDirectoryWidgetCapabilityForTool,
+  selectMcpDirectoryWidgetReadActions,
+  type McpDirectoryWidgetTarget,
+} from "./build-server.js";
 
 const cards = [
   {
@@ -167,6 +174,74 @@ describe("existing-resource inline cards", () => {
       expect(targets[tool]!({}, {})).toBeNull();
     },
   );
+
+  it("allows Slides access status only for the cloned deck", async () => {
+    const actionName = "get-deck-access-status";
+    const statusAction = defineAction({
+      schema: z.object({ deckId: z.string() }),
+      description: "Read one deck's access status",
+      http: { method: "GET" },
+      readOnly: true,
+      requiresAuth: false,
+      agentTool: false,
+      run: async () => ({ hasAccess: true }),
+    });
+    const resourceUri = "ui://slides/clone";
+    const identity = {
+      appId: "slides",
+      resourceUri,
+      userEmail: "editor@example.test",
+    };
+    const grant = await mcpDirectoryWidgetCapabilityForTool(
+      {
+        name: "slides",
+        appId: "slides",
+        actions: {},
+        directoryProfile: slides,
+        widgetReadActions: selectMcpDirectoryWidgetReadActions(slides, {
+          [actionName]: statusAction,
+        }),
+      },
+      {
+        uri: resourceUri,
+        name: "Slides clone",
+        html: "",
+        mimeType: MCP_APP_MIME_TYPE,
+      },
+      "clone-context-slide",
+      { deckId: "input-deck" },
+      { deckId: "cloned-deck", slideNumber: 1 },
+      {},
+      identity,
+    );
+    expect(grant?.capability.mode).toBe("read");
+    if (grant?.capability.mode !== "read")
+      throw new Error("Missing read grant");
+    expect(grant.capability.value.actionArguments[actionName]).toEqual({
+      deckId: "cloned-deck",
+    });
+    const scope = createMcpDirectoryWidgetReadCapability(
+      grant.capability.value,
+    );
+    const normalize = (args: Record<string, unknown>, name = actionName) =>
+      normalizeMcpDirectoryWidgetReadActionArguments(scope, {
+        ...identity,
+        actionName: name,
+        args,
+        allowedArgumentNames: ["deckId"],
+      });
+    expect(normalize({ deckId: "cloned-deck" })).toEqual({
+      deckId: "cloned-deck",
+    });
+    expect(normalize({ deckId: "other-deck" })).toBeUndefined();
+    expect(normalize({})).toBeUndefined();
+    expect(normalize({ deckId: "" })).toBeUndefined();
+    expect(
+      normalize({ deckId: ["cloned-deck", "other-deck"] }),
+    ).toBeUndefined();
+    expect(normalize({ deckId: "cloned-deck", extra: true })).toBeUndefined();
+    expect(normalize({ deckId: "cloned-deck" }, "list-decks")).toBeUndefined();
+  });
 
   it("requires authoritative result IDs for every new card", () => {
     for (const { profile, tool, args } of cards) {
