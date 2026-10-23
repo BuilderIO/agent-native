@@ -156,6 +156,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         pending.steps += 1;
         return;
       }
+      if (pendingWheels.length >= 16) return;
       pendingWheels.push(wheel);
     }
     function shouldStartPan(e) {

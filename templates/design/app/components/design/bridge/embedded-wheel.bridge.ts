@@ -27,7 +27,8 @@
  *   and its `seq`, later wheels fold into one pending message per kind of
  *   step, with deltas summed over `steps` wheels (at most 32 per message),
  *   so a host that falls behind doesn't work through a queue of stale steps
- *   after the fingers stop. A
+ *   after the fingers stop. At most 16 steps wait; wheels past that are
+ *   dropped. A
  *   host that hasn't answered in 100 ms (1 s once it has answered before) is
  *   sent the next step anyway.
  *
@@ -88,7 +89,7 @@ declare var __INTERACTION_MODE__: boolean;
     steps: number;
   };
   // Folded steps waiting for the host in arrival order: a new one for each
-  // change of kind and every 32 wheels.
+  // change of kind and every 32 wheels, and at most 16.
   var pendingWheels: ForwardedWheel[] = [];
   var wheelAwaitingHost = false;
   var wheelReadTimer: number | null = null;
@@ -256,7 +257,10 @@ declare var __INTERACTION_MODE__: boolean;
       return;
     }
     // A pinch turning into a scroll is a new kind of step: queue it behind
-    // the folded one rather than mix the two.
+    // the folded one rather than mix the two. A host that leaves 16 steps
+    // unread has stopped keeping up, and more would only play out after the
+    // fingers stop.
+    if (pendingWheels.length >= 16) return;
     pendingWheels.push(wheel);
   }
 

@@ -151,6 +151,28 @@ describe("the embedded wheel bridge", () => {
   );
 
   it(
+    "stops queuing new steps once 16 sit unread",
+    { timeout: 30_000 },
+    async () => {
+      await withPage(async (page) => {
+        // Every wheel switches between a pinch and a scroll, so none fold.
+        await wheels(
+          page,
+          Array.from({ length: 21 }, (_, i) => ({
+            deltaY: 10,
+            ctrlKey: i % 2 === 1,
+          })),
+        );
+        for (let i = 0; i < 20; i += 1) {
+          await read(page);
+          await page.waitForTimeout(5);
+        }
+        expect(await posted(page)).toHaveLength(17);
+      });
+    },
+  );
+
+  it(
     "keeps a pinch and a scroll in separate steps, one unread at a time",
     { timeout: 30_000 },
     async () => {
