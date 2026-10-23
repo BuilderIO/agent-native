@@ -1909,19 +1909,37 @@ function replyExplicitlyOwnsRecordedAction(
             "though",
             "however",
           ]);
+          let currentActionReferences = actionReferences;
           const continuationNegatesAction = continuationParts.some(
             (part, partIndex) => {
               if (partIndex % 2 !== 0 || !part.trim()) return false;
+              const clauseReferences = explicitActionReferenceKeys(part);
+              const normalizedPart = normalizeReplyPhrase(part);
+              const startsDifferentAction =
+                actionReferences.size > 0 &&
+                clauseReferences.size > 0 &&
+                ![...clauseReferences].some((reference) =>
+                  actionReferences.has(reference),
+                ) &&
+                /\b(?:i|we)\b.{0,30}\b(?:take|taking|track|tracking|follow up|following up|handle|handling|own|owning|work on|working on|review|reviewing|investigate|investigating|fix|fixing|check|checking|monitor|monitoring|test|testing|build|building|implement|implementing|confirm|confirming|ship|shipping|start|started|open|opened|create|created|accept|accepted)\b/i.test(
+                  normalizedPart,
+                );
+              if (startsDifferentAction) {
+                currentActionReferences = clauseReferences;
+              }
               const connector = continuationParts[partIndex - 1]
                 ?.trim()
                 .toLowerCase();
               if (
                 connector !== undefined &&
-                conditionalConnectors.has(connector)
+                conditionalConnectors.has(connector) &&
+                (currentActionReferences.size === 0 ||
+                  [...currentActionReferences].some((reference) =>
+                    actionReferences.has(reference),
+                  ))
               ) {
                 return true;
               }
-              const clauseReferences = explicitActionReferenceKeys(part);
               if (
                 actionReferences.size > 0 &&
                 clauseReferences.size > 0 &&
@@ -16306,6 +16324,17 @@ if (args[0] === "--self-test" && args.length === 1) {
     ) {
       throw new Error(
         "self-test accepted ownership conditional on a different PR",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008. I will review PR #9000 if the owner asks.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test rejected an unconditional commitment because a later unrelated action was conditional",
       );
     }
     const foreignSelfOwnedAction = structuredClone(
