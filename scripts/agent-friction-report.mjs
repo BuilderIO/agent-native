@@ -952,13 +952,27 @@ function isOtherProductMergeGate(sentence, gate) {
   );
 }
 
-const PR_REVIEW_COMMENT_CONTEXT = String.raw`(?:\b(?:PR|pull\s+request)\s+(?:comment|reply|response)\b|\breview\s+thread\b|\/pull\/\d+(?:#issuecomment-\d+|\/comments\/\d+)\b)`;
-const PR_REVIEW_VAGUE_CLOSURE_INSTRUCTION = String.raw`\b(?:don['’]t|do\s+not|never|avoid|should\s+never|must\s+never)\b[^\n]{0,80}\b(?:say|write|use|leave|comment|reply)\b`;
-const PR_REVIEW_VAGUE_CLOSURE_TERMS = String.raw`(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)`;
-const PR_REVIEW_VAGUE_CLOSURE_RE = new RegExp(
-  String.raw`(?:${PR_REVIEW_COMMENT_CONTEXT}[^\n]{0,120}${PR_REVIEW_VAGUE_CLOSURE_INSTRUCTION}[^\n]{0,100}\b${PR_REVIEW_VAGUE_CLOSURE_TERMS}\b|${PR_REVIEW_VAGUE_CLOSURE_INSTRUCTION}[^\n]{0,120}(?:${PR_REVIEW_COMMENT_CONTEXT}[^\n]{0,80}\b${PR_REVIEW_VAGUE_CLOSURE_TERMS}\b|\b${PR_REVIEW_VAGUE_CLOSURE_TERMS}\b[^\n]{0,120}${PR_REVIEW_COMMENT_CONTEXT}))`,
+const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
+  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b(?:say|write|use)\b\s+['"“‘]?(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback\b[^\n]{0,120}(?:\b(?:in|on)\s+(?:(?:the|a)\s+)?(?:PR|pull\s+request)\s+(?:comment|reply|response)\b|\/pull\/\d+(?:#issuecomment-\d+|\/comments\/\d+)\b)|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b(?:say|write|use)\b[^.!?\n]{0,15}\b(?:in|on)\s+(?:(?:the|a)\s+)?(?:PR|pull\s+request)\s+(?:comment|reply|response)\b[^.!?\n]{0,50}\b(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback\b)`,
   "i",
 );
+const PR_REVIEW_AMBIGUOUS_COMMENT_RE = new RegExp(
+  String.raw`(?:\b(?:I|you|we)\b[^.!?\n]{0,30}\b(?:should|must|need to)\s+(?:never|not)\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response)\s+(?:ambiguous|vague|unclear)\b|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response)\s+(?:ambiguous|vague|unclear)\b)`,
+  "i",
+);
+const PR_REVIEW_AMBIGUOUS_LINKED_COMMENT_RE = new RegExp(
+  String.raw`(?:\b(?:I|you|we)\b[^.!?\n]{0,30}\b(?:should|must|need to)\s+(?:never|not)\s+leave\s+it\s+(?:ambiguous|vague|unclear)\b[^\n]{0,160}\/pull\/\d+(?:#issuecomment-\d+|\/comments\/\d+)\b|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+leave\s+it\s+(?:ambiguous|vague|unclear)\b[^\n]{0,160}\/pull\/\d+(?:#issuecomment-\d+|\/comments\/\d+)\b)`,
+  "i",
+);
+const PR_REVIEW_VAGUE_CLOSURE_RE = {
+  test(text) {
+    return (
+      PR_REVIEW_NO_FEEDBACK_RE.test(text) ||
+      PR_REVIEW_AMBIGUOUS_COMMENT_RE.test(text) ||
+      PR_REVIEW_AMBIGUOUS_LINKED_COMMENT_RE.test(text)
+    );
+  },
+};
 
 const PR_REVIEW_HANDOFF_RE = new RegExp(
   [
@@ -1097,6 +1111,8 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "The PR reply was vague after the latest author update."],
   [false, "A PR review can be vague without requiring a follow-up."],
   [false, "The pull request comment is unclear to me."],
+  [false, "Don't change the test; the PR comment is vague and unclear."],
+  [false, "I should never leave a test unclear; the PR reply is vague."],
   [false, "We should never merge an ambiguous PR."],
   [false, "I have no further feedback on this check."],
   [
