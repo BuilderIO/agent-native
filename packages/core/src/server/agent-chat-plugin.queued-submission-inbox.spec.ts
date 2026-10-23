@@ -14,7 +14,15 @@ const inboxHarness = vi.hoisted(() => ({
   admissions: [] as Array<Record<string, unknown>>,
   admissionOwnerContexts: [] as Array<Record<string, unknown> | undefined>,
   admissionAttempts: [] as string[],
-  admit: null as ((body: Record<string, any>) => Promise<string>) | null,
+  admit: null as
+    | ((body: Record<string, any>) => Promise<
+        | string
+        | {
+            status: number;
+            response: Record<string, unknown>;
+          }
+      >)
+    | null,
   admissionThrow: null as { messageId: string; error: unknown } | null,
   admissionFailure: null as {
     messageId: string;
@@ -173,6 +181,10 @@ vi.mock("../agent/production-agent.js", async (importOriginal) => {
         }
         const runId = await inboxHarness.admit?.(body);
         if (!runId) throw new Error("Test admission callback was not set");
+        if (typeof runId !== "string") {
+          event.res.status = runId.status;
+          return runId.response;
+        }
         inboxHarness.admissions.push({ ...body });
         event.res.headers.set("X-Run-Id", runId);
       }
@@ -322,7 +334,18 @@ vi.mock("../scripts/dev/index.js", () => ({
   createDevScriptRegistry: async () => ({}),
 }));
 
-import { getRunById } from "../agent/run-store.js";
+import {
+  getRunById,
+  insertRun,
+  insertRunEvent,
+  markTurnAborted,
+  tryClaimRunSlot,
+  updateRunStatus,
+} from "../agent/run-store.js";
+import {
+  consumeAgentToolApproval,
+  createAgentToolApproval,
+} from "../agent/tool-approval-store.js";
 import {
   createThread,
   getQueuedSubmissionReceipt,
@@ -900,6 +923,188 @@ describe("queued submission inbox recurring sweep", () => {
       consoleError.mockRestore();
     }
   }, 20_000);
+
+  it.each(["before draining", "during admission"])(
+    "keeps a follow-up queued when approval pauses %s",
+    async (timing) => {
+      const threadId = `thread-${randomUUID()}`;
+      const actor = { email: "inbox-owner@example.com", anonymous: false };
+      const pausedRunId = `paused-${randomUUID()}`;
+      const turnId = `turn-${randomUUID()}`;
+      const messageId = "follow-up-after-approval";
+      await createThread(actor.email, { id: threadId });
+      await insertRun(pausedRunId, threadId, turnId);
+      const approval = {
+        ownerEmail: actor.email,
+        threadId,
+        turnId,
+        toolName: "release",
+        callId: "release-call",
+        approvalKey: "release-approval",
+      };
+      const pauseForApproval = async () => {
+        await createAgentToolApproval(approval);
+        await insertRunEvent(
+          pausedRunId,
+          0,
+          JSON.stringify({
+            type: "approval_required",
+            tool: "release",
+            input: {},
+            approvalKey: "release-approval",
+          }),
+        );
+        await insertRunEvent(pausedRunId, 1, JSON.stringify({ type: "done" }));
+        await updateRunStatus(pausedRunId, "completed");
+      };
+      if (timing === "before draining") await pauseForApproval();
+      await mutateThreadQueuedMessages(
+        threadId,
+        {
+          type: "append",
+          message: { id: messageId, threadId, text: "Run after the release" },
+        },
+        { actor },
+      );
+
+      let pauseDuringAdmission = timing === "during admission";
+      inboxHarness.admit = async () => {
+        if (pauseDuringAdmission) {
+          pauseDuringAdmission = false;
+          await pauseForApproval();
+        }
+        const runId = `run-${messageId}`;
+        const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+        if (!receipt)
+          throw new Error("Queued receipt disappeared before admit");
+        const slot = await tryClaimRunSlot(threadId, runId, undefined, {
+          turnId: `queued-${messageId}`,
+          deferForPendingApproval: true,
+          afterInsert: (tx) =>
+            markQueuedSubmissionSubmitted(tx, {
+              threadId,
+              messageId,
+              runId,
+              actor,
+              message: receipt.message,
+            }),
+        });
+        if (!slot.claimed)
+          return {
+            status: 409,
+            response: {
+              code: "run_slot_busy",
+              activeRunId: slot.activeRunId,
+              retryable: true,
+            },
+          };
+        return runId;
+      };
+      const runSweep = await createSweepHandler();
+      await runSweep();
+
+      expect(inboxHarness.admissions).toEqual([]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({
+        state: "queued",
+        retryCount: 0,
+      });
+      const continuationId = `approved-${randomUUID()}`;
+      await expect(
+        tryClaimRunSlot(threadId, continuationId, undefined, { turnId }),
+      ).resolves.toMatchObject({
+        claimed: true,
+      });
+      await expect(consumeAgentToolApproval(approval)).resolves.toBe(true);
+      await insertRunEvent(continuationId, 0, JSON.stringify({ type: "done" }));
+      await updateRunStatus(continuationId, "completed");
+      await runSweep();
+
+      expect(
+        inboxHarness.admissions.map((body) => body.agentKitMessageId),
+      ).toEqual([messageId]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({
+        state: "submitted",
+        submittedRunId: `run-${messageId}`,
+      });
+    },
+  );
+
+  it.each(["expired", "aborted", "interrupted", "superseded"] as const)(
+    "does not let an %s approval pause block queued work",
+    async (state) => {
+      const threadId = `thread-${randomUUID()}`;
+      const turnId = `turn-${randomUUID()}`;
+      const runId = `paused-${randomUUID()}`;
+      const messageId = "follow-up";
+      const actor = { email: "inbox-owner@example.com", anonymous: false };
+      await createThread(actor.email, { id: threadId });
+      await insertRun(runId, threadId, turnId);
+      await createAgentToolApproval({
+        ownerEmail: actor.email,
+        threadId,
+        turnId,
+        toolName: "release",
+        callId: "release-call",
+        approvalKey: "release-approval",
+        ...(state === "expired" ? { expiresAt: Date.now() - 1 } : {}),
+      });
+      if (state === "aborted") await markTurnAborted(threadId, turnId);
+      else await updateRunStatus(runId, "completed");
+      if (state === "superseded") {
+        const later = Date.now() + 1;
+        vi.spyOn(Date, "now").mockReturnValue(later);
+        await insertRun("later-run", threadId, "later-turn");
+        await updateRunStatus("later-run", "completed");
+      }
+      await mutateThreadQueuedMessages(
+        threadId,
+        {
+          type: "append",
+          message: {
+            id: messageId,
+            threadId,
+            text: "Queued work",
+            ...(state === "interrupted" ? { interruptActiveRun: true } : {}),
+          },
+        },
+        { actor },
+      );
+      inboxHarness.admit = async () => {
+        const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+        if (!receipt)
+          throw new Error("Queued receipt disappeared before admit");
+        const slot = await tryClaimRunSlot(threadId, "queued-run", undefined, {
+          turnId: "queued-turn",
+          deferForPendingApproval: state !== "interrupted",
+          afterInsert: (tx) =>
+            markQueuedSubmissionSubmitted(tx, {
+              threadId,
+              messageId,
+              runId: "queued-run",
+              actor,
+              message: receipt.message,
+            }),
+        });
+        expect(slot.claimed).toBe(true);
+        return "queued-run";
+      };
+
+      const runSweep = await createSweepHandler();
+      const response = await runSweep();
+      expect(response.status).toBe(200);
+      expect(inboxHarness.admissionAttempts).toEqual([messageId]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({
+        state: "submitted",
+        submittedRunId: "queued-run",
+      });
+    },
+  );
 
   it("blocks a non-retryable thrown admission and advances the same-thread queue", async () => {
     const threadId = `thread-${randomUUID()}`;

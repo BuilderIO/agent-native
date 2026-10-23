@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -264,6 +264,36 @@ export async function isAgentToolAlwaysAllowed(
     ],
   });
   return (result.rows ?? []).length > 0;
+}
+
+export async function hasPendingCurrentTurnApproval(
+  threadId: string,
+  tx: DbExec,
+): Promise<boolean> {
+  const { rows } = await tx.execute({
+    sql: `WITH latest_run AS (
+            SELECT COALESCE(turn_id, id) AS turn_id, status
+            FROM agent_runs
+            WHERE thread_id = ? AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+            ORDER BY started_at DESC, COALESCE(continuation_order, 0) DESC
+            LIMIT 1
+          )
+          SELECT approval.id FROM agent_tool_approvals approval
+          JOIN latest_run ON latest_run.turn_id = approval.turn_id
+          WHERE approval.thread_id = ? AND approval.status = 'pending'
+            AND approval.expires_at > ?
+            AND latest_run.status IN ('running', 'completed')
+            AND NOT EXISTS (
+              SELECT 1 FROM agent_runs stopped
+              WHERE stopped.thread_id = approval.thread_id
+                AND stopped.turn_id = approval.turn_id
+                AND stopped.dispatch_mode = 'turn-abort'
+                AND stopped.status = 'aborted'
+            )
+          LIMIT 1`,
+    args: [threadId, threadId, Date.now()],
+  });
+  return rows.length > 0;
 }
 
 export async function resolveAgentToolApprovalTurnId(binding: {

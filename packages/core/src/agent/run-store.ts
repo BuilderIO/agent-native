@@ -59,6 +59,10 @@ import {
   type RunTerminalTrackingFields,
 } from "./run-terminal-tracking.js";
 import {
+  ensureAgentToolApprovalTable,
+  hasPendingCurrentTurnApproval,
+} from "./tool-approval-store.js";
+import {
   isConsistentToolCallInputFingerprint,
   isUnavailableToolCallInput,
   toolCallInputFingerprint,
@@ -1806,6 +1810,8 @@ export async function tryClaimRunSlot(
     continueOf?: { runId: string; trigger: ContinueTrigger };
     /** Defer a fresh turn while an earlier accepted inbox submission is queued. */
     hasPendingQueuedSubmission?: (tx: DbExec) => Promise<boolean>;
+    /** Ordinary queued follow-ups cannot supersede a turn awaiting approval. */
+    deferForPendingApproval?: boolean;
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<{
@@ -1823,6 +1829,7 @@ export async function tryClaimRunSlot(
   const client = getDbExec();
   const now = Date.now();
   const turnId = options?.turnId ?? runId;
+  if (options?.deferForPendingApproval) await ensureAgentToolApprovalTable();
   const continueOf = options?.continueOf;
   // A continuation names a run that already ended, so replaying the turn's
   // last finished run would hand back the stop it asked to move past.
@@ -1872,6 +1879,12 @@ export async function tryClaimRunSlot(
     );
     if (activeRunId) {
       return { result: { claimed: false, activeRunId } } as const;
+    }
+    if (
+      options?.deferForPendingApproval &&
+      (await hasPendingCurrentTurnApproval(threadId, tx))
+    ) {
+      return { result: { claimed: false, activeRunId: null } } as const;
     }
     if (replayCompletedTurn) {
       const latest = await tx.execute({
