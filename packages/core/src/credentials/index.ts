@@ -10,7 +10,7 @@ import {
   readAppSecret,
   type SecretRef,
 } from "../secrets/storage.js";
-import { assertCredentialStoreReadable } from "../server/credential-provider.js";
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   isPersonalCredentialScope,
   readsOrgCredentialFirst,
@@ -257,7 +257,9 @@ export async function resolveCredentialDetailed(
   if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   const orgLookup = await resolveEffectiveOrgId(ctx);
   // Before the personal answer: without the org, an owner's role is unknown.
-  assertCredentialStoreReadable(orgLookup);
+  if (orgLookup.lookupFailed) {
+    throw new CredentialStoreUnavailableError(orgLookup.cause);
+  }
   const { orgId } = orgLookup;
   // An owner or admin runs on the organization's credential ahead of their own.
   if (personal && !(await readsOrgCredentialFirst(orgId, ctx.userEmail))) {
