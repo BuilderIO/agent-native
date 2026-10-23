@@ -104,6 +104,55 @@ describe("agent discovery", () => {
     resetBuiltinAgentsConfigForTests();
   });
 
+  it("does not expose agents to messaging callers without conversation grants", async () => {
+    await runWithRequestContext(
+      { userEmail: "user@example.test", isIntegrationCaller: true },
+      async () => {
+        expect(await discoverAgents("dispatch")).toEqual([]);
+        expect(getBuiltinAgents("dispatch")).toEqual([]);
+        expect(await findAgent("analytics", "dispatch")).toBeUndefined();
+      },
+    );
+  });
+
+  it("limits messaging discovery and aliases to granted canonical profiles", async () => {
+    await runWithRequestContext(
+      {
+        userEmail: "user@example.test",
+        isIntegrationCaller: true,
+        allowedAgentIds: ["analytics"],
+      },
+      async () => {
+        expect(
+          (await discoverAgents("dispatch")).map((agent) => agent.id),
+        ).toEqual(["analytics"]);
+        expect((await findAgent("Analytics", "dispatch"))?.id).toBe(
+          "analytics",
+        );
+        expect(await findAgent("content", "dispatch")).toBeUndefined();
+      },
+    );
+  });
+
+  it("keeps conversation grants isolated between concurrent messaging runs", async () => {
+    const discover = (allowedAgentIds: string[]) =>
+      runWithRequestContext(
+        {
+          userEmail: "user@example.test",
+          isIntegrationCaller: true,
+          allowedAgentIds,
+        },
+        async () => (await discoverAgents("dispatch")).map((agent) => agent.id),
+      );
+    expect(
+      await Promise.all([
+        discover(["analytics"]),
+        discover(["content"]),
+        discover([]),
+      ]),
+    ).toEqual([["analytics"], ["content"], []]);
+  });
+
   it("derives built-in connected agents from public and default-agent production templates", () => {
     const expected = TEMPLATES.filter(
       (template) =>

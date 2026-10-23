@@ -273,10 +273,20 @@ const messages = {
       disconnect: "中斷連線",
       empty:
         "尚未連線任何受管理的工作區。下方仍提供手動憑證，供本機與舊版設定使用。",
-      channelAccessTitle: "頻道存取權與預算",
+      channelAccessTitle: "對話存取權與預算",
       channelAccessDescription:
         "每個頻道都以隔離的服務身分執行。訪客、Slack Connect 和無需提及的存取預設關閉，直到管理員在此啟用。",
       isolatedIdentity: "{{trust}} · 隔離的服務身分",
+      directMessage: "私訊",
+      allowedProfiles: "允許的設定檔",
+      allowedProfilesDescription:
+        "預設不允許任何設定檔。請選擇此對話可以委派的設定檔。",
+      profilesLoading: "正在載入設定檔…",
+      profilesLoadFailed: "部分設定檔無法載入。現有授權保持不變。",
+      profilesRetry: "重試",
+      profilesEmpty: "沒有可用的設定檔。",
+      accessUpdated: "已更新對話存取權",
+      accessUpdateFailed: "無法更新對話存取權",
       trust: {
         trusted: "受信任",
         guest: "訪客",

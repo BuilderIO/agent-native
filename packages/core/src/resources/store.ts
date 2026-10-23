@@ -28,6 +28,7 @@ import {
   type LocalWorkspaceResourceMeta,
 } from "../local-artifacts/index.js";
 import {
+  getAllowedIntegrationAgentIds,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -37,8 +38,10 @@ import {
   type StoreWriteOptions,
 } from "../settings/store.js";
 import { isPersistableAttachmentUrl } from "../shared/attachments.js";
+import { normalizeAgentId } from "../shared/first-party-agents.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
+import { isRemoteAgentPath, parseRemoteAgentManifest } from "./metadata.js";
 
 export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
@@ -217,9 +220,39 @@ function legacyDispatchWorkspaceResourceId(
     : null;
 }
 
+function isIntegrationResourceVisible(resource: {
+  path: string;
+  content?: string;
+}): boolean {
+  const allowed = getAllowedIntegrationAgentIds();
+  if (allowed === undefined) return true;
+  if (isRemoteAgentPath(resource.path)) {
+    if (resource.content === undefined) return false;
+    const manifest = parseRemoteAgentManifest(resource.content, resource.path);
+    return manifest !== null && allowed.includes(normalizeAgentId(manifest.id));
+  }
+  const profile = /^agents\/([^/]+)(?:\.md$|\/)/.exec(resource.path);
+  return !profile || allowed.includes(`agents/${profile[1]}.md`);
+}
+
+async function filterIntegrationResources<
+  T extends { id: string; path: string; content?: string },
+>(resources: T[]): Promise<T[]> {
+  if (getAllowedIntegrationAgentIds() === undefined) return resources;
+  const visible = await Promise.all(
+    resources.map(async (resource) =>
+      resource.content === undefined && isRemoteAgentPath(resource.path)
+        ? (await resourceGet(resource.id)) !== null
+        : isIntegrationResourceVisible(resource),
+    ),
+  );
+  return resources.filter((_resource, index) => visible[index]);
+}
+
 async function filterLegacyDispatchWorkspaceRows<
-  T extends Pick<ResourceMeta, "owner" | "metadata">,
+  T extends Pick<ResourceMeta, "id" | "owner" | "metadata" | "path">,
 >(resources: T[], orgId: string | null): Promise<T[]> {
+  resources = await filterIntegrationResources(resources);
   const legacyIds = new Set<string>();
   for (const resource of resources) {
     const resourceId = legacyDispatchWorkspaceResourceId(resource);
@@ -1649,7 +1682,8 @@ export async function resourceGet(
 ): Promise<Resource | null> {
   await ensureTable();
   if (isLocalWorkspaceResourceId(id)) {
-    return localWorkspaceResourceById(id);
+    const local = await localWorkspaceResourceById(id);
+    return local && isIntegrationResourceVisible(local) ? local : null;
   }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
@@ -1657,8 +1691,12 @@ export async function resourceGet(
     sql: `SELECT * FROM resources WHERE id = ?`,
     args: [id],
   });
-  if (rows.length === 0) return grantedWorkspaceResourceById(id, options);
+  if (rows.length === 0) {
+    const granted = await grantedWorkspaceResourceById(id, options);
+    return granted && isIntegrationResourceVisible(granted) ? granted : null;
+  }
   const resource = rowToResource(rows[0]);
+  if (!isIntegrationResourceVisible(resource)) return null;
   const orgId = resourceOrganizationId(options?.orgId);
   if (
     !isOrganizationWorkspaceResourceVisibleToOrganization(resource.owner, orgId)
@@ -1677,6 +1715,8 @@ export async function resourceGetByPath(
   path: string,
   options?: ResourceResolutionOptions,
 ): Promise<Resource | null> {
+  if (!isRemoteAgentPath(path) && !isIntegrationResourceVisible({ path }))
+    return null;
   await ensureTable();
   const orgId = resourceOrganizationId(options?.orgId);
   if (!isOrganizationWorkspaceResourceVisibleToOrganization(owner, orgId)) {
@@ -1688,7 +1728,7 @@ export async function resourceGetByPath(
     : [owner];
   if (isBareWorkspaceResourceOwner(owners[0])) {
     const local = await localWorkspaceResourceByPath(path);
-    if (local) return local;
+    if (local) return isIntegrationResourceVisible(local) ? local : null;
   }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
@@ -1720,10 +1760,13 @@ export async function resourceGetByPath(
     );
     if (organizationResource) return organizationResource;
     const local = await localWorkspaceResourceByPath(path);
-    if (local) return local;
+    if (local) return isIntegrationResourceVisible(local) ? local : null;
     if (resources[0]) return resources[0];
   }
-  return workspace ? grantedWorkspaceResourceByPath(path, options) : null;
+  const granted = workspace
+    ? await grantedWorkspaceResourceByPath(path, options)
+    : null;
+  return granted && isIntegrationResourceVisible(granted) ? granted : null;
 }
 
 export async function ensureResourceStoreReady(): Promise<void> {
@@ -2822,7 +2865,9 @@ export async function resourceList(
     orgId: options?.orgId,
   });
   return limitResourceMetas(
-    mergeResourceMetas(workspaceResources, granted.map(resourceToMeta)),
+    await filterIntegrationResources(
+      mergeResourceMetas(workspaceResources, granted.map(resourceToMeta)),
+    ),
     options?.limit,
   );
 }
@@ -3084,7 +3129,19 @@ async function readAllOwners(pathPrefix: string): Promise<{
   const localResources = (
     await Promise.all(localMetas.map((resource) => resourceGet(resource.id)))
   ).filter((resource): resource is Resource => !!resource);
-  return { rows, localMetas, localResources };
+  const visibleRows = rows.filter((row) =>
+    isIntegrationResourceVisible({
+      path: row.path as string,
+      content: row.content as string | undefined,
+    }),
+  );
+  return {
+    rows: visibleRows,
+    localMetas: localMetas.filter((meta) =>
+      localResources.some((resource) => resource.id === meta.id),
+    ),
+    localResources,
+  };
 }
 
 function mergeAllOwners(

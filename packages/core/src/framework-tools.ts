@@ -66,8 +66,8 @@ export interface FrameworkToolsOption {
    *  (`get-file-storage`, `manage-file-storage`), service providers
    *  (`manage-service-providers`), the infrastructure read
    *  (`get-infrastructure-status`), and messaging channels
-   *  (`list-messaging-channels`, `manage-messaging-channel`) for the active
-   *  org. */
+   *  (`list-messaging-channels`, `manage-messaging-channel`) and conversation
+   *  scopes (`list-integration-scopes`, `save-integration-scope`) for the active org. */
   orgAdministration?: boolean;
   preset?: "minimal";
 }
@@ -204,6 +204,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-infrastructure-status": "orgAdministration",
   "list-messaging-channels": "orgAdministration",
   "manage-messaging-channel": "orgAdministration",
+  "list-integration-scopes": "orgAdministration",
+  "save-integration-scope": "orgAdministration",
   "share-resource": "sharing",
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",

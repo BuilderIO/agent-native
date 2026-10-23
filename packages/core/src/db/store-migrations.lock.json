@@ -409,6 +409,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "allowed-agent-ids",
+      "checksum": "1369989faf2b5d5f"
     }
   ],
   "custom_api_providers": [

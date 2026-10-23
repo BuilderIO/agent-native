@@ -294,10 +294,21 @@ const enUS = {
       disconnect: "Disconnect",
       empty:
         "No managed workspaces connected yet. Manual credentials remain available below for local and legacy setups.",
-      channelAccessTitle: "Channel access and budgets",
+      channelAccessTitle: "Conversation access and budgets",
       channelAccessDescription:
         "Each channel runs as an isolated service identity. Guest, Slack Connect, and no-mention access stay off until an admin enables them here.",
       isolatedIdentity: "{{trust}} · isolated service identity",
+      directMessage: "Direct message",
+      allowedProfiles: "Allowed profiles",
+      allowedProfilesDescription:
+        "No profiles are allowed by default. Select profiles this conversation can delegate to.",
+      profilesLoading: "Loading profiles…",
+      profilesLoadFailed:
+        "Some profiles could not be loaded. Existing grants are unchanged.",
+      profilesRetry: "Retry",
+      profilesEmpty: "No profiles available.",
+      accessUpdated: "Conversation access updated",
+      accessUpdateFailed: "Could not update conversation access",
       trust: {
         trusted: "Trusted",
         guest: "Guest",
@@ -1530,10 +1541,20 @@ export const messagesByLocale = {
           disconnect: "断开连接",
           empty:
             "尚未连接托管工作区。下方仍提供手动凭据，供本地和旧版设置使用。",
-          channelAccessTitle: "频道访问和预算",
+          channelAccessTitle: "会话访问和预算",
           channelAccessDescription:
             "每个频道都以隔离的服务身份运行。访客、Slack Connect 和无需提及的访问默认关闭，直到管理员在此启用。",
           isolatedIdentity: "{{trust}} · 隔离的服务身份",
+          directMessage: "私信",
+          allowedProfiles: "允许的配置档案",
+          allowedProfilesDescription:
+            "默认不允许任何配置档案。请选择此会话可以委派的配置档案。",
+          profilesLoading: "正在加载配置档案…",
+          profilesLoadFailed: "部分配置档案无法加载。现有授权保持不变。",
+          profilesRetry: "重试",
+          profilesEmpty: "没有可用的配置档案。",
+          accessUpdated: "已更新会话访问权限",
+          accessUpdateFailed: "无法更新会话访问权限",
           trust: {
             trusted: "受信任",
             guest: "访客",
@@ -1989,10 +2010,22 @@ export const messagesByLocale = {
           disconnect: "Desconectar",
           empty:
             "Aún no hay espacios de trabajo gestionados conectados. Las credenciales manuales siguen disponibles abajo para configuraciones locales y antiguas.",
-          channelAccessTitle: "Acceso y presupuestos del canal",
+          channelAccessTitle: "Acceso y presupuestos de conversaciones",
           channelAccessDescription:
             "Cada canal se ejecuta con una identidad de servicio aislada. El acceso para invitados, Slack Connect y sin mención permanece desactivado hasta que un administrador lo habilite aquí.",
           isolatedIdentity: "{{trust}} · identidad de servicio aislada",
+          directMessage: "Mensaje directo",
+          allowedProfiles: "Perfiles permitidos",
+          allowedProfilesDescription:
+            "No se permite ningún perfil de forma predeterminada. Selecciona los perfiles a los que puede delegar esta conversación.",
+          profilesLoading: "Cargando perfiles…",
+          profilesLoadFailed:
+            "No se pudieron cargar algunos perfiles. Los permisos existentes no han cambiado.",
+          profilesRetry: "Reintentar",
+          profilesEmpty: "No hay perfiles disponibles.",
+          accessUpdated: "Acceso de la conversación actualizado",
+          accessUpdateFailed:
+            "No se pudo actualizar el acceso de la conversación",
           trust: {
             trusted: "De confianza",
             guest: "Invitado",
@@ -2462,10 +2495,22 @@ export const messagesByLocale = {
           disconnect: "Déconnecter",
           empty:
             "Aucun espace de travail géré n’est encore connecté. Les identifiants manuels restent disponibles ci-dessous pour les configurations locales et anciennes.",
-          channelAccessTitle: "Accès au canal et budgets",
+          channelAccessTitle: "Accès aux conversations et budgets",
           channelAccessDescription:
             "Chaque canal s’exécute avec une identité de service isolée. L’accès des invités, de Slack Connect et sans mention reste désactivé jusqu’à ce qu’un administrateur l’active ici.",
           isolatedIdentity: "{{trust}} · identité de service isolée",
+          directMessage: "Message direct",
+          allowedProfiles: "Profils autorisés",
+          allowedProfilesDescription:
+            "Aucun profil n’est autorisé par défaut. Sélectionnez les profils auxquels cette conversation peut déléguer.",
+          profilesLoading: "Chargement des profils…",
+          profilesLoadFailed:
+            "Certains profils n’ont pas pu être chargés. Les autorisations existantes restent inchangées.",
+          profilesRetry: "Réessayer",
+          profilesEmpty: "Aucun profil disponible.",
+          accessUpdated: "Accès à la conversation mis à jour",
+          accessUpdateFailed:
+            "Impossible de mettre à jour l’accès à la conversation",
           trust: {
             trusted: "Fiable",
             guest: "Invité",
@@ -2926,10 +2971,22 @@ export const messagesByLocale = {
           disconnect: "Trennen",
           empty:
             "Noch keine verwalteten Workspaces verbunden. Manuelle Anmeldedaten bleiben unten für lokale und ältere Setups verfügbar.",
-          channelAccessTitle: "Kanalzugriff und Budgets",
+          channelAccessTitle: "Konversationszugriff und Budgets",
           channelAccessDescription:
             "Jeder Kanal läuft mit einer isolierten Dienstidentität. Gast-, Slack-Connect- und Zugriff ohne Erwähnung bleiben deaktiviert, bis ein Admin sie hier aktiviert.",
           isolatedIdentity: "{{trust}} · isolierte Dienstidentität",
+          directMessage: "Direktnachricht",
+          allowedProfiles: "Erlaubte Profile",
+          allowedProfilesDescription:
+            "Standardmäßig sind keine Profile erlaubt. Wähle die Profile, an die diese Konversation delegieren darf.",
+          profilesLoading: "Profile werden geladen…",
+          profilesLoadFailed:
+            "Einige Profile konnten nicht geladen werden. Bestehende Berechtigungen bleiben unverändert.",
+          profilesRetry: "Erneut versuchen",
+          profilesEmpty: "Keine Profile verfügbar.",
+          accessUpdated: "Konversationszugriff aktualisiert",
+          accessUpdateFailed:
+            "Konversationszugriff konnte nicht aktualisiert werden",
           trust: {
             trusted: "Vertrauenswürdig",
             guest: "Gast",
@@ -3384,10 +3441,21 @@ export const messagesByLocale = {
           disconnect: "切断",
           empty:
             "管理対象のワークスペースはまだ接続されていません。ローカルおよび従来の設定用に、手動の認証情報を引き続き下で利用できます。",
-          channelAccessTitle: "チャンネルアクセスと予算",
+          channelAccessTitle: "会話のアクセスと予算",
           channelAccessDescription:
             "各チャンネルは分離されたサービス ID で実行されます。ゲスト、Slack Connect、メンションなしのアクセスは、管理者がここで有効にするまで無効です。",
           isolatedIdentity: "{{trust}} · 分離されたサービス ID",
+          directMessage: "ダイレクトメッセージ",
+          allowedProfiles: "許可するプロフィール",
+          allowedProfilesDescription:
+            "既定ではプロフィールは許可されません。この会話から委任できるプロフィールを選択してください。",
+          profilesLoading: "プロフィールを読み込み中…",
+          profilesLoadFailed:
+            "一部のプロフィールを読み込めませんでした。既存の許可は変更されていません。",
+          profilesRetry: "再試行",
+          profilesEmpty: "利用可能なプロフィールはありません。",
+          accessUpdated: "会話のアクセスを更新しました",
+          accessUpdateFailed: "会話のアクセスを更新できませんでした",
           trust: {
             trusted: "信頼済み",
             guest: "ゲスト",
@@ -3836,10 +3904,21 @@ export const messagesByLocale = {
           disconnect: "연결 해제",
           empty:
             "연결된 관리형 워크스페이스가 아직 없습니다. 로컬 및 레거시 설정에는 아래의 수동 자격 증명을 계속 사용할 수 있습니다.",
-          channelAccessTitle: "채널 액세스 및 예산",
+          channelAccessTitle: "대화 액세스 및 예산",
           channelAccessDescription:
             "각 채널은 격리된 서비스 ID로 실행됩니다. 게스트, Slack Connect, 멘션 없는 액세스는 관리자가 여기에서 허용할 때까지 꺼져 있습니다.",
           isolatedIdentity: "{{trust}} · 격리된 서비스 ID",
+          directMessage: "다이렉트 메시지",
+          allowedProfiles: "허용된 프로필",
+          allowedProfilesDescription:
+            "기본적으로 허용된 프로필은 없습니다. 이 대화에서 위임할 수 있는 프로필을 선택하세요.",
+          profilesLoading: "프로필 로드 중…",
+          profilesLoadFailed:
+            "일부 프로필을 로드하지 못했습니다. 기존 권한은 변경되지 않았습니다.",
+          profilesRetry: "다시 시도",
+          profilesEmpty: "사용 가능한 프로필이 없습니다.",
+          accessUpdated: "대화 액세스가 업데이트되었습니다",
+          accessUpdateFailed: "대화 액세스를 업데이트하지 못했습니다",
           trust: {
             trusted: "신뢰됨",
             guest: "게스트",
@@ -4296,10 +4375,21 @@ export const messagesByLocale = {
           disconnect: "Desconectar",
           empty:
             "Ainda não há workspaces gerenciados conectados. As credenciais manuais continuam disponíveis abaixo para configurações locais e antigas.",
-          channelAccessTitle: "Acesso e orçamentos do canal",
+          channelAccessTitle: "Acesso e orçamentos de conversas",
           channelAccessDescription:
             "Cada canal é executado com uma identidade de serviço isolada. O acesso para convidados, Slack Connect e sem menção permanece desativado até que um administrador o habilite aqui.",
           isolatedIdentity: "{{trust}} · identidade de serviço isolada",
+          directMessage: "Mensagem direta",
+          allowedProfiles: "Perfis permitidos",
+          allowedProfilesDescription:
+            "Nenhum perfil é permitido por padrão. Selecione os perfis aos quais esta conversa pode delegar.",
+          profilesLoading: "Carregando perfis…",
+          profilesLoadFailed:
+            "Não foi possível carregar alguns perfis. As permissões existentes não foram alteradas.",
+          profilesRetry: "Tentar novamente",
+          profilesEmpty: "Nenhum perfil disponível.",
+          accessUpdated: "Acesso da conversa atualizado",
+          accessUpdateFailed: "Não foi possível atualizar o acesso da conversa",
           trust: {
             trusted: "Confiável",
             guest: "Convidado",
@@ -4749,10 +4839,21 @@ export const messagesByLocale = {
           disconnect: "डिस्कनेक्ट करें",
           empty:
             "अभी कोई प्रबंधित कार्यस्थान कनेक्ट नहीं है। स्थानीय और पुराने सेटअप के लिए मैन्युअल क्रेडेंशियल नीचे उपलब्ध हैं।",
-          channelAccessTitle: "चैनल एक्सेस और बजट",
+          channelAccessTitle: "बातचीत की पहुँच और बजट",
           channelAccessDescription:
             "हर चैनल एक अलग सेवा पहचान के रूप में चलता है। अतिथि, Slack Connect और बिना उल्लेख का एक्सेस तब तक बंद रहता है जब तक कोई एडमिन उसे यहाँ सक्षम न करे।",
           isolatedIdentity: "{{trust}} · अलग सेवा पहचान",
+          directMessage: "सीधा संदेश",
+          allowedProfiles: "अनुमत प्रोफ़ाइल",
+          allowedProfilesDescription:
+            "डिफ़ॉल्ट रूप से किसी प्रोफ़ाइल को अनुमति नहीं है। वे प्रोफ़ाइल चुनें जिन्हें यह बातचीत कार्य सौंप सकती है।",
+          profilesLoading: "प्रोफ़ाइल लोड हो रही हैं…",
+          profilesLoadFailed:
+            "कुछ प्रोफ़ाइल लोड नहीं हो सकीं। मौजूदा अनुमतियाँ अपरिवर्तित हैं।",
+          profilesRetry: "फिर से प्रयास करें",
+          profilesEmpty: "कोई प्रोफ़ाइल उपलब्ध नहीं है।",
+          accessUpdated: "बातचीत की पहुँच अपडेट की गई",
+          accessUpdateFailed: "बातचीत की पहुँच अपडेट नहीं की जा सकी",
           trust: {
             trusted: "विश्वसनीय",
             guest: "अतिथि",
@@ -5230,10 +5331,21 @@ export const messagesByLocale = {
           disconnect: "قطع الاتصال",
           empty:
             "لا توجد مساحات عمل مُدارة متصلة بعد. تظل بيانات الاعتماد اليدوية متاحة أدناه للإعدادات المحلية والقديمة.",
-          channelAccessTitle: "الوصول إلى القناة والميزانيات",
+          channelAccessTitle: "الوصول إلى المحادثات والميزانيات",
           channelAccessDescription:
             "تعمل كل قناة بهوية خدمة معزولة. يظل وصول الضيوف وSlack Connect والوصول دون إشارة معطلاً حتى يفعّله مسؤول هنا.",
           isolatedIdentity: "{{trust}} · هوية خدمة معزولة",
+          directMessage: "رسالة مباشرة",
+          allowedProfiles: "الملفات الشخصية المسموح بها",
+          allowedProfilesDescription:
+            "لا يُسمح بأي ملف شخصي افتراضيًا. اختر الملفات الشخصية التي يمكن لهذه المحادثة تفويضها.",
+          profilesLoading: "جارٍ تحميل الملفات الشخصية…",
+          profilesLoadFailed:
+            "تعذر تحميل بعض الملفات الشخصية. لم تتغير الأذونات الحالية.",
+          profilesRetry: "إعادة المحاولة",
+          profilesEmpty: "لا توجد ملفات شخصية متاحة.",
+          accessUpdated: "تم تحديث الوصول إلى المحادثة",
+          accessUpdateFailed: "تعذر تحديث الوصول إلى المحادثة",
           trust: {
             trusted: "موثوق",
             guest: "ضيف",

@@ -6,6 +6,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import {
+  resourcePut,
+  resourceGet,
+  resourceGetByPath,
+  resourceList,
+  resourceListAllOwners,
+  resourceDeleteByPath,
+} from "./store.js";
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
@@ -155,6 +163,72 @@ describe("resourceEffectiveContext", () => {
       }
     } finally {
       await resourceDeleteByPath(SHARED_OWNER, path);
+    }
+  });
+
+  it("hides ungranted profiles and pack files from messaging reads and exports", async () => {
+    const owner = "grants@example.test";
+    const paths = [
+      "agents/allowed.md",
+      "agents/allowed/context/brief.md",
+      "agents/hidden.md",
+      "remote-agents/alias.json",
+      "notes.md",
+    ];
+    try {
+      const profiles = await Promise.all(
+        paths.map((path) =>
+          resourcePut(
+            owner,
+            path,
+            path.endsWith(".json")
+              ? JSON.stringify({
+                  id: "remote",
+                  name: "Remote",
+                  url: "https://example.test/a2a",
+                })
+              : "profile instructions",
+          ),
+        ),
+      );
+      await runWithRequestContext(
+        { userEmail: owner, isIntegrationCaller: true },
+        async () => {
+          expect((await resourceList(owner)).map((row) => row.path)).toEqual([
+            "notes.md",
+          ]);
+          expect(await resourceGet(profiles[2].id)).toBeNull();
+          expect(await resourceGetByPath(owner, paths[2])).toBeNull();
+        },
+      );
+      await runWithRequestContext(
+        {
+          userEmail: owner,
+          isIntegrationCaller: true,
+          allowedAgentIds: ["agents/allowed.md", "remote"],
+        },
+        async () => {
+          expect(
+            (await resourceList(owner)).map((row) => row.path).sort(),
+          ).toEqual([paths[0], paths[1], paths[3], paths[4]].sort());
+          expect((await resourceGet(profiles[0].id))?.path).toBe(paths[0]);
+          expect((await resourceGetByPath(owner, paths[3]))?.path).toBe(
+            paths[3],
+          );
+          expect(
+            (await resourceListAllOwners("agents/"))
+              .filter((row) => row.owner === owner)
+              .map((row) => row.path)
+              .sort(),
+          ).toEqual([paths[0], paths[1]]);
+          expect(await resourceGet(profiles[2].id)).toBeNull();
+        },
+      );
+      expect((await resourceList(owner)).map((row) => row.path).sort()).toEqual(
+        [...paths].sort(),
+      );
+    } finally {
+      await Promise.all(paths.map((path) => resourceDeleteByPath(owner, path)));
     }
   });
 

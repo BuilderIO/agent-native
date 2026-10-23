@@ -136,7 +136,14 @@ apps:
   execution grant.
 - **Integrations & destinations** — outbound messaging channel setup (Slack,
   Teams, Discord, Telegram, WhatsApp, email, and more) and a destinations
-  queue for delivering agent output.
+  queue for delivering agent output. Settings → Messaging → Conversation access
+  assigns allowed agent profiles separately for each channel or DM; no profiles
+  are available by default, including in existing conversations. Use
+  `save-integration-scope` with `allowedAgentIds` to manage the same grants:
+  connected app IDs for A2A agents, or `agents/<slug>.md` for custom profiles.
+  Omit the field to preserve grants during policy edits; send `[]` to revoke
+  all. Messaging discovery, prompt resources, and invocation expose only granted
+  profiles. Each new turn or continuation reloads the saved conversation grants.
 - **Dream jobs** — a recurring background job (`ensure-dream-job`) that scans
   agent thread-debug history across connected sources and produces pending,
   evidence-backed proposals (`create-dream-report`, `list-dream-candidates`,

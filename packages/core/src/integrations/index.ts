@@ -196,6 +196,7 @@ export {
   deleteIntegrationScope,
   evaluateIntegrationScopePolicy,
   getIntegrationScope,
+  getIntegrationScopeById,
   integrationScopeSubjectKey,
   listIntegrationScopes,
   saveIntegrationScope,

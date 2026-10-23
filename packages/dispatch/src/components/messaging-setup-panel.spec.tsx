@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
-import { saveIntegrationEnvVars } from "@agent-native/core/client/integrations";
+import {
+  saveIntegrationEnvVars,
+  saveManagedIntegrationScope,
+  type ClientIntegrationScope,
+} from "@agent-native/core/client/integrations";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +14,16 @@ import { TooltipProvider } from "./ui/tooltip";
 const clientState = vi.hoisted(() => ({
   statuses: [] as any[],
   envStatuses: [] as any[],
+  scopes: [] as (Omit<ClientIntegrationScope, "allowedAgentIds"> & {
+    allowedAgentIds?: string[];
+  })[],
+  agents: [] as { id: string; name: string }[],
+  resources: [] as { id: string; name: string; path: string }[],
+  agentsLoading: false,
+  agentsError: null as Error | null,
+  resourcesError: null as Error | null,
+  refetchAgents: vi.fn(),
+  refetchResources: vi.fn(),
 }));
 
 const saveScope = vi.hoisted(() => ({
@@ -17,6 +31,31 @@ const saveScope = vi.hoisted(() => ({
   canChoose: false,
 }));
 
+vi.mock("@agent-native/core/client/hooks", () => ({
+  actionErrorMessage: (error: unknown) =>
+    error instanceof Error &&
+    "actionMessage" in error &&
+    typeof error.actionMessage === "string"
+      ? error.actionMessage
+      : undefined,
+  useActionQuery: (name: string) => ({
+    data:
+      name === "list-integration-scopes"
+        ? { scopes: clientState.scopes }
+        : name === "list-connected-agents"
+          ? clientState.agents
+          : clientState.resources,
+    isLoading: name === "list-connected-agents" && clientState.agentsLoading,
+    error:
+      name === "list-connected-agents"
+        ? clientState.agentsError
+        : clientState.resourcesError,
+    refetch:
+      name === "list-connected-agents"
+        ? clientState.refetchAgents
+        : clientState.refetchResources,
+  }),
+}));
 vi.mock("@agent-native/toolkit/app/settings", () => ({
   useCredentialSaveScope: () => ({
     ...saveScope,
@@ -37,7 +76,6 @@ vi.mock("@agent-native/core/client/integrations", async () => ({
   disconnectManagedIntegrationInstallation: vi.fn(() => Promise.resolve()),
   listManagedIntegrationBudgets: vi.fn(() => Promise.resolve([])),
   listManagedIntegrationInstallations: vi.fn(() => Promise.resolve([])),
-  listManagedIntegrationScopes: vi.fn(() => Promise.resolve([])),
   listIntegrationStatuses: vi.fn(() => Promise.resolve(clientState.statuses)),
   listIntegrationEnvStatuses: vi.fn(() =>
     Promise.resolve(clientState.envStatuses),
@@ -50,7 +88,18 @@ vi.mock("@agent-native/core/client/integrations", async () => ({
   ),
   saveIntegrationEnvVars: vi.fn(),
   saveManagedIntegrationBudget: vi.fn(() => Promise.resolve()),
-  saveManagedIntegrationScope: vi.fn(() => Promise.resolve()),
+  saveManagedIntegrationScope: vi.fn((input) => {
+    clientState.scopes = clientState.scopes.map((scope) =>
+      scope.conversationId === input.conversationId
+        ? { ...scope, ...input }
+        : scope,
+    );
+    return Promise.resolve(
+      clientState.scopes.find(
+        (scope) => scope.conversationId === input.conversationId,
+      ),
+    );
+  }),
   setIntegrationEnabled: vi.fn(),
   setupIntegration: vi.fn(),
   testManagedIntegrationInstallation: vi.fn(() => Promise.resolve()),
@@ -132,6 +181,17 @@ describe("MessagingSetupPanel", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.statuses = [];
     clientState.envStatuses = [];
+    clientState.scopes = [];
+    clientState.agents = [{ id: "analytics", name: "Analytics" }];
+    clientState.resources = [
+      { id: "resource-1", name: "Research", path: "agents/research.md" },
+    ];
+    clientState.agentsLoading = false;
+    clientState.agentsError = null;
+    clientState.resourcesError = null;
+    clientState.refetchAgents.mockClear();
+    clientState.refetchResources.mockClear();
+    vi.mocked(saveManagedIntegrationScope).mockClear();
     saveScope.scope = "user";
     saveScope.canChoose = false;
     vi.mocked(saveIntegrationEnvVars).mockClear();
@@ -353,5 +413,196 @@ describe("MessagingSetupPanel", () => {
     const save = await openSlackCredentials();
 
     expect(save.disabled).toBe(true);
+  });
+
+  async function openConversation(
+    conversationId = "C123",
+    conversationType: ClientIntegrationScope["conversationType"] = "channel",
+    allowedAgentIds?: string[],
+  ) {
+    clientState.scopes = [
+      {
+        id: "scope-1",
+        platform: "slack",
+        tenantId: "T123",
+        conversationId,
+        conversationType,
+        trust: "trusted",
+        orgId: "org-1",
+        serviceOwnerEmail: "slack-channel@example.com",
+        defaultModel: null,
+        updatedAt: 1,
+        allowedAgentIds,
+        policy: {
+          requireMention: true,
+          allowDirectMessages: false,
+          allowGuests: false,
+          allowExternalShared: false,
+          allowUnknownTrust: false,
+        },
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <MessagingSetupPanel />
+        </TooltipProvider>,
+      );
+    });
+    for (const label of [
+      "Slack",
+      "messaging.managed.channelAccessTitle",
+      conversationId,
+    ]) {
+      const trigger = [...container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes(label),
+      );
+      expect(trigger).toBeDefined();
+      await act(async () => {
+        trigger!.click();
+      });
+    }
+  }
+
+  function profileCheckbox(name: string) {
+    return [
+      ...container.querySelectorAll<HTMLButtonElement>('[role="checkbox"]'),
+    ].find((checkbox) =>
+      checkbox.closest("label")?.textContent?.includes(name),
+    )!;
+  }
+
+  it.each([
+    ["C123", "channel"],
+    ["D123", "direct_message"],
+  ] as const)(
+    "grants canonical profiles and revokes all grants for %s",
+    async (conversationId, conversationType) => {
+      await openConversation(conversationId, conversationType);
+      expect(profileCheckbox("Analytics").getAttribute("aria-checked")).toBe(
+        "false",
+      );
+      await act(async () => {
+        profileCheckbox("Analytics").click();
+      });
+      expect(saveManagedIntegrationScope).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          conversationId,
+          conversationType,
+          allowedAgentIds: ["analytics"],
+        }),
+      );
+      expect(profileCheckbox("Analytics").getAttribute("aria-checked")).toBe(
+        "true",
+      );
+      await act(async () => {
+        profileCheckbox("Research").click();
+      });
+      expect(saveManagedIntegrationScope).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          allowedAgentIds: ["analytics", "agents/research.md"],
+        }),
+      );
+      const policySwitch =
+        container.querySelector<HTMLButtonElement>('[role="switch"]')!;
+      await act(async () => {
+        policySwitch.click();
+      });
+      expect(saveManagedIntegrationScope).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          allowedAgentIds: ["analytics", "agents/research.md"],
+          policy: expect.objectContaining({ requireMention: false }),
+        }),
+      );
+      await act(async () => {
+        profileCheckbox("Analytics").click();
+      });
+      await act(async () => {
+        profileCheckbox("Research").click();
+      });
+      expect(saveManagedIntegrationScope).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          allowedAgentIds: [],
+        }),
+      );
+      expect(profileCheckbox("Analytics").getAttribute("aria-checked")).toBe(
+        "false",
+      );
+      expect(profileCheckbox("Research").getAttribute("aria-checked")).toBe(
+        "false",
+      );
+    },
+  );
+
+  it("shows loading and query failures without treating them as an empty profile list", async () => {
+    clientState.agentsLoading = true;
+    await openConversation();
+    expect(
+      container.querySelector('[role="status"]')?.getAttribute("aria-label"),
+    ).toBe("messaging.managed.profilesLoading");
+    clientState.agentsLoading = false;
+    clientState.agentsError = new Error("Discovery unavailable");
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <MessagingSetupPanel />
+        </TooltipProvider>,
+      );
+    });
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "messaging.managed.profilesLoadFailed",
+    );
+    const retry = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "messaging.managed.profilesRetry",
+    );
+    await act(async () => {
+      retry!.click();
+    });
+    expect(clientState.refetchAgents).toHaveBeenCalledOnce();
+    expect(clientState.refetchResources).toHaveBeenCalledOnce();
+  });
+
+  it("keeps rejected grants unchecked and allows another attempt", async () => {
+    vi.mocked(saveManagedIntegrationScope).mockRejectedValueOnce(
+      new Error("Not authorized"),
+    );
+    await openConversation();
+    await act(async () => {
+      profileCheckbox("Analytics").click();
+    });
+    expect(profileCheckbox("Analytics").getAttribute("aria-checked")).toBe(
+      "false",
+    );
+    expect(profileCheckbox("Analytics").disabled).toBe(false);
+    await act(async () => {
+      profileCheckbox("Analytics").click();
+    });
+    expect(profileCheckbox("Analytics").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
+
+  it("allows revoking an existing grant even when its profile is no longer discoverable", async () => {
+    await openConversation("D123", "direct_message", ["agents/removed.md"]);
+    expect(
+      profileCheckbox("agents/removed.md").getAttribute("aria-checked"),
+    ).toBe("true");
+    await act(async () => {
+      profileCheckbox("agents/removed.md").click();
+    });
+    expect(saveManagedIntegrationScope).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        allowedAgentIds: [],
+      }),
+    );
+    expect(container.textContent).not.toContain("agents/removed.md");
+  });
+
+  it("shows a real empty state when both profile catalogs are empty", async () => {
+    clientState.agents = [];
+    clientState.resources = [];
+    await openConversation();
+    expect(container.textContent).toContain("messaging.managed.profilesEmpty");
+    expect(container.querySelector('[role="checkbox"]')).toBeNull();
   });
 });

@@ -17,6 +17,7 @@ import {
   getRequestIdentityAuthenticatedAtMs,
   getRequestIdentitySessionToken,
   markRequestIdentityAuthenticatedAtMs,
+  getAllowedIntegrationAgentIds,
 } from "./request-context.js";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -166,6 +167,75 @@ describe("server/request-context", () => {
             expect(getRequestContext()?.identitySessionToken).toBeUndefined();
           }),
       );
+    });
+  });
+
+  describe("integration agent grants", () => {
+    it("leaves ordinary callers unrestricted and denies integration callers without grants", () => {
+      expect(getAllowedIntegrationAgentIds()).toBeUndefined();
+      runWithRequestContext({ allowedAgentIds: ["analytics"] }, () => {
+        expect(getAllowedIntegrationAgentIds()).toBeUndefined();
+      });
+      runWithRequestContext({ isIntegrationCaller: true }, () => {
+        expect(getAllowedIntegrationAgentIds()).toEqual([]);
+      });
+    });
+
+    it("inherits integration restrictions through nested contexts without allowing escalation", () => {
+      runWithRequestContext(
+        {
+          isIntegrationCaller: true,
+          allowedAgentIds: ["analytics", "agents/research.md"],
+        },
+        () => {
+          runWithRequestContext({ userEmail: "alice@example.com" }, () => {
+            expect(getAllowedIntegrationAgentIds()).toEqual([
+              "analytics",
+              "agents/research.md",
+            ]);
+          });
+          runWithRequestContext(
+            {
+              isIntegrationCaller: false,
+              allowedAgentIds: ["mail", "analytics"],
+            },
+            () =>
+              expect(getAllowedIntegrationAgentIds()).toEqual(["analytics"]),
+          );
+          runWithRequestContext({ allowedAgentIds: [] }, () => {
+            expect(getAllowedIntegrationAgentIds()).toEqual([]);
+          });
+          expect(getAllowedIntegrationAgentIds()).toEqual([
+            "analytics",
+            "agents/research.md",
+          ]);
+        },
+      );
+      runWithRequestContext({ isIntegrationCaller: true }, () => {
+        runWithRequestContext({ allowedAgentIds: ["analytics"] }, () => {
+          expect(getAllowedIntegrationAgentIds()).toEqual([]);
+        });
+      });
+    });
+
+    it("isolates conversation grants across concurrent requests", async () => {
+      const grants = await Promise.all([
+        runWithRequestContext(
+          { isIntegrationCaller: true, allowedAgentIds: ["analytics"] },
+          async () => {
+            await delay(10);
+            return getAllowedIntegrationAgentIds();
+          },
+        ),
+        runWithRequestContext(
+          { isIntegrationCaller: true, allowedAgentIds: ["mail"] },
+          async () => {
+            await delay(1);
+            return getAllowedIntegrationAgentIds();
+          },
+        ),
+      ]);
+      expect(grants).toEqual([["analytics"], ["mail"]]);
     });
   });
 

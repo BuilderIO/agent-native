@@ -135,6 +135,67 @@ async function resolveManagedSlackInstallation(incoming: IncomingMessage) {
   );
 }
 
+function isSlackDirectMessage(incoming: IncomingMessage): boolean {
+  return (
+    incoming.platform === "slack" &&
+    (incoming.conversationType === "dm" ||
+      incoming.platformContext.channelType === "im" ||
+      incoming.triggerKind === "dm")
+  );
+}
+
+async function bindSlackDmScope(
+  incoming: IncomingMessage,
+  execution: IntegrationExecutionContext,
+  access = { ownerEmail: execution.ownerEmail, orgId: execution.orgId },
+): Promise<IntegrationExecutionContext> {
+  const teamId = contextString(incoming.platformContext.teamId);
+  const channelId = contextString(incoming.platformContext.channelId);
+  const memberType = incoming.actorTrust?.memberType;
+  if (
+    !teamId ||
+    !channelId ||
+    incoming.actorTrust?.verified !== true ||
+    (memberType !== "owner" &&
+      memberType !== "admin" &&
+      memberType !== "member")
+  ) {
+    return execution;
+  }
+  const key = {
+    platform: "slack",
+    tenantId: teamId,
+    conversationId: channelId,
+  };
+  let scope = await getIntegrationScope(key, access);
+  if (!scope) {
+    scope = await saveIntegrationScope(
+      {
+        ...key,
+        conversationType: "direct_message",
+        trust: "trusted",
+        orgId: execution.orgId,
+        installationId: execution.installationId,
+        policy: { requireMention: false, allowDirectMessages: true },
+      },
+      access,
+    );
+  }
+  if (scope.conversationType !== "direct_message") {
+    throw new Error(
+      "Slack direct message scope has an incompatible conversation type",
+    );
+  }
+  const decision = evaluateIntegrationScopePolicy(scope, { mentioned: true });
+  if (!decision.allowed) {
+    throw new Error(`Slack direct message policy denied: ${decision.reason}`);
+  }
+  incoming.integrationScopeId = scope.id;
+  if (scope.defaultModel)
+    incoming.platformContext.defaultModel = scope.defaultModel;
+  return { ...execution, scopeId: scope.id };
+}
+
 class ManagedSlackInstallationLookupError extends Error {
   constructor(options?: ErrorOptions) {
     super(
@@ -369,12 +430,16 @@ async function resolveManagedSlackDmExecutionContext(
   for (const ownerEmail of candidates) {
     try {
       if (await isOrgMember(installation.orgId, ownerEmail)) {
-        return {
-          ownerEmail,
-          orgId: installation.orgId,
-          principalType: "user",
-          installationId: installation.id,
-        };
+        return bindSlackDmScope(
+          incoming,
+          {
+            ownerEmail,
+            orgId: installation.orgId,
+            principalType: "user",
+            installationId: installation.id,
+          },
+          { ownerEmail: installation.ownerEmail, orgId: installation.orgId },
+        );
       }
     } catch {
       incoming.platformContext.identityVerificationFailed = true;
@@ -393,7 +458,7 @@ async function resolveSlackConversationTrust(
   trust: SlackSenderProfile["trust"];
   conversationType: "channel" | "direct_message" | "group_direct_message";
 }> {
-  if (incoming.triggerKind === "dm") {
+  if (isSlackDirectMessage(incoming)) {
     return { trust: actorTrust, conversationType: "direct_message" };
   }
   const token = await resolveManagedSlackToken(incoming);
@@ -494,7 +559,7 @@ export async function resolveDispatchOwner(
 export async function resolveDispatchExecutionContext(
   incoming: IncomingMessage,
 ): Promise<IntegrationExecutionContext> {
-  if (incoming.platform === "slack" && incoming.triggerKind === "dm") {
+  if (isSlackDirectMessage(incoming)) {
     let installation;
     try {
       installation = await resolveManagedSlackInstallationOrFail(incoming);
@@ -517,11 +582,11 @@ export async function resolveDispatchExecutionContext(
     );
     if (linkedOwner) {
       const orgId = await resolveOrgIdForEmail(linkedOwner);
-      return {
+      return bindSlackDmScope(incoming, {
         ownerEmail: linkedOwner,
         orgId,
         principalType: "user",
-      };
+      });
     }
     const verifiedEmail = incoming.senderEmail?.trim().toLowerCase();
     if (
@@ -533,11 +598,11 @@ export async function resolveDispatchExecutionContext(
     ) {
       const orgId = await resolveOrgIdForEmail(verifiedEmail);
       if (orgId) {
-        return {
+        return bindSlackDmScope(incoming, {
           ownerEmail: verifiedEmail,
           orgId,
           principalType: "user",
-        };
+        });
       }
       incoming.platformContext.identityLinkRequired = true;
       return {
@@ -657,8 +722,7 @@ export async function beforeDispatchProcess(
   const match = commandText.match(/^\/link(?:@\w+)?\s+([a-zA-Z0-9_-]+)$/);
   if (
     match &&
-    incoming.platform === "slack" &&
-    incoming.triggerKind === "dm" &&
+    isSlackDirectMessage(incoming) &&
     !contextString(incoming.platformContext.managedInstallationOrgId) &&
     incoming.platformContext.identityVerificationFailed !== true &&
     incoming.platformContext.identityAccessDenied !== true
@@ -666,8 +730,7 @@ export async function beforeDispatchProcess(
     await resolveDispatchExecutionContext(incoming);
   }
   if (
-    incoming.platform === "slack" &&
-    incoming.triggerKind === "dm" &&
+    isSlackDirectMessage(incoming) &&
     incoming.platformContext.identityVerificationFailed === true
   ) {
     return {
@@ -676,8 +739,7 @@ export async function beforeDispatchProcess(
     };
   }
   if (
-    incoming.platform === "slack" &&
-    incoming.triggerKind === "dm" &&
+    isSlackDirectMessage(incoming) &&
     incoming.platformContext.identityAccessDenied === true
   ) {
     return {
@@ -691,8 +753,7 @@ export async function beforeDispatchProcess(
     };
     routedIncoming.routingHint ??= dispatchIntegrationRoutingHint(trimmed);
     if (
-      incoming.platform === "slack" &&
-      incoming.triggerKind === "dm" &&
+      isSlackDirectMessage(incoming) &&
       incoming.platformContext.identityLinkRequired === true
     ) {
       return {

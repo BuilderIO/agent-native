@@ -593,6 +593,14 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       () => import("../integrations/actions/manage-messaging-channel.js"),
     ],
     [
+      "list-integration-scopes",
+      () => import("../integrations/actions/list-integration-scopes.js"),
+    ],
+    [
+      "save-integration-scope",
+      () => import("../integrations/actions/save-integration-scope.js"),
+    ],
+    [
       "list-workspace-user-groups",
       () =>
         import("../workspace-connections/actions/list-workspace-user-groups.js"),

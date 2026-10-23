@@ -299,6 +299,8 @@
     "./file-upload/actions/manage-file-storage": "./dist/file-upload/actions/manage-file-storage.js",
     "./integrations/actions/list-messaging-channels": "./dist/integrations/actions/list-messaging-channels.js",
     "./integrations/actions/manage-messaging-channel": "./dist/integrations/actions/manage-messaging-channel.js",
+    "./integrations/actions/list-integration-scopes": "./dist/integrations/actions/list-integration-scopes.js",
+    "./integrations/actions/save-integration-scope": "./dist/integrations/actions/save-integration-scope.js",
     "./private-blob": "./dist/private-blob/index.js",
     "./icon-assets": "./dist/icon-assets/index.js",
     "./agent/tool-result-images": "./dist/agent/tool-result-images.js",

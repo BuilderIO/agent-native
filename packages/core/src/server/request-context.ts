@@ -178,6 +178,8 @@ export interface RequestContext {
   /** True only when this server received the request directly on 127.0.0.1. */
   isDirectLoopbackRequest?: boolean;
   isIntegrationCaller?: boolean;
+  /** Explicit conversation grants; integration callers default to no agents. */
+  allowedAgentIds?: readonly string[];
   integration?: {
     taskId: string;
     attempts?: number;
@@ -381,6 +383,7 @@ if (!globalRef[OBSERVERS_KEY]) {
 }
 const als = globalRef[GLOBAL_KEY]!;
 const observers = globalRef[OBSERVERS_KEY]!;
+const NO_ALLOWED_INTEGRATION_AGENTS: readonly string[] = Object.freeze([]);
 
 /**
  * Authorization state must never use the shared-stack compatibility fallback:
@@ -429,6 +432,23 @@ export function runWithRequestContext<T>(
     inheritedSyntheticTraffic !== undefined
       ? { ...ctx, isSyntheticTraffic: inheritedSyntheticTraffic }
       : ctx;
+  if (
+    inheritedContext?.isIntegrationCaller === true ||
+    inheritedContext?.integration !== undefined
+  ) {
+    const inheritedGrants =
+      inheritedContext.allowedAgentIds ?? NO_ALLOWED_INTEGRATION_AGENTS;
+    context = {
+      ...context,
+      isIntegrationCaller: true,
+      allowedAgentIds:
+        context.allowedAgentIds === undefined
+          ? inheritedGrants
+          : context.allowedAgentIds.filter((id) =>
+              inheritedGrants.includes(id),
+            ),
+    };
+  }
   if (
     context.trackingScope === undefined &&
     inheritedContext?.trackingScope !== undefined
@@ -516,7 +536,9 @@ export function runWithRequestContext<T>(
   }
   if (
     context.run?.allowedActionNames !== undefined ||
-    context.run?.actionScope !== undefined
+    context.run?.actionScope !== undefined ||
+    context.isIntegrationCaller === true ||
+    context.integration !== undefined
   ) {
     assertRequestActionSurfaceIsolation();
   }
@@ -532,6 +554,14 @@ export function runWithRequestContext<T>(
     }
     return fn();
   });
+}
+
+export function getAllowedIntegrationAgentIds(): readonly string[] | undefined {
+  const context = als.getStore();
+  return context?.isIntegrationCaller === true ||
+    context?.integration !== undefined
+    ? (context.allowedAgentIds ?? NO_ALLOWED_INTEGRATION_AGENTS)
+    : undefined;
 }
 
 export function getRequestContext(): RequestContext | undefined {

@@ -189,7 +189,10 @@ import {
   resolveIntegrationRequestScope,
   type IntegrationRequestScope,
 } from "./request-scope.js";
-import { listIntegrationScopes, saveIntegrationScope } from "./scope-store.js";
+import {
+  getIntegrationScopeById,
+  listIntegrationScopes,
+} from "./scope-store.js";
 import { buildSlackAgentManifest } from "./slack-manifest.js";
 import {
   assertSlackInstallAccess,
@@ -2238,11 +2241,27 @@ export function createIntegrationsPlugin(
             orgScope,
             principalType,
           });
+          const incoming =
+            "incoming" in taskPayload ? taskPayload.incoming : undefined;
+          const conversationScope = incoming?.integrationScopeId
+            ? await getIntegrationScopeById(incoming.integrationScopeId, {
+                ownerEmail: task.ownerEmail,
+                orgId: task.orgId,
+              })
+            : null;
+          const allowedAgentIds =
+            conversationScope &&
+            conversationScope.platform === incoming?.platform &&
+            (!incoming.tenantId ||
+              conversationScope.tenantId === incoming.tenantId)
+              ? conversationScope.allowedAgentIds
+              : [];
           const processingResult = await runWithRequestContext(
             {
               userEmail: task.ownerEmail,
               ...integrationRequestContext(requestScope),
               isIntegrationCaller: true,
+              allowedAgentIds,
             },
             async () => {
               if (
@@ -2875,44 +2894,6 @@ export function createIntegrationsPlugin(
         }
         setResponseStatus(event, 400);
         return { error: "unsupported installation action" };
-      }),
-    );
-
-    h3.use(
-      `${P}/scopes`,
-      defineEventHandler(async (event) => {
-        const method = getMethod(event);
-        if (method !== "GET" && method !== "POST") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        const ctx = await requireSessionContext(event);
-        if (!ctx) return { error: "unauthorized" };
-        const access = { ownerEmail: ctx.ownerEmail, orgId: ctx.orgId };
-        if (method === "GET") {
-          const query = getQuery(event);
-          return {
-            scopes: await listIntegrationScopes(access, {
-              platform:
-                typeof query.platform === "string" ? query.platform : undefined,
-              tenantId:
-                typeof query.tenantId === "string" ? query.tenantId : undefined,
-            }),
-          };
-        }
-        const admin = await checkOrgAdmin(event);
-        if (!admin.ok) return { error: admin.error };
-        try {
-          const body = (await readBody(event)) as Parameters<
-            typeof saveIntegrationScope
-          >[0];
-          return { scope: await saveIntegrationScope(body, access) };
-        } catch (err) {
-          setResponseStatus(event, 400);
-          return {
-            error: err instanceof Error ? err.message : "invalid scope",
-          };
-        }
       }),
     );
 

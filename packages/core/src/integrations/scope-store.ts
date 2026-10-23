@@ -57,6 +57,7 @@ export interface IntegrationScope extends IntegrationScopeKey {
   serviceOwnerEmail: string;
   defaultModel: string | null;
   policy: IntegrationScopePolicy;
+  allowedAgentIds: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -68,6 +69,7 @@ export interface SaveIntegrationScopeInput extends IntegrationScopeKey {
   installationId?: string | null;
   defaultModel?: string | null;
   policy?: Partial<IntegrationScopePolicy>;
+  allowedAgentIds?: string[];
 }
 
 const CONVERSATION_TYPES = new Set<IntegrationConversationType>([
@@ -127,6 +129,10 @@ export const conversationScopesStore = defineStore({
           "CREATE INDEX IF NOT EXISTS idx_integration_scope_org ON integration_conversation_scopes(org_id, platform, tenant_id)",
         );
       },
+    },
+    {
+      name: "allowed-agent-ids",
+      sql: "ALTER TABLE integration_conversation_scopes ADD COLUMN IF NOT EXISTS allowed_agent_ids_json TEXT NOT NULL DEFAULT '[]'",
     },
   ],
 });
@@ -214,6 +220,31 @@ function policyFromRow(row: Record<string, unknown>): IntegrationScopePolicy {
   };
 }
 
+function validateAllowedAgentIds(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((id) => typeof id !== "string" || !id || id !== id.trim())
+  ) {
+    throw new Error(
+      "allowedAgentIds must be an array of nonempty, trimmed agent IDs",
+    );
+  }
+  return value;
+}
+
+function allowedAgentIdsFromRow(row: Record<string, unknown>): string[] {
+  if (typeof row.allowed_agent_ids_json !== "string") {
+    throw new Error("Stored allowedAgentIds must be JSON text");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(row.allowed_agent_ids_json);
+  } catch (cause) {
+    throw new Error("Stored allowedAgentIds contains invalid JSON", { cause });
+  }
+  return validateAllowedAgentIds(value);
+}
+
 function rowToScope(row: Record<string, unknown>): IntegrationScope {
   return {
     id: stringifyValue(row.id),
@@ -230,6 +261,7 @@ function rowToScope(row: Record<string, unknown>): IntegrationScope {
     defaultModel:
       row.default_model == null ? null : stringifyValue(row.default_model),
     policy: policyFromRow(row),
+    allowedAgentIds: allowedAgentIdsFromRow(row),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };
@@ -238,7 +270,8 @@ function rowToScope(row: Record<string, unknown>): IntegrationScope {
 const SELECT_COLUMNS = `id, platform, tenant_id, conversation_id,
   conversation_type, trust_level, owner_email, org_id, installation_id,
   service_owner_email, require_mention, allow_direct_messages, allow_guests,
-  allow_external_shared, allow_unknown_trust, default_model, created_at, updated_at`;
+  allow_external_shared, allow_unknown_trust, default_model, allowed_agent_ids_json,
+  created_at, updated_at`;
 
 function isUniqueViolation(error: unknown): boolean {
   const value = error as { code?: string; message?: string } | null;
@@ -297,6 +330,24 @@ export async function getIntegrationScope(
     : null;
 }
 
+export async function getIntegrationScopeById(
+  id: string,
+  accessInput: IntegrationScopeAccess,
+): Promise<IntegrationScope | null> {
+  await ensureTable();
+  const access = normalizeAccess(accessInput);
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT ${SELECT_COLUMNS}
+      FROM integration_conversation_scopes
+      WHERE id = ? AND ${authorizationSql()}
+      LIMIT 1`,
+    args: [requiredString(id, "scopeId", 2048), ...authorizationArgs(access)],
+  });
+  return rows.length > 0
+    ? rowToScope(rows[0] as Record<string, unknown>)
+    : null;
+}
+
 export async function listIntegrationScopes(
   accessInput: IntegrationScopeAccess,
   filter: { platform?: string; tenantId?: string } = {},
@@ -344,6 +395,10 @@ export async function saveIntegrationScope(
     : null;
   const defaultModel = input.defaultModel?.trim().slice(0, 200) || null;
   const policy = normalizePolicy(input.policy);
+  const allowedAgentIdsJson =
+    input.allowedAgentIds === undefined
+      ? null
+      : JSON.stringify(validateAllowedAgentIds(input.allowedAgentIds));
   const now = Date.now();
   const db = getDbExec();
 
@@ -352,7 +407,8 @@ export async function saveIntegrationScope(
       conversation_type = ?, trust_level = ?, installation_id = ?,
       service_owner_email = ?, require_mention = ?, allow_direct_messages = ?,
       allow_guests = ?, allow_external_shared = ?, allow_unknown_trust = ?,
-      default_model = ?, updated_at = ?
+      default_model = ?, allowed_agent_ids_json = COALESCE(?, allowed_agent_ids_json),
+      updated_at = ?
       WHERE platform = ? AND tenant_id = ? AND conversation_id = ?
         AND ${authorizationSql()}`,
     args: [
@@ -366,6 +422,7 @@ export async function saveIntegrationScope(
       policy.allowExternalShared ? 1 : 0,
       policy.allowUnknownTrust ? 1 : 0,
       defaultModel,
+      allowedAgentIdsJson,
       now,
       key.platform,
       key.tenantId,
@@ -382,8 +439,8 @@ export async function saveIntegrationScope(
           trust_level, owner_email, org_id, installation_id,
           service_owner_email, require_mention, allow_direct_messages,
           allow_guests, allow_external_shared, allow_unknown_trust,
-          default_model, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          default_model, allowed_agent_ids_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           scopeId(key),
           key.platform,
@@ -401,6 +458,7 @@ export async function saveIntegrationScope(
           policy.allowExternalShared ? 1 : 0,
           policy.allowUnknownTrust ? 1 : 0,
           defaultModel,
+          allowedAgentIdsJson ?? "[]",
           now,
           now,
         ],

@@ -186,6 +186,15 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/integrations/actions/manage-messaging-channel",
   },
   {
+    name: "list-integration-scopes",
+    specifier:
+      "@agent-native/core/integrations/actions/list-integration-scopes",
+  },
+  {
+    name: "save-integration-scope",
+    specifier: "@agent-native/core/integrations/actions/save-integration-scope",
+  },
+  {
     name: "list-workspace-user-groups",
     specifier:
       "@agent-native/core/workspace-connections/actions/list-workspace-user-groups",

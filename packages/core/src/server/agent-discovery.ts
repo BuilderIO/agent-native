@@ -36,6 +36,7 @@ import {
   type BuiltinAgentsConfig,
 } from "./builtin-agents.js";
 import {
+  getAllowedIntegrationAgentIds,
   getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
@@ -482,7 +483,16 @@ export function getBuiltinAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
 ): DiscoveredAgent[] {
-  return builtinAgentsFor(readBuiltinAgentsConfig(), selfAppId, options);
+  return filterIntegrationAgents(
+    builtinAgentsFor(readBuiltinAgentsConfig(), selfAppId, options),
+  );
+}
+
+function filterIntegrationAgents(agents: DiscoveredAgent[]): DiscoveredAgent[] {
+  const allowed = getAllowedIntegrationAgentIds();
+  return allowed === undefined
+    ? agents
+    : agents.filter((agent) => allowed.includes(agent.id));
 }
 
 function isUnofferedBuiltinManifest(
@@ -552,6 +562,9 @@ export async function discoverAgentsWithDirectoryStatus(
   selfAppId?: string,
   options?: DiscoverAgentsOptions,
 ): Promise<DiscoveredAgentsWithDirectoryStatus> {
+  if (getAllowedIntegrationAgentIds()?.length === 0) {
+    return { agents: [], directory: { status: "available" } };
+  }
   const builtins = getBuiltinAgents(selfAppId, options);
   const offeredBuiltinIds = new Set(builtins.map((agent) => agent.id));
   const agentsById = new Map<string, DiscoveredAgent>();
@@ -708,7 +721,7 @@ export async function discoverAgentsWithDirectoryStatus(
   }
 
   return {
-    agents: Array.from(agentsById.values()),
+    agents: filterIntegrationAgents(Array.from(agentsById.values())),
     directory:
       orgDirectory.status === "available"
         ? { status: "available" }
@@ -720,6 +733,9 @@ export async function discoverOrgDirectoryAgents(
   selfAppId?: string,
   options?: DiscoverOrgDirectoryAgentsOptions,
 ): Promise<OrgDirectoryDiscoveryResult> {
+  if (getAllowedIntegrationAgentIds()?.length === 0) {
+    return { status: "available", agents: [] };
+  }
   const agentsById = new Map<string, DiscoveredAgent>();
   for (const agent of getBuiltinAgents(selfAppId, options)) {
     agentsById.set(agent.id, agent);
@@ -760,7 +776,10 @@ export async function discoverOrgDirectoryAgents(
     }
     mergeDiscoveredAgent(agentsById, agent);
   }
-  return { status: "available", agents: Array.from(agentsById.values()) };
+  return {
+    status: "available",
+    agents: filterIntegrationAgents(Array.from(agentsById.values())),
+  };
 }
 
 const AGENT_SOURCE_PRIORITY: Record<
@@ -1083,7 +1102,10 @@ export async function findAgent(
       options,
       true,
     );
-    const workspaceAgent = findAgentInList(idOrName, workspaceAgents);
+    const workspaceAgent = findAgentInList(
+      idOrName,
+      filterIntegrationAgents(workspaceAgents),
+    );
     if (workspaceAgent) return workspaceAgent;
     throw error;
   }

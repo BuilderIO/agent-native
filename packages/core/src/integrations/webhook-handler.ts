@@ -64,7 +64,10 @@ import { getOrgA2ASecret } from "../org/context.js";
 import { preloadJevContextWithStatus } from "../server/agent-chat/prompt-resources.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getAppProductionUrl } from "../server/app-url.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  getAllowedIntegrationAgentIds,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
@@ -100,7 +103,10 @@ import {
   integrationRequestContext,
   resolveIntegrationRequestScope,
 } from "./request-scope.js";
-import { integrationScopeSubjectKey } from "./scope-store.js";
+import {
+  getIntegrationScopeById,
+  integrationScopeSubjectKey,
+} from "./scope-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type {
   PlatformAdapter,
@@ -633,6 +639,46 @@ async function processIncomingMessage(
   });
   const orgId = requestScope.orgId;
   const requestContext = integrationRequestContext(requestScope);
+  const scope =
+    incoming.integrationScopeId && getAllowedIntegrationAgentIds() === undefined
+      ? await getIntegrationScopeById(incoming.integrationScopeId, {
+          ownerEmail,
+          orgId,
+        })
+      : null;
+  const allowedAgentIds =
+    getAllowedIntegrationAgentIds() ??
+    (scope?.platform === incoming.platform &&
+    (!incoming.tenantId || scope.tenantId === incoming.tenantId)
+      ? scope.allowedAgentIds
+      : []);
+  const conversationActions = { ...actions };
+  if (!allowedAgentIds.some((id) => !id.startsWith("agents/"))) {
+    delete conversationActions["call-agent"];
+    delete conversationActions["describe-workspace-apps"];
+    delete conversationActions["list-connected-agents"];
+  } else if (conversationActions["call-agent"]) {
+    const entry = conversationActions["call-agent"];
+    conversationActions["call-agent"] = {
+      ...entry,
+      tool: {
+        ...entry.tool,
+        description:
+          "Ask another available app to perform an objective using message. Use action and input only for an exact known read-only operation. Preserve returned URLs and IDs verbatim; resume an existing task with its taskId instead of starting another task.",
+        parameters: {
+          ...entry.tool.parameters,
+          type: "object",
+          properties: {
+            ...entry.tool.parameters?.properties,
+            agent: {
+              type: "string",
+              description: "Exact ID or name of an available app.",
+            },
+          },
+        },
+      },
+    };
+  }
   let effectiveSystemPrompt = systemPrompt + buildRuntimeContextPrompt();
   const deliveryOptions = {
     placeholderRef: opts.placeholderRef,
@@ -728,6 +774,7 @@ async function processIncomingMessage(
       userEmail: ownerEmail,
       ...requestContext,
       isIntegrationCaller: true,
+      allowedAgentIds,
     },
     async () => {
       const jevCredentials = await getJevContextCredentials(ownerEmail);
@@ -740,7 +787,7 @@ async function processIncomingMessage(
         personalApiKey: jevCredentials.personalApiKey,
         builderAuth: jevCredentials.builderAuth,
         selfAppId: options.appId,
-        workspaceAppsEnabled: Boolean(actions["call-agent"]),
+        workspaceAppsEnabled: Boolean(conversationActions["call-agent"]),
         appDiscoveryOnly: true,
       });
     },
@@ -1097,11 +1144,9 @@ async function processIncomingMessage(
     incoming.senderId ? `Sender ID: ${incoming.senderId}` : null,
     incoming.identityNote ? `Caller identity: ${incoming.identityNote}` : null,
     incoming.sourceUrl ? `Source thread: ${incoming.sourceUrl}` : null,
-    incoming.routingHint?.targetAgent
-      ? `Required target agent: ${incoming.routingHint.targetAgent}`
-      : null,
-    incoming.routingHint?.instruction
-      ? `Routing instruction: ${incoming.routingHint.instruction}`
+    incoming.routingHint?.targetAgent &&
+    allowedAgentIds.includes(incoming.routingHint.targetAgent)
+      ? `Required target agent: ${incoming.routingHint.targetAgent}\nRouting instruction: ${incoming.routingHint.instruction}`
       : null,
   ].filter(Boolean);
   const providerContext = buildProviderConversationContext(incoming);
@@ -1132,7 +1177,7 @@ async function processIncomingMessage(
   let availableTools: ReturnType<typeof actionsToEngineTools>;
   try {
     artifactSecrets = await resolveIntegrationArtifactSecrets(orgId);
-    runnableActions = attachToolSearch({ ...actions });
+    runnableActions = attachToolSearch(conversationActions);
     availableTools = actionsToEngineTools(runnableActions);
     tools = filterInitialEngineTools(availableTools, initialToolNames);
   } catch (error) {
@@ -1188,6 +1233,7 @@ async function processIncomingMessage(
             userEmail: ownerEmail,
             ...requestContext,
             isIntegrationCaller: true,
+            allowedAgentIds,
             integration: opts.taskId
               ? {
                   taskId: opts.taskId,

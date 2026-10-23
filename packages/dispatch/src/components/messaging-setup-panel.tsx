@@ -1,10 +1,13 @@
+import {
+  actionErrorMessage,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   disconnectManagedIntegrationInstallation,
   hasMissingRequiredCredentials,
   listManagedIntegrationBudgets,
   listManagedIntegrationInstallations,
-  listManagedIntegrationScopes,
   listIntegrationEnvStatuses,
   listIntegrationStatuses,
   managedIntegrationOAuthUrl,
@@ -50,6 +53,7 @@ import {
   AccordionTrigger,
 } from "./ui/accordion";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -193,6 +197,32 @@ export function MessagingSetupPanel() {
   const [savingScope, setSavingScope] = useState<string | null>(null);
   const credentialScope = useCredentialSaveScope();
   const whoId = useId();
+  const scopeQuery = useActionQuery<{ scopes: ClientIntegrationScope[] }>(
+    "list-integration-scopes",
+    { platform: "slack" },
+  );
+  const connectedAgents = useActionQuery<{ id: string; name: string }[]>(
+    "list-connected-agents",
+    {},
+    { enabled: scopes.length > 0 },
+  );
+  const customProfiles = useActionQuery<{ path: string; name: string }[]>(
+    "list-workspace-resource-options",
+    { kind: "agent" },
+    { enabled: scopes.length > 0 },
+  );
+  const profileOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const agent of connectedAgents.data ?? []) {
+      options.set(agent.id, agent.name);
+    }
+    for (const profile of customProfiles.data ?? []) {
+      options.set(profile.path, profile.name);
+    }
+    return options;
+  }, [connectedAgents.data, customProfiles.data]);
+  const profilesLoading = connectedAgents.isLoading || customProfiles.isLoading;
+  const profilesError = connectedAgents.error || customProfiles.error;
 
   const refreshStatuses = async () => {
     setLoading(true);
@@ -221,15 +251,14 @@ export function MessagingSetupPanel() {
   }, []);
 
   useEffect(() => {
+    if (scopeQuery.data) setScopes(scopeQuery.data.scopes);
+  }, [scopeQuery.data]);
+
+  useEffect(() => {
     let active = true;
     listManagedIntegrationInstallations("slack")
       .then((rows) => {
         if (active) setInstallations(rows);
-      })
-      .catch(() => {});
-    listManagedIntegrationScopes("slack")
-      .then((rows) => {
-        if (active) setScopes(rows);
       })
       .catch(() => {});
     listManagedIntegrationBudgets()
@@ -389,13 +418,22 @@ export function MessagingSetupPanel() {
     }
   };
 
-  const updateScopePolicy = async (
+  const updateScopeAccess = async (
     scope: ClientIntegrationScope,
     policy: Partial<ClientIntegrationScope["policy"]>,
+    allowedAgentIds = scope.allowedAgentIds ?? [],
   ) => {
     setSavingScope(scope.id);
+    const updatedScope = {
+      ...scope,
+      allowedAgentIds,
+      policy: { ...scope.policy, ...policy },
+    };
+    setScopes((current) =>
+      current.map((row) => (row.id === scope.id ? updatedScope : row)),
+    );
     try {
-      await saveManagedIntegrationScope({
+      const savedScope = await saveManagedIntegrationScope({
         platform: scope.platform,
         tenantId: scope.tenantId,
         conversationId: scope.conversationId,
@@ -404,15 +442,19 @@ export function MessagingSetupPanel() {
         orgId: scope.orgId,
         serviceOwnerEmail: scope.serviceOwnerEmail,
         defaultModel: scope.defaultModel,
-        policy: { ...scope.policy, ...policy },
+        allowedAgentIds: updatedScope.allowedAgentIds,
+        policy: updatedScope.policy,
       });
-      setScopes(await listManagedIntegrationScopes("slack"));
-      toast.success(t("messaging.managed.channelPolicyUpdated"));
+      setScopes((current) =>
+        current.map((row) => (row.id === scope.id ? savedScope : row)),
+      );
+      toast.success(t("messaging.managed.accessUpdated"));
     } catch (error) {
+      setScopes((current) =>
+        current.map((row) => (row.id === scope.id ? scope : row)),
+      );
       toast.error(
-        error instanceof Error
-          ? error.message
-          : t("messaging.managed.policyUpdateFailed"),
+        actionErrorMessage(error) ?? t("messaging.managed.accessUpdateFailed"),
       );
     } finally {
       setSavingScope(null);
@@ -711,7 +753,6 @@ export function MessagingSetupPanel() {
                   {platform.id === "slack" && scopes.length ? (
                     <DisclosureSection
                       title={t("messaging.managed.channelAccessTitle")}
-                      summary={`${scopes.length} channel${scopes.length === 1 ? "" : "s"}`}
                     >
                       <div className="space-y-3">
                         <p className="text-xs text-muted-foreground">
@@ -740,11 +781,16 @@ export function MessagingSetupPanel() {
                                     {scope.conversationId}
                                   </span>
                                   <span className="mt-0.5 block text-xs text-muted-foreground">
-                                    {t("messaging.managed.isolatedIdentity", {
-                                      trust: t(
-                                        `messaging.managed.trust.${scope.trust}`,
-                                      ),
-                                    })}
+                                    {scope.conversationType === "direct_message"
+                                      ? t("messaging.managed.directMessage")
+                                      : t(
+                                          "messaging.managed.isolatedIdentity",
+                                          {
+                                            trust: t(
+                                              `messaging.managed.trust.${scope.trust}`,
+                                            ),
+                                          },
+                                        )}
                                   </span>
                                 </span>
                                 <span className="flex shrink-0 items-center gap-2">
@@ -762,6 +808,98 @@ export function MessagingSetupPanel() {
                                 </span>
                               </CollapsibleTrigger>
                               <CollapsibleContent className="pb-3">
+                                <fieldset
+                                  className="mb-3 space-y-2"
+                                  disabled={savingScope !== null}
+                                >
+                                  <legend className="mb-2 flex items-center gap-2 text-xs font-medium text-foreground">
+                                    {t("messaging.managed.allowedProfiles")}
+                                    <HelpTooltip
+                                      content={t(
+                                        "messaging.managed.allowedProfilesDescription",
+                                      )}
+                                    />
+                                  </legend>
+                                  {profilesLoading ? (
+                                    <div
+                                      role="status"
+                                      aria-label={t(
+                                        "messaging.managed.profilesLoading",
+                                      )}
+                                    >
+                                      <Skeleton className="h-4 w-40" />
+                                    </div>
+                                  ) : null}
+                                  {profilesError ? (
+                                    <div
+                                      role="alert"
+                                      className="flex flex-wrap items-center gap-2 text-xs text-destructive"
+                                    >
+                                      {t(
+                                        "messaging.managed.profilesLoadFailed",
+                                      )}
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                          void connectedAgents.refetch();
+                                          void customProfiles.refetch();
+                                        }}
+                                      >
+                                        {t("messaging.managed.profilesRetry")}
+                                      </Button>
+                                    </div>
+                                  ) : null}
+                                  {!profilesLoading &&
+                                  !profilesError &&
+                                  !profileOptions.size &&
+                                  !scope.allowedAgentIds?.length ? (
+                                    <p className="text-xs text-muted-foreground">
+                                      {t("messaging.managed.profilesEmpty")}
+                                    </p>
+                                  ) : null}
+                                  <div className="flex flex-wrap gap-x-4 gap-y-2">
+                                    {[
+                                      ...new Set([
+                                        ...profileOptions.keys(),
+                                        ...(scope.allowedAgentIds ?? []),
+                                      ]),
+                                    ].map((id) => (
+                                      <label
+                                        key={id}
+                                        className="flex min-w-0 items-center gap-2 text-xs"
+                                      >
+                                        <Checkbox
+                                          checked={(
+                                            scope.allowedAgentIds ?? []
+                                          ).includes(id)}
+                                          disabled={savingScope !== null}
+                                          onCheckedChange={(checked) =>
+                                            updateScopeAccess(
+                                              scope,
+                                              {},
+                                              checked === true
+                                                ? [
+                                                    ...(scope.allowedAgentIds ??
+                                                      []),
+                                                    id,
+                                                  ]
+                                                : (
+                                                    scope.allowedAgentIds ?? []
+                                                  ).filter(
+                                                    (allowedId) =>
+                                                      allowedId !== id,
+                                                  ),
+                                            )
+                                          }
+                                        />
+                                        <span className="break-all">
+                                          {profileOptions.get(id) ?? id}
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </fieldset>
                                 <div className="grid gap-2 sm:grid-cols-3">
                                   {[
                                     [
@@ -790,7 +928,7 @@ export function MessagingSetupPanel() {
                                         }
                                         disabled={savingScope === scope.id}
                                         onCheckedChange={(checked) =>
-                                          updateScopePolicy(scope, {
+                                          updateScopeAccess(scope, {
                                             [key]: checked,
                                           })
                                         }

@@ -536,6 +536,7 @@ export {
   hasRequestContext,
   hasRequestBoundary,
   getRequestContext,
+  getAllowedIntegrationAgentIds,
   getRequestUserEmail,
   getRequestUserName,
   getRequestOrgId,

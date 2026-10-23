@@ -1,4 +1,5 @@
 import { agentNativePath } from "../api-path.js";
+import { callAction } from "../use-action.js";
 
 export interface IntegrationEnvStatus {
   key: string;
@@ -53,6 +54,7 @@ export interface ClientIntegrationScope {
   orgId: string | null;
   serviceOwnerEmail: string;
   defaultModel: string | null;
+  allowedAgentIds: string[];
   policy: {
     requireMention: boolean;
     allowDirectMessages: boolean;
@@ -202,26 +204,23 @@ export async function disconnectManagedIntegrationInstallation(
 export async function listManagedIntegrationScopes(
   platform?: string,
 ): Promise<ClientIntegrationScope[]> {
-  const query = platform
-    ? `?${new URLSearchParams({ platform }).toString()}`
-    : "";
-  const result = await integrationRequest<{
-    scopes?: ClientIntegrationScope[];
-  }>(`/_agent-native/integrations/scopes${query}`);
-  return Array.isArray(result.scopes) ? result.scopes : [];
+  const result = await callAction(
+    "list-integration-scopes",
+    { platform },
+    { method: "GET" },
+  );
+  return result.scopes;
 }
 
 export async function saveManagedIntegrationScope(
-  scope: Omit<ClientIntegrationScope, "id" | "updatedAt">,
+  scope: Omit<
+    ClientIntegrationScope,
+    "id" | "updatedAt" | "allowedAgentIds"
+  > & {
+    allowedAgentIds?: string[];
+  },
 ): Promise<ClientIntegrationScope> {
-  const result = await integrationRequest<{ scope: ClientIntegrationScope }>(
-    "/_agent-native/integrations/scopes",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(scope),
-    },
-  );
+  const result = await callAction("save-integration-scope", scope);
   return result.scope;
 }
 

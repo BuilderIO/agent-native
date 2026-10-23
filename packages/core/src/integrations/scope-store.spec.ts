@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { getDbExec } from "../db/client.js";
 import { __resetStoreLedgerSnapshotForTests } from "../db/store-registry.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -27,9 +28,11 @@ vi.mock("../db/client.js", () => ({
 
 const {
   _resetIntegrationScopeStoreForTests,
+  conversationScopesStore,
   deleteIntegrationScope,
   evaluateIntegrationScopePolicy,
   getIntegrationScope,
+  getIntegrationScopeById,
   listIntegrationScopes,
   saveIntegrationScope,
 } = await import("./scope-store.js");
@@ -161,6 +164,176 @@ describe("integration scope authorization", () => {
 
     expect(scope.serviceOwnerEmail).toBe("personal@example.com");
   });
+});
+
+describe("integration scope agent grants", () => {
+  const access = { ownerEmail: "owner@example.com", orgId: "org-example" };
+
+  it("adds empty grants to pre-existing scopes during migration", async () => {
+    await conversationScopesStore.migrations[0].run!(getDbExec());
+    await pglite.query(
+      `INSERT INTO integration_conversation_scopes (
+      id, platform, tenant_id, conversation_id, conversation_type,
+      owner_email, org_id, service_owner_email, created_at, updated_at
+    ) VALUES ($1, $2, $3, $4, 'channel', $5, $6, $5, 1, 1)`,
+      [
+        "legacy-scope",
+        key.platform,
+        key.tenantId,
+        key.conversationId,
+        access.ownerEmail,
+        access.orgId,
+      ],
+    );
+
+    expect((await getIntegrationScope(key, access))?.allowedAgentIds).toEqual(
+      [],
+    );
+  });
+
+  it("reads current grants by ID only within the authorized org or personal owner", async () => {
+    const scope = await saveIntegrationScope(
+      { ...key, conversationType: "channel", allowedAgentIds: ["analytics"] },
+      access,
+    );
+    expect(
+      (await getIntegrationScopeById(scope.id, access))?.allowedAgentIds,
+    ).toEqual(["analytics"]);
+    expect(
+      await getIntegrationScopeById(scope.id, {
+        ownerEmail: "other@example.com",
+        orgId: "other-org",
+      }),
+    ).toBeNull();
+    await saveIntegrationScope(
+      { ...key, conversationType: "channel", allowedAgentIds: [] },
+      access,
+    );
+    expect(
+      (await getIntegrationScopeById(scope.id, access))?.allowedAgentIds,
+    ).toEqual([]);
+    expect(await getIntegrationScopeById("missing", access)).toBeNull();
+
+    const personal = await saveIntegrationScope(
+      {
+        ...key,
+        conversationId: "personal-dm",
+        conversationType: "direct_message",
+        orgId: null,
+      },
+      access,
+    );
+    expect(
+      await getIntegrationScopeById(personal.id, {
+        ownerEmail: "other@example.com",
+        orgId: access.orgId,
+      }),
+    ).toBeNull();
+    expect((await getIntegrationScopeById(personal.id, access))?.id).toBe(
+      personal.id,
+    );
+  });
+
+  it("denies delegation by default and preserves grants through policy edits", async () => {
+    const input = { ...key, conversationType: "channel" as const };
+    expect((await saveIntegrationScope(input, access)).allowedAgentIds).toEqual(
+      [],
+    );
+
+    await saveIntegrationScope(
+      { ...input, allowedAgentIds: ["analytics", "agents/research.md"] },
+      access,
+    );
+    const edited = await saveIntegrationScope(
+      { ...input, policy: { requireMention: false } },
+      access,
+    );
+    expect(edited.allowedAgentIds).toEqual(["analytics", "agents/research.md"]);
+    expect(edited.policy.requireMention).toBe(false);
+    expect((await getIntegrationScope(key, access))?.allowedAgentIds).toEqual([
+      "analytics",
+      "agents/research.md",
+    ]);
+
+    await saveIntegrationScope({ ...input, allowedAgentIds: [] }, access);
+    expect((await getIntegrationScope(key, access))?.allowedAgentIds).toEqual(
+      [],
+    );
+  });
+
+  it("isolates grants by tenant and organization", async () => {
+    await saveIntegrationScope(
+      { ...key, conversationType: "channel", allowedAgentIds: ["analytics"] },
+      access,
+    );
+    const otherTenant = { ...key, tenantId: "other-team" };
+    expect(
+      (
+        await saveIntegrationScope(
+          { ...otherTenant, conversationType: "channel" },
+          access,
+        )
+      ).allowedAgentIds,
+    ).toEqual([]);
+    const outsider = { ownerEmail: "other@example.com", orgId: "other-org" };
+    await expect(
+      saveIntegrationScope(
+        { ...key, conversationType: "channel", allowedAgentIds: ["mail"] },
+        outsider,
+      ),
+    ).rejects.toThrow("not available");
+    expect((await getIntegrationScope(key, access))?.allowedAgentIds).toEqual([
+      "analytics",
+    ]);
+    expect(await listIntegrationScopes(outsider)).toEqual([]);
+  });
+
+  it.each(
+    [null, "analytics", [123], [null], [""], [" analytics"], ["   "]].map(
+      (allowedAgentIds) => ({ allowedAgentIds }),
+    ),
+  )(
+    "rejects invalid grants without changing persisted grants: $allowedAgentIds",
+    async ({ allowedAgentIds }) => {
+      await saveIntegrationScope(
+        { ...key, conversationType: "channel", allowedAgentIds: ["analytics"] },
+        access,
+      );
+      await expect(
+        saveIntegrationScope(
+          {
+            ...key,
+            conversationType: "channel",
+            allowedAgentIds,
+          } as Parameters<typeof saveIntegrationScope>[0],
+          access,
+        ),
+      ).rejects.toThrow("allowedAgentIds");
+      expect((await getIntegrationScope(key, access))?.allowedAgentIds).toEqual(
+        ["analytics"],
+      );
+    },
+  );
+
+  it.each(["{", "null", "{}", '["analytics", 1]', '[" "]'])(
+    "fails loudly on invalid stored grant JSON: %s",
+    async (stored) => {
+      await saveIntegrationScope(
+        { ...key, conversationType: "channel" },
+        access,
+      );
+      await pglite.query(
+        "UPDATE integration_conversation_scopes SET allowed_agent_ids_json = $1",
+        [stored],
+      );
+      await expect(getIntegrationScope(key, access)).rejects.toThrow(
+        "allowedAgentIds",
+      );
+      await expect(listIntegrationScopes(access)).rejects.toThrow(
+        "allowedAgentIds",
+      );
+    },
+  );
 });
 
 describe("integration scope policy", () => {

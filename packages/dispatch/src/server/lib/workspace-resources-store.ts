@@ -21,6 +21,7 @@ import {
   type ResourceMeta,
 } from "@agent-native/core/resources/store";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
+import { getAllowedIntegrationAgentIds } from "@agent-native/core/server/request-context";
 import {
   getOrgSetting,
   getUserSetting,
@@ -747,6 +748,16 @@ async function writeStarterSeedMarker(ctx: WorkspaceResourceCtx) {
   }
 }
 
+function isConversationResourceVisible(resource: { path: string }): boolean {
+  const allowed = getAllowedIntegrationAgentIds();
+  const profile = /^agents\/([^/]+)(?:\.md$|\/)/.exec(resource.path);
+  return (
+    allowed === undefined ||
+    !profile ||
+    allowed.includes(`agents/${profile[1]}.md`)
+  );
+}
+
 export async function getWorkspaceResourceByPath(
   resourcePath: string,
   ctx: WorkspaceResourceCtx,
@@ -765,7 +776,7 @@ export async function getWorkspaceResourceByPath(
       and(eq(schema.workspaceResources.path, resourcePath), scopeCondition),
     )
     .limit(1);
-  return row ?? null;
+  return row && isConversationResourceVisible(row) ? row : null;
 }
 
 async function insertStarterWorkspaceResource(
@@ -895,11 +906,12 @@ export async function listWorkspaceResources(filter?: { kind?: string }) {
   if (filter?.kind) {
     conditions.push(eq(schema.workspaceResources.kind, filter.kind) as any);
   }
-  const resources = await db
+  const rows = await db
     .select()
     .from(schema.workspaceResources)
     .where(and(...conditions))
     .orderBy(desc(schema.workspaceResources.updatedAt));
+  const resources = rows.filter(isConversationResourceVisible);
   await ensureMaterializedGlobalResources(resources);
   return resources;
 }
@@ -1241,7 +1253,7 @@ export async function getWorkspaceResource(
       ),
     )
     .limit(1);
-  return row ?? null;
+  return row && isConversationResourceVisible(row) ? row : null;
 }
 
 export async function applyWorkspaceResourceCreate(

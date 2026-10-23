@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
 import type { PendingTask } from "./pending-tasks-store.js";
+import type * as ScopeStore from "./scope-store.js";
 import type { PlatformAdapter } from "./types.js";
 
 const getThreadMappingMock = vi.hoisted(() => vi.fn());
@@ -52,7 +53,13 @@ const reconcileTerminalA2AParentIfDisabledMock = vi.hoisted(() =>
 const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const appendDurableContinuationContextMock = vi.hoisted(() => vi.fn());
 const preloadJevContextWithStatusMock = vi.hoisted(() => vi.fn());
+const getIntegrationScopeByIdMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
+
+vi.mock("./scope-store.js", async () => ({
+  ...(await vi.importActual<typeof ScopeStore>("./scope-store.js")),
+  getIntegrationScopeById: getIntegrationScopeByIdMock,
+}));
 
 vi.mock("./thread-mapping-store.js", () => ({
   getThreadMapping: getThreadMappingMock,
@@ -320,6 +327,7 @@ describe("integration webhook handler engine resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     insertAuditEventMock.mockResolvedValue(undefined);
+    getIntegrationScopeByIdMock.mockResolvedValue(null);
     preloadJevContextWithStatusMock.mockResolvedValue({
       context: "",
       relevantAppsContext:
@@ -694,6 +702,7 @@ describe("integration webhook handler engine resolution", () => {
             externalThreadId: "thread-1",
             text: "hello from slack",
             senderName: "QA User",
+            integrationScopeId: "scope-content",
             sourceUrl:
               "https://example-workspace.slack.com/archives/C123/p1001",
             routingHint: {
@@ -717,6 +726,10 @@ describe("integration webhook handler engine resolution", () => {
         apiKey: "owner-jev-key",
         personalApiKey: "owner-jev-key",
         builderAuth: null,
+      });
+      getIntegrationScopeByIdMock.mockResolvedValue({
+        platform: "fake",
+        allowedAgentIds: ["content"],
       });
 
       await processIntegrationTask(task, {
@@ -3559,9 +3572,10 @@ describe("integration webhook handler engine resolution", () => {
     await runAgentLoopMock.mock.results[0].value;
     expect(seenTools).toHaveLength(3);
     expect(seenTools[0]).toEqual(
-      expect.arrayContaining(["starter", "tool-search", "call-agent"]),
+      expect.arrayContaining(["starter", "tool-search"]),
     );
     expect(seenTools[0]).not.toContain("deferred-action");
+    expect(seenTools.flat()).not.toContain("call-agent");
     expect(seenTools[1]).toContain("deferred-action");
     expect(deferredRun).toHaveBeenCalledOnce();
     expect(sendResponse).toHaveBeenCalledWith(
@@ -3569,69 +3583,5 @@ describe("integration webhook handler engine resolution", () => {
       expect.any(Object),
       expect.any(Object),
     );
-  });
-
-  it("defers framework-added tools behind tool-search on the first engine request while keeping template actions and initial defaults", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    actionsToEngineToolsMock.mockImplementation(
-      (actionsMap: Record<string, { tool: { description: string } }>) =>
-        Object.keys(actionsMap).map((name) => ({
-          name,
-          description: actionsMap[name].tool.description,
-          inputSchema: { type: "object", properties: {} },
-        })),
-    );
-
-    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
-      send({ type: "text", text: "ok" });
-    });
-
-    const noopTool = (description: string) => ({
-      tool: {
-        description,
-        parameters: { type: "object" as const, properties: {} },
-      },
-      run: async () => "ok",
-    });
-
-    await processIntegrationTask(pendingTask({ id: "task-tool-filter" }), {
-      adapter: createAdapter(),
-      systemPrompt: "system",
-      actions: {
-        "template-action": noopTool("A template/app action"),
-        "call-agent": noopTool("Delegate to another A2A agent"),
-        "list-integration-memory": noopTool("List integration memory"),
-      },
-      initialToolNames: ["template-action"],
-      apiKey: "test-key",
-      ownerEmail: "dispatch+qa@integration.local",
-      orgId: "org-qa",
-      principalType: "service",
-    });
-
-    expect(runAgentLoopMock).toHaveBeenCalledOnce();
-    const call = runAgentLoopMock.mock.calls[0]?.[0];
-    const firstRequestToolNames: string[] = call.tools
-      .map((tool: { name: string }) => tool.name)
-      .sort();
-    const availableToolNames: string[] = call.availableTools
-      .map((tool: { name: string }) => tool.name)
-      .sort();
-
-    expect(firstRequestToolNames).not.toContain("call-agent");
-    expect(firstRequestToolNames).not.toContain("list-integration-memory");
-    expect(firstRequestToolNames).toEqual(["template-action", "tool-search"]);
-    expect(availableToolNames).toEqual([
-      "call-agent",
-      "list-integration-memory",
-      "template-action",
-      "tool-search",
-    ]);
-    expect(Object.keys(call.actions).sort()).toEqual([
-      "call-agent",
-      "list-integration-memory",
-      "template-action",
-      "tool-search",
-    ]);
   });
 });

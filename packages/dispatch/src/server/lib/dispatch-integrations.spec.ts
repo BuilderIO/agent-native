@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   resolveOrgIdForEmail: vi.fn(),
   resolveSecret: vi.fn(),
   resolveSlackBotTokenForIncoming: vi.fn(),
+  saveIntegrationScope: vi.fn(),
 }));
 
 vi.mock("./dispatch-store.js", () => ({
@@ -28,6 +29,7 @@ vi.mock("@agent-native/core/integrations", async () => {
     evaluateIntegrationScopePolicy: mocks.evaluateIntegrationScopePolicy,
     getIntegrationScope: mocks.getIntegrationScope,
     resolveSlackBotTokenForIncoming: mocks.resolveSlackBotTokenForIncoming,
+    saveIntegrationScope: mocks.saveIntegrationScope,
   };
 });
 
@@ -126,6 +128,13 @@ beforeEach(() => {
   mocks.getActiveIntegrationInstallationByKey.mockResolvedValue(null);
   mocks.getIntegrationScope.mockResolvedValue(null);
   mocks.evaluateIntegrationScopePolicy.mockReturnValue({ allowed: true });
+  mocks.saveIntegrationScope.mockResolvedValue({
+    id: "scope-slack-dm",
+    conversationType: "direct_message",
+    orgId: "org-managed",
+    defaultModel: null,
+    allowedAgentIds: [],
+  });
   mocks.isOrgMember.mockResolvedValue(false);
   mocks.resolveLinkedOwner.mockResolvedValue(null);
   mocks.consumeLinkToken.mockResolvedValue("owner@example.test");
@@ -542,6 +551,7 @@ describe("managed Slack execution identity", () => {
       ownerEmail: "dev@local.test",
       orgId: null,
       principalType: "user",
+      scopeId: "scope-slack-dm",
     });
     expect(mocks.resolveLinkedOwner).toHaveBeenCalledWith(
       "slack",
@@ -567,6 +577,7 @@ describe("managed Slack execution identity", () => {
       ownerEmail: "alice@example.test",
       orgId: "org-verified",
       principalType: "user",
+      scopeId: "scope-slack-dm",
     });
     expect(incoming.platformContext.identityVerificationFailed).toBeUndefined();
   });
@@ -806,6 +817,7 @@ describe("managed Slack execution identity", () => {
       orgId: "org-managed",
       principalType: "user",
       installationId: "installation-managed",
+      scopeId: "scope-slack-dm",
     });
     expect(mocks.isOrgMember).toHaveBeenCalledWith(
       "org-managed",
@@ -816,6 +828,20 @@ describe("managed Slack execution identity", () => {
       memberType: "member",
       verified: true,
     });
+    expect(incoming.integrationScopeId).toBe("scope-slack-dm");
+    expect(mocks.saveIntegrationScope).toHaveBeenCalledWith(
+      {
+        platform: "slack",
+        tenantId: "T-MANAGED",
+        conversationId: "D-MANAGED",
+        conversationType: "direct_message",
+        trust: "trusted",
+        orgId: "org-managed",
+        installationId: "installation-managed",
+        policy: { requireMention: false, allowDirectMessages: true },
+      },
+      { ownerEmail: "installer@example.test", orgId: "org-managed" },
+    );
   });
 
   it("fails closed instead of borrowing the deployment owner when Slack hydration fails", async () => {
@@ -1040,5 +1066,126 @@ describe("managed Slack execution identity", () => {
     });
     expect(execution.ownerEmail).not.toBe("alice@example.test");
     expect(mocks.isOrgMember).not.toHaveBeenCalled();
+  });
+
+  it("keeps DM thread replies on the verified user and loads the saved scope model", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.isOrgMember.mockResolvedValueOnce(true);
+    mocks.getIntegrationScope.mockResolvedValueOnce({
+      id: "scope-threaded-dm",
+      conversationType: "direct_message",
+      defaultModel: "openai/gpt-5",
+      allowedAgentIds: ["analytics"],
+      serviceOwnerEmail: "broad-service@integration.local",
+    });
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "thread-user@example.test" } },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-THREADED-DM",
+      triggerKind: "thread_reply",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-THREADED",
+        channelType: "im",
+      },
+    });
+
+    expect(await resolveDispatchExecutionContext(incoming)).toEqual({
+      ownerEmail: "thread-user@example.test",
+      orgId: "org-managed",
+      principalType: "user",
+      installationId: "installation-managed",
+      scopeId: "scope-threaded-dm",
+    });
+    expect(incoming.integrationScopeId).toBe("scope-threaded-dm");
+    expect(incoming.platformContext.defaultModel).toBe("openai/gpt-5");
+    expect(mocks.saveIntegrationScope).not.toHaveBeenCalled();
+  });
+
+  it("does not provision a scope for denied DM thread senders", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: {
+            is_restricted: true,
+            profile: { email: "guest@example.test" },
+          },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-GUEST-DM-THREAD",
+      triggerKind: "thread_reply",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-GUEST",
+        channelType: "im",
+      },
+    });
+
+    expect((await resolveDispatchExecutionContext(incoming)).orgId).toBeNull();
+    expect(await beforeDispatchProcess(incoming, noopAdapter)).toEqual({
+      handled: true,
+      responseText:
+        "This assistant is only available to members of this workspace's organization.",
+    });
+    expect(mocks.saveIntegrationScope).not.toHaveBeenCalled();
+    expect(mocks.getIntegrationScope).not.toHaveBeenCalled();
+  });
+
+  it("preserves a saved DM policy denial instead of provisioning around it", async () => {
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("linked@example.test");
+    mocks.getIntegrationScope.mockResolvedValueOnce({
+      id: "scope-disabled-dm",
+      conversationType: "direct_message",
+    });
+    mocks.evaluateIntegrationScopePolicy.mockReturnValueOnce({
+      allowed: false,
+      reason: "direct_messages_disabled",
+    });
+    const incoming = slackIncoming({
+      triggerKind: "dm",
+      conversationType: "dm",
+      actorTrust: { memberType: "member", verified: true },
+      platformContext: { teamId: "T-MANUAL", channelId: "D-DISABLED" },
+    });
+
+    await expect(resolveDispatchExecutionContext(incoming)).rejects.toThrow(
+      "direct_messages_disabled",
+    );
+    expect(mocks.saveIntegrationScope).not.toHaveBeenCalled();
+  });
+
+  it("leaves unverifiable legacy DM identity without a scope grant", async () => {
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("linked@example.test");
+    const incoming = slackIncoming({
+      triggerKind: "dm",
+      conversationType: "dm",
+    });
+    const context = await resolveDispatchExecutionContext(incoming);
+    expect(context.ownerEmail).toBe("linked@example.test");
+    expect(context.scopeId).toBeUndefined();
+    expect(incoming.integrationScopeId).toBeUndefined();
+    expect(mocks.saveIntegrationScope).not.toHaveBeenCalled();
   });
 });
