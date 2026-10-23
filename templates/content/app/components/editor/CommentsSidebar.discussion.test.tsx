@@ -430,6 +430,30 @@ describe("the Discussion panel", () => {
     }
   });
 
+  it("keeps a comment whose save wasn't confirmed in view under any filter", () => {
+    const unconfirmed = thread("optimistic-1", null);
+    unconfirmed.comments[0].mutation = {
+      kind: "create",
+      status: "error",
+      operationId: "operation-1",
+      ambiguous: true,
+    };
+    threads = [...fixtureThreads, unconfirmed];
+    render();
+    act(() =>
+      replies.setHistoryFilters({ target: "text", kind: "suggestions" }),
+    );
+    // Its card holds the only way to check the save, and the composer waits
+    // on that check.
+    expect(card("optimistic-1")).not.toBeNull();
+    expect(
+      [...container.querySelectorAll("button")].some((button) =>
+        button.textContent?.includes("comments.checkSaved"),
+      ),
+    ).toBe(true);
+    expect(card("page-1")).toBeNull();
+  });
+
   it("keeps a conflict's view while someone searches, without saving over their filters", () => {
     render();
     act(() => replies.setHistoryFilters({ target: "text" }));
