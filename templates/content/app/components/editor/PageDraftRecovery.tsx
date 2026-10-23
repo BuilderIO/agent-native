@@ -164,6 +164,30 @@ function pageHoldsDraft(
   return draft.title === page.title && draft.content === page.content;
 }
 
+// The version of the page a review showed. A choice made from that review
+// consents to this version alone.
+type ReviewedPage = Pick<Document, "title" | "content" | "updatedAt"> & {
+  revision: Document["revision"];
+};
+
+function reviewedPage(page: Document): ReviewedPage {
+  return {
+    title: page.title,
+    content: page.content,
+    updatedAt: page.updatedAt,
+    revision: page.revision,
+  };
+}
+
+function sameReviewedPage(left: ReviewedPage, right: ReviewedPage) {
+  return (
+    left.updatedAt === right.updatedAt &&
+    left.revision === right.revision &&
+    left.title === right.title &&
+    left.content === right.content
+  );
+}
+
 // A draft goes back onto the page as an edit of the page's body, so only while
 // the page still holds the body the draft was written on. The timestamp alone
 // cannot show that: a tab can stamp it from a copy that paired its body with
@@ -200,19 +224,17 @@ export function PageDraftRecovery({
   // that id renders here without a remount. Only its creation time tells the
   // two apart.
   const incarnation = JSON.stringify([document.id, document.createdAt ?? null]);
-  const scopeKey = session?.email
-    ? JSON.stringify([
-        session.email.trim().toLowerCase(),
-        session.orgId ?? null,
-        document.id,
-        document.createdAt ?? null,
-      ])
-    : null;
   const queryClient = useQueryClient();
   const creationPending = isDocumentCreationPending(queryClient, document);
-  const beginAttempt = useRecoveryAttemptOwner(
-    pageRecoveryIdentity(session, document, creationPending),
+  const recoveryIdentity = pageRecoveryIdentity(
+    session,
+    document,
+    creationPending,
   );
+  const beginAttempt = useRecoveryAttemptOwner(recoveryIdentity);
+  const scopeKey = recoveryIdentity.includes(undefined)
+    ? null
+    : JSON.stringify(recoveryIdentity);
   const openedIncarnationRef = useRef(incarnation);
   // Creation state outlives the creating editor's hold on it, and an
   // optimistic page takes the server's creation time once it is confirmed.
@@ -306,9 +328,9 @@ export function PageDraftRecovery({
   const liveEditorSessionId = liveEditor?.editorSessionId ?? null;
   // A legacy draft of unknown lineage waits for review beside the open
   // editor, so its review also covers the editor's own edits. A choice runs
-  // only while the editor holds the saved edit the review was prepared
-  // against; anything typed or synced since needs a new review and a new
-  // click.
+  // only while the page is still the version the review read and the editor
+  // holds the saved edit the review was prepared against; anything typed,
+  // synced or saved by a peer since needs a new review and a new click.
   const [legacyReview, setLegacyReview] = useState<
     | { status: "preparing" }
     | { status: "held"; reason: "unsaved" | "changed" | "error" }
@@ -316,6 +338,7 @@ export function PageDraftRecovery({
         status: "ready";
         epoch: number;
         draftKey: string;
+        page: ReviewedPage;
         editor: FlushLocalSnapshot;
       }
     | { status: "chosen" }
@@ -343,19 +366,13 @@ export function PageDraftRecovery({
     failure: DraftRecoveryFailure,
     page: Document | null = null,
     source: PreviewDocumentDraftRecord | null | undefined = draft,
-    attempt?: RecoveryAttempt,
   ) {
-    attempt?.assertActive();
     setReview({ scopeKey, draft: source ?? null, failure, document: page });
   }
 
-  function setFailure(
-    failure: DraftRecoveryFailure | null,
-    attempt?: RecoveryAttempt,
-  ) {
-    attempt?.assertActive();
+  function setFailure(failure: DraftRecoveryFailure | null) {
     if (failure === null) setReview(null);
-    else showRecoveryReview(failure, null, draft, attempt);
+    else showRecoveryReview(failure, null, draft);
   }
   // So does an editor open in another tab; settling its draft here would move
   // text it is still saving to History. Its draft can outlive its journal
@@ -368,8 +385,9 @@ export function PageDraftRecovery({
   const draftOpenElsewhere = Boolean(
     draft?.editorSessionId && skippedWriterIds?.has(draft.editorSessionId),
   );
-  // No scope until the session read returns; the session cache expires, so a
-  // page opened later can mount before then. Unverified until it does.
+  // No scope until the session read returns and the page shows its creation
+  // time; the session cache expires, so a page opened later can mount before
+  // then. Unverified until it does.
   const scopeVerified = scopeKey !== null && verifiedScopeKey === scopeKey;
   const editorReleased =
     scopeVerified && releasedScopeKey === scopeKey && !draft;
@@ -399,13 +417,17 @@ export function PageDraftRecovery({
             if (data?.editable === false)
               throw new Error("The page is no longer editable by this user.");
           });
-    void read
-      .then(() => {
-        if (!cancelled && owner.isActive()) setVerifiedScopeKey(scopeKey);
-      })
-      .catch(() => {
-        if (!cancelled && owner.isActive()) setJournalState("failed");
-      });
+    void owner
+      .step(() => read)
+      .then(
+        () => {
+          if (!cancelled) setVerifiedScopeKey(scopeKey);
+        },
+        (error: unknown) => {
+          if (!cancelled && !(error instanceof RecoveryAttemptEnded))
+            setJournalState("failed");
+        },
+      );
     return () => {
       cancelled = true;
     };
@@ -431,11 +453,7 @@ export function PageDraftRecovery({
     setLegacyReview(null);
   }, [beginAttempt.epoch]);
 
-  function completeJournalRecovery(
-    settled: PreviewDocumentDraftRecord,
-    owner: RecoveryAttempt,
-  ) {
-    owner.assertActive();
+  function completeJournalRecovery(settled: PreviewDocumentDraftRecord) {
     const pending = pendingJournalRef.current;
     if (!pending || !sameRecoveryDraft(pending.draft, settled)) return;
     // A newer journal is still pending even when this exact SQL draft settled.
@@ -486,22 +504,25 @@ export function PageDraftRecovery({
         !draftLivenessKnown)
     ) {
       let cancelled = false;
-      void liveDraftWriterIds().then(
-        (writerIds) => {
-          // Without Web Locks no writer reads as live, so every entry
-          // replays, as it did before writer locks.
-          if (!cancelled && owner.isActive())
-            setLiveWriters({
-              scopeKey,
-              entryKey,
-              draftKey,
-              writerIds: writerIds ?? new Set(),
-            });
-        },
-        () => {
-          if (!cancelled && owner.isActive()) setJournalState("failed");
-        },
-      );
+      void owner
+        .step(() => liveDraftWriterIds())
+        .then(
+          (writerIds) => {
+            // Without Web Locks no writer reads as live, so every entry
+            // replays, as it did before writer locks.
+            if (!cancelled)
+              setLiveWriters({
+                scopeKey,
+                entryKey,
+                draftKey,
+                writerIds: writerIds ?? new Set(),
+              });
+          },
+          (error: unknown) => {
+            if (!cancelled && !(error instanceof RecoveryAttemptEnded))
+              setJournalState("failed");
+          },
+        );
       return () => {
         cancelled = true;
       };
@@ -606,7 +627,6 @@ export function PageDraftRecovery({
         failure ?? (current.baseTitle == null ? "unknown" : "conflict"),
         page,
         current,
-        owner,
       );
       if (holdsJournal(current))
         pendingJournalRef.current = {
@@ -620,7 +640,6 @@ export function PageDraftRecovery({
       setJournalState("waiting_sql");
     };
     const promote = async () => {
-      owner.assertActive();
       const retainedDraft =
         draft && holdsJournal(draft)
           ? draft
@@ -700,7 +719,7 @@ export function PageDraftRecovery({
         return;
       }
       resolvedDraftsRef.current.add(recoveryDraftKey(retainedDraft));
-      completeJournalRecovery(retainedDraft, owner);
+      completeJournalRecovery(retainedDraft);
       toast.success(t("editor.previewDraftSavedToHistory"));
       await owner.step(() =>
         queryClient.refetchQueries(documentQueryFilter(document.id)),
@@ -773,7 +792,6 @@ export function PageDraftRecovery({
           },
           content: journalSnapshot.content,
           canRetry: (winner) => {
-            owner.assertActive();
             winnerTitle = winner.title;
             return (
               !localChangedTitle ||
@@ -781,37 +799,36 @@ export function PageDraftRecovery({
               winner.title === journalSnapshot.title
             );
           },
-          confirmsWrite: (winner) => {
-            owner.assertActive();
-            return (
-              winner.title ===
-              (localChangedTitle ? journalSnapshot.title : winnerTitle)
-            );
-          },
-          persist: (content, base) => {
-            owner.assertActive();
-            attemptedContent = content;
-            const saveAttemptId = crypto.randomUUID();
-            const nextSnapshot = {
-              ...journalSnapshot,
-              content,
-              baseContent: base.content,
-              baseUpdatedAt: base.updatedAt,
-              baseRevision: base.revision,
-              saveAttemptId,
-              priorSaveAttemptIds: undefined,
-              equivalentSaveAttemptIds: undefined,
-            };
-            const written = writePageDraftJournal({
-              scope: entry.scope,
-              snapshot: nextSnapshot,
-            });
-            if (written.snapshot.saveAttemptId !== saveAttemptId)
-              throw new Error("A newer local edit superseded journal replay.");
-            journalStorageSnapshot = written.snapshot;
-            journalSnapshot = nextSnapshot;
-            return owner.step(() =>
-              update.mutateAsync({
+          confirmsWrite: (winner) =>
+            winner.title ===
+            (localChangedTitle ? journalSnapshot.title : winnerTitle),
+          // The journal write is part of the step, so it waits for the owner
+          // as the save does.
+          persist: (content, base) =>
+            owner.step(async () => {
+              attemptedContent = content;
+              const saveAttemptId = crypto.randomUUID();
+              const nextSnapshot = {
+                ...journalSnapshot,
+                content,
+                baseContent: base.content,
+                baseUpdatedAt: base.updatedAt,
+                baseRevision: base.revision,
+                saveAttemptId,
+                priorSaveAttemptIds: undefined,
+                equivalentSaveAttemptIds: undefined,
+              };
+              const written = writePageDraftJournal({
+                scope: entry.scope,
+                snapshot: nextSnapshot,
+              });
+              if (written.snapshot.saveAttemptId !== saveAttemptId)
+                throw new Error(
+                  "A newer local edit superseded journal replay.",
+                );
+              journalStorageSnapshot = written.snapshot;
+              journalSnapshot = nextSnapshot;
+              return update.mutateAsync({
                 id: document.id,
                 browserSaveAttemptId: saveAttemptId,
                 ...(localChangedTitle ? { title: journalSnapshot.title } : {}),
@@ -843,9 +860,8 @@ export function PageDraftRecovery({
                         journalSnapshot.authoredCandidateContent,
                     }
                   : {}),
-              }),
-            );
-          },
+              });
+            }),
         }),
       );
       if (outcome.status === "superseded") {
@@ -899,8 +915,8 @@ export function PageDraftRecovery({
         if (failure === "error") throw error;
         return reviewCurrentDraft(failure);
       })
-      .catch(() => {
-        if (owner.isActive()) setJournalState("failed");
+      .catch((error: unknown) => {
+        if (!(error instanceof RecoveryAttemptEnded)) setJournalState("failed");
       })
       .finally(() => releaseRecovery(owner));
   }, [
@@ -965,6 +981,7 @@ export function PageDraftRecovery({
     choice: "keep_mine" | "use_saved" | "save_separately",
     trigger: "automatic" | "reviewed" = "reviewed",
     onAcquired?: () => void,
+    reviewed: ReviewedPage = reviewedPage(conflictDocument ?? document),
   ) {
     if (!draft || busy) return;
     const owner = acquireRecovery();
@@ -983,9 +1000,8 @@ export function PageDraftRecovery({
           expectedDraftTitle: draft.title,
           expectedDraftContent: draft.content,
           expectedDraftBaseTitle: draft.baseTitle ?? null,
-          expectedDocumentTitle: conflictDocument?.title ?? document.title,
-          expectedDocumentUpdatedAt:
-            conflictDocument?.updatedAt ?? document.updatedAt,
+          expectedDocumentTitle: reviewed.title,
+          expectedDocumentUpdatedAt: reviewed.updatedAt,
         },
         owner,
         draft,
@@ -1014,11 +1030,11 @@ export function PageDraftRecovery({
           await discardDraft(draft, true, owner);
           return;
         }
-        showRecoveryReview("conflict", result.document ?? null, draft, owner);
+        showRecoveryReview("conflict", result.document ?? null, draft);
         return;
       }
       resolvedDraftsRef.current.add(recoveryDraftKey(draft));
-      completeJournalRecovery(draft, owner);
+      completeJournalRecovery(draft);
       if (choice === "use_saved")
         toast.success(t("editor.previewDraftSavedToHistory"));
       if (choice === "save_separately")
@@ -1038,11 +1054,11 @@ export function PageDraftRecovery({
       await owner.step(() => drafts.refetch());
     } catch (error) {
       if (!owner.isActive()) return;
-      setFailure(recoveryFailure(error), owner);
+      setFailure(recoveryFailure(error));
       try {
         await owner.step(() => drafts.refetch({ throwOnError: true }));
       } catch {
-        if (owner.isActive()) setFailure("error", owner);
+        if (owner.isActive()) setFailure("error");
       }
     } finally {
       releaseRecovery(owner);
@@ -1069,8 +1085,7 @@ export function PageDraftRecovery({
     const epoch = beginAttempt.epoch;
     const flush = liveEditor?.flush ?? null;
     const settle = (next: typeof legacyReview) => {
-      if (attempt.isActive() && legacyReviewRunRef.current === run)
-        setLegacyReview(next);
+      if (legacyReviewRunRef.current === run) setLegacyReview(next);
     };
     setLegacyReview({ status: "preparing" });
     if (!flush) return settle({ status: "held", reason: "unsaved" });
@@ -1097,6 +1112,17 @@ export function PageDraftRecovery({
         settle({ status: "held", reason: "error" });
       return;
     }
+    // The page as this review's own reads left it, which the rendered page
+    // may not show yet. Reads that disagree saw a save land between them.
+    const pages = queryClient
+      .getQueryCache()
+      .findAll(documentQueryFilter(document.id))
+      .flatMap((query) =>
+        query.state.data ? [reviewedPage(query.state.data as Document)] : [],
+      );
+    const page = pages[0];
+    if (!page || pages.some((other) => !sameReviewedPage(page, other)))
+      return settle({ status: "held", reason: "error" });
     const editor = flush.snapshot();
     if (!editor.clean) return settle({ status: "held", reason: "unsaved" });
     if (!reviewed) return settle(null);
@@ -1104,39 +1130,59 @@ export function PageDraftRecovery({
       status: "ready",
       epoch,
       draftKey: recoveryDraftKey(reviewed),
+      page,
       editor,
     });
   }
 
-  // Checked when clicked, not only when rendered: an edit typed after the
-  // review re-renders nothing here.
+  // What the review shows and what a click may do: both hold only while the
+  // owner, the draft, the page version and the editor's saved edit and claim
+  // are the ones the review read. Clicks check again, since an edit typed
+  // after the review re-renders nothing here.
+  function legacyReviewHolds(
+    review: typeof legacyReview,
+  ): review is Extract<typeof legacyReview, { status: "ready" }> {
+    const editor = liveEditor?.flush?.snapshot();
+    return (
+      review?.status === "ready" &&
+      review.epoch === beginAttempt.epoch &&
+      !!draft &&
+      review.draftKey === recoveryDraftKey(draft) &&
+      sameReviewedPage(review.page, reviewedPage(document)) &&
+      !!editor?.clean &&
+      flushSnapshotUnchanged(review.editor, editor) &&
+      JSON.stringify(review.editor.claim) === JSON.stringify(editor.claim)
+    );
+  }
+
   function chooseReviewedLegacy(
     choice: "keep_mine" | "use_saved" | "save_separately",
   ) {
-    const current = liveEditor?.flush?.snapshot();
-    if (
-      legacyReview?.status !== "ready" ||
-      legacyReview.epoch !== beginAttempt.epoch ||
-      !draft ||
-      legacyReview.draftKey !== recoveryDraftKey(draft) ||
-      !current?.clean ||
-      !flushSnapshotUnchanged(legacyReview.editor, current)
-    ) {
+    if (!legacyReviewHolds(legacyReview)) {
       legacyReviewRunRef.current += 1;
       setLegacyReview({ status: "held", reason: "changed" });
       return;
     }
+    const { page } = legacyReview;
     setLegacyReview({ status: "chosen" });
-    void resolveConflict(choice);
+    void resolveConflict(choice, "reviewed", undefined, page);
   }
 
+  // The copy itself never waits: the browser allows it only while the click
+  // that asked for it is current. Only its report waits for the owner.
   function copyDraft(content: string) {
-    const owner = beginAttempt();
-    void writeClipboardText(content).then((copied) => {
-      if (!owner.isActive()) return;
-      if (copied) toast.success(t("editor.unsavedTextCopied"));
-      else toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
-    });
+    const copied = writeClipboardText(content);
+    void beginAttempt()
+      .step(() => copied)
+      .then(
+        (done) => {
+          if (done) toast.success(t("editor.unsavedTextCopied"));
+          else toast.error(t("editor.toolbar.clipboardAccessUnavailable"));
+        },
+        (error: unknown) => {
+          if (!(error instanceof RecoveryAttemptEnded)) throw error;
+        },
+      );
   }
 
   const hasEditIdentity = Boolean(
@@ -1321,9 +1367,13 @@ export function PageDraftRecovery({
   // behind the draft still goes first: recovering it after the editor opened
   // would replace the editor.
   if (!hasEditIdentity && draft.baseTitle == null && journalState === "ready") {
+    const reviewReady = legacyReviewHolds(legacyReview);
+    const reviewStale = legacyReview?.status === "ready" && !reviewReady;
     const reviewHeld =
       legacyReview?.status === "held" ||
+      reviewStale ||
       (legacyReview?.status === "chosen" && !busy);
+    const legacySaved = reviewReady ? legacyReview.page : savedVersion;
     return withNotice(
       <Dialog
         open={legacyReview !== null}
@@ -1365,7 +1415,7 @@ export function PageDraftRecovery({
           </DialogTitle>
           <RecoveryComparison
             mine={{ title: draft.title, content: draft.content }}
-            saved={{ title: savedVersion.title, content: savedVersion.content }}
+            saved={{ title: legacySaved.title, content: legacySaved.content }}
             busy={
               busy ||
               legacyReview?.status === "preparing" ||
@@ -1373,17 +1423,19 @@ export function PageDraftRecovery({
             }
             keepMineDisabled={keepMineDisabled}
             failure={
-              legacyReview?.status === "held"
-                ? legacyReview.reason === "unsaved"
-                  ? t("editor.reconcileSaveFailed")
-                  : legacyReview.reason === "changed"
-                    ? t("editor.reconcileReviewStale")
-                    : t("empty.genericError")
-                : failure === "conflict"
-                  ? t("editor.previewDraftConflict")
-                  : failure === "error"
-                    ? t("empty.genericError")
-                    : t("editor.previewDraftTitleUnknown")
+              reviewStale
+                ? t("editor.reconcileReviewStale")
+                : legacyReview?.status === "held"
+                  ? legacyReview.reason === "unsaved"
+                    ? t("editor.reconcileSaveFailed")
+                    : legacyReview.reason === "changed"
+                      ? t("editor.reconcileReviewStale")
+                      : t("empty.genericError")
+                  : failure === "conflict"
+                    ? t("editor.previewDraftConflict")
+                    : failure === "error"
+                      ? t("empty.genericError")
+                      : t("editor.previewDraftTitleUnknown")
             }
             stale={reviewHeld}
             onRefresh={() => void reviewLegacyDraft()}

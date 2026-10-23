@@ -104,6 +104,7 @@ describe("Page draft recovery", () => {
     title: "Saved",
     content: "Saved body",
     canEdit: true,
+    createdAt: "created",
     updatedAt: "v2",
     revision: "saved-body-revision",
     contentHash: "sha256:saved-body",

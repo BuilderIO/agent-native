@@ -28,6 +28,7 @@ import {
 
 import type { PageEditorSession } from "./DocumentEditor";
 import type { DocumentReconcileRecovery } from "./DocumentReconcileRecovery";
+import { PageSaveHandedOff } from "./pageSession";
 import type { useDocumentReconcileRecovery } from "./useDocumentReconcileRecovery";
 import type {
   VisualEditor,
@@ -35,6 +36,7 @@ import type {
 } from "./VisualEditor";
 
 const fixture = vi.hoisted(() => ({
+  account: null as { email: string; orgId: string | null } | null,
   page: null as Document | null,
   fields: null as DocumentPropertiesResponse | null,
   realAdditionalEditors: false,
@@ -75,6 +77,8 @@ const fixture = vi.hoisted(() => ({
     | null,
   pageVersion: 0,
   pageSubscribers: new Set<() => void>(),
+  // What each page save that did not return threw.
+  saveFailures: [] as unknown[],
 }));
 
 const barrierStore = vi.hoisted(() => ({
@@ -152,9 +156,7 @@ vi.mock("@agent-native/core/client/application-state", () => ({
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
-  useSession: () => ({
-    session: { email: "writer@example.test", orgId: "org" },
-  }),
+  useSession: () => ({ session: fixture.account }),
   useDbSync: (options: { onEvent?: typeof fixture.onSyncEvent }) => {
     if (options.onEvent) fixture.onSyncEvent = options.onEvent;
   },
@@ -245,6 +247,19 @@ vi.mock("@/hooks/use-documents", async (importOriginal) => {
     useUpdatePreviewDocumentDraft: () => fixture.mutation,
     useDocuments: () => fixture.emptyQuery,
     useContentNavigationContext: () => fixture.emptyQuery,
+  };
+});
+vi.mock("./pageSession", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./pageSession")>();
+  return {
+    ...actual,
+    savePageWithRecovery: (
+      input: Parameters<typeof actual.savePageWithRecovery>[0],
+    ) =>
+      actual.savePageWithRecovery(input).catch((error: unknown) => {
+        fixture.saveFailures.push(error);
+        throw error;
+      }),
   };
 });
 vi.mock("@/hooks/use-content-spaces", () => ({
@@ -476,11 +491,14 @@ beforeEach(() => {
       return new Response("{}");
     }),
   );
+  fixture.account = { email: "writer@example.test", orgId: "org" };
+  fixture.saveFailures = [];
   fixture.page = {
     id: "recovery-page",
     title: "Saved title",
     content: "Saved body",
     revision: "r1",
+    createdAt: "2026-10-19T11:00:00.000Z",
     updatedAt: "2026-10-19T12:00:00.000Z",
     canEdit: true,
   } as Document;
@@ -1815,16 +1833,9 @@ it("ends a pending recovery save when another page takes over its id", async () 
 
   expect(await resolved).toBe(false);
   expect(fixture.save).toHaveBeenCalledOnce();
-  // The refused save still keeps its own edit for review, against the page it
-  // was written on. The old page's recovery keeps nothing of the new page.
-  expect(
-    upserts()
-      .slice(upsertsBefore)
-      .map(([input]) => [
-        input.draft.content,
-        input.draft.baseDocumentUpdatedAt,
-      ]),
-  ).toEqual([["Prior page edit", "2026-10-19T12:00:00.000Z"]]);
+  // The refused save's recovery belonged to the page it was written on, so
+  // the new page under its id keeps nothing of it.
+  expect(upserts().slice(upsertsBefore)).toEqual([]);
   expect(fixture.recovery!.state).toBeNull();
 });
 
@@ -1849,12 +1860,16 @@ it("keeps a pending recovery save while an optimistic page's creation is confirm
       revision: fixture.page!.revision,
     });
   });
-  expect(fixture.save).toHaveBeenCalledOnce();
+  // Until the server confirms the page, its creation time is not known, so
+  // the save waits rather than write for a page that may turn out to be
+  // another one.
+  expect(fixture.save).not.toHaveBeenCalled();
 
   // The server's creation time replaces the client's clock once it answers.
   fixture.page = { ...fixture.page!, createdAt: "2026-10-19T11:59:59.000Z" };
   markDocumentCreationConfirmed(queryClient, fixture.page!);
   await act(async () => renderEditor());
+  expect(fixture.save).toHaveBeenCalledOnce();
   await act(async () => {
     finish({
       ...fixture.page!,
@@ -1867,6 +1882,72 @@ it("keeps a pending recovery save while an optimistic page's creation is confirm
 
   expect(await resolved).toBe(true);
   expect(fixture.recovery!.state).toBeNull();
+});
+
+describe("a recovery save while the page's creation time is not shown", () => {
+  const createdAt = "2026-10-19T11:00:00.000Z";
+  const withoutCreationTime = () =>
+    ({ ...fixture.page!, createdAt: undefined }) as unknown as Document;
+  async function resolveRecovery() {
+    let finish!: (value: unknown) => void;
+    fixture.save.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    await act(async () => renderEditor());
+    act(() => fixture.recovery!.report("conflict", "Recovered body"));
+    act(() => fixture.editor!.onChange("Recovered body"));
+    let resolved!: Promise<boolean>;
+    await act(async () => {
+      resolved = fixture.recovery!.resolve({
+        title: fixture.page!.title,
+        content: fixture.page!.content,
+        updatedAt: fixture.page!.updatedAt,
+        revision: fixture.page!.revision,
+      });
+    });
+    const confirm = async () => {
+      await act(async () => {
+        finish({
+          ...fixture.page!,
+          content: "Recovered body",
+          revision: "r2",
+          updatedAt: "2026-10-19T12:00:01.000Z",
+        });
+        await resolved;
+      });
+      return resolved;
+    };
+    return confirm;
+  }
+
+  it("waits for the first read that shows it, then saves for the same page", async () => {
+    fixture.page = withoutCreationTime();
+    const confirm = await resolveRecovery();
+    expect(fixture.save).not.toHaveBeenCalled();
+
+    fixture.page = { ...fixture.page!, createdAt };
+    await act(async () => renderEditor());
+    expect(fixture.save).toHaveBeenCalledOnce();
+
+    expect(await confirm()).toBe(true);
+    expect(fixture.recovery!.state).toBeNull();
+  });
+
+  it("keeps a save in flight while a read briefly lacks it, for the same page", async () => {
+    const confirm = await resolveRecovery();
+    expect(fixture.save).toHaveBeenCalledOnce();
+
+    fixture.page = withoutCreationTime();
+    await act(async () => renderEditor());
+    fixture.page = { ...fixture.page!, createdAt };
+    await act(async () => renderEditor());
+
+    expect(await confirm()).toBe(true);
+    expect(fixture.save).toHaveBeenCalledOnce();
+    expect(fixture.recovery!.state).toBeNull();
+  });
 });
 
 describe("an editor that left while its save was in flight", () => {
@@ -1916,6 +1997,166 @@ describe("an editor that left while its save was in flight", () => {
     fixture.mutation.mutateAsync.mock.calls.filter(
       ([input]) => input.operation === "upsert",
     );
+  const journaled = () =>
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith("content-page-draft-journal-v1:"))
+      .map((key) => JSON.parse(localStorage.getItem(key)!).snapshot.content);
+  const confirmation = () => ({
+    ...fixture.page!,
+    content: "Typed before leaving",
+    revision: "r2",
+    updatedAt: "2026-10-19T12:00:01.000Z",
+  });
+  // A peer saved over the same paragraph, so the edit cannot merge onto it.
+  const displacing = () => ({
+    conflict: true,
+    document: {
+      ...fixture.page!,
+      content: "Peer body",
+      revision: "r-peer",
+      updatedAt: "2026-10-19T12:00:02.000Z",
+    },
+  });
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  beforeEach(() => {
+    unhandled.length = 0;
+    process.on("unhandledRejection", onUnhandled);
+  });
+  afterEach(() => {
+    process.off("unhandledRejection", onUnhandled);
+  });
+
+  it.each([
+    [
+      "it left",
+      async () => {
+        await act(async () => root.unmount());
+      },
+    ],
+    [
+      "its account changed",
+      async () => {
+        fixture.account = { email: "reader@example.test", orgId: "org" };
+        await act(async () => renderEditor());
+      },
+    ],
+    [
+      "another page took over its id",
+      async () => {
+        fixture.page = {
+          ...fixture.page!,
+          createdAt: "2026-10-19T13:00:00.000Z",
+        };
+        await act(async () => renderEditor());
+      },
+    ],
+  ])(
+    "leaves its journal entry for the page's next open when its confirmation arrives after %s",
+    async (_, end) => {
+      const { toastError, settle } = await typeAndSave();
+      expect(journaled()).toEqual(["Typed before leaving"]);
+
+      await end();
+      await answer(() => settle.resolve(confirmation()));
+
+      expect(journaled()).toEqual(["Typed before leaving"]);
+      expect(upserts()).toEqual([]);
+      expect(toastError).not.toHaveBeenCalled();
+      expect(unhandled).toEqual([]);
+      expect(fixture.saveFailures).toEqual([
+        expect.objectContaining({
+          handoff: {
+            during: "save",
+            answer: {
+              status: "fulfilled",
+              value: expect.objectContaining({
+                content: "Typed before leaving",
+                revision: "r2",
+              }),
+            },
+          },
+        }),
+      ]);
+      expect(fixture.saveFailures[0]).toBeInstanceOf(PageSaveHandedOff);
+    },
+  );
+
+  it("keeps nothing and reports nothing when a displacing answer arrives after it left", async () => {
+    const { toastError, settle } = await leaveDuringSave();
+    await answer(() => settle.resolve(displacing()));
+
+    expect(await savesAfterTimers()).toBe(0);
+    expect(upserts()).toEqual([]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(unhandled).toEqual([]);
+    expect(fixture.saveFailures).toEqual([
+      expect.objectContaining({
+        handoff: {
+          during: "save",
+          answer: {
+            status: "fulfilled",
+            value: expect.objectContaining({ conflict: true }),
+          },
+        },
+      }),
+    ]);
+  });
+
+  it("stops after its displaced text is kept when it leaves during that write", async () => {
+    let kept!: () => void;
+    fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+      if (input.operation !== "upsert")
+        return { status: "deleted", draft: null };
+      await new Promise<void>((resolve) => {
+        kept = resolve;
+      });
+      return { status: "saved", draft: { ...input.draft, version: 1 } };
+    });
+    const { toastError, settle } = await typeAndSave();
+    await answer(() => settle.resolve(displacing()));
+    expect(upserts()).toHaveLength(1);
+    expect(upserts()[0][0]).toMatchObject({
+      draft: { content: "Typed before leaving" },
+    });
+
+    await act(async () => root.unmount());
+    await answer(() => kept());
+
+    expect(await savesAfterTimers()).toBe(0);
+    expect(upserts()).toHaveLength(1);
+    expect(journaled()).toEqual(["Typed before leaving"]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(unhandled).toEqual([]);
+    // The request's own answer, not the retention write's.
+    expect(fixture.saveFailures).toEqual([
+      expect.objectContaining({
+        handoff: {
+          during: "save",
+          answer: {
+            status: "fulfilled",
+            value: expect.objectContaining({
+              status: "displaced",
+              localDraft: "Typed before leaving",
+            }),
+          },
+        },
+      }),
+    ]);
+  });
+
+  it("reports a displaced text it could not keep while it stays", async () => {
+    fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+      if (input.operation !== "upsert")
+        return { status: "deleted", draft: null };
+      throw new Error("Draft store down");
+    });
+    const { toastError, settle } = await typeAndSave();
+    await answer(() => settle.resolve(displacing()));
+
+    expect(toastError).toHaveBeenCalled();
+    expect(journaled()).toEqual(["Typed before leaving"]);
+  });
 
   it("lets its late confirmation end quietly without clearing the next editor's draft", async () => {
     const { toastError, settle } = await leaveDuringSave();

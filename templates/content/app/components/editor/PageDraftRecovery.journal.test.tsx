@@ -140,6 +140,7 @@ const page = {
   title: "Saved",
   content: "Saved body",
   canEdit: true,
+  createdAt: "created",
   updatedAt: "v2",
   contentHash: "sha256:saved-body",
 } as Document;
@@ -1491,6 +1492,82 @@ describe("Page browser journal recovery", () => {
       });
       expect(state.cleared).not.toHaveBeenCalled();
       expect(toast.success).not.toHaveBeenCalled();
+    },
+  );
+
+  // The journal's own choice is answered while the page's owner is not
+  // known: what the answer would do waits for the owner.
+  async function answerWhileUnknown(unknown: "account" | "creation time") {
+    const journal = retainJournalDraft();
+    const first = held<unknown>();
+    state.resolve.mockReturnValueOnce(first.promise);
+    await act(async () => render());
+    expect(state.resolve).toHaveBeenCalledTimes(1);
+    const session = state.session;
+    if (unknown === "account") state.session = null;
+    await act(async () =>
+      render(
+        unknown === "account"
+          ? page
+          : ({ ...page, createdAt: undefined } as unknown as Document),
+      ),
+    );
+    await act(async () => first.resolve({ status: "resolved" }));
+    expect(state.resolve).toHaveBeenCalledTimes(1);
+    expect(state.entries).toEqual([journal]);
+    expect(state.cleared).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    return { journal, session: session! };
+  }
+
+  it.each(["account", "creation time"] as const)(
+    "finishes a choice answered while the page's %s was unknown once, for the same owner",
+    async (unknown) => {
+      const { session } = await answerWhileUnknown(unknown);
+
+      state.session = session;
+      await act(async () => render());
+
+      expect(state.resolve).toHaveBeenCalledTimes(1);
+      expect(state.entries).toEqual([]);
+      expect(toast.success).toHaveBeenCalledOnce();
+      await act(async () => render());
+      expect(state.resolve).toHaveBeenCalledTimes(1);
+      expect(toast.success).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["another account", "unmount", "account A to B to A"] as const)(
+    "drops a choice answered while the account was unknown once %s",
+    async (change) => {
+      const { journal } = await answerWhileUnknown("account");
+      // A page back in its own scope recovers the journal itself; that new
+      // choice is held so only the old answer could settle anything.
+      state.resolve.mockReturnValueOnce(new Promise(() => {}));
+
+      if (change === "unmount")
+        await act(async () => {
+          root.unmount();
+          root = createRoot(container);
+        });
+      else {
+        state.session = { email: "other@example.test", orgId: "org" };
+        state.draft = null;
+        await act(async () => render());
+      }
+      if (change === "account A to B to A") {
+        state.session = { email: "writer@example.test", orgId: "org" };
+        await act(async () => render());
+      }
+
+      expect(state.resolve).toHaveBeenCalledTimes(
+        change === "account A to B to A" ? 2 : 1,
+      );
+      expect(state.entries).toEqual([journal]);
+      expect(state.cleared).not.toHaveBeenCalled();
+      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
     },
   );
 

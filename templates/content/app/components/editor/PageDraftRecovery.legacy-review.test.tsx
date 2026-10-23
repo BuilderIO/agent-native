@@ -29,7 +29,14 @@ const state = vi.hoisted(() => ({
   copy: vi.fn(),
   journalWrite: vi.fn(),
   journalClear: vi.fn(),
-  comparison: null as null | { onKeepMine: () => void },
+  comparison: null as null | {
+    onKeepMine: () => void;
+    onUseSaved: () => void;
+    onSaveSeparately: () => void;
+    saved: { title: string; content: string };
+  },
+  // The page each get-document read in the cache holds.
+  pages: [] as Document[],
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: vi.fn().mockResolvedValue({ draft: null }),
@@ -43,7 +50,12 @@ vi.mock("@agent-native/toolkit/clipboard", () => ({
 }));
 vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ refetchQueries: state.refetch }),
+  useQueryClient: () => ({
+    refetchQueries: state.refetch,
+    getQueryCache: () => ({
+      findAll: () => state.pages.map((data) => ({ state: { data } })),
+    }),
+  }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/hooks/use-documents", () => ({
@@ -97,6 +109,7 @@ vi.mock("@/components/ui/dialog", async () => {
 vi.mock("./RecoveryComparison", () => ({
   RecoveryComparison: (props: {
     mine: { content: string };
+    saved: { title: string; content: string };
     busy: boolean;
     keepMineDisabled?: boolean;
     failure: string;
@@ -198,6 +211,18 @@ describe("a legacy draft of unknown lineage beside the open editor", () => {
     expect(state.journalWrite).not.toHaveBeenCalled();
     expect(state.journalClear).not.toHaveBeenCalled();
   };
+  // Calls a choice the way a stale click would, past whatever the render shows.
+  const choose = {
+    "Keep mine": () => state.comparison!.onKeepMine(),
+    "Use saved": () => state.comparison!.onUseSaved(),
+    "Save separately": () => state.comparison!.onSaveSeparately(),
+  };
+  const choices = Object.keys(choose) as (keyof typeof choose)[];
+  const peerSaves = [
+    ["a new timestamp", { updatedAt: "v3" }],
+    ["a new revision", { revision: "peer-revision" }],
+    ["a new body", { content: "Peer body", updatedAt: "v3" }],
+  ] as const;
 
   beforeEach(() => {
     (
@@ -217,6 +242,7 @@ describe("a legacy draft of unknown lineage beside the open editor", () => {
       editGeneration: null,
     };
     state.snapshot = saved();
+    state.pages = [page];
     state.drain.mockResolvedValue(undefined);
     state.refetch.mockImplementation(async () => ({
       data: { draft: state.draft },
@@ -432,5 +458,195 @@ describe("a legacy draft of unknown lineage beside the open editor", () => {
       { throwOnError: true },
     );
     expectNoDraftEffects();
+  });
+
+  it.each(
+    choices.flatMap((choice) => [
+      [
+        choice,
+        "typed",
+        saved({
+          generation: 2,
+          content: "Saved body typed after review",
+          clean: false,
+        }),
+      ] as const,
+      [
+        choice,
+        "saved",
+        saved({ generation: 2, content: "Saved body typed after review" }),
+      ] as const,
+      [
+        choice,
+        "claimed",
+        saved({
+          claim: {
+            kind: "property",
+            propertyId: "notes",
+            contentHash: "sha256:notes",
+          },
+        }),
+      ] as const,
+    ]),
+  )(
+    "refuses %s when called once the editor %s an edit the review did not cover",
+    async (choice, _, editor) => {
+      await act(async () => render());
+      await click("editor.reconcileReview");
+
+      state.snapshot = editor;
+      await act(async () => choose[choice]());
+
+      expectNoDraftEffects();
+    },
+  );
+
+  it.each(
+    choices.flatMap((choice) => [
+      [
+        choice,
+        "cannot save its edits",
+        () => state.drain.mockRejectedValue(new Error("save refused")),
+      ] as const,
+      [
+        choice,
+        "still reads as unsaved once drained",
+        () => {
+          state.snapshot = saved({ clean: false });
+        },
+      ] as const,
+    ]),
+  )("hides and refuses %s while the editor %s", async (choice, _, hold) => {
+    hold();
+    await act(async () => render());
+    await click("editor.reconcileReview");
+
+    expect(button(choice)).toBeUndefined();
+    await act(async () => choose[choice]());
+
+    expectNoDraftEffects();
+  });
+
+  it.each(choices)(
+    "disables and refuses %s while the review is prepared, and never runs it later",
+    async (choice) => {
+      let release!: () => void;
+      state.drain.mockReturnValue(
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      );
+      await act(async () => render());
+      await click("editor.reconcileReview");
+
+      expect(button(choice)!.disabled).toBe(true);
+      await act(async () => choose[choice]());
+      await act(async () => release());
+
+      expectNoDraftEffects();
+    },
+  );
+
+  it.each(
+    choices.flatMap((choice) =>
+      peerSaves.map(([what, change]) => [choice, what, change] as const),
+    ),
+  )(
+    "hides and refuses %s once a peer saved %s after the review, with the editor unchanged",
+    async (choice, _, change) => {
+      await act(async () => render());
+      await click("editor.reconcileReview");
+      expect(button("Use saved")!.disabled).toBe(false);
+
+      await act(async () => render({ ...page, ...change }));
+
+      expect(button(choice)).toBeUndefined();
+      expect(button("Refresh")).toBeDefined();
+      expect(review()?.textContent).toContain("editor.reconcileReviewStale");
+      await act(async () => choose[choice]());
+      expectNoDraftEffects();
+    },
+  );
+
+  it("asks with the page a new review read only after Refresh and a new click", async () => {
+    await act(async () => render());
+    await click("editor.reconcileReview");
+    const peer = { ...page, content: "Peer body", updatedAt: "v3" };
+    await act(async () => render(peer));
+    expect(button("Use saved")).toBeUndefined();
+
+    state.pages = [peer];
+    await click("Refresh");
+    expectNoDraftEffects();
+    expect(state.comparison!.saved.content).toBe("Peer body");
+
+    await click("Use saved");
+    expect(state.resolve).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        choice: "use_saved",
+        trigger: "reviewed",
+        expectedDocumentTitle: "Saved",
+        expectedDocumentUpdatedAt: "v3",
+      }),
+    );
+  });
+
+  it("shows and asks with the page its review read, not one rendered before that read", async () => {
+    const peer = { ...page, content: "Peer body", updatedAt: "v3" };
+    state.pages = [peer];
+    await act(async () => render());
+    await click("editor.reconcileReview");
+    expect(button("Use saved")).toBeUndefined();
+
+    await act(async () => render(peer));
+    expect(state.comparison!.saved.content).toBe("Peer body");
+    await click("Use saved");
+    expect(state.resolve).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ expectedDocumentUpdatedAt: "v3" }),
+    );
+  });
+
+  it("holds the review when its reads of the page disagree", async () => {
+    state.pages = [page, { ...page, updatedAt: "v3" }];
+    await act(async () => render());
+    await click("editor.reconcileReview");
+
+    expect(review()?.textContent).toContain("empty.genericError");
+    for (const choice of choices) {
+      expect(button(choice)).toBeUndefined();
+      await act(async () => choose[choice]());
+    }
+    expectNoDraftEffects();
+  });
+
+  it("keeps the draft and the journal when the server saw a save the review did not", async () => {
+    state.resolve.mockResolvedValue({
+      status: "document_conflict",
+      document: { ...page, content: "Peer body", updatedAt: "v3" },
+    });
+    await act(async () => render());
+    await click("editor.reconcileReview");
+    await click("Use saved");
+
+    expect(state.resolve).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ expectedDocumentUpdatedAt: "v2" }),
+    );
+    expect(state.remove).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.journalWrite).not.toHaveBeenCalled();
+    expect(state.journalClear).not.toHaveBeenCalled();
+
+    // A peer saves again before the next review: its choice asks with the
+    // page that review read, not the one the refusal showed.
+    const later = { ...page, content: "Later peer body", updatedAt: "v4" };
+    state.pages = [later];
+    state.resolve.mockResolvedValue({ status: "resolved" });
+    await act(async () => render(later));
+    await click("Refresh");
+    await click("Use saved");
+    expect(state.resolve).toHaveBeenCalledTimes(2);
+    expect(state.resolve).toHaveBeenLastCalledWith(
+      expect.objectContaining({ expectedDocumentUpdatedAt: "v4" }),
+    );
   });
 });

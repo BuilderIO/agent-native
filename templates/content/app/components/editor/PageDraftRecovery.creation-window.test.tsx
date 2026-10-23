@@ -75,6 +75,7 @@ describe("Page draft recovery during the creation window", () => {
     title: "",
     content: "",
     canEdit: true,
+    createdAt: "created",
   } as Document;
   const render = () =>
     act(() =>

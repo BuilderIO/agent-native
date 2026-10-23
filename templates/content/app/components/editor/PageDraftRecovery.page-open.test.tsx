@@ -137,6 +137,7 @@ const page = {
   id: "page",
   title: "Saved",
   content: "Saved body",
+  createdAt: "created",
   updatedAt: "v2",
   revision: "saved-body-revision",
   contentHash: "sha256:saved-body",
