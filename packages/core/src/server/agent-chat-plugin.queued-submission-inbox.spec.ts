@@ -8,6 +8,13 @@ const sweepHarness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
   settingsEmitter: null as EventEmitter | null,
   closeHooks: [] as Array<() => void | Promise<void>>,
+  staleReapResult: {
+    scanned: 0,
+    reaped: 0,
+    failed: 0,
+    truncated: false,
+  } as { scanned: number; reaped: number; failed: number; truncated: boolean },
+  staleReapError: null as Error | null,
 }));
 
 const inboxHarness = vi.hoisted(() => ({
@@ -77,12 +84,10 @@ vi.mock("../agent/run-store.js", async (importOriginal) => {
     ...actual,
     getRunById: vi.fn(async () => null),
     listUnclaimedBackgroundRunRows: vi.fn(async () => []),
-    reapAllStaleRuns: vi.fn(async () => ({
-      scanned: 0,
-      reaped: 0,
-      failed: 0,
-      truncated: false,
-    })),
+    reapAllStaleRuns: vi.fn(async () => {
+      if (sweepHarness.staleReapError) throw sweepHarness.staleReapError;
+      return sweepHarness.staleReapResult;
+    }),
   };
 });
 
@@ -372,6 +377,13 @@ describe("queued submission inbox recurring sweep", () => {
     sweepHarness.initPromises.length = 0;
     sweepHarness.settingsEmitter = new EventEmitter();
     sweepHarness.closeHooks.length = 0;
+    sweepHarness.staleReapResult = {
+      scanned: 0,
+      reaped: 0,
+      failed: 0,
+      truncated: false,
+    };
+    sweepHarness.staleReapError = null;
     inboxHarness.admissions.length = 0;
     inboxHarness.admissionOwnerContexts.length = 0;
     inboxHarness.admissionAttempts.length = 0;
@@ -397,6 +409,41 @@ describe("queued submission inbox recurring sweep", () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
+
+  it.each([
+    {
+      label: "throws",
+      result: { scanned: 0, reaped: 0, failed: 0, truncated: false },
+      error: new Error("stale reaper unavailable"),
+      expected: null,
+    },
+    {
+      label: "reports failed rows",
+      result: { scanned: 1, reaped: 0, failed: 1, truncated: false },
+      error: null,
+      expected: { scanned: 1, reaped: 0, failed: 1, truncated: false },
+    },
+    {
+      label: "reaches its batch cap",
+      result: { scanned: 201, reaped: 200, failed: 0, truncated: true },
+      error: null,
+      expected: { scanned: 201, reaped: 200, failed: 0, truncated: true },
+    },
+  ])(
+    "reports an incomplete stale-run sweep when it $label",
+    async ({ result, error, expected }) => {
+      sweepHarness.staleReapResult = result;
+      sweepHarness.staleReapError = error;
+      const sweep = await createSweepHandler();
+      const response = await sweep();
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        staleRunsReaped: expected,
+      });
+    },
+  );
 
   it("reads queued receipt status only after resolving thread access", async () => {
     const threadId = `thread-${randomUUID()}`;

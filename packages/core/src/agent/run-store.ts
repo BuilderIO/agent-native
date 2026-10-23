@@ -1421,6 +1421,19 @@ function livenessBasisSql(): string {
   return `(CASE WHEN COALESCE(last_progress_at, started_at) > COALESCE(heartbeat_at, started_at) THEN COALESCE(last_progress_at, started_at) ELSE COALESCE(heartbeat_at, started_at) END)`;
 }
 
+function earlierTurnProjectionPendingSql(): string {
+  return `NOT EXISTS (
+    SELECT 1 FROM agent_runs pending_projection
+    WHERE pending_projection.thread_id = agent_runs.thread_id
+      AND COALESCE(pending_projection.turn_id, pending_projection.id) =
+          COALESCE(agent_runs.turn_id, agent_runs.id)
+      AND pending_projection.id <> agent_runs.id
+      AND pending_projection.thread_projection_pending IS TRUE
+      AND COALESCE(pending_projection.continuation_order, 0) <
+          COALESCE(agent_runs.continuation_order, 0)
+  )`;
+}
+
 export async function claimBackgroundRun(runId: string): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
@@ -1429,7 +1442,8 @@ export async function claimBackgroundRun(runId: string): Promise<boolean> {
           SET dispatch_mode = 'background-processing'
           WHERE id = ?
             AND status = 'running'
-            AND dispatch_mode = 'background'`,
+            AND dispatch_mode = 'background'
+            AND ${earlierTurnProjectionPendingSql()}`,
     args: [runId],
   });
   return (rowsAffected ?? 0) > 0;
@@ -1499,6 +1513,7 @@ export async function listUnclaimedBackgroundRunIds(): Promise<string[]> {
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND dispatch_mode = 'background'
+            AND ${earlierTurnProjectionPendingSql()}
             AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})`,
     args: [Date.now()],
   });
@@ -1542,6 +1557,7 @@ export async function listUnclaimedBackgroundRunRows(options?: {
     sql: `SELECT id, started_at, (dispatch_payload IS NOT NULL) AS has_dispatch_payload FROM agent_runs
           WHERE status = 'running'
             AND dispatch_mode = 'background'
+            AND ${earlierTurnProjectionPendingSql()}
             AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})
           ORDER BY COALESCE(heartbeat_at, started_at) ASC, started_at ASC
           LIMIT ${limit}`,
@@ -2850,15 +2866,35 @@ async function reapSingleStaleRun(
           args: [runScope.thread_id, runScope.turn_id, runId, lease.generation],
         });
       }
-      if (generationMatches || (!lease && run.worker_generation == null)) {
-        await tx.execute({
+      const executionLeaseChanged =
+        !generationMatches && (lease !== null || run.worker_generation != null);
+      const shouldProjectRepairedRun =
+        generationMatches || (!lease && run.worker_generation == null);
+      const outcome =
+        isContinuationTerminalReason(repaired.ending.terminalReason) &&
+        !executionLeaseChanged
+          ? await attemptStaleRunRecovery(tx, runId)
+          : null;
+      if (shouldProjectRepairedRun) {
+        const projection = await tx.execute({
           sql: `UPDATE agent_runs
                 SET thread_projection_pending = TRUE
-                WHERE id = ? AND status = 'errored'`,
-          args: [runId],
+                WHERE id = ? AND status = ?
+                RETURNING id`,
+          args: [runId, repaired.ending.status],
         });
+        if ((projection.rowsAffected ?? projection.rows.length) !== 1) {
+          throw new Error(
+            `Repaired run ${runId} did not retain its thread projection retry marker`,
+          );
+        }
       }
-      return { reaped: false, outcome: null, repaired };
+      return {
+        reaped: false,
+        outcome,
+        repaired,
+        shouldProjectRepairedRun,
+      };
     }
     const { rows, rowsAffected } = await tx.execute({
       sql: updateSql,
@@ -2978,7 +3014,9 @@ async function reapSingleStaleRun(
   // first would have this older run's steps land after its, and take its
   // error and status.
   let projectionFailed = false;
-  if (reaped) {
+  if ("repaired" in reapResult && reapResult.shouldProjectRepairedRun) {
+    projectionFailed = !(await finalizeStaleRun(runId, source));
+  } else if (reaped) {
     // A newer generation owns the turn, so it must remain the sole thread projector.
     projectionFailed = !(await finalizeStaleRun(
       runId,
@@ -2987,7 +3025,11 @@ async function reapSingleStaleRun(
     ));
   }
 
-  if (reaped && outcome && outcome.outcome !== "not_background") {
+  if (
+    (reaped || "repaired" in reapResult) &&
+    outcome &&
+    outcome.outcome !== "not_background"
+  ) {
     const outcomeDetail =
       outcome.outcome === "recovered"
         ? `recovered successorRunId=${outcome.successorRunId}`
@@ -3000,7 +3042,7 @@ async function reapSingleStaleRun(
       RUN_DIAG_STAGE.staleRunRecoveryAttempted,
       forensics ? `${detail} ${forensics}` : detail,
     ).catch(() => {});
-    if (outcome.outcome === "recovered") {
+    if (outcome.outcome === "recovered" && !projectionFailed) {
       attemptStaleRunRecoveryDispatch(outcome.successorRunId);
     }
   } else if (reaped && forensics) {

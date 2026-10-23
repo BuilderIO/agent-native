@@ -9,6 +9,7 @@ import {
 } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { withExecutionFence } from "./execution-fence.js";
 
 const foldReapedRunIntoThreadMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue("projected"),
@@ -88,6 +89,7 @@ let currentClient = makeRawClient(true);
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => currentClient,
+  getScopedTransactionDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
@@ -100,13 +102,17 @@ vi.mock("../server/self-dispatch.js", () => ({
 
 const {
   insertRun,
+  insertRunEvent,
   tryClaimRunSlot,
   claimTurnExecutionLease,
   claimBackgroundRun,
+  persistRunCheckpointEvent,
+  CHECKPOINT_TERMINAL_EVENT_SEQ,
   getRunByThread,
   getCurrentTurnEventsForThread,
   isTurnAborted,
   markTurnAborted,
+  listUnclaimedBackgroundRunRows,
   reapIfStale,
   reapAllStaleRuns,
   cleanupOldRuns,
@@ -116,6 +122,7 @@ const {
   RUN_DIAG_STAGE,
   BACKGROUND_RUN_STALE_MS,
   BACKGROUND_PROCESSING_RUN_STALE_MS,
+  UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   STALE_RUN_TERMINAL_REASON,
   __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
@@ -125,6 +132,7 @@ beforeEach(async () => {
   __resetNoRunningRunsProbeForTests();
   afterStaleCandidateScan = undefined;
   foldReapedRunIntoThreadMock.mockReset().mockResolvedValue("projected");
+  fireInternalDispatchMock.mockClear();
 });
 
 let seq = 0;
@@ -1389,5 +1397,142 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
 
     await reapAllStaleRuns();
     expect(await rowsForTurn(turn)).toHaveLength(2);
+  });
+
+  it("recovers and projects a checkpointed continuation after its worker dies", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ prompt: "Continue the original turn" }),
+    });
+    await claimBackgroundRun(runId);
+    const fence = await claimTurnExecutionLease(thread, turn, runId);
+    await withExecutionFence(fence, async () => {
+      await insertRunEvent(
+        runId,
+        0,
+        JSON.stringify({ type: "text", text: "Completed before timeout" }),
+      );
+      await persistRunCheckpointEvent(
+        runId,
+        { type: "auto_continue", reason: "run_timeout" },
+        "run_timeout",
+      );
+    });
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+         SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+         WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(thread, turn);
+
+    foldReapedRunIntoThreadMock.mockImplementation(
+      async (foldedRunId: string) => {
+        expect(foldedRunId).toBe(runId);
+        expect(await rowsForTurn(turn)).toHaveLength(2);
+        return "projected";
+      },
+    );
+    const swept = await reapAllStaleRuns();
+
+    expect(swept).toEqual({ reaped: 0, failed: 0, truncated: false });
+    const repaired = await readRow(runId);
+    expect(repaired).toMatchObject({
+      status: "truncated",
+      terminal_reason: "run_timeout",
+    });
+    const siblings = await rowsForTurn(turn);
+    expect(siblings).toHaveLength(2);
+    const successor = siblings.find((row) => row.id !== runId);
+    expect(successor?.status).toBe("running");
+    const successorRun = await readRow(successor!.id);
+    expect(JSON.parse(successorRun?.dispatch_payload ?? "null")).toMatchObject({
+      prompt: "Continue the original turn",
+      internalContinuation: true,
+      __agentChatRecoveryOfRunId: runId,
+    });
+    const checkpoint = (await pglite
+      .prepare(
+        "SELECT event_data FROM agent_run_events WHERE run_id = ? AND seq = ?",
+      )
+      .get(runId, CHECKPOINT_TERMINAL_EVENT_SEQ)) as {
+      event_data: string;
+    };
+    expect(JSON.parse(checkpoint.event_data)).toEqual({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
+    const projection = (await pglite
+      .prepare("SELECT thread_projection_pending FROM agent_runs WHERE id = ?")
+      .get(runId)) as { thread_projection_pending: boolean };
+    expect(projection.thread_projection_pending).toBe(false);
+    await vi.waitFor(() =>
+      expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1),
+    );
+    expect(fireInternalDispatchMock.mock.calls[0]?.[0]).toMatchObject({
+      taskId: successor!.id,
+      body: { internalContinuation: true },
+    });
+
+    await reapAllStaleRuns();
+    expect(await rowsForTurn(turn)).toHaveLength(2);
+    expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("defers recovered successors until their predecessor projection can be retried", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ prompt: "Continue after projection" }),
+    });
+    await claimBackgroundRun(runId);
+    const fence = await claimTurnExecutionLease(thread, turn, runId);
+    await withExecutionFence(fence, async () => {
+      await insertRunEvent(
+        runId,
+        0,
+        JSON.stringify({ type: "text", text: "Saved before timeout" }),
+      );
+      await persistRunCheckpointEvent(
+        runId,
+        { type: "auto_continue", reason: "run_timeout" },
+        "run_timeout",
+      );
+    });
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+         SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+         WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(thread, turn);
+
+    foldReapedRunIntoThreadMock.mockResolvedValueOnce("retry");
+    const firstSweep = await reapAllStaleRuns();
+    expect(firstSweep).toEqual({ reaped: 0, failed: 1, truncated: false });
+    expect(fireInternalDispatchMock).not.toHaveBeenCalled();
+
+    const siblings = await rowsForTurn(turn);
+    const successor = siblings.find((row) => row.id !== runId);
+    expect(successor?.status).toBe("running");
+    await setStaleLiveness(
+      successor!.id,
+      Date.now() - UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 1_000,
+    );
+    await expect(listUnclaimedBackgroundRunRows()).resolves.toEqual([]);
+    await expect(claimBackgroundRun(successor!.id)).resolves.toBe(false);
+
+    const retrySweep = await reapAllStaleRuns();
+    expect(retrySweep).toEqual({ reaped: 0, failed: 0, truncated: false });
+    await expect(listUnclaimedBackgroundRunRows()).resolves.toMatchObject([
+      { id: successor!.id, hasDispatchPayload: true },
+    ]);
+    await expect(claimBackgroundRun(successor!.id)).resolves.toBe(true);
+    expect(fireInternalDispatchMock).not.toHaveBeenCalled();
   });
 });

@@ -9979,6 +9979,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const staleRunReapIncomplete =
+              staleRunsReaped === null ||
+              staleRunsReaped.failed > 0 ||
+              staleRunsReaped.truncated;
             const staleAgentTeamRuns = await reconcileStaleAgentTeamRuns(
               event,
             ).catch((error: unknown) => {
@@ -10052,6 +10056,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             if (!triggerAvailability.available) {
               if (
+                staleRunReapIncomplete ||
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
                 queuedSubmissionDrain === null ||
@@ -10063,6 +10068,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               return {
                 ok:
+                  !staleRunReapIncomplete &&
                   appSweepHandlers.failed.length === 0 &&
                   automationFailureAlerts !== null &&
                   queuedSubmissionDrain !== null &&
@@ -10083,6 +10089,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             try {
               await processRecurringJobs(schedulerDeps);
               if (
+                staleRunReapIncomplete ||
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
                 queuedSubmissionDrain === null ||
