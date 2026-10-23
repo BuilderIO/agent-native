@@ -13,6 +13,7 @@ import {
   vi,
 } from "vitest";
 
+import { useCommentAccessRefresh } from "../../hooks/use-comment-access-refresh";
 import {
   collectCommentSubtreeIds,
   type Comment,
@@ -264,20 +265,60 @@ describe("CommentsPanel reply composer", () => {
     }
   });
 
-  it("sends rotated proof with a reaction without putting it in action arguments", () => {
-    for (const token of ["fake-first-grant", "fake-rotated-grant"]) {
-      renderPanel(
-        "viewer@example.com",
-        [
-          {
-            ...rootComment,
-            emojiReactionsJson: JSON.stringify({ "👍": ["other@example.com"] }),
-          },
-        ],
-        "share",
-        true,
-        token,
+  it.each(["active", "resumed"])(
+    "renews expired proof before a %s viewer submits",
+    async (mode) => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      const refresh = vi.fn();
+      function UnlockedShare() {
+        const [token, setToken] = React.useState("fake-initial-proof");
+        const renew = React.useCallback(async () => {
+          refresh();
+          setToken(`fake-renewed-proof-${refresh.mock.calls.length}`);
+        }, []);
+        useCommentAccessRefresh(token, renew);
+        return (
+          <CommentsPanel
+            recordingId="recording-1"
+            comments={[
+              {
+                ...rootComment,
+                emojiReactionsJson: JSON.stringify({
+                  "👍": ["other@example.com"],
+                }),
+              },
+            ]}
+            currentMs={0}
+            currentUserEmail="viewer@example.com"
+            enableComments
+            canComment
+            onSeek={vi.fn()}
+            queryKey={["recording", "recording-1"]}
+            commentAccessToken={token}
+          />
+        );
+      }
+      act(() =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <UnlockedShare />
+          </QueryClientProvider>,
+        ),
       );
+      if (mode === "active") {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(660_000);
+        });
+      } else {
+        vi.setSystemTime(Date.now() + 660_000);
+        await act(async () => {
+          window.dispatchEvent(new Event("focus"));
+        });
+      }
+      expect(refresh).toHaveBeenCalledTimes(mode === "active" ? 2 : 1);
       const reaction = container.querySelector<HTMLButtonElement>(
         "button[aria-pressed]",
       );
@@ -286,10 +327,12 @@ describe("CommentsPanel reply composer", () => {
       expect(actionMocks.requests).toHaveBeenLastCalledWith(
         "react-to-comment",
         { commentId: "comment-1", emoji: "👍" },
-        { "x-clips-comment-token": token },
+        {
+          "x-clips-comment-token": `fake-renewed-proof-${mode === "active" ? 2 : 1}`,
+        },
       );
-    }
-  });
+    },
+  );
 
   it("renders comment URLs as safe external links without including punctuation", () => {
     const absoluteUrl = container.querySelector<HTMLAnchorElement>(

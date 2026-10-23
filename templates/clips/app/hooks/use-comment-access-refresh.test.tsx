@@ -44,3 +44,32 @@ it("refreshes password proof before expiry, rotates it, and stops when no longer
   }
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it("refreshes when an unlocked tab becomes visible after suspension", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const refresh = vi.fn(async () => {});
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  function Probe() {
+    useCommentAccessRefresh("fake-proof", refresh);
+    return null;
+  }
+  try {
+    act(() => root.render(<Probe />));
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      configurable: true,
+    });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  } finally {
+    act(() => root.unmount());
+    delete (document as any).visibilityState;
+  }
+});

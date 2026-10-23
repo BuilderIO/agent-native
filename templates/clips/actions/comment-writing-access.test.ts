@@ -357,3 +357,38 @@ it("replies retain the parent thread, organization, frame, and return contract",
     }),
   ]);
 });
+
+it.each([undefined, null, "legacy:fake"])(
+  "binds legacy comment proof to the stored password at version %s",
+  async (sharePasswordVersion) => {
+    const resource = { ...protectedRecording, sharePasswordVersion };
+    mockAssertAccess.mockResolvedValue({ role: "viewer", resource });
+    const scope = createHash("sha256")
+      .update(
+        JSON.stringify([
+          "recording-1",
+          resource.password,
+          sharePasswordVersion ?? null,
+        ]),
+      )
+      .digest("hex");
+    const token = signShortLivedToken({
+      resourceId: `clips-comment:recording-1:${scope}`,
+      ttlSeconds: 600,
+    });
+    const ctx = {
+      requestHeaders: new Headers({ "x-clips-comment-token": token }),
+    };
+    const args = {
+      recordingId: "recording-1",
+      content: "Fake comment",
+      videoTimestampMs: 0,
+    };
+    await expect(addComment.run(args, ctx)).resolves.toBeDefined();
+    resource.password = "fake-rotated-password";
+    await expect(addComment.run(args, ctx)).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect(state.inserted).toHaveLength(1);
+  },
+);
