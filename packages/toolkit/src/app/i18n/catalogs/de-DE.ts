@@ -442,6 +442,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.removeAttachment": "{{name}} entfernen",
   "composer.attachmentReadFailed": "Datei konnte nicht gelesen werden",
   "composer.attachmentTooLarge": "Datei ist größer als 20 MB",
+  "composer.attachmentNotUtf8": "Datei ist kein UTF-8-Text",
   "composer.scrollToBottom": "Nach unten scrollen",
   "composer.suggestedPrompts": "Vorgeschlagene Prompts",
   "composer.stopResponse": "Antwort stoppen",

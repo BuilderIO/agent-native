@@ -1,4 +1,7 @@
-export type AgentPromptAttachmentReadError = "read-failed" | "too-large";
+export type AgentPromptAttachmentReadError =
+  | "read-failed"
+  | "too-large"
+  | "not-utf8";
 
 export interface AgentPromptAttachment {
   name: string;
@@ -54,7 +57,9 @@ function describeAgentPromptAttachmentReadError(
 ): string {
   return code === "too-large"
     ? "This file is over the 20 MB limit for reading attachments, so its contents were not sent. Do not infer its contents. Tell the user it is too large to read and ask for a smaller file."
-    : "The browser could not read this file, so its contents were not sent. Do not infer its contents. Tell the user it could not be read and ask them to attach it again.";
+    : code === "not-utf8"
+      ? "This file is not UTF-8 text, so its contents were not sent. Do not infer its contents. Tell the user it could not be read and ask them to save it as UTF-8 and attach it again."
+      : "The browser could not read this file, so its contents were not sent. Do not infer its contents. Tell the user it could not be read and ask them to attach it again.";
 }
 
 export function escapePromptAttachmentAttribute(value: string): string {

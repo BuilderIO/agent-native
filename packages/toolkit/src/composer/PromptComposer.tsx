@@ -555,19 +555,19 @@ export function AttachmentChip({
     [src],
   );
 
-  if (isPastedTextAttachmentName(attachment.name)) {
-    return <PastedTextChip attachment={attachment} onRemove={onRemove} />;
-  }
-
   if (readError) {
     const message =
       readError === "too-large"
         ? t("agentChat.composer.attachmentTooLarge", {
             defaultValue: "File is over 20 MB",
           })
-        : t("agentChat.composer.attachmentReadFailed", {
-            defaultValue: "Couldn't read this file",
-          });
+        : readError === "not-utf8"
+          ? t("agentChat.composer.attachmentNotUtf8", {
+              defaultValue: "File isn't UTF-8 text",
+            })
+          : t("agentChat.composer.attachmentReadFailed", {
+              defaultValue: "Couldn't read this file",
+            });
     return (
       <div
         role="status"
@@ -592,6 +592,10 @@ export function AttachmentChip({
         </button>
       </div>
     );
+  }
+
+  if (isPastedTextAttachmentName(attachment.name)) {
+    return <PastedTextChip attachment={attachment} onRemove={onRemove} />;
   }
 
   if (src) {

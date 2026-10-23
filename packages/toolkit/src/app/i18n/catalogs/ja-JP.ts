@@ -433,6 +433,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.removeAttachment": "{{name}} を削除",
   "composer.attachmentReadFailed": "このファイルを読み込めませんでした",
   "composer.attachmentTooLarge": "ファイルが 20 MB を超えています",
+  "composer.attachmentNotUtf8": "ファイルが UTF-8 テキストではありません",
   "composer.scrollToBottom": "一番下までスクロール",
   "composer.suggestedPrompts": "おすすめのプロンプト",
   "composer.stopResponse": "応答を停止",

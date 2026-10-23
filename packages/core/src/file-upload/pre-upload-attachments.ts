@@ -440,7 +440,9 @@ export async function preUploadAttachments(opts: {
             att.data,
           );
           if (spreadsheetContext) spreadsheetContexts.push(spreadsheetContext);
-        } else {
+        } else if (!(isReferenceOnlySvg && hydration.kind === "unowned")) {
+          // An SVG linked from outside our storage was never ours to read; it
+          // stays the reference it always was rather than a read failure.
           recordAttachmentReadFailure(
             att.name || "file",
             hydration.code,

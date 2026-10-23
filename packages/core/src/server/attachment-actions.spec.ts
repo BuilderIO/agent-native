@@ -492,6 +492,42 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     expect(result.content).toBe("new");
   });
 
+  it("reads a legacy name that contains digit segments", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-legacy", path: "attachments/thread-1/0-report-1-final.md" },
+    ]);
+    resourceGetMock.mockResolvedValue(makeResource("report"));
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "report-1-final.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe("report");
+  });
+
+  it("does not call legacy uploads from different turns ambiguous", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-0", path: "attachments/thread-1/0-DESIGN.md" },
+      { id: "res-1", path: "attachments/thread-1/1-DESIGN.md" },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-1" ? "index one" : "index zero"),
+    );
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { name: "DESIGN.md", threadId: "thread-1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.content).toBe("index one");
+  });
+
   it("asks for a path when one message attached two files with the same name", async () => {
     resourceListMock.mockResolvedValue([
       { id: "res-2", path: "attachments/thread-1/mfh2a1b2-2-DESIGN.md" },

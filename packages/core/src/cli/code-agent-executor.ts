@@ -2153,7 +2153,9 @@ function promptAttachmentsFromMetadata(
       ...(typeof item.totalChars === "number"
         ? { totalChars: item.totalChars }
         : {}),
-      ...(item.readError === "read-failed" || item.readError === "too-large"
+      ...(item.readError === "read-failed" ||
+      item.readError === "too-large" ||
+      item.readError === "not-utf8"
         ? { readError: item.readError }
         : {}),
       ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),

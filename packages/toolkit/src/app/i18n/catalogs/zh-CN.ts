@@ -402,6 +402,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.removeAttachment": "移除 {{name}}",
   "composer.attachmentReadFailed": "无法读取此文件",
   "composer.attachmentTooLarge": "文件超过 20 MB",
+  "composer.attachmentNotUtf8": "文件不是 UTF-8 文本",
   "composer.scrollToBottom": "滚动到底部",
   "composer.suggestedPrompts": "推荐提示",
   "composer.stopResponse": "停止响应",

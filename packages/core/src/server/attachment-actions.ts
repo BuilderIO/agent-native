@@ -258,16 +258,17 @@ export function createCoreAttachmentActionEntries(): Record<
           const [meta, next] = candidates.sort((a, b) =>
             compareNewestAttachmentFirst(a.path, b.path),
           );
+          const newestBatch = parseStoredAttachmentPath(meta.path).batch;
+          // Legacy paths have no batch, so they never prove two files were
+          // sent together.
           if (
             next &&
-            parseStoredAttachmentPath(next.path).batch ===
-              parseStoredAttachmentPath(meta.path).batch
+            newestBatch &&
+            parseStoredAttachmentPath(next.path).batch === newestBatch
           ) {
             const paths = candidates
               .filter(
-                (m) =>
-                  parseStoredAttachmentPath(m.path).batch ===
-                  parseStoredAttachmentPath(meta.path).batch,
+                (m) => parseStoredAttachmentPath(m.path).batch === newestBatch,
               )
               .map((m) => m.path);
             return {

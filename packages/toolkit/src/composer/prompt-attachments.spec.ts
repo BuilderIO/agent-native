@@ -114,7 +114,9 @@ describe("prompt attachment helpers", () => {
 
   it("marks a text file the browser cannot read instead of sending its name alone", async () => {
     const file = new File(["hello"], "notes.md", { type: "text/markdown" });
-    vi.spyOn(file, "text").mockRejectedValue(new Error("NotReadableError"));
+    vi.spyOn(file, "arrayBuffer").mockRejectedValue(
+      new Error("NotReadableError"),
+    );
 
     const attachment = await readAgentPromptAttachment(file);
 
@@ -125,6 +127,25 @@ describe("prompt attachment helpers", () => {
       '<attached-file-error name="notes.md" code="read-failed"',
     );
     expect(prompt).toContain("Tell the user it could not be read");
+  });
+
+  it("marks a text file that is not UTF-8 instead of sending replacement characters", async () => {
+    const file = new File(
+      [new Uint8Array([0x68, 0x69, 0xff, 0xfe])],
+      "notes.md",
+      {
+        type: "text/markdown",
+      },
+    );
+
+    const attachment = await readAgentPromptAttachment(file);
+
+    expect(attachment.readError).toBe("not-utf8");
+    expect(attachment.text).toBeUndefined();
+    await expect(probeAgentPromptAttachment(file)).resolves.toBe("not-utf8");
+    expect(formatPromptWithAttachments("Use this", [attachment])).toContain(
+      'code="not-utf8"',
+    );
   });
 
   it("marks text files over the read limit as too large", async () => {
