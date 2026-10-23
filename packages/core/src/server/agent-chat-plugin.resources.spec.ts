@@ -954,8 +954,20 @@ describe("chat thread owner-only history mutations", () => {
               body: JSON.stringify(operation.body),
             },
           );
-          expect(response.status).toBe(access === "owner" ? 200 : 403);
-          if (access === "owner") {
+          expect(response.status).toBe(
+            access === "owner" || operation.route === "pin" ? 200 : 403,
+          );
+          if (access !== "owner" && operation.route === "pin") {
+            expect(await response.json()).toEqual({ ok: true });
+            expect(
+              (
+                await store.resolveThreadAccess(email, threadId, "viewer", {
+                  orgId,
+                })
+              )?.pinnedAt,
+            ).toEqual(operation.body.pinned ? expect.any(Number) : null);
+            expect(await store.getThread(threadId)).toEqual(before);
+          } else if (access === "owner") {
             expect(await response.json()).toEqual({ ok: true });
             const after = await store.getThread(threadId);
             if (operation.route === "pin")
@@ -986,7 +998,7 @@ describe("chat thread owner-only history mutations", () => {
                   title: "Tool title",
                 }),
             );
-            if (access === "owner") {
+            if (access === "owner" || operation.route === "pin") {
               expect(await result).toMatch(
                 /^(Pinned|Unpinned|Archived|Renamed) chat/,
               );
@@ -3152,5 +3164,126 @@ describe("compact skills summary and the request registry", () => {
     );
     expect(absent).not.toContain("<skills-summary>");
     expect(absent).not.toContain("deep-review");
+  });
+});
+describe("shared chat hide transport", () => {
+  it("persists HTTP and tool viewer state, filters list/search, and refuses owner and outsider writes", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const owner = "hide-transport-owner@example.test";
+    const viewer = "hide-transport-viewer@example.test";
+    const outsider = "hide-transport-outsider@example.test";
+    const id = "hide-transport-thread";
+    const app = await mountResourceRoutes();
+    threadStoreMocks.resolveThreadAccess.mockImplementation(
+      store.resolveThreadAccess,
+    );
+    threadStoreMocks.listThreads.mockImplementation(store.listThreads);
+    threadStoreMocks.searchThreads.mockImplementation(store.searchThreads);
+    await store.createThread(owner, {
+      id,
+      title: "Transport plan",
+      initialData: { threadData: "{}", preview: "", messageCount: 1 },
+    });
+    await store.grantThreadUserShare(id, viewer, "viewer", owner);
+    const tool = (await createChatScriptEntries())["chat-history"];
+    const request = async (email: string, path: string, body?: unknown) => {
+      mocks.getSession.mockResolvedValue({ email });
+      return fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/threads${path}`,
+        { userEmail: email },
+        body === undefined
+          ? undefined
+          : {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            },
+      );
+    };
+    const run = (email: string, action: string, rest = {}) =>
+      runWithRequestContext({ userEmail: email, run: { owner: email } }, () =>
+        tool.run({ action, id, ...rest }),
+      );
+    const state = () =>
+      getDbExec().execute({
+        sql: "SELECT user_email, pinned_at, hidden_at FROM chat_thread_viewer_state WHERE thread_id = ?",
+        args: [id],
+      });
+    try {
+      expect(
+        (await request(viewer, `/${id}/hide`, { hidden: "yes" })).status,
+      ).toBe(400);
+      expect((await state()).rows).toEqual([]);
+      for (const email of [owner, outsider]) {
+        expect(
+          (await request(email, `/${id}/hide`, { hidden: true })).status,
+        ).toBe(email === owner ? 403 : 404);
+        if (email === owner)
+          await expect(run(email, "hide")).rejects.toBeInstanceOf(
+            ForbiddenError,
+          );
+        else expect(await run(email, "hide")).toContain("not found");
+        if (email === outsider) {
+          expect(
+            (await request(email, `/${id}/pin`, { pinned: true })).status,
+          ).toBe(404);
+          expect(await run(email, "pin")).toContain("not found");
+        }
+      }
+      expect((await state()).rows).toEqual([]);
+      expect(
+        (await request(viewer, `/${id}/pin`, { pinned: true })).status,
+      ).toBe(200);
+      expect(
+        (await request(viewer, `/${id}/hide`, { hidden: true })).status,
+      ).toBe(200);
+      for (const suffix of ["", "&q=Transport"]) {
+        const visible = await request(viewer, `?ownership=shared${suffix}`);
+        expect((await visible.json()).threads).toEqual([]);
+        const included = await request(
+          viewer,
+          `?ownership=shared&includeHidden=1${suffix}`,
+        );
+        expect((await included.json()).threads).toMatchObject([
+          { id, pinnedAt: expect.any(Number), hiddenAt: expect.any(Number) },
+        ]);
+      }
+      const single = await request(viewer, `/${id}`);
+      expect(single.status).toBe(200);
+      expect(await single.json()).toMatchObject({
+        id,
+        pinnedAt: expect.any(Number),
+        hiddenAt: expect.any(Number),
+      });
+      expect(
+        await run(viewer, "search", { query: "Transport", format: "json" }),
+      ).toContain('"count": 0');
+      expect(
+        await run(viewer, "search", {
+          query: "Transport",
+          format: "json",
+          includeHidden: true,
+        }),
+      ).toContain(id);
+      expect(await run(viewer, "unhide")).toMatch(/^Unhidden chat/);
+      expect(
+        (await (await request(viewer, "?ownership=shared")).json()).threads,
+      ).toHaveLength(1);
+      expect(await run(viewer, "hide")).toMatch(/^Hidden chat/);
+      expect((await store.listThreads(viewer)).length).toBe(0);
+      expect(
+        (await request(viewer, `/${id}/hide`, { hidden: false })).status,
+      ).toBe(200);
+      expect((await store.listThreads(viewer)).length).toBe(1);
+      expect((await state()).rows).toEqual([
+        { user_email: viewer, pinned_at: expect.any(Number), hidden_at: null },
+      ]);
+      expect((await store.getThread(id))?.pinnedAt).toBeNull();
+    } finally {
+      await store.deleteThread(id, owner);
+    }
   });
 });
