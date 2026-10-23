@@ -1121,14 +1121,16 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     return { asked, result };
   };
 
-  it("asks once for a disclosure when a failed dbt metric falls back to a successful BigQuery answer", () => {
+  it("withholds a BigQuery answer because its calculation cannot be verified against the dbt metric", () => {
     const result = realDataFinalGuard(explicitWarehouseContext(draft));
 
     expect(result).toMatchObject({
       maxRetries: 1,
-      retryMessage: expect.stringContaining("warehouse-derived"),
-      exhaustedDraftPrefix: expect.stringContaining(
-        "not the owner-approved Semantic Layer definition",
+      retryMessage: expect.stringContaining(
+        "calculation that can verify equivalence",
+      ),
+      fallbackMessage: expect.stringContaining(
+        "calculation matches the owner-defined metric",
       ),
     });
   });
@@ -1145,7 +1147,39 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(asked).toHaveLength(1);
     expect(result).toMatchObject(withheld);
-    expect(result?.exhaustedDraftPrefix).toBeUndefined();
+    expect(result).not.toHaveProperty("exhaustedDraftPrefix");
+  });
+
+  it("uses the explicit warehouse-request path only for an affirmative request", async () => {
+    const affirmative = await judged(
+      {
+        userText: "Show the active accounts figure from BigQuery.",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryOk],
+      },
+      "YES",
+    );
+    const negative = await judged(
+      {
+        userText:
+          "What were active accounts last month? Do not use BigQuery or warehouse numbers; answer only from dbt.",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryOk],
+      },
+      "YES",
+    );
+
+    expect(affirmative.result).toMatchObject(withheld);
+    expect(affirmative.result?.retryMessage).toContain(
+      "calculation that can verify equivalence",
+    );
+    expect(negative.result).toMatchObject(withheld);
+    expect(negative.result?.retryMessage).toContain(
+      "metric query for this owner-defined metric did not complete",
+    );
+    expect(negative.result?.retryMessage).not.toContain(
+      "calculation that can verify equivalence",
+    );
   });
 
   it("passes an explanation that the figure check says contains no figure", async () => {
@@ -1296,10 +1330,10 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toBeNull();
   });
 
-  it("accepts the fallback answer once it discloses the source", () => {
+  it("keeps a disclosed fallback answer withheld when the dbt calculation is unavailable", () => {
     const result = realDataFinalGuard(explicitWarehouseContext(disclosed));
 
-    expect(result).toBeNull();
+    expect(result).toMatchObject(withheld);
   });
 
   it("withholds a disclosed figure supported by a query for another metric", () => {
@@ -1313,7 +1347,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
-      retryMessage: expect.stringContaining("exact period and grouping"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
@@ -1327,7 +1361,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
-      retryMessage: expect.stringContaining("exact period and grouping"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
@@ -1341,7 +1375,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
-      retryMessage: expect.stringContaining("exact period and grouping"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
@@ -1363,11 +1397,11 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
-      retryMessage: expect.stringContaining("exact period and grouping"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
-  it("accepts inclusive-start and exclusive-next-day bounds on the same expression", () => {
+  it("withholds even when date bounds match because the calculation is unknown", () => {
     const result = realDataFinalGuard(
       explicitWarehouseContext(disclosed, {
         query:
@@ -1375,7 +1409,37 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       }),
     );
 
-    expect(result).toBeNull();
+    expect(result).toMatchObject(withheld);
+  });
+
+  it.each([
+    [
+      "an extra warehouse predicate",
+      "SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01' AND plan = 'enterprise'",
+      [{ active_accounts: 10 }],
+      "Active accounts were 10 last month.",
+    ],
+    [
+      "COUNT(*) under the metric alias",
+      "SELECT COUNT(*) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
+      [{ active_accounts: 10 }],
+      "Active accounts were 10 last month.",
+    ],
+    [
+      "a literal under the metric alias",
+      "SELECT 999 AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
+      [{ active_accounts: 999 }],
+      "Active accounts were 999 last month.",
+    ],
+  ])("withholds a fallback with %s", (_case, query, rows, draftText) => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(draftText, { query, rows }),
+    );
+
+    expect(result).toMatchObject(withheld);
+    expect(result?.retryMessage).toContain(
+      "calculation that can verify equivalence",
+    );
   });
 
   it("withholds a disclosed figure when the warehouse query adds a grouping", () => {
@@ -1388,7 +1452,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
-      retryMessage: expect.stringContaining("exact period and grouping"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
@@ -1404,11 +1468,11 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
-      retryMessage: expect.stringContaining("exact period and grouping"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
-  it("accepts a grouped time alias only when its expression uses the requested grain", () => {
+  it("withholds a matching grouped time alias when the dbt calculation is unknown", () => {
     const weeklyDisclosed =
       "Active accounts in the weekly result were 10. This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
     const result = realDataFinalGuard(
@@ -1420,7 +1484,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       }),
     );
 
-    expect(result).toBeNull();
+    expect(result).toMatchObject(withheld);
   });
 
   it("withholds a disclosed figure when the matching query returns another value", () => {
@@ -1432,7 +1496,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
-      retryMessage: expect.stringContaining("figure in the draft"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
@@ -1446,11 +1510,11 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
-      retryMessage: expect.stringContaining("exact period and grouping"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
-  it("parses complete BigQuery rows from a run-code bridge before releasing a disclosed figure", () => {
+  it("withholds complete BigQuery rows from a run-code bridge when the dbt calculation is unknown", () => {
     const result = realDataFinalGuard(
       explicitWarehouseContext(disclosed, {
         toolName: "run-code",
@@ -1458,7 +1522,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       }),
     );
 
-    expect(result).toBeNull();
+    expect(result).toMatchObject(withheld);
   });
 
   it("withholds run-code output when the BigQuery bridge result is incomplete", () => {
@@ -1471,7 +1535,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
-      retryMessage: expect.stringContaining("exact period and grouping"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
@@ -1518,7 +1582,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     );
 
     expect(result).toMatchObject({
-      retryMessage: expect.stringContaining("warehouse-derived"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
@@ -1550,7 +1614,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     );
 
     expect(result).toMatchObject({
-      retryMessage: expect.stringContaining("warehouse-derived"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
@@ -1562,7 +1626,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     );
 
     expect(result).toMatchObject({
-      retryMessage: expect.stringContaining("warehouse-derived"),
+      retryMessage: expect.stringContaining("calculation"),
     });
   });
 
@@ -1722,7 +1786,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
     });
-    expect(result?.exhaustedDraftPrefix).toBeUndefined();
+    expect(result).not.toHaveProperty("exhaustedDraftPrefix");
   });
 
   it.each([
@@ -1804,9 +1868,9 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       expect(result).toMatchObject({
         maxRetries: 1,
         fallbackMessage: expect.stringContaining("no owner-approved figure"),
-        retryMessage: expect.stringContaining("exact period and grouping"),
+        retryMessage: expect.stringContaining("calculation"),
       });
-      expect(result?.exhaustedDraftPrefix).toBeUndefined();
+      expect(result).not.toHaveProperty("exhaustedDraftPrefix");
     },
   );
 
@@ -2260,10 +2324,10 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toMatchObject({
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
     });
-    expect(result?.exhaustedDraftPrefix).toBeUndefined();
+    expect(result).not.toHaveProperty("exhaustedDraftPrefix");
   });
 
-  it("supports a disclosed figure with a data read even when a schema lookup ran in the turn", async () => {
+  it("withholds a disclosed figure even when a schema lookup and data read ran in the turn", async () => {
     const schemaRows = {
       name: "bigquery",
       isError: false,
@@ -2322,7 +2386,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     );
 
     expect(asked).toHaveLength(1);
-    expect(result).toBeNull();
+    expect(result).toMatchObject(withheld);
   });
 
   it("does not support a disclosed figure with a BigQuery read made before the dbt failure", async () => {
@@ -2603,7 +2667,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
       expect(asked).toHaveLength(1);
       expect(result).toMatchObject(withheld);
-      expect(result?.exhaustedDraftPrefix).toBeUndefined();
+      expect(result).not.toHaveProperty("exhaustedDraftPrefix");
     });
 
     it.each([
@@ -2757,7 +2821,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       const tooLong = await run(sized(50_001));
       expect(tooLong.asked).toHaveLength(0);
       expect(tooLong.result).toMatchObject(withheld);
-      expect(tooLong.result?.exhaustedDraftPrefix).toBeUndefined();
+      expect(tooLong.result).not.toHaveProperty("exhaustedDraftPrefix");
     });
 
     it("applies a figure verdict even when a dashboard save would end the guard early", async () => {
@@ -2796,7 +2860,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
       expect(asked).toHaveLength(1);
       expect(result).toMatchObject(withheld);
-      expect(result?.exhaustedDraftPrefix).toBeUndefined();
+      expect(result).not.toHaveProperty("exhaustedDraftPrefix");
     });
 
     it("still reads a warehouse request in the user's own words next to page context", async () => {
@@ -2816,7 +2880,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
       expect(asked).toHaveLength(1);
       expect(result).toMatchObject({
-        retryMessage: expect.stringContaining("exact period and grouping"),
+        retryMessage: expect.stringContaining("calculation"),
       });
     });
   });
@@ -6654,7 +6718,9 @@ describe("realDataFinalGuard", () => {
     });
 
     expect(result?.retryMessage).toMatch(/no real source query ran/);
-    expect(result?.exhaustedDraftPrefix).toMatch(/^Unverified/);
+    expect(result).toMatchObject({
+      exhaustedDraftPrefix: expect.stringMatching(/^Unverified/),
+    });
   });
 
   it("does not let a figure from three turns back ground a current answer", () => {

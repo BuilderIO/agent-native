@@ -542,39 +542,19 @@ function exhaustedDraftPrefixFor({
   );
 }
 
-const DBT_FALLBACK_DISCLOSURE =
-  "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
-// Shown alone when an exhausted retry withholds a draft that claims approval, so it
-// must not refer to a figure the user never sees.
+// Shown alone when an exhausted retry withholds an unsupported figure.
 const DBT_FALLBACK_WITHHELD =
-  "The dbt Semantic Layer metric query did not complete, so no owner-approved figure is available for this answer. A BigQuery figure would be warehouse-derived, not the owner-approved Semantic Layer definition, so it is not shown here.";
-const DBT_FALLBACK_SOURCE = /\bwarehouse[-\s]derived\b|\bfrom\s+BigQuery\b/i;
-// Any mention of approval that is not negated within its own sentence claims it.
-// "not the owner-approved definition" is a disclaimer; "call it the owner-approved
-// value" is a claim. A draft with a claim is not a disclosure, even with a disclaimer.
-function claimsApproval(text: string): boolean {
-  return [...text.matchAll(/\b(?:owner[-\s]approved|approved)\b/gi)].some(
-    (match) => {
-      const before = text.slice(0, match.index ?? 0);
-      // Negation covers only its own clause: a comma or conjunction ends it.
-      const sentence =
-        before
-          .split(
-            /[.!?;:,]|\b(?:but|however|yet|whereas|while|although|though|and)\b/i,
-          )
-          .pop() ?? "";
-      return !/\bnot\b|n't\b|\bno\b|\brather\s+than\b|\bnever\b/i.test(
-        sentence,
-      );
-    },
-  );
-}
-const DBT_FALLBACK_NOT_APPROVED =
-  /\bnot\s+(?:the\s+)?(?:owner[-\s]approved|approved)\s+(?:dbt\s+)?(?:semantic[-\s]layer\s+)?definition\b/i;
+  "The dbt Semantic Layer metric query did not complete, so no owner-approved figure is available for this answer. A warehouse value is not shown because the returned result does not prove that its calculation matches the owner-defined metric.";
 
-// The user asked for warehouse numbers in this turn, so a labeled BigQuery figure
-// is what they want. Otherwise a figure after a dbt failure is withheld.
-const WAREHOUSE_REQUEST = /\b(?:bigquery|big\s+query|warehouse|sql)\b/i;
+const WAREHOUSE_SOURCE = /\b(?:big\s*query|warehouse|sql)\b/gi;
+const WAREHOUSE_INTENT_BEFORE =
+  /\b(?:show|give|calculate|query|use|pull|read|report|provide|find|compare|run|check|return|answer|get|from|using|with|via|in)\b(?:\s+\w+){0,10}\s*$/i;
+const WAREHOUSE_INTENT_AFTER =
+  /^\s*(?:numbers?|figures?|data|results?|values?|query|queries)\b/i;
+const WAREHOUSE_NEGATION_BEFORE =
+  /\b(?:do\s+not|don't|dont|never|avoid|without|no|not)\b(?:\s+\w+){0,5}\s*$/i;
+const WAREHOUSE_NEGATION_AFTER =
+  /^\s*(?:(?:is|are|was|were|would|should|could|must|need)\s+)?(?:not|never|unwanted)\b/i;
 // What the message asks, not the page context it carries: a dashboard named
 // "Warehouse KPIs" asks nothing of the warehouse.
 function guardUserText(context: AgentLoopFinalResponseGuardContext): string {
@@ -585,7 +565,30 @@ function guardUserText(context: AgentLoopFinalResponseGuardContext): string {
 function askedForWarehouseNumbers(
   context: AgentLoopFinalResponseGuardContext,
 ): boolean {
-  return WAREHOUSE_REQUEST.test(guardUserText(context));
+  const text = guardUserText(context);
+  for (const match of text.matchAll(WAREHOUSE_SOURCE)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    const before =
+      text
+        .slice(Math.max(0, start - 100), start)
+        .split(/[.!?;,\n]|\b(?:but|however|instead|except)\b/i)
+        .slice(-1)[0] ?? "";
+    const after = text.slice(end, end + 48);
+    if (
+      WAREHOUSE_NEGATION_BEFORE.test(before) ||
+      WAREHOUSE_NEGATION_AFTER.test(after)
+    ) {
+      continue;
+    }
+    if (
+      WAREHOUSE_INTENT_BEFORE.test(before) ||
+      WAREHOUSE_INTENT_AFTER.test(after)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 // The figure check reads the draft alone. Tool results never reach it: a cell is
 // untrusted text and could steer the verdict.
@@ -648,6 +651,8 @@ export async function draftStatesFigure(input: {
 
 const DBT_FALLBACK_BLOCK_RETRY =
   "Do not state any figure, count, or list of values in this answer, from BigQuery or any other source. The dbt metric query for this owner-defined metric did not complete, so the answer has no owner-approved figure. Say that, and name the missing step or mapping gap from the dbt result.";
+const DBT_FALLBACK_CALCULATION_RETRY =
+  "Do not state any figure, count, or list of values in this answer. The dbt metric query did not complete, and its result does not expose a calculation that can verify equivalence with the warehouse query. Retry the owner-defined metric query or report that the requested figure is unavailable; a matching alias, period, and grouping are not enough.";
 function normalizedToolName(name: unknown): string {
   return String(name ?? "")
     .trim()
@@ -859,7 +864,11 @@ function dbtQueryForResult(
   };
 }
 
-function findDataMetricNames(result: WarehouseResult): string[] {
+function findDataMetricNames(
+  result: NonNullable<
+    AgentLoopFinalResponseGuardContext["toolResults"]
+  >[number],
+): string[] {
   if (result.isError === true) return [];
   const parsed = actionSummaryRecord(result.content);
   if (parsed.kind !== "record") return [];
@@ -994,704 +1003,9 @@ function hasUnresolvedDbtFailureInTurn(
   );
 }
 
-function isSchemaCall(call: { name?: string; input?: unknown }): boolean {
-  return (
-    isNamedTool(call.name, "bigquery") &&
-    /information_schema/i.test(JSON.stringify(call.input ?? ""))
-  );
-}
-
-type WarehouseResult = NonNullable<
-  AgentLoopFinalResponseGuardContext["toolResults"]
->[number];
-type WarehouseCall = AgentLoopFinalResponseGuardContext["toolCalls"][number];
-
-function isBigQueryBridgeTool(value: unknown): boolean {
-  return /(?:^|[._:-])bigquery$/i.test(String(value ?? "").trim());
-}
-
-function runCodeBigQueryOutput(
-  result: WarehouseResult,
-): { content: string; complete: boolean } | null {
-  if (!isNamedTool(result.name, "run-code")) return null;
-
-  const content = String(result.content ?? "");
-  const headerEnd = content.indexOf("\n\n");
-  const header = headerEnd === -1 ? content : content.slice(0, headerEnd);
-  const parsedHeader = actionSummaryRecord(parseJsonContent(header));
-  const metadata =
-    parsedHeader.kind === "record" ? parsedHeader.record : undefined;
-  const bridgeToolsUsed = metadata?.bridgeToolsUsed;
-  const structuredBridgeUse =
-    /"bridgeToolsUsed"\s*:\s*\[[^\]]*\bbigquery\b/i.test(header);
-  const usedTools = Array.isArray(bridgeToolsUsed)
-    ? bridgeToolsUsed
-    : typeof bridgeToolsUsed === "string"
-      ? bridgeToolsUsed.split(",")
-      : (content.match(/^\s*bridgeToolsUsed:\s*([^\n]+)/im)?.[1]?.split(",") ??
-        []);
-  if (!usedTools.some(isBigQueryBridgeTool) && !structuredBridgeUse) {
-    return null;
-  }
-
-  const body = headerEnd === -1 ? "" : content.slice(headerEnd + 2);
-  const stdout =
-    typeof metadata?.stdout === "string"
-      ? metadata.stdout
-      : (body.match(/(?:^|\n\n)stdout:\n([\s\S]*?)(?:\n\nstderr:\n|$)/)?.[1] ??
-        content.match(
-          /(?:^|\n\n)stdout:\n([\s\S]*?)(?:\n\nstderr:\n|$)/,
-        )?.[1] ??
-        "");
-  const statusComplete =
-    metadata?.status === undefined || metadata.status === "succeeded";
-  const exitCodeComplete =
-    metadata?.exitCode === undefined ||
-    metadata.exitCode === null ||
-    metadata.exitCode === 0;
-  return {
-    content: stdout,
-    complete:
-      statusComplete &&
-      exitCodeComplete &&
-      !(structuredBridgeUse && !Array.isArray(bridgeToolsUsed)) &&
-      metadata?.timedOut !== true &&
-      !metadata?.error &&
-      !/timedOut: true|exitCode: [1-9]\d*|\.\.\.\[(?:truncated|stored stdout truncated)/i.test(
-        content,
-      ),
-  };
-}
-
-function warehouseResultContent(result: WarehouseResult): string {
-  return runCodeBigQueryOutput(result)?.content ?? String(result.content ?? "");
-}
-
-function hasUsableWarehouseRows(result: WarehouseResult): boolean {
-  const runCode = runCodeBigQueryOutput(result);
-  const content = warehouseResultContent(result);
-  const rows = bigQueryRowValues(content);
-  return (
-    !result.isError &&
-    runCode?.complete !== false &&
-    rows !== null &&
-    rows.some(
-      (row) =>
-        row !== null &&
-        typeof row === "object" &&
-        !Array.isArray(row) &&
-        Object.keys(row).length > 0,
-    ) &&
-    !hasPartialBigQueryResult([{ name: "bigquery", isError: false, content }])
-  );
-}
-
-function pairedWarehouseCallForResult(
-  context: AgentLoopFinalResponseGuardContext,
-  resultIndex: number,
-): WarehouseCall | undefined {
-  const results = context.toolResults ?? [];
-  const result = results[resultIndex];
-  if (
-    !result ||
-    (!isNamedTool(result.name, "bigquery") && !runCodeBigQueryOutput(result))
-  ) {
-    return undefined;
-  }
-  const toolName = isNamedTool(result.name, "bigquery")
-    ? "bigquery"
-    : "run-code";
-  const calls = context.toolCalls.filter((call) =>
-    isNamedTool(call.name, toolName),
-  );
-  const matching = result.toolCallId
-    ? calls.filter((call) => call.toolCallId === result.toolCallId)
-    : [];
-  if (result.toolCallId) return matching.length === 1 ? matching[0] : undefined;
-  const sameToolResults = results.filter((candidate) =>
-    isNamedTool(candidate.name, toolName),
-  );
-  return calls.length === 1 && sameToolResults.length === 1
-    ? calls[0]
-    : undefined;
-}
-
-function warehouseQueryText(call: WarehouseCall | undefined): string | null {
-  if (
-    !call?.input ||
-    typeof call.input !== "object" ||
-    Array.isArray(call.input)
-  ) {
-    return null;
-  }
-  const input = call.input as Record<string, unknown>;
-  if (isNamedTool(call.name, "bigquery")) {
-    return typeof input.sql === "string" ? input.sql : null;
-  }
-  return typeof input.code === "string" ? input.code : null;
-}
-
-function splitSqlList(value: string): string[] {
-  const parts: string[] = [];
-  let start = 0;
-  let depth = 0;
-  let quote: "'" | '"' | "`" | null = null;
-  for (let index = 0; index < value.length; index++) {
-    const character = value[index];
-    if (quote) {
-      if (character === quote) {
-        if (value[index + 1] === quote) index++;
-        else quote = null;
-      } else if (character === "\\") {
-        index++;
-      }
-      continue;
-    }
-    if (character === "'" || character === '"' || character === "`") {
-      quote = character;
-    } else if (character === "(") {
-      depth++;
-    } else if (character === ")") {
-      depth = Math.max(0, depth - 1);
-    } else if (character === "," && depth === 0) {
-      parts.push(value.slice(start, index).trim());
-      start = index + 1;
-    }
-  }
-  parts.push(value.slice(start).trim());
-  return parts.filter(Boolean);
-}
-
-function nextIsoDate(value: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const parsed = Date.parse(`${value}T00:00:00.000Z`);
-  if (!Number.isFinite(parsed)) return null;
-  const date = new Date(parsed);
-  if (date.toISOString().slice(0, 10) !== value) return null;
-  return new Date(parsed + 86_400_000).toISOString().slice(0, 10);
-}
-
-type WarehouseProjection = { expression: string; alias: string | null };
-type WarehouseDateBound = {
-  expression: string;
-  operator: ">=" | ">" | "<=" | "<" | "=";
-  value: string;
-};
-
-function stripOuterSqlParentheses(value: string): string {
-  let source = value.trim();
-  while (source.startsWith("(") && source.endsWith(")")) {
-    let depth = 0;
-    let quote: "'" | '"' | "`" | null = null;
-    let wrapsWholeValue = true;
-    for (let index = 0; index < source.length; index++) {
-      const character = source[index];
-      if (quote) {
-        if (character === quote) {
-          if (source[index + 1] === quote) index++;
-          else quote = null;
-        } else if (character === "\\") {
-          index++;
-        }
-        continue;
-      }
-      if (character === "'" || character === '"' || character === "`") {
-        quote = character;
-      } else if (character === "(") {
-        depth++;
-      } else if (character === ")") {
-        depth--;
-        if (depth === 0 && index !== source.length - 1) {
-          wrapsWholeValue = false;
-          break;
-        }
-      }
-    }
-    if (!wrapsWholeValue || depth !== 0) break;
-    source = source.slice(1, -1).trim();
-  }
-  return source;
-}
-
-function isSqlKeywordAt(
-  value: string,
-  index: number,
-  keyword: string,
-): boolean {
-  const end = index + keyword.length;
-  return (
-    value.slice(index, end).toLowerCase() === keyword &&
-    (index === 0 || !/[a-z0-9_]/i.test(value[index - 1] ?? "")) &&
-    (end === value.length || !/[a-z0-9_]/i.test(value[end] ?? ""))
-  );
-}
-
-function splitSqlAnd(value: string): string[] {
-  const source = stripOuterSqlParentheses(value);
-  const parts: string[] = [];
-  let start = 0;
-  let depth = 0;
-  let quote: "'" | '"' | "`" | null = null;
-  let betweenNeedsAnd = false;
-  for (let index = 0; index < source.length; index++) {
-    const character = source[index];
-    if (quote) {
-      if (character === quote) {
-        if (source[index + 1] === quote) index++;
-        else quote = null;
-      } else if (character === "\\") {
-        index++;
-      }
-      continue;
-    }
-    if (character === "'" || character === '"' || character === "`") {
-      quote = character;
-    } else if (character === "(") {
-      depth++;
-    } else if (character === ")") {
-      depth = Math.max(0, depth - 1);
-    } else if (depth === 0 && isSqlKeywordAt(source, index, "between")) {
-      betweenNeedsAnd = true;
-      index += "between".length - 1;
-    } else if (depth === 0 && isSqlKeywordAt(source, index, "and")) {
-      if (betweenNeedsAnd) {
-        betweenNeedsAnd = false;
-      } else {
-        parts.push(source.slice(start, index).trim());
-        start = index + "and".length;
-      }
-      index += "and".length - 1;
-    }
-  }
-  parts.push(source.slice(start).trim());
-  const nonEmpty = parts.filter(Boolean);
-  return nonEmpty.length > 1
-    ? nonEmpty.flatMap((part) => splitSqlAnd(part))
-    : nonEmpty.map(stripOuterSqlParentheses);
-}
-
-function normalizedSqlExpression(value: string): string {
-  return value.replace(/[\s`"]+/g, "").toLowerCase();
-}
-
-function isWarehouseTimeExpression(value: string): boolean {
-  const identifier =
-    '(?:`?[a-z_][a-z0-9_$]*`?|"[a-z_][a-z0-9_$]*")(?:\\s*\\.\\s*(?:`?[a-z_][a-z0-9_$]*`?|"[a-z_][a-z0-9_$]*"))*';
-  return (
-    new RegExp(`^${identifier}$`, "i").test(value) ||
-    new RegExp(
-      `^(?:date|datetime|timestamp)\\s*\\(\\s*${identifier}\\s*\\)$`,
-      "i",
-    ).test(value)
-  );
-}
-
-function parseWarehouseDatePredicate(
-  predicate: string,
-): WarehouseDateBound[] | null {
-  const source = stripOuterSqlParentheses(predicate);
-  const between = source.match(
-    /^(.+?)\s+between\s+(?:date\s*)?(['"])(\d{4}-\d{2}-\d{2})\2\s+and\s+(?:date\s*)?(['"])(\d{4}-\d{2}-\d{2})\4$/i,
-  );
-  if (between) {
-    const expression = between[1]?.trim() ?? "";
-    if (!isWarehouseTimeExpression(expression)) return null;
-    return [
-      { expression, operator: ">=", value: between[3] ?? "" },
-      { expression, operator: "<=", value: between[5] ?? "" },
-    ];
-  }
-
-  const comparison = source.match(
-    /^(.+?)\s*(>=|<=|>|<|=)\s*(?:date\s*)?(['"])(\d{4}-\d{2}-\d{2})\3\s*$/i,
-  );
-  if (!comparison) return null;
-  const expression = comparison[1]?.trim() ?? "";
-  if (!isWarehouseTimeExpression(expression)) return null;
-  return [
-    {
-      expression,
-      operator: comparison[2] as WarehouseDateBound["operator"],
-      value: comparison[4] ?? "",
-    },
-  ];
-}
-
-function warehouseDateRangeMatches(
-  where: string,
-  timeRange: { startDate: string; endDate: string },
-): boolean {
-  const { startDate, endDate } = timeRange;
-  const exclusiveEnd = nextIsoDate(endDate);
-  if (!nextIsoDate(startDate) || !exclusiveEnd || startDate > endDate) {
-    return false;
-  }
-
-  const bounds: WarehouseDateBound[] = [];
-  for (const predicate of splitSqlAnd(where)) {
-    if (!/\b\d{4}-\d{2}-\d{2}\b/.test(predicate)) continue;
-    const parsed = parseWarehouseDatePredicate(predicate);
-    if (!parsed) return false;
-    bounds.push(...parsed);
-  }
-  if (bounds.length !== 2) return false;
-
-  const starts = bounds.filter(
-    ({ operator, value }) => operator === ">=" && value === startDate,
-  );
-  const ends = bounds.filter(
-    ({ operator, value }) =>
-      (operator === "<=" && value === endDate) ||
-      (operator === "<" && value === exclusiveEnd),
-  );
-  return (
-    starts.length === 1 &&
-    ends.length === 1 &&
-    normalizedSqlExpression(starts[0]?.expression ?? "") ===
-      normalizedSqlExpression(ends[0]?.expression ?? "")
-  );
-}
-
-function parseWarehouseProjection(item: string): WarehouseProjection {
-  const alias = item.match(
-    /\s+as\s+(?:`([^`]+)`|"([^"]+)"|([a-z_][a-z0-9_]*))\s*$/i,
-  );
-  return {
-    expression: alias ? item.slice(0, alias.index).trim() : item.trim(),
-    alias: alias ? (alias[1] ?? alias[2] ?? alias[3] ?? null) : null,
-  };
-}
-
-function warehouseTimeGrain(expression: string): string | null {
-  const truncation = expression
-    .trim()
-    .match(/^(?:date|datetime|timestamp)_trunc\s*\(([\s\S]*)\)$/i);
-  if (!truncation) return null;
-  const arguments_ = splitSqlList(truncation[1] ?? "");
-  if (arguments_.length !== 2) return null;
-  const grain = arguments_[1]?.replace(/`/g, "").trim().toUpperCase();
-  return [
-    "YEAR",
-    "QUARTER",
-    "MONTH",
-    "WEEK",
-    "DAY",
-    "HOUR",
-    "MINUTE",
-    "SECOND",
-  ].includes(grain ?? "")
-    ? (grain ?? null)
-    : null;
-}
-
-function warehouseGroupingMatches(
-  projections: WarehouseProjection[],
-  groups: string[],
-  requiredGroups: string[],
-): boolean {
-  if (groups.length !== requiredGroups.length) return false;
-  const usedGroups = new Set<number>();
-  const usedProjections = new Set<number>();
-  for (const required of requiredGroups) {
-    const separator = required.lastIndexOf(":");
-    if (separator < 1) return false;
-    const name = required.slice(0, separator).replace(/[^a-z0-9]/g, "");
-    const grain = required.slice(separator + 1).toUpperCase();
-    const aliases = new Set([
-      name,
-      ...(grain
-        ? [`${name}${grain.toLowerCase().replace(/[^a-z0-9]/g, "")}`]
-        : []),
-    ]);
-    const projectionIndex = projections.findIndex((projection, index) => {
-      if (usedProjections.has(index)) return false;
-      return projection.alias
-        ? aliases.has(normalizedDbtMetricName(projection.alias))
-        : !grain && normalizedDbtMetricName(projection.expression) === name;
-    });
-    if (projectionIndex < 0) return false;
-    const projection = projections[projectionIndex];
-    if (!projection) return false;
-    if (grain && warehouseTimeGrain(projection.expression) !== grain) {
-      return false;
-    }
-    const groupIndex = groups.findIndex((group, index) => {
-      if (usedGroups.has(index)) return false;
-      const normalizedGroup = normalizedSqlExpression(group);
-      return (
-        normalizedGroup === normalizedSqlExpression(projection.expression) ||
-        (projection.alias !== null &&
-          normalizedGroup === normalizedSqlExpression(projection.alias))
-      );
-    });
-    if (groupIndex < 0) return false;
-    usedGroups.add(groupIndex);
-    usedProjections.add(projectionIndex);
-  }
-  return true;
-}
-
-function warehouseQueryMatchesScope(
-  query: string,
-  scope: DbtGuardQueryScope,
-  querySpec: {
-    allTime: boolean;
-    groupBy: string[];
-    timeRange: { startDate: string; endDate: string } | null;
-  },
-): boolean {
-  const sql = query.replace(/--[^\r\n]*|\/\*[\s\S]*?\*\//g, " ");
-  if (
-    /information_schema|__tables__/i.test(sql) ||
-    !/\bselect\b/i.test(sql) ||
-    !/\bfrom\b/i.test(sql) ||
-    /\b(?:with|union|intersect|except)\b/i.test(sql) ||
-    [...sql.matchAll(/\bselect\b/gi)].length !== 1
-  ) {
-    return false;
-  }
-  const metricKey = normalizedDbtMetricName(scope.metricName);
-  const projectionText = sql.match(/\bselect\b([\s\S]*?)\bfrom\b/i)?.[1];
-  if (!metricKey || !projectionText) return false;
-  const projections = splitSqlList(projectionText).map(
-    parseWarehouseProjection,
-  );
-  const hasMetricAlias = projections.some(
-    ({ alias }) =>
-      alias !== null && normalizedDbtMetricName(alias) === metricKey,
-  );
-  if (!hasMetricAlias) return false;
-
-  const groupByMatch = sql.match(
-    /\bgroup\s+by\b([\s\S]*?)(?=\bhaving\b|\border\s+by\b|\bqualify\b|\blimit\b|\boffset\b|;|$)/i,
-  );
-  if (querySpec.groupBy.length === 0) {
-    if (groupByMatch) return false;
-  } else {
-    if (!groupByMatch) return false;
-    const groups = splitSqlList(groupByMatch[1] ?? "");
-    if (!warehouseGroupingMatches(projections, groups, querySpec.groupBy)) {
-      return false;
-    }
-  }
-
-  if (querySpec.timeRange) {
-    const whereClauses = [
-      ...sql.matchAll(
-        /\bwhere\b([\s\S]*?)(?=\bgroup\s+by\b|\bhaving\b|\border\s+by\b|\bqualify\b|\blimit\b|\boffset\b|;|$)/gi,
-      ),
-    ];
-    if (
-      whereClauses.length !== 1 ||
-      !warehouseDateRangeMatches(
-        whereClauses[0]?.[1] ?? "",
-        querySpec.timeRange,
-      )
-    ) {
-      return false;
-    }
-  } else if (querySpec.allTime) {
-    if (
-      /\bwhere\b[\s\S]*?\b(?:date|time|timestamp|event_date|created_at|updated_at)\b/i.test(
-        sql,
-      )
-    ) {
-      return false;
-    }
-  } else {
-    return false;
-  }
-  return true;
-}
-
-const SPOKEN_NUMBER_WORDS =
-  "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion";
-const SPOKEN_NUMBER_PHRASE = `(?:(?:about|around|roughly|approximately)\\s+)?(?:${SPOKEN_NUMBER_WORDS})(?:[\\s-]+(?:and\\s+)?(?:${SPOKEN_NUMBER_WORDS})){0,5}`;
-
-function spokenNumberValue(value: string): number | null {
-  if (/^(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?$/.test(value.trim())) {
-    const numeric = Number(value.replace(/[,%]/g, ""));
-    return Number.isFinite(numeric) ? numeric : null;
-  }
-  const normalized = value
-    .toLowerCase()
-    .replace(/\b(?:about|around|roughly|approximately|and)\b/g, " ")
-    .replace(/[-,]/g, " ")
-    .trim();
-  const small = new Map<string, number>([
-    ["zero", 0],
-    ["one", 1],
-    ["two", 2],
-    ["three", 3],
-    ["four", 4],
-    ["five", 5],
-    ["six", 6],
-    ["seven", 7],
-    ["eight", 8],
-    ["nine", 9],
-    ["ten", 10],
-    ["eleven", 11],
-    ["twelve", 12],
-    ["thirteen", 13],
-    ["fourteen", 14],
-    ["fifteen", 15],
-    ["sixteen", 16],
-    ["seventeen", 17],
-    ["eighteen", 18],
-    ["nineteen", 19],
-    ["twenty", 20],
-    ["thirty", 30],
-    ["forty", 40],
-    ["fifty", 50],
-    ["sixty", 60],
-    ["seventy", 70],
-    ["eighty", 80],
-    ["ninety", 90],
-  ]);
-  const multipliers = new Map<string, number>([
-    ["hundred", 100],
-    ["thousand", 1_000],
-    ["million", 1_000_000],
-    ["billion", 1_000_000_000],
-  ]);
-  let total = 0;
-  let current = 0;
-  for (const word of normalized.split(/\s+/).filter(Boolean)) {
-    const unit = small.get(word);
-    if (unit !== undefined) {
-      current += unit;
-      continue;
-    }
-    const multiplier = multipliers.get(word);
-    if (multiplier === undefined) return null;
-    if (multiplier === 100) current = Math.max(current, 1) * multiplier;
-    else {
-      total += Math.max(current, 1) * multiplier;
-      current = 0;
-    }
-  }
-  return total + current;
-}
-
-function draftMetricFigures(draft: string, metricName: string): number[] {
-  const metricParts = metricName
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((part) => part && !/^\d+$/.test(part));
-  if (metricParts.length === 0) return [];
-  const metricPattern = metricParts.join("[\\s_-]+");
-  const numeric = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?%?";
-  const candidate = `(?:${numeric}|${SPOKEN_NUMBER_PHRASE})`;
-  const metricExpression = new RegExp(`\\b${metricPattern}\\b`, "gi");
-  const numberExpression = new RegExp(`\\b${candidate}\\b`, "gi");
-  const figures: number[] = [];
-  for (const match of draft.matchAll(metricExpression)) {
-    const start = Math.max(0, (match.index ?? 0) - 60);
-    const end = Math.min(
-      draft.length,
-      (match.index ?? 0) + match[0].length + 60,
-    );
-    for (const number of draft.slice(start, end).matchAll(numberExpression)) {
-      const value = spokenNumberValue(number[0]);
-      if (value !== null) figures.push(value);
-    }
-  }
-  return figures;
-}
-
-function numericWarehouseCell(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (
-    typeof value === "string" &&
-    /^(?:-?\d{1,3}(?:,\d{3})+|-?\d+)(?:\.\d+)?%?$/.test(value.trim())
-  ) {
-    const numeric = Number(value.replace(/[,%]/g, ""));
-    return Number.isFinite(numeric) ? numeric : null;
-  }
-  return null;
-}
-
-// A disclosed warehouse figure is released only when its paired call, full query
-// scope, metric column, complete rows, and value all support the draft.
-function warehouseReadSupportsDraft(
-  context: AgentLoopFinalResponseGuardContext,
-): boolean {
-  const results = context.toolResults ?? [];
-  const failureIndex = firstUnresolvedDbtFailureIndex(context);
-  if (failureIndex === -1) return false;
-  const failedQuery = dbtQueryForResult(context, failureIndex);
-  if (!failedQuery?.querySpecKey) return false;
-  const failedScope: DbtGuardQueryScope = {
-    metricName: failedQuery.metricName,
-    metricKey: failedQuery.metricKey,
-    querySpecKey: failedQuery.querySpecKey,
-  };
-  const parsedOutput = actionSummaryRecord(results[failureIndex]?.content);
-  if (parsedOutput.kind !== "record") return false;
-  const querySpecRecord = actionSummaryRecord(parsedOutput.record.querySpec);
-  const failedCall = pairedDbtCallForResult(context, failureIndex);
-  const parsedInput = actionSummaryRecord(failedCall?.input);
-  if (parsedInput.kind !== "record") return false;
-  const input = parsedInput.record;
-  const querySpec =
-    querySpecRecord.kind === "record" ? querySpecRecord.record : input;
-  const timeRange =
-    querySpec.timeRange === undefined
-      ? null
-      : metricTimeRange(querySpec.timeRange);
-  const groupBy = normalizedDbtGroupBy(querySpec.groupBy);
-  if (!groupBy || (querySpec.timeRange !== undefined && !timeRange))
-    return false;
-  const figures = draftMetricFigures(context.text, failedScope.metricName);
-  if (!figures.length) return false;
-  const metricKey = failedScope.metricKey;
-
-  for (let index = failureIndex + 1; index < results.length; index++) {
-    const result = results[index];
-    if (
-      !result ||
-      (!isNamedTool(result.name, "bigquery") &&
-        !runCodeBigQueryOutput(result)) ||
-      !hasUsableWarehouseRows(result)
-    ) {
-      continue;
-    }
-    const call = pairedWarehouseCallForResult(context, index);
-    const query = warehouseQueryText(call);
-    if (
-      !query ||
-      isSchemaCall(call ?? {}) ||
-      !warehouseQueryMatchesScope(query, failedScope, {
-        allTime: querySpec.allTime === true,
-        groupBy,
-        timeRange,
-      })
-    ) {
-      continue;
-    }
-    const rows = bigQueryRowValues(warehouseResultContent(result));
-    if (!rows) continue;
-    const values = rows.flatMap((row) => {
-      if (!row || typeof row !== "object" || Array.isArray(row)) return [];
-      return Object.entries(row).flatMap(([column, value]) =>
-        normalizedDbtMetricName(column) === metricKey
-          ? [numericWarehouseCell(value)]
-          : [],
-      );
-    });
-    if (
-      values.some((value) => value !== null) &&
-      figures.every((figure) => values.includes(figure))
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // `figureVerdict` is the figure check on the draft alone: true states a result, false
-// states none, undefined unchecked. A warehouse figure is released only when the user
-// requested it, the draft discloses its source, and a paired query and result support it.
+// states none, undefined unchecked. The dbt result does not expose its calculation, so a
+// matching warehouse alias, period, and grouping cannot verify that it is the same metric.
 function dbtFallbackGuard(
   context: AgentLoopFinalResponseGuardContext,
   figureVerdict?: boolean,
@@ -1709,27 +1023,9 @@ function dbtFallbackGuard(
       maxRetries: 1,
     };
   }
-  const disclosed =
-    DBT_FALLBACK_SOURCE.test(context.text) &&
-    DBT_FALLBACK_NOT_APPROVED.test(context.text) &&
-    !claimsApproval(context.text);
-  if (!warehouseReadSupportsDraft(context)) {
-    return {
-      retryMessage:
-        "The BigQuery call and complete rows do not match the failed dbt metric, its exact period and grouping, and the figure in the draft. Retry with a matching query or withhold the figure.",
-      fallbackMessage: DBT_FALLBACK_WITHHELD,
-      maxRetries: 1,
-    };
-  }
-  if (disclosed) return null;
   return {
-    retryMessage: `Before finalizing, state in your answer that the figure is warehouse-derived from BigQuery and is not the owner-approved Semantic Layer definition, because the dbt metric query did not complete. Keep the rest of the answer.`,
+    retryMessage: DBT_FALLBACK_CALCULATION_RETRY,
     fallbackMessage: DBT_FALLBACK_WITHHELD,
-    // An exhausted retry keeps the draft only as a prefix, and only when the draft
-    // makes no approval claim. A draft that claims approval must not reach the user.
-    ...(claimsApproval(context.text)
-      ? {}
-      : { exhaustedDraftPrefix: DBT_FALLBACK_DISCLOSURE }),
     maxRetries: 1,
   };
 }
