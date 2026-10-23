@@ -11,6 +11,7 @@ import * as Y from "yjs";
 
 import {
   commentAnchorHoldsOn,
+  commentAnchorText,
   commentAnchorTextOf,
 } from "../../shared/comment-reanchor.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
@@ -39,6 +40,7 @@ let switching: typeof import("./switch.js");
 let contentLiveCopy: typeof import("./binding.js").contentLiveCopy;
 let setSwitch: typeof import("../../actions/set-live-body-switch.js").default;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
+let editDocument: typeof import("../../actions/edit-document.js").default;
 let createSuggestion: typeof import("@agent-native/core/review/suggestions/actions/create-resource-suggestion").default;
 let decideSuggestion: typeof import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion").default;
 let listSuggestions: typeof import("@agent-native/core/review/suggestions/actions/list-resource-suggestions").default;
@@ -79,6 +81,7 @@ beforeAll(async () => {
   contentLiveCopy = (await import("./binding.js")).contentLiveCopy;
   setSwitch = (await import("../../actions/set-live-body-switch.js")).default;
   getDocumentAction = (await import("../../actions/get-document.js")).default;
+  editDocument = (await import("../../actions/edit-document.js")).default;
   createSuggestion = (
     await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
   ).default;
@@ -359,6 +362,79 @@ describe("switching a page moves its suggestions and comment quotes onto the liv
       const tree = await browsersTree(documentId);
       expect(tree.markdown).toBe(expected);
       expect(commentAnchorHoldsOn(await comment(commentId), tree.text)).toBe(
+        true,
+      );
+    });
+  });
+
+  it("moves each quote from the text it was taken from when a legacy write left the live copy behind", async () => {
+    await asOwner(async () => {
+      const documentId = await insertPage(stored);
+      await switching.switchPageToLiveCopy(documentId, { ctx });
+      const live = (await browsersTree(documentId)).text;
+      const tabComment = await commentInTab(
+        documentId,
+        live,
+        "closing paragraph",
+      );
+      await switching.switchPageToLegacy(documentId);
+
+      // An agent drops the budget paragraph and adds a line after the
+      // closing one, through the legacy writer the live copy never sees.
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      const budget = document.content.slice(
+        document.content.indexOf("The budget"),
+        document.content.indexOf("A closing"),
+      );
+      await editDocument.run(
+        {
+          id: documentId,
+          baseRevision: document.revision,
+          idempotencyKey: `switch-rebaseline-legacy-${documentId}`,
+          edits: [
+            { find: budget, replace: "" },
+            {
+              find: "sits here.",
+              replace: "sits here.\n\nAsk the team lead before spending.",
+            },
+          ],
+        } as never,
+        { caller: "mcp", userEmail: ownerEmail } as never,
+      );
+      const legacy = (await page(documentId)).content;
+      expect((await browsersTree(documentId)).text).toBe(live);
+      // `the team` is once on each text, in different paragraphs.
+      const agentComment = await commentInTab(
+        documentId,
+        commentAnchorText(legacy),
+        "the team",
+      );
+      expect(commentAnchorHoldsOn(await comment(tabComment), live)).toBe(true);
+      expect(
+        commentAnchorHoldsOn(
+          await comment(tabComment),
+          commentAnchorText(legacy),
+        ),
+      ).toBe(false);
+      expect(commentAnchorHoldsOn(await comment(agentComment), live)).toBe(
+        false,
+      );
+      expect(
+        commentAnchorHoldsOn(
+          await comment(agentComment),
+          commentAnchorText(legacy),
+        ),
+      ).toBe(true);
+
+      await expect(
+        switching.switchPageToLiveCopy(documentId, { ctx }),
+      ).resolves.toEqual({ writePath: "live_copy" });
+      const tree = await browsersTree(documentId);
+      expect(tree.markdown).toBe(canonicalizeNfm(legacy));
+      expect(commentAnchorHoldsOn(await comment(tabComment), tree.text)).toBe(
+        true,
+      );
+      expect(commentAnchorHoldsOn(await comment(agentComment), tree.text)).toBe(
         true,
       );
     });

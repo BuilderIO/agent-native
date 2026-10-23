@@ -7,6 +7,7 @@ import {
 
 import { ACTIVE_COMMENT_AI_STATUSES } from "../../shared/comment-ai.js";
 import {
+  commentAnchorHoldsOn,
   commentAnchorText,
   rebaselinedCommentQuote,
   type CommentQuoteAnchor,
@@ -33,7 +34,9 @@ export type PageRebaselineInput = {
    * The text the page's live copy showed before the conversion reseeds it,
    * `commentAnchorTextOf` its tree, or null when it had none. Comment quotes
    * were captured from that tree; parsing its Markdown again can read it
-   * differently.
+   * differently. Legacy writes leave the live copy behind the stored body,
+   * so a quote that holds on the stored body and not on this text moves from
+   * the stored body.
    */
   previousLiveText: string | null;
   now: string;
@@ -133,8 +136,7 @@ export async function rebaselinePageForCanonicalBody(
       args: [input.documentId],
     })
   ).rows;
-  const previousText =
-    input.previousLiveText ?? commentAnchorText(input.stored);
+  const storedText = commentAnchorText(input.stored);
   const nextText = commentAnchorText(input.canonical);
   const quoteOutcomes = comments.map((row) => {
     const quote: CommentQuoteAnchor = {
@@ -146,6 +148,12 @@ export async function rebaselinePageForCanonicalBody(
           ? null
           : Number(row.anchor_start_offset),
     };
+    const previousText =
+      input.previousLiveText !== null &&
+      (commentAnchorHoldsOn(quote, input.previousLiveText) ||
+        !commentAnchorHoldsOn(quote, storedText))
+        ? input.previousLiveText
+        : storedText;
     return {
       id: String(row.id),
       outcome: rebaselinedCommentQuote(quote, previousText, nextText),
