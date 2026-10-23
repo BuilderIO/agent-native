@@ -835,6 +835,25 @@ const GENERATED_DESIGN_LIBRARY_SCRIPT_ATTRIBUTES = new Set([
   "referrerpolicy",
 ]);
 
+function writesClasses(name: string, value: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    normalized === "x-bind" ||
+    dynamicBoundAttributeName(normalized.split(".", 1)[0]!) === "class" ||
+    /\bclass(?:List|Name)\b|setAttribute\s*\(\s*["']class["']/.test(value)
+  );
+}
+
+function buildsStringAtRuntime(value: string): boolean {
+  return (
+    /`[^`]*\$\{/.test(value) ||
+    /["'`]\s*\+|\+\s*["'`]/.test(value) ||
+    /\bfromCharCode\b|\.\s*(?:join|concat|replace(?:All)?|repeat)\s*\(/.test(
+      value,
+    )
+  );
+}
+
 function isTailwindBrowserRuntime(node: HtmlNode): boolean {
   return (
     node.tagName === "script" &&
@@ -1002,13 +1021,16 @@ function assertExecutableScriptsSafe(
 
     // The Tailwind browser runtime compiles classes as they are added, and an
     // arbitrary variant ([&~main_h1]:) can style elements other than its own.
+    // A class assembled at runtime may spell one that no literal shows.
     const runtimeVariant =
       compilesClassesAtRuntime &&
       node.attrs?.find(
         ({ name, value }) =>
           (isAlpineExpressionAttribute(name) ||
-            isEventHandlerAttribute(name)) &&
-          /\[[^\]]*\]:/.test(value),
+            isEventHandlerAttribute(name) ||
+            /^x-transition/i.test(name)) &&
+          (/\[[^\]]*\]:/.test(value) ||
+            (writesClasses(name, value) && buildsStringAtRuntime(value))),
       );
     if (runtimeVariant) {
       sourceError(
@@ -1368,7 +1390,7 @@ function handlerElementSelectorMayMutateMotionTarget(
     String.raw`(?:^|[^\w$])${scope}\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
     "gi",
   );
-  const hasMutation = MUTATION_MEMBER_ACCESS_PATTERN.test(value);
+  const hasMutation = mayWriteElement(value);
   if (!hasMutation) return false;
 
   const aliases = assignedAliases(
@@ -1683,6 +1705,7 @@ function identifierMayFeedMutationSink(
   const aliases = identifierAliases(source, identifier);
   return aliases.some((alias) => {
     if (elementMutationSinkForIdentifier(alias).test(source)) return true;
+    if (identifierWriteSink(alias).test(source)) return true;
     const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(
       `\\b${escaped}(?:\\s*(?:\\?\\.|\\.)\\s*[A-Za-z_$][\\w$]*|\\s*\\[\\s*["'][^"']+["']\\s*\\]){1,8}\\s*(?:${MUTATION_MEMBER_ACCESS})`,
@@ -1695,8 +1718,10 @@ function handlerTargetAliasMayMutate(value: string): boolean {
   const targetExpression =
     /^(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))/i;
   const aliases = assignedAliases(value, targetExpression);
-  return [...aliases].some((alias) =>
-    identifierMutationSink(alias).test(value),
+  return [...aliases].some(
+    (alias) =>
+      identifierMutationSink(alias).test(value) ||
+      identifierWriteSink(alias).test(value),
   );
 }
 
@@ -1704,8 +1729,10 @@ function eventTargetAliasMayMutate(value: string): boolean {
   const targetExpression =
     /^(?:event|e|\$event)\s*(?:\.\s*target|\[\s*["']target["']\s*\])/i;
   const aliases = assignedAliases(value, targetExpression);
-  return [...aliases].some((alias) =>
-    identifierMutationSink(alias).test(value),
+  return [...aliases].some(
+    (alias) =>
+      identifierMutationSink(alias).test(value) ||
+      identifierWriteSink(alias).test(value),
   );
 }
 
@@ -1990,6 +2017,15 @@ const SELECTED_ELEMENT_MUTATION_SINK = new RegExp(
   `^\\s*(?:\\[\\s*\\d+\\s*\\]\\s*)?(?:${MUTATION_MEMBER_ACCESS})`,
   "i",
 );
+
+// Content replacement on an element, or a reflective write taking it first.
+function identifierWriteSink(identifier: string): RegExp {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    String.raw`\b${escaped}\s*(?:${CONTENT_REPLACEMENT_MEMBER_ACCESS})|\b(?:Object\s*\.\s*(?:assign|defineProperty|defineProperties)|Reflect\s*\.\s*(?:set|defineProperty))\s*\(\s*${escaped}\b`,
+    "i",
+  );
+}
 
 function elementMutationSinkForIdentifier(identifier: string): RegExp {
   const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -1741,6 +1741,71 @@ describe("HTML Motion source adapter", () => {
     ).toMatchObject({ status: "supported" });
   });
 
+  it("rejects an ancestor binding that removes a Motion target it selects", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        `<main class="card" x-data x-bind:title="$el.querySelector('[data-agent-native-node-id=hero-title]').remove() || ''">`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    ["remove()", "el.remove()"],
+    ["Object.assign", "Object.assign(el, { className: 'fade' })"],
+  ])(
+    "rejects %s on a selected Motion target assigned to a variable",
+    (_label, write) => {
+      const source = html.replace(
+        "</body>",
+        `<p x-data x-init="const el = document.querySelector('[data-agent-native-node-id=hero-title]'); ${write}"></p>\n${ALPINE_CDN}\n</body>`,
+      );
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it.each([
+    [
+      "an x-transition class list",
+      `x-transition:enter="[&~main_h1]:opacity-0"`,
+    ],
+    [
+      "a class built by concatenation",
+      `:class="on ? '[' + '&~main_h1' + ']' + ':opacity-0' : ''"`,
+    ],
+    [
+      "a class built by a template literal",
+      ":class=\"on ? `${open}&~main_h1${close}:opacity-0` : ''\"",
+    ],
+  ])(
+    "rejects %s that may add a Tailwind arbitrary variant",
+    (_label, attribute) => {
+      const source = html
+        .replace(
+          '<main class="card">',
+          `<nav x-data="{ on: false, open: '[', close: ']' }" ${attribute}></nav>\n  <main class="card">`,
+        )
+        .replace("</body>", `${TAILWIND_CDN}\n${ALPINE_CDN}\n</body>`);
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
   it("allows a $root selector whose root does not contain the Motion target", () => {
     const source = html.replace(
       "</body>",
