@@ -99,6 +99,7 @@ let rowMutation: typeof import("./_database-row-mutation.js");
 let deleteDocumentProperty: typeof import("./delete-document-property.js").default;
 let replaceHistoricalIconIfUnchanged: typeof import("../scripts/historical-icon-apply.js").replaceHistoricalIconIfUnchanged;
 let syncLocalFolder: typeof import("./sync-local-folder-source.js").default;
+let disconnectLocalFolder: typeof import("./disconnect-local-folder-source.js").default;
 let contentFilesItemId: typeof import("./_content-files.js").contentFilesItemId;
 let processBuilderBodyHydrationQueue: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
 
@@ -161,6 +162,8 @@ beforeAll(async () => {
   ({ replaceHistoricalIconIfUnchanged } =
     await import("../scripts/historical-icon-apply.js"));
   syncLocalFolder = (await import("./sync-local-folder-source.js")).default;
+  disconnectLocalFolder = (await import("./disconnect-local-folder-source.js"))
+    .default;
   ({ contentFilesItemId } = await import("./_content-files.js"));
   ({ processBuilderBodyHydrationQueue } =
     await import("./_database-source-utils.js"));
@@ -1481,6 +1484,100 @@ New body.
 }
 
 /**
+ * Two folders in one space. Disconnecting the first clears the later page,
+ * which only it links, and relinks the earlier page to the second folder.
+ */
+async function seedFolderDisconnect() {
+  const key = fixtureKey();
+  const ids = {
+    space: `${key}_s`,
+    files: `${key}_f`,
+    relinked: `${key}_p1`,
+    cleared: `${key}_p2`,
+    disconnected: `${key}_source_a`,
+    remaining: `${key}_source_b`,
+  };
+  const db = getDb();
+  await db.insert(schema.contentSpaces).values({
+    id: ids.space,
+    name: "Synthetic two-folder space",
+    kind: "user",
+    ownerEmail: OWNER,
+    orgId: null,
+    filesDatabaseId: ids.files,
+    createdBy: OWNER,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: ids.files,
+    ownerEmail: OWNER,
+    spaceId: ids.space,
+    documentId: `${ids.files}_page`,
+    title: "Files",
+    systemRole: "files",
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+  const linked = {
+    spaceId: ids.space,
+    sourceMode: "local-files",
+    sourceKind: "file",
+    sourceRootPath: `${key}_folder_a`,
+  };
+  await db.insert(schema.documents).values([
+    pageValues(ids.relinked, null, "Relinked page", {
+      ...linked,
+      sourcePath: "relinked.md",
+    }),
+    pageValues(ids.cleared, null, "Cleared page", {
+      ...linked,
+      sourcePath: "cleared.md",
+    }),
+  ]);
+  await db.insert(schema.contentDatabaseSources).values(
+    [ids.disconnected, ids.remaining].map((id, index) => ({
+      id,
+      ownerEmail: OWNER,
+      databaseId: ids.files,
+      sourceType: "local-folder",
+      sourceName: `Synthetic folder ${index + 1}`,
+      sourceTable: `${key}_folder_${index === 0 ? "a" : "b"}`,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    })),
+  );
+  await db.insert(schema.contentDatabaseSourceRows).values(
+    (
+      [
+        [ids.disconnected, ids.relinked, "relinked.md"],
+        [ids.disconnected, ids.cleared, "cleared.md"],
+        [ids.remaining, ids.relinked, "from-b.md"],
+      ] as const
+    ).map(([sourceId, documentId, relativePath]) => ({
+      id: `${sourceId}_${documentId}`,
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: `${documentId}_item`,
+      documentId,
+      sourceRowId: relativePath,
+      sourceQualifiedId: `${sourceId}:${relativePath}`,
+      sourceDisplayKey: relativePath,
+      sourceValuesJson: JSON.stringify({ relativePath }),
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    })),
+  );
+  const rows: LockedRow[] = [
+    { label: "relinked page", kind: "page", id: ids.relinked },
+    { label: "cleared page", kind: "page", id: ids.cleared },
+  ];
+  const disconnect = () =>
+    asOwner(() => disconnectLocalFolder.run({ sourceId: ids.disconnected }));
+  return { ids, key, rows, disconnect };
+}
+
+/**
  * A Builder collection whose rows wait for their first body hydration.
  * Twenty rows or more take the bulk path, which reads the bodies from
  * Builder; fewer convert the queued entry's.
@@ -2185,6 +2282,27 @@ describe.skipIf(!POSTGRES_URL)(
           "parent page",
           "child page",
         ]);
+      });
+
+      it("local-folder disconnect", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedFolderDisconnect();
+          return { rows: seed.rows, run: seed.disconnect };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(["relinked page", "cleared page"]);
+        const seed = await seedFolderDisconnect();
+        await seed.disconnect();
+        expect(await readPage(seed.ids.relinked)).toMatchObject({
+          sourceMode: "local-files",
+          sourcePath: "from-b.md",
+          sourceRootPath: `${seed.key}_folder_b`,
+        });
+        expect(await readPage(seed.ids.cleared)).toMatchObject({
+          sourceMode: "database",
+          sourcePath: null,
+          sourceRootPath: null,
+        });
       });
     });
 

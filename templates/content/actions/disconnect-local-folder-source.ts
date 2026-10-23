@@ -13,6 +13,7 @@ import {
 } from "./_builder-cms-blob-custody.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 export default defineAction({
   description:
@@ -102,6 +103,9 @@ export default defineAction({
       await tx
         .delete(schema.contentDatabaseSources)
         .where(eq(schema.contentDatabaseSources.id, sourceId));
+      // The pages after the source a sync claims first, and in id order, as
+      // the sync takes them: the updates below would lock them in scan order.
+      await lockDocumentRows(tx, documentIds);
       type RemainingLocalRow = {
         documentId: string;
         sourceDisplayKey: string | null;
