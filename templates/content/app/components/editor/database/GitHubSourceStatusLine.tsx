@@ -19,6 +19,7 @@ import {
 import {
   Fragment,
   useEffect,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -33,6 +34,7 @@ import {
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import {
+  useRefreshAfterGitHubFolder,
   useSyncGitHubFolder,
   type SyncGitHubFolderResponse,
 } from "@/hooks/use-github-folder";
@@ -152,41 +154,97 @@ export function useCheckGitHubForUpdates(source: ContentDatabaseSource) {
 
 /** How long a fill waits while the background sweep holds the sync. */
 const FILL_BUSY_RETRY_MS = 2_000;
+/**
+ * How long a fill waits after a sync that got no further or failed, doubling
+ * each time one does again, up to the most. The background sync, which gives
+ * a fill under way more time than this tab's syncs get, takes its turn then.
+ */
+const FILL_STALL_RETRY_MS = 60_000;
+const FILL_STALL_RETRY_MAX_MS = 5 * 60_000;
+
+/**
+ * Whether a sync that left part of the folder for later got further than the
+ * one before: it wrote pages, or left fewer files, as one that only skipped
+ * files does. `left` is null when nothing says how many were left before.
+ */
+function gotFurther(
+  result: SyncGitHubFolderResponse["sync"],
+  left: number | null,
+) {
+  return (
+    result.created + result.updated + result.renamed + result.trashed > 0 ||
+    left === null ||
+    result.remaining < left
+  );
+}
 
 /**
  * Keeps a folder filling while its collection is open: each sync starts as
  * soon as the last returns, not at the next background sweep. It waits while
- * the sweep holds the sync, pauses in a hidden tab, and stops once the folder
- * is current or anything goes wrong. No toasts: the progress bar says it.
+ * the sweep holds the sync, and waits longer after a sync that got no further
+ * or failed. It pauses in a hidden tab and stops once the folder is current,
+ * or once a problem the status line shows stops it. No toasts: the progress
+ * bar says it.
  */
-function useKeepFilling(databaseId: string, filling: boolean) {
-  const { mutateAsync: syncNow } = useSyncGitHubFolder();
+function useKeepFilling(
+  databaseId: string,
+  filling: boolean,
+  remaining: number | null,
+) {
+  const { mutateAsync: syncNow } = useSyncGitHubFolder({ refresh: false });
+  const refresh = useRefreshAfterGitHubFolder();
+  const latest = useRef({ refresh, remaining });
+  useEffect(() => {
+    latest.current = { refresh, remaining };
+  });
   useEffect(() => {
     if (!filling) return;
     let stopped = false;
     let running = false;
     let timer: number | undefined;
+    let stalls = 0;
+    // Files left as of the last answer, to tell a sync that got further.
+    let left = latest.current.remaining;
+    const wait = (ms: number) => {
+      timer = window.setTimeout(() => void step(), ms);
+    };
     const step = async () => {
       timer = undefined;
       if (stopped || running || document.visibilityState === "hidden") return;
       running = true;
-      let state: SyncGitHubFolderResponse["sync"]["state"] | null = null;
+      let result: SyncGitHubFolderResponse["sync"] | null = null;
       try {
-        const { sync: result } = await syncNow({ databaseId });
-        // Pictures waiting on storage don't stop the pages filling.
-        const problem = result.problem?.code ?? "storage_unavailable";
-        if (problem === "storage_unavailable") state = result.state;
+        ({ sync: result } = await syncNow({ databaseId }));
       } catch {
         // The status line shows what went wrong once the collection refreshes.
       }
       running = false;
       if (stopped) return;
-      if (state === "busy") {
-        timer = window.setTimeout(() => void step(), FILL_BUSY_RETRY_MS);
-      } else if (state === "partial") {
+      // The background sync has it, and nothing changed to show.
+      if (result?.state === "busy") return wait(FILL_BUSY_RETRY_MS);
+      const further = result?.state === "partial" && gotFurther(result, left);
+      if (result) left = result.remaining;
+      // A sync that got no further changed nothing worth showing.
+      if (further || result?.state !== "partial") {
+        latest.current.refresh("sync-github-folder");
+      }
+      if (result?.state === "synced" || result?.state === "unchanged") {
+        stopped = true;
+      } else if (
+        further &&
+        // Pictures waiting on storage don't stop the pages filling.
+        (result?.problem?.code ?? "storage_unavailable") ===
+          "storage_unavailable"
+      ) {
+        stalls = 0;
         void step();
       } else {
-        stopped = true;
+        // A problem the sync recorded shows once the collection refreshes,
+        // and ends the fill, wait and all.
+        wait(
+          Math.min(FILL_STALL_RETRY_MAX_MS, FILL_STALL_RETRY_MS * 2 ** stalls),
+        );
+        stalls += 1;
       }
     };
     const resume = () => {
@@ -431,6 +489,7 @@ function GitHubStatusLineContent({
   useKeepFilling(
     source.databaseId,
     syncing && (!problem || problem.code === "storage_unavailable"),
+    status.progress ? status.progress.total - status.progress.done : null,
   );
   // Pictures waiting on storage are a note, not a stop: the pages still update.
   const picturesWaiting =

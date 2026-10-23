@@ -239,6 +239,20 @@ async function githubGet(
   throw responseError(response);
 }
 
+/** GitHub's rate limit is used up, until the time it says when it says one. */
+function rateLimitedError(response: ProviderResponse): GitHubSourceError {
+  const reset = Number(header(response, "x-ratelimit-reset"));
+  const at =
+    Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000) : null;
+  return new GitHubSourceError(
+    "rate_limited",
+    at
+      ? `GitHub's rate limit is used up until ${at.toISOString()}.`
+      : "GitHub's rate limit is used up for now.",
+    response.status,
+  );
+}
+
 function responseError(response: ProviderResponse): GitHubSourceError {
   const message =
     typeof asRecord(response.json).message === "string"
@@ -257,16 +271,7 @@ function responseError(response: ProviderResponse): GitHubSourceError {
       (header(response, "x-ratelimit-remaining") === "0" ||
         /rate limit/i.test(message)))
   ) {
-    const reset = Number(header(response, "x-ratelimit-reset"));
-    const at =
-      Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000) : null;
-    return new GitHubSourceError(
-      "rate_limited",
-      at
-        ? `GitHub's rate limit is used up until ${at.toISOString()}.`
-        : "GitHub's rate limit is used up for now.",
-      response.status,
-    );
+    return rateLimitedError(response);
   }
   if (response.status === 403) {
     return new GitHubSourceError(
@@ -483,7 +488,8 @@ export async function readGitHubFolderTree(
   return entries;
 }
 
-const BLOB_TEXTS_MAX_BYTES = 8 * 1024 * 1024;
+/** The provider client reads no more of a response than this, whatever it's asked. */
+const BLOB_TEXTS_MAX_BYTES = 4 * 1024 * 1024;
 const OBJECT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 /** What GitHub puts in place of bytes that aren't UTF-8. */
 const REPLACEMENT_CHARACTER = "\uFFFD";
@@ -520,8 +526,22 @@ export async function readGitHubBlobTexts(
   const body = asRecord(response.json);
   const repository = asRecord(body.data).repository;
   if (!repository || typeof repository !== "object") {
-    const errors = Array.isArray(body.errors) ? body.errors : [];
-    const message = asRecord(errors[0]).message;
+    const errors = (Array.isArray(body.errors) ? body.errors : []).map(
+      asRecord,
+    );
+    // A used-up rate limit is the sync's to report, as a REST one is, not a
+    // reason to read each file on its own.
+    if (
+      errors.some(
+        (error) =>
+          error.type === "RATE_LIMITED" ||
+          (typeof error.message === "string" &&
+            /rate limit/i.test(error.message)),
+      )
+    ) {
+      throw rateLimitedError(response);
+    }
+    const message = errors[0]?.message;
     throw new GitHubSourceError(
       "unavailable",
       typeof message === "string"

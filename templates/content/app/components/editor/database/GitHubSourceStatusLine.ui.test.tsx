@@ -32,8 +32,11 @@ const oauth = vi.hoisted(() => ({ start: vi.fn() }));
 vi.mock("@agent-native/core/client/integrations", () => ({
   startWorkspaceProviderOAuth: oauth.start,
 }));
+/** The refreshes the open-collection fill asked for, in order. */
+const refreshes = vi.hoisted(() => [] as string[]);
 vi.mock("@/hooks/use-github-folder", () => ({
   useSyncGitHubFolder: () => sync,
+  useRefreshAfterGitHubFolder: () => (action: string) => refreshes.push(action),
 }));
 vi.mock("@/hooks/use-content-database", () => ({
   useDisconnectContentDatabaseSource: () => unlink,
@@ -389,6 +392,7 @@ describe("Filling while the collection is open", () => {
   beforeEach(() => {
     sync.mutateAsync.mockReset();
     sync.mutateAsync.mockReturnValue(new Promise(() => {}));
+    refreshes.length = 0;
     toasts.toast.mockReset();
     toasts.toast.success.mockReset();
     toasts.toast.error.mockReset();
@@ -420,28 +424,145 @@ describe("Filling while the collection is open", () => {
   it.each([
     ["the folder is current", syncResult({ state: "synced" })],
     ["nothing changed", syncResult({ state: "unchanged" })],
-    [
-      "GitHub asked it to slow down",
-      syncResult({ state: "partial", problem: problem("rate_limited") }),
-    ],
-    [
-      "the sync failed",
-      syncResult({ state: "error", problem: problem("unavailable") }),
-    ],
   ])("stops when %s", async (_why, result) => {
+    vi.useFakeTimers();
     sync.mutateAsync.mockResolvedValue(result);
     renderLine(filling());
+    await settle();
+    await act(async () => {
+      vi.advanceTimersByTime(30 * 60_000);
+    });
     await settle();
     expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
     expectNoToasts();
   });
 
-  it("stops when a sync throws", async () => {
-    sync.mutateAsync.mockRejectedValue(new Error("Network down"));
+  /** Moves the clock on, then lets the syncs that are due start. */
+  async function after(ms: number) {
+    await act(async () => {
+      vi.advanceTimersByTime(ms);
+    });
+    await settle();
+  }
+
+  it("waits a minute after a part that got no further, so the background sync can take it, and longer each time", async () => {
+    vi.useFakeTimers();
+    // The status says 80 files are left; each part leaves them all.
+    const stuck = syncResult({ state: "partial", updated: 0, remaining: 80 });
+    sync.mutateAsync
+      .mockResolvedValueOnce(stuck)
+      .mockResolvedValueOnce(stuck)
+      .mockResolvedValueOnce(stuck)
+      .mockResolvedValueOnce(syncResult({ state: "partial", remaining: 20 }))
+      .mockResolvedValueOnce(stuck)
+      .mockResolvedValueOnce(syncResult({ state: "synced" }));
     renderLine(filling());
     await settle();
     expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+    await after(59_900);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+    await after(100);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+    await after(119_900);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+    await after(100);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(3);
+    // The fourth part gets further, so the next starts at once, and the wait
+    // after one that doesn't starts over at a minute.
+    await after(240_000);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(5);
+    await after(60_000);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(6);
     expectNoToasts();
+  });
+
+  it("counts a part that only skipped files as getting further", async () => {
+    vi.useFakeTimers();
+    sync.mutateAsync
+      .mockResolvedValueOnce(
+        syncResult({ state: "partial", updated: 0, remaining: 30 }),
+      )
+      .mockResolvedValueOnce(syncResult({ state: "synced" }));
+    renderLine(filling());
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [
+      "a sync fails",
+      () =>
+        sync.mutateAsync.mockResolvedValueOnce(
+          syncResult({ state: "error", problem: problem("unavailable") }),
+        ),
+    ],
+    [
+      "a sync throws",
+      () => sync.mutateAsync.mockRejectedValueOnce(new Error("Network down")),
+    ],
+  ])("tries again a minute after %s", async (_why, fail) => {
+    vi.useFakeTimers();
+    fail();
+    sync.mutateAsync.mockResolvedValueOnce(syncResult({ state: "synced" }));
+    renderLine(filling());
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+    await after(60_000);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+    expectNoToasts();
+  });
+
+  it("stops once the collection shows a problem that stops updates", async () => {
+    vi.useFakeTimers();
+    sync.mutateAsync.mockResolvedValue(
+      syncResult({ state: "error", problem: problem("rate_limited") }),
+    );
+    const { rerender } = renderUi(
+      <GitHubSourceStatusLine
+        source={filling()}
+        documentId="doc-1"
+        canEdit
+        pageCount={4}
+      />,
+    );
+    await settle();
+    expect(refreshes).toEqual(["sync-github-folder"]);
+    // The refresh brings the problem the sync recorded.
+    rerender(
+      <GitHubSourceStatusLine
+        source={githubSource({
+          pendingCommitSha: "abcdef1234567",
+          progress: { done: 40, total: 120 },
+          problem: problem("rate_limited"),
+        })}
+        documentId="doc-1"
+        canEdit
+        pageCount={4}
+      />,
+    );
+    await after(30 * 60_000);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes the collection after a part that got further, but not after a busy answer or one that got no further", async () => {
+    vi.useFakeTimers();
+    sync.mutateAsync
+      .mockResolvedValueOnce(syncResult({ state: "partial", remaining: 70 }))
+      .mockResolvedValueOnce(syncResult({ state: "busy" }))
+      .mockResolvedValueOnce(
+        syncResult({ state: "partial", updated: 0, remaining: 70 }),
+      )
+      .mockResolvedValueOnce(syncResult({ state: "synced" }));
+    renderLine(filling());
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+    expect(refreshes).toHaveLength(1);
+    await after(2_000);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(3);
+    expect(refreshes).toHaveLength(1);
+    await after(60_000);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(4);
+    expect(refreshes).toEqual(["sync-github-folder", "sync-github-folder"]);
   });
 
   it("waits a moment while the background sweep holds the sync", async () => {

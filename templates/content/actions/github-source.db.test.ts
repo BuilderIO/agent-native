@@ -55,6 +55,8 @@ const github = vi.hoisted(() => {
     batchFailure: null as Error | null,
     /** Reads of many files at once wait until the sync's time runs out. */
     hangBatches: false,
+    /** Reads of many files at once after this many wait until the sync's time runs out. */
+    hangBatchesAfter: null as number | null,
     /** Branch reads wait until the sync's time runs out. */
     hangHead: false,
     /** What GitHub says about the saved connection. */
@@ -81,6 +83,7 @@ const github = vi.hoisted(() => {
       state.leftOut.clear();
       state.batchFailure = null;
       state.hangBatches = false;
+      state.hangBatchesAfter = null;
       state.hangHead = false;
       state.connected = true;
     },
@@ -183,7 +186,13 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       const texts = new Map<string, string>();
       if (!github.state.batchedReads) return texts;
       github.state.batches.push([...shas]);
-      if (github.state.hangBatches) await hang(target.signal);
+      const hangAfter = github.state.hangBatchesAfter;
+      if (
+        github.state.hangBatches ||
+        (hangAfter !== null && github.state.batches.length > hangAfter)
+      ) {
+        await hang(target.signal);
+      }
       if (github.state.batchFailure) throw github.state.batchFailure;
       for (const sha of shas) {
         const content = findBlob(sha);
@@ -2905,6 +2914,30 @@ describe("Filling a big folder", () => {
     expect(github.state.blobReads).toBe(2);
   });
 
+  it("previews big files in requests no bigger than a sync's", async () => {
+    github.state.batchedReads = true;
+    const big = (name: string) =>
+      `# Big ${name}\n\n${"x".repeat(900 * 1024)}\n`;
+    github.commit({
+      "docs/1.md": big("one"),
+      "docs/2.md": big("two"),
+      "docs/3.md": big("three"),
+      "docs/4.md": "# Small\n",
+    });
+    const database = await newCollection();
+    const checked = await as(() =>
+      linkFolder.run({
+        databaseId: database.id,
+        url: FOLDER_URL,
+        dryRun: true,
+      }),
+    );
+    expect(checked.preview).toMatchObject({ sampledFiles: 4 });
+    // Two 900 KB files fill a 2 MB request; a third starts the next one.
+    expect(github.state.batches.map((batch) => batch.length)).toEqual([2, 2]);
+    expect(github.state.blobReads).toBe(0);
+  });
+
   it("reads each file on its own when reading many at once fails", async () => {
     github.state.batchedReads = true;
     github.state.batchFailure = new Error("GitHub's GraphQL API is down.");
@@ -2952,6 +2985,52 @@ describe("Filling a big folder", () => {
       "docs/page-003.md",
       "docs/page-001.md",
     ]);
+  });
+
+  it("stops at GitHub's rate limit on a read of many files, rather than reading each on its own", async () => {
+    const { database } = await linkFolderOf({ "docs/a.md": "# A\n" });
+    github.commit({ "docs/a.md": "# A\n", ...numberedFiles(30) });
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    github.state.batchedReads = true;
+    github.state.batchFailure = new GitHubSourceError(
+      "rate_limited",
+      "GitHub's rate limit is used up for now.",
+      200,
+    );
+    github.state.blobReads = 0;
+    const stopped = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(stopped.sync).toMatchObject({
+      state: "error",
+      created: 0,
+      problem: { code: "rate_limited" },
+    });
+    expect(github.state.blobReads).toBe(0);
+  });
+
+  it("writes the pages it has read before it reads the next files, so a read the time ends costs none of them", async () => {
+    const { database } = await linkFolderOf({ "docs/a.md": "# A\n" });
+    github.commit({ "docs/a.md": "# A\n", ...numberedFiles(150) });
+    github.state.blobReads = 0;
+    github.state.batchedReads = true;
+    // The second read of many files never comes back.
+    github.state.hangBatchesAfter = 1;
+    const id = await sourceId(database.id);
+    const partial = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 4_000 }),
+    );
+    expect(partial).toMatchObject({
+      state: "partial",
+      created: 100,
+      remaining: 50,
+      problem: null,
+    });
+    // One read of 100 files, written in two batches, then the next 50.
+    expect(github.state.batches.map((batch) => batch.length)).toEqual([
+      100, 50,
+    ]);
+    expect(github.state.blobReads).toBe(0);
+    expect(await cutShort(database.id)).toEqual(["docs/page-101.md"]);
   });
 
   it("adds new pages after the rows already there, each with its History and source record", async () => {
@@ -3192,5 +3271,34 @@ describe("Filling a big folder", () => {
     expect(records.map((record) => record.documentId).sort()).toEqual(
       pages.map((row) => row.documentId).sort(),
     );
+  });
+
+  it("gives every relink of an unchanged folder pages of its own, linked to each other", async () => {
+    const { database } = await linkFolderOf({
+      "docs/a.md": "# A\n\nRead [B](b.md) next.\n",
+      "docs/b.md": "# B\n",
+    });
+    github.state.batchedReads = true;
+    const earlierIds = new Set<string>();
+    for (let link = 1; ; link++) {
+      const pages = await liveRows(database.id);
+      expect(pages.map((row) => row.title)).toEqual(["A", "B"]);
+      const [a, b] = pages;
+      expect(earlierIds.has(a!.documentId)).toBe(false);
+      expect(earlierIds.has(b!.documentId)).toBe(false);
+      // A's link goes to this link's B, not the one in Trash.
+      expect(a!.content).toContain(`/page/${b!.documentId}`);
+      if (link === 3) break;
+      for (const row of pages) earlierIds.add(row.documentId);
+      await as(() => disconnectSource.run({ databaseId: database.id }));
+      for (const row of pages) {
+        await as(() => deleteDocument.run({ id: row.documentId }));
+      }
+      // The same commit again, so an id tied to it is taken too.
+      const relinked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      expect(relinked).toMatchObject({ sync: { state: "synced", created: 2 } });
+    }
   });
 });

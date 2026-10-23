@@ -407,7 +407,7 @@ describe("Reading many files at once", () => {
       status: 200,
       json: {
         data: null,
-        errors: [{ type: "RATE_LIMITED", message: "API rate limit exceeded" }],
+        errors: [{ type: "INTERNAL", message: "Something went wrong" }],
       },
     };
     await expect(
@@ -415,8 +415,50 @@ describe("Reading many files at once", () => {
     ).rejects.toMatchObject({
       name: "GitHubSourceError",
       code: "unavailable",
-      message: expect.stringContaining("API rate limit exceeded"),
+      message: expect.stringContaining("Something went wrong"),
     });
+  });
+
+  it.each([
+    [
+      "GraphQL's own",
+      {
+        status: 200,
+        json: {
+          data: null,
+          errors: [
+            {
+              type: "RATE_LIMITED",
+              message: "API rate limit already exceeded for user ID 1.",
+            },
+          ],
+        },
+      },
+    ],
+    [
+      "a secondary",
+      {
+        status: 403,
+        json: { message: "You have exceeded a secondary rate limit." },
+      },
+    ],
+    ["a 429", { status: 429, json: { message: "Too many requests" } }],
+  ])("names %s rate limit as one", async (_which, response) => {
+    github.response = response;
+    await expect(
+      readGitHubBlobTexts(target, [sha(1), sha(2)]),
+    ).rejects.toMatchObject({
+      name: "GitHubSourceError",
+      code: "rate_limited",
+    });
+  });
+
+  it("asks for no more of the answer than the provider client reads", async () => {
+    github.response = { status: 200, json: { data: { repository: {} } } };
+    await readGitHubBlobTexts(target, [sha(1), sha(2)]);
+    expect((requests[0] as { maxBytes?: number }).maxBytes).toBe(
+      4 * 1024 * 1024,
+    );
   });
 
   it("asks nothing for names that aren't blob SHAs", async () => {

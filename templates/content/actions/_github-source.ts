@@ -180,19 +180,47 @@ function decodeText(bytes: Uint8Array): string | null {
   }
 }
 
+/** Files read from GitHub in one request, at most this many and this many bytes. */
+const TEXT_BATCH_FILES = 100;
+const TEXT_BATCH_BYTES = 2 * 1024 * 1024;
+
+/**
+ * The first files that fit one request for texts. A file bigger than the
+ * request's bytes on its own is sent alone, and so read on its own.
+ */
+function fitTextBatch<T>(files: T[], size: (file: T) => number | null): T[] {
+  const batch: T[] = [];
+  let bytes = 0;
+  for (const file of files) {
+    const fileBytes = size(file) ?? 0;
+    if (batch.length >= TEXT_BATCH_FILES) break;
+    if (batch.length > 0 && bytes + fileBytes > TEXT_BATCH_BYTES) break;
+    bytes += fileBytes;
+    batch.push(file);
+  }
+  return batch;
+}
+
 /**
  * Reads files' texts in one request, by blob SHA. A failure other than the
- * caller's time running out reads as no texts, so each file is read on its
- * own instead, as is any file the request leaves out.
+ * caller's time running out or GitHub's rate limit reads as no texts, so
+ * each file is read on its own instead, as is any file the request leaves
+ * out. A request of fewer than two files isn't worth sending.
  */
 async function readTextsTogether(
   target: GitHubRepositoryTarget,
   shas: string[],
 ): Promise<Map<string, string>> {
+  if (shas.length < 2) return new Map();
   try {
     return await readGitHubBlobTexts(target, shas);
   } catch (error) {
     if (error instanceof GitHubSourceDeadlineError) throw error;
+    // GitHub asked for fewer requests, so the sync stops and says so, as it
+    // does at a REST rate limit, rather than send a request a file.
+    if (error instanceof GitHubSourceError && error.code === "rate_limited") {
+      throw error;
+    }
     // coercion-ok: each file is read on its own instead.
     console.warn(
       "[github-source] batched read failed:",
@@ -397,10 +425,20 @@ export async function previewGitHubFolder(
   }
   const sampleEntries = files.markdown.slice(0, PREVIEW_SAMPLE_FILES);
   const skipped = [...files.skipped];
-  const texts = await readTextsTogether(
-    target,
-    sampleEntries.map((entry) => entry.sha),
-  );
+  // In as few requests as the sync's caps on one allow.
+  const texts = new Map<string, string>();
+  for (let from = 0; from < sampleEntries.length; ) {
+    const batch = fitTextBatch(
+      sampleEntries.slice(from),
+      (entry) => entry.size,
+    );
+    const read = await readTextsTogether(
+      target,
+      batch.map((entry) => entry.sha),
+    );
+    for (const [sha, text] of read) texts.set(sha, text);
+    from += batch.length;
+  }
   const drafts = await mapLimit(
     sampleEntries,
     PREVIEW_READ_CONCURRENCY,
@@ -1308,9 +1346,10 @@ async function readFileText(run: SyncRun, file: PlannedFile) {
   return file.text;
 }
 
-/** Files read from GitHub in one request, at most this many and this many bytes. */
-const TEXT_BATCH_FILES = 100;
-const TEXT_BATCH_BYTES = 2 * 1024 * 1024;
+/** A file no read has tried yet, on its own or with others. */
+function unread(file: PlannedFile) {
+  return file.text === undefined && !file.batched;
+}
 
 /**
  * Reads the texts of the next files in one request, so a big push reads in
@@ -1319,17 +1358,10 @@ const TEXT_BATCH_BYTES = 2 * 1024 * 1024;
  * every file when the batch fails.
  */
 async function readTextsAhead(run: SyncRun, work: PlannedFile[], from: number) {
-  const batch: PlannedFile[] = [];
-  let bytes = 0;
-  for (let index = from; index < work.length; index++) {
-    const file = work[index]!;
-    if (file.text !== undefined || file.batched) continue;
-    const size = file.entry.size ?? 0;
-    if (batch.length >= TEXT_BATCH_FILES) break;
-    if (batch.length > 0 && bytes + size > TEXT_BATCH_BYTES) break;
-    bytes += size;
-    batch.push(file);
-  }
+  const batch = fitTextBatch(
+    work.slice(from).filter(unread),
+    (file) => file.entry.size,
+  );
   if (batch.length < 2) return;
   for (const file of batch) file.batched = true;
   const texts = await asLinker(run.state, run.database.orgId, () =>
@@ -1570,6 +1602,52 @@ async function applyNewFiles(
   return { outcomes, cutShort, failure };
 }
 
+/** Which of these page ids a page already has, in Trash or out of it. */
+async function takenDocumentIds(db: Db, ids: string[]) {
+  const taken = new Set<string>();
+  for (const chunk of chunks(ids, bulkChunkSizeForColumnCount(1))) {
+    const rows = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, chunk));
+    for (const row of rows as Array<{ id: string }>) taken.add(row.id);
+  }
+  return taken;
+}
+
+/**
+ * Settles the ids new files' pages get. A sync settles every new file's
+ * before it builds any page, so links between the new pages point at the
+ * pages they become. An id a page already has, like one in Trash from an
+ * earlier link of the folder, stays that page's: the file's new page gets an
+ * id tied to this commit, or, when a relink of the same commit took that
+ * too, the next free one after it.
+ */
+async function settlePageIds(db: Db, run: SyncRun, files: PlannedFile[]) {
+  let unsettled = files.map((file) => ({
+    file,
+    id: run.documentIdByPath.get(file.entry.path)!,
+  }));
+  for (let attempt = 0; unsettled.length > 0; attempt++) {
+    const taken = await takenDocumentIds(
+      db,
+      unsettled.map(({ id }) => id),
+    );
+    unsettled = unsettled
+      .filter(({ id }) => taken.has(id))
+      .map(({ file }) => ({
+        file,
+        id: opaqueId(
+          "content_github_page",
+          `${run.sourceId}:${file.repoPath}:${run.commitSha}${attempt > 0 ? `:${attempt}` : ""}`,
+        ),
+      }));
+    for (const { file, id } of unsettled) {
+      run.documentIdByPath.set(file.entry.path, id);
+    }
+  }
+}
+
 /**
  * Writes rows a few statements at a time rather than one a row, each small
  * enough for SQLite's cap on the values one statement carries.
@@ -1591,28 +1669,17 @@ async function inStatements<T extends object>(
  * caller's transaction holds the collection's lock.
  */
 async function insertNewPages(tx: Db, run: SyncRun, pages: BuiltFile[]) {
-  // An id an earlier link of this folder left on a page, like one in Trash,
-  // stays that page's; the file's new page gets an id tied to this commit.
-  const wanted = pages.map(
+  // The sync settled these ids before it built the pages. One is taken by
+  // now only when a restore released the file's page from the collection
+  // while this sync read the file: that page keeps its id.
+  await settlePageIds(
+    tx,
+    run,
+    pages.map(({ file }) => file),
+  );
+  const documentIds = pages.map(
     ({ file }) => run.documentIdByPath.get(file.entry.path)!,
   );
-  const taken = new Set(
-    (
-      await tx
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(inArray(schema.documents.id, wanted))
-    ).map((row: { id: string }) => row.id),
-  );
-  const documentIds = pages.map(({ file }, index) => {
-    if (!taken.has(wanted[index]!)) return wanted[index]!;
-    const id = opaqueId(
-      "content_github_page",
-      `${run.sourceId}:${file.repoPath}:${run.commitSha}`,
-    );
-    run.documentIdByPath.set(file.entry.path, id);
-    return id;
-  });
   const itemIds = documentIds.map((id) => itemIdForDocument(run, id));
   const [maxDocument] = await tx
     .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
@@ -2153,6 +2220,7 @@ export async function syncGitHubSource(
     for (const [path, row] of gone) {
       run.documentIdByPath.set(folderRelative(run, path), row.documentId);
     }
+    await settlePageIds(db, run, planned.filter(isNewFile));
 
     // A file skipped once it was read is skipped again while its blob is the
     // same, so it isn't read again. It has no row to record that on.
@@ -2205,26 +2273,33 @@ export async function syncGitHubSource(
       // New files go in batches, unless a file that left the folder may
       // claim one by its frontmatter id, which only reading it shows.
       if (isNewFile(file) && goneById.size === 0) {
+        // The next texts are read only once those in hand are written, so a
+        // read the deadline ends costs no page that was ready to write.
+        if (unread(file)) {
+          try {
+            await readTextsAhead(run, work, index);
+          } catch (error) {
+            // A read the deadline cut short leaves its files for the next
+            // sync, which takes the first after the rest.
+            if (error instanceof GitHubSourceDeadlineError) {
+              cutShortPath = file.repoPath;
+              break;
+            }
+            throw error;
+          }
+        }
+        // The new files from here that a read has tried, or this one alone
+        // when it was too big to read with others.
         let end = index + 1;
         while (
           end < work.length &&
           end - index < NEW_FILE_BATCH &&
-          isNewFile(work[end]!)
+          isNewFile(work[end]!) &&
+          !unread(work[end]!)
         ) {
           end++;
         }
         const batch = work.slice(index, end);
-        try {
-          await readTextsAhead(run, work, index);
-        } catch (error) {
-          // A read the deadline cut short leaves its files for the next
-          // sync, which takes the first after the rest.
-          if (error instanceof GitHubSourceDeadlineError) {
-            cutShortPath = file.repoPath;
-            break;
-          }
-          throw error;
-        }
         const written = await applyNewFiles(run, batch);
         written.outcomes.forEach((outcome, offset) =>
           record(batch[offset]!, outcome),
