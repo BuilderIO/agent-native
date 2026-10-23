@@ -23,6 +23,7 @@ import {
   EMPTY_DURATION,
   durationTicks,
   formatDuration,
+  isEmptyDuration,
 } from "@shared/format-duration";
 import {
   isNumericLikeValue,
@@ -442,6 +443,7 @@ export function formatMetricValue(
 ): string {
   const valueLabel = valueLabels?.[String(raw)];
   if (valueLabel !== undefined) return valueLabel;
+  if (formatter === "duration" && isEmptyDuration(raw)) return EMPTY_DURATION;
   const numericRaw =
     typeof raw === "number"
       ? raw
@@ -2340,8 +2342,15 @@ export type TableSort = {
 export function sortTableRows(
   rows: Record<string, unknown>[],
   sorts: TableSort[],
+  columns: TableColumnConfig[] = [],
 ): Record<string, unknown>[] {
   if (sorts.length === 0) return rows;
+
+  // Empty cells sort last both ways: nulls, and in a duration column every
+  // value it shows as a dash.
+  const formats = new Map(columns.map((col) => [col.key, col.format]));
+  const isEmpty = (key: string, value: unknown) =>
+    formats.get(key) === "duration" ? isEmptyDuration(value) : value == null;
 
   return rows
     .map((row, index) => ({ row, index }))
@@ -2349,9 +2358,11 @@ export function sortTableRows(
       for (const sort of sorts) {
         const av = a.row[sort.key];
         const bv = b.row[sort.key];
-        if (av == null && bv == null) continue;
-        if (av == null) return 1;
-        if (bv == null) return -1;
+        const aEmpty = isEmpty(sort.key, av);
+        const bEmpty = isEmpty(sort.key, bv);
+        if (aEmpty && bEmpty) continue;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
 
         const an = numericTableValue(av);
         const bn = numericTableValue(bv);
@@ -2408,7 +2419,8 @@ export function formatCell(
   value: unknown,
   format: ColumnFormat | undefined,
 ): string {
-  if (value == null) return format === "duration" ? EMPTY_DURATION : "";
+  if (format === "duration" && isEmptyDuration(value)) return EMPTY_DURATION;
+  if (value == null) return "";
   const numeric = numericTableValue(value);
   if (format === "number" && numeric !== null) {
     return numeric.toLocaleString();
@@ -2926,8 +2938,10 @@ function TableRenderer({
   const [pageSize, setPageSize] = useState(10);
 
   const sortedRows = useMemo(() => {
-    return sortable ? sortTableRows(limitedRows, sortColumns) : limitedRows;
-  }, [limitedRows, sortColumns, sortable]);
+    return sortable
+      ? sortTableRows(limitedRows, sortColumns, savedColumns)
+      : limitedRows;
+  }, [limitedRows, sortColumns, sortable, savedColumns]);
 
   const pageCount = Math.ceil(sortedRows.length / pageSize);
   const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);

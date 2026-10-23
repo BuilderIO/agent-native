@@ -4,6 +4,7 @@ import {
   durationTicks,
   EMPTY_DURATION,
   formatDuration,
+  isEmptyDuration,
 } from "./format-duration";
 
 const MINUTE = 60;
@@ -56,6 +57,32 @@ describe("formatDuration", () => {
   it("shows a dash for values that are not a duration", () => {
     expect(formatDuration(Number.NaN)).toBe(EMPTY_DURATION);
     expect(formatDuration(Number.POSITIVE_INFINITY)).toBe(EMPTY_DURATION);
+  });
+});
+
+describe("isEmptyDuration", () => {
+  it("treats missing, blank and non-finite values as empty", () => {
+    for (const value of [
+      null,
+      undefined,
+      "",
+      "  ",
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      "NaN",
+      "Infinity",
+      "-Infinity",
+      "inf",
+    ]) {
+      expect(isEmptyDuration(value), String(value)).toBe(true);
+    }
+  });
+
+  it("keeps numbers, numeric strings and other text", () => {
+    for (const value of [0, 960, -60, "120", " 45 ", "n/a", "Informal"]) {
+      expect(isEmptyDuration(value), String(value)).toBe(false);
+    }
   });
 });
 

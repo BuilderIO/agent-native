@@ -585,6 +585,55 @@ describe("renderReportEmail", () => {
     expect(rendered.html).toContain(">16 hours</p>");
   });
 
+  it("shows the duration dash for missing and invalid durations", async () => {
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "checks",
+          config: {
+            columns: [
+              { key: "check" },
+              { key: "median", label: "Median time", format: "duration" },
+            ],
+          },
+        }),
+        panel({
+          id: "to-merge",
+          chartType: "metric",
+          config: { yFormatter: "duration" },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "checks",
+          {
+            status: "rows" as const,
+            rows: [
+              { check: "lint", median: Number.NaN },
+              { check: "docs", median: "" },
+              { check: "types", median: "Infinity" },
+            ],
+            schema: [],
+          },
+        ],
+        [
+          "to-merge",
+          {
+            status: "rows" as const,
+            rows: [{ seconds: null }],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    expect(rendered.text).toContain("lint | –");
+    expect(rendered.text).toContain("docs | –");
+    expect(rendered.text).toContain("types | –");
+    expect(rendered.html).toContain(">–</p>");
+    expect(rendered.html).not.toContain(">null</p>");
+  });
+
   it("attaches exactly one inline PNG per chart panel and references it by cid", async () => {
     const rendered = await renderReportEmail({
       snapshot: snapshotOf([

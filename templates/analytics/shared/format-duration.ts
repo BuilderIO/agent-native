@@ -5,6 +5,18 @@ const DAY = 24 * HOUR;
 /** Shown for a duration with no value. */
 export const EMPTY_DURATION = "–";
 
+/**
+ * Whether a duration value has nothing to show: null, a blank string, or a
+ * value that isn't a finite number, such as NaN or a database's "Infinity".
+ * Other text is left for the caller to show as it is.
+ */
+export function isEmptyDuration(value: unknown): boolean {
+  if (value == null) return true;
+  if (typeof value === "number") return !Number.isFinite(value);
+  if (typeof value !== "string") return false;
+  return /^\s*([+-]?(nan|inf|infinity))?\s*$/i.test(value);
+}
+
 // One decimal below 10 ("7.4 hours"), whole numbers from 10 up ("32 hours").
 function amount(value: number): number {
   return value < 10 ? Math.round(value * 10) / 10 : Math.round(value);

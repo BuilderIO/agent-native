@@ -35,7 +35,11 @@ import {
   type DataNoteTone,
 } from "../../shared/data-notes";
 import { formatDollars } from "../../shared/format-dollars";
-import { EMPTY_DURATION, formatDuration } from "../../shared/format-duration";
+import {
+  EMPTY_DURATION,
+  formatDuration,
+  isEmptyDuration,
+} from "../../shared/format-duration";
 import { panelEventsWithKeyDates } from "../../shared/key-dates";
 import { resolvePanelEvents } from "../../shared/panel-events";
 import {
@@ -304,6 +308,7 @@ function formatMetricValue(
 ): string {
   const label = valueLabels?.[String(raw)];
   if (label !== undefined) return label;
+  if (formatter === "duration" && isEmptyDuration(raw)) return EMPTY_DURATION;
   const numeric = toNumber(raw);
   return numeric !== null
     ? formatYValue(numeric, formatter)
@@ -313,7 +318,8 @@ function formatMetricValue(
 }
 
 function formatCell(value: unknown, format: ColumnFormat | undefined): string {
-  if (value == null) return format === "duration" ? EMPTY_DURATION : "";
+  if (format === "duration" && isEmptyDuration(value)) return EMPTY_DURATION;
+  if (value == null) return "";
   if (format === "duration") {
     const seconds = toNumber(value);
     if (seconds !== null) return formatDuration(seconds);
