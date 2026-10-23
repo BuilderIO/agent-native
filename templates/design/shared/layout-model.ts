@@ -612,11 +612,10 @@ function circularFillChildren(
 }
 
 // Hug has to freeze every child that fills the axis it hugs. A list the
-// reader cut short, or an auto layout frame whose children could not be
-// read at all, may hide one of them.
+// reader cut short, or children that could not be read at all, may hide one.
 function childListComplete(model: LayoutModel): boolean {
   if (model.children.status === "read") return model.children.complete;
-  return model.frame.mode === "none" || model.children.childCount === 0;
+  return model.children.childCount === 0;
 }
 
 export function availableSizing(

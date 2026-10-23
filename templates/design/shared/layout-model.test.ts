@@ -312,6 +312,20 @@ describe("availability", () => {
     expect(availableSizing(emptyText).horizontal).toContain("hug");
   });
 
+  it("withholds Hug from a block container whose children could not be read, since one may be 100% wide", () => {
+    const block = model(
+      { tagName: "div", styles: { display: "block" } },
+      { status: "unreadable", childCount: 2, hasText: null },
+    );
+    expect(availableSizing(block).horizontal).not.toContain("hug");
+    expect(
+      writeLayoutChange(block, {
+        kind: "sizing",
+        sizing: { horizontal: "hug" },
+      }).status,
+    ).toBe("unreadable");
+  });
+
   it("withholds Hug while the child list was cut short, since a missing child may fill", () => {
     const truncated = model(
       ROW,

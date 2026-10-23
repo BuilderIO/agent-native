@@ -573,6 +573,7 @@ describe("availableSizingForElement — fill eligibility", () => {
       for (const position of ["absolute", "fixed"]) {
         const element = makeElement({
           parentDisplay,
+          childElementCount: 0,
           textContent: "Ignored child",
           computedStyles: { position },
         });
@@ -721,6 +722,7 @@ describe("commitElementSizing — hug must undo a previous fill", () => {
       isFlexChild: true,
       parentDisplay: "flex",
       parentLayout: { flexDirection: "row" },
+      childElementCount: 0,
       computedStyles: { height: "120px", alignSelf: "stretch" },
     });
     commitElementSizing(
@@ -738,6 +740,7 @@ describe("commitElementSizing — hug must undo a previous fill", () => {
   it("uses justifySelf for a grid child's horizontal axis, both ways", () => {
     const element = makeElement({
       parentDisplay: "grid",
+      childElementCount: 0,
       computedStyles: { width: "200px" },
     });
     const fill = vi.fn();
