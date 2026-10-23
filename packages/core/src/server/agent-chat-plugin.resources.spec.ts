@@ -1085,6 +1085,40 @@ describe("chat thread owner-only history mutations", () => {
           expect(
             JSON.parse(after!.threadData).agentKit.messages,
           ).toContainEqual(message);
+
+          await exec.execute({
+            sql: "UPDATE chat_threads SET title = ?, thread_data = (thread_data::jsonb - '_titleOverride')::text WHERE id = ?",
+            args: ["Generated title", threadId],
+          });
+          const staleMessage = {
+            id: "editor-message-stale-title",
+            role: "user",
+            parts: [{ type: "text", text: "Another shared reply" }],
+          };
+          const staleResponse = await fetchWithRequestContext(
+            h3App,
+            `/_agent-native/agent-chat/threads/${threadId}`,
+            { userEmail: email, orgId },
+            {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                title: "Stale cached title",
+                threadData: JSON.stringify({
+                  agentKit: { _snapshotDelta: true, messages: [staleMessage] },
+                }),
+              }),
+            },
+          );
+          expect(staleResponse.status).toBe(200);
+          const afterStale = await store.getThread(threadId);
+          expect(afterStale?.title).toBe("Generated title");
+          expect(
+            JSON.parse(afterStale!.threadData)._titleOverride,
+          ).toBeUndefined();
+          expect(
+            JSON.parse(afterStale!.threadData).agentKit.messages,
+          ).toContainEqual(staleMessage);
         }
       } finally {
         await store.deleteThread(threadId, owner);
