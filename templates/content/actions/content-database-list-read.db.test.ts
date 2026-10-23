@@ -573,5 +573,8 @@ describe("content database list reads", () => {
     // GET actions receive the opt-in as a query string.
     expect(contentDatabaseCompactRowsSchema.parse("true")).toBe(true);
     expect(contentDatabaseCompactRowsSchema.parse("false")).toBe(false);
+    expect(contentDatabaseCompactRowsSchema.safeParse("ture").success).toBe(
+      false,
+    );
   });
 });

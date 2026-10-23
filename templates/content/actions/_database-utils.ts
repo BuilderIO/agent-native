@@ -189,7 +189,9 @@ export const contentDatabaseTableQuerySchema = z
 /** A read's opt-in to compact rows; see `compactContentDatabaseRowsFor`. */
 export const contentDatabaseCompactRowsSchema = z
   .preprocess(
-    (value) => (typeof value === "string" ? value === "true" : value),
+    // GET actions receive it as a query string. Other strings stay strings,
+    // so a typo fails validation instead of reading as false.
+    (value) => (value === "true" ? true : value === "false" ? false : value),
     z.boolean(),
   )
   .optional()
