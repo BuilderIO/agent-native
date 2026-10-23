@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ValidateBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import {
@@ -25,7 +25,10 @@ import {
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 export default defineAction({
   description:
@@ -57,7 +60,8 @@ export default defineAction({
   }),
   run: async (
     args: ValidateBuilderSourceExecutionRequest,
-  ): Promise<ContentDatabaseResponse> => {
+    context,
+  ): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -262,6 +266,9 @@ export default defineAction({
       .set({ updatedAt: now })
       .where(eq(schema.contentDatabaseSources.id, source.id));
 
-    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+      context,
+    );
   },
 });

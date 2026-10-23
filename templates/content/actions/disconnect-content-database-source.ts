@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import type {
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   DisconnectContentDatabaseSourceRequest,
 } from "../shared/api.js";
 import {
@@ -21,7 +21,10 @@ import {
   getExistingSource,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 async function deleteSourceRecords(databaseId: string, sourceId: string) {
   const db = getDb();
@@ -165,7 +168,8 @@ export default defineAction({
   }),
   run: async (
     args: DisconnectContentDatabaseSourceRequest,
-  ): Promise<ContentDatabaseResponse> => {
+    context,
+  ): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -182,7 +186,13 @@ export default defineAction({
           ),
         );
       if (target) await deleteSourceRecords(database.id, target.id);
-      return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+      return contentDatabaseResponseForCaller(
+        await getContentDatabaseResponse(database.id, {
+          limit: 100,
+          offset: 0,
+        }),
+        context,
+      );
     }
 
     const source = await getExistingSource(database.id);
@@ -190,7 +200,10 @@ export default defineAction({
       await deleteSourceRecords(database.id, source.id);
     }
 
-    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+      context,
+    );
   },
   // Everyone reading the collection sees the source go, and a GitHub
   // collection's pages become editable for them too.
