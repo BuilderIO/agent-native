@@ -989,6 +989,34 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("saves an approval pause before another instance can see the run finished", async () => {
+    const runId = "run-approval-pause-order";
+    const threadId = "thread-approval-pause-order";
+    let terminalStatusWritesDuringCompletion = -1;
+    const onComplete = vi.fn(async () => {
+      terminalStatusWritesDuringCompletion = vi.mocked(updateRunStatusIfRunning)
+        .mock.calls.length;
+    });
+    const run = startRun(
+      runId,
+      threadId,
+      async (send) => {
+        send({
+          type: "approval_required",
+          toolCallId: "tool-approval",
+          tool: "send-email",
+        } as AgentChatEvent);
+      },
+      onComplete,
+    );
+
+    await run.finalized;
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(terminalStatusWritesDuringCompletion).toBe(0);
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
+  });
+
   it("does not publish a checkpoint after another instance aborts after commit", async () => {
     const runId = "run-checkpoint-cross-instance-abort";
     const threadId = "thread-checkpoint-cross-instance-abort";
