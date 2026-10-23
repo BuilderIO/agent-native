@@ -407,7 +407,10 @@ export default defineEventHandler(async (event: H3Event) => {
         rec = footage as RecordingRow;
       }
 
-      if (rec.failureCode === "taken_down") {
+      if (
+        gate.failureCode === "taken_down" ||
+        rec.failureCode === "taken_down"
+      ) {
         setResponseStatus(event, 404);
         return { error: "Not found" };
       }
