@@ -10903,6 +10903,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ctrlKey: Boolean(event.data.ctrlKey),
         metaKey: Boolean(event.data.metaKey),
         shiftKey: Boolean(event.data.shiftKey),
+        // The screen folds at most 32 wheels into one step.
         steps: clamp(Math.trunc(Number(event.data.steps)) || 1, 1, 32),
         surfaceOrigin: { left: frame.surfaceLeft, top: frame.surfaceTop },
       });

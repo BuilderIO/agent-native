@@ -126,6 +126,31 @@ describe("the embedded wheel bridge", () => {
   );
 
   it(
+    "starts another step after 32 folded wheels, so the host keeps their full travel",
+    { timeout: 30_000 },
+    async () => {
+      await withPage(async (page) => {
+        await wheels(
+          page,
+          Array.from({ length: 41 }, () => ({ deltaY: 30 })),
+        );
+        await page.waitForTimeout(20);
+        await read(page);
+        await page.waitForTimeout(20);
+        await read(page);
+        await page.waitForTimeout(20);
+        expect(
+          (await posted(page)).map(({ deltaY, steps }) => ({ deltaY, steps })),
+        ).toEqual([
+          { deltaY: 30, steps: 1 },
+          { deltaY: 960, steps: 32 },
+          { deltaY: 240, steps: 8 },
+        ]);
+      });
+    },
+  );
+
+  it(
     "keeps a pinch and a scroll in separate steps, one unread at a time",
     { timeout: 30_000 },
     async () => {

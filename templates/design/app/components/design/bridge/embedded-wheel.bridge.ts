@@ -25,8 +25,9 @@
  *
  *   Until the host answers the last one with 'embedded-canvas-wheel-read'
  *   and its `seq`, later wheels fold into one pending message per kind of
- *   step, with deltas summed over `steps` wheels, so a host that falls behind
- *   doesn't work through a queue of stale steps after the fingers stop. A
+ *   step, with deltas summed over `steps` wheels (at most 32 per message),
+ *   so a host that falls behind doesn't work through a queue of stale steps
+ *   after the fingers stop. A
  *   host that hasn't answered in 100 ms (1 s once it has answered before) is
  *   sent the next step anyway.
  *
@@ -86,7 +87,8 @@ declare var __INTERACTION_MODE__: boolean;
     altKey: boolean;
     steps: number;
   };
-  // Folded steps waiting for the host, one per kind of step in arrival order.
+  // Folded steps waiting for the host in arrival order: a new one for each
+  // change of kind and every 32 wheels.
   var pendingWheels: ForwardedWheel[] = [];
   var wheelAwaitingHost = false;
   var wheelReadTimer: number | null = null;
@@ -234,8 +236,11 @@ declare var __INTERACTION_MODE__: boolean;
       return;
     }
     var pending = pendingWheels[pendingWheels.length - 1];
+    // The host bounds a step's pan by 32 wheels' worth, so a longer wait
+    // queues further steps rather than folding travel it would clip.
     if (
       pending &&
+      pending.steps < 32 &&
       pending.deltaMode === wheel.deltaMode &&
       pending.ctrlKey === wheel.ctrlKey &&
       pending.metaKey === wheel.metaKey &&
