@@ -445,10 +445,11 @@ deterministic signup canary.
 
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,
-`ROLLBACK_SHA`, `ASSERTIONS`, `RELEASE_ERROR`, `TRIGGER`, and `RECAP_*`. They are workflow plumbing, not
-application configuration. The secrets and vars used by those workflows are
-listed in the workflow files under `.github/workflows`; values must be supplied
-through GitHub Actions secrets/variables, never committed to this repository.
+`ROLLBACK_SHA`, `ASSERTIONS`, `RELEASE_ERROR`, `PAYLOAD_OUTCOME`, `TRIGGER`,
+and `RECAP_*`. They are workflow plumbing, not application configuration. The
+secrets and vars used by those workflows are listed in the workflow files under
+`.github/workflows`; values must be supplied through GitHub Actions
+secrets/variables, never committed to this repository.
 
 The following variables are set by the CI workflow for job gates, test runners,
 and integration-test service containers only — they are not used in application
