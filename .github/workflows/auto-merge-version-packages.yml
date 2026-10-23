@@ -19,7 +19,11 @@ on:
         required: true
         type: string
 
-permissions: {}
+permissions:
+  checks: read
+  contents: read
+  pull-requests: read
+  statuses: read
 
 concurrency:
   group: auto-merge-version-packages-${{ github.event.pull_request.number || inputs.pull_request_number }}
@@ -98,14 +102,21 @@ jobs:
 
       - name: Wait for required release PR checks
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: node --experimental-strip-types scripts/release-required-checks.ts wait "$PR_NUMBER" "$REPO"
 
+      - name: Generate fresh merge token
+        id: merge-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
       - name: Verify release-only diff
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
@@ -203,7 +214,7 @@ jobs:
 
       - name: Verify community QR template pins
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
@@ -212,7 +223,7 @@ jobs:
 
       - name: Refuse unattended major promotions
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
@@ -221,7 +232,7 @@ jobs:
 
       - name: Revalidate release PR before merge
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
@@ -246,7 +257,7 @@ jobs:
 
       - name: Force-merge with admin bypass
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}

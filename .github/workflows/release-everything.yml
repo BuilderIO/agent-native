@@ -967,14 +967,14 @@ jobs:
                     !Number.isInteger(run.id) ||
                     typeof run.head_sha !== "string" ||
                     typeof run.html_url !== "string" ||
-                    !(await docsSourceHasCurrentInputs(run.head_sha.toLowerCase(), mainSha))
+                    run.status !== "completed" ||
+                    run.conclusion !== "success"
                   ) {
                     continue;
                   }
-                  if (run.status !== "completed") {
+                  if (!(await docsSourceHasCurrentInputs(run.head_sha.toLowerCase(), mainSha))) {
                     continue;
                   }
-                  if (run.conclusion !== "success") continue;
 
                   const jobsResponse = await github.rest.actions.listJobsForWorkflowRun({
                     owner,

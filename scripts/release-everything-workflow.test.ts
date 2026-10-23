@@ -782,6 +782,32 @@ return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
       null,
     );
 
+    for (const notSuccessful of [
+      { ...run, status: "in_progress", conclusion: null },
+      { ...run, status: "completed", conclusion: "failure" },
+    ]) {
+      let comparisons = 0;
+      const unqualifiedRun = await runHelpers(
+        notSuccessful,
+        [successfulDeploy],
+        {
+          status: "ahead",
+          total_commits: 1,
+          commits: [{ sha: mainSha }],
+          files: [{ filename: "packages/core/docs/content/guide.md" }],
+        },
+        undefined,
+        () => {
+          comparisons += 1;
+        },
+      );
+      assert.equal(
+        await unqualifiedRun.findSuccessfulDocsPushDeployment(),
+        null,
+      );
+      assert.equal(comparisons, 0);
+    }
+
     const oldSha = "b".repeat(40);
     const oldRun = { ...run, head_sha: oldSha };
     const docsChangedAfterRun = await runHelpers(oldRun, [successfulDeploy], {

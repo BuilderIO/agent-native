@@ -98,6 +98,29 @@ describe("npm package release workflow", () => {
       },
     ]);
     assert.deepEqual(contexts, required);
+    assert.deepEqual(
+      requiredContextsFromRules([
+        [
+          {
+            type: "required_status_checks",
+            parameters: {
+              required_status_checks: required
+                .slice(0, 2)
+                .map((context) => ({ context })),
+            },
+          },
+        ],
+        [
+          {
+            type: "required_status_checks",
+            parameters: {
+              required_status_checks: [{ context: required[2] }],
+            },
+          },
+        ],
+      ]),
+      required,
+    );
 
     assert.deepEqual(evaluateRequiredChecks(required, []), {
       status: "pending",
@@ -206,6 +229,121 @@ describe("npm package release workflow", () => {
       /Timed out waiting for required release PR checks: Build \(not reported\)/,
     );
     assert.equal(now, 240 * 60_000);
+  });
+
+  it("reads every page of main branch rules before verifying release checks", () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-checks-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    const ghPath = path.join(binDirectory, "gh");
+    mkdirSync(binDirectory);
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "$GH_CALLS_FILE"
+case "$1" in
+  api)
+    printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build"}]}}]]'
+    ;;
+  pr)
+    printf '%s\\n' '[{"name":"Build","bucket":"pass"}]'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    try {
+      execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          path.resolve("scripts/release-required-checks.ts"),
+          "verify",
+          "8102",
+          "BuilderIO/agent-native",
+        ],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+            GH_CALLS_FILE: callsPath,
+          },
+        },
+      );
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "api --paginate --slurp repos/BuilderIO/agent-native/rules/branches/main",
+        "pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket",
+      ]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("retries transient GitHub command failures while reading rules and checks", async () => {
+    const required = ["Build"];
+    const commandFailure = () =>
+      Object.assign(new Error("GitHub request failed"), {
+        status: 1,
+        stderr: "HTTP 503",
+      });
+    const delays: number[] = [];
+    let contextReads = 0;
+    let statusReads = 0;
+
+    await waitForRequiredChecks({
+      readRequiredContexts: async () => {
+        contextReads += 1;
+        if (contextReads === 1) throw commandFailure();
+        return required;
+      },
+      readStatuses: async () => {
+        statusReads += 1;
+        if (statusReads === 1) throw commandFailure();
+        return [{ name: "Build", bucket: "pass" }];
+      },
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+      readRetryDelaysMs: [5, 10],
+    });
+
+    assert.equal(contextReads, 2);
+    assert.equal(statusReads, 2);
+    assert.deepEqual(delays, [5, 5]);
+  });
+
+  it("fails with the GitHub error after bounded retries are exhausted", async () => {
+    const commandFailure = () =>
+      Object.assign(new Error("GitHub request failed"), {
+        status: 1,
+        stderr: "HTTP 503",
+      });
+    let reads = 0;
+    let now = 0;
+
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => ["Build"],
+        readStatuses: async () => {
+          reads += 1;
+          throw commandFailure();
+        },
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+        readRetryDelaysMs: [1, 2],
+      }),
+      /Reading required release PR check results failed after 3 attempts: HTTP 503/,
+    );
+    assert.equal(reads, 3);
+    assert.equal(now, 3);
   });
 
   it("allows a modified private app manifest without a package version", () => {
@@ -1238,6 +1376,9 @@ fi
     const requiredChecks = autoMergeSteps.find(
       (step) => step.name === "Wait for required release PR checks",
     );
+    const mergeToken = autoMergeSteps.find(
+      (step) => step.name === "Generate fresh merge token",
+    );
     const releasePrRecheck = autoMergeSteps.find(
       (step) => step.name === "Revalidate release PR before merge",
     );
@@ -1248,6 +1389,12 @@ fi
     for (const input of ["pull_request_number", "base_sha", "head_sha"]) {
       assert.equal((workflowDispatchInputs[input] as Workflow).required, true);
     }
+    assert.deepEqual(autoMergeWorkflow.permissions, {
+      checks: "read",
+      contents: "read",
+      "pull-requests": "read",
+      statuses: "read",
+    });
     assert.match(
       String(autoMergeJob.if),
       /github\.event_name == 'workflow_dispatch'/,
@@ -1306,8 +1453,33 @@ fi
       String(requiredChecks.run),
       /release-required-checks\.ts wait "\$PR_NUMBER" "\$REPO"/,
     );
+    assert.equal(
+      (requiredChecks.env as Workflow).GH_TOKEN,
+      "${{ github.token }}",
+    );
     assert.doesNotMatch(String(requiredChecks.run), /gh pr checks/);
+    assert(mergeToken);
     assert(releaseDiff);
+    assert.match(String(mergeToken.uses), /actions\/create-github-app-token/);
+    assert(
+      autoMergeSteps.indexOf(requiredChecks) <
+        autoMergeSteps.indexOf(mergeToken),
+    );
+    assert(
+      autoMergeSteps.indexOf(mergeToken) < autoMergeSteps.indexOf(releaseDiff),
+    );
+    for (const step of autoMergeSteps.slice(
+      autoMergeSteps.indexOf(mergeToken) + 1,
+    )) {
+      const env = step.env as Workflow | undefined;
+      if (env && "GH_TOKEN" in env) {
+        assert.equal(env.GH_TOKEN, "${{ steps.merge-token.outputs.token }}");
+      }
+    }
+    assert.equal(
+      (releaseDiff.env as Workflow).GH_TOKEN,
+      "${{ steps.merge-token.outputs.token }}",
+    );
     assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
     assert(majorPromotionGuard);
     assert.equal(
@@ -1336,6 +1508,10 @@ fi
       "node --experimental-strip-types scripts/verify-community-qr-release-pin.ts",
     );
     assert(releasePrRecheck);
+    assert.equal(
+      (releasePrRecheck.env as Workflow).GH_TOKEN,
+      "${{ steps.merge-token.outputs.token }}",
+    );
     assert.match(String(releasePrRecheck.run), /\.state == "open"/);
     assert.match(String(releasePrRecheck.run), /\.user\.login/);
     assert.match(
@@ -1349,6 +1525,10 @@ fi
       /release-required-checks\.ts verify "\$PR_NUMBER" "\$REPO"/,
     );
     assert(forceMerge);
+    assert.equal(
+      (forceMerge.env as Workflow).GH_TOKEN,
+      "${{ steps.merge-token.outputs.token }}",
+    );
     assert.match(String(forceMerge.run), /branches\/main/);
     assert.match(String(forceMerge.run), /current_main.*BASE_SHA/s);
     assert.match(String(forceMerge.run), /--match-head-commit "\$HEAD_SHA"/);

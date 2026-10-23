@@ -18,15 +18,19 @@ type WaitForRequiredChecksOptions = {
   now?: () => number;
   timeoutMs?: number;
   intervalMs?: number;
+  readRetryDelaysMs?: number[];
 };
+
+const DEFAULT_READ_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
 
 export function requiredContextsFromRules(rules: unknown): string[] {
   if (!Array.isArray(rules)) {
     throw new Error("GitHub returned invalid branch rules for main.");
   }
 
+  const ruleEntries = rules.every(Array.isArray) ? rules.flat() : rules;
   const contexts = new Set<string>();
-  for (const candidate of rules) {
+  for (const candidate of ruleEntries) {
     if (candidate === null || typeof candidate !== "object") {
       throw new Error("GitHub returned an invalid branch rule for main.");
     }
@@ -61,6 +65,46 @@ export function requiredContextsFromRules(rules: unknown): string[] {
     );
   }
   return [...contexts].sort();
+}
+
+function isGitHubCommandFailure(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    ("status" in error || "stderr" in error || "code" in error)
+  );
+}
+
+function readFailureMessage(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  if (error && typeof error === "object" && "stderr" in error) {
+    const stderr = String((error as { stderr?: unknown }).stderr ?? "").trim();
+    if (stderr) return stderr;
+  }
+  return error.message;
+}
+
+async function retryGitHubRead<T>(
+  label: string,
+  read: () => Promise<T>,
+  sleep: (ms: number) => Promise<void>,
+  retryDelaysMs: number[],
+): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await read();
+    } catch (error) {
+      if (!isGitHubCommandFailure(error)) throw error;
+      const delayMs = retryDelaysMs[attempt];
+      if (delayMs === undefined) {
+        throw new Error(
+          `${label} failed after ${attempt + 1} attempts: ${readFailureMessage(error)}`,
+          { cause: error },
+        );
+      }
+      await sleep(delayMs);
+    }
+  }
 }
 
 export function evaluateRequiredChecks(
@@ -120,15 +164,21 @@ export async function waitForRequiredChecks({
   now = Date.now,
   timeoutMs = 240 * 60_000,
   intervalMs = 15_000,
+  readRetryDelaysMs = DEFAULT_READ_RETRY_DELAYS_MS,
 }: WaitForRequiredChecksOptions): Promise<void> {
-  const requiredContexts = await readRequiredContexts();
+  const deadline = now() + timeoutMs;
+  const requiredContexts = await retryGitHubRead(
+    "Reading required status checks for main",
+    readRequiredContexts,
+    sleep,
+    readRetryDelaysMs,
+  );
   if (requiredContexts.length === 0) {
     throw new Error(
       "No required status checks are configured for main; refusing release PR merge.",
     );
   }
 
-  const deadline = now() + timeoutMs;
   let lastState: RequiredCheckState = {
     status: "pending",
     missing: requiredContexts,
@@ -136,7 +186,13 @@ export async function waitForRequiredChecks({
   };
 
   while (true) {
-    lastState = evaluateRequiredChecks(requiredContexts, await readStatuses());
+    const statuses = await retryGitHubRead(
+      "Reading required release PR check results",
+      readStatuses,
+      sleep,
+      readRetryDelaysMs,
+    );
+    lastState = evaluateRequiredChecks(requiredContexts, statuses);
     if (lastState.status === "passed") return;
     if (lastState.status === "failed") throw new Error(lastState.reason);
 
@@ -163,7 +219,12 @@ function ghJson<T>(args: string[]): T {
 }
 
 function readRequiredContexts(repo: string): string[] {
-  const rules = ghJson<unknown[]>(["api", `repos/${repo}/rules/branches/main`]);
+  const rules = ghJson<unknown>([
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${repo}/rules/branches/main`,
+  ]);
   return requiredContextsFromRules(rules);
 }
 
@@ -225,9 +286,22 @@ async function main(): Promise<void> {
     return;
   }
 
+  const sleep = (ms: number): Promise<void> =>
+    new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const retryDelaysMs = DEFAULT_READ_RETRY_DELAYS_MS;
   const state = evaluateRequiredChecks(
-    await readCurrentContexts(),
-    await readCurrentStatuses(),
+    await retryGitHubRead(
+      "Reading required status checks for main",
+      readCurrentContexts,
+      sleep,
+      retryDelaysMs,
+    ),
+    await retryGitHubRead(
+      "Reading required release PR check results",
+      readCurrentStatuses,
+      sleep,
+      retryDelaysMs,
+    ),
   );
   if (state.status !== "passed") {
     throw new Error(
