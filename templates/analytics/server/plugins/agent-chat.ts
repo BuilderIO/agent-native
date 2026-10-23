@@ -579,10 +579,17 @@ const WAREHOUSE_REQUEST = /\b(?:bigquery|big\s+query|warehouse|sql)\b/i;
 // name in a list. The guard checks all three, since the answer must give no figure.
 const NUMBER_WORD =
   /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|dozen)\b/i;
+// Whole words only, lowercased and single-spaced, so "active" does not match "inactive".
+function wordsOf(text: string): string {
+  return ` ${text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()} `;
+}
 function draftHasWarehouseFigure(text: string, warehouseValues: string[]) {
   if (/\d/.test(text) || NUMBER_WORD.test(text)) return true;
-  const lowered = text.toLowerCase();
-  return warehouseValues.some((value) => lowered.includes(value));
+  const draft = wordsOf(text);
+  return warehouseValues.some((value) => draft.includes(wordsOf(value)));
 }
 const DBT_FALLBACK_BLOCK_RETRY =
   "Do not give a figure from BigQuery for this owner-defined metric. Its dbt metric query did not complete, so the answer has no owner-approved figure. Say that, name the missing step or mapping gap from the dbt result, and do not restate any warehouse number.";
@@ -628,13 +635,19 @@ function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
     const warehouseValues = results.flatMap((result, index) => {
       if (index <= latestDbtIndex || result.isError === true) return [];
       if (!named(result.name, "bigquery")) return [];
-      return (bigQueryRowValues(result.content) ?? [])
-        .flatMap((row) =>
-          Object.values(row !== null && typeof row === "object" ? row : {}),
-        )
-        .filter((value): value is string => typeof value === "string")
-        .map((value) => value.trim().toLowerCase())
-        .filter((value) => value.length >= 3);
+      return (
+        (bigQueryRowValues(result.content) ?? [])
+          .flatMap((row) =>
+            Object.values(row !== null && typeof row === "object" ? row : {}),
+          )
+          .filter((value): value is string => typeof value === "string")
+          .map((value) => value.trim().toLowerCase())
+          // A single short word, such as a status like "active", is too common to
+          // count as a figure from the warehouse.
+          .filter(
+            (value) => value.split(/\s+/).length >= 2 || value.length >= 10,
+          )
+      );
     });
     return draftHasWarehouseFigure(context.text, warehouseValues)
       ? {

@@ -1106,6 +1106,24 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
+  it("does not withhold an answer that repeats a short categorical word from the warehouse", () => {
+    const statusRows = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({ rows: [{ status: "Active" }], totalRows: 1 }),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Which accounts were active last month?",
+        draftText:
+          "The active list is not a complete count, so no total is given.",
+        toolResults: [dbtNotFound, statusRows],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("does not force a disclosure retry on a readiness status alone, without a dbt metric attempt", () => {
     const result = realDataFinalGuard(
       guardContext({

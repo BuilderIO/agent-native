@@ -470,6 +470,68 @@ describe("real data action classification", () => {
     expect(failedDataQueryAttemptMessage([notFound])).not.toBeNull();
   });
 
+  it("does not clear a lookup failure with a successful query for an unrelated metric", () => {
+    const notFound = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "not_found",
+        metricName: "weekly_active_users",
+        searched: 3,
+        of: 3,
+      }),
+    };
+    const unrelated = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "signup_count",
+        queryId: "synthetic-query-id",
+        querySpec: {
+          groupBy: [],
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        },
+        rows: [{ signup_count: 4 }],
+        truncated: false,
+      }),
+    };
+
+    expect(failedDataQueryAttemptMessage([notFound, unrelated])).not.toBeNull();
+  });
+
+  it("clears a lookup failure once find-data returns the replacement metric name", () => {
+    const notFound = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "not_found",
+        metricName: "weekly_active_users",
+        searched: 3,
+        of: 3,
+      }),
+    };
+    const search = {
+      name: "find-data",
+      content: JSON.stringify({ results: [{ name: "active_accounts" }] }),
+    };
+    const replacement = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "active_accounts",
+        queryId: "synthetic-query-id",
+        querySpec: {
+          groupBy: [],
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        },
+        rows: [{ active_accounts: 10 }],
+        truncated: false,
+      }),
+    };
+
+    expect(
+      failedDataQueryAttemptMessage([notFound, search, replacement]),
+    ).toBeNull();
+  });
+
   it("clears an empty continued page once the same query returns rows", () => {
     const querySpec = {
       groupBy: [{ name: "metric_time", grain: "WEEK" }],

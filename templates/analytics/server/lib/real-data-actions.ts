@@ -1774,16 +1774,35 @@ function isRecoveredByLaterDbtSuccess(
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return false;
   }
-  const status = String((payload as Record<string, unknown>).status);
-  if (!DBT_LOOKUP_STATUSES.has(status)) return false;
-  return results
-    .slice(index + 1)
-    .some(
-      (candidate) =>
-        isDbtSemanticMetricActionName(String(candidate.name ?? "")) &&
-        candidate.isError !== true &&
-        isSuccessfulDbtMetricResult(candidate.content),
-    );
+  const record = payload as Record<string, unknown>;
+  if (!DBT_LOOKUP_STATUSES.has(String(record.status))) return false;
+  for (let next = index + 1; next < results.length; next += 1) {
+    const candidate = results[next];
+    if (
+      !isDbtSemanticMetricActionName(String(candidate.name ?? "")) ||
+      candidate.isError === true ||
+      !isSuccessfulDbtMetricResult(candidate.content)
+    ) {
+      continue;
+    }
+    const answered = tryParseJsonContent(String(candidate.content ?? ""));
+    const answeredName = (answered as Record<string, unknown> | null)
+      ?.metricName;
+    if (typeof answeredName !== "string") continue;
+    // The lookup's own continuation answers under the same name. A retry under a
+    // different exact name counts only when find-data returned that name after the
+    // lookup failed, so an unrelated metric cannot clear the failure.
+    if (answeredName === record.metricName) return true;
+    const foundAfterLookup = results
+      .slice(index + 1, next)
+      .some(
+        (between) =>
+          isToolName(String(between.name ?? ""), "find-data") &&
+          String(between.content ?? "").includes(answeredName),
+      );
+    if (foundAfterLookup) return true;
+  }
+  return false;
 }
 
 function isFailedDataQueryAttempt(
