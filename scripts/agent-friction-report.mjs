@@ -952,8 +952,11 @@ function isOtherProductMergeGate(sentence, gate) {
   );
 }
 
+const PR_REVIEW_COMMENT_CONTEXT = String.raw`(?:\b(?:PR|pull\s+request)\s+(?:comment|reply|response)\b|\breview\s+thread\b|\/pull\/\d+\b)`;
+const PR_REVIEW_VAGUE_CLOSURE_INSTRUCTION = String.raw`\b(?:don['’]t|do\s+not|never|avoid|should\s+never|must\s+never)\b[^\n]{0,80}\b(?:say|write|use|leave|comment|reply)\b`;
+const PR_REVIEW_VAGUE_CLOSURE_TERMS = String.raw`(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)`;
 const PR_REVIEW_VAGUE_CLOSURE_RE = new RegExp(
-  String.raw`(?:\b(?:PR|pull\s+request|review\s+thread)(?:\s+(?:comment|reply|response))?\b[^\n]{0,120}\b(?:don['’]t|do\s+not|never|avoid|should\s+never|must\s+never)\b[^\n]{0,80}\b(?:say|write|use|leave|comment|reply)\b[^\n]{0,100}\b(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b|\b(?:don['’]t|do\s+not|never|avoid|should\s+never|must\s+never)\b[^\n]{0,80}\b(?:say|write|use|leave|comment|reply)\b[^\n]{0,120}(?:\b(?:PR|pull\s+request|review\s+thread)(?:\s+(?:comment|reply|response))?\b[^\n]{0,80}\b(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b|\b(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b[^\n]{0,120}(?:\b(?:PR|pull\s+request|review\s+thread)(?:\s+(?:comment|reply|response))?\b|\/pull\/\d+\b)))`,
+  String.raw`(?:${PR_REVIEW_COMMENT_CONTEXT}[^\n]{0,120}${PR_REVIEW_VAGUE_CLOSURE_INSTRUCTION}[^\n]{0,100}\b${PR_REVIEW_VAGUE_CLOSURE_TERMS}\b|${PR_REVIEW_VAGUE_CLOSURE_INSTRUCTION}[^\n]{0,120}(?:${PR_REVIEW_COMMENT_CONTEXT}[^\n]{0,80}\b${PR_REVIEW_VAGUE_CLOSURE_TERMS}\b|\b${PR_REVIEW_VAGUE_CLOSURE_TERMS}\b[^\n]{0,120}${PR_REVIEW_COMMENT_CONTEXT}))`,
   "i",
 );
 
@@ -1090,6 +1093,7 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "The PR reply was vague after the latest author update."],
   [false, "A PR review can be vague without requiring a follow-up."],
   [false, "The pull request comment is unclear to me."],
+  [false, "We should never merge an ambiguous PR."],
   [false, "I have no further feedback on this check."],
   [
     true,
