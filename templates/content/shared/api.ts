@@ -325,6 +325,11 @@ export interface DocumentPropertiesResponse {
   properties: DocumentProperty[];
 }
 
+export interface ConfigureDocumentPropertyResponse extends DocumentPropertiesResponse {
+  /** The property the request created or updated. */
+  propertyId: string;
+}
+
 export interface ConfigureDocumentPropertyRequest {
   id?: string;
   documentId: string;
