@@ -1756,10 +1756,13 @@ export function useChatThreads(
         });
       } catch (error) {
         if (previous)
-          setThreads((threads) => [
-            previous,
-            ...threads.filter((thread) => thread.id !== threadId),
-          ]);
+          setThreads((threads) =>
+            threads.map((thread) =>
+              thread.id === threadId
+                ? { ...thread, hiddenAt: previous.hiddenAt }
+                : thread,
+            ),
+          );
         throw error;
       }
     },

@@ -120,6 +120,32 @@ describe("useChatThreadList", () => {
     expect(latest.threads[0].hiddenAt).toBeNull();
   });
 
+  it("restores a refused hide at the row's original position", async () => {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return jsonResponse({}, 403);
+      return jsonResponse({
+        threads: [
+          row("newer", { accessBasis: "direct" }),
+          row("shared", { accessBasis: "direct", hiddenAt: null }),
+          row("older", { accessBasis: "direct" }),
+        ],
+        hasMore: false,
+      });
+    });
+    await mount({ ownership: "shared", apiUrl: "/chat" });
+    await act(async () => {
+      await expect(latest.hideThread("shared", true)).rejects.toMatchObject({
+        status: 403,
+      });
+    });
+    expect(latest.threads.map((thread) => thread.id)).toEqual([
+      "newer",
+      "shared",
+      "older",
+    ]);
+    expect(latest.threads[1].hiddenAt).toBeNull();
+  });
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fetchMock = vi.fn();

@@ -316,7 +316,8 @@ export function useChatThreadList(
   const { threads, loading, loadingMore, error, hasMore } = state;
   const hideThread = useCallback(
     async (id: string, hidden: boolean): Promise<boolean> => {
-      const previous = state.threads.find((thread) => thread.id === id);
+      const index = state.threads.findIndex((thread) => thread.id === id);
+      const previous = index >= 0 ? state.threads[index] : undefined;
       update({
         threads: state.threads.flatMap((thread) => {
           if (thread.id !== id) return [thread];
@@ -331,17 +332,21 @@ export function useChatThreadList(
         });
       } catch (error) {
         if (previous)
-          setState((current) =>
-            current.session === session
-              ? {
-                  ...current,
-                  threads: [
-                    previous,
-                    ...current.threads.filter((thread) => thread.id !== id),
-                  ],
-                }
-              : current,
-          );
+          setState((current) => {
+            if (current.session !== session) return current;
+            if (current.threads.some((thread) => thread.id === id))
+              return {
+                ...current,
+                threads: current.threads.map((thread) =>
+                  thread.id === id
+                    ? { ...thread, hiddenAt: previous.hiddenAt }
+                    : thread,
+                ),
+              };
+            const threads = [...current.threads];
+            threads.splice(Math.min(index, threads.length), 0, previous);
+            return { ...current, threads };
+          });
         throw error;
       }
     },
