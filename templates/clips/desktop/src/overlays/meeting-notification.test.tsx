@@ -23,7 +23,9 @@ const tauriEvents = vi.hoisted(() => {
     ),
   };
 });
-const tauriCore = vi.hoisted(() => ({ invoke: vi.fn(async () => null) }));
+const tauriCore = vi.hoisted(() => ({
+  invoke: vi.fn(async (_command: string, _args?: unknown) => null),
+}));
 const tauriWindow = vi.hoisted(() => ({
   hide: vi.fn(async () => undefined),
   setSize: vi.fn(async () => undefined),
