@@ -174,6 +174,27 @@ it.each(["direct", "runtime"])(
       }, rejected.html);
       expect(rechecked.complete).toBe(false);
       expect(rechecked.errorCode).toBe("export_resources_unavailable");
+      const inheritedFailure = await page.evaluate(async () => {
+        const result = await (
+          window as any
+        ).__anEditorChromeBridgeInstance.inlineExportResources(
+          '<!doctype html><html data-agent-native-export-resource-failures="canvas-unavailable,embedded-document-unavailable"><head></head><body></body></html>',
+        );
+        return {
+          complete: result.complete,
+          errorCode: result.errorCode,
+          failures: new DOMParser()
+            .parseFromString(result.html, "text/html")
+            .documentElement.getAttribute(
+              "data-agent-native-export-resource-failures",
+            ),
+        };
+      });
+      expect(inheritedFailure).toEqual({
+        complete: false,
+        errorCode: "export_resources_unavailable",
+        failures: "canvas-unavailable,embedded-document-unavailable",
+      });
     } finally {
       await browser.close();
       await new Promise<void>((resolve, reject) =>
