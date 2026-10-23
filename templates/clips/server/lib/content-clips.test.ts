@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
@@ -17,10 +18,15 @@ import {
 const CLIPS_URL = "https://clips.example.test";
 const CONTENT_APP = "https://content.example.test";
 const SECRET = "content-clips-test-secret-0123456789abcdef";
+const GRANT_SECRET = "content-clips-grant-secret-0123456789abcdef";
 
 const state = vi.hoisted(() => {
   vi.stubEnv("APP_URL", "https://clips.example.test");
   vi.stubEnv("A2A_SECRET", "content-clips-test-secret-0123456789abcdef");
+  vi.stubEnv(
+    "OAUTH_STATE_SECRET",
+    "content-clips-grant-secret-0123456789abcdef",
+  );
   return { db: null as any, blobs: new Map<string, unknown>() };
 });
 
@@ -34,16 +40,6 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   >()),
   readAppState: async (key: string) => state.blobs.get(key) ?? null,
   writeAppState: async () => {},
-}));
-vi.mock("@agent-native/core/org", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/core/org")>()),
-  resolveOrgIdForEmail: async (email: string) => {
-    const { rows } = await state.db.$client.query(
-      "SELECT org_id FROM org_members WHERE lower(email) = $1 ORDER BY joined_at LIMIT 1",
-      [email.toLowerCase()],
-    );
-    return (rows[0] as { org_id?: string } | undefined)?.org_id ?? null;
-  },
 }));
 vi.mock("./activity-notifications.js", () => ({
   notifyRecordingComment: async () => null,
@@ -61,6 +57,7 @@ const jose = await import(pathToFileURL(coreRequire.resolve("jose")).href);
 
 const { organizations, orgMembers } = await import("@agent-native/core/org");
 const { signA2AToken } = await import("@agent-native/core/a2a");
+const { withDbExec } = await import("@agent-native/core/db");
 const { schema } = await import("../db/index.js");
 const {
   CONTENT_CLIP_GRANT_EXPIRED,
@@ -104,6 +101,27 @@ function createTableSql(table: PgTable): string {
     return parts.join(" ");
   });
   return `CREATE TABLE "${config.name}" (${columns.join(", ")});`;
+}
+
+/**
+ * Core reads workspaces, settings and workspace A2A records through its own
+ * database handle rather than the app's; point it at this test's database.
+ * Core writes `?` placeholders, and none of the statements these routes
+ * reach contain a literal `?`.
+ */
+function coreDb() {
+  return {
+    async execute(statement: string | { sql: string; args?: unknown[] }) {
+      const query =
+        typeof statement === "string" ? { sql: statement } : statement;
+      let param = 0;
+      const result = await client.query(
+        query.sql.replace(/\?/g, () => `$${++param}`),
+        query.args ?? [],
+      );
+      return { rows: result.rows, rowsAffected: result.affectedRows ?? 0 };
+    },
+  };
 }
 
 async function insertRecording(
@@ -154,6 +172,49 @@ async function insertBinding(
   });
 }
 
+async function insertWorkspace(
+  id: string,
+  values: Partial<typeof organizations.$inferInsert> = {},
+) {
+  await state.db.insert(organizations).values({
+    id,
+    name: id,
+    createdBy: OWNER,
+    createdAt: 1,
+    ...values,
+  });
+}
+
+async function addMember(orgId: string, email: string, joinedAt: number) {
+  await state.db.insert(orgMembers).values({
+    id: `member-${orgId}-${email}`,
+    orgId,
+    email,
+    role: "member",
+    joinedAt,
+  });
+}
+
+async function setActiveWorkspace(email: string, orgId: string) {
+  await client.query(
+    `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, 1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [`u:${email}:active-org-id`, JSON.stringify({ orgId })],
+  );
+}
+
+async function shareWithWorkspace(recordingId: string, orgId: string) {
+  await state.db.insert(schema.recordingShares).values({
+    id: `share-${recordingId}-${orgId}`,
+    resourceId: recordingId,
+    principalType: "org",
+    principalId: orgId,
+    role: "viewer",
+    createdBy: OWNER,
+    createdAt: "2026-10-01T00:00:00.000Z",
+  });
+}
+
 async function setBindingState(id: string, bindingState: "active" | "trashed") {
   await client.query(
     "UPDATE recording_content_bindings SET state = $1 WHERE id = $2",
@@ -179,8 +240,8 @@ interface TokenInput {
   audience?: string | null;
   issuer?: string | null;
   secret?: string;
-  issuedAt?: number;
-  expiresAt?: number;
+  issuedAt?: number | null;
+  expiresAt?: number | null;
   extra?: Record<string, unknown>;
 }
 
@@ -197,10 +258,11 @@ async function token(input: TokenInput = {}): Promise<string> {
     ...(input.sub === null ? {} : { sub: input.sub ?? READER }),
     ...input.extra,
   };
-  let jwt = new jose.SignJWT(claims)
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt(input.issuedAt ?? now)
-    .setExpirationTime(input.expiresAt ?? now + 60);
+  let jwt = new jose.SignJWT(claims).setProtectedHeader({ alg: "HS256" });
+  if (input.issuedAt !== null) jwt = jwt.setIssuedAt(input.issuedAt ?? now);
+  if (input.expiresAt !== null) {
+    jwt = jwt.setExpirationTime(input.expiresAt ?? now + 60);
+  }
   if (input.issuer !== null) jwt = jwt.setIssuer(input.issuer ?? CONTENT_APP);
   if (input.audience !== null) {
     jwt = jwt.setAudience(input.audience ?? `${CLIPS_URL}/content-clips`);
@@ -237,7 +299,7 @@ async function respond(
   handler: (event: any) => unknown,
   event: any,
 ): Promise<{ status: number; body: any; response?: Response }> {
-  const result = await handler(event);
+  const result = await withDbExec(coreDb(), () => handler(event));
   if (result instanceof Response) {
     const type = result.headers.get("content-type") ?? "";
     return {
@@ -284,7 +346,7 @@ async function fetchMedia(
   event.context.params = {
     recordingId: decodeURIComponent(url.pathname.split("/").pop()!),
   };
-  const result = await handler(event);
+  const result = await withDbExec(coreDb(), () => handler(event));
   if (result instanceof Response) {
     return {
       status: result.status,
@@ -296,6 +358,23 @@ async function fetchMedia(
     bytes: result instanceof Uint8Array ? result : null,
     body: result instanceof Uint8Array ? null : (result as any),
   };
+}
+
+/** The media URL with its grant's claims rewritten and signed again. */
+function withRewrittenGrant(
+  mediaUrl: string,
+  rewrite: (claims: Record<string, unknown>) => void,
+): string {
+  const url = new URL(mediaUrl);
+  const [payload] = url.searchParams.get("content_grant")!.split(".");
+  const claims = JSON.parse(Buffer.from(payload!, "base64url").toString());
+  rewrite(claims);
+  const encoded = Buffer.from(JSON.stringify(claims)).toString("base64url");
+  const signature = createHmac("sha256", GRANT_SECRET)
+    .update(encoded)
+    .digest("base64url");
+  url.searchParams.set("content_grant", `${encoded}.${signature}`);
+  return url.href;
 }
 
 function afterGrantExpires(issuedAt: number) {
@@ -321,6 +400,13 @@ beforeEach(async () => {
   ]) {
     await client.exec(createTableSql(table as PgTable));
   }
+  await client.exec(`
+    ALTER TABLE organizations
+      ADD COLUMN a2a_member_delegation_enabled BOOLEAN NOT NULL DEFAULT false;
+    CREATE TABLE settings (
+      key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at BIGINT NOT NULL
+    );
+  `);
   await insertRecording("rec-upload");
   await insertBinding("binding-doc-1");
 });
@@ -497,6 +583,32 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
       const media = await fetchMedia(route, unlocked.href);
       expect(media.status).toBe(401);
       expect(media.bytes).toBeNull();
+    }
+  });
+
+  it("refuses a media grant whose expiry is missing or not a number", async () => {
+    const result = await playback("rec-upload", await token());
+
+    for (const [route, url] of [
+      [videoRoute, result.body.playback.videoUrl],
+      [thumbnailRoute, result.body.playback.posterUrl],
+    ] as const) {
+      expect(
+        (
+          await fetchMedia(
+            route,
+            withRewrittenGrant(url, () => {}),
+          )
+        ).status,
+      ).toBe(200);
+      for (const rewrite of [
+        (claims: Record<string, unknown>) => delete claims.exp,
+        (claims: Record<string, unknown>) => (claims.exp = String(claims.exp)),
+      ]) {
+        const media = await fetchMedia(route, withRewrittenGrant(url, rewrite));
+        expect(media.status).toBe(404);
+        expect(media.bytes).toBeNull();
+      }
     }
   });
 
@@ -692,6 +804,65 @@ describe("a pasted Clip keeps its own sharing", () => {
       anonymous.body.playback.videoUrl,
     );
     expect(video.status).toBe(200);
+  });
+});
+
+describe("a reader in several workspaces acts in the active one", () => {
+  beforeEach(async () => {
+    await insertWorkspace("org-first");
+    await insertWorkspace("org-active");
+    await insertWorkspace("org-outside");
+    await addMember("org-first", READER, 1);
+    await addMember("org-active", READER, 2);
+    await setActiveWorkspace(READER, "org-active");
+    for (const [recordingId, orgId] of [
+      ["rec-active-org", "org-active"],
+      ["rec-first-org", "org-first"],
+      ["rec-outside-org", "org-outside"],
+    ] as const) {
+      await insertRecording(recordingId);
+      await insertBinding(`binding-${recordingId}`, {
+        recordingId,
+        origin: "link",
+      });
+      await shareWithWorkspace(recordingId, orgId);
+    }
+  });
+
+  it("opens a Clip shared with that workspace, through Content and its media URLs", async () => {
+    const bearer = await token({ recordingId: "rec-active-org" });
+    const opened = await playback("rec-active-org", bearer);
+    expect(opened.status).toBe(200);
+    expect((await listComments("rec-active-org", bearer)).status).toBe(200);
+    for (const [route, url] of [
+      [videoRoute, opened.body.playback.videoUrl],
+      [thumbnailRoute, opened.body.playback.posterUrl],
+    ] as const) {
+      expect((await fetchMedia(route, url)).status).toBe(200);
+    }
+  });
+
+  it("refuses a Clip shared with another workspace, even one the reader belongs to", async () => {
+    for (const recordingId of ["rec-first-org", "rec-outside-org"]) {
+      const bearer = await token({ recordingId });
+      expect((await playback(recordingId, bearer)).status).toBe(404);
+      expect((await listComments(recordingId, bearer)).status).toBe(404);
+    }
+  });
+
+  it("stops an issued media URL when the reader switches workspace", async () => {
+    const opened = await playback(
+      "rec-active-org",
+      await token({ recordingId: "rec-active-org" }),
+    );
+    await setActiveWorkspace(READER, "org-first");
+
+    for (const [route, url] of [
+      [videoRoute, opened.body.playback.videoUrl],
+      [thumbnailRoute, opened.body.playback.posterUrl],
+    ] as const) {
+      expect((await fetchMedia(route, url)).status).toBe(404);
+    }
   });
 });
 
@@ -1054,6 +1225,21 @@ describe("token checks", () => {
       "a typed credential",
       () => token({ extra: { typ: "agent-native-mcp-oauth" } }),
     ],
+    ["no expiry", () => token({ expiresAt: null })],
+    ["no issue time", () => token({ issuedAt: null })],
+    [
+      "an expiry that is a string",
+      () => token({ expiresAt: null, extra: { exp: String(now() + 60) } }),
+    ],
+    [
+      "an issue time that is a string",
+      () => token({ issuedAt: null, extra: { iat: String(now()) } }),
+    ],
+    ["a not-before time to come", () => token({ extra: { nbf: now() + 30 } })],
+    [
+      "a not-before time that is a string",
+      () => token({ extra: { nbf: String(now()) } }),
+    ],
   ])("refuses %s", async (_name, mint) => {
     const result = await playback("rec-upload", await mint());
     expect(result.status).toBe(401);
@@ -1102,6 +1288,144 @@ describe("token checks", () => {
       await token({ issuer: "https://other-content.example.test" }),
     );
     expect(result.status).toBe(404);
+  });
+
+  describe("at the edge of a lifetime", () => {
+    const issuedAt = Date.UTC(2026, 9, 23, 12, 0, 0);
+    const at = (seconds: number) => vi.setSystemTime(issuedAt + seconds * 1000);
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"], now: issuedAt });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("accepts Content's one-minute token until its last second", async () => {
+      const bearer = await token();
+      at(59);
+      expect((await playback("rec-upload", bearer)).status).toBe(200);
+      at(61);
+      expect((await playback("rec-upload", bearer)).status).toBe(401);
+    });
+
+    it("accepts a five-minute lifetime and not one second more", async () => {
+      const iat = issuedAt / 1000;
+      for (const [lifetime, status] of [
+        [300, 200],
+        [301, 401],
+      ] as const) {
+        const bearer = await token({ expiresAt: iat + lifetime });
+        expect((await playback("rec-upload", bearer)).status).toBe(status);
+      }
+    });
+
+    it("allows a minute of clock skew on the issue time and not one second more", async () => {
+      const iat = issuedAt / 1000;
+      for (const [skew, status] of [
+        [60, 200],
+        [61, 401],
+      ] as const) {
+        const bearer = await token({
+          issuedAt: iat + skew,
+          expiresAt: iat + skew + 60,
+        });
+        expect((await playback("rec-upload", bearer)).status).toBe(status);
+      }
+    });
+
+    it("plays a media URL until the grant's last second", async () => {
+      const result = await playback("rec-upload", await token());
+      const urls = [
+        [videoRoute, result.body.playback.videoUrl],
+        [thumbnailRoute, result.body.playback.posterUrl],
+      ] as const;
+
+      at(CONTENT_CLIP_PLAYBACK_GRANT_SECONDS - 1);
+      for (const [route, url] of urls) {
+        expect((await fetchMedia(route, url)).status).toBe(200);
+      }
+      at(CONTENT_CLIP_PLAYBACK_GRANT_SECONDS + 1);
+      for (const [route, url] of urls) {
+        const media = await fetchMedia(route, url);
+        expect(media.status).toBe(403);
+        expect(media.body).toMatchObject({ code: CONTENT_CLIP_GRANT_EXPIRED });
+      }
+    });
+  });
+
+  describe("a token that names a workspace", () => {
+    const WORKSPACE_DOMAIN = "content.example.test";
+    const WORKSPACE_SECRET = "content-workspace-a2a-secret-0123456789";
+
+    beforeEach(async () => {
+      await insertWorkspace("org-content", {
+        allowedDomain: WORKSPACE_DOMAIN,
+        a2aSecret: WORKSPACE_SECRET,
+      });
+      await client.query(
+        "UPDATE organizations SET a2a_member_delegation_enabled = true WHERE id = 'org-content'",
+      );
+      await addMember("org-content", READER, 1);
+      await setActiveWorkspace(READER, "org-content");
+      await insertWorkspace("org-named", {
+        allowedDomain: "named.example.test",
+      });
+    });
+
+    it("is refused when signed with the workspace's own A2A secret", async () => {
+      for (const extra of [
+        { org_domain: WORKSPACE_DOMAIN },
+        {
+          org_domain: WORKSPACE_DOMAIN,
+          typ: "agent-native-org-member-delegation",
+          jti: "delegation-1",
+        },
+      ]) {
+        const bearer = await token({ secret: WORKSPACE_SECRET, extra });
+        expect((await playback("rec-upload", bearer)).status).toBe(401);
+      }
+    });
+
+    it("reaches one recording and document, from the placement's Content app", async () => {
+      const named = (input: TokenInput = {}) =>
+        token({ ...input, extra: { org_domain: WORKSPACE_DOMAIN } });
+      await insertRecording("rec-other");
+
+      expect((await playback("rec-upload", await named())).status).toBe(200);
+      expect(
+        (
+          await playback(
+            "rec-upload",
+            await named({ issuer: "https://other-content.example.test" }),
+          )
+        ).status,
+      ).toBe(404);
+      expect(
+        (await playback("rec-upload", await named({ documentId: "doc-2" })))
+          .status,
+      ).toBe(404);
+      expect((await playback("rec-other", await named())).status).toBe(401);
+      expect(
+        (await playback("rec-other", await named({ recordingId: "rec-other" })))
+          .status,
+      ).toBe(404);
+    });
+
+    it("gets nothing from the workspace it names", async () => {
+      await insertRecording("rec-named");
+      await insertBinding("binding-named", {
+        recordingId: "rec-named",
+        origin: "link",
+      });
+      await shareWithWorkspace("rec-named", "org-named");
+
+      const bearer = await token({
+        recordingId: "rec-named",
+        extra: { org_domain: "named.example.test" },
+      });
+      expect((await playback("rec-named", bearer)).status).toBe(404);
+    });
   });
 
   it("rejects malformed comment requests", async () => {
