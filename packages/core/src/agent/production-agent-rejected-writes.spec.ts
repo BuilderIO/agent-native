@@ -492,6 +492,52 @@ describe("a write whose outcome is really unknown", () => {
     );
   });
 
+  it("names the cause of the call it repeats, not another call of its tool", async () => {
+    const unknownDone = (
+      id: string,
+      input: { body: string },
+      recorded: { unknownCause?: "rejection" },
+    ) => [
+      { type: "tool_start", id, tool: "send", input },
+      {
+        type: "tool_done",
+        id,
+        tool: "send",
+        input,
+        result: "Error running send: lost.",
+        isError: true,
+        outcomeUnknown: true,
+        ...recorded,
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ];
+    const lost = { body: "Second" };
+    currentTurnEvents.mockResolvedValue([
+      ...unknownDone("first", { body: "First" }, { unknownCause: "rejection" }),
+      ...unknownDone("second", lost, {}),
+    ]);
+    const run = vi.fn(async () => "sent");
+    const action = defineAction({
+      description: "Send.",
+      schema: z.object({ body: z.string() }),
+      run,
+    }) as unknown as ActionEntry;
+    const events = await runCalls(
+      { send: action },
+      [{ name: "send", input: lost }],
+      { threadId: "thread-two-unknowns" },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "interruption",
+      }),
+    );
+  });
+
   it("still reads a plain handler failure as possibly written", async () => {
     const run = vi.fn(async () => {
       fail("Upstream rejected the request.");

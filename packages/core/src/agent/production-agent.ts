@@ -5184,8 +5184,26 @@ interface UnknownOutcomes {
   calls: Map<string, number>;
   inputs: Map<string, number>;
   unidentified: Map<string, number>;
-  /** By tool, what made the latest one unknown. */
+  /**
+   * What made one unknown, under each key it is counted by in `calls`,
+   * `inputs` and `unidentified`, so a call names the cause of the earlier
+   * call it repeats, not of another call of its tool.
+   */
   causes: Map<string, UnknownOutcomeCause>;
+}
+
+/** The keys an unknown outcome is counted, and its cause recorded, under. */
+function unknownOutcomeKeys(
+  tool: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+): { call?: string; input?: string; unidentified?: string } {
+  return {
+    ...(argumentsHash
+      ? { call: preparedToolCallKey(tool, argumentsHash) }
+      : { unidentified: tool }),
+    ...(input !== undefined ? { input: toolCallCacheKey(tool, input) } : {}),
+  };
 }
 
 /**
@@ -5204,17 +5222,17 @@ function noteUnknownOutcome(
   input?: unknown,
 ): void {
   outcomes.tools.set(tool, (outcomes.tools.get(tool) ?? 0) + 1);
-  if (cause) outcomes.causes.set(tool, cause);
-  if (input !== undefined) {
-    const inputKey = toolCallCacheKey(tool, input);
-    outcomes.inputs.set(inputKey, (outcomes.inputs.get(inputKey) ?? 0) + 1);
+  const keys = unknownOutcomeKeys(tool, argumentsHash, input);
+  for (const [kind, map] of [
+    ["call", outcomes.calls],
+    ["input", outcomes.inputs],
+    ["unidentified", outcomes.unidentified],
+  ] as const) {
+    const key = keys[kind];
+    if (key === undefined) continue;
+    map.set(key, (map.get(key) ?? 0) + 1);
+    if (cause) outcomes.causes.set(`${kind}:${key}`, cause);
   }
-  if (!argumentsHash) {
-    outcomes.unidentified.set(tool, (outcomes.unidentified.get(tool) ?? 0) + 1);
-    return;
-  }
-  const key = preparedToolCallKey(tool, argumentsHash);
-  outcomes.calls.set(key, (outcomes.calls.get(key) ?? 0) + 1);
 }
 
 /** Why a write of a tool with an unknown earlier call did not run. */
@@ -9691,15 +9709,26 @@ export async function runAgentLoop(opts: {
       // it twice. A write with no identity to compare cannot be told from a
       // repeat, whatever its arguments, nor can one whose tool pair was
       // elided from the replayed history.
-      const priorInterruptionsBeforeStepReplay = actionIsReadOnly
-        ? (unknownOutcomes.calls.get(preparedCallKey) ?? 0)
-        : Math.max(
-            unknownOutcomes.calls.get(preparedCallKey) ?? 0,
-            unknownOutcomes.inputs.get(
-              toolCallCacheKey(toolCall.name, toolCall.input),
-            ) ?? 0,
-            unknownOutcomes.unidentified.get(toolCall.name) ?? 0,
-          );
+      const repeatKeys = {
+        call: preparedCallKey,
+        input: toolCallCacheKey(toolCall.name, toolCall.input),
+        unidentified: toolCall.name,
+      };
+      const repeated = (
+        [
+          ["call", unknownOutcomes.calls],
+          ["input", unknownOutcomes.inputs],
+          ["unidentified", unknownOutcomes.unidentified],
+        ] as const
+      ).filter(
+        ([kind, map]) =>
+          (!actionIsReadOnly || kind === "call") &&
+          (map.get(repeatKeys[kind]) ?? 0) > 0,
+      );
+      const priorInterruptionsBeforeStepReplay = Math.max(
+        0,
+        ...repeated.map(([kind, map]) => map.get(repeatKeys[kind]) ?? 0),
+      );
       const priorInterruptions = ambiguousLegacyWrite
         ? Math.max(1, priorInterruptionsBeforeStepReplay)
         : (interruptedCallMatchesStep ||
@@ -9820,7 +9849,11 @@ export async function runAgentLoop(opts: {
           errorCode: "write_tool_outcome_unknown",
           blockedTool: toolCall.name,
           blockedBy:
-            unknownOutcomes.causes.get(toolCall.name) ?? "interruption",
+            repeated
+              .map(([kind]) =>
+                unknownOutcomes.causes.get(`${kind}:${repeatKeys[kind]}`),
+              )
+              .find((cause) => cause !== undefined) ?? "interruption",
         };
         return {
           type: "tool-result" as const,
