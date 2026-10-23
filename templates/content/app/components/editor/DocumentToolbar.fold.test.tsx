@@ -35,7 +35,8 @@ vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
 }));
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
-  useT: () => (key: string) => key,
+  useT: () => (key: string, options?: { count?: number }) =>
+    options?.count === undefined ? key : `${key}:${options.count}`,
 }));
 vi.mock("sonner", async (importOriginal) => ({
   ...(await importOriginal<typeof import("sonner")>()),
@@ -199,11 +200,11 @@ describe("DocumentToolbar at narrow widths", () => {
   it("keeps Comments and Suggesting in the toolbar while it has room", async () => {
     await renderToolbar(800, { suggesting: true });
 
-    expect(toolbarButton("comments.title")).not.toBeNull();
+    expect(toolbarButton("comments.discussion")).not.toBeNull();
     expect(toolbarButton("editor.toolbar.stopSuggesting")).not.toBeNull();
     expect(shareTrigger()).toBeDefined();
     const items = await openPageActions();
-    expect(menuItem(items, "comments.title")).toBeUndefined();
+    expect(menuItem(items, "comments.discussion")).toBeUndefined();
     expect(menuItem(items, "editor.toolbar.copyPageLink")).toBeUndefined();
   });
 
@@ -221,6 +222,33 @@ describe("DocumentToolbar at narrow widths", () => {
     expect(toolbarButton("editor.toolbar.morePageActions")).not.toBeNull();
   });
 
+  it("badges Discussion with the Page's open comment count", async () => {
+    const discussion = () =>
+      container.querySelector<HTMLButtonElement>(
+        "[data-comments-history-trigger]",
+      );
+
+    await renderToolbar(800, { openCommentCount: 3 });
+    expect(discussion()?.getAttribute("aria-label")).toBe(
+      "comments.discussionOpenCount:3",
+    );
+    expect(discussion()?.getAttribute("data-open-comment-count")).toBe("3");
+    expect(discussion()?.textContent).toBe("3");
+
+    await renderToolbar(800, { openCommentCount: 120 });
+    expect(discussion()?.getAttribute("aria-label")).toBe(
+      "comments.discussionOpenCount:120",
+    );
+    expect(discussion()?.textContent).toBe("99+");
+
+    await renderToolbar(800, { openCommentCount: 0 });
+    expect(discussion()?.getAttribute("aria-label")).toBe(
+      "comments.discussion",
+    );
+    expect(discussion()?.hasAttribute("data-open-comment-count")).toBe(false);
+    expect(discussion()?.textContent).toBe("");
+  });
+
   it("moves Stop suggesting into page actions before Comments", async () => {
     const escapeTarget = { current: null as HTMLButtonElement | null };
     await renderToolbar(400, {
@@ -229,13 +257,13 @@ describe("DocumentToolbar at narrow widths", () => {
     });
 
     expect(toolbarButton("editor.toolbar.stopSuggesting")).toBeNull();
-    expect(toolbarButton("comments.title")).not.toBeNull();
+    expect(toolbarButton("comments.discussion")).not.toBeNull();
     expect(escapeTarget.current).toBe(
       toolbarButton("editor.toolbar.morePageActions"),
     );
 
     const items = await openPageActions();
-    expect(menuItem(items, "comments.title")).toBeUndefined();
+    expect(menuItem(items, "comments.discussion")).toBeUndefined();
     await act(async () =>
       menuItem(items, "editor.toolbar.stopSuggesting")!.click(),
     );
@@ -245,18 +273,18 @@ describe("DocumentToolbar at narrow widths", () => {
   it("moves Comments into page actions and keeps Share", async () => {
     await renderToolbar(280);
 
-    expect(toolbarButton("comments.title")).toBeNull();
+    expect(toolbarButton("comments.discussion")).toBeNull();
     expect(shareTrigger()).toBeDefined();
 
     const items = await openPageActions();
     expect(menuItem(items, "editor.toolbar.copyPageLink")).toBeUndefined();
-    await act(async () => menuItem(items, "comments.title")!.click());
+    await act(async () => menuItem(items, "comments.discussion")!.click());
     expect(mocks.utilityPanelChange).toHaveBeenCalledWith("comments");
   });
 
   it("folds by the room the trigger and breadcrumb leave, at the same width", async () => {
     await renderToolbar(380, { compact: true });
-    expect(toolbarButton("comments.title")).not.toBeNull();
+    expect(toolbarButton("comments.discussion")).not.toBeNull();
 
     await renderToolbar(
       380,
@@ -268,7 +296,7 @@ describe("DocumentToolbar at narrow widths", () => {
       },
       createElement("button", { type: "button" }, "sidebar"),
     );
-    expect(toolbarButton("comments.title")).toBeNull();
+    expect(toolbarButton("comments.discussion")).toBeNull();
     expect(shareTrigger()).toBeDefined();
   });
 
@@ -278,7 +306,7 @@ describe("DocumentToolbar at narrow widths", () => {
 
     expect(shareTrigger()).toBeUndefined();
     expect(toolbarButton("editor.toolbar.copyPageLink")).toBeNull();
-    expect(toolbarButton("comments.title")).toBeNull();
+    expect(toolbarButton("comments.discussion")).toBeNull();
 
     const items = await openPageActions();
     expect(menuItem(items, "editor.toolbar.share")).toBeDefined();
