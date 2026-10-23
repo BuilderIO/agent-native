@@ -952,11 +952,14 @@ function isOtherProductMergeGate(sentence, gate) {
   );
 }
 
+const PR_REVIEW_VAGUE_CLOSURE_RE = new RegExp(
+  String.raw`(?:\b(?:PR|pull\s+request|review\s+thread)(?:\s+(?:comment|reply|response))?\b[^.!?\n]{0,120}\b(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b|\b(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b[^.!?\n]{0,120}\b(?:PR|pull\s+request|review\s+thread)(?:\s+(?:comment|reply|response))?\b|\b(?:don['’]t|do\s+not|never|avoid)\b[^.!?\n]{0,100}\b(?:say|write|use|leave)\b[^.!?\n]{0,80}\b(?:I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b[^.!?\n]{0,100}\b(?:in|on)\s+(?:the\s+)?(?:PR|pull\s+request|review\s+thread)\b)`,
+  "i",
+);
+
 const PR_REVIEW_HANDOFF_RE = new RegExp(
   [
     String.raw`\b(?:you|we|${PR_REVIEW_HANDOFF_SUBJECTS})\b[^.!?]{0,80}\b(?:${PR_REVIEW_HANDOFF_MISS_ACTIONS})\b`,
-    String.raw`\b(?:don't|do not|never|avoid)\b[^.!?]{0,80}\b(?:say|write|use|leave)\b[^.!?]{0,80}\b(?:i\s+have\s+no\s+further(?:\s+check)?\s+feedback|no\s+further(?:\s+check)?\s+feedback)\b`,
-    String.raw`\b(?:i|you|we)\b[^.!?]{0,50}\b(?:should|must|need to)\b[^.!?]{0,30}\b(?:never|not)\b[^.!?]{0,30}\bleave\b[^.!?]{0,80}\b(?:ambiguous|vague|unclear)\b`,
     String.raw`\b(?:you|we)\s+missed\s*:\s*(?:\r?\n\s*[-*]\s*)+(?:${PR_REVIEW_HANDOFF_DETAILS})\b`,
     String.raw`\b(?:you|we)\s+(?:marked|called|classified)\s+(?:it|the\s+PR|the\s+pull\s+request)\s+(?:as\s+)?ready\b[^.!?]{0,80}\b(?:despite|although|without|ignoring)\b[^.!?]{0,40}\b(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)\b`,
     String.raw`\b(?:stop\s+saying|no\s+saying|don't\s+say|do\s+not\s+say|never\s+say)\s+["'“‘]?(?:someone else|another maintainer|another reviewer)\b[^.!?]{0,40}\b(?:needs?\s+to\s+approve|needs?\s+approval|must\s+approve|approval\s+is\s+required)\b`,
@@ -1048,6 +1051,7 @@ const PR_REVIEW_HANDOFF_MATCHER = {
   test(text) {
     return (
       PR_REVIEW_HANDOFF_RE.test(text) ||
+      PR_REVIEW_VAGUE_CLOSURE_RE.test(text) ||
       [...text.matchAll(PR_REVIEW_DIRECT_READY_MERGE_RE)].some((match) =>
         isUnblockedPrReviewReadyCorrection(text, match),
       ) ||
@@ -1061,11 +1065,23 @@ const PR_REVIEW_HANDOFF_MATCHER = {
 const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     true,
-    "Don't ever say 'I have no further feedback'; state what they should do next.",
+    "Don't ever say 'I have no further feedback' in a PR comment; state what they should do next.",
   ],
   [
     true,
     "I should never leave the PR comment ambiguous about the next action.",
+  ],
+  [
+    true,
+    "Don’t say in the pull request reply that ‘I have no further feedback’; name the next action.",
+  ],
+  [
+    false,
+    "I should never leave the customer report ambiguous about the next action.",
+  ],
+  [
+    false,
+    "Don't ever say 'I have no further feedback' in the customer report.",
   ],
   [false, "I have no further feedback on this check."],
   [
