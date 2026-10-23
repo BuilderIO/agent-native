@@ -1178,13 +1178,30 @@ describe("MCP OAuth route", () => {
       ]);
     });
 
-    it("does not count prompt=none as a login wall", async () => {
+    it("counts nothing for a silent prompt=none check, which serves no page", async () => {
       getSessionMock.mockResolvedValueOnce(null);
-      await openAuthorize({ prompt: "none" });
+      const { response } = await openAuthorize({ prompt: "none" });
 
-      expect(authorizeFunnelCalls().map(([name]) => name)).toEqual([
-        "$mcp_oauth_authorize_opened",
-      ]);
+      expect(response.headers.get("location")).toContain(
+        "error=login_required",
+      );
+      expect(authorizeFunnelCalls()).toEqual([]);
+    });
+
+    it("counts nothing when no sign-in page is configured", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      getConfiguredLoginHtmlMock.mockReturnValueOnce(undefined as never);
+      const { response } = await openAuthorize();
+
+      expect(response.status).toBe(401);
+      expect(authorizeFunnelCalls()).toEqual([]);
+    });
+
+    it("counts nothing when a signed-in visitor is redirected with an error", async () => {
+      const { response } = await openAuthorize({ scope: "not-a-scope" });
+
+      expect(response.headers.get("location")).toContain("error=invalid_scope");
+      expect(authorizeFunnelCalls()).toEqual([]);
     });
 
     it("keeps PKCE, state, client id and the redirect path out of the events", async () => {

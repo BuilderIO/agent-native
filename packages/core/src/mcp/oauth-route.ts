@@ -946,13 +946,6 @@ async function handleAuthorize(
     redirectUri,
     resource,
   };
-  // The consent POST is the same visit continuing, not a second open.
-  if (method === "GET") {
-    trackAuthorizeStage("opened", {
-      ...analyticsInput,
-      userId: session?.email,
-    });
-  }
   if (!session?.email) {
     if (params.prompt === "none") {
       return redirectWithOAuthError({
@@ -963,7 +956,12 @@ async function handleAuthorize(
       });
     }
     const loginPage = getConfiguredLoginHtml(event);
-    if (loginPage) trackAuthorizeStage("login_wall", analyticsInput);
+    if (loginPage) {
+      // An open is a page actually served; the consent POST is the same visit
+      // continuing, not a second open.
+      if (method === "GET") trackAuthorizeStage("opened", analyticsInput);
+      trackAuthorizeStage("login_wall", analyticsInput);
+    }
     return loginPage
       ? html(loginPage.html, loginPage.status)
       : oauthError("login_required", "Sign in required", 401);
@@ -988,6 +986,10 @@ async function handleAuthorize(
   );
 
   if (method === "GET") {
+    trackAuthorizeStage("opened", {
+      ...analyticsInput,
+      userId: session.email,
+    });
     return html(
       renderConsentPage({
         appName: options.appName || options.appId || "Agent-Native",
