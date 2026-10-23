@@ -635,6 +635,28 @@ or "3.1 days", a table sorts it by the number, and an empty cell shows "–".
 Don't turn durations into text such as "16 min" in SQL or a Data Program: text
 sorts "16 min" before "2 min".
 
+## Metric Tile Comparisons
+
+A metric tile can show its change from the period before: a chip such as
+"↘ 71%" or "↗ 5.1 hours" and "vs the 7 days before", with the previous value
+in the hover text. Set `config.comparison` and return the previous value in
+each row:
+
+```sql
+SELECT 170 AS value, 588 AS previous_value, 'the 7 days before' AS period
+```
+
+- `previousKey` names the previous-value column (default `previous_value`).
+  No previous value in a row means no comparison.
+- `periodKey` names the column that says which period that was (default
+  `period`); `label` names it when the rows don't.
+- `better` is `"higher"` (the default), `"lower"` (time to merge, failures) or
+  `"neither"`. It colors the change green or red, so a slower merge time shows
+  red.
+
+Percent tiles show the change in points, duration tiles as a duration, and a
+previous value of 0 as the change itself.
+
 ## Filters And Variables
 
 `filters[]` defines dashboard-wide controls. Filter values are available in panel SQL through `{{var}}` interpolation. Date ranges emit `{{<id>Start}}` and `{{<id>End}}`.

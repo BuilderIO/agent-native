@@ -117,6 +117,21 @@ export interface FunnelOutcomesConfig {
   optionalKey?: string;
 }
 
+/**
+ * Metric only: compares the tile's value with the period before. The previous
+ * value and the period's name are columns of the same row.
+ */
+export interface MetricComparisonConfig {
+  /** Column with the previous period's value. Default "previous_value". */
+  previousKey?: string;
+  /** Column naming the previous period, e.g. "the 7 days before". Default "period". */
+  periodKey?: string;
+  /** Names the previous period when the row has no period column. */
+  label?: string;
+  /** Which way is good. Default "higher"; "neither" leaves the change uncolored. */
+  better?: "higher" | "lower" | "neither";
+}
+
 export type DashboardTimeScope =
   | "dashboard"
   | "fixed-window"
@@ -154,6 +169,7 @@ export interface SqlPanelConfig {
   stacked?: boolean;
   legend?: boolean;
   valueLabels?: Record<string, string>;
+  comparison?: MetricComparisonConfig;
   sortable?: boolean;
   columns?: TableColumnConfig[];
   /** Table only: columns a clicked row can be split by in the side panel. */

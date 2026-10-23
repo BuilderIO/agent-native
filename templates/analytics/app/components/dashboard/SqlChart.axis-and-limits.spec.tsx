@@ -51,11 +51,7 @@ import {
 
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
-import {
-  SqlChart,
-  sortTooltipPayloadItems,
-  truncatedTableColumns,
-} from "./SqlChart";
+import { SqlChart, sortTooltipPayloadItems, tableFillColumn } from "./SqlChart";
 
 const CHART_SIZE = { width: 640, height: 320 };
 
@@ -325,7 +321,7 @@ describe("SqlChart axis labels, series order and point limits", () => {
     expect(container.querySelector("[data-chart-point-limit]")).toBeNull();
   });
 
-  it("caps long text cells with a hover title and leaves numbers alone", async () => {
+  it("gives the spare width to the first text column and keeps numbers whole", async () => {
     const longChannel =
       "Paid social / LinkedIn sponsored content retargeting audience";
     mocks.rows = [
@@ -345,28 +341,42 @@ describe("SqlChart axis labels, series order and point limits", () => {
       }),
     );
 
-    const cells = container.querySelectorAll("tbody td");
+    const cells = [...container.querySelectorAll("tbody td")] as HTMLElement[];
     const channel = cells[0].querySelector("span.truncate");
     expect(channel?.getAttribute("title")).toBe(longChannel);
     expect(channel?.textContent).toBe(longChannel);
+    // The fill column: max-width 0 keeps its text out of the table's minimum
+    // width, so it takes only the width the other columns leave.
+    expect(cells[0].style.maxWidth).toMatch(/^0(px)?$/);
+    expect(cells[0].style.minWidth).toBe("96px");
+
     const link = cells[1].querySelector("a");
     expect(link?.className).toContain("truncate");
+    expect(link?.className).toContain("max-w-80");
     expect(link?.getAttribute("href")).toBe(
       "https://example.com/a/very/long/landing/page",
     );
     expect(link?.getAttribute("title")).toBe(
       "https://example.com/a/very/long/landing/page",
     );
+    expect(cells[1].style.width).toBe("1px");
+
     expect(cells[2].querySelector(".truncate")).toBeNull();
-    const widths = [...cells].map(
-      (cell) => (cell as HTMLElement).style.maxWidth,
-    );
-    expect(widths[0]).toMatch(/^0(px)?$/);
-    expect(widths[1]).toMatch(/^0(px)?$/);
-    expect(widths[2]).toBe("");
+    expect(cells[2].className).toContain("text-right");
+    expect(cells[2].className).toContain("tabular-nums");
+    expect(cells[2].style.width).toBe("1px");
+    expect(cells[2].style.maxWidth).toBe("");
+    expect(cells[2].textContent).toBe("1,234");
+
+    const headers = [
+      ...container.querySelectorAll("thead th"),
+    ] as HTMLElement[];
+    expect(
+      headers.map((cell) => cell.className.includes("whitespace-nowrap")),
+    ).toEqual([true, true, true]);
   });
 
-  it("keeps the width a user set on a text column instead of capping it", async () => {
+  it("keeps the width a user set, as the fill column's minimum or another column's width", async () => {
     mocks.rows = [
       {
         channel: "Paid social / LinkedIn sponsored content",
@@ -377,57 +387,82 @@ describe("SqlChart axis labels, series order and point limits", () => {
     await render(
       panel("table", {
         columns: [
-          { key: "channel", width: 180 },
-          { key: "note" },
+          { key: "channel", width: 140 },
+          { key: "note", width: 180 },
           { key: "people", format: "number" },
         ],
       }),
     );
 
-    const headers = [...container.querySelectorAll("thead th")].map(
-      (cell) => (cell as HTMLElement).style.width,
-    );
-    expect(headers).toEqual(["180px", "60%", ""]);
+    const headers = [
+      ...container.querySelectorAll("thead th"),
+    ] as HTMLElement[];
+    expect(headers.map((cell) => cell.style.width)).toEqual([
+      "",
+      "180px",
+      "1px",
+    ]);
+    expect(headers[0].style.minWidth).toBe("140px");
     const cells = [...container.querySelectorAll("tbody td")] as HTMLElement[];
-    expect(cells[0].style.maxWidth).toBe("180px");
-    expect(cells[0].querySelector("span.truncate")?.getAttribute("title")).toBe(
-      "Paid social / LinkedIn sponsored content",
+    expect(cells[0].style.maxWidth).toMatch(/^0(px)?$/);
+    expect(cells[0].style.minWidth).toBe("140px");
+    expect(cells[1].style.width).toBe("180px");
+    expect(cells[1].style.maxWidth).toBe("180px");
+    const note = cells[1].querySelector("span.truncate");
+    expect(note?.getAttribute("title")).toBe(
+      "Retargeting audience from the September launch",
     );
-    expect(cells[1].style.maxWidth).toMatch(/^0(px)?$/);
+    expect(note?.className).not.toContain("max-w-80");
+  });
+
+  it("right-aligns text that is a number with a unit", async () => {
+    mocks.rows = [
+      { repo: "agent-native", wait: "4.8 days", share: "12%" },
+      { repo: "toolkit", wait: "3 min", share: "7.5%" },
+    ];
+    await render(
+      panel("table", {
+        columns: [{ key: "repo" }, { key: "wait" }, { key: "share" }],
+      }),
+    );
+
+    const headers = [
+      ...container.querySelectorAll("thead th"),
+    ] as HTMLElement[];
+    expect(
+      headers.map((cell) => cell.className.includes("text-right")),
+    ).toEqual([false, true, true]);
+    const [repo, wait] = [
+      ...container.querySelectorAll("tbody tr:first-child td"),
+    ] as HTMLElement[];
+    expect(repo.className).not.toContain("text-right");
+    expect(wait.className).toContain("text-right");
+    expect(wait.textContent).toBe("4.8 days");
   });
 });
 
-describe("truncatedTableColumns", () => {
-  it("truncates text columns but not numbers or dates", () => {
-    const columns = truncatedTableColumns(
-      [
-        { key: "name" },
-        { key: "count" },
-        { key: "share", format: "percent" },
-        { key: "code", format: "text" },
-        { key: "day" },
-        { key: "signedUp", format: "date" },
-      ],
-      [
-        {
-          name: "Mail",
-          count: "12",
-          share: 0.4,
-          code: "123",
-          day: "2026-10-01",
-          signedUp: "2026-10-01T09:30:00Z",
-        },
-        {
-          name: "Slides",
-          count: 7,
-          share: 0.6,
-          code: "456",
-          day: "2026-10-02",
-          signedUp: "2026-10-02T09:30:00Z",
-        },
-      ],
-    );
-    expect([...columns]).toEqual(["name", "code"]);
+describe("tableFillColumn", () => {
+  it("picks the first column that is not a number or a date", () => {
+    expect(
+      tableFillColumn(
+        [
+          { key: "count" },
+          { key: "signedUp", format: "date" },
+          { key: "name" },
+          { key: "note" },
+        ],
+        new Set(["count"]),
+      ),
+    ).toBe("name");
+  });
+
+  it("leaves a table of only numbers and dates without one", () => {
+    expect(
+      tableFillColumn(
+        [{ key: "day", format: "date" }, { key: "count" }],
+        new Set(["count"]),
+      ),
+    ).toBeUndefined();
   });
 });
 
