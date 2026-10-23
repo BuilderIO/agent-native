@@ -231,6 +231,23 @@ export default {
     expandSidebar: "توسيع الشريط الجانبي",
     collapseSidebar: "طي الشريط الجانبي",
   },
+  gettingStarted: {
+    title: "ابدأ",
+    progress: "اكتمل {{completeCount}} من {{totalCount}}",
+    collapse: "طي",
+    expand: "توسيع",
+    completed: "مكتمل",
+    loadError: "تعذّر تحميل القائمة",
+    retry: "إعادة المحاولة",
+    steps: {
+      createDesign: "أنشئ تصميمك الأول",
+      addBrand: "أضف علامتك التجارية",
+      useRealData: "استخدم بياناتك الحقيقية",
+      shareFeedback: "شارك للحصول على ملاحظات",
+      inviteTeammate: "ادعُ زميلًا",
+      saveTemplate: "احفظ تصميمًا كقالب",
+    },
+  },
   settings: {
     agentTitle: "إدارة الوكيل",
     agentDescription:
@@ -1374,7 +1391,7 @@ export default {
       sourceWriteUnavailable:
         "يمكن حاليًا كتابة كود Motion في تصميمات HTML المضمنة فقط.",
       unresolvedStylesheets:
-        "عالج أوراق الأنماط الخارجية قبل تعديل Motion أو إضافته.",
+        "عالج أوراق الأنماط الخارجية أو الأنماط المُنشأة أثناء التشغيل قبل تعديل Motion أو إضافته.",
       sourceConflict:
         "تغيّر مصدر Motion أثناء وجود تعديلات غير محفوظة في المخطط الزمني. أعد تحميل الكود للتخلي عن تلك التعديلات واستخدام المصدر الحالي.",
       reloadFromSource: "إعادة تحميل الكود",
@@ -1988,6 +2005,16 @@ export default {
     pinComment: "تثبيت تعليق",
     export: "يصدّر",
     downloadHtml: "تنزيل HTML",
+    exportHubspotHtml: "تصدير HTML لـ HubSpot",
+    hubspotConversion: {
+      title: "تحويل إلى HubSpot؟",
+      description:
+        "يحتاج {{name}} إلى تعديلات ليتوافق مع البريد الإلكتروني. سيُحفظ الإطار الأصلي.",
+      convert: "التحويل باستخدام الوكيل",
+      cancel: "إلغاء",
+      prompt:
+        "أنشئ نسخة بريد إلكتروني متوافقة مع HubSpot لهذا الإطار، مع الحفاظ على محتواه وهويته البصرية والإطار الأصلي. تحقق من تصدير HTML وافتح الإطار الجديد.",
+    },
     downloadPng: "تنزيل PNG",
     downloadSvg: "تنزيل SVG",
     downloadFigmaSvg: "تنزيل لـ Figma ‏(SVG)",
@@ -2179,6 +2206,9 @@ export default {
       htmlCreateError: "تعذر إنشاء تنزيل HTML",
       htmlDownloaded: "تم تنزيل HTML",
       htmlExportError: "تعذر تصدير HTML",
+      hubspotHtmlExporting: "جارٍ إعداد HTML لـ HubSpot…",
+      hubspotHtmlDownloaded: "تم تنزيل HTML لـ HubSpot",
+      hubspotHtmlExportError: "تعذر تصدير HTML لـ HubSpot",
       zipCreateError: "تعذر إنشاء تنزيل ZIP",
       zipDownloaded: "تم تنزيل ZIP",
       zipExportError: "تعذر تصدير ZIP",

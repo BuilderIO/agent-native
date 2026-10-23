@@ -198,6 +198,58 @@ it("checks an uncertain reply before retrying with its original operation ID", a
     }),
   );
 });
+it("retries an uncertain new thread on its Property or in its tab", async () => {
+  reconcile.mockResolvedValue("unresolved");
+  const uncertain = (id: string, extra: Partial<Comment>): Comment => ({
+    ...comment,
+    id: `optimistic-${id}`,
+    thread_id: `optimistic-${id}`,
+    mutation: {
+      operationId: id,
+      kind: "create",
+      status: "error",
+      ambiguous: true,
+    },
+    ...extra,
+  });
+  const cases: [Comment, Record<string, unknown>][] = [
+    [
+      uncertain("operation-property", {
+        property_id: "status",
+        property_database_id: "collection-2",
+      }),
+      {
+        propertyId: "status",
+        databaseId: "collection-2",
+        fieldId: undefined,
+        quotedText: undefined,
+      },
+    ],
+    [
+      uncertain("operation-tab", { field_id: "notes", quoted_text: "dolor" }),
+      {
+        fieldId: "notes",
+        propertyId: undefined,
+        databaseId: undefined,
+        quotedText: "dolor",
+      },
+    ],
+  ];
+  for (const [entry, target] of cases) {
+    createRetry.mockClear();
+    await act(async () => root.render(<Harness entry={entry} />));
+    await click("comments.checkSaved");
+    await click("comments.retry");
+    expect(createRetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientOperationId: entry.mutation!.operationId,
+        threadId: undefined,
+        parentId: undefined,
+        ...target,
+      }),
+    );
+  }
+});
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();

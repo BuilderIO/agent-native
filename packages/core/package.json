@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.216.0",
+  "version": "0.219.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -552,6 +552,7 @@
     "./client/onboarding/first-run-registry": "./dist/client/onboarding/first-run-registry.js",
     "./client/onboarding/first-run-status": "./dist/client/onboarding/first-run-status.js",
     "./client/onboarding/use-onboarding": "./dist/client/onboarding/use-onboarding.js",
+    "./client/onboarding/use-onboarding-checklist": "./dist/client/onboarding/use-onboarding-checklist.js",
     "./client/onboarding/use-preview-mode": "./dist/client/onboarding/use-preview-mode.js",
     "./client/org/hooks": "./dist/client/org/hooks.js",
     "./client/resources/mcp-connection-resume": "./dist/client/resources/mcp-connection-resume.js",
@@ -601,6 +602,7 @@
     "./notifications/types": "./dist/notifications/types.js",
     "./observability/types": "./dist/observability/types.js",
     "./onboarding/types": "./dist/onboarding/types.js",
+    "./onboarding/status": "./dist/onboarding/status.js",
     "./onboarding/workspace-services": "./dist/onboarding/workspace-services.js",
     "./onboarding/app-profile-data": "./dist/onboarding/app-profile-data.js",
     "./org/app-roles": "./dist/org/app-roles.js",

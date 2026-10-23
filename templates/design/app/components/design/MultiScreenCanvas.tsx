@@ -134,7 +134,7 @@ import {
 import { CanvasRulers, type CanvasRulersHandle } from "./CanvasRulers";
 import {
   CONTENT_SIZE_REPORT_MESSAGE_TYPE,
-  CONTENT_SIZE_REPORT_BRIDGE,
+  contentSizeReportBridge,
   resolveStableContentSizeSample,
   type ContentSizeSample,
 } from "./design-canvas/content-size-report";
@@ -14346,11 +14346,11 @@ const Screen = memo(function Screen({
         }),
         STATIC_PREVIEW_TWEAK_BRIDGE +
           hitTestResponderMarkup(screen.content) +
-          CONTENT_SIZE_REPORT_BRIDGE,
+          contentSizeReportBridge(metadata.heightMode),
       ),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitBodyToFrame, screen.content, staticSrcdocNeeded]);
+  }, [fitBodyToFrame, metadata.heightMode, screen.content, staticSrcdocNeeded]);
   const privateScreenshotPreview = useMemo(
     () =>
       preparePrivateReplayScreenshotPreviewDocument(srcdocWithHitTest, {

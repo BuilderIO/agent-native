@@ -238,7 +238,12 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 75));
     });
-  const input = () => document.querySelector<HTMLElement>(".ProseMirror")!;
+  // The reply's composer; the Discussion panel's composer for the page stays.
+  const replyInput = () =>
+    [...document.querySelectorAll<HTMLElement>(".ProseMirror")].find(
+      (editor) => !editor.closest("[data-discussion-composer]"),
+    ) ?? null;
+  const input = () => replyInput()!;
   const show = async (kind: "proposal" | "ordinary" = "proposal") => {
     await act(async () => root.render(<Owner kind={kind} />));
     await settle();
@@ -348,7 +353,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
       expect(confirmation()).toBeNull();
       expect(dismiss).not.toHaveBeenCalled();
       expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-      expect(document.querySelector(".ProseMirror")).toBeNull();
+      expect(replyInput()).toBeNull();
       expect(drafts.get(`${kind}-thread`).text).toBe("");
       await act(async () =>
         drafts.setOpenReply(
@@ -374,7 +379,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     await settle();
     expect(confirmation()).toBeNull();
     expect(dismiss).not.toHaveBeenCalled();
-    expect(document.querySelector(".ProseMirror")).toBeNull();
+    expect(replyInput()).toBeNull();
   });
 
   it.each([{ isComposing: true }, { keyCode: 229 }])(

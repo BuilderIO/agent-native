@@ -87,7 +87,7 @@ describe("agent chat startup", () => {
     );
 
     for (const handler of [productionHandler, anonymousHandler, devHandler]) {
-      expect(handler).toContain('"run_started"');
+      expect(handler).toContain("trackAgentChatRunStarted(");
     }
   });
 

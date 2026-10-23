@@ -20,6 +20,7 @@ import {
   contentDatabaseItemsPageQueryKey,
   contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseConstrainedQueryFilter,
+  contentDatabaseExcerptContainingDocumentFilter,
   contentDatabaseQueryKey,
   fetchCompleteContentDatabaseList,
   invalidateBuilderBodyHydrationQueries,
@@ -209,6 +210,37 @@ describe("contentDatabaseConstrainedQueryFilter", () => {
 
     expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
+  });
+});
+
+describe("contentDatabaseExcerptContainingDocumentFilter", () => {
+  it("targets only collection reads that show the page's text", () => {
+    const queryClient = new QueryClient();
+    const withExcerpt = [
+      "action",
+      "get-content-database",
+      { documentId: "notes", limit: 100 },
+    ] as const;
+    const withoutExcerpt = [
+      "action",
+      "get-content-database",
+      { documentId: "tasks", limit: 100 },
+    ] as const;
+    queryClient.setQueryData(withExcerpt, {
+      items: [{ document: { id: "page" }, excerpt: "We ship." }],
+    });
+    queryClient.setQueryData(withoutExcerpt, {
+      items: [{ document: { id: "page" } }],
+    });
+
+    void queryClient.invalidateQueries(
+      contentDatabaseExcerptContainingDocumentFilter("page"),
+    );
+
+    expect(queryClient.getQueryState(withExcerpt)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(withoutExcerpt)?.isInvalidated).toBe(
+      false,
+    );
   });
 });
 
@@ -1113,6 +1145,62 @@ describe("readCachedContentDatabaseResponse", () => {
     expect(
       readCachedContentDatabaseResponse(queryClient, "database-page"),
     ).toBe(exact);
+  });
+
+  it("skips a cached read without page text for a List that shows it", () => {
+    const showingPageText = (
+      excerpt: string | undefined,
+    ): ContentDatabaseResponse => {
+      const base = databaseResponse();
+      return {
+        ...base,
+        database: {
+          ...base.database,
+          viewConfig: {
+            ...base.database.viewConfig,
+            views: [
+              {
+                id: "notes",
+                name: "Notes",
+                type: "list",
+                sorts: [],
+                filters: [],
+                columnWidths: {},
+                itemLayout: {
+                  leading: { kind: "page_icon", propertyId: null },
+                  titleWeight: "bold",
+                  line2: { source: "page", propertyId: null, lines: 2 },
+                  line3: [],
+                  trailing: [],
+                },
+              },
+            ],
+          },
+        },
+        items: base.items.map((item) => ({ ...item, excerpt })),
+      };
+    };
+    const unpaged = showingPageText(undefined);
+    const paged = showingPageText("We ship.");
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(contentDatabaseQueryKey("database-page"), unpaged);
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBeUndefined();
+
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      paged,
+    );
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBe(paged);
   });
 
   it("never seeds an unavailable (deleted database) payload", () => {

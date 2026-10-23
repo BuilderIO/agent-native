@@ -11,6 +11,8 @@ export type SuggestionPresentationContext = {
 export type SuggestionPresentationNode =
   | { type: "text"; value: string }
   | { type: "indent"; value: string }
+  | { type: "block"; value: string }
+  | { type: "lineBreak" }
   | {
       type: "strong" | "emphasis" | "strike" | "code" | "underline";
       children: SuggestionPresentationNode[];
@@ -120,7 +122,12 @@ function stripInlineContext(
       const value = node.value.slice(context.length);
       return value ? { type: "text", value } : null;
     }
-    if (node.type === "indent") return node;
+    if (
+      node.type === "indent" ||
+      node.type === "block" ||
+      node.type === "lineBreak"
+    )
+      return node;
     const children = node.children.flatMap((child) => {
       const strippedChild = stripNode(child);
       return strippedChild ? [strippedChild] : [];
@@ -246,11 +253,19 @@ function computeSuggestionTextPresentationForSource(
       ? text.replace(/ /g, "·").replace(/\t/g, "⇥")
       : text
     ).replace(/\n/g, "↵");
-  return parts.flatMap((part) =>
-    part.type === "indent"
-      ? [{ type: "indent" as const, value: part.text }]
+  // A line break beside text breaks the line; on its own it stays a visible ↵.
+  const breaksLines = parts.some(
+    (part) => part.type === "text" && /\S/.test(part.text),
+  );
+  return parts.flatMap((part): SuggestionPresentationNode[] =>
+    part.type === "indent" || part.type === "block"
+      ? [{ type: part.type, value: part.text }]
       : part.type === "break"
-        ? [{ type: "text" as const, value: part.text }]
+        ? [
+            breaksLines
+              ? { type: "lineBreak" }
+              : { type: "text", value: part.text },
+          ]
         : presentationNode(
             { type: "text", text: visibleText(part.text), marks: part.marks },
             (text) => text,

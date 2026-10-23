@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   many: vi.fn(),
   cas: vi.fn(),
   hasCollab: vi.fn(),
+  isLiveBodyWriterPage: vi.fn(),
   awareness: vi.fn(),
   capture: vi.fn(),
 }));
@@ -33,6 +34,10 @@ vi.mock("./_document-save-row.js", async (original) => ({
   ...(await original<typeof import("./_document-save-row.js")>()),
   createDocumentFlushCapture: () => mocks.capture,
   readDocumentSaveRow: mocks.capture,
+}));
+
+vi.mock("../server/lib/live-body-writer.js", () => ({
+  isLiveBodyWriterPage: mocks.isLiveBodyWriterPage,
 }));
 
 import {
@@ -153,6 +158,7 @@ describe("flushOpenDocumentEditorToSql", () => {
     mocks.hasCollab.mockResolvedValue(false);
     mocks.awareness.mockResolvedValue([editorRow(123)]);
     mocks.capture.mockResolvedValue(SQL_ROW);
+    mocks.isLiveBodyWriterPage.mockResolvedValue(false);
     mocks.get.mockImplementation(
       async (email, key) => store.get(address(email, key)) ?? null,
     );
@@ -210,6 +216,41 @@ describe("flushOpenDocumentEditorToSql", () => {
     expect(requests[1].prepareToken).toBe(requests[0].phaseToken);
     expect(mocks.capture).toHaveBeenCalledOnce();
     expect(store.size).toBe(0);
+  });
+
+  it("returns at once for a switched page's body, whose tabs already wrote SQL", async () => {
+    mocks.isLiveBodyWriterPage.mockResolvedValue(true);
+
+    expect(await settle()).toEqual({ value: { status: "live_copy" } });
+    expect(mocks.isLiveBodyWriterPage).toHaveBeenCalledWith("doc-1");
+    expect(mocks.cas).not.toHaveBeenCalled();
+  });
+
+  it("reads no page write path when no editor is open", async () => {
+    mocks.awareness.mockResolvedValue([]);
+
+    expect(await settle()).toEqual({ value: { status: "no_open_editor" } });
+    expect(mocks.isLiveBodyWriterPage).not.toHaveBeenCalled();
+  });
+
+  it("still asks a switched page's editor to save a Blocks field", async () => {
+    mocks.isLiveBodyWriterPage.mockResolvedValue(true);
+    mocks.capture.mockResolvedValue({
+      ...SQL_ROW,
+      kind: "property",
+      propertyId: "notes",
+    });
+
+    await expect(
+      flushOpenDocumentEditorToSql({
+        documentId: "doc-1",
+        propertyId: "notes",
+      }),
+    ).resolves.toHaveProperty("snapshot.propertyId", "notes");
+    const requests = mocks.cas.mock.calls
+      .filter(([, key, , next]) => key === "flush-request-doc-1" && next)
+      .map((call) => call[3]);
+    expect(requests[0]).toMatchObject({ propertyId: "notes" });
   });
 
   it.each([undefined, "notes"])(

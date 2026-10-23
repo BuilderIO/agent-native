@@ -167,9 +167,10 @@ describe("live heading indentation after a paragraph", () => {
       fromAffinity: "right",
       toAffinity: "left",
     });
+    // Heading syntax alone has no text, so it sits where the heading's starts.
     expect(
       suggestionFormattingSourceRange("Before\n## Heading", 7, 10),
-    ).toBeNull();
+    ).toMatchObject({ from: 6, to: 6 });
     expect(suggestionFormattingSourceRange("**Bold**", 1, 1)).toBeNull();
     expect(suggestionFormattingSourceRange("One\nTwo", 3, 3)).toMatchObject({
       from: 3,

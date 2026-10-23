@@ -1,5 +1,47 @@
 # @agent-native/toolkit
 
+## 0.219.0
+
+### Minor Changes
+
+- 838e1ae: App-registered commands can render an opt-in preview inside the selected row.
+- 7b293b2: Expose the terminal status of action tool calls to custom chat renderers while keeping `isRunning` available.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 86429da: Keep the agent chat send button and tabs visible in narrow panels: the composer's model picker truncates instead of pushing the toolbar past the panel edge, and chat tabs shrink before scrolling.
+- Updated dependencies
+  - @agent-native/agentkit@0.219.0
+
+## 0.218.0
+
+### Minor Changes
+
+- fc038a0: Add opt-in transcript positioning and chart presentation controls to shared chat, including regular tool-call renderers.
+
+### Patch Changes
+
+- 84e4b2e: Add an ownership-aware chat history adapter that combines owned chats, shared chats, and eligible started drafts with independent sections, paging, and failure-safe optimistic mutations.
+- Release all public npm packages with a patch version bump.
+- 84e4b2e: Keep shared chat rows on one line with the owner's avatar, give every chat row a Copy link menu, and stop the share panel's people search from opening an empty "No people found" list.
+- Updated dependencies
+  - @agent-native/agentkit@0.218.0
+
+## 0.217.0
+
+### Minor Changes
+
+- 6c3f3cb: Let each command menu add ordered app commands, nested pages, selected-row previews, filter launchers, no-match suggestions, and an embedded chat slot without replacing the shared menu. Apps can also choose a shared wide dialog, supply search and empty states, report when dynamic result components contain rows, control selection and result placement, and opt into custom footer content or portal containers.
+- 4c43f86: Let each settings shell declare app-owned pages, ordered navigation sections, nested routes, custom controls, optional widget, chat, and toggle slots, and expose the shared theme-family setting to app-owned pages.
+- 9e4119f: Expose the shared toast notification helper from the toolkit UI package.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.217.0
+
 ## 0.216.0
 
 ### Minor Changes
@@ -1268,23 +1310,5 @@
 
 - dab8787: Call model effort "Effort" in chat controls and default model selections to GPT-5.6 Luna with high effort.
 - dab8787: Allow Slides to use a cleaner AI editing badge without a redundant status dot.
-
-## 0.13.8
-
-### Patch Changes
-
-- c41fd16: Use theme tokens for collaboration edit highlight labels.
-
-## 0.13.7
-
-### Patch Changes
-
-- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-## 0.13.6
-
-### Patch Changes
-
-- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
