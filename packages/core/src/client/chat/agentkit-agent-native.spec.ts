@@ -2,9 +2,14 @@ import { AgentKitClient } from "@agent-native/agentkit/client";
 import {
   AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
   createAgentKitProtocolVersionOffer,
+  fingerprintAgentSubmissionAttachment,
   resumeEntryFromApproval,
+  submissionAttachmentsMatch,
 } from "@agent-native/agentkit/protocol";
-import type { AgentEvent } from "@agent-native/agentkit/protocol";
+import type {
+  AgentEvent,
+  AgentSubmissionPayload,
+} from "@agent-native/agentkit/protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -29,6 +34,7 @@ import {
   createHttpAgentChatRuntime,
   type AgentChatRuntime,
   type AgentChatRuntimeKnownEvent,
+  type AgentChatRuntimeTurnInput,
 } from "./runtime.js";
 
 const runStateMocks = vi.hoisted(() => ({
@@ -6418,13 +6424,25 @@ describe("createAgentNativeAgentKitTransport", () => {
 
   it("loads durable history and promotes queued work into a real stream", async () => {
     const queueWrites: unknown[] = [];
+    const references = [
+      {
+        type: "file" as const,
+        path: "/uploads/brief.pdf",
+        name: "brief.pdf",
+        source: "upload",
+      },
+    ];
+    const options = { model: "test-model", reasoningEffort: "high" as const };
     let queuedMessages = [
       {
         id: "queued-1",
         text: "Continue after approval",
         createdAt: "2026-08-29T00:02:00.000Z",
+        references,
+        options,
       },
     ];
+    let startRunBody: Record<string, unknown> | undefined;
     let threadData = JSON.stringify({
       messages: [
         {
@@ -6486,6 +6504,10 @@ describe("createAgentNativeAgentKitTransport", () => {
           return json({ ok: true });
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
+          startRunBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
           const stream = [
             { type: "text", text: "Release continued." },
             {
@@ -6544,6 +6566,8 @@ describe("createAgentNativeAgentKitTransport", () => {
       },
     });
     expect(transport.capabilities?.suggestions).toBe(true);
+    expect(startRunBody?.references).toEqual(references);
+    expect(startRunBody?.options).toEqual(options);
     const events: AgentEvent[] = [];
     if (promoted) {
       for await (const event of transport.subscribeToRun({
@@ -6614,6 +6638,154 @@ describe("createAgentNativeAgentKitTransport", () => {
     });
   });
 
+  it("preserves SDK model and reasoning selectors through queue promotion", async () => {
+    const apiUrl = "/_agent-native/agent-chat";
+    const threadId = "thread-queued-selectors";
+    const options = {
+      model: "test-model-non-default",
+      reasoningEffort: "medium" as const,
+    };
+    let queuedMessages: Array<Record<string, unknown>> = [];
+    let threadData = JSON.stringify({ messages: [], queuedMessages });
+    const startRunBodies: Array<Record<string, unknown>> = [];
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.includes("/_agent-native/agent-engine/status")) {
+          return json({ configured: true, chatEligible: true });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json({ active: false, status: "complete" });
+        }
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          if (mutation.type === "claim") {
+            queuedMessages = queuedMessages.map((queued) =>
+              queued.id === mutation.messageId
+                ? {
+                    ...queued,
+                    promotionClaim: {
+                      id: mutation.claimId,
+                      expiresAt: Date.now() + 10_000,
+                    },
+                  }
+                : queued,
+            );
+            const claimedMessage = queuedMessages.find(
+              (queued) => queued.id === mutation.messageId,
+            );
+            threadData = JSON.stringify({ messages: [], queuedMessages });
+            return json({ queuedMessages, claimedMessage });
+          }
+          if (mutation.type === "release") {
+            queuedMessages = queuedMessages.map((queued) => {
+              if (queued.id !== mutation.messageId) return queued;
+              const { promotionClaim: _claim, ...released } = queued;
+              return released;
+            });
+          }
+          threadData = JSON.stringify({ messages: [], queuedMessages });
+          return json({ queuedMessages });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          threadData = JSON.parse(String(init?.body)).threadData;
+          return json({ ok: true });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            title: "Selector preservation",
+            createdAt: "2026-10-21T00:00:00.000Z",
+            updatedAt: "2026-10-21T00:00:00.000Z",
+            threadData,
+          });
+        }
+        if (url.endsWith(apiUrl) && method === "POST") {
+          const body = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          startRunBodies.push(body);
+          if (
+            typeof body.queuedMessageId === "string" &&
+            typeof body.queuedMessageClaimId === "string"
+          ) {
+            return new Response(
+              `data: ${JSON.stringify({ type: "text", text: "Promoted." })}\n\ndata: ${JSON.stringify({ type: "done" })}\n\n`,
+              {
+                headers: {
+                  "content-type": "text/event-stream",
+                  "x-run-id": "run-promoted-selectors",
+                },
+              },
+            );
+          }
+          const submission = body.submissionPayload as {
+            id: string;
+            text: string;
+          };
+          const queued = {
+            id: submission.id,
+            threadId,
+            text: submission.text,
+            createdAt: "2026-10-21T00:00:01.000Z",
+            options: body.options,
+          };
+          queuedMessages = [queued];
+          threadData = JSON.stringify({ messages: [], queuedMessages });
+          return json(
+            { state: "queued", message: queued, activeRunId: "run-current" },
+            202,
+          );
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl,
+        fetch: fetcher as typeof fetch,
+      }),
+      adapter: { now: () => "2026-10-21T00:00:00.000Z" },
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      const handle = await client.sendMessage({
+        threadId,
+        text: "Use the selected model and effort",
+        options,
+      });
+      expect("queuedMessageId" in handle).toBe(true);
+      expect(startRunBodies[0]).toMatchObject({
+        options,
+        model: options.model,
+        effort: options.reasoningEffort,
+        submissionPayload: { options },
+      });
+      expect(queuedMessages[0]).toMatchObject({ options });
+
+      const promoted = await transport.steerQueuedMessage?.({
+        threadId,
+        messageId: (handle as { queuedMessageId: string }).queuedMessageId,
+      });
+
+      expect(promoted).toMatchObject({ runId: "run-promoted-selectors" });
+      expect(startRunBodies[1]).toMatchObject({
+        options,
+        model: options.model,
+        effort: options.reasoningEffort,
+        queuedMessageId: queuedMessages[0]?.id,
+        queuedMessageClaimId: expect.any(String),
+      });
+    } finally {
+      await client.shutdown();
+    }
+  });
+
   it("persists a queue reorder as an atomic message mutation", async () => {
     const queueWrites: unknown[] = [];
     let queuedMessages = [
@@ -6653,7 +6825,11 @@ describe("createAgentNativeAgentKitTransport", () => {
           const index = queuedMessages.findIndex(
             (message) => message.id === mutation.messageId,
           );
-          if (index > 0) {
+          if (mutation.type === "cancel" && index >= 0) {
+            queuedMessages = queuedMessages.filter(
+              (message) => message.id !== mutation.messageId,
+            );
+          } else if (index > 0) {
             queuedMessages = [
               queuedMessages[index]!,
               ...queuedMessages.filter(
@@ -6676,9 +6852,14 @@ describe("createAgentNativeAgentKitTransport", () => {
       threadId: "thread-queue",
       messageId: "queued-three",
     });
+    await transport.removeQueuedMessage?.({
+      threadId: "thread-queue",
+      messageId: "queued-two",
+    });
 
     expect(queueWrites).toEqual([
       { type: "moveToTop", messageId: "queued-three" },
+      { type: "cancel", messageId: "queued-two" },
     ]);
     await transport.dispose();
   });
@@ -9613,6 +9794,146 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("keeps submission attachment identity across host runtime mapping", async () => {
+    const file = {
+      type: "file" as const,
+      name: "report.pdf",
+      mediaType: "application/pdf",
+      fileId: "file-report",
+      url: "https://files.example.test/report.pdf",
+    };
+    const requestAttachment = {
+      type: "image" as const,
+      name: "chart.png",
+      contentType: "image/png",
+      data: "data:image/png;base64,SGVsbG8=",
+      url: "https://files.example.test/chart-resized.png",
+      referenceUrl: "https://files.example.test/chart-original.png",
+    };
+    const submissionPayload: AgentSubmissionPayload = {
+      threadId: "thread-local-attachments",
+      id: "message-local-attachments",
+      text: "Review these attachments.",
+      attachments: [
+        {
+          type: "file",
+          name: file.name,
+          mediaType: file.mediaType,
+          fingerprint: fingerprintAgentSubmissionAttachment(file, "file"),
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: requestAttachment.name,
+          contentType: requestAttachment.contentType,
+          fingerprint: fingerprintAgentSubmissionAttachment(
+            requestAttachment,
+            "image",
+          ),
+        },
+      ],
+    };
+    let mappedAttachments: AgentChatRuntimeTurnInput["attachments"];
+    const startTurn = vi.fn(async (input: AgentChatRuntimeTurnInput) => {
+      mappedAttachments = input.attachments;
+      return {
+        id: "turn-local-attachments",
+        runId: "run-local-attachments",
+        sessionId: "thread-local-attachments",
+        events: (async function* () {
+          yield { type: "done", reason: "complete" } as const;
+        })(),
+      };
+    });
+    const runtime: AgentChatRuntime = {
+      id: "test:local-attachments",
+      kind: "external-agent",
+      label: "Local test runtime",
+      capabilities: {
+        messages: {
+          streaming: true,
+          history: true,
+          structuredContent: true,
+          attachments: true,
+        },
+        tools: {
+          events: true,
+          hostTools: true,
+          inputStreaming: true,
+          resultStreaming: true,
+        },
+        sessions: { create: true, restore: true, persistent: true },
+        cancellation: {
+          abortSignal: true,
+          explicitCancel: true,
+          interrupt: true,
+        },
+      },
+      async createSession(input) {
+        return {
+          id: input?.id ?? "thread-local-attachments",
+          threadId: input?.threadId,
+          runtimeId: "test:local-attachments",
+          startTurn,
+        };
+      },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      runtime,
+      fetch: vi.fn(async () => json({ error: "Unexpected request" }, 500)),
+    });
+
+    const { runId } = await transport.startRun({
+      threadId: submissionPayload.threadId,
+      messages: [
+        {
+          id: "user-local-attachments",
+          role: "user",
+          parts: [{ type: "text", text: submissionPayload.text }, file],
+        },
+      ],
+      requestAttachments: [requestAttachment],
+      submissionPayload,
+    });
+    for await (const _event of transport.subscribeToRun({
+      threadId: submissionPayload.threadId,
+      runId,
+    })) {
+      // Drain the local run to close its event pump.
+    }
+
+    expect(mappedAttachments).toEqual([
+      expect.objectContaining({
+        type: "file",
+        name: file.name,
+        id: file.fileId,
+        mediaType: file.mediaType,
+        contentType: file.mediaType,
+        url: file.url,
+      }),
+      expect.objectContaining({
+        type: "file",
+        name: requestAttachment.name,
+        contentType: requestAttachment.contentType,
+        url: requestAttachment.referenceUrl,
+        referenceOnly: true,
+      }),
+      expect.objectContaining({
+        type: "image",
+        name: requestAttachment.name,
+        contentType: requestAttachment.contentType,
+        data: requestAttachment.data,
+        url: requestAttachment.url,
+        referenceUrl: requestAttachment.referenceUrl,
+      }),
+    ]);
+    expect(
+      submissionAttachmentsMatch(submissionPayload, mappedAttachments ?? []),
+    ).toBe(true);
+    await transport.dispose();
+  });
+
   it("runs the supplied host runtime through AgentKit", async () => {
     const fetcher = vi.fn(async () =>
       json({ error: "Unexpected request" }, 500),
@@ -9807,6 +10128,7 @@ describe("createAgentNativeAgentKitTransport", () => {
         type: "file",
         name: "original.png",
         contentType: "image/png",
+        mediaType: "image/png",
         url: "https://storage.example.test/original.png",
         referenceOnly: true,
       },
@@ -9815,6 +10137,7 @@ describe("createAgentNativeAgentKitTransport", () => {
         name: "optimized.png",
         contentType: "image/png",
         url: "https://storage.example.test/optimized.png",
+        referenceUrl: "https://storage.example.test/original.png",
       },
     ]);
     expect(queueWrites).toHaveLength(2);
@@ -9840,6 +10163,86 @@ describe("createAgentNativeAgentKitTransport", () => {
         ],
         requestAttachments: [queuedImage],
       },
+    ]);
+    await transport.dispose();
+  });
+
+  it("reattaches to a queue run submitted by the inbox drain", async () => {
+    const threadId = "thread-receipt-managed";
+    const queueWrites: Array<Record<string, unknown>> = [];
+    const queuedMessages = [
+      {
+        id: "queued-receipt-managed",
+        threadId,
+        text: "Let the inbox retry this prompt",
+      },
+    ];
+    let startRequests = 0;
+    let receiptReads = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith(
+            `/threads/${threadId}/queue/queued-receipt-managed/receipt`,
+          )
+        ) {
+          receiptReads += 1;
+          return receiptReads === 1
+            ? json({ state: "queued" })
+            : json({ state: "submitted", submittedRunId: "run-inbox-drain" });
+        }
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          queueWrites.push(mutation);
+          return json({ queuedMessages, receiptManaged: true });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ queuedMessages }),
+          });
+        }
+        if (url.endsWith("/_agent-native/agent-chat")) {
+          startRequests += 1;
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.steerQueuedMessage?.({
+        threadId,
+        messageId: "queued-receipt-managed",
+      }),
+    ).rejects.toMatchObject({ code: "queue_item_busy", retryable: true });
+    await expect(
+      transport.steerQueuedMessage?.({
+        threadId,
+        messageId: "queued-receipt-managed",
+      }),
+    ).resolves.toEqual({ runId: "run-inbox-drain", alreadySubmitted: true });
+
+    expect(startRequests).toBe(0);
+    expect(receiptReads).toBe(2);
+    expect(queueWrites).toEqual([
+      {
+        type: "claim",
+        messageId: "queued-receipt-managed",
+        claimId: expect.any(String),
+      },
+      {
+        type: "claim",
+        messageId: "queued-receipt-managed",
+        claimId: expect.any(String),
+      },
+    ]);
+    expect(queuedMessages).toEqual([
+      expect.objectContaining({ id: "queued-receipt-managed" }),
     ]);
     await transport.dispose();
   });
@@ -10103,6 +10506,55 @@ describe("createAgentNativeAgentKitTransport", () => {
     await expect(
       transport.listQueuedMessages?.({ threadId: "missing-thread" }),
     ).rejects.toThrow("thread missing-thread does not exist");
+  });
+
+  it("uses the scoped receipt endpoint to check queued submission status", async () => {
+    const threadId = "thread-queued-receipt-status";
+    let receiptExists = true;
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      if (
+        String(input).endsWith(
+          `/threads/${threadId}/queue/queued-message/receipt`,
+        )
+      ) {
+        return receiptExists
+          ? json({ state: "submitted", submittedRunId: "run-submitted" })
+          : json({ error: "Not found" }, 404);
+      }
+      return json({ error: "Not found" }, 404);
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    try {
+      await expect(
+        transport.getQueuedSubmissionStatus?.({
+          threadId,
+          messageId: "queued-message",
+        }),
+      ).resolves.toEqual({
+        state: "submitted",
+        submittedRunId: "run-submitted",
+      });
+      expect(fetcher).toHaveBeenCalledWith(
+        `/_agent-native/agent-chat/threads/${threadId}/queue/queued-message/receipt`,
+        expect.objectContaining({ headers: expect.any(Headers) }),
+      );
+      expect(fetcher).toHaveBeenCalledTimes(1);
+
+      receiptExists = false;
+      await expect(
+        transport.getQueuedSubmissionStatus?.({
+          threadId,
+          messageId: "queued-message",
+        }),
+      ).resolves.toBeNull();
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      await transport.dispose();
+    }
   });
 
   it("preserves an unreadable error response as an explicit request failure", async () => {

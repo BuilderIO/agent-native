@@ -2107,6 +2107,9 @@ export const AgentKitAssistantChat = forwardRef<
           branchNavigation={props.branchNavigation}
           loadRunUsage={loadRunUsage}
           buildFeedbackReport={formatFeedbackReport}
+          workedForRowLayout={props.workedForRowLayout}
+          dataChartLayout={props.dataChartLayout}
+          formatWorkedForDuration={props.formatWorkedForDuration}
           onThreadForked={(thread) => props.onForkedThread?.(thread.id)}
           onCopyMessage={({ text }) => {
             const html = renderMarkdownToClipboardHtml(text);
@@ -5054,6 +5057,7 @@ const AgentKitAssistantChatBody = forwardRef<
         className={props.className}
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}
         hasRenderedMessages={hasRenderedMessages}
+        transcriptLayout={props.transcriptLayout}
         emptyComposerPlacement={
           props.centerComposerWhenEmpty && !isRestoring ? "center" : "bottom"
         }
@@ -6463,6 +6467,7 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           args={input}
           argsText={JSON.stringify(input)}
           result={output}
+          status={value.status}
           isError={value.status === "failed"}
           isRunning={value.status === "running"}
           structuredMeta={metadata}
@@ -6470,6 +6475,9 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           chatUI={asRecord(metadata.chatUI) as never}
           activity={metadata.activity === true}
           isActiveTail={active === true}
+          workedForRowLayout={surface.props.workedForRowLayout}
+          dataChartLayout={surface.props.dataChartLayout}
+          formatWorkedForDuration={surface.props.formatWorkedForDuration}
         />
       </SuppressInlineOpenAppContext.Provider>
     </ChatRunningContext.Provider>

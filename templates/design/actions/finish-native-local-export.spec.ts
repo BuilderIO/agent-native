@@ -49,7 +49,8 @@ const input = {
   result: { status: "completed", attachmentRef: "test-attachment" },
 };
 beforeEach(() => {
-  mocks.save.mockClear();
+  mocks.save.mockReset();
+  mocks.save.mockImplementation(async () => true);
   mocks.dimensions = { width: 1600, height: 976 };
   mocks.state = {
     requestId: input.requestId,
@@ -99,5 +100,95 @@ describe("native export completion dimensions", () => {
       statusCode: 422,
     });
     expect(mocks.save).not.toHaveBeenCalled();
+  });
+});
+
+describe("native export claim failure", () => {
+  const failed = {
+    ...input,
+    result: {
+      status: "failed",
+      code: "client-unavailable",
+      message: "client-unavailable",
+    },
+  };
+
+  it("records a typed failure for the exact pending request", async () => {
+    delete mocks.state.ownerDocumentId;
+    mocks.state.status = "pending";
+    mocks.state.targetDocumentId = input.documentId;
+    await expect(
+      (finish as unknown as { run(args: unknown): Promise<unknown> }).run(
+        failed,
+      ),
+    ).resolves.toMatchObject({
+      requestId: input.requestId,
+      status: "failed",
+      failure: { code: "client-unavailable" },
+    });
+    expect(mocks.save).toHaveBeenCalledWith(
+      "native-local-export:design-test:test-tab",
+      expect.objectContaining({ status: "pending" }),
+      expect.objectContaining({
+        status: "failed",
+        ownerDocumentId: input.documentId,
+      }),
+    );
+  });
+
+  it("cannot fail a request claimed by another editor document", async () => {
+    mocks.state.ownerDocumentId = "22222222-2222-4222-8222-222222222222";
+    await expect(
+      (finish as unknown as { run(args: unknown): Promise<unknown> }).run(
+        failed,
+      ),
+    ).rejects.toMatchObject({ errorCode: "native_export_document_replaced" });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("cannot fail a pending request bound to another editor document", async () => {
+    delete mocks.state.ownerDocumentId;
+    mocks.state.status = "pending";
+    mocks.state.targetDocumentId = "22222222-2222-4222-8222-222222222222";
+    await expect(
+      (finish as unknown as { run(args: unknown): Promise<unknown> }).run(
+        failed,
+      ),
+    ).rejects.toMatchObject({ errorCode: "native_export_document_replaced" });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("cannot fail an unbound legacy pending request", async () => {
+    delete mocks.state.ownerDocumentId;
+    mocks.state.status = "pending";
+    await expect(
+      (finish as unknown as { run(args: unknown): Promise<unknown> }).run(
+        failed,
+      ),
+    ).rejects.toMatchObject({ errorCode: "native_export_document_replaced" });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("cannot fail a request another document claims during the state change", async () => {
+    delete mocks.state.ownerDocumentId;
+    mocks.state.status = "pending";
+    mocks.state.targetDocumentId = input.documentId;
+    mocks.save.mockImplementationOnce(async () => {
+      mocks.state = {
+        ...mocks.state,
+        status: "running",
+        ownerDocumentId: "22222222-2222-4222-8222-222222222222",
+      };
+      return false;
+    });
+    await expect(
+      (finish as unknown as { run(args: unknown): Promise<unknown> }).run(
+        failed,
+      ),
+    ).rejects.toMatchObject({ errorCode: "native_export_request_conflict" });
+    expect(mocks.state).toMatchObject({
+      status: "running",
+      ownerDocumentId: "22222222-2222-4222-8222-222222222222",
+    });
   });
 });

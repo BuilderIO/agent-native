@@ -13,7 +13,7 @@ describe("passiveMotionSourceReadCapability", () => {
         {
           errorCode: "motion_html_source_unresolved_stylesheet",
           message:
-            "Resolve external stylesheets before editing or adding Motion.",
+            "Resolve external or runtime-generated styles before editing or adding Motion.",
           statusCode: 422,
         },
         "screen-1",
@@ -22,7 +22,8 @@ describe("passiveMotionSourceReadCapability", () => {
       status: "unsupported",
       sourceRef: "screen-1",
       errorCode: "motion_html_source_unresolved_stylesheet",
-      reason: "Resolve external stylesheets before editing or adding Motion.",
+      reason:
+        "Resolve external or runtime-generated styles before editing or adding Motion.",
     });
   });
 
@@ -50,7 +51,7 @@ describe("passiveMotionSourceReadCapability", () => {
         {
           errorCode: "motion_html_source_unresolved_stylesheet",
           message:
-            "Resolve external stylesheets before editing or adding Motion.",
+            "Resolve external or runtime-generated styles before editing or adding Motion.",
           statusCode: 422,
         },
         "screen-1",
@@ -59,7 +60,8 @@ describe("passiveMotionSourceReadCapability", () => {
       status: "unsupported",
       sourceRef: "screen-1",
       errorCode: "motion_html_source_unresolved_stylesheet",
-      reason: "Resolve external stylesheets before editing or adding Motion.",
+      reason:
+        "Resolve external or runtime-generated styles before editing or adding Motion.",
     });
   });
 

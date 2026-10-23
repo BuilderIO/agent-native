@@ -12,6 +12,7 @@ import {
 import { type CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds } from "@shared/canvas-math";
 import type { A11yFinding } from "@shared/design-review";
+import type { FrameSizePreset } from "@shared/frame-size-presets";
 import type { InteractionState } from "@shared/interaction-states";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -587,7 +588,7 @@ export function useEditorCanvasAndScreens({
   );
 
   const handleCreateScreenFromPreset = useCallback(
-    (preset: { name: string; width: number; height: number }) => {
+    (preset: FrameSizePreset) => {
       const frames = getAllScreenFrameEntries({
         overviewScreens,
         canvasFrameGeometryById: exportCanvasFrameGeometryById,

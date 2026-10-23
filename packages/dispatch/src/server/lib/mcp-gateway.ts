@@ -1013,18 +1013,36 @@ export async function openGrantedDispatchMcpApp(input: {
 
 function parseMcpToolTextResult(result: unknown): Record<string, unknown> {
   if (result && typeof result === "object") {
-    const structured = (result as any).structuredContent;
-    if (structured && typeof structured === "object") return structured;
-    const parts = Array.isArray((result as any).content)
-      ? ((result as any).content as Array<Record<string, unknown>>)
+    const response = result as Record<string, unknown>;
+    const meta =
+      response._meta && typeof response._meta === "object"
+        ? (response._meta as Record<string, unknown>)
+        : undefined;
+    const embedStart =
+      meta?.["agent-native/embedStart"] &&
+      typeof meta["agent-native/embedStart"] === "object"
+        ? (meta["agent-native/embedStart"] as Record<string, unknown>)
+        : undefined;
+    const withEmbedStart = (parsed: Record<string, unknown>) =>
+      typeof embedStart?.startUrl === "string"
+        ? { ...parsed, startUrl: embedStart.startUrl }
+        : parsed;
+    const structured = response.structuredContent;
+    if (structured && typeof structured === "object") {
+      return withEmbedStart(structured as Record<string, unknown>);
+    }
+    const parts = Array.isArray(response.content)
+      ? (response.content as Array<Record<string, unknown>>)
       : [];
     const text = parts.find(
       (part) => part?.type === "text" && typeof part.text === "string",
     )?.text;
     if (typeof text === "string" && text.trim()) {
-      if ((result as any).isError) throw new Error(text.trim());
+      if (response.isError) throw new Error(text.trim());
       const parsed = JSON.parse(text);
-      if (parsed && typeof parsed === "object") return parsed;
+      if (parsed && typeof parsed === "object") {
+        return withEmbedStart(parsed as Record<string, unknown>);
+      }
     }
   }
   throw new Error("Target app did not return an embed session.");

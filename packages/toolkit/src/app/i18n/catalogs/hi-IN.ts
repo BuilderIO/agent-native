@@ -1495,6 +1495,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.workedFor": "{{duration}} तक काम किया",
   "widget.chart": "चार्ट",
   "widget.chartActions": "चार्ट कार्रवाइयाँ",
+  "widget.chartRowsOmitted": "यह चार्ट उपलब्ध पंक्तियों में से केवल कुछ दिखाता है।",
   "widget.dataSources": "डेटा स्रोत",
   "widget.tableActions": "टेबल कार्रवाइयाँ",
   "widget.dataChart": "डेटा चार्ट",

@@ -38,7 +38,6 @@ import {
   trimSelectionRange,
   type CommentTextAnchor,
 } from "./comment-anchors";
-import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
 export type CommentRange = { from: number; to: number };
@@ -211,10 +210,7 @@ function BubbleActionButton({ item }: { item: ToolbarAction }) {
 
 function toolbarEditChain(editor: Editor) {
   if (!editor.isEditable) return null;
-  return editor.chain().command(({ tr }) => {
-    tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
-    return true;
-  });
+  return editor.chain();
 }
 
 export function setSelectionNotionSpanAttribute(
@@ -253,7 +249,6 @@ export function setSelectionNotionSpanAttribute(
   });
 
   if (!transaction.docChanged) return false;
-  transaction.setMeta(LOCAL_FILE_USER_EDIT_META, true);
   editor.view.dispatch(transaction);
   editor.commands.focus();
   return true;

@@ -186,6 +186,142 @@ describe("onboarding plugin routes", () => {
     ]);
   });
 
+  describe("named checklists", () => {
+    function registerBothChecklists() {
+      registerOnboardingStep({
+        id: "llm",
+        order: 10,
+        title: "Connect a model",
+        description: "Needs an API key.",
+        methods: [],
+        isComplete: () => false,
+      });
+      registerOnboardingStep({
+        id: "create-design",
+        order: 20,
+        title: "Create your first design",
+        description: "Start a design.",
+        checklist: "getting-started",
+        href: "/home",
+        methods: [],
+        isComplete: () => true,
+      });
+    }
+
+    it("keeps progress steps out of the setup checklist and the reverse", async () => {
+      registerBothChecklists();
+      const nitroApp = createNitroApp();
+      await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+      const setup = await dispatch(
+        nitroApp,
+        "/_agent-native/onboarding/summary",
+      );
+      const progress = await dispatch(
+        nitroApp,
+        "/_agent-native/onboarding/summary?checklist=getting-started",
+      );
+
+      expect((setup.body as any).steps.map((step: any) => step.id)).toEqual([
+        "llm",
+      ]);
+      expect(progress.body).toEqual(
+        expect.objectContaining({
+          steps: [
+            expect.objectContaining({
+              id: "create-design",
+              complete: true,
+              href: "/home",
+            }),
+          ],
+        }),
+      );
+    });
+
+    it("stores dismissal per checklist and leaves the setup key alone", async () => {
+      const nitroApp = createNitroApp();
+      await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+      await dispatch(
+        nitroApp,
+        "/_agent-native/onboarding/dismiss?checklist=getting-started",
+        "POST",
+      );
+      await dispatch(nitroApp, "/_agent-native/onboarding/dismiss", "POST");
+
+      expect(appStatePutMock.mock.calls.map((call) => call[1])).toEqual([
+        "onboarding:dismissed:getting-started",
+        "onboarding:dismissed",
+      ]);
+    });
+
+    it("reads dismissal for the requested checklist", async () => {
+      appStateGetMock.mockImplementation(async (_sessionId, key) =>
+        key === "onboarding:dismissed:getting-started"
+          ? { dismissed: true }
+          : null,
+      );
+      const nitroApp = createNitroApp();
+      await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+      const progress = await dispatch(
+        nitroApp,
+        "/_agent-native/onboarding/summary?checklist=getting-started",
+      );
+      const setup = await dispatch(
+        nitroApp,
+        "/_agent-native/onboarding/summary",
+      );
+
+      expect((progress.body as any).dismissed).toBe(true);
+      expect((setup.body as any).dismissed).toBe(false);
+    });
+
+    it("reports a progress checklist as complete only when every step is", async () => {
+      registerOnboardingStep({
+        id: "create-design",
+        order: 10,
+        title: "Create your first design",
+        description: "Start a design.",
+        checklist: "getting-started",
+        methods: [],
+        isComplete: () => true,
+      });
+      registerOnboardingStep({
+        id: "share",
+        order: 20,
+        title: "Share for feedback",
+        description: "Share a design.",
+        checklist: "getting-started",
+        methods: [],
+        isComplete: () => false,
+      });
+      const nitroApp = createNitroApp();
+      await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+      const progress = await dispatch(
+        nitroApp,
+        "/_agent-native/onboarding/dismissed?checklist=getting-started",
+      );
+
+      expect((progress.body as any).allComplete).toBe(false);
+    });
+
+    it("rejects a malformed checklist name", async () => {
+      const nitroApp = createNitroApp();
+      await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+      const result = await dispatch(
+        nitroApp,
+        "/_agent-native/onboarding/dismiss?checklist=Bad%20Name",
+        "POST",
+      );
+
+      expect(result.status).toBe(400);
+      expect(appStatePutMock).not.toHaveBeenCalled();
+    });
+  });
+
   it("omits unavailable steps without running their completion resolver", async () => {
     const isComplete = vi.fn(() => true);
     registerOnboardingStep({
