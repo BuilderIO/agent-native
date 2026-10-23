@@ -64,8 +64,10 @@ function sanitizeSqlForInspection(
         if (
           !variable[1] ||
           /[\p{ID_Continue}$'"`\\{}]/u.test(adjacent) ||
-          // A list renders quoted items, so `U&` before it makes a U& string.
-          (dialect === "standard" && sql[i - 1] === "&")
+          // A list renders quoted items, so `U&` before it makes a U& string,
+          // and PostgreSQL reads any non-ASCII neighbor as identifier text.
+          (dialect === "standard" &&
+            (sql[i - 1] === "&" || /[^\x00-\x7f]/.test(adjacent)))
         ) {
           rejectSourceSql(
             "Scalar SQL template variables require ordinary quoted strings; list variables require standalone SQL positions.",
@@ -215,7 +217,7 @@ function sanitizeSqlForInspection(
           "First-party record templates must not use $, ` or # outside strings.",
         );
       }
-      if (ch === "'" && /[\p{ID_Continue}$&]/u.test(sql[i - 1] ?? "")) {
+      if (ch === "'" && /[\p{ID_Continue}$&\u0080-￿]/u.test(sql[i - 1] ?? "")) {
         rejectSourceSql(
           "First-party record templates must use plain quoted strings: put a space between a prefix such as DATE and its quote, and don't use E, U&, B, X or N strings.",
         );

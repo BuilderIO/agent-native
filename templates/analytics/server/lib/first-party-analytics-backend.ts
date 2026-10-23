@@ -1301,7 +1301,8 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
   });
   const intervalCode = maskSqlLiterals(translated);
   translated = translated.replace(
-    /\bINTERVAL\s*'(\d+)\s+(day|days|week|weeks|month|months)'/gi,
+    // `(?!')`: the closing quote of `'7 days'' …` is half of an escaped pair.
+    /\bINTERVAL\s*'(\d+)\s+(day|days|week|weeks|month|months)'(?!')/gi,
     (whole, amount: string, unit: string, offset: number) =>
       intervalCode[offset] === " "
         ? whole

@@ -680,6 +680,22 @@ describe("first-party BigQuery backend", () => {
     },
   );
 
+  it("keeps an interval literal whole when it continues past an escaped quote", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT * FROM analytics_events WHERE timestamp > now() - INTERVAL '7 days'' AND event_name = ''x'",
+      [],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      },
+    );
+
+    expect(sql).toContain("INTERVAL '7 days\\' AND event_name = \\'x'");
+    expect(sql).not.toContain("INTERVAL 7 DAY");
+  });
+
   it.each([
     "E'escaped\\n'",
     "B'0101'",

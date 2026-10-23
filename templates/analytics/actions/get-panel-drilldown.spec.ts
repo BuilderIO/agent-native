@@ -143,6 +143,34 @@ describe("get-panel-drilldown", () => {
       /plain quoted strings/,
     ],
     [
+      "SELECT visitor FROM events WHERE page = B'{{drillX}}'",
+      /plain quoted strings/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE page = X'{{drillX}}'",
+      /plain quoted strings/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE page = N'{{drillX}}'",
+      /plain quoted strings/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE page = €'{{drillX}}'",
+      /plain quoted strings/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE app IN (U&{{appFilter:list}})",
+      /list variables require standalone SQL positions/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE app IN (€{{appFilter:list}})",
+      /list variables require standalone SQL positions/,
+    ],
+    [
+      "SELECT visitor FROM events WHERE app IN ({{appFilter:list}}𝐀)",
+      /list variables require standalone SQL positions/,
+    ],
+    [
       "SELECT visitor FROM events WHERE day = DATE'{{drillX}}'",
       /plain quoted strings/,
     ],
