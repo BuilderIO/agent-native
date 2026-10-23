@@ -677,7 +677,7 @@ describe("Analytics agent Plan mode policy", () => {
       "use `tool-search` to load `query-dbt-semantic-metric` with its exact name",
     );
     expect(ruleText("sources")).toContain(
-      "Call `get-dbt-connection` only for `connection_error`, `connection_unavailable`, or a connection-required error",
+      "Follow `data-querying` for dbt readiness checks and other statuses.",
     );
     expect(agentsGuide).toContain(
       "retry no-candidate searches once with owner terms",
@@ -712,7 +712,7 @@ describe("Analytics agent Plan mode policy", () => {
     );
     expect(dataQueryingSkill).toContain("connection-required error");
     expect(dataQueryingSkill).toContain(
-      "Resume results that carry `queryId` and `nextPage` with the `metricName` of the original call",
+      "Resume results that carry `queryId` and `nextPage` with their `metricName`, `queryId`, and `nextPage`",
     );
     expect(dataQueryingSkill).toContain(
       "up to five resumes in one turn; then stop and report it as still running",

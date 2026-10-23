@@ -406,6 +406,40 @@ describe("real data action classification", () => {
     expect(failedDataQueryAttemptMessage([interrupted, completed])).toBeNull();
   });
 
+  it("clears an empty continued page once the same query returns rows", () => {
+    const querySpec = {
+      groupBy: [{ name: "metric_time", grain: "WEEK" }],
+      timeRange: { startDate: "2026-10-05", endDate: "2026-10-11" },
+    };
+    const cursor = `metric-results-v5.AA.${"A".repeat(43)}`;
+    const emptyPage = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        nextPage: cursor,
+        querySpec,
+        rows: [],
+        truncated: true,
+      }),
+    };
+    const completed = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        querySpec,
+        rows: [{ metric_time: "2026-10-05", activation_rate: 42 }],
+        truncated: false,
+      }),
+    };
+
+    expect(hasDataQueryAttempt([emptyPage, completed])).toBe(true);
+    expect(failedDataQueryAttemptMessage([emptyPage, completed])).toBeNull();
+  });
+
   it("keeps a first-party query failure when a later unrelated query succeeds", () => {
     const failed = {
       name: "query-agent-native-analytics",

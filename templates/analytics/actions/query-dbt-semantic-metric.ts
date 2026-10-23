@@ -230,6 +230,7 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
   }),
   z.object({
     status: z.literal("success"),
+    metricName: z.string(),
     metric: metricDefinitionSchema.optional(),
     querySpec: metricQuerySpecSchema,
     rows: z.array(z.unknown()),
@@ -1634,6 +1635,7 @@ export default defineAction({
                 : undefined;
           return {
             status: "success",
+            metricName,
             ...(activeMetricDefinition
               ? { metric: activeMetricDefinition }
               : {}),
