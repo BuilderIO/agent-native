@@ -16,9 +16,11 @@ export {
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
+  resolveContentClipsPeerSecret,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsConfig,
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
@@ -931,6 +933,7 @@ export {
   signShortLivedToken,
   verifyShortLivedToken,
   type ShortLivedTokenClaims,
+  type ShortLivedTokenKeyOptions,
   type VerifyResult as ShortLivedTokenVerifyResult,
 } from "./short-lived-token.js";
 export {

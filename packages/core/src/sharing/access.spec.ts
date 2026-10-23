@@ -658,13 +658,43 @@ describe("shareable resource access helpers", () => {
     }
   });
 
-  it("asks the host about signed-out requests too", async () => {
+  it("never asks a host about signed-out requests unless it opted in", async () => {
+    await insertDoc({ id: "doc-hosted-signed-in-only" });
+    const asked: Array<string | undefined> = [];
+    registerHostAccessResolver(resourceType, async (_resource, ctx) => {
+      asked.push(ctx.userEmail);
+      return "editor";
+    });
+    try {
+      await runWithRequestContext({}, async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-hosted-signed-in-only"),
+        ).resolves.toBeNull();
+      });
+      expect(asked).toEqual([]);
+
+      await runWithRequestContext({ userEmail: viewerEmail }, async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-hosted-signed-in-only"),
+        ).resolves.toMatchObject({ role: "editor" });
+      });
+      expect(asked).toEqual([viewerEmail]);
+    } finally {
+      registerHostAccessResolver(resourceType, null);
+    }
+  });
+
+  it("asks a host that opted in about signed-out requests", async () => {
     await insertDoc({ id: "doc-hosted-anonymous" });
     const asked: Array<string | undefined> = [];
-    registerHostAccessResolver(resourceType, async (resource, ctx) => {
-      asked.push(ctx.userEmail);
-      return resource.id === "doc-hosted-anonymous" ? "viewer" : undefined;
-    });
+    registerHostAccessResolver(
+      resourceType,
+      async (resource, ctx) => {
+        asked.push(ctx.userEmail);
+        return resource.id === "doc-hosted-anonymous" ? "viewer" : undefined;
+      },
+      { includeSignedOut: true },
+    );
     try {
       await runWithRequestContext({}, async () => {
         await expect(

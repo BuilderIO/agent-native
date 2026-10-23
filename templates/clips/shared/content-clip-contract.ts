@@ -1,8 +1,24 @@
 // The contract Agent-Native Content uses to call Clips server to server about
-// a Clip in one of its documents. Content mints an A2A token with
-// `signA2AToken` from the deployment `A2A_SECRET`, bound to this audience path
-// on the Clips app URL, and carrying one scope plus the document and recording
-// it vouches for. Content keeps its own copy of these strings.
+// a Clip in one of its documents. Content keeps its own copy of these strings.
+//
+// Content signs each request with the secret only Content and Clips hold,
+// `CONTENT_CLIPS_PEER_SECRET`, read on both sides with
+// `resolveContentClipsPeerSecret(getAppConfig().clips, getGlobalA2ASecret())`
+// (null: not set up, so Content makes no call; a throw: misconfigured). Clips
+// verifies with that secret alone, so neither the deployment `A2A_SECRET` nor a
+// workspace secret can mint a token these routes accept:
+//
+//   signA2AToken(subject, undefined, peerSecret, {
+//     expiresIn: "1m",
+//     audience: `${canonicalA2AAudience(clipsAppUrl)}/${CONTENT_CLIP_AUDIENCE_PATH}`,
+//     extraClaims: { scope, document_id, recording_id, name? },
+//   })
+//
+// No org domain and no `preferGlobalSecret`: either would let core sign with
+// another secret. That gives an HS256 token whose `iss` is Content's app URL,
+// which must equal the `content_app` Clips stored for the document's Clip. The
+// subject is the reader's email for `read` and `comment`, and
+// `CONTENT_CLIP_PUBLIC_READER` for `publicRead`.
 
 /** Appended to the Clips app URL to form the token's `aud`. */
 export const CONTENT_CLIP_AUDIENCE_PATH = "content-clips";
@@ -49,3 +65,9 @@ export const CONTENT_CLIP_PLAYBACK_GRANT_SECONDS = 5 * 60;
 
 /** The `code` of a 403 media response refused only because its grant expired. */
 export const CONTENT_CLIP_GRANT_EXPIRED = "content_grant_expired";
+
+/**
+ * The `code` of the 503 every route answers with while Clips has no usable
+ * `CONTENT_CLIPS_PEER_SECRET`: unset, too short, or the same as `A2A_SECRET`.
+ */
+export const CONTENT_CLIP_NOT_CONFIGURED = "content_clips_not_configured";

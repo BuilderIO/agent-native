@@ -18,11 +18,16 @@ import {
 const CLIPS_URL = "https://clips.example.test";
 const CONTENT_APP = "https://content.example.test";
 const SECRET = "content-clips-test-secret-0123456789abcdef";
+const PEER_SECRET = "content-clips-peer-secret-0123456789abcdef";
 const GRANT_SECRET = "content-clips-grant-secret-0123456789abcdef";
 
 const state = vi.hoisted(() => {
   vi.stubEnv("APP_URL", "https://clips.example.test");
   vi.stubEnv("A2A_SECRET", "content-clips-test-secret-0123456789abcdef");
+  vi.stubEnv(
+    "CONTENT_CLIPS_PEER_SECRET",
+    "content-clips-peer-secret-0123456789abcdef",
+  );
   vi.stubEnv(
     "OAUTH_STATE_SECRET",
     "content-clips-grant-secret-0123456789abcdef",
@@ -62,12 +67,14 @@ const { withDbExec } = await import("@agent-native/core/db");
 const { schema } = await import("../db/index.js");
 const {
   CONTENT_CLIP_GRANT_EXPIRED,
+  CONTENT_CLIP_NOT_CONFIGURED,
   CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
   CONTENT_CLIP_PUBLIC_READER,
   CONTENT_CLIP_SCOPES: SCOPES,
 } = await import("../../shared/content-clip-contract.js");
 const { __resetContentClipRateLimitsForTests } =
   await import("./content-clip-peer.js");
+const { contentPlaybackGrantKey } = await import("./content-peer-secret.js");
 const { default: playbackRoute } =
   await import("../routes/api/content-clips/[recordingId]/playback.get.js");
 const { default: listCommentsRoute } =
@@ -278,7 +285,7 @@ async function token(input: TokenInput = {}): Promise<string> {
   if (input.audience !== null) {
     jwt = jwt.setAudience(input.audience ?? `${CLIPS_URL}/content-clips`);
   }
-  return jwt.sign(new TextEncoder().encode(input.secret ?? SECRET));
+  return jwt.sign(new TextEncoder().encode(input.secret ?? PEER_SECRET));
 }
 
 function publicReaderToken(input: TokenInput = {}) {
@@ -375,13 +382,14 @@ async function fetchMedia(
 function withRewrittenGrant(
   mediaUrl: string,
   rewrite: (claims: Record<string, unknown>) => void,
+  key = contentPlaybackGrantKey(PEER_SECRET),
 ): string {
   const url = new URL(mediaUrl);
   const [payload] = url.searchParams.get("content_grant")!.split(".");
   const claims = JSON.parse(Buffer.from(payload!, "base64url").toString());
   rewrite(claims);
   const encoded = Buffer.from(JSON.stringify(claims)).toString("base64url");
-  const signature = createHmac("sha256", GRANT_SECRET)
+  const signature = createHmac("sha256", key)
     .update(encoded)
     .digest("base64url");
   url.searchParams.set("content_grant", `${encoded}.${signature}`);
@@ -635,6 +643,49 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
       expect((await fetchMedia(route, `${url}?content_grant=`)).status).toBe(
         404,
       );
+    }
+  });
+
+  it("refuses a media grant signed with any key but the peer secret's", async () => {
+    const result = await playback("rec-upload", await token());
+
+    for (const [route, url] of [
+      [videoRoute, result.body.playback.videoUrl],
+      [thumbnailRoute, result.body.playback.posterUrl],
+    ] as const) {
+      // The app's own server secret, which a workspace derives from the
+      // shared A2A secret, the A2A secret itself, and the underived peer
+      // secret: none of them signs a grant, even one naming the owner.
+      for (const key of [GRANT_SECRET, SECRET, PEER_SECRET]) {
+        const forged = withRewrittenGrant(
+          url,
+          (claims) => (claims.viewerEmail = OWNER),
+          key,
+        );
+        const media = await fetchMedia(route, forged);
+        expect(media.status).toBe(404);
+        expect(media.bytes).toBeNull();
+      }
+    }
+  });
+
+  it("answers a media grant with 503 while the peer secret is unset", async () => {
+    const result = await playback("rec-upload", await token());
+    vi.stubEnv("CONTENT_CLIPS_PEER_SECRET", "");
+    try {
+      for (const [route, url] of [
+        [videoRoute, result.body.playback.videoUrl],
+        [thumbnailRoute, result.body.playback.posterUrl],
+      ] as const) {
+        const media = await fetchMedia(route, url);
+        expect(media.status).toBe(503);
+        expect(media.body).toEqual({
+          error: expect.any(String),
+          code: CONTENT_CLIP_NOT_CONFIGURED,
+        });
+      }
+    } finally {
+      vi.stubEnv("CONTENT_CLIPS_PEER_SECRET", PEER_SECRET);
     }
   });
 
@@ -1210,6 +1261,7 @@ describe("token checks", () => {
     ["no issuer", () => token({ issuer: null })],
     ["a non-http issuer", () => token({ issuer: "urn:content" })],
     ["another secret", () => token({ secret: "not-the-deploy-secret-012345" })],
+    ["the deployment A2A secret", () => token({ secret: SECRET })],
     [
       "an expired token",
       () => token({ issuedAt: now() - 120, expiresAt: now() - 60 }),
@@ -1264,9 +1316,8 @@ describe("token checks", () => {
     expect(result.status).toBe(401);
   });
 
-  it("accepts a token minted by the shared A2A signer", async () => {
-    const bearer = await signA2AToken(READER, undefined, undefined, {
-      preferGlobalSecret: true,
+  it("accepts a token core's shared signer mints with the peer secret", async () => {
+    const bearer = await signA2AToken(READER, undefined, PEER_SECRET, {
       expiresIn: "1m",
       audience: `${CLIPS_URL}/content-clips`,
       extraClaims: {
@@ -1281,6 +1332,42 @@ describe("token checks", () => {
       documentId: "doc-1",
     });
     expect((await playback("rec-upload", bearer)).status).toBe(200);
+  });
+
+  describe("without a secret only Content and Clips hold", () => {
+    afterEach(() => {
+      vi.stubEnv("CONTENT_CLIPS_PEER_SECRET", PEER_SECRET);
+    });
+
+    it.each([
+      ["unset", "", PEER_SECRET],
+      ["the deployment A2A secret", SECRET, SECRET],
+      ["too short to sign with", "short-peer-secret", "short-peer-secret"],
+    ])("refuses every route while it is %s", async (_name, value, signer) => {
+      vi.stubEnv("CONTENT_CLIPS_PEER_SECRET", value);
+      const read = await token({ secret: signer });
+      const write = await token({ scope: SCOPES.comment, secret: signer });
+
+      for (const result of [
+        await playback("rec-upload", read),
+        await listComments("rec-upload", read),
+        await writeComment("rec-upload", write, {
+          operation: "add",
+          content: "Hi",
+          videoTimestampMs: 0,
+        }),
+      ]) {
+        expect(result.status).toBe(503);
+        expect(result.body).toEqual({
+          error: expect.any(String),
+          code: CONTENT_CLIP_NOT_CONFIGURED,
+        });
+      }
+      const { rows } = await client.query(
+        "SELECT count(*)::int AS count FROM recording_comments",
+      );
+      expect(rows[0]).toEqual({ count: 0 });
+    });
   });
 
   it("refuses a token from another Content app for this doc", async () => {

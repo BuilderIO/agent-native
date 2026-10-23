@@ -17,16 +17,24 @@ import {
   runWithContentDocGrant,
   type ContentDocGrant,
 } from "./content-doc-grant.js";
+import {
+  CONTENT_CLIPS_NOT_CONFIGURED,
+  contentPlaybackGrantKey,
+  readContentPeerSecret,
+} from "./content-peer-secret.js";
 
 // A Content page plays the video and poster straight from Clips, so their
 // URLs carry who Content vouched for. The grant names the reader, never a
 // role: each media request re-runs every gate, so trashing the binding or the
-// Clip stops a URL that was already handed out.
+// Clip stops a URL that was already handed out. Grants are signed with a key
+// derived from the Content-Clips peer secret, never the app's own server
+// secret, which a workspace derives from the shared `A2A_SECRET`.
 const GRANT_PARAM = "content_grant";
 const BINDING_PARAM = "content_binding";
 
 export type ContentPlaybackAccess =
   | { status: "absent" }
+  | { status: "unconfigured" }
   | { status: "invalid" }
   | { status: "expired" }
   | {
@@ -61,12 +69,19 @@ export function signContentPlaybackGrant(input: {
   bindingId: string | null;
   viewerEmail: string | null;
 }): { params: Record<string, string>; expiresAt: string } {
+  const peerSecret = readContentPeerSecret();
+  if (peerSecret.refused) {
+    throw new Error("Content playback grants need CONTENT_CLIPS_PEER_SECRET.");
+  }
   const issuedAtSeconds = Math.floor(Date.now() / 1000);
-  const token = signShortLivedToken({
-    resourceId: grantResourceId(input.recordingId, input.bindingId),
-    viewerEmail: input.viewerEmail ?? undefined,
-    ttlSeconds: CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
-  });
+  const token = signShortLivedToken(
+    {
+      resourceId: grantResourceId(input.recordingId, input.bindingId),
+      viewerEmail: input.viewerEmail ?? undefined,
+      ttlSeconds: CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
+    },
+    { signingKey: contentPlaybackGrantKey(peerSecret.secret) },
+  );
   return {
     params: {
       [GRANT_PARAM]: token,
@@ -93,7 +108,9 @@ export function withContentPlaybackGrant(
  * Reads a media request's Content grant. A grant that is present but does not
  * verify for this recording is `invalid`, never `absent`, so a tampered URL
  * cannot fall back to the browser's own Clips session. A genuine grant that
- * ran out is `expired`, which Content's player answers by asking again.
+ * ran out is `expired`, which Content's player answers by asking again. With
+ * no usable peer secret no grant can be checked, so any grant is
+ * `unconfigured`.
  */
 export async function readContentPlaybackGrant(
   event: H3Event,
@@ -103,12 +120,15 @@ export async function readContentPlaybackGrant(
   if (query[GRANT_PARAM] === undefined && query[BINDING_PARAM] === undefined) {
     return { status: "absent" };
   }
+  const peerSecret = readContentPeerSecret();
+  if (peerSecret.refused) return { status: "unconfigured" };
   const token = firstQueryValue(query[GRANT_PARAM]);
   const bindingId = firstQueryValue(query[BINDING_PARAM]) || null;
   if (!token) return { status: "invalid" };
   const verified = verifyShortLivedToken(
     token,
     grantResourceId(recordingId, bindingId),
+    { signingKey: contentPlaybackGrantKey(peerSecret.secret) },
   );
   if (!verified.ok) {
     return verified.reason === "expired"
@@ -137,6 +157,7 @@ export async function readContentPlaybackGrant(
 export function refusedContentPlayback(
   access: ContentPlaybackAccess,
 ): { status: number; body: { error: string; code?: string } } | null {
+  if (access.status === "unconfigured") return CONTENT_CLIPS_NOT_CONFIGURED;
   if (access.status === "invalid") {
     return { status: 404, body: { error: "Not found" } };
   }

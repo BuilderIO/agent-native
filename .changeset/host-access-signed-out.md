@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Host access resolvers registered with `registerHostAccessResolver` are now asked about signed-out requests too, with `ctx.userEmail` unset, so a host can vouch for a signed-out reader of one resource. Resolvers that only vouch for signed-in people should return `undefined` when there is no email.
+`registerHostAccessResolver` takes an `{ includeSignedOut: true }` option for a host that vouches for signed-out readers of one resource. Only a resolver registered with it is asked about signed-out requests, with `ctx.userEmail` unset; every other resolver is still asked only about signed-in requests, as before.

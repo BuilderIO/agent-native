@@ -27,6 +27,7 @@ export {
   resolveAccessStatus,
   registerHostAccessResolver,
   type HostAccessResolver,
+  type HostAccessResolverOptions,
   type AccessContext,
   type ResolvedAccess,
   type ResourceAccessState,

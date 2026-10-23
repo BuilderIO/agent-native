@@ -77,7 +77,9 @@ registerShareableResource({
   getDb,
   ownerAccessIgnoresOrg: true,
 });
-registerHostAccessResolver("recording", contentDocReaderRole);
+registerHostAccessResolver("recording", contentDocReaderRole, {
+  includeSignedOut: true,
+});
 
 registerShareableResource({
   type: "meeting",

@@ -668,23 +668,41 @@ async function loadAndResolveAccess(
  * to a Builder project), the host is the authority on who may open them. The
  * resolver returns a role, `null` to deny, or `undefined` to fall through to
  * AN's own owner/org/share rules. AN keeps no copy of the host's members,
- * orgs or roles: it asks, per resource, per request. It is asked for
- * signed-out requests too (`ctx.userEmail` unset), so a resolver that only
- * vouches for people must return `undefined` when there is no email.
+ * orgs or roles: it asks, per resource, per request. It is asked only about
+ * signed-in requests unless registered with `includeSignedOut`.
  */
 export type HostAccessResolver = (
   resource: any,
   ctx: AccessContext,
 ) => Promise<ResolvedAccess["role"] | null | undefined>;
 
-const hostAccessResolvers = new Map<string, HostAccessResolver>();
+export interface HostAccessResolverOptions {
+  /**
+   * Also ask about signed-out requests, with `ctx.userEmail` unset. Only a
+   * resolver written to vouch for someone with no identity may set this: any
+   * role it returns then goes to an anonymous request.
+   */
+  includeSignedOut?: boolean;
+}
+
+const hostAccessResolvers = new Map<
+  string,
+  { resolve: HostAccessResolver; includeSignedOut: boolean }
+>();
 
 export function registerHostAccessResolver(
   resourceType: string,
   resolver: HostAccessResolver | null,
+  options?: HostAccessResolverOptions,
 ): void {
-  if (resolver) hostAccessResolvers.set(resourceType, resolver);
-  else hostAccessResolvers.delete(resourceType);
+  if (resolver) {
+    hostAccessResolvers.set(resourceType, {
+      resolve: resolver,
+      includeSignedOut: options?.includeSignedOut === true,
+    });
+  } else {
+    hostAccessResolvers.delete(resourceType);
+  }
 }
 
 async function ownerOrAdminRole(
@@ -728,8 +746,11 @@ async function accessToResource(
 
   // A host can deny outright. When it grants access, the resource's owner
   // and admins keep their own roles; the host's role covers everyone else.
-  const hostResolver = hostAccessResolvers.get(reg.type);
-  const hosted = hostResolver ? await hostResolver(resource, ctx) : undefined;
+  const host = hostAccessResolvers.get(reg.type);
+  const hosted =
+    host && (normalizedUserEmail || host.includeSignedOut)
+      ? await host.resolve(resource, ctx)
+      : undefined;
   if (hosted === null) return null;
 
   const managingRole = await ownerOrAdminRole(

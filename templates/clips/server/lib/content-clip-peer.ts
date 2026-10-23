@@ -40,6 +40,7 @@ import {
   type ContentClipBinding,
 } from "./content-clip-bindings.js";
 import { runWithContentDocGrant } from "./content-doc-grant.js";
+import { readContentPeerSecret } from "./content-peer-secret.js";
 import {
   contentReaderOrgId,
   signContentPlaybackGrant,
@@ -148,6 +149,10 @@ async function verifyPeer(
   recordingId: string,
   scopes: readonly ContentClipScope[],
 ): Promise<ContentClipPeer | Response> {
+  const peerSecret = readContentPeerSecret();
+  if (peerSecret.refused) {
+    return json(peerSecret.refused.body, peerSecret.refused.status);
+  }
   const match = BEARER.exec(getRequestHeader(event, "authorization") ?? "");
   if (!match) return unauthorized();
 
@@ -155,7 +160,7 @@ async function verifyPeer(
   try {
     verified = await verifyA2AToken(match[1]!, event, {
       routePrefix: CONTENT_CLIP_AUDIENCE_PATH,
-      globalSecretOnly: true,
+      verificationSecret: peerSecret.secret,
       includeClaims: true,
       requireAudience: true,
     });

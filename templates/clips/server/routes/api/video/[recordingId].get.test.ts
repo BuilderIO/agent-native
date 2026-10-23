@@ -33,6 +33,10 @@ vi.mock("h3", () => ({
   setCookie: (...args: unknown[]) => mockSetCookie(...args),
 }));
 
+vi.mock("@agent-native/core/a2a", () => ({
+  getGlobalA2ASecret: vi.fn(() => undefined),
+}));
+
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
 }));
