@@ -17,6 +17,7 @@ import {
   skipUnlessAuthed,
 } from "../../lib/authed";
 import {
+  CONTENT_ACTION_HEADERS,
   purgeContentPage,
   readContentAction,
   runContentAction,
@@ -37,6 +38,9 @@ const TYPED = " Typed right after the click.";
 
 const paragraph = (n: number) =>
   `Paragraph ${n} says the quick brown fox jumps over the lazy dog number ${n}.`;
+/** The same paragraph with an emoji, bold, and a link before its change. */
+const decoratedParagraph = (n: number) =>
+  `Paragraph ${n} says 🤔 the **quick** [brown fox](https://example.com/fox) jumps over the lazy dog number ${n}.`;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The suggested edit for paragraph `n`: "lazy dog" becomes "sleepy cat". */
@@ -133,9 +137,22 @@ async function watch(page: Page): Promise<void> {
               "",
           ),
         paragraphs: root
-          ? [...root.querySelectorAll(":scope > p")].map((p) =>
-              (p as HTMLElement).innerText.replace(/ /g, " "),
-            )
+          ? [...root.querySelectorAll(":scope > p")].map((p) => {
+              let text = (p as HTMLElement).innerText;
+              // Another tab's cursor shows its name, on its own line, inside
+              // the words.
+              for (const caret of p.querySelectorAll<HTMLElement>(
+                ".collaboration-carets__caret, .collaboration-cursor__caret",
+              )) {
+                const label = caret.innerText.trim();
+                if (!label) continue;
+                const shown = text.includes(`\n${label}\n`)
+                  ? `\n${label}\n`
+                  : label;
+                text = text.replace(shown, "");
+              }
+              return text.replace(/ /g, " ");
+            })
           : [],
       };
     };
@@ -319,6 +336,10 @@ interface Review {
   expectSaved: (expected: Saved) => Promise<void>;
   /** Opens the page fresh and waits until it shows what `holds` expects. */
   expectAfterReload: (holds: (view: View) => boolean) => Promise<void>;
+  /** Accepts paragraph `n`'s suggestion as an agent does, with no position. */
+  acceptWithoutPosition: (
+    n: number,
+  ) => Promise<{ status: number; body: string }>;
 }
 
 interface Fixture {
@@ -329,6 +350,8 @@ interface Fixture {
   group?: number[];
   /** Paragraphs that each get a comment on "quick brown fox". */
   comments?: number[];
+  /** Paragraphs written with an emoji, bold, and a link. */
+  decorated?: number[];
 }
 
 async function runReview(
@@ -354,7 +377,9 @@ async function runReview(
       id,
       title,
       content: Array.from({ length: fixture.paragraphs ?? 6 }, (_, i) =>
-        paragraph(i + 1),
+        fixture.decorated?.includes(i + 1)
+          ? decoratedParagraph(i + 1)
+          : paragraph(i + 1),
       ).join("\n"),
     });
     created = true;
@@ -512,6 +537,36 @@ async function runReview(
         } finally {
           await page.close();
         }
+      },
+      acceptWithoutPosition: async (n) => {
+        const list = await readContentAction(
+          api,
+          origin,
+          "list-resource-suggestions",
+          { resourceType: "document", resourceId: id },
+        );
+        const suggestion = (
+          list.suggestions as Array<{
+            id: string;
+            revision: number;
+            baseRevision: string;
+          }>
+        ).find((candidate) => candidate.id === review.suggestion(n));
+        if (!suggestion) throw new Error(`No suggestion for paragraph ${n}`);
+        const response = await api.request.post(
+          `${origin}/_agent-native/actions/decide-resource-suggestion`,
+          {
+            data: {
+              id: suggestion.id,
+              decision: "accepted",
+              idempotencyKey: `${id}-without-position-${n}`,
+              observedBase: suggestion.baseRevision,
+              observedRevision: suggestion.revision,
+            },
+            headers: CONTENT_ACTION_HEADERS,
+          },
+        );
+        return { status: response.status(), body: await response.text() };
       },
     };
     await body(review);
@@ -729,6 +784,223 @@ test.describe("[content-review] deciding suggestions on a beta page", () => {
         await r.expectAfterReload(result);
       },
     );
+  });
+
+  test("typing in a group member's paragraph during Accept remaining keeps both", async ({
+    browser,
+  }) => {
+    const group = [1, 2, 3, 4, 5, 6];
+    await runReview(
+      "group same paragraph",
+      browser,
+      { paragraphs: 8, group },
+      async (r) => {
+        const watcher = await r.open();
+        const page = await r.open();
+        await page.route(
+          "**/_agent-native/actions/decide-resource-suggestion-proposal",
+          async (route) => {
+            await sleep(1_000);
+            await route.continue();
+          },
+        );
+        const [clicked] = await click(page, [{ button: "Accept remaining" }]);
+        await page.waitForTimeout(100);
+        await typeAtParagraphEnd(page, "number 3.", TYPED);
+
+        const accepted = (view: View) =>
+          group.every((n) => shows(view, n, "accepted"));
+        await expectShownAtOnce(page, clicked, accepted, "Accept remaining");
+        await expectEditableThroughout(page, clicked);
+        const result = (view: View) => accepted(view) && typedInto(3)(view);
+        await r.expectSaved({
+          includes: [
+            `sleepy cat number 3.${TYPED}`,
+            ...group.map((n) => `sleepy cat number ${n}.`),
+          ],
+          excludes: group.map((n) => `lazy dog number ${n}.`),
+          statuses: Object.fromEntries(
+            group.map((n) => [r.suggestion(n), "accepted"]),
+          ),
+        });
+        await expectView(page, result, "the page after the save");
+        await expectView(watcher, result, "the other tab, without a reload");
+        await r.expectAfterReload(result);
+      },
+    );
+  });
+
+  test("an Accept in a paragraph with an emoji, bold, and a link keeps them and the typing", async ({
+    browser,
+  }) => {
+    await runReview(
+      "decorated",
+      browser,
+      { singles: [2, 4], decorated: [2] },
+      async (r) => {
+        const page = await r.open();
+        await page.route(
+          "**/_agent-native/actions/decide-resource-suggestion",
+          async (route) => {
+            await sleep(1_000);
+            await route.continue();
+          },
+        );
+        const [clicked] = await click(page, [
+          { suggestion: r.suggestion(2), decision: "accepted" },
+        ]);
+        await page.waitForTimeout(100);
+        await typeAtParagraphEnd(page, "number 2.", TYPED);
+
+        await expectShownAtOnce(
+          page,
+          clicked,
+          (frame) => shows(frame, 2, "accepted"),
+          "the accept",
+        );
+        await expectEditableThroughout(page, clicked);
+        const result = (view: View) =>
+          shows(view, 2, "accepted") &&
+          shows(view, 4, "pending") &&
+          typedInto(2)(view) &&
+          view.paragraphs.some((p) =>
+            p.includes("says 🤔 the quick brown fox jumps"),
+          );
+        await r.expectSaved({
+          includes: [
+            "says 🤔 the **quick** [brown fox](https://example.com/fox) jumps",
+            `sleepy cat number 2.${TYPED}`,
+          ],
+          excludes: ["lazy dog number 2."],
+          statuses: {
+            [r.suggestion(2)]: "accepted",
+            [r.suggestion(4)]: "pending",
+          },
+        });
+        await expectView(page, result, "the page after the save");
+        await r.expectAfterReload(result);
+      },
+    );
+  });
+
+  test("an Accept without a position, as agents send, keeps typing elsewhere on the open page", async ({
+    browser,
+  }) => {
+    await runReview("no position", browser, { singles: [2, 4] }, async (r) => {
+      const page = await r.open();
+      const typing = typeAtParagraphEnd(page, "number 4.", TYPED);
+      await page.waitForTimeout(300);
+      const decided = await r.acceptWithoutPosition(2);
+      await typing;
+      expect(decided.status, decided.body).toBe(200);
+
+      const result = (view: View) =>
+        shows(view, 2, "accepted") &&
+        shows(view, 4, "pending") &&
+        typedInto(4)(view);
+      await r.expectSaved({
+        includes: ["sleepy cat number 2.", `number 4.${TYPED}`],
+        excludes: ["lazy dog number 2."],
+        statuses: {
+          [r.suggestion(2)]: "accepted",
+          [r.suggestion(4)]: "pending",
+        },
+      });
+      await expectView(page, result, "the open page, without a reload");
+      await r.expectAfterReload(result);
+    });
+  });
+
+  test("an Accept without a position on a paragraph with unsaved typing stays pending and keeps the typing", async ({
+    browser,
+  }) => {
+    await runReview(
+      "no position typed",
+      browser,
+      { singles: [2, 4] },
+      async (r) => {
+        const page = await r.open();
+        // Held saves leave what's typed only in the live copy.
+        await page.route(
+          "**/_agent-native/actions/update-document",
+          async (route) => {
+            await sleep(8_000);
+            await route.continue();
+          },
+        );
+        await typeAtParagraphEnd(page, "number 2.", TYPED);
+        await page.waitForTimeout(1_500);
+        const decided = await r.acceptWithoutPosition(2);
+        expect(decided.status, decided.body).toBe(409);
+        expect(decided.body).toContain("were just edited");
+
+        const result = (view: View) =>
+          shows(view, 2, "pending") && typedInto(2)(view);
+        await r.expectSaved({
+          includes: [`lazy dog number 2.${TYPED}`],
+          excludes: ["sleepy cat number 2."],
+          statuses: {
+            [r.suggestion(2)]: "pending",
+            [r.suggestion(4)]: "pending",
+          },
+        });
+        await expectView(page, result, "the open page, without a reload");
+        await r.expectAfterReload(result);
+      },
+    );
+  });
+
+  test("another tab editing the words being accepted keeps that edit and returns the suggestion to pending", async ({
+    browser,
+  }) => {
+    await runReview("peer edit", browser, { singles: [2, 4] }, async (r) => {
+      const peer = await r.open();
+      const page = await r.open();
+      // The other tab's edit reaches the live copy but not the saved page, so
+      // the Accept meets it there. Either tab can save the live copy.
+      for (const tab of [peer, page]) {
+        await tab.route(
+          "**/_agent-native/actions/update-document",
+          async (route) => {
+            await sleep(8_000);
+            await route.continue();
+          },
+        );
+      }
+      await page.route(
+        "**/_agent-native/actions/decide-resource-suggestion",
+        async (route) => {
+          await sleep(3_000);
+          await route.continue();
+        },
+      );
+      const [clicked] = await click(page, [
+        { suggestion: r.suggestion(2), decision: "accepted" },
+      ]);
+      await page.waitForTimeout(100);
+      await typeInsideChange(peer, 2, "XYZ");
+
+      const toast = page.locator("[data-sonner-toast]", {
+        hasText: "Couldn't accept this suggestion",
+      });
+      await expect(toast).toBeVisible({ timeout: 20_000 });
+      await expect(toast).toContainText("It's back to pending");
+      await expectEditableThroughout(page, clicked);
+      const result = (view: View) =>
+        view.paragraphs.some((p) => p.includes("laXYZzy dog number 2.")) &&
+        !view.paragraphs.some((p) => p.includes("sleepy cat number 2."));
+      await r.expectSaved({
+        includes: ["laXYZzy dog number 2."],
+        excludes: ["sleepy cat number 2."],
+        statuses: {
+          [r.suggestion(2)]: "pending",
+          [r.suggestion(4)]: "pending",
+        },
+      });
+      await expectView(page, result, "the reviewing tab");
+      await expectView(peer, result, "the editing tab");
+      await r.expectAfterReload(result);
+    });
   });
 
   test("three Accepts 150 ms apart each show at once and all save", async ({

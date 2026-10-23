@@ -2,7 +2,9 @@ import { ActionContractError } from "@agent-native/core";
 import { fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
+  AGENT_CLIENT_ID,
   LiveCopyError,
+  loadAwarenessRows,
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
@@ -55,6 +57,7 @@ import { getDb, schema } from "../db/index.js";
 import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion-edit.js";
 import {
   liveCopyMarkdown,
+  replaceLiveCopy,
   writeAcceptedSuggestion,
 } from "./accepted-suggestion-live-copy.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
@@ -445,6 +448,12 @@ async function proposalOnStoredBody(
   failBeforeStateConflict();
 }
 
+/** Whether a person has the Page open in an editor now. Agents don't count. */
+async function openInEditor(documentId: string): Promise<boolean> {
+  const present = await loadAwarenessRows(documentId);
+  return present.some((entry) => entry.clientId !== AGENT_CLIENT_ID);
+}
+
 /**
  * Accepting an AI suggestion leaves the comment that asked for it open, so its
  * quote follows the rewritten text instead of losing its highlight.
@@ -788,6 +797,15 @@ async function commitAcceptedContent(input: {
       "The accepted suggestion cannot preserve document structure",
     );
   }
+  const collabContent = liveCopyMarkdown(
+    input.ydoc.doc,
+    suggestionEditorSchema(),
+    { content: nextContent, document: input.nextDocument },
+  );
+  // A live copy that also holds typing, or hasn't caught up with a save, keeps
+  // its older revision, so open editors still bring the two together.
+  const collabBodyRevision =
+    collabContent === nextContent ? nextBodyRevision : null;
   const applied = await commitCanonicalDocumentBodyMutation({
     write: async () => {
       // The Page may have switched since the gate chose this writer. The
@@ -799,11 +817,11 @@ async function commitAcceptedContent(input: {
         exec: tx,
       });
       const updated = await tx.execute({
-        sql: "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?, updated_at = ? WHERE id = ? AND body_revision = ? AND updated_at = ? AND content = ?",
+        sql: "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = COALESCE(?, collab_body_revision), updated_at = ? WHERE id = ? AND body_revision = ? AND updated_at = ? AND content = ?",
         args: [
           nextContent,
           nextBodyRevision,
-          nextBodyRevision,
+          collabBodyRevision,
           now,
           documentId,
           bodyRevision,
@@ -877,12 +895,7 @@ async function commitAcceptedContent(input: {
         canonicalChanged: true,
         now,
       });
-      await input.afterWrite(
-        liveCopyMarkdown(input.ydoc.doc, suggestionEditorSchema(), {
-          content: nextContent,
-          document: input.nextDocument,
-        }),
-      );
+      await input.afterWrite(collabContent);
     },
   });
   if (!applied)
@@ -1144,11 +1157,30 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     const currentDocument =
       placed?.document ?? parseSuggestionMarkdown(currentContent);
     // Each accepted edit reaches the live copy where the reviewer saw it.
-    writeAcceptedSuggestion(coordination.ydoc.doc, suggestionEditorSchema(), {
-      before: currentDocument,
-      after: nextDocument,
-      placement: context.placement,
-    });
+    if (
+      !writeAcceptedSuggestion(
+        coordination.ydoc.doc,
+        suggestionEditorSchema(),
+        {
+          before: currentDocument,
+          after: nextDocument,
+          placement: context.placement,
+        },
+      )
+    ) {
+      if (await openInEditor(context.resourceId)) {
+        fail(
+          "The words this suggestion changes were just edited, so it wasn't accepted.",
+          { statusCode: 409, errorCode: "suggestion_conflict" },
+        );
+      }
+      // Nobody can be typing, so the live copy is only behind a save.
+      replaceLiveCopy(
+        coordination.ydoc.doc,
+        suggestionEditorSchema(),
+        nextDocument,
+      );
+    }
     if (coordination.deferPersistence) {
       await reanchorSourceComment(
         tx,

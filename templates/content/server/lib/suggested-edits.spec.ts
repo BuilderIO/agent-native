@@ -22,6 +22,17 @@ const lockPrimaryBlocksFields = vi.fn(
   ): Promise<PrimaryBlocksField[]> => [],
 );
 const persistBlocksFieldIdentity = vi.fn(async () => ({}));
+const present = vi.fn(
+  async (
+    _documentId: string,
+  ): Promise<
+    Array<{ clientId: number; state: string; lastSeen: number }>
+  > => [],
+);
+vi.mock("@agent-native/core/collab", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/collab")>()),
+  loadAwarenessRows: present,
+}));
 vi.mock("@agent-native/core/feature-flags", () => ({
   isFeatureFlagEnabled: vi.fn(async () => true),
 }));
@@ -40,6 +51,7 @@ const {
   contentDocumentSuggestionAdapter,
   publishPersistedAcceptedSuggestion,
 } = await import("./suggested-edits");
+const { AGENT_CLIENT_ID } = await import("@agent-native/core/collab");
 
 const operation = {
   ordinal: 0,
@@ -638,7 +650,7 @@ describe("Content document suggestion adapter", () => {
     expect(
       writes.some((sql) =>
         sql.startsWith(
-          "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?",
+          "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = COALESCE(?, collab_body_revision)",
         ),
       ),
     ).toBe(true);
@@ -1104,11 +1116,14 @@ describe("accepting into the live copy", () => {
         },
       ),
     };
-    const storedBody = () =>
+    const bodyWrite = () =>
       writes.find((write) =>
         write.sql.startsWith("UPDATE documents SET content = ?"),
-      )?.args?.[0];
-    return { tx, storedBody };
+      );
+    const storedBody = () => bodyWrite()?.args?.[0];
+    /** The body revision the write says the live copy holds, if any. */
+    const collabRevision = () => bodyWrite()?.args?.[2];
+    return { tx, storedBody, collabRevision };
   }
   function acceptContext(
     accepted: ReturnType<typeof replaceWord>,
@@ -1151,7 +1166,7 @@ describe("accepting into the live copy", () => {
   }
 
   it("keeps typing in the live copy when the adapter accepts", async () => {
-    const { tx, storedBody } = pageTransaction();
+    const { tx, storedBody, collabRevision } = pageTransaction();
     const coordination = decisionCoordination();
     coordination.ydoc.doc = liveCopy(
       "The lazy dog sleeps.\nSecond paragraph. Typed just now.",
@@ -1168,6 +1183,8 @@ describe("accepting into the live copy", () => {
     expect(liveMarkdown(coordination.ydoc.doc)).toBe(live);
     expect(coordination.ydoc.persist).toHaveBeenCalledWith(tx, live);
     expect(storedBody()).toBe("The sleepy dog sleeps.\nSecond paragraph.");
+    // The typing isn't saved yet, so the live copy doesn't hold this body.
+    expect(collabRevision()).toBeNull();
   });
 
   it("lands each member of a group where the editor showed it", async () => {
@@ -1214,6 +1231,9 @@ describe("accepting into the live copy", () => {
   });
 
   it("refuses an accept whose paragraph was edited live, without a placement", async () => {
+    present.mockResolvedValueOnce([
+      { clientId: 7, state: "{}", lastSeen: Date.now() },
+    ]);
     const { tx, storedBody } = pageTransaction();
     const coordination = decisionCoordination();
     coordination.ydoc.doc = liveCopy(
@@ -1234,5 +1254,29 @@ describe("accepting into the live copy", () => {
     });
     expect(storedBody()).toBeUndefined();
     expect(coordination.ydoc.persist).not.toHaveBeenCalled();
+  });
+
+  it("brings a live copy behind a save to the accepted Page when nobody has it open", async () => {
+    // The agent's own presence after its save isn't a person typing.
+    present.mockResolvedValueOnce([
+      { clientId: AGENT_CLIENT_ID, state: "{}", lastSeen: Date.now() },
+    ]);
+    const { tx, storedBody, collabRevision } = pageTransaction();
+    const coordination = decisionCoordination();
+    coordination.ydoc.doc = liveCopy(
+      "The very lazy dog sleeps.\nSecond paragraph.",
+    ).doc;
+    await contentDocumentSuggestionAdapter.apply(
+      acceptContext(
+        replaceWord(stored, "lazy", "sleepy"),
+        "suggestion-1",
+        tx,
+        coordination,
+      ),
+    );
+    const accepted = "The sleepy dog sleeps.\nSecond paragraph.";
+    expect(liveMarkdown(coordination.ydoc.doc)).toBe(accepted);
+    expect(storedBody()).toBe(accepted);
+    expect(collabRevision()).toBe(1);
   });
 });

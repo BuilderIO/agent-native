@@ -1,4 +1,3 @@
-import { fail } from "@agent-native/core/action";
 import {
   Fragment,
   Slice,
@@ -529,8 +528,9 @@ function writeWhereUnchanged(
  * Writes an accepted suggestion into the live copy. Open editors send typing
  * there about half a second before it reaches the stored body, so the change
  * goes where the reviewer saw the words and leaves what was typed around
- * them in place. An accept that can't be placed for sure is refused rather
- * than written over someone's typing.
+ * them in place. Returns false, writing nothing, when the live copy doesn't
+ * show those words as the stored Page does: someone edited them, or the live
+ * copy hasn't caught up with a save yet.
  */
 export function writeAcceptedSuggestion(
   doc: Y.Doc,
@@ -541,18 +541,18 @@ export function writeAcceptedSuggestion(
     /** Where the reviewing editor showed the words, when it sent that. */
     placement?: unknown;
   },
-): void {
+): boolean {
   const fragment = doc.getXmlFragment("default");
   const live = fragment.length ? readLiveCopy(fragment, schema) : null;
   if (!live) {
-    prosemirrorJSONToYXmlFragment(schema, input.after.toJSON(), fragment);
-    return;
+    replaceLiveCopy(doc, schema, input.after);
+    return true;
   }
   const change = storedChange(input.before, input.after);
-  if (!change) return;
+  if (!change) return true;
   const placement = parseSuggestionPlacement(input.placement);
-  if (
-    (placement &&
+  return (
+    (placement !== null &&
       writeAtPlacement(
         doc,
         fragment,
@@ -563,11 +563,19 @@ export function writeAcceptedSuggestion(
         placement,
       )) ||
     writeWhereUnchanged(doc, fragment, live, input.before, input.after, change)
-  )
-    return;
-  fail(
-    "The words this suggestion changes were just edited, so it wasn't accepted.",
-    { statusCode: 409, errorCode: "suggestion_conflict" },
+  );
+}
+
+/** Makes the live copy read `page`, for a Page nobody has open. */
+export function replaceLiveCopy(
+  doc: Y.Doc,
+  schema: Schema,
+  page: ProseMirrorNode,
+): void {
+  prosemirrorJSONToYXmlFragment(
+    schema,
+    page.toJSON(),
+    doc.getXmlFragment("default"),
   );
 }
 

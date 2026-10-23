@@ -101,6 +101,8 @@ function placementOf(browser: Y.Doc, words: string, occurrence = 0) {
   );
 }
 
+const refused = "The live copy shows these words differently";
+
 function accept(
   server: Y.Doc,
   stored: string,
@@ -108,11 +110,17 @@ function accept(
   placement?: unknown,
 ) {
   const vector = Y.encodeStateVector(server);
-  writeAcceptedSuggestion(server, schema, {
+  const held = Y.encodeStateAsUpdate(server);
+  const written = writeAcceptedSuggestion(server, schema, {
     before: page(stored),
     after: page(next),
     placement,
   });
+  if (!written) {
+    // A refused accept leaves the live copy exactly as it was.
+    expect(Y.encodeStateAsUpdate(server)).toEqual(held);
+    throw new Error(refused);
+  }
   return Y.encodeStateAsUpdate(server, vector);
 }
 
@@ -154,11 +162,6 @@ function acceptWhileTyping(input: {
   expect(markdownOf(browser!)).toBe(shown);
   return shown;
 }
-
-const conflict = expect.objectContaining({
-  statusCode: 409,
-  errorCode: "suggestion_conflict",
-});
 
 describe("writeAcceptedSuggestion at the reviewer's placement", () => {
   it("keeps typing beside a word whose replacement repeats it", () => {
@@ -282,7 +285,7 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
       }),
     );
     expect(() => accept(server, stored, "Status: 🔔. Ok.", placement)).toThrow(
-      conflict,
+      refused,
     );
     expect(markdownOf(server)).toBe("Status: 🤓. Ok.");
   });
@@ -296,7 +299,7 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
     const placement = placementOf(browser!, "sell");
     Y.applyUpdate(server, edit(other!, typeAt("re", before("sell"))));
     expect(() => accept(server, stored, "We resell books.", placement)).toThrow(
-      conflict,
+      refused,
     );
   });
 
@@ -325,7 +328,7 @@ describe("writeAcceptedSuggestion at the reviewer's placement", () => {
         "Read [one two three](https://new.example) today.",
         placement,
       ),
-    ).toThrow(conflict);
+    ).toThrow(refused);
   });
 
   it("lands every member of a group where each was shown", () => {
@@ -421,7 +424,7 @@ describe("writeAcceptedSuggestion without a placement", () => {
     Y.applyUpdate(server, edit(browser!, typeAt(" Typed.", endOf("lazy"))));
     expect(() =>
       accept(server, stored, "The sleepy dog.\nSecond paragraph."),
-    ).toThrow(conflict);
+    ).toThrow(refused);
     expect(markdownOf(server)).toBe("The lazy dog. Typed.\nSecond paragraph.");
   });
 
@@ -444,7 +447,7 @@ describe("writeAcceptedSuggestion without a placement", () => {
     } = session(stored);
     Y.applyUpdate(server, edit(browser!, typeAt(" Typed.", endOf("Middle"))));
     expect(() => accept(server, stored, "Yes!\nMiddle.\nYes.")).toThrow(
-      conflict,
+      refused,
     );
   });
 });
