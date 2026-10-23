@@ -12,6 +12,7 @@ type WorkflowRun = {
 };
 
 type WorkflowJob = {
+  conclusion?: unknown;
   name?: unknown;
   status?: unknown;
   steps?: unknown;
@@ -22,6 +23,27 @@ type WorkflowStep = {
   name?: unknown;
   status?: unknown;
 };
+
+function isReleasePhaseJob(job: WorkflowJob, phase: "prepare" | "post-merge") {
+  const names =
+    phase === "prepare"
+      ? [
+          "Run the prepare release phase",
+          "Prepare and merge the stable package release",
+        ]
+      : [
+          "Run the post-merge release phase",
+          "Publish and deploy the merged stable release",
+        ];
+  return (
+    typeof job.name === "string" &&
+    names.some((name) => job.name === name || job.name.endsWith(` / ${name}`))
+  );
+}
+
+function phaseJobIsInProgress(job: WorkflowJob): boolean {
+  return job.conclusion == null && job.status === "in_progress";
+}
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -102,7 +124,7 @@ export function selectActiveReleaseCoordinator(
   return run.id as number;
 }
 
-export function assertReleaseCoordinatorStepActive(
+export function assertReleaseCoordinatorPrepareStepActive(
   pages: unknown,
   runId: number,
 ): void {
@@ -126,21 +148,44 @@ export function assertReleaseCoordinatorStepActive(
     }
   }
 
-  if (releaseSteps.length !== 1) {
+  const prepareJobs = jobs.filter((job) =>
+    isReleasePhaseJob(job as WorkflowJob, "prepare"),
+  ) as WorkflowJob[];
+  const prepareReleaseSteps = releaseSteps.filter(({ job }) =>
+    isReleasePhaseJob(job, "prepare"),
+  );
+  const activePrepareReleaseSteps = prepareReleaseSteps.filter(
+    ({ job, step }) =>
+      job.status === "in_progress" &&
+      step.status === "in_progress" &&
+      step.conclusion == null,
+  );
+  if (activePrepareReleaseSteps.length === 1) return;
+  if (activePrepareReleaseSteps.length > 1) {
     throw new Error(
-      `Expected one active release step in coordinator run ${runId}; GitHub returned ${releaseSteps.length}.`,
+      `Expected one active prepare release step in coordinator run ${runId}; GitHub returned ${activePrepareReleaseSteps.length}.`,
     );
   }
-  const [{ job, step }] = releaseSteps;
+
   if (
-    job.status !== "in_progress" ||
-    step.status !== "in_progress" ||
-    step.conclusion != null
-  ) {
+    prepareReleaseSteps.length === 0 &&
+    prepareJobs.some(phaseJobIsInProgress)
+  )
+    return;
+
+  if (prepareReleaseSteps.length > 0) {
     throw new Error(
-      `Release everything coordinator run ${runId} is no longer performing the release step.`,
+      `Release everything coordinator run ${runId} is no longer performing the prepare release step.`,
     );
   }
+  if (releaseSteps.length > 0) {
+    throw new Error(
+      `Release everything coordinator run ${runId} is not in the prepare release phase.`,
+    );
+  }
+  throw new Error(
+    `Expected one active prepare release step in coordinator run ${runId}; GitHub returned 0.`,
+  );
 }
 
 function ghJson<T>(args: string[], token?: string): T {
@@ -180,6 +225,6 @@ export function verifyActiveReleaseCoordinator(
     ],
     process.env.GH_ACTIONS_TOKEN ?? process.env.GH_TOKEN,
   );
-  assertReleaseCoordinatorStepActive(jobs, runId);
+  assertReleaseCoordinatorPrepareStepActive(jobs, runId);
   return runId;
 }
