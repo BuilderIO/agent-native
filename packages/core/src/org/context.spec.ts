@@ -1231,6 +1231,73 @@ describe("getOrgContext", () => {
   });
 });
 
+describe("resolveOrgIdForEmailViaEvent delegated membership", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ rows: [] });
+    mockGetUserSetting.mockResolvedValue(null);
+  });
+
+  const resolveDelegated = (event: ReturnType<typeof makeEvent>) =>
+    runWithRequestContext(
+      {
+        userEmail: "delegate@example.test",
+        orgId: "delegated-org",
+        a2aIdentityAssurance: "org-member",
+      },
+      () => resolveOrgIdForEmailViaEvent(event, "delegate@example.test"),
+    );
+
+  it.each(["42501", "08006"])(
+    "rejects unavailable delegated membership (%s) instead of returning Personal",
+    async (code) => {
+      const cause = Object.assign(new Error("membership read failed"), {
+        code,
+      });
+      mockExecute.mockRejectedValueOnce(cause);
+      const lookup = resolveDelegated(makeEvent());
+      await expect(lookup).rejects.toThrow();
+      await expect(lookup).rejects.not.toBeInstanceOf(ForbiddenError);
+      await expect(lookup).rejects.toBe(cause);
+    },
+  );
+
+  it("preserves definitive refusal when membership is absent", async () => {
+    await expect(resolveDelegated(makeEvent())).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+  });
+
+  it("returns a healthy delegated organization", async () => {
+    queueSelect([
+      { orgId: "delegated-org", role: "member", orgName: "Example" },
+    ]);
+    await expect(resolveDelegated(makeEvent())).resolves.toBe("delegated-org");
+  });
+
+  it("keeps the nondelegated first-boot missing-membership-table handling", async () => {
+    mockExecute.mockRejectedValueOnce(
+      Object.assign(new Error('relation "org_members" does not exist'), {
+        code: "42P01",
+      }),
+    );
+    await expect(
+      resolveOrgIdForEmailViaEvent(makeEvent(), "personal@example.test"),
+    ).resolves.toBeNull();
+  });
+
+  it("keeps an explicit Personal scope org-less without a membership read", async () => {
+    await expect(
+      runWithRequestContext(
+        { userEmail: "personal@example.test", orgScope: "personal" },
+        () =>
+          resolveOrgIdForEmailViaEvent(makeEvent(), "personal@example.test"),
+      ),
+    ).resolves.toBeNull();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+});
+
 describe("resolveOrgIdForEmail", () => {
   beforeEach(() => {
     vi.clearAllMocks();

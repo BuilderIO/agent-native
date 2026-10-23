@@ -22,7 +22,7 @@ import {
 } from "../server/personal-provider-key-policy.js";
 import { getRequestContext } from "../server/request-context.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
-import { ForbiddenError } from "../sharing/access.js";
+import { ForbiddenError } from "../sharing/errors.js";
 
 const SETTING_PREFIX = "credential:";
 

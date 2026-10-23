@@ -21,7 +21,7 @@ import {
 import { getSetting } from "../settings/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { FIRST_RUN_ONBOARDING_ELIGIBLE_KEY } from "../shared/first-run-onboarding.js";
-import { ForbiddenError } from "../sharing/access.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { setActiveOrgId } from "./active-org.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
@@ -69,7 +69,12 @@ export async function queryOrgMembers(query: {
     const { rows } = await getDbExec().execute(query);
     return rows as Record<string, unknown>[];
   } catch (err) {
-    if (isTransientDatabaseError(err)) throw err;
+    if (
+      getRequestContext()?.a2aIdentityAssurance === "org-member" ||
+      isTransientDatabaseError(err)
+    ) {
+      throw err;
+    }
     return null;
   }
 }
@@ -777,8 +782,8 @@ export async function resolveOrgIdForEmailViaEvent(
   const delegatedOrgId = delegatedOrgMemberScope(email);
   if (delegatedOrgId !== undefined) {
     const memberships = await loadMembershipsForEvent(event, email);
-    if (!memberships || !memberships.some((m) => m.orgId === delegatedOrgId)) {
-      return null;
+    if (memberships === null) {
+      throw new Error("Organization scope is unavailable");
     }
     const refreshed = await refreshFederatedMemberships(
       event,

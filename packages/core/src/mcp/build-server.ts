@@ -74,7 +74,7 @@ import {
   type McpDirectoryWidgetReadArgument,
   renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
-import { ForbiddenError } from "../sharing/access.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import {
   type McpAnalyticsContext,
   describeMcpError,

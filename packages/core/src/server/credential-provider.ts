@@ -5,13 +5,9 @@ import {
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
 } from "../agent/engine/credential-errors.js";
 import { getAppConfig } from "../app-config/index.js";
-import {
-  getDbExec,
-  isLocalDatabase,
-  isTransientDatabaseError,
-} from "../db/client.js";
+import { getDbExec, isLocalDatabase } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
-import { ForbiddenError } from "../sharing/access.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import {
   BuilderOAuthScopeError,
@@ -156,7 +152,7 @@ export function assertCredentialStoreReadable(result: {
   cause?: unknown;
 }): void {
   if (result.cause instanceof ForbiddenError) throw result.cause;
-  if (result.lookupFailed && isTransientDatabaseError(result.cause)) {
+  if (result.lookupFailed) {
     throw new CredentialStoreUnavailableError(result.cause);
   }
 }
@@ -2051,8 +2047,7 @@ export async function resolveSecretPairs(
     if (lookupFailed) {
       const environmentPair = readEnvironmentPairs();
       if (environmentPair) return environmentPair;
-      assertCredentialStoreReadable({ lookupFailed, cause });
-      return null;
+      throw cause;
     }
 
     if (personal && !(await readsOrgCredentialFirst(orgId, email))) {

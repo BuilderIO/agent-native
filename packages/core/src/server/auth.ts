@@ -43,7 +43,6 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
-import { ForbiddenError } from "../sharing/access.js";
 import {
   createConsentHandler,
   createConsentRegionHandler,
@@ -4759,12 +4758,7 @@ async function backfillSessionOrg(
 ): Promise<AuthSession> {
   if (session.orgId || hasExplicitPersonalOrgScope(event)) return session;
   const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
-  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email).catch(
-    (error) => {
-      if (error instanceof ForbiddenError) throw error;
-      return null;
-    },
-  );
+  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email);
   return orgId ? { ...session, orgId } : session;
 }
 
