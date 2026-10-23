@@ -153,7 +153,7 @@ function makeEvent(opts: {
   const webReq = new Request(reqUrl, { method: "POST", headers });
   return {
     method: "POST",
-    url: { pathname: "/" },
+    url: new URL(reqUrl),
     path: "/",
     req: webReq,
     _headers: headers,
@@ -300,7 +300,8 @@ const connectorConfig = {
   connectorCatalog: CONNECTOR_CATALOG,
 };
 
-vi.mock("h3", () => ({
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
   defineEventHandler: (fn: any) => fn,
   getMethod: (event: any) => event.method ?? "GET",
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],

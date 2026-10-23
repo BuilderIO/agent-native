@@ -134,13 +134,13 @@ vi.mock("./credential-membership.js", async (importOriginal) => {
   };
 });
 
-vi.mock("h3", () => ({
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
   defineEventHandler: (fn: any) => fn,
   getMethod: (event: any) => event.method ?? "GET",
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   getRequestHeader: (event: any, name: string) =>
     event._headers?.[name.toLowerCase()],
-  getRequestIP: () => undefined,
   getQuery: () => ({}),
   setResponseStatus: (event: any, code: number) => {
     event._status = code;
@@ -463,7 +463,7 @@ function makeEvent(
   const path = "/";
   return {
     method,
-    url: { pathname: path },
+    url: new URL(`${ORIGIN}${path}`),
     path,
     req: new Request(`${ORIGIN}${path}`, { method, headers: allHeaders }),
     _headers: allHeaders,

@@ -1775,6 +1775,52 @@ describe("requestMatchesEmbedTarget", () => {
     },
   );
 
+  it("redeems and resolves an embed through an allowlisted non-loopback gateway", async () => {
+    process.env.WORKSPACE_GATEWAY_URL = "https://workspace.example.test";
+    process.env.APP_BASE_PATH = "/mail";
+    installTicketStore();
+    const ticket = await runWithRequestContext(
+      { requestOrigin: "https://workspace.example.test" },
+      () =>
+        createEmbedSessionTicketForAudience({
+          ownerEmail: "owner@example.com",
+          targetPath: "/inbox",
+        }),
+    );
+    const { createEmbedStartRouteHandler } = await import("./embed-route.js");
+    const headers = {
+      host: "internal.gateway:8100",
+      "x-forwarded-host": "workspace.example.test",
+      "x-forwarded-proto": "https",
+    };
+    const start = fakeEvent(
+      `/mail/_agent-native/embed/start?ticket=${ticket.ticket}`,
+      headers,
+      { clientAddress: "203.0.113.20" },
+    );
+    start.req.method = "GET";
+    const response = (await createEmbedStartRouteHandler()(start)) as Response;
+    expect(response.status).toBe(302);
+    const location = new URL(
+      response.headers.get("location")!,
+      "https://workspace.example.test",
+    );
+    const document = fakeEvent(
+      `${location.pathname}${location.search}`,
+      headers,
+      { clientAddress: "203.0.113.20" },
+    );
+    await expect(
+      resolveEmbedSessionFromRequest(document),
+    ).resolves.toMatchObject({ email: "owner@example.com" });
+    const otherHost = fakeEvent(
+      `${location.pathname}${location.search}`,
+      { ...headers, "x-forwarded-host": "attacker.example" },
+      { clientAddress: "203.0.113.20" },
+    );
+    await expect(resolveEmbedSessionFromRequest(otherHost)).resolves.toBeNull();
+  });
+
   it.each(["audience_host", "audience_base_path"])(
     "requires a fresh ticket when legacy metadata %s is unknown",
     async (column) => {

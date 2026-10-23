@@ -296,6 +296,80 @@ describe("UI action capability", () => {
   );
 
   it.each([
+    { base: "", path: "/_agent-native/ui-capability" },
+    { base: "", path: "/_agent-native/ui-capability/" },
+    { base: "/mail", path: "/mail/_agent-native/ui-capability" },
+    { base: "/mail", path: "/mail/_agent-native/ui-capability/" },
+  ])(
+    "checks live embed cookies inside the capability handler at $path",
+    async ({ base, path }) => {
+      vi.stubEnv("APP_BASE_PATH", base);
+      const token = signEmbedSessionToken({
+        ownerEmail: "alice@example.com",
+        targetPath: "/documents/doc-1",
+        audienceHost: "example.test",
+        scope: "capability:visual-edit:design:design-1",
+      });
+      const app = createApp();
+      mountUiActionCapabilityRoute(app, `${base}/_agent-native`, base);
+      const blocked = await app.fetch(
+        new Request(`https://example.test${path}`, {
+          headers: {
+            "sec-fetch-site": "same-origin",
+            cookie: `${EMBED_SESSION_COOKIE}=${token}; an_session=browser-login`,
+          },
+        }),
+      );
+      expect(blocked.status).toBe(403);
+      expect(await blocked.json()).toEqual({
+        error: "Browser cookie session required",
+      });
+      expect(blocked.headers.get("set-cookie")).toBeNull();
+      const browser = await app.fetch(
+        new Request(`https://example.test${path}`, {
+          headers: {
+            "sec-fetch-site": "same-origin",
+            cookie: "an_session=browser-login",
+          },
+        }),
+      );
+      expect(browser.status).toBe(200);
+      expect(browser.headers.get("set-cookie")).toContain(
+        "agent-native-ui-capability=",
+      );
+    },
+  );
+
+  it.each([
+    { base: "", path: "/_agent-native/ui-capability" },
+    { base: "/mail", path: "/mail/_agent-native/ui-capability/" },
+  ])(
+    "refuses malformed authority with a live embed cookie at $path",
+    async ({ base, path }) => {
+      vi.stubEnv("APP_BASE_PATH", base);
+      const token = signEmbedSessionToken({
+        ownerEmail: "alice@example.com",
+        targetPath: "/documents/doc-1",
+        audienceHost: "example.test",
+        scope: "capability:visual-edit:design:design-1",
+      });
+      const app = createApp();
+      mountUiActionCapabilityRoute(app, `${base}/_agent-native`, base);
+      const response = await app.fetch(
+        new Request(`https://example.test${path}`, {
+          headers: {
+            "sec-fetch-site": "same-origin",
+            "x-forwarded-host": "example.test/path",
+            cookie: `${EMBED_SESSION_COOKIE}=${token}; an_session=browser-login`,
+          },
+        }),
+      );
+      expect(response.status).toBe(400);
+      expect(response.headers.get("set-cookie")).toBeNull();
+    },
+  );
+
+  it.each([
     "invalid",
     "expired",
     "other-target",

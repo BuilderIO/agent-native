@@ -26,6 +26,10 @@ import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
+  EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+  WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+} from "../server/origin-allowlist.js";
+import {
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
   normalizeMcpDirectoryWidgetReadActionArguments,
@@ -2391,7 +2395,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
   describe("trusted widget request origin", () => {
     beforeEach(() => {
-      vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+      for (const key of [
+        ...EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+        ...WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+        "BETTER_AUTH_TRUSTED_ORIGINS",
+      ])
+        vi.stubEnv(key, "");
     });
     afterEach(() => {
       vi.unstubAllEnvs();
@@ -2415,7 +2424,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           node,
           ip: "203.0.113.20",
           headers: {
-            ...(await mcpAppsAuthHeaders()),
+            ...(await mcpAppsAuthHeaders({
+              resource: "http://attacker.example/_agent-native/mcp",
+              issuer: "http://attacker.example",
+            })),
             "x-forwarded-host": "attacker.example",
             "x-forwarded-proto": "http",
             "x-forwarded-for": "127.0.0.1",
@@ -2455,18 +2467,206 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             audienceHost: "attacker.example",
           }),
         ).resolves.toBeNull();
-        expect(JSON.stringify(called)).not.toContain("attacker.example");
+        expect(startUrl.hostname).not.toBe("attacker.example");
+      },
+    );
+
+    it("retains the forwarded MCP origin for an ordinary non-embed tool", async () => {
+      const { getRequestContext } =
+        await import("../server/request-context.js");
+      const response = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 140,
+          method: "tools/call",
+          params: { name: "echo-thing", arguments: { value: "origin" } },
+        },
+        {
+          headers: {
+            ...(await mcpAppsAuthHeaders({
+              resource: "https://workspace.example.test/_agent-native/mcp",
+              issuer: "https://workspace.example.test",
+            })),
+            host: "internal.gateway:8100",
+            "x-forwarded-host": "workspace.example.test",
+            "x-forwarded-proto": "https",
+          },
+          config: {
+            ...config,
+            catalogMode: "app",
+            actions: {
+              "echo-thing": {
+                ...config.actions["echo-thing"],
+                mcpApp: undefined,
+                link: undefined,
+                run: async () => ({
+                  origin: getRequestContext()?.requestOrigin,
+                }),
+              },
+            },
+          },
+        },
+      );
+      expect(response.result).toMatchObject({
+        structuredContent: { origin: "https://workspace.example.test" },
+      });
+      expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    });
+
+    it.each([undefined, "203.0.113.20"])(
+      "uses the public Netlify request origin without an allowlist (peer: %s)",
+      async (ip) => {
+        const actual = await vi.importActual<
+          typeof import("../server/embed-session.js")
+        >("../server/embed-session.js");
+        embedSessionMocks.createEmbedSessionTicket.mockImplementationOnce(
+          async (input) => ({
+            ...(await actual.createEmbedSessionTicket(
+              input as Parameters<typeof actual.createEmbedSessionTicket>[0],
+            )),
+            targetPath: input.targetPath,
+          }),
+        );
+        const event = makeWebEvent({
+          headers: {
+            ...(await mcpAppsAuthHeaders()),
+            host: "mail.agent-native.com",
+            "x-forwarded-host": "mail.agent-native.com",
+            "x-forwarded-proto": "https",
+            ...(ip ? { "x-nf-client-connection-ip": ip } : {}),
+          },
+          body: {
+            jsonrpc: "2.0",
+            id: 141,
+            method: "tools/call",
+            params: { name: "echo-thing", arguments: { value: "hello" } },
+          },
+        });
+        // Nitro's Netlify adapter preserves Request.url and copies this header to req.ip.
+        event.req.runtime = { name: "netlify" };
+        event.req.ip =
+          event.req.headers.get("x-nf-client-connection-ip") || undefined;
+        const { getRequestIP } = await import("h3");
+        expect(getRequestIP(event)).toBe(ip);
+        const { getConfiguredOriginAllowlist } =
+          await import("../server/origin-allowlist.js");
+        expect(getConfiguredOriginAllowlist().size).toBe(0);
+        const response = await handleMcpRequest(
+          event,
+          scopedWidgetConfig(config),
+        );
+        const called = await readWebResponse(response as Response);
+        expect(called.result.isError).not.toBe(true);
+        const startUrl = new URL(
+          called.result._meta["agent-native/embedStart"].startUrl,
+        );
+        expect(startUrl.origin).toBe("https://mail.agent-native.com");
+        await expect(
+          actual.readMcpDirectoryWidgetRenewalTicket(
+            startUrl.searchParams.get("ticket")!,
+            { audienceHost: "mail.agent-native.com" },
+          ),
+        ).resolves.toMatchObject({ ownerEmail: "oauth@example.com" });
+        await expect(
+          actual.readMcpDirectoryWidgetRenewalTicket(
+            startUrl.searchParams.get("ticket")!,
+            { audienceHost: "attacker.example" },
+          ),
+        ).resolves.toBeNull();
+      },
+    );
+
+    it.each(["APP_URL", "WORKSPACE_GATEWAY_URL"])(
+      "uses an allowlisted non-loopback gateway for minting and renewal via %s",
+      async (key) => {
+        vi.stubEnv(key, "https://workspace.example.test");
+        const actual = await vi.importActual<
+          typeof import("../server/embed-session.js")
+        >("../server/embed-session.js");
+        embedSessionMocks.createEmbedSessionTicket.mockImplementationOnce(
+          async (input) => ({
+            ...(await actual.createEmbedSessionTicket(
+              input as Parameters<typeof actual.createEmbedSessionTicket>[0],
+            )),
+            targetPath: input.targetPath,
+          }),
+        );
+        const gatewayConfig = scopedWidgetConfig(config);
+        const headers = {
+          ...(await mcpAppsAuthHeaders({
+            resource: "https://workspace.example.test/_agent-native/mcp",
+            issuer: "https://workspace.example.test",
+          })),
+          host: "internal.gateway:8100",
+          "x-forwarded-host": "workspace.example.test",
+          "x-forwarded-proto": "https",
+        };
+        const event = makeWebEvent({
+          ip: "203.0.113.20",
+          headers,
+          body: {
+            jsonrpc: "2.0",
+            id: 138,
+            method: "tools/call",
+            params: { name: "echo-thing", arguments: { value: "hello" } },
+          },
+        });
+        event.url = new URL("http://internal.gateway:8100/");
+        const response = await handleMcpRequest(event, gatewayConfig);
+        const called = await readWebResponse(response as Response);
+        expect(called.result.isError).not.toBe(true);
+        const startUrl = new URL(
+          called.result._meta["agent-native/embedStart"].startUrl,
+        );
+        expect(startUrl.origin).toBe("https://workspace.example.test");
+        const sourceTicket = startUrl.searchParams.get("ticket")!;
+        await expect(
+          actual.readMcpDirectoryWidgetRenewalTicket(sourceTicket, {
+            audienceHost: "workspace.example.test",
+          }),
+        ).resolves.toMatchObject({ ownerEmail: "oauth@example.com" });
+        await expect(
+          actual.readMcpDirectoryWidgetRenewalTicket(sourceTicket, {
+            audienceHost: "internal.gateway",
+          }),
+        ).resolves.toBeNull();
+        await expect(
+          actual.readMcpDirectoryWidgetRenewalTicket(sourceTicket, {
+            audienceHost: "attacker.example",
+          }),
+        ).resolves.toBeNull();
+        embedSessionMocks.readMcpDirectoryWidgetRenewalTicket.mockImplementationOnce(
+          actual.readMcpDirectoryWidgetRenewalTicket,
+        );
+        const renewal = await callWeb(
+          {
+            jsonrpc: "2.0",
+            id: 139,
+            method: "tools/call",
+            params: {
+              name: "create_embed_session",
+              arguments: { sourceTicket },
+            },
+          },
+          { headers, config: gatewayConfig },
+        );
+        expect(renewal.result.isError).not.toBe(true);
+        expect(
+          new URL(renewal.result._meta["agent-native/embedStart"].startUrl)
+            .origin,
+        ).toBe("https://workspace.example.test");
       },
     );
 
     it("uses validated forwarded authority from a loopback proxy for widget tickets", async () => {
+      vi.stubEnv("APP_URL", "https://mail.agent-native.com");
       const event = makeWebEvent({
         ip: "::ffff:127.0.0.1",
         headers: {
           ...(await mcpAppsAuthHeaders()),
           host: "127.0.0.1:8100",
-          "x-forwarded-host": "mail.agent-native.com, internal.gateway:3000",
-          "x-forwarded-proto": "https, http",
+          "x-forwarded-host": "mail.agent-native.com",
+          "x-forwarded-proto": "https",
         },
         body: {
           jsonrpc: "2.0",
@@ -2504,9 +2704,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             params: { name: "echo-thing", arguments: { value: "hello" } },
           },
         });
-        await expect(
-          handleMcpRequest(event, scopedWidgetConfig(config)),
-        ).rejects.toMatchObject({ statusCode: 400 });
+        const response = await handleMcpRequest(
+          event,
+          scopedWidgetConfig(config),
+        );
+        if (response instanceof Response) {
+          const called = await readWebResponse(response);
+          expect(called.result.isError).toBe(true);
+        } else {
+          expect(event._status).toBe(401);
+          expect(response).toMatchObject({ error: "Unauthorized" });
+        }
         expect(
           embedSessionMocks.createEmbedSessionTicket,
         ).not.toHaveBeenCalled();
@@ -2530,9 +2738,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
       delete event.url;
       event.req = { headers: event.req.headers, url: "/" };
-      await expect(
-        handleMcpRequest(event, scopedWidgetConfig(config)),
-      ).rejects.toThrow();
+      const response = await handleMcpRequest(
+        event,
+        scopedWidgetConfig(config),
+      );
+      expect(event._status).toBe(401);
+      expect(response).toMatchObject({ error: "Unauthorized" });
       expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
     });
   });

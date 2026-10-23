@@ -887,14 +887,17 @@ function openAppTool(config: MCPConfig): ActionEntry {
           await import("../server/request-context.js");
         const ctx = getRequestContext();
         const ownerEmail = ctx?.userEmail?.trim();
-        if (ownerEmail && ctx?.requestOrigin) {
+        const { getEmbedSessionOrigin } =
+          await import("../server/embed-request-origin.js");
+        const embedOrigin = getEmbedSessionOrigin();
+        if (ownerEmail && embedOrigin) {
           const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
             await import("../server/embed-session.js");
           const { buildEmbedStartPath } =
             await import("../server/embed-route.js");
           const targetPath = normalizeEmbedTargetPath(
             withMcpChatBridgeParam(url),
-            ctx.requestOrigin,
+            embedOrigin,
           );
           if (targetPath) {
             const ticket = await createEmbedSessionTicket({
@@ -904,7 +907,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
               scope: chrome ?? null,
             });
             const startPath = buildEmbedStartPath(ticket.ticket);
-            embedStartUrl = new URL(startPath, ctx.requestOrigin).toString();
+            embedStartUrl = new URL(startPath, embedOrigin).toString();
             embedTargetPath = targetPath;
             embedExpiresAt = ticket.expiresAt;
           }
@@ -996,22 +999,22 @@ function createEmbedSessionTool(): ActionEntry {
       const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
         await import("../server/embed-session.js");
       const { buildEmbedStartPath } = await import("../server/embed-route.js");
+      const { getEmbedSessionOrigin } =
+        await import("../server/embed-request-origin.js");
+      const embedOrigin = getEmbedSessionOrigin();
       const rawTarget =
         typeof args.url === "string" && args.url.trim()
           ? args.url
           : typeof args.path === "string"
             ? args.path
             : "";
-      const targetPath = normalizeEmbedTargetPath(
-        rawTarget,
-        ctx?.requestOrigin,
-      );
+      const targetPath = normalizeEmbedTargetPath(rawTarget, embedOrigin);
       if (!targetPath) {
         throw new Error(
           "create_embed_session can only embed same-origin app-relative URLs.",
         );
       }
-      if (!ctx?.requestOrigin) {
+      if (!embedOrigin) {
         return { url: targetPath, targetPath, embed: false };
       }
 
@@ -1022,7 +1025,7 @@ function createEmbedSessionTool(): ActionEntry {
         scope: typeof args.chrome === "string" ? args.chrome : null,
       });
       const startPath = buildEmbedStartPath(ticket.ticket);
-      const startUrl = new URL(startPath, ctx.requestOrigin).toString();
+      const startUrl = new URL(startPath, embedOrigin).toString();
       return {
         startUrl,
         targetPath,
