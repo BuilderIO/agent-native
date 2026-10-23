@@ -279,6 +279,8 @@ Resolving a thread clears its highlight and moves it to a collapsible **"Resolve
 
 On a collection page, each Blocks field tab has its own comments. Pass `fieldId` to `add-comment` to start a thread in a field's tab; `quotedText` and the anchor fields then come from that field's text. Field IDs are the Blocks-type properties `get-document` returns, and `navigation.fieldId` names the tab the person has open (none means the first tab). Omitting `fieldId`, or passing the primary field's ID, means the page body. Replies stay in their thread's tab, so leave `fieldId` off a reply. `fieldId` and `propertyId` can't be combined. `list-comments` and `list-content-database-comments` return `field_id` and `field_name` (the field's name when the thread started) on each comment; a null `field_id` is the page body. When a field is deleted, its threads stay listed under the saved name and can still be resolved, but have no highlight. Ask AI on a comment thread works only in the page body.
 
+A thread can sit on a whole video instead of on text. Pass `blockId` with the video's `id` attribute from `get-document`'s content (`<video src="…" id="video-…">`), plus `fieldId` for a video in another tab. The thread quotes no text; people see it beside the video, and `list-comments` returns `block_id` and `block_type` on it. A video saved without an `id` has none to name yet, so give it a unique `video-` id with `edit-document` first. A thread made before videos had ids quotes the word "Video"; on a page with exactly one video it shows on that video, and with more it stays on its quote.
+
 ```bash
 # List threads (returns anchor fields + parsed mentions)
 pnpm action list-comments --documentId abc123
@@ -293,6 +295,9 @@ pnpm action add-comment --documentId abc123 --content "@Sam check this" \
 
 # Comment on text in another Blocks field's tab
 pnpm action add-comment --documentId abc123 --fieldId prop456 --content "Tighten this" --quotedText "the opening line"
+
+# Comment on a whole video, by its id attribute in get-document's content
+pnpm action add-comment --documentId abc123 --blockId video-a1b2c3d4 --content "Trim the intro"
 
 # Reply to a thread (threadId is the thread's root comment ID)
 pnpm action add-comment --documentId abc123 --threadId t123 --parentId c123 --content "Agreed"

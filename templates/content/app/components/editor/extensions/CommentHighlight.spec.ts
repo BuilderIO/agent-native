@@ -12,6 +12,11 @@ const schema = new Schema({
     doc: { content: "block+" },
     paragraph: { group: "block", content: "text*" },
     blockquote: { group: "block", content: "block+" },
+    video: {
+      group: "block",
+      atom: true,
+      attrs: { src: { default: null }, blockId: { default: null } },
+    },
     text: {},
   },
   marks: {},
@@ -237,5 +242,102 @@ describe("CommentHighlight", () => {
       { threadId: "t1", from: 2, to: 7 },
     ]);
     expect(moved.doc.textBetween(2, 7)).toBe("alpha");
+  });
+
+  describe("a thread on a whole block", () => {
+    const paragraph = (text: string) =>
+      schema.node("paragraph", null, schema.text(text));
+    const video = (blockId: string) =>
+      schema.node("video", { src: "https://example.com/a.mp4", blockId });
+    const start = () => {
+      // "Intro" is 1-6; the video sits at 7.
+      let state = EditorState.create({
+        doc: schema.node("doc", null, [paragraph("Intro"), video("video-1")]),
+        plugins: [createCommentHighlightPlugin()],
+      });
+      state = state.apply(
+        state.tr.setMeta(commentHighlightKey, {
+          specs: [{ threadId: "v", from: 7, to: 8, blockId: "video-1" }],
+          activeId: "v",
+        }),
+      );
+      return state;
+    };
+
+    it("marks the block itself, carrying its thread", () => {
+      const state = start();
+      const [decoration] = commentHighlightKey
+        .getState(state)!
+        .decorations.find();
+      expect(decoration).toMatchObject({ from: 7, to: 8 });
+      expect((decoration as any).type.attrs).toEqual({
+        class:
+          "comment-highlight comment-highlight--block comment-highlight--active",
+        "data-comment-block-threads": "v",
+      });
+    });
+
+    it("names every thread on the block on one mark", () => {
+      let state = start();
+      state = state.apply(
+        state.tr.setMeta(commentHighlightKey, {
+          specs: [
+            { threadId: "v", from: 7, to: 8, blockId: "video-1" },
+            { threadId: "w", from: 7, to: 8, blockId: "video-1" },
+          ],
+          activeId: null,
+          hoveredId: "w",
+        }),
+      );
+      const decorations = commentHighlightKey
+        .getState(state)!
+        .decorations.find();
+      expect(decorations).toHaveLength(1);
+      expect((decorations[0] as any).type.attrs).toEqual({
+        class:
+          "comment-highlight comment-highlight--block comment-highlight--hovered",
+        "data-comment-block-threads": "v w",
+      });
+    });
+
+    it("follows the block through edits and swaps, and goes with it", () => {
+      let state = start();
+      state = state.apply(state.tr.insertText("New ", 1));
+      expect(commentHighlightKey.getState(state)!.specs).toEqual([
+        { threadId: "v", from: 11, to: 12, blockId: "video-1" },
+      ]);
+
+      const swapped = state.apply(
+        state.tr.replaceWith(0, state.doc.content.size, [
+          video("video-1"),
+          paragraph("New intro"),
+        ]),
+      );
+      expect(commentHighlightKey.getState(swapped)!.specs).toEqual([
+        { threadId: "v", from: 0, to: 1, blockId: "video-1" },
+      ]);
+
+      const deleted = state.apply(state.tr.delete(11, 12));
+      expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
+    });
+
+    it("marks a block waiting for its first comment", () => {
+      let state = EditorState.create({
+        doc: schema.node("doc", null, [paragraph("Intro"), video("video-1")]),
+        plugins: [createCommentHighlightPlugin()],
+      });
+      state = state.apply(
+        state.tr.setMeta(commentHighlightKey, {
+          pending: { from: 7, to: 8, blockId: "video-1" },
+        }),
+      );
+      const [decoration] = commentHighlightKey
+        .getState(state)!
+        .decorations.find();
+      expect(decoration).toMatchObject({ from: 7, to: 8 });
+      expect((decoration as any).type.attrs.class).toBe(
+        "comment-highlight comment-highlight--block comment-highlight--pending",
+      );
+    });
   });
 });

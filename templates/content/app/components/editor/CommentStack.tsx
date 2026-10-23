@@ -5,6 +5,7 @@ import { forwardRef, useEffect, useId, useRef, type ReactNode } from "react";
 import type { CommentThread } from "@/hooks/use-comments";
 import { cn } from "@/lib/utils";
 
+import { commentThreadQuote } from "./comment-block-anchors";
 import {
   CommentAvatar,
   CommentRow,
@@ -156,6 +157,7 @@ export function CommentStackCard({
     : null;
   const replies = front.comments.length - 1;
   const others = threads.filter((thread) => thread !== front);
+  const quote = commentThreadQuote(front, t);
   return (
     <div
       ref={ref}
@@ -179,9 +181,9 @@ export function CommentStackCard({
             the open button's description too; the hidden copy below is
             what a screen reader hears. */}
         <div inert className="grid grid-cols-1 gap-3.5 px-4 pb-3.5 pt-3.5">
-          {front.quotedText ? (
+          {quote ? (
             <p className="-mb-1 line-clamp-1 border-s-2 border-border ps-2.5 text-sm text-muted-foreground">
-              {front.quotedText}
+              {quote}
             </p>
           ) : null}
           {first ? (
@@ -213,7 +215,7 @@ export function CommentStackCard({
           <CommentStackMore threads={others} t={t} />
         </div>
         <div hidden id={descriptionId} data-comment-stack-description>
-          {front.quotedText ? <p>{front.quotedText}</p> : null}
+          {quote ? <p>{quote}</p> : null}
           {first ? (
             <>
               <p>{firstName}</p>

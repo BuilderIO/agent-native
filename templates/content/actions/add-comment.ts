@@ -25,12 +25,21 @@ import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
+  COMMENT_ANCHOR_BLOCK_TYPES,
+  nfmCommentAnchorBlocks,
+  type CommentAnchorBlockType,
+} from "../shared/comment-block-anchor.js";
+import {
   personMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
 } from "../shared/comment-mentions.js";
 import { commentPropertyTarget } from "../shared/comment-property-target.js";
-import { listPropertiesForDocument } from "./_property-utils.js";
+import { nfmToDoc } from "../shared/nfm.js";
+import {
+  listPropertiesForAllDocumentDatabases,
+  listPropertiesForDocument,
+} from "./_property-utils.js";
 
 function displayNameFromEmail(email: string): string {
   const localPart = email.split("@")[0] ?? "";
@@ -101,6 +110,18 @@ const commentSchema = z.object({
     .describe(
       "Blocks field ID, to start a thread in that field's tab; quotedText, which is then required, and the anchor fields come from that field's text. Omit for the page body (the primary Blocks field's ID also means the body). Field IDs are the Blocks-type properties get-document returns. Replies stay in their thread's tab, so omit it when replying. Not used with propertyId.",
     ),
+  blockId: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Block ID, to start a thread on a whole block, such as a video, instead of on text. A video's ID is the id attribute of its <video> tag in get-document's content; give a video without one an id with edit-document first. In a Blocks field tab, pass fieldId too. Not used with quotedText, the anchor fields, propertyId, or on replies.",
+    ),
+  blockType: z
+    .enum(COMMENT_ANCHOR_BLOCK_TYPES)
+    .optional()
+    .describe("The block's type; omit to read it from the page"),
   mentions: z
     .union([z.string(), z.array(z.unknown())])
     .optional()
@@ -136,6 +157,41 @@ const RETRY_VARIABLE_KEYS = new Set([
   "propertyValue",
   "fieldName",
 ]);
+
+/**
+ * The type of the block a new thread is on. An agent names a block it read
+ * from the saved page, so a block that isn't there is a mistake to report. A
+ * person's editor can be ahead of the save, so their thread is kept as they
+ * started it, and shows as unanchored if the block never arrives.
+ */
+async function resolveCommentBlockType(args: {
+  document: Parameters<typeof listPropertiesForAllDocumentDatabases>[0];
+  fieldId: string | null;
+  blockId: string;
+  blockType: CommentAnchorBlockType | undefined;
+  strict: boolean;
+}): Promise<CommentAnchorBlockType> {
+  let markdown = args.document.content as string | null | undefined;
+  if (args.fieldId) {
+    const properties = await listPropertiesForAllDocumentDatabases(
+      args.document,
+      { requireDatabaseAccess: false },
+    );
+    const field = properties.find(
+      (property) => property.definition.id === args.fieldId,
+    );
+    markdown = typeof field?.value === "string" ? field.value : null;
+  }
+  const found = nfmCommentAnchorBlocks(nfmToDoc(markdown ?? "")).get(
+    args.blockId,
+  );
+  if (found) return found;
+  if (!args.strict && args.blockType) return args.blockType;
+  fail(
+    "No block with that ID is on this Page; read its id from get-document's content",
+    { statusCode: 400, errorCode: "comment_block_not_found" },
+  );
+}
 
 type CommentTransaction = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
@@ -213,6 +269,21 @@ export async function addCommentWithGuard(
       { statusCode: 400, errorCode: "comment_property_target_conflict" },
     );
   }
+  if (
+    (args.blockId || args.blockType) &&
+    (!args.blockId ||
+      args.threadId ||
+      args.quotedText ||
+      args.anchorPrefix ||
+      args.anchorSuffix ||
+      args.anchorStartOffset !== undefined ||
+      args.propertyId)
+  ) {
+    fail(
+      "A comment on a block starts its own thread and quotes no text; pass blockId, and omit threadId, parentId, quotedText, the anchor fields, and propertyId",
+      { statusCode: 400, errorCode: "comment_block_target_conflict" },
+    );
+  }
   if (args.propertyId && args.fieldId) {
     fail(
       "A comment targets either a Property value or a Blocks field tab; pass propertyId or fieldId, not both",
@@ -277,6 +348,8 @@ export async function addCommentWithGuard(
         propertyValue: schema.documentComments.propertyValue,
         fieldId: schema.documentComments.fieldId,
         fieldName: schema.documentComments.fieldName,
+        blockId: schema.documentComments.blockId,
+        blockType: schema.documentComments.blockType,
       })
       .from(schema.documentComments)
       .where(
@@ -323,6 +396,24 @@ export async function addCommentWithGuard(
     }
     throw error;
   });
+  const blockId = args.blockId;
+  const blockType = blockId
+    ? await resolveCommentBlockType({
+        document: access.resource as Parameters<
+          typeof listPropertiesForAllDocumentDatabases
+        >[0],
+        fieldId: fieldTarget.fieldId,
+        blockId,
+        blockType: args.blockType,
+        strict: actorKind === "agent",
+      }).catch(async (error: unknown) => {
+        const saved = await savedSubmission();
+        if (saved?.blockId === blockId && saved.blockType) {
+          return saved.blockType as CommentAnchorBlockType;
+        }
+        throw error;
+      })
+    : null;
 
   const values = {
     id,
@@ -340,6 +431,8 @@ export async function addCommentWithGuard(
     propertyValue: propertyTarget?.propertyValue ?? null,
     fieldId: fieldTarget.fieldId,
     fieldName: fieldTarget.fieldName,
+    blockId: blockId ?? null,
+    blockType,
     mentionsJson,
     authorEmail: email,
     authorName: name,
@@ -393,7 +486,12 @@ export async function addCommentWithGuard(
     // A new thread that quotes nothing is a comment on the whole page, which
     // belongs to no tab. Checked after the receipt, so a retry of one saved
     // before this rule still replays.
-    if (!args.threadId && fieldTarget.fieldId && !args.quotedText?.trim()) {
+    if (
+      !args.threadId &&
+      fieldTarget.fieldId &&
+      !args.quotedText?.trim() &&
+      !blockId
+    ) {
       fail(
         "A thread in a Blocks field tab quotes text from that tab; pass quotedText, or omit fieldId to comment on the whole page",
         { statusCode: 400, errorCode: "comment_field_quote_required" },
@@ -484,7 +582,7 @@ export async function addCommentWithGuard(
 
 export default defineAction({
   description:
-    "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. To reply, provide both threadId and parentId; omit both to start a thread. A new thread with no quotedText and no propertyId is a comment on the whole page; it shows in the page's Discussion. Pass fieldId to start a thread in a Blocks field tab other than the page body.",
+    "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. To reply, provide both threadId and parentId; omit both to start a thread. A new thread with no quotedText, propertyId, or blockId is a comment on the whole page; it shows in the page's Discussion. Pass blockId to start a thread on a whole video. Pass fieldId to start a thread in a Blocks field tab other than the page body.",
   deferLoading: false,
   mcpTool: true,
   schema: commentSchema,

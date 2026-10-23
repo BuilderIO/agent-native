@@ -291,4 +291,52 @@ describe("VisualEditor comment highlights", () => {
 
     expect(start()).toBe(12);
   });
+
+  describe("threads on a video", () => {
+    const VIDEO = "https://example.com/demo.mp4";
+    const onVideo = (threadId: string, blockId: string): CommentThread => ({
+      ...thread(threadId, ""),
+      quotedText: null,
+      block: { blockId, blockType: "video" },
+    });
+    // How a comment on a video was saved before videos had ids.
+    const legacy = (threadId: string): CommentThread =>
+      thread(threadId, "Video");
+    const marked = (threadId: string) =>
+      container.querySelector<HTMLElement>(
+        `[data-comment-block-threads~="${threadId}"]`,
+      );
+
+    it("marks the video the thread is anchored to", async () => {
+      await act(async () =>
+        render(
+          `Intro.\n<video src="${VIDEO}" id="video-demo0001"></video>\nAfter.`,
+          [onVideo("v1", "video-demo0001")],
+        ),
+      );
+      await settle();
+      const element = marked("v1");
+      expect(element?.querySelector("video")).not.toBeNull();
+      expect(element?.className).toContain("comment-highlight--block");
+    });
+
+    it("anchors an old video comment to the page's only video", async () => {
+      await act(async () =>
+        render(`Video notes.\n<video src="${VIDEO}"></video>`, [legacy("old")]),
+      );
+      await settle();
+      expect(marked("old")?.querySelector("video")).not.toBeNull();
+    });
+
+    it("leaves an old video comment as it was when the page has two videos", async () => {
+      await act(async () =>
+        render(
+          `Video notes.\n<video src="${VIDEO}"></video>\n<video src="${VIDEO}"></video>`,
+          [legacy("old")],
+        ),
+      );
+      await settle();
+      expect(highlighted("old")).toBe("Video");
+    });
+  });
 });

@@ -1,4 +1,5 @@
 import { Node } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 
@@ -8,7 +9,12 @@ export interface ContentVideoOptions {
   HTMLAttributes: Record<string, unknown>;
   documentId?: string;
   canMutateMedia?: () => boolean;
-  onVideoComment?: (quotedText: string, offsetTop: number) => void;
+  /** Starts a comment on the whole video at `pos` in `doc`. */
+  onVideoComment?: (
+    doc: ProseMirrorNode,
+    pos: number,
+    offsetTop: number,
+  ) => void;
 }
 
 function normalizedVideoWidth(value: unknown): number | null {
@@ -109,6 +115,14 @@ export const VideoNode = Node.create<ContentVideoOptions>({
             "data-width": String(width),
             width: String(width),
           };
+        },
+      },
+      blockId: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("data-block-id"),
+        renderHTML: (attributes) => {
+          if (!attributes.blockId) return {};
+          return { "data-block-id": attributes.blockId };
         },
       },
       uploadId: {

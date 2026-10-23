@@ -389,6 +389,46 @@ describe("comment stacks in the margin", () => {
     expect(container.querySelector('[data-thread-card="page"]')).not.toBeNull();
   });
 
+  it("puts a thread on a video beside the video, named by the video", () => {
+    const clip = thread("clip", ["2026-10-20T06:00:00Z"]);
+    clip.quotedText = null;
+    clip.comments[0].quoted_text = null;
+    clip.block = { blockId: "video-1", blockType: "video" };
+    scroll
+      .querySelector(".ProseMirror")!
+      .insertAdjacentHTML(
+        "beforeend",
+        '<div data-comment-block-threads="clip"><video></video></div>',
+      );
+
+    render([THREADS[5], clip]);
+    expect(margin()).toEqual(["solo", "clip"]);
+    expect(container.textContent).not.toContain("comments.unanchored");
+
+    render([THREADS[5], clip], "history");
+    expect(
+      container.querySelector('[data-thread-card="clip"] [data-comment-quote]')
+        ?.textContent,
+    ).toBe("editor.media.video");
+  });
+
+  it("stacks a thread on a video with the highlights in its block", () => {
+    const clip = thread("clip", ["2026-10-21T06:00:00Z"]);
+    clip.quotedText = null;
+    clip.comments[0].quoted_text = null;
+    clip.block = { blockId: "video-1", blockType: "video" };
+    scroll
+      .querySelector("li")!
+      .insertAdjacentHTML(
+        "beforeend",
+        '<div data-comment-block-threads="clip"><video></video></div>',
+      );
+
+    render([...THREADS, clip]);
+    expect(margin()).toEqual(["stack:d", "solo", "stack:clip", "l3"]);
+    expect(foldedStacks()[1].textContent).toContain("editor.media.video");
+  });
+
   it("brings a highlight's thread to the front once the pointer rests on it", async () => {
     render();
     act(() => harness.hover("b"));

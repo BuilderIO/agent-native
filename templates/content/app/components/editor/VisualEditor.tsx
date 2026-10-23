@@ -119,6 +119,11 @@ import {
   resolveAnchorPoint,
   type CommentTextAnchor,
 } from "./comment-anchors";
+import {
+  commentAnchorBlockAt,
+  threadCommentBlock,
+  type CommentBlockTarget,
+} from "./comment-block-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
 import {
   isEditorDraftSaveAccepted,
@@ -160,7 +165,8 @@ import {
   setSuggestionHighlights,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
-import { VideoNode } from "./extensions/VideoNode";
+import { VideoBlockIds } from "./extensions/VideoBlockIds";
+import { VideoNode, type ContentVideoOptions } from "./extensions/VideoNode";
 import {
   getImageFiles,
   getAudioFiles,
@@ -1738,10 +1744,12 @@ interface VisualEditorProps {
     range?: { from: number; to: number },
     suggestionId?: string,
   ) => void;
+  /** Starts a comment on a whole block, such as a video. */
+  onBlockComment?: (target: CommentBlockTarget, offsetTop: number) => void;
   commentThreads?: CommentThread[];
   activeThreadId?: string | null;
   hoveredThreadId?: string | null;
-  pendingHighlight?: { from: number; to: number } | null;
+  pendingHighlight?: { from: number; to: number; blockId?: string } | null;
   onActivateThread?: (threadId: string) => void;
   suggestions?: VisualEditorSuggestion[];
   acceptedDecisionReadback?: { id: string; content: string } | null;
@@ -2144,6 +2152,7 @@ interface VisualEditorExtensionOptions {
     avatarUrl?: string;
   } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
+  onVideoComment?: ContentVideoOptions["onVideoComment"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
@@ -2201,6 +2210,7 @@ function threadAnchor(thread: CommentThread) {
     prefix: thread.prefix ?? undefined,
     suffix: thread.suffix ?? undefined,
     startOffset: thread.startOffset ?? undefined,
+    blockId: thread.block?.blockId,
   };
 }
 
@@ -2756,6 +2766,7 @@ export function createVisualEditorExtensions({
   localAwareness,
   user,
   onImageComment,
+  onVideoComment,
   onImageFilePickerRequest,
   canMutateMedia,
   isSuggesting,
@@ -2820,8 +2831,12 @@ export function createVisualEditorExtensions({
       VideoNode.configure({
         HTMLAttributes: { class: "content-video" },
         documentId,
-        onVideoComment: onImageComment,
+        onVideoComment,
         canMutateMedia,
+      }),
+      VideoBlockIds.configure({
+        isEdit: isLocalEditorEdit,
+        canAssign: canMutateMedia,
       }),
       AudioNode.configure({
         HTMLAttributes: { class: "content-audio" },
@@ -3206,6 +3221,7 @@ export function VisualEditor({
   localFilePath,
   referenceDepth,
   onComment,
+  onBlockComment,
   commentThreads,
   activeThreadId,
   hoveredThreadId,
@@ -3376,6 +3392,29 @@ export function VisualEditor({
   );
   const threadsRef = useRef(commentThreads);
   threadsRef.current = commentThreads;
+  const onBlockCommentRef = useRef(onBlockComment);
+  onBlockCommentRef.current = onBlockComment;
+  const canCommentOnBlocks = !!onBlockComment;
+  const onVideoComment = useMemo<ContentVideoOptions["onVideoComment"]>(
+    () =>
+      canCommentOnBlocks
+        ? (doc, pos, offsetTop) => {
+            const block = commentAnchorBlockAt(doc, pos);
+            const node = doc.nodeAt(pos);
+            if (!block || !node) return;
+            onBlockCommentRef.current?.(
+              {
+                blockId: block.blockId,
+                blockType: block.blockType,
+                from: pos,
+                to: pos + node.nodeSize,
+              },
+              offsetTop,
+            );
+          }
+        : undefined,
+    [canCommentOnBlocks],
+  );
   const findCommentQuote = useCallback(
     (threadId: string, doc: ProseMirrorNode) => {
       const thread = threadsRef.current?.find((t) => t.threadId === threadId);
@@ -3481,6 +3520,7 @@ export function VisualEditor({
         localAwareness,
         user,
         onImageComment: onComment,
+        onVideoComment,
         onImageFilePickerRequest,
         canMutateMedia,
         isSuggesting,
@@ -3527,6 +3567,7 @@ export function VisualEditor({
       localAwareness,
       user,
       onComment,
+      onVideoComment,
       onImageFilePickerRequest,
       canMutateMedia,
       isSuggesting,
@@ -4636,7 +4677,7 @@ export function VisualEditor({
     [commentThreads],
   );
   const pendingKey = pendingHighlight
-    ? `${pendingHighlight.from}-${pendingHighlight.to}`
+    ? `${pendingHighlight.from}-${pendingHighlight.to}-${pendingHighlight.blockId ?? ""}`
     : "";
   const resolvedQuotesRef = useRef(new Map<string, string>());
 
@@ -4672,14 +4713,19 @@ export function VisualEditor({
         specs.push(existing);
         continue;
       }
-      const range = resolveAnchor(view.state.doc, anchor);
+      const block = threadCommentBlock(view.state.doc, thread);
+      const range = block
+        ? {
+            from: block.pos,
+            to: block.pos + view.state.doc.nodeAt(block.pos)!.nodeSize,
+            blockId: block.blockId,
+          }
+        : thread.block
+          ? null
+          : resolveAnchor(view.state.doc, anchor);
       if (range) {
         resolvedQuotesRef.current.set(thread.threadId, quote);
-        specs.push({
-          threadId: thread.threadId,
-          from: range.from,
-          to: range.to,
-        });
+        specs.push({ threadId: thread.threadId, ...range });
       } else if (existing) {
         // An edit to the quoted text, such as an accepted suggestion, can
         // reach the editor before the thread's re-anchored quote does.
