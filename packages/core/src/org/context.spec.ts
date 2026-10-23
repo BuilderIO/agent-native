@@ -30,6 +30,7 @@ vi.mock("../application-state/store.js", () => ({
 
 import { markVerifiedServiceIdentityForEvent } from "../server/request-context.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { ForbiddenError } from "../sharing/access.js";
 import { setActiveOrgId } from "./active-org.js";
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
@@ -270,7 +271,7 @@ describe("getOrgContext", () => {
       orgRole: "owner",
     });
 
-    const ctx = await runWithRequestContext(
+    const lookup = runWithRequestContext(
       {
         a2aIdentityAssurance: "org-member",
         userEmail: "owner@example.test",
@@ -279,12 +280,7 @@ describe("getOrgContext", () => {
       () => getOrgContext(EVENT),
     );
 
-    expect(ctx).toEqual({
-      email: "other@example.test",
-      orgId: null,
-      orgName: null,
-      role: null,
-    });
+    await expect(lookup).rejects.toBeInstanceOf(ForbiddenError);
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
@@ -1235,6 +1231,73 @@ describe("getOrgContext", () => {
   });
 });
 
+describe("resolveOrgIdForEmailViaEvent delegated membership", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ rows: [] });
+    mockGetUserSetting.mockResolvedValue(null);
+  });
+
+  const resolveDelegated = (event: ReturnType<typeof makeEvent>) =>
+    runWithRequestContext(
+      {
+        userEmail: "delegate@example.test",
+        orgId: "delegated-org",
+        a2aIdentityAssurance: "org-member",
+      },
+      () => resolveOrgIdForEmailViaEvent(event, "delegate@example.test"),
+    );
+
+  it.each(["42501", "08006"])(
+    "rejects unavailable delegated membership (%s) instead of returning Personal",
+    async (code) => {
+      const cause = Object.assign(new Error("membership read failed"), {
+        code,
+      });
+      mockExecute.mockRejectedValueOnce(cause);
+      const lookup = resolveDelegated(makeEvent());
+      await expect(lookup).rejects.toThrow();
+      await expect(lookup).rejects.not.toBeInstanceOf(ForbiddenError);
+      await expect(lookup).rejects.toBe(cause);
+    },
+  );
+
+  it("preserves definitive refusal when membership is absent", async () => {
+    await expect(resolveDelegated(makeEvent())).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+  });
+
+  it("returns a healthy delegated organization", async () => {
+    queueSelect([
+      { orgId: "delegated-org", role: "member", orgName: "Example" },
+    ]);
+    await expect(resolveDelegated(makeEvent())).resolves.toBe("delegated-org");
+  });
+
+  it("keeps the nondelegated first-boot missing-membership-table handling", async () => {
+    mockExecute.mockRejectedValueOnce(
+      Object.assign(new Error('relation "org_members" does not exist'), {
+        code: "42P01",
+      }),
+    );
+    await expect(
+      resolveOrgIdForEmailViaEvent(makeEvent(), "personal@example.test"),
+    ).resolves.toBeNull();
+  });
+
+  it("keeps an explicit Personal scope org-less without a membership read", async () => {
+    await expect(
+      runWithRequestContext(
+        { userEmail: "personal@example.test", orgScope: "personal" },
+        () =>
+          resolveOrgIdForEmailViaEvent(makeEvent(), "personal@example.test"),
+      ),
+    ).resolves.toBeNull();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+});
+
 describe("resolveOrgIdForEmail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1245,6 +1308,72 @@ describe("resolveOrgIdForEmail", () => {
   it("returns null when the user has no memberships", async () => {
     queueSelect([]);
     expect(await resolveOrgIdForEmail("nobody@b.com")).toBeNull();
+  });
+
+  it.each(["missing-member", "email-mismatch", "missing-org"])(
+    "refuses delegated %s instead of reporting unavailable or Personal scope",
+    async (scenario) => {
+      const lookup = runWithRequestContext(
+        {
+          userEmail: "delegate@example.test",
+          orgId: scenario === "missing-org" ? undefined : "delegated-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () =>
+          resolveOrgIdForEmail(
+            scenario === "email-mismatch"
+              ? "other@example.test"
+              : "delegate@example.test",
+          ),
+      );
+      await expect(lookup).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(lookup).rejects.toMatchObject({ statusCode: 403 });
+    },
+  );
+
+  it("refuses a revoked delegation at the scope result boundary", async () => {
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "delegate@example.test",
+          orgId: "delegated-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () => resolveOrgScopeForEmail("delegate@example.test"),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("keeps a valid delegation pinned to its organization", async () => {
+    queueSelect([{ role: "owner" }]);
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "delegate@example.test",
+          orgId: "delegated-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () => resolveOrgIdForEmail("delegate@example.test"),
+      ),
+    ).resolves.toBe("delegated-org");
+  });
+
+  it("preserves the actual database failure while checking delegation", async () => {
+    const cause = Object.assign(
+      new Error("permission denied for table org_members"),
+      { code: "42501" },
+    );
+    mockExecute.mockRejectedValueOnce(cause);
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "delegate@example.test",
+          orgId: "delegated-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () => resolveOrgIdForEmail("delegate@example.test"),
+      ),
+    ).rejects.toBe(cause);
   });
 
   it("confirms personal scope when the membership query succeeds without rows", async () => {

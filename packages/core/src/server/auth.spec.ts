@@ -8976,6 +8976,44 @@ describe("server/auth", () => {
       expect(sessionLookups).toHaveBeenCalledTimes(2);
     });
 
+    it.each(["42501", "08006", "forbidden"])(
+      "preserves an org backfill failure instead of returning an org-less session (%s)",
+      async (code) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        const { ForbiddenError } = await import("../sharing/access.js");
+        const cause =
+          code === "forbidden"
+            ? new ForbiddenError()
+            : Object.assign(new Error("membership read failed"), { code });
+        vi.doMock("./better-auth-instance.js", () => ({
+          getBetterAuth: vi.fn(async () => undefined),
+          getBetterAuthSync: () => ({
+            api: {
+              getSession: async () => ({
+                user: { id: "fake-auth-user", email: "delegate@example.test" },
+                session: { token: "fake-session-token" },
+              }),
+            },
+          }),
+        }));
+        vi.doMock("../org/context.js", () => ({
+          resolveOrgIdForEmailViaEvent: async () => {
+            throw cause;
+          },
+        }));
+        const { getSession } = await import("./auth.js");
+        await expect(
+          getSession(
+            createMockEvent({
+              headers: { cookie: "an_session=fake-session-token" },
+            }),
+          ),
+        ).rejects.toBe(cause);
+      },
+    );
+
     it("records identity resolution start before asynchronous credential validation", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;

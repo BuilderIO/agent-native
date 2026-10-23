@@ -13,6 +13,10 @@ const issuedConnectTokens = vi.hoisted(
     >(),
 );
 
+const resolveOrgIdForEmail = vi.hoisted(() =>
+  vi.fn(async (_email: string): Promise<string | null> => null),
+);
+
 vi.mock("./builtin-tools.js", () => ({
   getBuiltinCrossAppTools: () => ({
     list_apps: {
@@ -79,6 +83,7 @@ vi.mock("./builtin-tools.js", () => ({
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
   getA2ASecretByDomain: vi.fn(async () => null),
+  resolveOrgIdForEmail,
 }));
 
 vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
@@ -102,6 +107,7 @@ vi.mock("./connect-store.js", () => ({
 
 beforeEach(() => {
   issuedConnectTokens.clear();
+  resolveOrgIdForEmail.mockReset().mockResolvedValue(null);
 });
 
 vi.mock("../server/embed-session.js", () => ({
@@ -980,9 +986,39 @@ describe("connector-catalog tier", () => {
         const names: string[] = out.result.tools.map((t: any) => t.name);
         expect(names).toContain("db-exec");
         expect(names).toContain("seed-kitchen-sink");
+        expect(resolveOrgIdForEmail).toHaveBeenCalledExactlyOnceWith(
+          "alice@example.com",
+        );
       } finally {
         delete process.env.BETTER_AUTH_SECRET;
       }
+    });
+
+    it("keeps a full-catalog OAuth scope lookup failure retryable", async () => {
+      process.env.BETTER_AUTH_SECRET = OAUTH_SECRET;
+      resolveOrgIdForEmail.mockRejectedValueOnce(
+        Object.assign(new Error("permission denied for table org_members"), {
+          code: "42501",
+        }),
+      );
+      const token = await signOAuthToken({
+        catalogScope: "full",
+        clientId: "catalog-test-client",
+      });
+      const event = makeEvent({
+        headers: { authorization: `Bearer ${token}` },
+        body: { jsonrpc: "2.0", id: 8, method: "tools/list", params: {} },
+      });
+
+      const result = await handleMcpRequest(event, connectorConfig as any);
+
+      expect(result).toMatchObject({ error: "Service Unavailable" });
+      expect(event._status).toBe(503);
+      expect(event._responseHeaders?.["retry-after"]).toBe("5");
+      expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+      expect(resolveOrgIdForEmail).toHaveBeenCalledExactlyOnceWith(
+        "alice@example.com",
+      );
     });
   });
 
