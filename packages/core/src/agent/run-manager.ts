@@ -1653,6 +1653,7 @@ export function startRun(
 
   let lastAbortCheck = Date.now() - 3000;
   let consecutiveAbortCheckFailures = 0;
+  let completionInProgress = false;
   const checkSqlAbort = () => {
     const now = Date.now();
     if (now - lastAbortCheck < 3000) return;
@@ -1663,9 +1664,15 @@ export function startRun(
           abortInMemoryRun(run, state.reason ?? "user");
           return;
         }
-        if (!abort.signal.aborted) {
+        // Once completion starts, a non-running row is this run's own
+        // terminal write, not another worker taking over.
+        if (!abort.signal.aborted && !completionInProgress) {
           const status = await getRunStatus(runId);
-          if (status !== null && status !== "running") {
+          if (
+            status !== null &&
+            status !== "running" &&
+            !completionInProgress
+          ) {
             abortInMemoryRun(run, "displaced");
           }
         }
@@ -1699,7 +1706,6 @@ export function startRun(
 
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
-  let completionInProgress = false;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight) {
       heartbeatInFlight = true;

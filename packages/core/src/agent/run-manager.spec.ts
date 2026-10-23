@@ -7519,6 +7519,28 @@ describe("run manager soft timeout", () => {
     expect(run.abortReason).toBe("displaced");
   });
 
+  it("does not treat its own terminal status write as displacement", async () => {
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
+      vi.mocked(getRunStatus).mockResolvedValue("completed");
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      return true;
+    });
+
+    const run = startRun(
+      "run-own-terminal",
+      "thread-own-terminal",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    await run.finalized;
+
+    expect(run.status).toBe("completed");
+    expect(run.abortReason).toBeUndefined();
+  });
+
   it("uses the atomic abort write so a reaped row is not overwritten", async () => {
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(false);
     vi.mocked(getRunStatus).mockResolvedValue("errored");
