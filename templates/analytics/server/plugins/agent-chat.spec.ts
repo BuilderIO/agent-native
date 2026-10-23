@@ -3097,6 +3097,73 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     );
   });
 
+  it("does not treat find-data's echoed question as a returned metric candidate", async () => {
+    const { asked, result } = await judged(
+      {
+        userText: "What were active accounts last month?",
+        draftText: "Signups were 3 last month.",
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolResults: [
+          {
+            ...dbtNotFound,
+            toolCallId: "dbt-failure",
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "find-data",
+            isError: false,
+            content: JSON.stringify({ question: "signups", results: [] }),
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            toolCallId: "dbt-success",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "signups",
+              truncated: false,
+              querySpec: {
+                timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+                groupBy: [],
+              },
+              rows: [{ signups: 3 }],
+            }),
+          },
+        ],
+        toolCalls: [
+          {
+            toolCallId: "dbt-failure",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+          {
+            toolCallId: "dbt-success",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "signups",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+        ],
+      },
+      "YES",
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+      maxRetries: 1,
+    });
+  });
+
   it("does not clear a failed lookup with a success under a name find-data did not return", async () => {
     const { asked, result } = await judged(
       {
