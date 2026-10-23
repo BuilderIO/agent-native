@@ -4169,17 +4169,24 @@ export function App({
     [serverUrl],
   );
 
-  // The banner goes away on click; reopening the popover re-probes, and the
-  // banner returns only if storage is still missing.
-  const connectVideoStorage = useCallback(() => {
+  // Drops the "missing" banner until the next probe. A probe already in flight
+  // would land after this and restore it, so it is invalidated too.
+  const forgetMissingVideoStorage = useCallback(() => {
+    videoStorageProbeSeqRef.current += 1;
     setRecError((message) =>
       isStorageSetupFailureMessage(message) ? null : message,
     );
     setVideoStorageStatus((status) =>
       status === "missing" ? "checking" : status,
     );
+  }, []);
+
+  // The banner goes away on click; reopening the popover re-probes, and the
+  // banner returns only if storage is still missing.
+  const connectVideoStorage = useCallback(() => {
+    forgetMissingVideoStorage();
     openVideoStorageSetup();
-  }, [openVideoStorageSetup]);
+  }, [forgetMissingVideoStorage, openVideoStorageSetup]);
 
   useEffect(
     () =>
@@ -4200,18 +4207,12 @@ export function App({
 
   useEffect(() => {
     const onVisibilityChange = () => {
-      if (!document.hidden) return;
-      setRecError((message) =>
-        isStorageSetupFailureMessage(message) ? null : message,
-      );
-      setVideoStorageStatus((status) =>
-        status === "missing" ? "checking" : status,
-      );
+      if (document.hidden) forgetMissingVideoStorage();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, []);
+  }, [forgetMissingVideoStorage]);
 
   async function handleStartRecording(options?: {
     resumeCapture?: RestartHandoff;
