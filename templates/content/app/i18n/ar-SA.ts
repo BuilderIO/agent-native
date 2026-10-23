@@ -1630,6 +1630,13 @@ const overrides = {
   comments: {
     add: "إضافة تعليق...",
     cancel: "إلغاء",
+    discardCommentQuestion: "تجاهل التعليق؟",
+    discardReplyQuestion: "تجاهل الرد؟",
+    discardEditQuestion: "تجاهل التغييرات؟",
+    discardDescription: "سيُفقد ما كتبته.",
+    discardEditDescription: "سيبقى تعليقك كما كان.",
+    discard: "تجاهل",
+    keepEditing: "متابعة التحرير",
     submit: "تعليق",
     askAi: "اسأل الذكاء الاصطناعي",
     aiBadge: "الذكاء الاصطناعي",

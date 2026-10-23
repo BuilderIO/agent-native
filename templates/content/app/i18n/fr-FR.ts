@@ -1684,6 +1684,13 @@ const overrides = {
   comments: {
     add: "Ajouter un commentaire...",
     cancel: "Annuler",
+    discardCommentQuestion: "Abandonner le commentaire ?",
+    discardReplyQuestion: "Abandonner la réponse ?",
+    discardEditQuestion: "Abandonner les modifications ?",
+    discardDescription: "Ce que vous avez écrit sera perdu.",
+    discardEditDescription: "Votre commentaire restera tel quel.",
+    discard: "Abandonner",
+    keepEditing: "Continuer à modifier",
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",

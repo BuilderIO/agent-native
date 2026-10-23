@@ -1679,6 +1679,13 @@ const overrides = {
   comments: {
     add: "Kommentar hinzufügen...",
     cancel: "Abbrechen",
+    discardCommentQuestion: "Kommentar verwerfen?",
+    discardReplyQuestion: "Antwort verwerfen?",
+    discardEditQuestion: "Änderungen verwerfen?",
+    discardDescription: "Was Sie geschrieben haben, geht verloren.",
+    discardEditDescription: "Ihr Kommentar bleibt unverändert.",
+    discard: "Verwerfen",
+    keepEditing: "Weiter bearbeiten",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",

@@ -1617,6 +1617,13 @@ const overrides = {
   comments: {
     add: "댓글 추가...",
     cancel: "취소",
+    discardCommentQuestion: "작성 중인 댓글을 버릴까요?",
+    discardReplyQuestion: "작성 중인 답글을 버릴까요?",
+    discardEditQuestion: "변경 사항을 버릴까요?",
+    discardDescription: "작성한 내용이 사라집니다.",
+    discardEditDescription: "댓글은 원래대로 유지됩니다.",
+    discard: "버리기",
+    keepEditing: "계속 편집",
     submit: "댓글",
     askAi: "AI에게 묻기",
     aiBadge: "AI",
