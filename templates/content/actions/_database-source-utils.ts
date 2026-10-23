@@ -2326,11 +2326,12 @@ async function processBuilderBodyHydrationJob(
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
       };
       if (emptyBodyRead?.state === "empty_body") {
-        const [deleted] = await tx
-          .delete(schema.contentDatabaseBodyHydrationQueue)
+        const [stillOwnsQueueRow] = await tx
+          .update(schema.contentDatabaseBodyHydrationQueue)
+          .set({ updatedAt: now })
           .where(queueRowCas)
           .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-        if (!deleted) {
+        if (!stillOwnsQueueRow) {
           await markPendingIfReplaced();
           return;
         }
@@ -2343,7 +2344,7 @@ async function processBuilderBodyHydrationJob(
             emptyBodyRead.entry,
           ),
         };
-        await tx
+        const [updatedSourceRow] = await tx
           .update(schema.contentDatabaseSourceRows)
           .set({
             sourceValuesJson: JSON.stringify(writtenEntry.sourceValues),
@@ -2351,15 +2352,25 @@ async function processBuilderBodyHydrationJob(
             lastSourceUpdatedAt: writtenEntry.updatedAt,
             updatedAt: now,
           })
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-              eq(
-                schema.contentDatabaseSourceRows.databaseItemId,
-                row.databaseItemId,
-              ),
-            ),
-          );
+          .where(builderBodyHydrationSourceRowFilter(row, sourceRow))
+          .returning({ id: schema.contentDatabaseSourceRows.id });
+        if (!updatedSourceRow) {
+          await leaveBuilderBodyHydrationPending(tx, {
+            row,
+            queueRowCas,
+            now,
+            error: BUILDER_BODY_HYDRATION_SOURCE_ROW_CHANGED,
+          });
+          return;
+        }
+        const [deleted] = await tx
+          .delete(schema.contentDatabaseBodyHydrationQueue)
+          .where(queueRowCas)
+          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+        if (!deleted) {
+          await markPendingIfReplaced();
+          return;
+        }
         await writeBuilderStatusValues(tx, {
           sourceId: row.sourceId,
           rows: [
@@ -2534,39 +2545,15 @@ async function processBuilderBodyHydrationJob(
       wroteBody = Boolean(updatedDocument);
     }
     if (shouldWriteBody && !wroteBody) {
-      const [stillQueued] = await tx
-        .update(schema.contentDatabaseBodyHydrationQueue)
-        .set({
-          lastError:
-            "Skipped Builder body hydration because the document changed during sync.",
-          updatedAt: now,
-        })
-        .where(queueRowCas)
-        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-      if (stillQueued) {
-        await tx
-          .update(schema.contentDatabaseItems)
-          .set({
-            bodyHydrationStatus: "pending",
-            bodyHydrationAttemptedAt: now,
-            bodyHydrationError:
-              "Skipped Builder body hydration because the document changed during sync.",
-            updatedAt: now,
-          })
-          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-      }
+      await leaveBuilderBodyHydrationPending(tx, {
+        row,
+        queueRowCas,
+        now,
+        error:
+          "Skipped Builder body hydration because the document changed during sync.",
+      });
       return;
     }
-    const sourceRowWhere = and(
-      eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-      eq(schema.contentDatabaseSourceRows.databaseItemId, row.databaseItemId),
-      sourceRow
-        ? eq(
-            schema.contentDatabaseSourceRows.sourceValuesJson,
-            sourceRow.sourceValuesJson,
-          )
-        : isNull(schema.contentDatabaseSourceRows.id),
-    );
     // The next refresh compares the version with the row as written.
     const writtenEntry = {
       ...entryWithBody,
@@ -2581,30 +2568,15 @@ async function processBuilderBodyHydrationJob(
         lastSourceUpdatedAt: writtenEntry.updatedAt,
         updatedAt: now,
       })
-      .where(sourceRowWhere)
+      .where(builderBodyHydrationSourceRowFilter(row, sourceRow))
       .returning({ id: schema.contentDatabaseSourceRows.id });
     if (!updatedSourceRow) {
-      const [stillQueued] = await tx
-        .update(schema.contentDatabaseBodyHydrationQueue)
-        .set({
-          lastError:
-            "Skipped Builder body hydration because the source row changed during sync.",
-          updatedAt: now,
-        })
-        .where(queueRowCas)
-        .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-      if (stillQueued) {
-        await tx
-          .update(schema.contentDatabaseItems)
-          .set({
-            bodyHydrationStatus: "pending",
-            bodyHydrationAttemptedAt: now,
-            bodyHydrationError:
-              "Skipped Builder body hydration because the source row changed during sync.",
-            updatedAt: now,
-          })
-          .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-      }
+      await leaveBuilderBodyHydrationPending(tx, {
+        row,
+        queueRowCas,
+        now,
+        error: BUILDER_BODY_HYDRATION_SOURCE_ROW_CHANGED,
+      });
       return;
     }
     const [deleted] = await tx
@@ -2680,6 +2652,53 @@ function hydrationCaseSql<T>(
 ) {
   const cases = values.map(({ id, value }) => sql`WHEN ${id} THEN ${value}`);
   return sql<T>`CASE ${idColumn} ${sql.join(cases, sql` `)} ELSE ${fallbackColumn} END`;
+}
+
+const BUILDER_BODY_HYDRATION_SOURCE_ROW_CHANGED =
+  "Skipped Builder body hydration because the source row changed during sync.";
+
+/** The source row as the job read it, so a save or refresh since then wins. */
+function builderBodyHydrationSourceRowFilter(
+  job: ContentDatabaseBodyHydrationQueueRowDb,
+  sourceRow: ContentDatabaseSourceRecordRowDb | undefined,
+) {
+  return and(
+    eq(schema.contentDatabaseSourceRows.sourceId, job.sourceId),
+    eq(schema.contentDatabaseSourceRows.databaseItemId, job.databaseItemId),
+    sourceRow
+      ? eq(
+          schema.contentDatabaseSourceRows.sourceValuesJson,
+          sourceRow.sourceValuesJson,
+        )
+      : isNull(schema.contentDatabaseSourceRows.id),
+  );
+}
+
+/** Keeps a job queued, with the reason this attempt skipped its write. */
+async function leaveBuilderBodyHydrationPending(
+  tx: any,
+  args: {
+    row: ContentDatabaseBodyHydrationQueueRowDb;
+    queueRowCas: ReturnType<typeof builderBodyHydrationQueueOwnershipFilter>;
+    now: string;
+    error: string;
+  },
+) {
+  const [stillQueued] = await tx
+    .update(schema.contentDatabaseBodyHydrationQueue)
+    .set({ lastError: args.error, updatedAt: args.now })
+    .where(args.queueRowCas)
+    .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+  if (!stillQueued) return;
+  await tx
+    .update(schema.contentDatabaseItems)
+    .set({
+      bodyHydrationStatus: "pending",
+      bodyHydrationAttemptedAt: args.now,
+      bodyHydrationError: args.error,
+      updatedAt: args.now,
+    })
+    .where(eq(schema.contentDatabaseItems.id, args.row.databaseItemId));
 }
 
 function builderBodyHydrationQueueOwnershipFilter(

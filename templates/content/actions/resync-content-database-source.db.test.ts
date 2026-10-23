@@ -5164,6 +5164,165 @@ it("hydrates a provider-confirmed empty Builder body with terminal evidence", as
   expect(after.queued).toBeNull();
 });
 
+it("leaves an empty Builder body pending when a save changes the row during the read", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const model = "collection-hydration-empty-terminal";
+  const databaseId = "db_hydration_empty_raced";
+  const databaseDocId = "doc_db_hydration_empty_raced";
+  const documentId = "doc_hydration_empty_raced";
+  const itemId = "item_hydration_empty_raced";
+  const sourceId = "src_hydration_empty_raced";
+  const sourceRowId = "entry_hydration_empty_raced";
+  const readValues = {
+    "data.title": "Hydration empty raced",
+    "data.url": "/blog/hydration-empty-raced",
+    lastUpdated: "2026-01-01T00:00:00.000Z",
+    published: "published",
+  };
+  const savedValuesJson = JSON.stringify({
+    ...readValues,
+    "data.title": "Saved during the read",
+    [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+      liveValues: { "data.title": "Hydration empty raced" },
+      liveLastUpdated: Date.parse(readValues.lastUpdated),
+    }),
+  });
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB hydration empty raced",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Hydration empty raced",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration empty raced",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: model,
+    sourceTable: model,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_hydration_empty_raced",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://${model}/${sourceRowId}`,
+    sourceDisplayKey: "Hydration empty raced",
+    sourceValuesJson: JSON.stringify(readValues),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: "queue_hydration_empty_raced",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: model,
+    sourceEntryJson: JSON.stringify({
+      id: sourceRowId,
+      model,
+      title: "Hydration empty raced",
+      urlPath: "/blog/hydration-empty-raced",
+      updatedAt: readValues.lastUpdated,
+      sourceValues: readValues,
+    }),
+    priority: 0,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+  // A save from Content lands while the body read is in flight.
+  builderReadMock.beforeSingleEntryRead = async ({ entryId }) => {
+    if (entryId !== sourceRowId) return;
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({ sourceValuesJson: savedValuesJson })
+      .where(
+        eq(schema.contentDatabaseSourceRows.id, "row_hydration_empty_raced"),
+      );
+  };
+
+  await hydrateQueuedBodies({ sourceId, limit: 1, preloadBodies: true });
+
+  expect(builderReadMock.singleEntryCalls).toContainEqual({
+    model,
+    entryId: sourceRowId,
+  });
+  const [after] = await db
+    .select({
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      error: schema.contentDatabaseItems.bodyHydrationError,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.contentDatabaseItems.id, itemId));
+
+  expect(after.sourceValuesJson).toBe(savedValuesJson);
+  expect(after.status).toBe("pending");
+  expect(after.error).toBe(
+    "Skipped Builder body hydration because the source row changed during sync.",
+  );
+  expect(after.queued).toBe("queue_hydration_empty_raced");
+});
+
 it("keeps an empty body Content saved over a published entry through hydration", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
