@@ -335,6 +335,7 @@ export type A2ATokenFailureCause =
   | "issuer"
   | "expired"
   | "signature"
+  | "algorithm"
   | "invalid-claims"
   | "mcp-credential"
   | "missing-subject"
@@ -360,6 +361,7 @@ async function checkAgainstSecret(
     return { payload };
   } catch (error) {
     const { code, claim } = error as { code?: unknown; claim?: unknown };
+    if (code === "ERR_JOSE_ALG_NOT_ALLOWED") return { cause: "algorithm" };
     if (code === "ERR_JWT_EXPIRED") return { cause: "expired" };
     if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") {
       return { cause: "signature" };

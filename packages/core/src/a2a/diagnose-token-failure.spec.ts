@@ -64,11 +64,11 @@ describe("diagnoseA2ATokenFailure", () => {
     mocks.resolveMetadataById.mockReset();
   });
 
-  describe("a token the deploy secret verifies", () => {
+  describe("a token signed with the deploy secret", () => {
     it.each([
       ["HS256", "undetermined"],
-      ["HS384", "invalid-claims"],
-      ["HS512", "invalid-claims"],
+      ["HS384", "algorithm"],
+      ["HS512", "algorithm"],
     ] as const)(
       "uses the verifier's algorithm policy for %s",
       async (algorithm, cause) => {
@@ -158,8 +158,8 @@ describe("diagnoseA2ATokenFailure", () => {
 
     it.each([
       ["HS256", "undetermined"],
-      ["HS384", "invalid-claims"],
-      ["HS512", "invalid-claims"],
+      ["HS384", "algorithm"],
+      ["HS512", "algorithm"],
     ] as const)(
       "uses the verifier's algorithm policy for %s",
       async (algorithm, cause) => {
