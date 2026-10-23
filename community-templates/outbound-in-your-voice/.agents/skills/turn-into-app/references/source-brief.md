@@ -101,10 +101,11 @@ Read the visible context in this order:
    labelled sample data, never live entries.
 4. The current turn: the app boundary, target workspace, naming, corrections.
 
-Record each integration the Project uses: connectors visible to the model in
-this chat (their tools) and services named in the instructions or knowledge
-files. Each goes in the brief with its honest state. Never claim a connection,
-token, or account carried over.
+Record each integration the source uses: a service named in the instructions,
+knowledge files, or supplied runs. Connectors are account-wide, so a connector
+merely visible in the chat is not an integration unless the source uses it.
+Each goes in the brief with its honest state. Never claim a connection, token,
+or account carried over.
 
 Say which runs were available and which you used. If none were supplied,
 proceed from instructions and knowledge files and say so. Never claim hidden

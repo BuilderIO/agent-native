@@ -14,6 +14,11 @@ account settings, private history, API keys, or credentials. If the host does
 not show the Project instructions or files to the model, ask for an export or
 attachment and do not claim the Project was read.
 
+## Contents
+
+- The Dispatch handoff
+- Setting up a browser host
+
 ## The Dispatch handoff
 
 On a browser host the host is an orchestrator, not the build environment:
@@ -52,6 +57,7 @@ On a browser host the host is an orchestrator, not the build environment:
    brief and the report; never swap in a digest silently. A workbook cannot be
    attached (attachments take images, PDF, text, and JSON): pass a bounded CSV
    rendering as text, or a public URL, and say what was left out.
+
 3. Keep the final message to at most four short lines, with no design recap:
    what was handed off; the branch, path, and status Dispatch returned; the
    integrations, if any, and that the Builder agent will give the setup steps
