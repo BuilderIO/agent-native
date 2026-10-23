@@ -93,6 +93,8 @@ export interface EngineToolResultPart {
   approvalPause?: boolean;
   approvalAskId?: string;
   outcome?: "unknown";
+  /** With `outcome`: what its event recorded left it unknown. */
+  unknownCause?: "rejection" | "interruption";
   images?: EngineToolResultImagePart[];
 }
 

@@ -142,6 +142,73 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
+  it("reports the journal's recorded cause for a step stored as unknown", async () => {
+    const input = { id: "deck-1" };
+    durableStep.priorEvents = [
+      { type: "tool_start", id: "earlier", tool: "create-deck", input },
+      {
+        type: "tool_done",
+        id: "earlier",
+        tool: "create-deck",
+        input,
+        result: "Error running create-deck: upstream rejected it.",
+        isError: true,
+        outcomeUnknown: true,
+        unknownCause: "rejection",
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ];
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const actionRun = vi.fn(async () => "Deck deck-1");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", input)], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [text("Create the deck.")] },
+          { role: "user", content: [text(AGENT_INTERNAL_CONTINUE_PROMPT)] },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "rejection",
+      }),
+    );
+  });
+
   it.each([
     {
       label: "different inputs",

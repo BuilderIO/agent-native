@@ -607,6 +607,52 @@ describe("a write whose outcome is really unknown", () => {
     });
   });
 
+  it("keeps a rejection recorded only in the resumed history", async () => {
+    const input = { body: "Refund sent" };
+    const run = vi.fn(async () => "sent");
+    const action = defineAction({
+      description: "Send.",
+      schema: z.object({ body: z.string() }),
+      run,
+    }) as unknown as ActionEntry;
+    const events = await runCalls({ send: action }, [{ name: "send", input }], {
+      threadId: "thread-history-only",
+      history: [
+        {
+          role: "assistant",
+          content: [{ type: "tool-call", id: "earlier", name: "send", input }],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "earlier",
+              toolName: "send",
+              content: "Error running send: Upstream rejected the request.",
+              isError: true,
+              outcome: "unknown",
+              unknownCause: "rejection",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "rejection",
+      }),
+    );
+  });
+
   it("still reads a plain handler failure as possibly written", async () => {
     const run = vi.fn(async () => {
       fail("Upstream rejected the request.");

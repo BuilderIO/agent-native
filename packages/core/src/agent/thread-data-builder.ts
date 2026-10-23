@@ -61,6 +61,7 @@ interface ContentPart {
   approvalPause?: true;
   approvalAskId?: string;
   outcome?: "unknown";
+  unknownCause?: "rejection" | "interruption";
   completedSideEffect?: boolean;
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
@@ -507,6 +508,12 @@ export function buildAssistantMessage(
         if (event.outcomeUnknown === true) {
           part.outcome = "unknown";
           explicitUnknownOutcomes.add(part);
+          if (
+            event.unknownCause === "rejection" ||
+            event.unknownCause === "interruption"
+          ) {
+            part.unknownCause = event.unknownCause;
+          }
         }
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
@@ -1181,7 +1188,8 @@ function replayedToolInput(input: unknown): Record<string, unknown> {
 function replayedToolResult(part: {
   result?: unknown;
   outcome?: unknown;
-}): Pick<EngineToolResultPart, "content" | "outcome"> {
+  unknownCause?: unknown;
+}): Pick<EngineToolResultPart, "content" | "outcome" | "unknownCause"> {
   const unknown = part.outcome === "unknown" || part.result === undefined;
   const result =
     part.result === undefined ? INTERRUPTED_TOOL_RESULT : part.result;
@@ -1190,6 +1198,12 @@ function replayedToolResult(part: {
       unknown ? { outcome: "unknown", result } : result,
     ),
     ...(unknown ? { outcome: "unknown" as const } : {}),
+    // A part whose result never came was interrupted, whatever it recorded.
+    ...(unknown &&
+    part.result !== undefined &&
+    (part.unknownCause === "rejection" || part.unknownCause === "interruption")
+      ? { unknownCause: part.unknownCause }
+      : {}),
   };
 }
 

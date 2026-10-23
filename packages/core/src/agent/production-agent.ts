@@ -5329,7 +5329,7 @@ function seedUnknownOutcomes(
         fromHistory,
         call.name,
         effect ? priorCallIdentities.get(call.identityKey ?? "") : undefined,
-        undefined,
+        part.unknownCause,
         call.input,
       );
     }
@@ -9599,6 +9599,10 @@ export async function runAgentLoop(opts: {
         return replayDurableExecutionStep(executionStepAdmission.resultJson);
       }
       if (executionStepAdmission?.status === "unknown") {
+        // The step records no cause; the journal may, for this exact call.
+        unknownOutcomeCause =
+          unknownOutcomes.causes.get(`call:${preparedCallKey}`) ??
+          "interruption";
         const result =
           `The ${toolCall.name} action was interrupted and its result is unknown. ` +
           "I stopped without running it again. Check whether it completed before asking me to retry.";
@@ -9624,7 +9628,7 @@ export async function runAgentLoop(opts: {
           message: result,
           errorCode: "write_tool_outcome_unknown",
           blockedTool: toolCall.name,
-          blockedBy: "interruption",
+          blockedBy: unknownOutcomeCause,
         };
         return {
           type: "tool-result" as const,
