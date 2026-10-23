@@ -132,6 +132,24 @@ function setTextareaValue(element: HTMLTextAreaElement, value: string) {
   );
 }
 
+async function mentionMember(composer: HTMLTextAreaElement, text: string) {
+  const value = `${text} @`;
+  act(() => {
+    setTextareaValue(composer, value);
+    composer.setSelectionRange(value.length, value.length);
+    composer.dispatchEvent(
+      new KeyboardEvent("keyup", { bubbles: true, key: "@" }),
+    );
+  });
+  await act(async () => {
+    document.body
+      .querySelector<HTMLButtonElement>('button[role="option"]')
+      ?.click();
+    await Promise.resolve();
+  });
+  expect(composer.value).toBe(`${text} @Member `);
+}
+
 describe("comment timestamps", () => {
   const now = Date.parse("2026-09-04T12:00:00.000Z");
   const formatRelativeTime = (
@@ -428,6 +446,20 @@ describe("CommentsPanel reply composer", () => {
       });
     return { player, setFullscreen, bar, isOpen, close, reopen };
   }
+
+  const commentCard = (content: string) =>
+    Array.from(container.querySelectorAll("li"))
+      .map((item) => item.firstElementChild)
+      .find((card) => card?.textContent?.includes(content));
+
+  const pressCommentButton = async (content: string, label: string) => {
+    await act(async () => {
+      Array.from(commentCard(content)?.querySelectorAll("button") ?? [])
+        .find((button) => button.textContent?.trim() === label)
+        ?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
 
   it("supplies current password proof to every comment mutation after rotation", () => {
     for (const token of ["fake-first-grant", "fake-rotated-grant", undefined]) {
@@ -933,20 +965,7 @@ describe("CommentsPanel reply composer", () => {
             ?.click();
         });
       };
-      act(() => {
-        setTextareaValue(composer()!, "Hi @");
-        composer()!.setSelectionRange(4, 4);
-        composer()!.dispatchEvent(
-          new KeyboardEvent("keyup", { bubbles: true, key: "@" }),
-        );
-      });
-      await act(async () => {
-        document.body
-          .querySelector<HTMLButtonElement>('button[role="option"]')
-          ?.click();
-        await Promise.resolve();
-      });
-      expect(composer()?.value).toBe("Hi @Member ");
+      await mentionMember(composer()!, "Hi");
       playheadMs = 50_000;
       vi.setSystemTime(Date.now() + 300_000);
 
@@ -990,53 +1009,205 @@ describe("CommentsPanel reply composer", () => {
     },
   );
 
-  it("keeps newer typing when a send fails behind it", async () => {
+  it("keeps newer typing when a send fails behind it, and keeps the failed comment in the feed to retry", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     onTestFinished(() => {
       vi.useRealTimers();
     });
-    let failRenewal!: () => void;
+    let playheadMs = 34_000;
+    const renewals: Array<(renewed: boolean) => void> = [];
     const shareFetch = vi.fn(async () => {
       const proof = `fake-proof-${shareFetch.mock.calls.length}`;
       if (proof !== "fake-proof-1") {
-        await new Promise<void>((_resolve, reject) => {
-          failRenewal = () => reject(new Error("fake renewal failure"));
+        await new Promise<void>((resolve, reject) => {
+          renewals.push((renewed) =>
+            renewed ? resolve() : reject(new Error("fake renewal failure")),
+          );
         });
       }
       return fakeShare(proof, [rootComment]);
     });
-    const fetch = vi.fn<typeof globalThis.fetch>();
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async (): Promise<Response> => {
+        const id = `comment-sent-${fetch.mock.calls.length}`;
+        return new Response(JSON.stringify({ id, threadId: id }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    );
     vi.stubGlobal("fetch", fetch);
-    await renderProofShare(shareFetch);
+    await renderProofShare(shareFetch, () => playheadMs);
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
-    );
-    act(() => setTextareaValue(composer!, "Fake failed comment"));
+    )!;
+    const send = () =>
+      act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="commentsPanel.commentButton"]',
+          )
+          ?.click();
+      });
+    const settleRenewal = (renewed: boolean) =>
+      act(async () => {
+        renewals.shift()?.(renewed);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    const sent = (index: number) => {
+      const init = fetch.mock.calls[index]?.[1] as RequestInit | undefined;
+      return {
+        token: new Headers(init?.headers).get("x-clips-comment-token"),
+        body: JSON.parse(String(init?.body)),
+      };
+    };
+    const alerts = () => container.querySelectorAll('[role="alert"]');
+
+    await mentionMember(composer, "Hi");
+    playheadMs = 50_000;
     vi.setSystemTime(Date.now() + 300_000);
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="commentsPanel.commentButton"]',
-        )
-        ?.click();
-    });
-    act(() => setTextareaValue(composer!, "Fake newer draft"));
-    await act(async () => {
-      failRenewal();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(composer?.value).toBe("Fake newer draft");
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      "notificationsRoute.sendFailed",
-    );
+    await send();
+    expect(commentCard("Hi @Member")).toBeDefined();
+    act(() => setTextareaValue(composer, "Fake newer draft"));
+    await settleRenewal(false);
+
     expect(fetch).not.toHaveBeenCalled();
+    expect(composer.value).toBe("Fake newer draft");
+    expect(alerts()).toHaveLength(1);
+    expect(
+      commentCard("Hi @Member")?.querySelector('[role="alert"]')?.textContent,
+    ).toBe("notificationsRoute.sendFailed");
+
+    await send();
+    await settleRenewal(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(sent(0)).toMatchObject({
+      token: "fake-proof-3",
+      body: { content: "Fake newer draft", videoTimestampMs: 50_000 },
+    });
+    expect(commentCard("Fake newer draft")).toBeDefined();
+    expect(alerts()).toHaveLength(1);
+    expect(
+      commentCard("Hi @Member")?.querySelector('[role="alert"]'),
+    ).not.toBeNull();
+
+    await pressCommentButton("Hi @Member", "libraryGrid.retry");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(shareFetch).toHaveBeenCalledTimes(3);
+    expect(sent(1)).toMatchObject({
+      token: "fake-proof-3",
+      body: {
+        content: "Hi @Member",
+        mentions: [{ email: "member@example.com", name: "Member" }],
+        videoTimestampMs: 34_000,
+      },
+    });
+    expect(sent(1).body).not.toHaveProperty("parentId");
+    expect(alerts()).toHaveLength(0);
+    expect(container.querySelectorAll("li")).toHaveLength(3);
+    expect(commentCard("Fake newer draft")).toBeDefined();
+    expect(composer.value).toBe("");
   });
+
+  it.each([
+    {
+      newer: "typed",
+      draft: "Fake newest draft",
+      failed: ["Fake first comment", "Fake second comment"],
+    },
+    {
+      newer: "nothing",
+      draft: "Fake first comment",
+      failed: ["Fake second comment"],
+    },
+  ])(
+    "keeps every comment that fails together without replacing an earlier one ($newer)",
+    async ({ newer, draft, failed }) => {
+      const shareFetch = vi.fn(async () =>
+        fakeShare(`fake-proof-${shareFetch.mock.calls.length}`, [rootComment]),
+      );
+      const responses: Array<(response: Response) => void> = [];
+      const fetch = vi.fn<typeof globalThis.fetch>(
+        () => new Promise((resolve) => responses.push(resolve)),
+      );
+      vi.stubGlobal("fetch", fetch);
+      await renderProofShare(shareFetch);
+      const composer = container.querySelector<HTMLTextAreaElement>(
+        'textarea[placeholder="commentsPanel.leaveComment"]',
+      )!;
+      const submit = async (content: string) => {
+        act(() => setTextareaValue(composer, content));
+        await act(async () => {
+          container
+            .querySelector<HTMLButtonElement>(
+              'button[aria-label="commentsPanel.commentButton"]',
+            )
+            ?.click();
+        });
+      };
+      const respond = (status: number) =>
+        act(async () => {
+          for (const resolve of responses.splice(0)) {
+            resolve(
+              new Response(
+                JSON.stringify(
+                  status === 200
+                    ? { id: "comment-sent", threadId: "comment-sent" }
+                    : { error: "Forbidden" },
+                ),
+                { status, headers: { "Content-Type": "application/json" } },
+              ),
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      const failedComments = () =>
+        ["Fake first comment", "Fake second comment"].filter((content) =>
+          commentCard(content)?.querySelector('[role="alert"]'),
+        );
+
+      await submit("Fake first comment");
+      await submit("Fake second comment");
+      if (newer === "typed") {
+        act(() => setTextareaValue(composer, "Fake newest draft"));
+      }
+      expect(fetch).toHaveBeenCalledTimes(2);
+      await respond(403);
+
+      expect(composer.value).toBe(draft);
+      expect(failedComments()).toEqual(failed);
+      expect(container.querySelectorAll("li")).toHaveLength(1 + failed.length);
+
+      await pressCommentButton("Fake second comment", "libraryGrid.retry");
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(shareFetch).toHaveBeenCalledTimes(2);
+      const init = fetch.mock.calls[2][1] as RequestInit;
+      expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+        "fake-proof-2",
+      );
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        content: "Fake second comment",
+      });
+      expect(failedComments()).toEqual(failed.slice(0, -1));
+      expect(container.querySelectorAll("li")).toHaveLength(1 + failed.length);
+
+      await respond(200);
+      expect(failedComments()).toEqual(failed.slice(0, -1));
+      expect(commentCard("Fake second comment")).toBeDefined();
+      if (newer === "typed") {
+        await pressCommentButton("Fake first comment", "commentsPanel.delete");
+        expect(commentCard("Fake first comment")).toBeUndefined();
+      }
+      expect(composer.value).toBe(draft);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    },
+  );
 
   it.each([
     { otherReply: "kept open", restored: false },
     { otherReply: "cancelled", restored: true },
   ])(
-    "restores a failed reply only while no other comment's reply composer is open ($otherReply)",
+    "restores a failed reply only while no other comment's reply composer is open, and otherwise keeps it in the feed to retry ($otherReply)",
     async ({ otherReply, restored }) => {
       vi.useFakeTimers({ toFake: ["Date"] });
       onTestFinished(() => {
@@ -1049,41 +1220,44 @@ describe("CommentsPanel reply composer", () => {
         content: "Fake second thread",
         videoTimestampMs: 20_000,
       };
-      let failRenewal!: () => void;
+      const renewals: Array<(renewed: boolean) => void> = [];
       const shareFetch = vi.fn(async () => {
         const proof = `fake-proof-${shareFetch.mock.calls.length}`;
         if (proof !== "fake-proof-1") {
-          await new Promise<void>((_resolve, reject) => {
-            failRenewal = () => reject(new Error("fake renewal failure"));
+          await new Promise<void>((resolve, reject) => {
+            renewals.push((renewed) =>
+              renewed ? resolve() : reject(new Error("fake renewal failure")),
+            );
           });
         }
         return fakeShare(proof, [rootComment, otherComment]);
       });
-      const fetch = vi.fn<typeof globalThis.fetch>();
+      const fetch = vi.fn<typeof globalThis.fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({ id: "comment-sent", threadId: "thread-1" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      );
       vi.stubGlobal("fetch", fetch);
       await renderProofShare(shareFetch);
-      const openReply = async (content: string) => {
-        const card = Array.from(container.querySelectorAll("li")).find((item) =>
-          item.firstElementChild?.textContent?.includes(content),
-        )?.firstElementChild;
-        await act(async () => {
-          Array.from(card?.querySelectorAll("button") ?? [])
-            .find(
-              (button) => button.textContent?.trim() === "commentsPanel.reply",
-            )
-            ?.click();
+      const openReply = (content: string) =>
+        pressCommentButton(content, "commentsPanel.reply");
+      const settleRenewal = (renewed: boolean) =>
+        act(async () => {
+          renewals.shift()?.(renewed);
           await new Promise((resolve) => setTimeout(resolve, 0));
         });
-      };
       const replyComposer = () =>
         container.querySelector<HTMLTextAreaElement>(
           'textarea[placeholder="commentsPanel.writeReply"]',
         );
       const replyingTo = () =>
         replyComposer()?.closest("li")?.firstElementChild?.textContent;
+      const alerts = () => container.querySelectorAll('[role="alert"]');
 
       await openReply("Please take a look");
-      act(() => setTextareaValue(replyComposer()!, "Fake failed reply"));
+      await mentionMember(replyComposer()!, "Fake failed reply");
       vi.setSystemTime(Date.now() + 300_000);
       await act(async () => {
         container
@@ -1105,19 +1279,47 @@ describe("CommentsPanel reply composer", () => {
         });
         expect(replyComposer()).toBeNull();
       }
-      await act(async () => {
-        failRenewal();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
+      await settleRenewal(false);
 
       expect(fetch).not.toHaveBeenCalled();
       expect(replyingTo()).toContain(
         restored ? "Please take a look" : "Fake second thread",
       );
-      expect(replyComposer()?.value).toBe(restored ? "Fake failed reply" : "");
-      expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-        "notificationsRoute.sendFailed",
+      expect(replyComposer()?.value).toBe(
+        restored ? "Fake failed reply @Member " : "",
       );
+      expect(alerts()).toHaveLength(1);
+      expect(alerts()[0].textContent).toBe("notificationsRoute.sendFailed");
+      expect(Boolean(commentCard("Fake failed reply"))).toBe(!restored);
+      if (restored) return;
+
+      act(() => setTextareaValue(replyComposer()!, "Fake newer reply"));
+      expect(
+        commentCard("Fake failed reply")?.querySelector('[role="alert"]'),
+      ).not.toBeNull();
+      expect(
+        commentCard("Fake failed reply")?.closest("ul")?.closest("li")
+          ?.firstElementChild?.textContent,
+      ).toContain("Please take a look");
+      await pressCommentButton("Fake failed reply", "libraryGrid.retry");
+      await settleRenewal(true);
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const init = fetch.mock.calls[0][1] as RequestInit;
+      expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+        "fake-proof-3",
+      );
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        content: "Fake failed reply @Member",
+        mentions: [{ email: "member@example.com", name: "Member" }],
+        videoTimestampMs: 12_000,
+        threadId: "thread-1",
+        parentId: "comment-1",
+      });
+      expect(alerts()).toHaveLength(0);
+      expect(commentCard("Fake failed reply")).toBeDefined();
+      expect(replyingTo()).toContain("Fake second thread");
+      expect(replyComposer()?.value).toBe("Fake newer reply");
     },
   );
 

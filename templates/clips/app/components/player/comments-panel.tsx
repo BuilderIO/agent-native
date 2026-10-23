@@ -111,6 +111,11 @@ type SentDraft = {
   replyTo: Comment | null;
 };
 
+type FailedSend = {
+  comment: Comment;
+  vars: object;
+};
+
 const defaultLens: CommentsLens = {
   selectComments: (data) =>
     (data as { comments?: Comment[] } | undefined)?.comments,
@@ -281,6 +286,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const [sendFailed, setSendFailed] = useState<"comment" | "reply" | null>(
     null,
   );
+  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
   const clearSendFailed = (composer: "comment" | "reply") =>
     setSendFailed((failed) => (failed === composer ? null : failed));
   const replyComposerRef = useRef<HTMLTextAreaElement>(null);
@@ -467,17 +473,39 @@ export function CommentsPanel(props: CommentsPanelProps) {
     }
   };
 
+  const optimisticComment = (vars: any): Comment => {
+    const id = makeTempId();
+    const now = new Date().toISOString();
+    return {
+      id,
+      threadId: vars.threadId ?? id,
+      parentId: vars.parentId ?? null,
+      authorEmail: currentUserEmail ?? "",
+      authorName: currentUserName ?? null,
+      content: vars.content,
+      mentions: displayCommentMentions(vars.mentions),
+      videoTimestampMs: vars.videoTimestampMs ?? 0,
+      emojiReactionsJson: "{}",
+      createdAt: now,
+      updatedAt: now,
+    };
+  };
+
   // Text typed, or a reply opened on another comment, since the send wins over
-  // the failed draft.
+  // the failed draft, which then waits in the feed to be retried.
   const restoreSentDraft = (vars: object) => {
     const sent = sentDraftsRef.current.get(vars);
     if (!sent) return;
     const composer = sent.replyTo ? "reply" : "comment";
-    setSendFailed(composer);
     const live = composerDraftsRef.current;
     const replyingElsewhere =
       sent.replyTo && live.replyTo && live.replyTo.id !== sent.replyTo.id;
-    if (live[composer].trim() || replyingElsewhere) return;
+    if (live[composer].trim() || replyingElsewhere) {
+      const failed = { comment: optimisticComment(vars), vars };
+      setFailedSends((list) => [...list, failed]);
+      return;
+    }
+    setSendFailed(composer);
     live[composer] = sent.value;
     if (sent.replyTo) {
       setReplyTo(sent.replyTo);
@@ -493,21 +521,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const addComment = useActionMutation("add-comment", {
     headers: commentHeaders,
     onMutate: async (vars: any) => {
-      const tempId = makeTempId();
-      const now = new Date().toISOString();
-      const optimistic: Comment = {
-        id: tempId,
-        threadId: vars.threadId ?? tempId,
-        parentId: vars.parentId ?? null,
-        authorEmail: currentUserEmail ?? "",
-        authorName: currentUserName ?? null,
-        content: vars.content,
-        mentions: displayCommentMentions(vars.mentions),
-        videoTimestampMs: vars.videoTimestampMs ?? 0,
-        emojiReactionsJson: "{}",
-        createdAt: now,
-        updatedAt: now,
-      };
+      const optimistic = optimisticComment(vars);
+      const tempId = optimistic.id;
       const context = { type: "add", tempId } satisfies CommentsMutationContext;
       await prepareCommentWrite(
         () =>
@@ -727,9 +742,13 @@ export function CommentsPanel(props: CommentsPanelProps) {
     },
   });
 
+  // Failed sends stay out of the query cache, so a refetch cannot drop them.
   const threads = useMemo(() => {
     const map = new Map<string, Comment[]>();
-    visibleComments.forEach((c) => {
+    [
+      ...visibleComments,
+      ...failedSends.map((failed) => failed.comment),
+    ].forEach((c) => {
       const list = map.get(c.threadId) ?? [];
       list.push(c);
       map.set(c.threadId, list);
@@ -737,7 +756,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     return Array.from(map.values()).map((list) =>
       list.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     );
-  }, [visibleComments]);
+  }, [visibleComments, failedSends]);
 
   const sortedThreads = useMemo(
     () =>
@@ -798,6 +817,15 @@ export function CommentsPanel(props: CommentsPanelProps) {
       clearSendFailed("comment");
     }
     addComment.mutate(vars);
+  }
+
+  function dropFailedSend(failed: FailedSend) {
+    setFailedSends((list) => list.filter((entry) => entry !== failed));
+  }
+
+  function retryFailedSend(failed: FailedSend) {
+    dropFailedSend(failed);
+    addComment.mutate(failed.vars);
   }
 
   function openReply(comment: Comment) {
@@ -897,6 +925,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
     const nextAncestors = new Set(ancestors).add(node.comment.id);
     const replyAllowed = depth < MAX_COMMENT_REPLY_DEPTH;
     const childDepth = Math.min(depth + 1, MAX_COMMENT_REPLY_DEPTH);
+    const failedSend = failedSends.find(
+      (failed) => failed.comment === node.comment,
+    );
     return (
       <li
         key={node.comment.id}
@@ -927,6 +958,16 @@ export function CommentsPanel(props: CommentsPanelProps) {
           onUnauthenticated={onUnauthenticated}
           canReply={replyAllowed}
           isReply={depth > 0}
+          sendFailure={
+            failedSend
+              ? {
+                  onRetry: canComment
+                    ? () => retryFailedSend(failedSend)
+                    : undefined,
+                  onDelete: () => dropFailedSend(failedSend),
+                }
+              : undefined
+          }
         />
         {canComment && replyAllowed && replyTo?.id === node.comment.id ? (
           <div className="ps-8">
@@ -1356,6 +1397,7 @@ function CommentCard({
   onUnauthenticated,
   canReply = true,
   isReply,
+  sendFailure,
 }: {
   comment: Comment;
   formatRelativeTime: ReturnType<typeof useFormatters>["formatRelativeTime"];
@@ -1377,6 +1419,7 @@ function CommentCard({
   onUnauthenticated?: (intent: "comment" | "react") => void;
   canReply?: boolean;
   isReply?: boolean;
+  sendFailure?: { onRetry?: () => void; onDelete: () => void };
 }) {
   const t = useT();
   const [localJson, setLocalJson] = useState<string | null>(null);
@@ -1466,130 +1509,158 @@ function CommentCard({
               protectedSpans={commentMentionSpans(comment.mentions)}
             />
 
-            <div
-              data-comment-actions
-              className="mt-1 flex min-h-7 min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto text-xs text-muted-foreground"
-            >
-              {canParticipate && canReply ? (
+            {sendFailure ? (
+              <div className="mt-1 flex min-h-7 items-center gap-0.5 text-xs">
+                <p role="alert" className="me-1 text-destructive">
+                  {t("notificationsRoute.sendFailed")}
+                </p>
+                {sendFailure.onRetry ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={sendFailure.onRetry}
+                    className="h-7 rounded-md px-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {t("libraryGrid.retry")}
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={onReply}
-                  className="h-7 gap-1.5 rounded-md px-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+                  onClick={sendFailure.onDelete}
+                  className="h-7 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 >
-                  <IconCornerDownRight className="size-3" />
-                  {t("commentsPanel.reply")}
+                  {t("commentsPanel.delete")}
                 </Button>
-              ) : null}
-
-              {canParticipate ? (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t("commentsPanel.react")}
-                      title={t("commentsPanel.react")}
-                      className="size-7 rounded-md text-foreground hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <IconMoodSmile className="size-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    side="top"
-                    align="start"
-                    className="w-auto p-1"
-                  >
-                    <div className="flex gap-0.5">
-                      {REACTION_EMOJIS.map((e) => (
-                        <button
-                          key={e}
-                          onClick={() => {
-                            if (!currentUserEmail) {
-                              onUnauthenticated?.("react");
-                              return;
-                            }
-                            setLocalJson(JSON.stringify(toggleEmoji(e)));
-                            onReact(comment.id, e);
-                          }}
-                          aria-label={`${t("commentsPanel.react")} ${e}`}
-                          className="flex size-8 items-center justify-center rounded text-lg hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {e}
-                        </button>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              ) : null}
-
-              {Object.entries(reactions).map(([emoji, users]) => {
-                const mine =
-                  !!currentUserEmail && users.includes(currentUserEmail);
-                return canParticipate ? (
+              </div>
+            ) : (
+              <div
+                data-comment-actions
+                className="mt-1 flex min-h-7 min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto text-xs text-muted-foreground"
+              >
+                {canParticipate && canReply ? (
                   <Button
-                    key={emoji}
                     type="button"
-                    variant="secondary"
+                    variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      if (!currentUserEmail) {
-                        onUnauthenticated?.("react");
-                        return;
-                      }
-                      setLocalJson(JSON.stringify(toggleEmoji(emoji)));
-                      onReact(comment.id, emoji);
-                    }}
-                    aria-pressed={mine}
-                    title={t("commentsPanel.react")}
-                    className={cn(
-                      "h-7 min-w-7 shrink-0 gap-1 rounded-md px-1.5 text-xs font-normal",
-                      mine && "text-primary",
-                    )}
+                    onClick={onReply}
+                    className="h-7 gap-1.5 rounded-md px-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
                   >
-                    {emoji} {users.length}
+                    <IconCornerDownRight className="size-3" />
+                    {t("commentsPanel.reply")}
                   </Button>
-                ) : (
-                  <span
-                    key={emoji}
-                    className="flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs"
-                  >
-                    {emoji} {users.length}
-                  </span>
-                );
-              })}
+                ) : null}
 
-              {isOwner && canComment ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                {canParticipate ? (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t("commentsPanel.react")}
+                        title={t("commentsPanel.react")}
+                        className="size-7 rounded-md text-foreground hover:bg-accent hover:text-accent-foreground"
+                      >
+                        <IconMoodSmile className="size-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="top"
+                      align="start"
+                      className="w-auto p-1"
+                    >
+                      <div className="flex gap-0.5">
+                        {REACTION_EMOJIS.map((e) => (
+                          <button
+                            key={e}
+                            onClick={() => {
+                              if (!currentUserEmail) {
+                                onUnauthenticated?.("react");
+                                return;
+                              }
+                              setLocalJson(JSON.stringify(toggleEmoji(e)));
+                              onReact(comment.id, e);
+                            }}
+                            aria-label={`${t("commentsPanel.react")} ${e}`}
+                            className="flex size-8 items-center justify-center rounded text-lg hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {e}
+                          </button>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                ) : null}
+
+                {Object.entries(reactions).map(([emoji, users]) => {
+                  const mine =
+                    !!currentUserEmail && users.includes(currentUserEmail);
+                  return canParticipate ? (
                     <Button
+                      key={emoji}
                       type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t("commentsPanel.moreActions", {
-                        author: commentAuthor,
-                      })}
-                      className="pointer-events-none ms-auto size-7 rounded-md text-muted-foreground opacity-0 transition-opacity group-hover/comment:pointer-events-auto group-hover/comment:opacity-100 group-focus-within/comment:pointer-events-auto group-focus-within/comment:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-accent hover:text-accent-foreground"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        if (!currentUserEmail) {
+                          onUnauthenticated?.("react");
+                          return;
+                        }
+                        setLocalJson(JSON.stringify(toggleEmoji(emoji)));
+                        onReact(comment.id, emoji);
+                      }}
+                      aria-pressed={mine}
+                      title={t("commentsPanel.react")}
+                      className={cn(
+                        "h-7 min-w-7 shrink-0 gap-1 rounded-md px-1.5 text-xs font-normal",
+                        mine && "text-primary",
+                      )}
                     >
-                      <IconDots className="size-3.5" />
+                      {emoji} {users.length}
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={onStartEdit}>
-                      {t("commentsPanel.editComment")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={() => onDelete(comment.id)}
+                  ) : (
+                    <span
+                      key={emoji}
+                      className="flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs"
                     >
-                      {t("commentsPanel.delete")}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-            </div>
+                      {emoji} {users.length}
+                    </span>
+                  );
+                })}
+
+                {isOwner && canComment ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t("commentsPanel.moreActions", {
+                          author: commentAuthor,
+                        })}
+                        className="pointer-events-none ms-auto size-7 rounded-md text-muted-foreground opacity-0 transition-opacity group-hover/comment:pointer-events-auto group-hover/comment:opacity-100 group-focus-within/comment:pointer-events-auto group-focus-within/comment:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:bg-accent hover:text-accent-foreground"
+                      >
+                        <IconDots className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={onStartEdit}>
+                        {t("commentsPanel.editComment")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => onDelete(comment.id)}
+                      >
+                        {t("commentsPanel.delete")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </div>
+            )}
           </>
         )}
       </div>
