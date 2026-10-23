@@ -238,10 +238,13 @@ export function builderSourceValuesKeepingUnpublishedChanges(args: {
   builderValues?: Record<string, DocumentPropertyValue>;
 }): Record<string, DocumentPropertyValue> {
   const read = readBuilderCmsUnpublishedChanges(args.existing);
-  if (read.state === "invalid") {
-    console.warn(
-      "Dropping an unreadable Builder unpublished-changes record; Builder's values win.",
+  if (read.state === "invalid" && args.existing) {
+    // Without the record, Content can't tell its saved values from Builder's
+    // live ones, so neither wins until a save writes a readable record.
+    console.error(
+      "Keeping a Builder row whose unpublished-changes record is unreadable; a save from Content replaces the record.",
     );
+    return { ...args.incoming, ...args.existing };
   }
   if (read.state !== "pending" || !args.existing) {
     return withBuilderCmsUnpublishedChanges(args.incoming, null);

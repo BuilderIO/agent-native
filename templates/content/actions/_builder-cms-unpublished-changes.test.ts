@@ -294,23 +294,46 @@ describe("Builder unpublished changes", () => {
     expect(next["data.title"]).toBe("Saved title");
   });
 
-  it("warns and lets Builder win when the record cannot be read", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("keeps the row as saved when the record cannot be read, until a save replaces it", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
+      const existing = {
+        published: "published",
+        "data.title": "Saved title",
+        [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: "{not json",
+      };
       const next = builderSourceValuesKeepingUnpublishedChanges({
-        incoming: { published: "published", "data.title": "Live title" },
-        existing: {
+        incoming: {
           published: "published",
-          "data.title": "Saved title",
-          [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: "{not json",
+          "data.title": "Live title",
+          "data.blurb": "New Builder field",
         },
+        existing,
       });
 
-      expect(next["data.title"]).toBe("Live title");
-      expect(next).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
-      expect(warn).toHaveBeenCalledTimes(1);
+      expect(next["data.title"]).toBe("Saved title");
+      expect(next["data.blurb"]).toBe("New Builder field");
+      expect(next[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]).toBe("{not json");
+      expect(error).toHaveBeenCalledTimes(1);
+
+      expect(
+        builderCmsUnpublishedChangesAfterWrite({
+          existing,
+          effect: "autosave",
+          writtenFieldKeys: ["data.title"],
+          wroteBody: false,
+          live: {
+            values: { "data.title": "Live title" },
+            blocksHash: null,
+            lastUpdated: 1000,
+          },
+        }),
+      ).toEqual({
+        liveValues: { "data.title": "Live title" },
+        liveLastUpdated: 1000,
+      });
     } finally {
-      warn.mockRestore();
+      error.mockRestore();
     }
   });
 
