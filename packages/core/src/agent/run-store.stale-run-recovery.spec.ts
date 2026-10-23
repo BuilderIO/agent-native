@@ -1642,19 +1642,27 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
          WHERE id = ?`,
       )
       .run(Date.now(), runId);
-    for (let order = 1; order <= blockedCount; order += 1) {
-      const blockedRunId = `${runId}-blocked-${order}`;
-      await insertRun(blockedRunId, thread, turn, {
-        continuationOrder: order,
-      });
-      await pglite
-        .prepare(
-          `UPDATE agent_runs
-           SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
-           WHERE id = ?`,
-        )
-        .run(Date.now() + order, blockedRunId);
-    }
+    const startedAt = 1;
+    await pglite
+      .prepare(
+        `INSERT INTO agent_runs (
+           id, thread_id, status, started_at, heartbeat_at, last_progress_at,
+           turn_id, continuation_order, completed_at, thread_projection_pending
+         )
+         SELECT ? || '-blocked-' || order_number, ?, 'completed', ?, ?, ?, ?,
+                order_number, CAST(? AS BIGINT) + order_number, TRUE
+         FROM generate_series(1, ?) AS generated(order_number)`,
+      )
+      .run(
+        runId,
+        thread,
+        startedAt,
+        startedAt,
+        startedAt,
+        turn,
+        startedAt,
+        blockedCount,
+      );
     const eligible = ids();
     await insertRun(eligible.runId, eligible.thread, eligible.turn);
     await pglite
@@ -1678,6 +1686,43 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
     expect(
       (await readRow(`${runId}-blocked-1`))?.thread_projection_pending,
     ).toBe(true);
+  });
+
+  it("orders equal-time legacy projection retries by run id", async () => {
+    currentClient = makeRawClient(true);
+    const earlierRunId = "legacy-projection-a";
+    const laterRunId = "legacy-projection-b";
+    const thread = "thread-equal-time-legacy-projection";
+    const turn = "turn-equal-time-legacy-projection";
+    const startedAt = Date.now();
+    await insertRun(earlierRunId, thread, turn);
+    await insertRun(laterRunId, thread, turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', continuation_order = NULL,
+             started_at = ?, completed_at = ?, thread_projection_pending = TRUE
+         WHERE id IN (?, ?)`,
+      )
+      .run(startedAt, startedAt, earlierRunId, laterRunId);
+
+    const firstSweep = await reapAllStaleRuns();
+
+    expect(firstSweep).toEqual({ reaped: 0, failed: 0, truncated: false });
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledOnce();
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledWith(earlierRunId);
+    expect((await readRow(earlierRunId))?.thread_projection_pending).toBe(
+      false,
+    );
+    expect((await readRow(laterRunId))?.thread_projection_pending).toBe(true);
+
+    const secondSweep = await reapAllStaleRuns();
+
+    expect(secondSweep).toEqual({ reaped: 0, failed: 0, truncated: false });
+    expect(
+      foldReapedRunIntoThreadMock.mock.calls.map(([runId]) => runId),
+    ).toEqual([earlierRunId, laterRunId]);
+    expect((await readRow(laterRunId))?.thread_projection_pending).toBe(false);
   });
 
   it("defers recovered successors until their predecessor projection can be retried", async () => {

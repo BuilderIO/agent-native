@@ -7,7 +7,7 @@ import {
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, getScopedTransactionDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
@@ -844,8 +844,14 @@ export async function resetAgentExecutionStepBeforeInvocation(
   intent: AgentExecutionStepIntent,
 ): Promise<void> {
   await ensureRunTables();
-  const result = await withFencedExecutionWrite(
-    (tx) =>
+  const expectedFence: ExecutionFence = {
+    threadId: intent.threadId,
+    turnId: intent.turnId,
+    runId: intent.runId,
+    generation: intent.generation,
+  };
+  try {
+    const result = await withAgentExecutionStepIntentFence(intent, (tx) =>
       tx.execute({
         sql: `UPDATE agent_execution_steps
               SET status = 'prepared', dispatched_at = NULL,
@@ -861,13 +867,93 @@ export async function resetAgentExecutionStepBeforeInvocation(
           intent.generation,
         ],
       }),
-    { threadId: intent.threadId, turnId: intent.turnId, runId: intent.runId },
-  );
-  if (result.rowsAffected !== 1) {
+    );
+    if (result.rowsAffected !== 1) {
+      throw new Error(
+        `Execution step ${intent.stepId} was not reset before invocation`,
+      );
+    }
+    return;
+  } catch (error) {
+    if (!(error instanceof StaleExecutionFenceError)) throw error;
+    const activeFence = currentExecutionFence();
+    if (
+      !activeFence ||
+      activeFence.threadId !== expectedFence.threadId ||
+      activeFence.turnId !== expectedFence.turnId ||
+      activeFence.runId !== expectedFence.runId ||
+      activeFence.generation !== expectedFence.generation
+    ) {
+      throw error;
+    }
+  }
+
+  const reconcileWithCurrentLease = async (tx: DbExec) => {
+    await lockAndAssertCurrentExecutionFences(tx, expectedFence);
+    const currentLease = await lockTurnExecutionLease(
+      tx,
+      intent.threadId,
+      intent.turnId,
+    );
+    if (!currentLease?.isLive) {
+      throw new StaleExecutionFenceError(expectedFence);
+    }
+    const currentOwner = await tx.execute({
+      sql: `SELECT status, worker_generation FROM agent_runs
+            WHERE id = ? FOR UPDATE`,
+      args: [currentLease.ownerRunId],
+    });
+    const owner = currentOwner.rows[0] as
+      | { status?: string; worker_generation?: number | string | null }
+      | undefined;
+    const currentFence = {
+      threadId: intent.threadId,
+      turnId: intent.turnId,
+      runId: currentLease.ownerRunId,
+      generation: currentLease.generation,
+    };
+    if (
+      owner?.status !== "running" ||
+      String(owner.worker_generation) !== currentLease.generation
+    ) {
+      throw new StaleExecutionFenceError(currentFence);
+    }
+    const reconciled = await tx.execute({
+      sql: `UPDATE agent_execution_steps
+            SET status = 'prepared', run_id = ?,
+                generation = CAST(? AS BIGINT), dispatched_at = NULL,
+                updated_at = clock_timestamp()
+            WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+              AND run_id = ? AND generation = CAST(? AS BIGINT)
+              AND status IN ('prepared', 'dispatched', 'unknown')`,
+      args: [
+        currentLease.ownerRunId,
+        currentLease.generation,
+        intent.threadId,
+        intent.turnId,
+        intent.stepId,
+        intent.runId,
+        intent.generation,
+      ],
+    });
+    if (reconciled.rowsAffected !== 1) {
+      throw new Error(
+        `Execution step ${intent.stepId} was not reconciled under the current lease`,
+      );
+    }
+  };
+
+  const client = getDbExec();
+  if (getScopedTransactionDbExec() === client) {
+    await reconcileWithCurrentLease(client);
+    return;
+  }
+  if (!client.transaction) {
     throw new Error(
-      `Execution step ${intent.stepId} was not reset before invocation`,
+      "Execution step reconciliation requires transaction support",
     );
   }
+  await client.transaction(reconcileWithCurrentLease);
 }
 
 export async function completeAgentExecutionStep(
@@ -1465,7 +1551,13 @@ function earlierTurnProjectionPendingSql(): string {
         OR (
           COALESCE(pending_projection.continuation_order, 0) =
               COALESCE(agent_runs.continuation_order, 0)
-          AND pending_projection.started_at <= agent_runs.started_at
+          AND (
+            pending_projection.started_at < agent_runs.started_at
+            OR (
+              pending_projection.started_at = agent_runs.started_at
+              AND pending_projection.id < agent_runs.id
+            )
+          )
         )
       )
   )`;

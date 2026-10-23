@@ -999,6 +999,83 @@ describe("task execution leases", () => {
     expect(step.rows[0]).toMatchObject({ status: "prepared" });
   });
 
+  it("reconciles an uninvoked dispatched step under the replacement lease", async () => {
+    const threadId = "thread-reconcile-replaced-lease";
+    const turnId = "turn-reconcile-replaced-lease";
+    const previousRunId = "run-reconcile-replaced-lease-previous";
+    const currentRunId = "run-reconcile-replaced-lease-current";
+    const stepId = "step-reconcile-replaced-lease";
+    await insertRun(previousRunId, threadId, turnId);
+    await insertRun(currentRunId, threadId, turnId);
+    const previousFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      previousRunId,
+    );
+    const previousIntent = {
+      ...previousFence,
+      stepId,
+      operationId: "test:reconcile-replaced-lease",
+      toolName: "write",
+      inputJson: "{}",
+      replayPolicy: "never" as const,
+    };
+
+    await withExecutionFence(previousFence, async () => {
+      await beginAgentExecutionStep(previousIntent);
+      await markAgentExecutionStepDispatched(previousIntent);
+    });
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+         SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+         WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(threadId, turnId);
+    const currentFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      currentRunId,
+    );
+    const currentIntent = {
+      ...previousIntent,
+      runId: currentRunId,
+      generation: currentFence.generation,
+    };
+
+    await expect(
+      withExecutionFence(currentFence, () =>
+        beginAgentExecutionStep(currentIntent),
+      ),
+    ).resolves.toEqual({ status: "unknown" });
+    await expect(
+      withExecutionFence(currentFence, () =>
+        resetAgentExecutionStepBeforeInvocation(previousIntent),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    await withExecutionFence(previousFence, () =>
+      resetAgentExecutionStepBeforeInvocation(previousIntent),
+    );
+    await expect(
+      withExecutionFence(currentFence, () =>
+        beginAgentExecutionStep(currentIntent),
+      ),
+    ).resolves.toEqual({ status: "execute", wasDispatched: false });
+
+    const step = await pglite.query(
+      `SELECT status, run_id, generation FROM agent_execution_steps
+        WHERE thread_id = ? AND turn_id = ? AND step_id = ?`,
+      [threadId, turnId, stepId],
+    );
+    expect(step.rows[0]).toMatchObject({
+      status: "prepared",
+      run_id: currentRunId,
+    });
+    expect(
+      String((step.rows[0] as { generation: string | number }).generation),
+    ).toBe(currentFence.generation);
+  });
+
   it("commits terminal status and failure details before a successor claims", async () => {
     const threadId = "thread-terminal-state-fence";
     const turnId = "terminal-state-fence";
