@@ -31,7 +31,7 @@ writing the query is always faster than debugging a wrong result.
 
 Before writing SQL, use the highest-confidence source available:
 
-0. Owner-defined dbt metric question, even unnamed: follow the dbt path in `data-querying/SKILL.md`, including its status rules, retry, and warehouse conditions. Its definition outranks any table. If that path finds no exact name, stop at the mapping gap for this metric; do not fall through to steps 1–3.
+0. Owner-defined dbt metric question, even unnamed: follow the dbt path in `data-querying/SKILL.md`, including its status rules, retry, and warehouse conditions. Its definition outranks any table. If that path finds no exact name while dbt is connected, stop at the mapping gap for this metric; if dbt is not connected, continue with steps 1–3 and say so.
 1. `find-data` with a focused metric or entity question.
 2. Existing dashboard SQL or saved analyses that already answer the same metric.
 3. `search-bigquery-schema` metadata for exact datasets, tables, and columns.

@@ -682,7 +682,12 @@ describe("Analytics agent Plan mode policy", () => {
     expect(agentsGuide).toContain(
       "retry no-candidate searches once with owner terms",
     );
-    expect(agentsGuide).toContain("If still unmatched, report the gap");
+    expect(agentsGuide).toContain(
+      "If still unmatched and dbt is connected, report the gap",
+    );
+    expect(agentsGuide).toContain(
+      "If dbt is not connected, use normal sources and say so.",
+    );
     expect(dataQueryingSkill).toContain("`metadata_truncated`");
     expect(dataQueryingSkill).toContain("`no_metrics_available`");
     expect(dataQueryingSkill).toContain("`permission_denied`");
@@ -696,7 +701,7 @@ describe("Analytics agent Plan mode policy", () => {
       "follow the dbt path in `data-querying/SKILL.md`",
     );
     expect(bigquerySkill).toContain(
-      "stop at the mapping gap for this metric; do not fall through to steps 1–3.",
+      "stop at the mapping gap for this metric; if dbt is not connected, continue with steps 1–3 and say so.",
     );
     expect(ruleText("references")).toContain("only dbt routing searches again");
     expect(dataQueryingSkill).toContain(
@@ -707,7 +712,7 @@ describe("Analytics agent Plan mode policy", () => {
     );
     expect(dataQueryingSkill).toContain("connection-required error");
     expect(dataQueryingSkill).toContain(
-      "Resume results that carry `queryId` and `nextPage` with only their `metricName`, `queryId`, and `nextPage`",
+      "Resume results that carry `queryId` and `nextPage` with the `metricName` of the original call",
     );
     expect(dataQueryingSkill).toContain(
       "up to five resumes in one turn; then stop and report it as still running",
@@ -716,6 +721,9 @@ describe("Analytics agent Plan mode policy", () => {
       "If the retried query returns `not_found` again, stop and report",
     );
     expect(dataQueryingSkill).toContain("gets one resume");
+    expect(dataQueryingSkill).toContain(
+      "If dbt is not connected, use normal source selection and say that dbt is not connected.",
+    );
     expect(dataQueryingSkill).toContain(
       "resume first (above) so the answer covers the full result",
     );
