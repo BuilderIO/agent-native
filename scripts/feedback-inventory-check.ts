@@ -7892,13 +7892,7 @@ function validateInventory(
           }
         }
         const threadSnapshot = threadSnapshots.get(parent.threadParentTs);
-        validateSourceFilesInSnapshot(
-          parentName,
-          parent,
-          threadSnapshot,
-          inventory.sweepActorId,
-          finalPageReadAt,
-        );
+        validateSourceFilesInSnapshot(parentName, parent, threadSnapshot);
         if (
           !isRootMessage &&
           ((parent.fixedScopes?.length ?? 0) > 0 ||
