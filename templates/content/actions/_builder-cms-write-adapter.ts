@@ -602,6 +602,8 @@ function builderRequestForEffect(args: {
   model: string;
   entryId: string | null;
   bodyPatch: Record<string, unknown>;
+  /** The entry's own name in Builder, kept by a write that leaves the title. */
+  currentName?: string | null;
   currentTitle?: string | null;
   intentMarker?: string;
 }): BuilderCmsExecutionPayload["request"] {
@@ -616,7 +618,10 @@ function builderRequestForEffect(args: {
       : null;
   const safeEntryName =
     args.model === SAFE_WRITE_MODEL
-      ? patchedTitle || args.currentTitle?.trim() || null
+      ? patchedTitle ||
+        args.currentName?.trim() ||
+        args.currentTitle?.trim() ||
+        null
       : null;
   if (isBuilderCmsUnpublishedSaveEffect(args.effect)) {
     return builderUnpublishedSaveRequest({
@@ -943,6 +948,10 @@ export function buildBuilderCmsExecutionPlan(args: {
     model: args.source.sourceTable,
     entryId: targetEntryId,
     bodyPatch,
+    currentName:
+      typeof targetRow?.sourceValues?.[BUILDER_CMS_ENTRY_NAME_KEY] === "string"
+        ? targetRow.sourceValues[BUILDER_CMS_ENTRY_NAME_KEY]
+        : null,
     currentTitle: targetRow?.sourceDisplayKey ?? null,
     intentMarker:
       effect === "create_draft" && args.source.sourceTable === SAFE_WRITE_MODEL

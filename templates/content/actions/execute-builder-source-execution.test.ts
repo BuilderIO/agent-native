@@ -2270,7 +2270,7 @@ describe("Builder unpublished saves", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
-  it("compares the entry name with Builder's name, not the article title", async () => {
+  it("checks and keeps Builder's own entry name on a save that leaves the title", async () => {
     const { deps, run } = unpublishedSave({
       rows: [
         publishedRow({
@@ -2310,6 +2310,13 @@ describe("Builder unpublished saves", () => {
 
     await expect(run()).resolves.toMatchObject(RESPONSE);
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+    expect(deps.executeWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          body: expect.objectContaining({ name: "CMS internal label" }),
+        }),
+      }),
+    );
   });
 
   it("treats the live value Content saved over as the value this edit was made against", async () => {

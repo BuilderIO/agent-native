@@ -2194,14 +2194,13 @@ async function processBuilderBodyHydrationJob(
     BuilderLiveBodyReadResult,
     { state: "empty_body" | "not_found" }
   > | null = null;
-  if (builderCmsBodyKnownEmpty(nextValues)) {
-    // The stored lossless copy is an older body than this empty one.
-    emptyBodyRead = {
-      state: "empty_body",
-      entry: { ...entryWithBody, sourceValues: nextValues },
-      providerStatus: "http_200",
-    };
-  } else if (!nextContent.trim()) {
+  // A known-empty body is written like any other body. The stored lossless
+  // copy is older than it, so it is never rebuilt over one.
+  const hasBody = (
+    values: Record<string, DocumentPropertyValue>,
+    content: string,
+  ) => !!content.trim() || builderCmsBodyKnownEmpty(values);
+  if (!hasBody(nextValues, nextContent)) {
     const rebuiltBaseEntry = sourceRow
       ? builderEntryFromSourceRow({
           row: sourceRow,
@@ -2219,7 +2218,7 @@ async function processBuilderBodyHydrationJob(
       );
       const rebuiltContent =
         stringSourceValue(rebuiltValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
-      if (rebuiltContent.trim()) {
+      if (hasBody(rebuiltValues, rebuiltContent)) {
         const rebuiltSourceEntryJson = JSON.stringify(rebuiltEntry);
         const [upgraded] = await db
           .update(schema.contentDatabaseBodyHydrationQueue)
@@ -2249,7 +2248,7 @@ async function processBuilderBodyHydrationJob(
         nextContent = rebuiltContent;
       }
     }
-    if (!nextContent.trim() && sourceRow) {
+    if (!hasBody(nextValues, nextContent) && sourceRow) {
       const liveRead = await readBuilderEntryWithLiveBodyFromSourceRow({
         row: sourceRow,
         sourceTable: row.sourceTable,
@@ -2257,12 +2256,14 @@ async function processBuilderBodyHydrationJob(
         expectedSourceSpace: preloaded?.expectedSourceSpace,
         expectedSourceConnectionId: preloaded?.expectedSourceConnectionId,
       });
-      if (liveRead.state === "body") {
+      if (liveRead.state === "not_found") {
+        emptyBodyRead = liveRead;
+      } else {
         const liveEntry = liveRead.entry;
         const liveValues = builderBodyReadSourceValues(sourceValues, liveEntry);
         const liveContent =
           stringSourceValue(liveValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
-        if (liveContent.trim()) {
+        if (hasBody(liveValues, liveContent)) {
           const liveSourceEntryJson = JSON.stringify(liveEntry);
           const [upgraded] = await db
             .update(schema.contentDatabaseBodyHydrationQueue)
@@ -2290,31 +2291,13 @@ async function processBuilderBodyHydrationJob(
           entryWithBody = liveEntry;
           nextValues = liveValues;
           nextContent = liveContent;
-        } else if (builderCmsBodyKnownEmpty(liveValues)) {
-          // Content saved an empty body over the live one.
-          emptyBodyRead = {
-            ...liveRead,
-            state: "empty_body",
-            entry: { ...liveEntry, sourceValues: liveValues },
-          };
+        } else if (liveRead.state === "empty_body") {
+          emptyBodyRead = liveRead;
         }
-      } else if (liveRead.state === "empty_body") {
-        emptyBodyRead = {
-          ...liveRead,
-          entry: {
-            ...liveRead.entry,
-            sourceValues: builderBodyReadSourceValues(
-              sourceValues,
-              liveRead.entry,
-            ),
-          },
-        };
-      } else {
-        emptyBodyRead = liveRead;
       }
     }
   }
-  if (emptyBodyRead || !nextContent.trim()) {
+  if (!hasBody(nextValues, nextContent)) {
     const attempts = row.attempts;
     await db.transaction(async (tx) => {
       const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
@@ -2350,6 +2333,10 @@ async function processBuilderBodyHydrationJob(
         const writtenEntry = {
           ...emptyBodyRead.entry,
           updatedAt: emptyBodyRead.entry.updatedAt ?? now,
+          sourceValues: builderBodyReadSourceValues(
+            sourceValues,
+            emptyBodyRead.entry,
+          ),
         };
         await tx
           .update(schema.contentDatabaseSourceRows)
@@ -2565,12 +2552,18 @@ async function processBuilderBodyHydrationJob(
           )
         : isNull(schema.contentDatabaseSourceRows.id),
     );
+    // The next refresh compares the version with the row as written.
+    const writtenEntry = {
+      ...entryWithBody,
+      updatedAt: entryWithBody.updatedAt ?? now,
+      sourceValues: nextValues,
+    };
     const [updatedSourceRow] = await tx
       .update(schema.contentDatabaseSourceRows)
       .set({
-        sourceValuesJson: JSON.stringify(nextValues),
+        sourceValuesJson: JSON.stringify(writtenEntry.sourceValues),
         lastSyncedAt: now,
-        lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
+        lastSourceUpdatedAt: writtenEntry.updatedAt,
         updatedAt: now,
       })
       .where(sourceRowWhere)
@@ -2627,14 +2620,10 @@ async function processBuilderBodyHydrationJob(
         bodyHydrationStatus: "hydrated",
         bodyHydrationAttemptedAt: now,
         bodyHydrationError: null,
-        // A kept body is the version the next refresh expects; Builder's
-        // would queue this read again on every refresh.
-        bodyHydrationVersion: builderBodyHydrationVersion(
-          incomingIsBodySavedOver
-            ? { ...entryWithBody, sourceValues: nextValues }
-            : entryWithBody,
-        ),
-        bodyHydrationReason: null,
+        bodyHydrationVersion: builderBodyHydrationVersion(writtenEntry),
+        bodyHydrationReason: builderCmsBodyKnownEmpty(nextValues)
+          ? "empty_body"
+          : null,
         bodyHydrationProviderStatus: "http_200",
         bodyHydrationAttemptCount: row.attempts,
         bodyHydrationRetryable: 0,

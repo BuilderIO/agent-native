@@ -5443,7 +5443,7 @@ it("lets an empty body Builder published replace a saved body through hydration"
       ownerEmail: OWNER,
       parentId: databaseDocId,
       title: "Published empty body",
-      content: "",
+      content: "Saved Content body.",
       createdAt: now,
       updatedAt: now,
     },
