@@ -1390,8 +1390,8 @@ export default {
     drilldownNoRecords: "一致するレコードがありません",
     drilldownNoRecordsIncomplete:
       "レコードは読み込まれませんでした。結果が不完全なため、一致するレコードがある可能性があります。",
-    drilldownNoLoadedMatchesIncomplete:
-      "読み込まれたレコードに一致するものはありません。結果が不完全なため、ほかに一致するレコードがある可能性があります。",
+    drilldownNoLoadedMatches:
+      "読み込まれたレコードに一致するものはありませんが、完全な結果には読み込まれていないレコードが含まれている可能性があります。",
     drilldownLoadFailed: "レコードを読み込めませんでした",
     drilldownOverByteCap:
       "これらのレコードは {{gib}} GiB を超えて読み込むため、読み込みませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",

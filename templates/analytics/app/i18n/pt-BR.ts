@@ -1405,8 +1405,8 @@ export default {
     drilldownNoRecords: "Nenhum registro correspondente",
     drilldownNoRecordsIncomplete:
       "Nenhum registro foi carregado. O resultado está incompleto, então ainda pode haver registros correspondentes.",
-    drilldownNoLoadedMatchesIncomplete:
-      "Nenhum registro carregado corresponde. O resultado está incompleto, então ainda pode haver outros registros correspondentes.",
+    drilldownNoLoadedMatches:
+      "Nenhum registro carregado corresponde, mas o resultado completo pode incluir registros que não foram carregados.",
     drilldownLoadFailed: "Não foi possível carregar os registros",
     drilldownOverByteCap:
       "Estes registros leriam mais de {{gib}} GiB, então não foram carregados. Restrinja os filtros ou o período do painel e tente de novo.",

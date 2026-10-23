@@ -397,10 +397,10 @@ describe("PanelDrilldownDialog metadata lookup", () => {
 
   it.each([
     ["complete", 1, "sqlDashboard.drilldownNoRecords"],
-    ["partial", 1, "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
-    ["truncated", 1, "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
-    ["complete", 5, "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
-    ["complete", undefined, "sqlDashboard.drilldownNoLoadedMatchesIncomplete"],
+    ["partial", 1, "sqlDashboard.drilldownNoLoadedMatches"],
+    ["truncated", 1, "sqlDashboard.drilldownNoLoadedMatches"],
+    ["complete", 5, "sqlDashboard.drilldownNoLoadedMatches"],
+    ["complete", undefined, "sqlDashboard.drilldownNoLoadedMatches"],
   ])(
     "says what a filter that hides every loaded row proves: %s, %s matching",
     async (state, total, message) => {
@@ -427,7 +427,7 @@ describe("PanelDrilldownDialog metadata lookup", () => {
       for (const other of [
         "sqlDashboard.drilldownNoRecords",
         "sqlDashboard.drilldownNoRecordsIncomplete",
-        "sqlDashboard.drilldownNoLoadedMatchesIncomplete",
+        "sqlDashboard.drilldownNoLoadedMatches",
       ].filter((key) => key !== message)) {
         expect(shown).not.toMatch(
           new RegExp(`${other.replace(".", "\\.")}(?![A-Za-z])`),

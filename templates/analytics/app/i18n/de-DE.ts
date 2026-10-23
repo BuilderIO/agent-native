@@ -1420,8 +1420,8 @@ export default {
     drilldownNoRecords: "Keine passenden Datensätze",
     drilldownNoRecordsIncomplete:
       "Keine Datensätze geladen. Das Ergebnis ist unvollständig, daher können trotzdem Datensätze passen.",
-    drilldownNoLoadedMatchesIncomplete:
-      "Keine geladenen Datensätze passen. Das Ergebnis ist unvollständig, daher können andere Datensätze trotzdem passen.",
+    drilldownNoLoadedMatches:
+      "Keine geladenen Datensätze passen, aber das vollständige Ergebnis kann nicht geladene Datensätze enthalten.",
     drilldownLoadFailed: "Datensätze konnten nicht geladen werden",
     drilldownOverByteCap:
       "Diese Datensätze würden mehr als {{gib}} GiB lesen und wurden deshalb nicht geladen. Grenze die Filter oder den Zeitraum des Dashboards ein und versuche es erneut.",

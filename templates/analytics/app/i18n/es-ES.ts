@@ -1409,8 +1409,8 @@ export default {
     drilldownNoRecords: "No hay registros coincidentes",
     drilldownNoRecordsIncomplete:
       "No se cargó ningún registro. El resultado está incompleto, así que puede haber registros coincidentes.",
-    drilldownNoLoadedMatchesIncomplete:
-      "Ningún registro cargado coincide. El resultado está incompleto, así que puede haber otros registros coincidentes.",
+    drilldownNoLoadedMatches:
+      "Ningún registro cargado coincide, pero el resultado completo puede incluir registros que no se cargaron.",
     drilldownLoadFailed: "No se pudieron cargar los registros",
     drilldownOverByteCap:
       "Estos registros leerían más de {{gib}} GiB, así que no se cargaron. Acota los filtros o el intervalo de fechas del panel y vuelve a intentarlo.",

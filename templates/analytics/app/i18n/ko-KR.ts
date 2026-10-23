@@ -1366,8 +1366,8 @@ export default {
     drilldownNoRecords: "일치하는 레코드가 없습니다",
     drilldownNoRecordsIncomplete:
       "불러온 레코드가 없습니다. 결과가 불완전하므로 일치하는 레코드가 있을 수 있습니다.",
-    drilldownNoLoadedMatchesIncomplete:
-      "불러온 레코드 중 일치하는 항목이 없습니다. 결과가 불완전하므로 다른 레코드가 일치할 수 있습니다.",
+    drilldownNoLoadedMatches:
+      "불러온 레코드 중 일치하는 항목이 없지만, 전체 결과에는 불러오지 않은 레코드가 포함될 수 있습니다.",
     drilldownLoadFailed: "레코드를 불러오지 못했습니다",
     drilldownOverByteCap:
       "이 레코드는 {{gib}}GiB를 넘게 읽게 되어 불러오지 않았습니다. 대시보드 필터나 기간을 좁힌 뒤 다시 시도하세요.",

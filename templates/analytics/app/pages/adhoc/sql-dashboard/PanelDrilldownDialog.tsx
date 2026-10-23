@@ -360,7 +360,7 @@ export function PanelDrilldownDialog({
                 ? t("sqlDashboard.drilldownNoRecords")
                 : allRows.length === 0
                   ? t("sqlDashboard.drilldownNoRecordsIncomplete")
-                  : t("sqlDashboard.drilldownNoLoadedMatchesIncomplete")}
+                  : t("sqlDashboard.drilldownNoLoadedMatches")}
             </p>
           ) : (
             <Table>

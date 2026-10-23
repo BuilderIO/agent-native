@@ -1418,8 +1418,8 @@ export default {
     drilldownNoRecords: "Aucun enregistrement correspondant",
     drilldownNoRecordsIncomplete:
       "Aucun enregistrement chargé. Le résultat est incomplet : des enregistrements peuvent tout de même correspondre.",
-    drilldownNoLoadedMatchesIncomplete:
-      "Aucun enregistrement chargé ne correspond. Le résultat est incomplet : d'autres enregistrements peuvent tout de même correspondre.",
+    drilldownNoLoadedMatches:
+      "Aucun enregistrement chargé ne correspond, mais le résultat complet peut inclure des enregistrements non chargés.",
     drilldownLoadFailed: "Impossible de charger les enregistrements",
     drilldownOverByteCap:
       "Ces enregistrements liraient plus de {{gib}} Gio, ils n'ont donc pas été chargés. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
