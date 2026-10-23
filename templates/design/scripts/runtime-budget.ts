@@ -10,9 +10,7 @@ import { parseArgs } from "node:util";
 import { chromium, errors, type CDPSession, type Page } from "@playwright/test";
 
 import {
-  expectedCanvasScaleAtZoomPercent,
   readStableZoomUntilAvailable,
-  readZoomUntilAvailable,
   type ZoomSnapshot,
 } from "./runtime-budget-zoom.ts";
 
@@ -417,44 +415,32 @@ async function zoomTo(target: number): Promise<boolean> {
     );
     return false;
   }
-  const { routeZoom: currentZoomPercent, canvasScale: currentCanvasScale } =
-    startingSnapshot;
-  // Overview zoom is normalized by board geometry, so compare the world
-  // transform with the exact, stable route zoom instead of the rounded label.
-  const expectedScale = expectedCanvasScaleAtZoomPercent(
-    currentCanvasScale,
-    currentZoomPercent,
-    target,
-  );
-  if (expectedScale === null) return false;
   await readout.click({ timeout: remainingTimeout() });
   const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
   await zoomInput.fill(`${target}%`, { timeout: remainingTimeout() });
   await zoomInput.press("Enter", { timeout: remainingTimeout() });
   let lastEndingSnapshot: ZoomSnapshot | null = null;
-  const actual = await readZoomUntilAvailable(
+  // Overview scale depends on active-frame geometry, which may settle after
+  // the route zoom changes. Verify the requested route/readout and let the
+  // transform settle instead of projecting its scale from the previous view.
+  const actual = await readStableZoomUntilAvailable(
     async () => {
       const snapshot = await readZoomSnapshot();
       lastEndingSnapshot = snapshot;
-      if (
-        snapshot.canvasScale === null ||
-        snapshot.routeZoom !== target ||
-        snapshot.labelZoom !== target ||
-        Math.abs(snapshot.canvasScale - expectedScale) >
-          Math.max(0.005, expectedScale * 0.001)
-      ) {
-        return null;
-      }
-      return snapshot.canvasScale;
+      return snapshot;
     },
     (ms) => page.waitForTimeout(ms),
     deadline,
     () => cdp.send("Runtime.terminateExecution"),
+    {
+      matches: (snapshot) =>
+        snapshot.routeZoom === target && snapshot.labelZoom === target,
+    },
   );
   const arrived = actual !== null;
   if (!arrived) {
     console.log(
-      `  zoom ${target}% did not settle after ${Date.now() - startedAt}ms: start=${JSON.stringify(startingSnapshot)} expectedCanvasScale=${expectedScale.toFixed(3)} final=${JSON.stringify(lastEndingSnapshot)}`,
+      `  zoom ${target}% did not settle after ${Date.now() - startedAt}ms: start=${JSON.stringify(startingSnapshot)} final=${JSON.stringify(lastEndingSnapshot)}`,
     );
   }
   return arrived;

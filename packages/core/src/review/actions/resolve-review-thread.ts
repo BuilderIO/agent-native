@@ -33,6 +33,11 @@ export default defineAction({
   description:
     "Resolve or reopen an inline comment or review thread. Resolution notes support inline Markdown without headings and are only valid when resolving.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const status = args.status ?? "resolved";
     const actionCtx = ctx as ReviewResourceContext | undefined;

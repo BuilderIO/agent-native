@@ -8,6 +8,7 @@ import {
 } from "@shared/native-effect-edits";
 import { NATIVE_EFFECT_LATEST_DEFINITIONS } from "@shared/native-effect-presets";
 import {
+  getNativeEffectRecordFieldPresentation,
   getNativeEffectPropertyPresentation,
   NATIVE_OPACITY_PRESENTATION,
   NATIVE_SPEED_PRESENTATION,
@@ -18,18 +19,24 @@ import {
 import { hashEffectDefinition } from "@shared/native-effect-trust";
 import {
   parseEffectsFromHtml,
+  resolvedEffectPropertyValue,
   type EffectColor,
   type EffectColorStop,
   type EffectDefinition,
   type EffectInstance,
+  type EffectParameterConstraint,
   type EffectPaint,
+  type EffectRecordField,
   type EffectProperty,
+  type EffectRecordValue,
   type EffectValue,
 } from "@shared/native-effects";
 import {
+  IconChevronDown,
   IconEye,
   IconEyeOff,
   IconMinus,
+  IconPlus,
   IconSearch,
   IconSparkles,
   IconWaveSine,
@@ -38,6 +45,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -60,15 +72,16 @@ import {
   InspectorGridCell,
   InspectorPaintRow,
 } from "../edit-panel/inspector-grid";
-import type { RenderNestedColorPicker } from "./color-picker-nested";
 import {
   broadcastShaderMessage,
   withShaderWriteLock,
-  type GlslShaderPanelContext,
-} from "./GlslShaderPanel";
+  type ShaderEditorContext,
+} from "../shader-source-coordination";
+import type { RenderNestedColorPicker } from "./color-picker-nested";
 import { InspectorControlPopoverContent } from "./InspectorControlPopover";
 import {
   nativeCatalogDefinitionKey,
+  nativeCatalogGroupKey,
   nativeCatalogOptionKey,
   nativeCatalogPropertyKey,
 } from "./native-catalog-display";
@@ -82,6 +95,41 @@ import { NativeShaderPaintControls } from "./NativeShaderPaintControls";
 import { ScrubInput } from "./ScrubInput";
 
 type Placement = EffectInstance["placement"];
+const PULSING_BORDER_PROPERTY_GROUPS = [
+  {
+    id: "smoke",
+    labelKey: "editPanel.shaders.nativeCatalog.properties.smoke",
+    properties: ["smoke", "smokeSize"],
+  },
+  {
+    id: "margin",
+    labelKey: "editPanel.shaders.nativeCatalog.properties.margin",
+    properties: [
+      "margin",
+      "marginLeft",
+      "marginRight",
+      "marginTop",
+      "marginBottom",
+    ],
+  },
+  {
+    id: "offset",
+    labelKey: "editPanel.shaders.nativeCatalog.groups.offset",
+    properties: ["offsetX", "offsetY", "originX", "originY"],
+  },
+  {
+    id: "layout",
+    labelKey: "editPanel.sections.layout",
+    properties: [
+      "aspectRatio",
+      "fit",
+      "scale",
+      "rotation",
+      "worldWidth",
+      "worldHeight",
+    ],
+  },
+] as const;
 type SourceFile = { content?: string; versionHash?: string };
 type EditResult = {
   content: string;
@@ -89,8 +137,284 @@ type EditResult = {
   instanceIds: string[];
 };
 
+function RecordArrayPropertyControl({
+  label,
+  property,
+  value,
+  disabled,
+  addLabel,
+  rowLabel,
+  removeLabel,
+  onPreview,
+  onCommit,
+  renderField,
+}: {
+  label: string;
+  property: Extract<EffectProperty, { type: "record-array" }>;
+  value: EffectRecordValue[];
+  disabled: boolean;
+  addLabel: string;
+  rowLabel: (index: number) => string;
+  removeLabel: (index: number) => string;
+  onPreview: (value: EffectValue) => void;
+  onCommit: (value: EffectValue) => Promise<boolean>;
+  renderField: (
+    name: string,
+    field: EffectRecordField,
+    value: EffectValue,
+    row: EffectRecordValue,
+    rowIndex: number,
+    callbacks: {
+      onPreview: (value: EffectValue) => void;
+      onCommit: (value: EffectValue) => Promise<boolean>;
+    },
+  ) => React.ReactNode;
+}) {
+  const [rows, setRows] = useState(value);
+  const draftRef = useRef(value);
+  const authoritativeRef = useRef(value);
+  const displayBaselineRef = useRef(value);
+  const observedValue = useRef(JSON.stringify(value));
+  const generation = useRef(0);
+  const commitRevision = useRef(0);
+  const latestIntentRevision = useRef(0);
+  const latestSavedRevision = useRef(0);
+  const knownSnapshots = useRef(new Map<number, string>());
+  const pendingCommits = useRef(new Set<number>());
+
+  useEffect(() => {
+    const incoming = JSON.stringify(value);
+    if (incoming === observedValue.current) return;
+    observedValue.current = incoming;
+    const acknowledged = [...knownSnapshots.current.entries()]
+      .reverse()
+      .find(([, snapshot]) => snapshot === incoming);
+    if (acknowledged) {
+      if (acknowledged[0] >= latestSavedRevision.current) {
+        latestSavedRevision.current = acknowledged[0];
+        authoritativeRef.current = value;
+      }
+      if (!pendingCommits.current.has(acknowledged[0]))
+        knownSnapshots.current.delete(acknowledged[0]);
+      return;
+    }
+    if (incoming === JSON.stringify(authoritativeRef.current)) return;
+    generation.current += 1;
+    knownSnapshots.current.clear();
+    pendingCommits.current.clear();
+    commitRevision.current += 1;
+    latestIntentRevision.current = commitRevision.current;
+    latestSavedRevision.current = commitRevision.current;
+    authoritativeRef.current = value;
+    displayBaselineRef.current = value;
+    draftRef.current = value;
+    setRows(value);
+  }, [value]);
+
+  const updateDraft = (next: EffectRecordValue[]) => {
+    draftRef.current = next;
+    setRows(next);
+    onPreview(next);
+  };
+  const commitRows = async (next: EffectRecordValue[]) => {
+    updateDraft(next);
+    const revision = ++commitRevision.current;
+    latestIntentRevision.current = revision;
+    displayBaselineRef.current = next;
+    const currentGeneration = generation.current;
+    const serialized = JSON.stringify(next);
+    knownSnapshots.current.set(revision, serialized);
+    pendingCommits.current.add(revision);
+    let saved = false;
+    try {
+      saved = await onCommit(next);
+    } catch {
+      saved = false;
+    }
+    pendingCommits.current.delete(revision);
+    if (currentGeneration !== generation.current) return saved;
+    if (saved) {
+      if (revision >= latestSavedRevision.current) {
+        latestSavedRevision.current = revision;
+        authoritativeRef.current = next;
+      }
+      if (revision >= latestSavedRevision.current)
+        knownSnapshots.current.set(revision, serialized);
+      for (const [snapshotRevision] of knownSnapshots.current) {
+        if (
+          snapshotRevision < latestSavedRevision.current &&
+          !pendingCommits.current.has(snapshotRevision)
+        )
+          knownSnapshots.current.delete(snapshotRevision);
+      }
+      if (revision === latestIntentRevision.current)
+        displayBaselineRef.current = next;
+      return true;
+    }
+    knownSnapshots.current.delete(revision);
+    if (
+      currentGeneration === generation.current &&
+      revision === latestIntentRevision.current &&
+      revision === commitRevision.current &&
+      revision > latestSavedRevision.current
+    ) {
+      const rollback = authoritativeRef.current;
+      draftRef.current = rollback;
+      displayBaselineRef.current = rollback;
+      setRows(rollback);
+      onPreview(rollback);
+    }
+    return false;
+  };
+  const makeDefaultRow = (): EffectRecordValue =>
+    Object.fromEntries(
+      Object.entries(property.fields).map(([name, field]) => [
+        name,
+        field.default,
+      ]),
+    );
+
+  return (
+    <div className="grid min-w-0 gap-1 text-xs">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="truncate text-muted-foreground">{label}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0"
+          disabled={disabled || rows.length >= property.maxCount}
+          onClick={() =>
+            void commitRows([...draftRef.current, makeDefaultRow()])
+          }
+        >
+          <IconPlus aria-hidden="true" className="mr-1 size-3" />
+          {addLabel}
+        </Button>
+      </div>
+      {rows.map((row, rowIndex) => {
+        const rowName = rowLabel(rowIndex + 1);
+        const authoritativeRow = displayBaselineRef.current[rowIndex] ?? row;
+        return (
+          <div
+            key={`${rowIndex}:${Object.keys(row).join(",")}:${rows.length}`}
+            className="rounded-md border border-border/60 px-2"
+          >
+            <Collapsible defaultOpen={rowIndex === 0}>
+              <div className="flex items-center gap-1">
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="group min-w-0 flex-1 justify-between"
+                  >
+                    <span className="truncate">{rowName}</span>
+                    <IconChevronDown
+                      aria-hidden="true"
+                      className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180"
+                    />
+                  </Button>
+                </CollapsibleTrigger>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0"
+                  aria-label={removeLabel(rowIndex + 1)}
+                  disabled={disabled || rows.length <= (property.minCount ?? 0)}
+                  onClick={() =>
+                    void commitRows(
+                      draftRef.current.filter((_, index) => index !== rowIndex),
+                    )
+                  }
+                >
+                  <IconMinus aria-hidden="true" className="size-3" />
+                </Button>
+              </div>
+              <CollapsibleContent>
+                <div className="grid gap-2 pb-2">
+                  {Object.entries(property.fields).map(([fieldName, field]) =>
+                    renderField(
+                      fieldName,
+                      field,
+                      authoritativeRow[fieldName] as EffectValue,
+                      row,
+                      rowIndex,
+                      {
+                        onPreview: (nextValue) => {
+                          const next = draftRef.current.map((current, index) =>
+                            index === rowIndex
+                              ? {
+                                  ...current,
+                                  [fieldName]:
+                                    nextValue as EffectRecordValue[string],
+                                }
+                              : current,
+                          );
+                          updateDraft(next);
+                        },
+                        onCommit: (nextValue) => {
+                          const next = draftRef.current.map((current, index) =>
+                            index === rowIndex
+                              ? {
+                                  ...current,
+                                  [fieldName]:
+                                    nextValue as EffectRecordValue[string],
+                                }
+                              : current,
+                          );
+                          return commitRows(next);
+                        },
+                      },
+                    ),
+                  )}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function recordFieldMinimum(
+  fieldName: string,
+  row: EffectRecordValue,
+  constraints: EffectParameterConstraint[],
+  baseMinimum?: number,
+): number | undefined {
+  return constraints.reduce((minimum, constraint) => {
+    if (constraint.kind !== "ordered-floats") return minimum;
+    if (constraint.greater === fieldName) {
+      const lesser = row[constraint.lesser];
+      if (typeof lesser === "number")
+        return Math.max(minimum ?? -Infinity, lesser + constraint.minGap);
+    }
+    return minimum;
+  }, baseMinimum);
+}
+
+function recordFieldMaximum(
+  fieldName: string,
+  row: EffectRecordValue,
+  constraints: EffectParameterConstraint[],
+  baseMaximum?: number,
+): number | undefined {
+  return constraints.reduce((maximum, constraint) => {
+    if (constraint.kind !== "ordered-floats") return maximum;
+    if (constraint.lesser === fieldName) {
+      const greater = row[constraint.greater];
+      if (typeof greater === "number")
+        return Math.min(maximum ?? Infinity, greater - constraint.minGap);
+    }
+    return maximum;
+  }, baseMaximum);
+}
+
 export async function persistNativeShaderEdit(
-  context: GlslShaderPanelContext,
+  context: ShaderEditorContext,
   operation: NativeEffectEdit,
 ): Promise<EditResult> {
   if (!context.designId || !context.fileId)
@@ -409,6 +733,10 @@ function PropertyControls({
   renderColorPicker?: RenderNestedColorPicker;
 }) {
   const t = useT();
+  const entries = Object.entries(definition.properties) as [
+    string,
+    EffectProperty,
+  ][];
   const previewProperty = (name: string, value: EffectValue) =>
     broadcastShaderMessage({
       type: "native-effect-set-param",
@@ -416,194 +744,381 @@ function PropertyControls({
       name,
       value,
     });
+  const renderProperty = (
+    [name, property]: [string, EffectProperty],
+    override?: {
+      value: EffectValue;
+      key: string;
+      onPreview: (value: EffectValue) => void;
+      onCommit: (value: EffectValue) => Promise<boolean>;
+      row?: EffectRecordValue;
+      constraints?: EffectParameterConstraint[];
+    },
+  ): React.ReactNode => {
+    const propertyKey = nativeCatalogPropertyKey(definition, property.label);
+    const label = propertyKey ? t(propertyKey) : property.label;
+    const value =
+      override?.value ??
+      resolvedEffectPropertyValue(definition, instance.params, name);
+    if (
+      property.visibleWhen &&
+      (instance.params[property.visibleWhen.property] ??
+        definition.properties[property.visibleWhen.property]?.default) !==
+        property.visibleWhen.equals
+    )
+      return null;
+    let control: React.ReactNode;
+    if (
+      (property.type === "float" || property.type === "int") &&
+      typeof value === "number"
+    ) {
+      control = (
+        <NumericField
+          label={label}
+          value={value}
+          min={
+            override?.row && override.constraints
+              ? recordFieldMinimum(
+                  name,
+                  override.row,
+                  override.constraints,
+                  property.min,
+                )
+              : property.min
+          }
+          max={
+            override?.row && override.constraints
+              ? recordFieldMaximum(
+                  name,
+                  override.row,
+                  override.constraints,
+                  property.max,
+                )
+              : property.max
+          }
+          step={property.step ?? (property.type === "int" ? 1 : 0.01)}
+          presentation={
+            (override
+              ? getNativeEffectRecordFieldPresentation(property)
+              : getNativeEffectPropertyPresentation(definition, name)) ??
+            undefined
+          }
+          disabled={disabled}
+          onPreview={(next) =>
+            (override?.onPreview ?? ((value) => previewProperty(name, value)))(
+              next,
+            )
+          }
+          onCommit={(next) =>
+            (override?.onCommit ?? ((value) => onChange(name, value)))(next)
+          }
+        />
+      );
+    } else if (property.type === "bool" && typeof value === "boolean") {
+      control = (
+        <Switch
+          aria-label={label}
+          checked={value}
+          disabled={disabled}
+          onCheckedChange={(next) =>
+            (override?.onCommit ?? ((value) => onChange(name, value)))(next)
+          }
+        />
+      );
+    } else if (property.type === "enum" && typeof value === "string") {
+      control = (
+        <Select
+          value={value}
+          disabled={disabled}
+          onValueChange={(next) =>
+            (override?.onCommit ?? ((value) => onChange(name, value)))(next)
+          }
+        >
+          <SelectTrigger aria-label={label} className="h-7 min-w-0 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {property.options.map((option) => (
+              <SelectItem key={option} value={option}>
+                {nativeCatalogOptionKey(definition, option)
+                  ? t(nativeCatalogOptionKey(definition, option)!)
+                  : option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      );
+    } else if (
+      property.type === "color" &&
+      value &&
+      typeof value === "object" &&
+      "components" in value
+    ) {
+      const color = value as EffectColor;
+      control = (
+        <ColorPropertyField
+          key={override?.key ?? `${instance.id}:${name}`}
+          label={label}
+          property={property}
+          value={color}
+          onPreview={(next) =>
+            (override?.onPreview ?? ((value) => previewProperty(name, value)))(
+              next,
+            )
+          }
+          disabled={disabled}
+          onCommit={(next) =>
+            (override?.onCommit ?? ((value) => onChange(name, value)))(next)
+          }
+          renderColorPicker={renderColorPicker}
+        />
+      );
+    } else if (
+      property.type === "paint" &&
+      value &&
+      typeof value === "object" &&
+      "kind" in value
+    ) {
+      control = (
+        <NativeShaderPaintControls
+          key={override?.key ?? `${instance.id}:${name}`}
+          label={label}
+          value={value as EffectPaint}
+          maxStops={property.maxCount}
+          allowedKinds={property.allowedKinds}
+          onPreview={(next) =>
+            (override?.onPreview ?? ((value) => previewProperty(name, value)))(
+              next,
+            )
+          }
+          disabled={disabled}
+          onCommit={(next) =>
+            (override?.onCommit ?? ((value) => onChange(name, value)))(next)
+          }
+          renderColorPicker={renderColorPicker}
+        />
+      );
+    } else if (
+      property.type === "vec2" &&
+      Array.isArray(value) &&
+      value.length === 2
+    ) {
+      control = (
+        <div className="grid gap-1">
+          <NumericField
+            label={`${label} X`}
+            value={Number(value[0])}
+            min={property.min}
+            max={property.max}
+            step={property.step}
+            presentation={
+              override
+                ? (getNativeEffectRecordFieldPresentation(property) ??
+                  undefined)
+                : (getNativeEffectPropertyPresentation(definition, name) ??
+                  undefined)
+            }
+            disabled={disabled}
+            onPreview={(next) =>
+              (
+                override?.onPreview ??
+                ((nextValue) => previewProperty(name, nextValue))
+              )([next, Number(value[1])])
+            }
+            onCommit={(next) =>
+              (
+                override?.onCommit ?? ((nextValue) => onChange(name, nextValue))
+              )([next, Number(value[1])])
+            }
+          />
+          <NumericField
+            label={`${label} Y`}
+            value={Number(value[1])}
+            min={property.min}
+            max={property.max}
+            step={property.step}
+            presentation={
+              override
+                ? (getNativeEffectRecordFieldPresentation(property) ??
+                  undefined)
+                : (getNativeEffectPropertyPresentation(definition, name) ??
+                  undefined)
+            }
+            disabled={disabled}
+            onPreview={(next) =>
+              (
+                override?.onPreview ??
+                ((nextValue) => previewProperty(name, nextValue))
+              )([Number(value[0]), next])
+            }
+            onCommit={(next) =>
+              (
+                override?.onCommit ?? ((nextValue) => onChange(name, nextValue))
+              )([Number(value[0]), next])
+            }
+          />
+        </div>
+      );
+    } else if (
+      (property.type === "color-array" || property.type === "color-ramp") &&
+      Array.isArray(value)
+    ) {
+      const colors = value as EffectColor[] | EffectColorStop[];
+      control = (
+        <ColorPropertyField
+          key={override?.key ?? `${instance.id}:${name}`}
+          label={label}
+          property={property}
+          value={colors}
+          disabled={disabled}
+          onCommit={(next) =>
+            (override?.onCommit ?? ((value) => onChange(name, value)))(next)
+          }
+          renderColorPicker={renderColorPicker}
+        />
+      );
+    } else if (property.type === "record-array" && Array.isArray(value)) {
+      const rawItemLabel = property.itemLabel ?? label;
+      const itemLabelKey = nativeCatalogPropertyKey(definition, rawItemLabel);
+      const itemLabel = itemLabelKey ? t(itemLabelKey) : rawItemLabel;
+      control = (
+        <RecordArrayPropertyControl
+          key={override?.key ?? `${instance.id}:${name}`}
+          label={label}
+          property={property}
+          value={value as EffectRecordValue[]}
+          disabled={disabled}
+          addLabel={t("editPanel.shaders.addRecordRow", {
+            item: itemLabel,
+          })}
+          rowLabel={(index) =>
+            t("editPanel.shaders.recordRowLabel", {
+              item: itemLabel,
+              index,
+            })
+          }
+          removeLabel={(index) =>
+            t("editPanel.shaders.removeRecordRow", {
+              item: itemLabel,
+              index,
+            })
+          }
+          onPreview={(next) => previewProperty(name, next)}
+          onCommit={(next) => onChange(name, next)}
+          renderField={(
+            fieldName,
+            field,
+            fieldValue,
+            row,
+            rowIndex,
+            callbacks,
+          ) =>
+            renderProperty([fieldName, field], {
+              value: fieldValue,
+              key: `${instance.id}:${name}:${rowIndex}:${fieldName}`,
+              row,
+              constraints: property.parameterConstraints,
+              onPreview: callbacks.onPreview,
+              onCommit: callbacks.onCommit,
+            })
+          }
+        />
+      );
+    } else {
+      return null;
+    }
+    const row = (
+      <>
+        <span className="truncate text-muted-foreground">{label}</span>
+        {control}
+      </>
+    );
+    const className =
+      property.type === "color-array" || property.type === "color-ramp"
+        ? "grid min-w-0 gap-1 text-xs"
+        : "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-xs";
+    if (property.type === "record-array")
+      return <div key={override?.key ?? name}>{control}</div>;
+    return property.type === "paint" ||
+      property.type === "color" ||
+      property.type === "color-array" ||
+      property.type === "color-ramp" ||
+      property.type === "float" ||
+      property.type === "int" ||
+      property.type === "vec2" ? (
+      <div key={name} className={className}>
+        {row}
+      </div>
+    ) : (
+      <label key={name} className={className}>
+        {row}
+      </label>
+    );
+  };
+  const pulsingGroups =
+    definition.id === "an-native-pulsing-border" && definition.version >= 3
+      ? PULSING_BORDER_PROPERTY_GROUPS
+      : [];
+  const pulsingGroupedNames = new Set<string>(
+    pulsingGroups.flatMap((group) => [...group.properties]),
+  );
+  const genericEntries = entries.filter(
+    ([name]) => !pulsingGroupedNames.has(name),
+  );
+  const availableGroups = [
+    ...new Set(
+      genericEntries.flatMap(([, property]) =>
+        property.group ? [property.group] : [],
+      ),
+    ),
+  ];
+  const groupOrder = ["Shape", "Transform", "Surface", "Color", "Motion"];
+  const orderedGroups = [
+    ...groupOrder.filter((group) => availableGroups.includes(group)),
+    ...availableGroups.filter((group) => !groupOrder.includes(group)),
+  ];
+  const ungrouped = genericEntries.filter(([, property]) => !property.group);
   return (
     <div className="grid gap-2">
-      {Object.entries(definition.properties).map(([name, property]) => {
-        const propertyKey = nativeCatalogPropertyKey(
-          definition,
-          property.label,
-        );
-        const label = propertyKey ? t(propertyKey) : property.label;
-        const value = instance.params[name] ?? property.default;
-        if (
-          property.visibleWhen &&
-          (instance.params[property.visibleWhen.property] ??
-            definition.properties[property.visibleWhen.property]?.default) !==
-            property.visibleWhen.equals
-        )
-          return null;
-        let control: React.ReactNode;
-        if (
-          (property.type === "float" || property.type === "int") &&
-          typeof value === "number"
-        ) {
-          control = (
-            <NumericField
-              label={label}
-              value={value}
-              min={property.min}
-              max={property.max}
-              step={property.step ?? (property.type === "int" ? 1 : 0.01)}
-              presentation={
-                getNativeEffectPropertyPresentation(definition, name) ??
-                undefined
-              }
-              disabled={disabled}
-              onPreview={(next) => previewProperty(name, next)}
-              onCommit={(next) => onChange(name, next)}
-            />
-          );
-        } else if (property.type === "bool" && typeof value === "boolean") {
-          control = (
-            <Switch
-              aria-label={label}
-              checked={value}
-              disabled={disabled}
-              onCheckedChange={(next) => onChange(name, next)}
-            />
-          );
-        } else if (property.type === "enum" && typeof value === "string") {
-          control = (
-            <Select
-              value={value}
-              disabled={disabled}
-              onValueChange={(next) => onChange(name, next)}
-            >
-              <SelectTrigger aria-label={label} className="h-7 min-w-0 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {property.options.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {nativeCatalogOptionKey(definition, option)
-                      ? t(nativeCatalogOptionKey(definition, option)!)
-                      : option}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          );
-        } else if (
-          property.type === "color" &&
-          value &&
-          typeof value === "object" &&
-          "components" in value
-        ) {
-          const color = value as EffectColor;
-          control = (
-            <ColorPropertyField
-              key={`${instance.id}:${name}`}
-              label={label}
-              property={property}
-              value={color}
-              onPreview={(next) => previewProperty(name, next)}
-              disabled={disabled}
-              onCommit={(next) => onChange(name, next)}
-              renderColorPicker={renderColorPicker}
-            />
-          );
-        } else if (
-          property.type === "paint" &&
-          value &&
-          typeof value === "object" &&
-          "kind" in value
-        ) {
-          control = (
-            <NativeShaderPaintControls
-              key={`${instance.id}:${name}`}
-              label={label}
-              value={value as EffectPaint}
-              maxStops={property.maxCount}
-              onPreview={(next) => previewProperty(name, next)}
-              disabled={disabled}
-              onCommit={(next) => onChange(name, next)}
-              renderColorPicker={renderColorPicker}
-            />
-          );
-        } else if (
-          property.type === "vec2" &&
-          Array.isArray(value) &&
-          value.length === 2
-        ) {
-          control = (
-            <div className="grid gap-1">
-              <NumericField
-                label={`${label} X`}
-                value={Number(value[0])}
-                min={property.min}
-                max={property.max}
-                step={property.step}
-                presentation={
-                  getNativeEffectPropertyPresentation(definition, name) ??
-                  undefined
-                }
-                disabled={disabled}
-                onPreview={(next) =>
-                  previewProperty(name, [next, Number(value[1])])
-                }
-                onCommit={(next) => onChange(name, [next, Number(value[1])])}
+      {ungrouped.map((entry) => renderProperty(entry))}
+      {orderedGroups.map((group) => {
+        const groupKey = nativeCatalogGroupKey(definition, group);
+        return (
+          <Collapsible
+            key={group}
+            defaultOpen={group === "Shape"}
+            className="border-t border-border/60 pt-1"
+          >
+            <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 py-2 text-left text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+              {groupKey ? t(groupKey) : group}
+              <IconChevronDown
+                aria-hidden="true"
+                className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180"
               />
-              <NumericField
-                label={`${label} Y`}
-                value={Number(value[1])}
-                min={property.min}
-                max={property.max}
-                step={property.step}
-                presentation={
-                  getNativeEffectPropertyPresentation(definition, name) ??
-                  undefined
-                }
-                disabled={disabled}
-                onPreview={(next) =>
-                  previewProperty(name, [Number(value[0]), next])
-                }
-                onCommit={(next) => onChange(name, [Number(value[0]), next])}
-              />
-            </div>
-          );
-        } else if (
-          (property.type === "color-array" || property.type === "color-ramp") &&
-          Array.isArray(value)
-        ) {
-          const colors = value as EffectColor[] | EffectColorStop[];
-          control = (
-            <ColorPropertyField
-              key={`${instance.id}:${name}`}
-              label={label}
-              property={property}
-              value={colors}
-              disabled={disabled}
-              onCommit={(next) => onChange(name, next)}
-              renderColorPicker={renderColorPicker}
-            />
-          );
-        } else {
-          return null;
-        }
-        const row = (
-          <>
-            <span className="truncate text-muted-foreground">{label}</span>
-            {control}
-          </>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="grid gap-2 pb-2">
+              {genericEntries
+                .filter(([, property]) => property.group === group)
+                .map((entry) => renderProperty(entry))}
+            </CollapsibleContent>
+          </Collapsible>
         );
-        const className =
-          property.type === "color-array" || property.type === "color-ramp"
-            ? "grid min-w-0 gap-1 text-xs"
-            : "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-xs";
-        return property.type === "paint" ||
-          property.type === "color" ||
-          property.type === "color-array" ||
-          property.type === "color-ramp" ||
-          property.type === "float" ||
-          property.type === "int" ||
-          property.type === "vec2" ? (
-          <div key={name} className={className}>
-            {row}
-          </div>
-        ) : (
-          <label key={name} className={className}>
-            {row}
-          </label>
+      })}
+      {pulsingGroups.map((group) => {
+        const groupedEntries = entries.filter(([name]) =>
+          group.properties.some((property) => property === name),
+        );
+        if (!groupedEntries.length) return null;
+        return (
+          <Collapsible key={group.id} className="min-w-0">
+            <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 rounded-sm py-1 text-start text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {t(group.labelKey)}
+              <IconChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="grid gap-2 ps-2 pt-2">
+              {groupedEntries.map((entry) => renderProperty(entry))}
+            </CollapsibleContent>
+          </Collapsible>
         );
       })}
     </div>
@@ -616,7 +1131,7 @@ export function NativeShaderEffectSection({
   onPickerOpenChange,
   renderColorPicker,
 }: {
-  context: GlslShaderPanelContext;
+  context: ShaderEditorContext;
   pickerOpen: boolean;
   onPickerOpenChange: (open: boolean) => void;
   renderColorPicker?: RenderNestedColorPicker;
@@ -796,7 +1311,7 @@ export function NativeShaderPanel({
   showRemoveButton = true,
   renderColorPicker,
 }: {
-  context: GlslShaderPanelContext;
+  context: ShaderEditorContext;
   placement: Placement;
   onChanged?: () => void;
   showCatalog?: boolean;

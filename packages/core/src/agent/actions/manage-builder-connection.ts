@@ -55,6 +55,11 @@ export default defineAction({
   },
   // disconnectBuilderConnectionAtScope records the disconnect at its scope.
   audit: { enabled: false },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   run: async (
     args,
     ctx,

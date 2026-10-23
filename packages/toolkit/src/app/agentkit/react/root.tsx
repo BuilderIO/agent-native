@@ -30,7 +30,9 @@ import {
   type AgentKitRunUsageLoader,
   type AgentKitSlots,
 } from "./context.js";
+import type { AgentChatDataChartLayout } from "./data-chart-layout.js";
 import type { AgentMessageContentOrderResolver } from "./message-content-order.js";
+import type { AgentChatWorkedForRowLayout } from "./transcript-layout.js";
 
 const mountedManagedClients = new WeakMap<AgentKitClient, number>();
 
@@ -86,6 +88,9 @@ export interface AgentKitRootBaseProps {
   ) => Promise<AgentConnectionResponse>;
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
     name: string;
@@ -116,6 +121,9 @@ export function AgentKitRoot({
   onConnectionRequest,
   onRenderError,
   resolveMessageContentOrder,
+  workedForRowLayout,
+  dataChartLayout,
+  formatWorkedForDuration,
   onClientEffect,
   load = "auto",
   onLoadError,
@@ -294,6 +302,9 @@ export function AgentKitRoot({
       onConnectionRequest={onConnectionRequest}
       onRenderError={onRenderError}
       resolveMessageContentOrder={resolveMessageContentOrder}
+      workedForRowLayout={workedForRowLayout}
+      dataChartLayout={dataChartLayout}
+      formatWorkedForDuration={formatWorkedForDuration}
       onClientEffect={onClientEffect}
     >
       {children}

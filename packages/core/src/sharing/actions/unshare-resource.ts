@@ -41,6 +41,11 @@ export default defineAction({
     principalType: z.enum(["user", "group", "org"]),
     principalId: z.string(),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     assertWidgetShareWriteGrant(ctx, "unshare-resource", args);
     const reg = requireShareableResource(args.resourceType);

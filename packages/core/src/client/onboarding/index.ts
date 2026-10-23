@@ -1,4 +1,8 @@
 export { useOnboarding, type UseOnboardingResult } from "./use-onboarding.js";
+export {
+  useOnboardingChecklist,
+  type UseOnboardingChecklistResult,
+} from "./use-onboarding-checklist.js";
 export { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";
 export {
   dispatchFirstRunOnboardingStatus,

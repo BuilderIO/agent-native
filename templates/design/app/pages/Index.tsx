@@ -143,6 +143,7 @@ interface DesignListResult {
 }
 
 const DESIGN_PAGE_SIZE = 50;
+const HOME_TEMPLATE_LIMIT = 8;
 const HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY = "design-home-has-recents";
 
 function readHomeLibraryHasRecents():
@@ -590,6 +591,13 @@ export default function Index() {
         });
     },
     [creativeContextState, t],
+  );
+  const homeTemplates = useMemo(
+    () =>
+      templateOptions
+        .filter((template) => template.isBuiltIn)
+        .slice(0, HOME_TEMPLATE_LIMIT),
+    [templateOptions],
   );
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
@@ -1572,10 +1580,9 @@ export default function Index() {
                 />
               ) : (
                 <DesignTemplateLibrary
-                  templates={templateOptions.filter(
-                    (template) => template.isBuiltIn,
-                  )}
+                  templates={homeTemplates}
                   loading={templatesLoading}
+                  previewParam="previewTemplateId"
                 />
               )
             }

@@ -47,6 +47,44 @@ export interface EffectPass {
   draw?:
     | { vertices: 6; instances: "simulation-count" }
     | EffectStatefulResourceDraw;
+  mesh?: EffectMeshSpec;
+}
+
+export interface EffectMeshSpec {
+  columns: number;
+  rows: number;
+}
+
+export function isEffectMeshSpec(value: unknown): value is EffectMeshSpec {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const mesh = value as Record<string, unknown>;
+  return (
+    Object.keys(mesh).length === 2 &&
+    Number.isSafeInteger(mesh.columns) &&
+    Number.isSafeInteger(mesh.rows) &&
+    (mesh.columns as number) >= 16 &&
+    (mesh.columns as number) <= 256 &&
+    (mesh.rows as number) >= 16 &&
+    (mesh.rows as number) <= 256 &&
+    (mesh.columns as number) * (mesh.rows as number) <= 32_768
+  );
+}
+
+export function isEffectMeshPassCompatible(
+  pass: EffectPass,
+  specializedGraph: boolean,
+): boolean {
+  return (
+    isEffectMeshSpec(pass.mesh) &&
+    pass.kind === "render" &&
+    pass.draw === undefined &&
+    pass.dispatch === undefined &&
+    pass.persistent === undefined &&
+    pass.previousFrameReads === undefined &&
+    pass.additionalOutputs === undefined &&
+    pass.original === undefined &&
+    !specializedGraph
+  );
 }
 
 export interface EffectFeedbackSpec {
@@ -341,7 +379,14 @@ export function planEffectPasses(
                 resourceGraph?.abi === "stateful-resource-v3") &&
               isStatefulResourceDraw(pass.draw)
             )) ||
-          Object.keys(pass.draw).length !== 2))
+          Object.keys(pass.draw).length !== 2)) ||
+      (pass.mesh !== undefined &&
+        !isEffectMeshPassCompatible(
+          pass,
+          feedback !== undefined ||
+            statelessCompute !== undefined ||
+            resourceGraph !== undefined,
+        ))
     ) {
       errors.push(`pass[${index}] is malformed`);
     }

@@ -1,22 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  expectedCanvasScaleAtZoomPercent,
   readStableZoomUntilAvailable,
   readZoomUntilAvailable,
   waitForAnimationFrame,
 } from "./runtime-budget-zoom.ts";
 
 describe("runtime budget zoom waits", () => {
-  it("scales the canvas transform with the displayed zoom on overview boards", () => {
-    expect(expectedCanvasScaleAtZoomPercent(53.3, 60, 13)).toBeCloseTo(11.548);
-  });
-
-  it("rejects unavailable or invalid zoom measurements", () => {
-    expect(expectedCanvasScaleAtZoomPercent(null, 60, 13)).toBeNull();
-    expect(expectedCanvasScaleAtZoomPercent(53.3, 0, 13)).toBeNull();
-  });
-
   it("waits for the route, canvas transform, and readout to agree and settle", async () => {
     let now = 0;
     const reads = [
@@ -40,10 +30,48 @@ describe("runtime budget zoom waits", () => {
       },
       1_000,
       async () => {},
-      () => now,
+      { now: () => now },
     );
 
     expect(zoom).toEqual({ routeZoom: 60, canvasScale: 53.3, labelZoom: 60 });
+    expect(waits).toEqual([100, 100, 100]);
+  });
+
+  it("accepts a settled overview scale after frame geometry changes", async () => {
+    let now = 0;
+    const reads = [
+      { routeZoom: 60, canvasScale: 53.3333, labelZoom: 55 },
+      { routeZoom: 60, canvasScale: 53.3333, labelZoom: 60 },
+      { routeZoom: 60, canvasScale: 53.3333, labelZoom: 60 },
+      { routeZoom: 60, canvasScale: 53.3333, labelZoom: 60 },
+    ];
+    const waits: number[] = [];
+
+    const zoom = await readStableZoomUntilAvailable(
+      async () =>
+        reads.shift() ?? {
+          routeZoom: null,
+          canvasScale: null,
+          labelZoom: null,
+        },
+      async (milliseconds) => {
+        waits.push(milliseconds);
+        now += milliseconds;
+      },
+      1_000,
+      async () => {},
+      {
+        matches: (snapshot) =>
+          snapshot.routeZoom === 60 && snapshot.labelZoom === 60,
+        now: () => now,
+      },
+    );
+
+    expect(zoom).toEqual({
+      routeZoom: 60,
+      canvasScale: 53.3333,
+      labelZoom: 60,
+    });
     expect(waits).toEqual([100, 100, 100]);
   });
 

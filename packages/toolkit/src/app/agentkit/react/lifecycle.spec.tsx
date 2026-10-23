@@ -185,7 +185,7 @@ describe("AgentChat lifecycle", () => {
     });
     const tree = mount();
 
-    await tree.render(
+    const renderChat = (enablePostWidgetText: boolean) => (
       <AgentKitProvider
         controller={observable.controller}
         threadId={threadId}
@@ -213,10 +213,130 @@ describe("AgentChat lifecycle", () => {
           },
         }}
         slots={{
-          text: ({ value }) => <span data-chat-part>{value.text}</span>,
+          text: ({ value }) => (
+            <div className="agentkit-markdown" data-chat-part>
+              <p>{value.text}</p>
+            </div>
+          ),
         }}
       >
-        <AgentKitChat composer={false} />
+        <AgentKitChat
+          composer={false}
+          transcriptLayout={
+            enablePostWidgetText
+              ? {
+                  postWidgetText: {
+                    tone: "muted",
+                    paragraphPaddingBlock: 4,
+                  },
+                }
+              : undefined
+          }
+        />
+      </AgentKitProvider>
+    );
+    await tree.render(renderChat(true));
+
+    const content = tree.container.querySelector(
+      `[data-message-id="${message.id}"] .agentkit-message-content`,
+    );
+    const transcriptContent = tree.container.querySelector(
+      ".agentkit-transcript-content",
+    );
+    const renderedOrder = [...(content?.children ?? [])].map((element) =>
+      element.hasAttribute("data-post-widget-text")
+        ? element.textContent
+        : element.hasAttribute("data-chat-part")
+          ? element.textContent
+          : element.hasAttribute("data-chart-result")
+            ? "chart"
+            : "other",
+    );
+    expect(renderedOrder).toEqual(["Intro. ", "chart", "Summary."]);
+    expect(content?.children[0].hasAttribute("data-post-widget-text")).toBe(
+      false,
+    );
+    expect(content?.children[2].hasAttribute("data-post-widget-text")).toBe(
+      true,
+    );
+    expect(
+      content?.children[2].querySelector(".agentkit-markdown p"),
+    ).not.toBeNull();
+    expect(transcriptContent?.getAttribute("style")).toContain(
+      "--agentkit-transcript-post-widget-text-color: var(--agentkit-text-muted)",
+    );
+    expect(transcriptContent?.getAttribute("style")).toContain(
+      "--agentkit-transcript-post-widget-paragraph-padding-block: 4px",
+    );
+
+    await tree.render(renderChat(false));
+    const defaultContent = tree.container.querySelector(
+      `[data-message-id="${message.id}"] .agentkit-message-content`,
+    );
+    expect(
+      [...(defaultContent?.children ?? [])].some((element) =>
+        element.hasAttribute("data-post-widget-text"),
+      ),
+    ).toBe(false);
+    await tree.unmount();
+  });
+
+  it("styles assistant text after an embedded widget part", async () => {
+    const threadId = "thread-embedded-content-order";
+    const widget = {
+      id: "chart-embedded-content-order",
+      kind: "test-chart",
+      data: {},
+    };
+    const message = {
+      id: "assistant-embedded-content-order",
+      role: "assistant" as const,
+      status: "complete" as const,
+      parts: [
+        { type: "text" as const, text: "Intro." },
+        { type: "widget" as const, widget },
+        { type: "text" as const, text: "Summary." },
+      ],
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      messages: [message],
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider
+        controller={observable.controller}
+        threadId={threadId}
+        registry={{
+          widgets: {
+            "test-chart": () => <span data-chart-result>Chart</span>,
+          },
+        }}
+        slots={{
+          text: ({ value }) => (
+            <div data-chat-part>
+              <p>{value.text}</p>
+            </div>
+          ),
+        }}
+      >
+        <AgentKitChat
+          composer={false}
+          transcriptLayout={{
+            postWidgetText: {
+              tone: "muted",
+              paragraphPaddingBlock: 4,
+            },
+          }}
+        />
       </AgentKitProvider>,
     );
 
@@ -224,13 +344,21 @@ describe("AgentChat lifecycle", () => {
       `[data-message-id="${message.id}"] .agentkit-message-content`,
     );
     const renderedOrder = [...(content?.children ?? [])].map((element) =>
-      element.hasAttribute("data-chat-part")
+      element.hasAttribute("data-post-widget-text")
         ? element.textContent
-        : element.hasAttribute("data-chart-result")
-          ? "chart"
-          : "other",
+        : element.hasAttribute("data-chat-part")
+          ? element.textContent
+          : element.hasAttribute("data-chart-result")
+            ? "chart"
+            : "other",
     );
-    expect(renderedOrder).toEqual(["Intro. ", "chart", "Summary."]);
+    expect(renderedOrder).toEqual(["Intro.", "chart", "Summary."]);
+    expect(content?.children[0].hasAttribute("data-post-widget-text")).toBe(
+      false,
+    );
+    expect(content?.children[2].hasAttribute("data-post-widget-text")).toBe(
+      true,
+    );
     await tree.unmount();
   });
 
@@ -1686,7 +1814,7 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
-  it("preserves visible reasoning without a Thinking history row", async () => {
+  it("preserves visible reasoning and applies the worked-row layout", async () => {
     const threadId = "thread-reasoning-work";
     const runId = "run-reasoning-work";
     const base = (sequence: number, seconds: number = sequence) => ({
@@ -1771,10 +1899,24 @@ describe("AgentChat lifecycle", () => {
     });
     const observable = observableController(snapshot(0));
     const tree = mount();
+    const workedForRowLayout = {
+      chevronSize: 12,
+      iconGap: 8,
+      marginBlockStart: -12,
+      fontSize: 13,
+      lineHeight: 16,
+      paddingBlock: 2,
+      paddingInline: 4,
+    };
+    const formatWorkedForDuration = (durationMs: number) =>
+      `${Math.round(durationMs / 1000)} seconds`;
     await tree.render(
-      <AgentKitProvider
+      <AgentKitRoot
         controller={observable.controller}
         threadId={threadId}
+        load="manual"
+        workedForRowLayout={workedForRowLayout}
+        formatWorkedForDuration={formatWorkedForDuration}
         registry={{
           activities: {
             reasoning: ({ value }) => (
@@ -1791,11 +1933,15 @@ describe("AgentChat lifecycle", () => {
         }}
       >
         <AgentKitChat composer={false} />
-      </AgentKitProvider>,
+      </AgentKitRoot>,
     );
     const work = tree.container.querySelector<HTMLDetailsElement>(
       ".agentkit-activities",
     )!;
+    expect(
+      work.querySelector<HTMLElement>(".agentkit-activities-summary")?.style
+        .marginBlockStart,
+    ).toBe("-12px");
     expect(work.open).toBe(false);
     expect(
       tree.container.querySelectorAll(".agentkit-activities"),
@@ -1821,10 +1967,19 @@ describe("AgentChat lifecycle", () => {
         ".agentkit-activities-summary > .agentkit-summary-chevron",
       ),
     ).not.toBeNull();
+    expect(work.querySelector("summary")?.getAttribute("style")).toContain(
+      "gap: 8px",
+    );
+    expect(
+      work.querySelector<HTMLElement>(".agentkit-summary-chevron")?.style.width,
+    ).toBe("12px");
     await tree.render(
-      <AgentKitProvider
+      <AgentKitRoot
         controller={observable.controller}
         threadId={threadId}
+        load="manual"
+        workedForRowLayout={workedForRowLayout}
+        formatWorkedForDuration={formatWorkedForDuration}
         registry={{
           activities: {
             reasoning: ({ value }) => (
@@ -1838,8 +1993,12 @@ describe("AgentChat lifecycle", () => {
               {value.text}
             </span>
           ),
-          workedForSummary: ({ label, open, current }) => (
-            <span data-work-summary data-open={open}>
+          workedForSummary: ({ label, open, current, layout }) => (
+            <span
+              data-work-summary
+              data-open={open}
+              data-icon-gap={layout?.iconGap}
+            >
               <span>{label}</span>
               <span data-work-chevron aria-hidden="true">
                 ›
@@ -1850,12 +2009,15 @@ describe("AgentChat lifecycle", () => {
         }}
       >
         <AgentKitChat composer={false} />
-      </AgentKitProvider>,
+      </AgentKitRoot>,
     );
     expect(work.querySelector("[data-work-summary]")?.textContent).toContain(
       "Searching documentation",
     );
     expect(work.querySelector("[data-work-chevron]")).not.toBeNull();
+    expect(work.querySelector("[data-work-summary]")?.dataset.iconGap).toBe(
+      "8",
+    );
     expect(
       work.querySelector("[data-work-summary]")?.getAttribute("data-open"),
     ).toBe("false");
@@ -1880,7 +2042,15 @@ describe("AgentChat lifecycle", () => {
     await flush();
     expect(tree.container.querySelector(".agentkit-activities")).toBe(work);
     expect(work.open).toBe(false);
-    expect(work.querySelector("summary")?.textContent).toBe("Worked for 18s›");
+    expect(work.querySelector("summary")?.textContent).toBe(
+      "Worked for 18 seconds›",
+    );
+    expect(work.querySelector<HTMLElement>("summary")?.style.fontSize).toBe(
+      "13px",
+    );
+    expect(work.querySelector<HTMLElement>("summary")?.style.lineHeight).toBe(
+      "16px",
+    );
     expect(work.querySelector("[data-agentkit-current-activity]")).toBeNull();
     expect(tree.container.querySelectorAll("article")).toHaveLength(1);
     const answer = tree.container.querySelector(

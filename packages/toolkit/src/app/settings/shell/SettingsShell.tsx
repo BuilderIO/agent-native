@@ -47,6 +47,7 @@ import {
   useState,
   useSyncExternalStore,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import { useInRouterContext, useLocation, useNavigate } from "react-router";
 
@@ -74,8 +75,10 @@ import {
   SETTINGS_PAGE_GROUPS,
   getSettingsPages,
   isSettingsPageVisible,
+  mergeAppSettingsPages,
   sortSettingsPages,
   subscribeSettingsPages,
+  type AppSettingsPageDefinition,
   type SettingsPageContext,
   type SettingsPageDefinition,
   type SettingsPageGroup,
@@ -104,6 +107,14 @@ export interface SettingsShellProps extends SettingsBridgeInput {
   appIcon?: SettingsPageIcon;
   /** Scopes the app's changelog unread dot and usage. Defaults to the template id. */
   appId?: string | null;
+  /** App-owned pages and controls shown in this shell's app group. */
+  appSettingsPages?: readonly AppSettingsPageDefinition[];
+  /** Replaces the default page groups with ordered app-owned sections. */
+  appNavigationSections?: readonly AppSettingsNavigationSection[];
+  /** Optional app chat surface rendered beside the settings shell. */
+  agentPanel?: ReactNode;
+  /** Replaces the shared agent toggle when an app owns its chat state. */
+  agentToggle?: ReactNode;
   /** Raw CHANGELOG.md; enables the What's new unread dot. */
   whatsNewMarkdown?: string;
   enableSearch?: boolean;
@@ -121,6 +132,41 @@ export interface SettingsShellProps extends SettingsBridgeInput {
   initialValue?: string;
   /** Called with a page's legacy tab id (or its page id) when the viewer opens it. */
   onValueChange?: (tabId: string) => void;
+}
+
+interface AppSettingsNavigationItemBase {
+  id: string;
+  visibleWhen?: (context: SettingsPageContext) => boolean;
+}
+
+export type AppSettingsNavigationItem =
+  | (AppSettingsNavigationItemBase & {
+      type: "page";
+      pageId: string;
+      sub?: string;
+      label?: string;
+      icon?: SettingsPageIcon;
+    })
+  | (AppSettingsNavigationItemBase & {
+      type: "link";
+      label: string;
+      href: string;
+      icon?: SettingsPageIcon;
+      disabled?: boolean;
+    })
+  | (AppSettingsNavigationItemBase & {
+      type: "action";
+      label: string;
+      onSelect: (context: SettingsPageContext) => void;
+      icon?: SettingsPageIcon;
+      disabled?: boolean;
+    });
+
+export interface AppSettingsNavigationSection {
+  id: string;
+  label: string;
+  items: readonly AppSettingsNavigationItem[];
+  visibleWhen?: (context: SettingsPageContext) => boolean;
 }
 
 // The agent panel module is heavy and already loaded by the app layout; keep
@@ -339,6 +385,10 @@ function SettingsShellContent({
   className,
   navClassName,
   contentClassName,
+  appSettingsPages,
+  appNavigationSections,
+  agentPanel,
+  agentToggle,
   value,
   initialValue,
   onValueChange,
@@ -413,9 +463,15 @@ function SettingsShellContent({
       extraTabs ?? [],
       declared,
       BridgedTabSettingsPage,
+      appSettingsPages,
     );
     return {
-      pages: sortSettingsPages([...declared, ...derived.pages]),
+      pages: sortSettingsPages(
+        mergeAppSettingsPages(
+          [...declared, ...derived.pages],
+          appSettingsPages,
+        ),
+      ),
       bridge: createSettingsBridge(
         {
           extraTabs,
@@ -445,6 +501,7 @@ function SettingsShellContent({
     appAreas,
     appGroupLabel,
     appLabs,
+    appSettingsPages,
     extraTabs,
     general,
     generalGroups,
@@ -470,12 +527,27 @@ function SettingsShellContent({
     () => bridge.appAreas.map((area) => area.id),
     [bridge.appAreas],
   );
+  const templateTabPageIds = useMemo(
+    () =>
+      new Map(
+        visiblePages.flatMap((page) => {
+          const tab = bridge.tabForPage(page.id);
+          return tab ? [[tab.id, page.id] as const] : [];
+        }),
+      ),
+    [bridge, visiblePages],
+  );
   // The template's first `value` is its default, not a choice (Mail starts
   // on "integrations"), so only a later one names a page for bare /settings.
   const tabValue = value !== undefined && value !== initialValue ? value : null;
   const resolved = useMemo(
-    () => resolveSettingsRoute(location, pages, { appAreaIds, tabValue }),
-    [appAreaIds, location, pages, tabValue],
+    () =>
+      resolveSettingsRoute(location, pages, {
+        appAreaIds,
+        tabValue,
+        templateTabPageIds,
+      }),
+    [appAreaIds, location, pages, tabValue, templateTabPageIds],
   );
   const activePage =
     visiblePages.find((page) => page.id === resolved.page) ??
@@ -605,14 +677,26 @@ function SettingsShellContent({
     seenValueRef.current = value;
     // The template echoing the tab the shell just reported.
     if (value === reportedValueRef.current) return;
-    const target = resolveSettingsTabValue(value, visiblePages, appAreaIds);
+    const target = resolveSettingsTabValue(
+      value,
+      visiblePages,
+      appAreaIds,
+      templateTabPageIds,
+    );
     if (target.page && target.page !== routePage) {
       navigate(target.page, target.sub, {
         replace: true,
         anchor: target.anchor ?? undefined,
       });
     }
-  }, [appAreaIds, navigate, routePage, value, visiblePages]);
+  }, [
+    appAreaIds,
+    navigate,
+    routePage,
+    templateTabPageIds,
+    value,
+    visiblePages,
+  ]);
 
   const latestChangelogId = getChangelogLatestId(
     bridge.whatsNewMarkdown ?? undefined,
@@ -726,12 +810,16 @@ function SettingsShellContent({
       pageLabel={pageLabel}
       pageIcon={pageIcon}
       appName={appGroupLabel}
+      allPages={pages}
       returnHref={appMountedPath(returnPath, SETTINGS_ROUTE)}
       onReturn={() => go(returnPath, false)}
       enableSearch={enableSearch}
       searchIndex={searchIndex}
       unreadPageIds={changelog.unseen ? ["whats-new"] : []}
       onNavigate={navigate}
+      activeSub={routeSub}
+      context={context}
+      appNavigationSections={appNavigationSections}
     />
   );
 
@@ -853,9 +941,13 @@ function SettingsShellContent({
               </div>
             </div>
             <div className="absolute end-3.5 top-3.5">
-              <Suspense fallback={null}>
-                <AgentToggleButton showWhenOpen />
-              </Suspense>
+              {agentToggle === undefined ? (
+                <Suspense fallback={null}>
+                  <AgentToggleButton showWhenOpen />
+                </Suspense>
+              ) : (
+                agentToggle
+              )}
             </div>
           </header>
           <div className="mx-auto w-full max-w-[824px] px-4 pb-28 pt-1 min-[760px]:px-8">
@@ -864,8 +956,12 @@ function SettingsShellContent({
                 <Page key={activePage.id} {...pageProps} />
               </Suspense>
             ) : null}
+            {activePage?.group === "app" && activePage.widgetSlot != null ? (
+              <div data-settings-widget-slot="">{activePage.widgetSlot}</div>
+            ) : null}
           </div>
         </div>
+        {agentPanel}
       </div>
     </SettingsShellProvider>
   );
@@ -873,6 +969,7 @@ function SettingsShellContent({
 
 interface SettingsNavProps {
   pages: readonly SettingsPageDefinition[];
+  allPages: readonly SettingsPageDefinition[];
   activePageId: string | null;
   groupLabel: (group: SettingsPageGroup) => string;
   pageLabel: (page: SettingsPageDefinition) => string;
@@ -884,10 +981,14 @@ interface SettingsNavProps {
   searchIndex: readonly SettingsSearchResult[];
   unreadPageIds: readonly string[];
   onNavigate: SettingsShellContextValue["navigate"];
+  activeSub: string | null;
+  context: SettingsPageContext;
+  appNavigationSections?: readonly AppSettingsNavigationSection[];
 }
 
 function SettingsNav({
   pages,
+  allPages,
   activePageId,
   groupLabel,
   pageLabel,
@@ -899,6 +1000,9 @@ function SettingsNav({
   searchIndex,
   unreadPageIds,
   onNavigate,
+  activeSub,
+  context,
+  appNavigationSections,
 }: SettingsNavProps) {
   const t = useT();
   const [query, setQuery] = useState("");
@@ -943,22 +1047,46 @@ function SettingsNav({
     return byGroup;
   }, [pages]);
 
-  const renderItem = (page: SettingsPageDefinition) => {
-    const Icon = pageIcon(page);
-    const selected = page.id === activePageId;
-    const href = page.href
-      ? appMountedPath(page.href, SETTINGS_ROUTE)
-      : settingsPageHref(page.id);
+  const renderItem = (
+    page: SettingsPageDefinition,
+    item?: Extract<AppSettingsNavigationItem, { type: "page" }>,
+  ) => {
+    const Icon = item?.icon ?? pageIcon(page);
+    const hasVisibleSubpageEntry = Boolean(
+      activeSub &&
+      appNavigationSections?.some(
+        (section) =>
+          (section.visibleWhen?.(context) ?? true) &&
+          section.items.some(
+            (candidate) =>
+              candidate.type === "page" &&
+              candidate.pageId === page.id &&
+              candidate.sub === activeSub &&
+              (candidate.visibleWhen?.(context) ?? true),
+          ),
+      ),
+    );
+    const selected =
+      page.id === activePageId &&
+      (item?.sub !== undefined
+        ? item.sub === activeSub
+        : activeSub === null || !hasVisibleSubpageEntry);
+    const href = item?.sub
+      ? settingsPageHref(page.id, item.sub)
+      : page.href
+        ? appMountedPath(page.href, SETTINGS_ROUTE)
+        : settingsPageHref(page.id);
     return (
       <a
-        key={page.id}
+        key={item?.id ?? page.id}
         href={href}
         data-settings-page={page.id}
+        data-settings-nav-item={item?.id}
         aria-current={selected ? "page" : undefined}
         onClick={(event) => {
           if (isModifiedClick(event)) return;
           event.preventDefault();
-          onNavigate(page.id);
+          onNavigate(page.id, item?.sub ?? null);
         }}
         className={cn(
           "flex h-[30px] items-center gap-2 rounded-md px-2 text-[13px] font-medium transition-colors",
@@ -973,7 +1101,7 @@ function SettingsNav({
             selected ? "text-foreground" : "text-muted-foreground",
           )}
         />
-        <span className="truncate">{pageLabel(page)}</span>
+        <span className="truncate">{item?.label ?? pageLabel(page)}</span>
         {unreadPageIds.includes(page.id) ? (
           <span
             role="img"
@@ -982,6 +1110,90 @@ function SettingsNav({
           />
         ) : null}
       </a>
+    );
+  };
+
+  const renderNavigationItem = (item: AppSettingsNavigationItem) => {
+    if (item.visibleWhen && !item.visibleWhen(context)) return null;
+    if (item.type === "page") {
+      const page = pages.find((candidate) => candidate.id === item.pageId);
+      if (!page) {
+        if (allPages.some((candidate) => candidate.id === item.pageId)) {
+          return null;
+        }
+        throw new Error(
+          `Settings navigation item "${item.id}" references unknown page "${item.pageId}".`,
+        );
+      }
+      return renderItem(page, item);
+    }
+
+    const Icon = item.icon;
+    const icon = Icon ? (
+      <Icon
+        aria-hidden="true"
+        className="size-4 shrink-0 text-muted-foreground"
+      />
+    ) : null;
+    const className = cn(
+      "flex h-[30px] w-full items-center gap-2 rounded-md px-2 text-start text-[13px] font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-foreground",
+      item.disabled && "pointer-events-none opacity-50",
+    );
+    if (item.type === "link") {
+      return (
+        <a
+          key={item.id}
+          href={appMountedPath(item.href, SETTINGS_ROUTE)}
+          data-settings-link={item.id}
+          aria-disabled={item.disabled || undefined}
+          tabIndex={item.disabled ? -1 : undefined}
+          onClick={(event) => {
+            if (item.disabled || isModifiedClick(event)) {
+              if (item.disabled) event.preventDefault();
+              return;
+            }
+          }}
+          className={className}
+        >
+          {icon}
+          <span className="truncate">{item.label}</span>
+        </a>
+      );
+    }
+
+    return (
+      <button
+        key={item.id}
+        type="button"
+        data-settings-action={item.id}
+        disabled={item.disabled}
+        onClick={() => item.onSelect(context)}
+        className={className}
+      >
+        {icon}
+        <span className="truncate">{item.label}</span>
+      </button>
+    );
+  };
+
+  const renderSection = (section: AppSettingsNavigationSection) => {
+    if (section.visibleWhen && !section.visibleWhen(context)) return null;
+    const items = section.items.flatMap((item) => {
+      const rendered = renderNavigationItem(item);
+      return rendered ? [rendered] : [];
+    });
+    if (items.length === 0) return null;
+    return (
+      <div
+        key={section.id}
+        data-settings-group={section.id}
+        className="mt-3.5 flex flex-col gap-px"
+      >
+        <div className="truncate px-2 pb-1 text-[11.5px] font-medium text-muted-foreground">
+          {section.label}
+        </div>
+        {items}
+      </div>
     );
   };
 
@@ -1093,20 +1305,22 @@ function SettingsNav({
           aria-label={t("agentChat.settingsShell.navLabel")}
           className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3"
         >
-          {SETTINGS_PAGE_GROUPS.filter(
-            (group) => (groups.get(group) ?? []).length > 0,
-          ).map((group) => (
-            <div
-              key={group}
-              data-settings-group={group}
-              className="mt-3.5 flex flex-col gap-px"
-            >
-              <div className="truncate px-2 pb-1 text-[11.5px] font-medium text-muted-foreground">
-                {groupLabel(group)}
-              </div>
-              {(groups.get(group) ?? []).map(renderItem)}
-            </div>
-          ))}
+          {appNavigationSections
+            ? appNavigationSections.map(renderSection)
+            : SETTINGS_PAGE_GROUPS.filter(
+                (group) => (groups.get(group) ?? []).length > 0,
+              ).map((group) => (
+                <div
+                  key={group}
+                  data-settings-group={group}
+                  className="mt-3.5 flex flex-col gap-px"
+                >
+                  <div className="truncate px-2 pb-1 text-[11.5px] font-medium text-muted-foreground">
+                    {groupLabel(group)}
+                  </div>
+                  {(groups.get(group) ?? []).map((page) => renderItem(page))}
+                </div>
+              ))}
         </nav>
       )}
     </div>

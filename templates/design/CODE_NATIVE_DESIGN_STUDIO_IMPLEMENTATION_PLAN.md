@@ -560,16 +560,11 @@ REST routes for normal app operations.
 Do not depend on first-party internal container infra in early implementation.
 Use existing Builder-hosted branch/cloud-agent paths first.
 
-### Extensions, Assets, Shaders
+### Extensions and Assets
 
 - `list-design-extensions`
 - `run-design-extension-action`
 - `insert-design-asset`
-- `preview-shader-fill`
-- `apply-shader-fill`
-
-`apply-shader-fill` stays disabled until runtime rendering, fallback generation,
-source write, and diff proof are all available.
 
 ## Application State
 

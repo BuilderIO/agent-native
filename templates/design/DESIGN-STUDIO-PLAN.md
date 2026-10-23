@@ -459,10 +459,9 @@ container is the later `SandboxAdapter` path.)
 ### 6.7 Extensions, shaders & assets
 
 Extensions are the substrate (both tiers), inline via `DesignExtensionsPanel`.
-First-party: **asset library** (selection-aware insertion — can ship early),
-**shader fills**, **token auditor**, **motion presets**. **Shaders: preview-first;
-`apply-shader-fill` stays disabled until runtime rendering + a real source-write
-path + a generated fallback + diff proof all exist.** No permanent chrome.
+First-party: **asset library** (selection-aware insertion), **token auditor**,
+**motion presets**. Native effects use the shader inspector; saved GLSL
+shaders remain renderable and removable. No permanent chrome.
 
 ---
 
@@ -489,9 +488,8 @@ cheap ephemeral **preview** and a deliberate atomic **apply**.
   `apply-a11y-fix` (gated), `create-design-review-snapshot`.
 - **Builder/branch:** `connect-builder-app`, `migrate-inline-design-to-app`,
   `create-design-branch`, `get-design-branch-diff`, `deploy-design-preview`.
-- **Extensions/assets/shaders:** `list-design-extensions`,
-  `run-design-extension-action`, `insert-design-asset`, `preview-shader-fill`,
-  `apply-shader-fill` _(stays disabled until contracts are real)_.
+- **Extensions/assets:** `list-design-extensions`,
+  `run-design-extension-action`, `insert-design-asset`.
 
 Every write action declares its `accessTarget` for the audit log and re-checks
 source capabilities server-side.

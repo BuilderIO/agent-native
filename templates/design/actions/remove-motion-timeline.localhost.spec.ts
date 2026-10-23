@@ -221,7 +221,7 @@ const managedPathSource = applyMotionPathTrimSource(
   "tsx",
 );
 const htmlSourcePath = "pages/home.html";
-const htmlSource = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
+const htmlSource = `<!doctype html><html><head></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
 const managedHtmlSource = applyMotionHtmlSourceEdit({
   currentSource: htmlSource,
   expectedSource: htmlSource,

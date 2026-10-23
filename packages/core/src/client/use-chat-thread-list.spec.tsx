@@ -147,11 +147,23 @@ describe("useChatThreadList", () => {
     const url = requestedUrls()[0];
     expect(url.pathname).toBe("/api/chat/threads");
     expect(url.searchParams.get("ownership")).toBe("mine");
+    expect(url.searchParams.has("includeArchived")).toBe(false);
     expect(url.searchParams.get("limit")).toBe("2");
     expect(latest.threads.map((t) => t.id)).toEqual(["a", "b"]);
     expect(latest.hasMore).toBe(true);
     expect(latest.loading).toBe(false);
     expect(latest.error).toBeNull();
+  });
+
+  it("requests archived threads when enabled", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ threads: [], hasMore: false }));
+    await mount({
+      ownership: "mine",
+      includeArchived: true,
+      apiUrl: "/api/chat",
+    });
+
+    expect(requestedUrls()[0].searchParams.get("includeArchived")).toBe("1");
   });
 
   it("pages forward by server rows consumed, deduping rows that shifted", async () => {
@@ -861,7 +873,13 @@ describe("useChatThreadList", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it.each<[string, Partial<UseChatThreadListOptions>]>([
+  it.each<
+    [
+      string,
+      Partial<UseChatThreadListOptions>,
+      Partial<UseChatThreadListOptions>?,
+    ]
+  >([
     ["ownership", { ownership: "all" }],
     ["query", { query: "another search" }],
     ["scope type", { scope: { type: "document", id: "d1" } }],
@@ -869,16 +887,18 @@ describe("useChatThreadList", () => {
     ["API", { apiUrl: "/another/chat" }],
     ["page size", { pageSize: 3 }],
     ["external threads", { includeExternal: true }],
+    ["archived threads", { includeArchived: false }, { includeArchived: true }],
     ["enabled", { enabled: false }],
   ])(
     "returns only the new %s identity on its first render",
-    async (_name, change) => {
+    async (_name, change, startingOptions = {}) => {
       const options: UseChatThreadListOptions = {
         ownership: "mine",
         query: "roadmap",
         scope: { type: "deck", id: "d1" },
         pageSize: 2,
         apiUrl: "/api/chat",
+        ...startingOptions,
       };
       let releaseAppend!: (response: Response) => void;
       fetchMock

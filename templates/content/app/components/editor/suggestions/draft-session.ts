@@ -173,6 +173,37 @@ export function suggestionAmendmentIdempotencyKey(
   return key;
 }
 
+type ProposalCreationRequest<Request extends object> = Request & {
+  idempotencyKey?: string;
+};
+
+function proposalCreationRequestKey<Request extends object>(
+  request: ProposalCreationRequest<Request>,
+) {
+  const { idempotencyKey: _idempotencyKey, ...fingerprint } = request;
+  return JSON.stringify(fingerprint);
+}
+
+// The server fingerprints a proposal creation with its proposal, summary, and
+// operations, and replays the first result for a repeated key. A key repeats
+// only for a retry of the same request: once a creation is recorded or
+// refused, the same text drafted again, as after undo and redo, is a new
+// creation and needs a new key.
+export function suggestionProposalCreationIdempotencyKey<
+  Request extends object,
+>(keys: Map<string, string>, request: ProposalCreationRequest<Request>) {
+  const requestKey = proposalCreationRequestKey(request);
+  const key = keys.get(requestKey) ?? globalThis.crypto.randomUUID();
+  keys.set(requestKey, key);
+  return key;
+}
+
+export function forgetSuggestionProposalCreationIdempotencyKey<
+  Request extends object,
+>(keys: Map<string, string>, request: ProposalCreationRequest<Request>) {
+  keys.delete(proposalCreationRequestKey(request));
+}
+
 export function createSuggestionDraftSession(input: {
   id: string;
   baseContent: string;

@@ -21,6 +21,8 @@ export interface UseChatThreadListOptions {
   pageSize?: number;
   scope?: ChatThreadScope | null;
   includeExternal?: boolean;
+  /** Include archived threads. Defaults to false. */
+  includeArchived?: boolean;
   includeHidden?: boolean;
   /** Search text. Empty lists the whole set. */
   query?: string;
@@ -116,6 +118,7 @@ export function useChatThreadList(
   const {
     ownership,
     includeExternal = false,
+    includeArchived = false,
     includeHidden = false,
     enabled = true,
     refreshOnThreadUpdates = true,
@@ -134,6 +137,7 @@ export function useChatThreadList(
     scopeId,
     pageSize,
     includeExternal,
+    includeArchived,
     includeHidden,
     enabled,
   ]);
@@ -171,6 +175,7 @@ export function useChatThreadList(
         query,
         ownership,
         includeExternal,
+        includeArchived,
         includeHidden,
         scope: scopeType && scopeId ? { type: scopeType, id: scopeId } : null,
       }).then((result) => {
@@ -190,6 +195,7 @@ export function useChatThreadList(
       }),
     [
       apiUrl,
+      includeArchived,
       includeExternal,
       includeHidden,
       ownership,

@@ -2,6 +2,10 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import {
+  discussionMessages,
+  discussionMessagesByLocale,
+} from "./discussion-messages";
 import { importMessagesByLocale } from "./import-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
@@ -473,6 +477,7 @@ const databaseMessages = {
   listRowsMedium: "Medium",
   listRowsBold: "Bold",
   listRowsNothing: "Nothing",
+  listRowsPageText: "Page text",
   listRowsOneLine: "1 line",
   listRowsLineCount: "{{count}} lines",
   listRowsNoStatus: "No status",
@@ -1633,6 +1638,7 @@ const enUS = {
   },
   comments: {
     ...commentAttributionMessagesByLocale["en-US"],
+    ...discussionMessages,
     filter: "Filter",
     add: "Add a comment...",
     title: "Comments",
@@ -1644,6 +1650,14 @@ const enUS = {
     replyCount_few: "{{count}} replies",
     replyCount_many: "{{count}} replies",
     replyCount_other: "{{count}} replies",
+    stackCollapse: "Collapse",
+    stackShowAll_zero: "Show all {{count}} comments here",
+    stackShowAll_one: "Show {{count}} comment here",
+    stackShowAll_two: "Show all {{count}} comments here",
+    stackShowAll_few: "Show all {{count}} comments here",
+    stackShowAll_many: "Show all {{count}} comments here",
+    stackShowAll_other: "Show all {{count}} comments here",
+    stackMore: "+{{count}} more",
     commentActions: "Comment actions",
     checkSaved: "Check saved comment",
     edit: "Edit",
@@ -2537,6 +2551,7 @@ function mergeMessagesForLocale(
       ...base.comments,
       ...bundle.comments,
       ...bundle.reviewDiscussions,
+      ...discussionMessagesByLocale[locale],
     },
     landing: { ...base.landing, ...bundle.landing },
     root: { ...base.root, ...rawLiteralOverrides.root },

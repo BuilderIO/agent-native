@@ -1429,6 +1429,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.workedFor": "处理了 {{duration}}",
   "widget.chart": "图表",
   "widget.chartActions": "图表操作",
+  "widget.chartRowsOmitted": "此图表仅显示部分可用行。",
   "widget.dataSources": "数据来源",
   "widget.tableActions": "表格操作",
   "widget.dataChart": "数据图表",
