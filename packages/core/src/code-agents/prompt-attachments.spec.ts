@@ -44,6 +44,33 @@ describe("formatPromptWithAttachments", () => {
     expect(prompt).not.toContain("data:image/svg+xml");
   });
 
+  it("caps oversized metadata text at the per-file limit", () => {
+    const prompt = formatPromptWithAttachments("Use this", [
+      { name: "DESIGN.md", text: "a".repeat(70_000) },
+    ]);
+
+    expect(prompt).toContain("a".repeat(60_000));
+    expect(prompt).not.toContain("a".repeat(60_001));
+    expect(prompt).toContain("Only the first 60,000 of 70,000 characters");
+  });
+
+  it("shares one text budget across every attached file", () => {
+    const prompt = formatPromptWithAttachments("Compare these", [
+      { name: "first.md", text: "a".repeat(60_000) },
+      { name: "second.md", text: "b".repeat(60_000) },
+      { name: "third.md", text: "c".repeat(10_000) },
+    ]);
+
+    expect(prompt).toContain("a".repeat(60_000));
+    expect(prompt).toContain("b".repeat(20_000));
+    expect(prompt).not.toContain("b".repeat(20_001));
+    expect(prompt).toContain("Only the first 20,000 of 60,000 characters");
+    expect(prompt).not.toContain("c".repeat(50));
+    expect(prompt).toContain(
+      "This file's 10,000 characters were not attached because this message reached its 80,000-character limit",
+    );
+  });
+
   it("reports a file that is not UTF-8 as an attached-file error", () => {
     expect(
       formatPromptWithAttachments("Use this", [

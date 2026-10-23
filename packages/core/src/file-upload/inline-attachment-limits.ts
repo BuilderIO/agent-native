@@ -42,6 +42,7 @@ export type InlineAttachmentBlockReason =
   | { kind: "no-data" }
   | { kind: "unsupported-image-format"; mediaType: string }
   | { kind: "unsupported-file-format"; mediaType: string }
+  | { kind: "undecodable-text"; mediaType: string }
   | { kind: "over-inline-limit"; maxChars: number; actualChars: number };
 
 export function describeInlineBlockReason(
@@ -54,6 +55,8 @@ export function describeInlineBlockReason(
       return `${reason.mediaType} is not an image format any vision model decodes`;
     case "unsupported-file-format":
       return `${reason.mediaType} is not a document format the model can read inline`;
+    case "undecodable-text":
+      return `its ${reason.mediaType} bytes are not valid UTF-8 text`;
     case "over-inline-limit":
       return `over the ${formatBase64CharBudget(reason.maxChars)} inline limit`;
   }
@@ -67,7 +70,11 @@ export function classifyInlineAttachment(att: {
   contentType?: string;
   referenceOnly?: boolean;
 }): InlineAttachmentBlockReason | null {
-  if (decodeTextAttachmentData(att).kind === "text") return null;
+  const decoded = decodeTextAttachmentData(att);
+  if (decoded.kind === "text") return null;
+  if (decoded.kind === "undecodable") {
+    return { kind: "undecodable-text", mediaType: decoded.mediaType };
+  }
   if (att.referenceOnly === true) return { kind: "no-data" };
   if (typeof att.text === "string" && att.text.length > 0) return null;
 

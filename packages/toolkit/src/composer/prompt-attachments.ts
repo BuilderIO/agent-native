@@ -23,6 +23,7 @@ export function formatPromptWithAttachments(
   attachments: readonly AgentPromptAttachment[],
 ): string {
   if (attachments.length === 0) return prompt;
+  let remainingChars = AGENT_PROMPT_MAX_TOTAL_TEXT_CHARS;
   const attachmentText = attachments
     .map((attachment) => {
       const size = attachment.size ? ` size="${attachment.size}"` : "";
@@ -35,19 +36,52 @@ export function formatPromptWithAttachments(
       if (attachment.readError) {
         return `<attached-file-error name="${escapePromptAttachmentAttribute(attachment.name)}" code="${attachment.readError}"${type}${size}>\n${describeAgentPromptAttachmentReadError(attachment.readError)}\n</attached-file-error>`;
       }
-      const body =
-        attachment.text?.trim() ||
-        "Selected in the UI. If this file is needed, inspect it from the workspace or ask for a readable copy.";
-      const truncation =
-        attachment.text && attachment.totalChars
-          ? `\n\n[Only the first ${attachment.text.length.toLocaleString()} of ${attachment.totalChars.toLocaleString()} characters of this file were attached, and the rest is not available to you. Tell the user up front that you could read only part of it, and do not report finished work that depends on the rest.]`
-          : "";
-      const boundary = attachedFileBoundaryFor(`${body}${truncation}`);
+      const { body, usedChars } = budgetAttachedFileText(
+        attachment,
+        remainingChars,
+      );
+      remainingChars -= usedChars;
+      const boundary = attachedFileBoundaryFor(body);
       const boundaryAttr = boundary ? ` boundary="${boundary}"` : "";
-      return `<attached-file name="${escapePromptAttachmentAttribute(attachment.name)}"${type}${size}${boundaryAttr}>\n${body}${truncation}\n</attached-file${boundaryAttr}>`;
+      return `<attached-file name="${escapePromptAttachmentAttribute(attachment.name)}"${type}${size}${boundaryAttr}>\n${body}\n</attached-file${boundaryAttr}>`;
     })
     .join("\n\n");
   return `${prompt.trimEnd()}\n\nAttached context:\n${attachmentText}`;
+}
+
+/**
+ * Caps each file at the inline limit and the whole message at a shared total,
+ * on whatever text arrives, so metadata from any caller cannot grow the
+ * prompt past what the composer itself would send.
+ */
+function budgetAttachedFileText(
+  attachment: AgentPromptAttachment,
+  remainingChars: number,
+): { body: string; usedChars: number } {
+  const text = attachment.text ?? "";
+  const totalChars = Math.max(attachment.totalChars ?? 0, text.length);
+  const shownChars = Math.min(
+    text.length,
+    AGENT_PROMPT_MAX_INLINE_TEXT_CHARS,
+    Math.max(0, remainingChars),
+  );
+  const shown = text.slice(0, shownChars);
+  if (!text.trim()) {
+    return {
+      body: "Selected in the UI. If this file is needed, inspect it from the workspace or ask for a readable copy.",
+      usedChars: 0,
+    };
+  }
+  if (shownChars >= totalChars)
+    return { body: shown.trim(), usedChars: shownChars };
+  const note =
+    shownChars === 0
+      ? `[This file's ${totalChars.toLocaleString()} characters were not attached because this message reached its ${AGENT_PROMPT_MAX_TOTAL_TEXT_CHARS.toLocaleString()}-character limit for attached text, and none of it is available to you. Tell the user up front that you could not read it, and do not report finished work that depends on it.]`
+      : `[Only the first ${shownChars.toLocaleString()} of ${totalChars.toLocaleString()} characters of this file were attached, and the rest is not available to you. Tell the user up front that you could read only part of it, and do not report finished work that depends on the rest.]`;
+  return {
+    body: shownChars === 0 ? note : `${shown.trim()}\n\n${note}`,
+    usedChars: shownChars,
+  };
 }
 
 // A file that contains our own tag names could close its envelope early and
@@ -75,6 +109,7 @@ function describeAgentPromptAttachmentReadError(
 }
 
 export const AGENT_PROMPT_MAX_INLINE_TEXT_CHARS = 60_000;
+export const AGENT_PROMPT_MAX_TOTAL_TEXT_CHARS = 80_000;
 export const AGENT_PROMPT_MAX_TEXT_FILE_BYTES = 20 * 1024 * 1024;
 export const AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
 

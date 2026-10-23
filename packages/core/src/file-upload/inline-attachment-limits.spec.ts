@@ -53,6 +53,23 @@ describe("classifyInlineAttachment", () => {
     ).toBeNull();
   });
 
+  it("does not call a text file that is not UTF-8 readable", () => {
+    const reason = classifyInlineAttachment({
+      type: "file",
+      name: "notes.md",
+      contentType: "text/markdown",
+      data: `data:text/markdown;base64,${Buffer.from([0xff, 0xfe]).toString("base64")}`,
+    });
+
+    expect(reason).toEqual({
+      kind: "undecodable-text",
+      mediaType: "text/markdown",
+    });
+    expect(describeInlineBlockReason(reason!)).toBe(
+      "its text/markdown bytes are not valid UTF-8 text",
+    );
+  });
+
   it("treats a multi-megabyte photo as readable", () => {
     expect(classifyInlineAttachment(imageAtt(2_500_000))).toBeNull();
   });
