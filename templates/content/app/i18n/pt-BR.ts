@@ -134,6 +134,8 @@ const database = {
   githubSyncingProgress: "Trazendo mudanças: {{done}} de {{total}} arquivos",
   githubPicturesWaiting:
     "Algumas imagens só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
+  githubPicturesNotSaved:
+    "Algumas imagens não puderam ser salvas no armazenamento de arquivos. Cada sincronização tenta de novo.",
   githubReconnect: "Reconectar GitHub",
   githubProblemConnection:
     "Atualizações interrompidas: o GitHub precisa que você faça login de novo.",
@@ -1216,6 +1218,10 @@ const comments = {
   proposalEditCount_other: "{{count}} edições",
   acceptRemaining: "Aceitar restantes",
   rejectRemaining: "Rejeitar restantes",
+  acceptAll: "Aceitar todas",
+  rejectAll: "Rejeitar todas",
+  suggestionReviewReadOnly:
+    "Somente quem pode editar esta página pode aceitar ou rejeitar as sugestões dela.",
   typeFilter: "Tipo",
   statusFilter: "Status",
   authorFilter: "Pessoa",
@@ -1673,6 +1679,13 @@ const overrides = {
   comments: {
     add: "Adicionar comentário...",
     cancel: "Cancelar",
+    discardCommentQuestion: "Descartar comentário?",
+    discardReplyQuestion: "Descartar resposta?",
+    discardEditQuestion: "Descartar alterações?",
+    discardDescription: "O que você escreveu será perdido.",
+    discardEditDescription: "Seu comentário vai continuar como estava.",
+    discard: "Descartar",
+    keepEditing: "Continuar editando",
     submit: "Comentar",
     askAi: "Perguntar à IA",
     aiBadge: "IA",

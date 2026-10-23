@@ -1509,16 +1509,32 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 128,
+      name: "content-document-body-steps",
+      sql: `CREATE TABLE IF NOT EXISTS document_body_steps (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          document_id TEXT NOT NULL,
+          body_revision INTEGER NOT NULL,
+          start_offset INTEGER NOT NULL,
+          end_offset INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS document_body_steps_document_revision_idx
+          ON document_body_steps (document_id, body_revision)`,
+    },
+    {
+      version: 129,
       name: "content-preview-draft-base-content-hash",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_content_hash TEXT`,
     },
     {
-      version: 129,
+      version: 130,
       name: "preview-draft-originating-title-base",
       sql: `ALTER TABLE document_preview_drafts ADD COLUMN IF NOT EXISTS base_title TEXT`,
     },
     {
-      version: 130,
+      version: 131,
       name: "preview-draft-recovery-choice-lookup",
       sql: `CREATE INDEX IF NOT EXISTS document_versions_owner_recovery_group_idx
         ON document_versions (owner_email, group_id, created_at, id)

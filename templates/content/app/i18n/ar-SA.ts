@@ -127,6 +127,8 @@ const database = {
   githubSyncingProgress: "جارٍ جلب التغييرات: {{done}} من أصل {{total}} ملفات",
   githubPicturesWaiting:
     "لن تظهر بعض الصور حتى يُعدّ مشرف مساحة العمل تخزين الملفات.",
+  githubPicturesNotSaved:
+    "تعذّر حفظ بعض الصور في تخزين الملفات. تحاول كل مزامنة حفظها مجددًا.",
   githubReconnect: "إعادة توصيل GitHub",
   githubProblemConnection:
     "توقّف التحديث: يطلب GitHub منك تسجيل الدخول مرة أخرى.",
@@ -1191,6 +1193,10 @@ const comments = {
   proposalEditCount_other: "{{count}} تعديل",
   acceptRemaining: "قبول المتبقي",
   rejectRemaining: "رفض المتبقي",
+  acceptAll: "قبول الكل",
+  rejectAll: "رفض الكل",
+  suggestionReviewReadOnly:
+    "لا يمكن قبول اقتراحات هذه الصفحة أو رفضها إلا لمن يمكنهم تعديلها.",
   typeFilter: "النوع",
   statusFilter: "الحالة",
   authorFilter: "الشخص",
@@ -1632,6 +1638,13 @@ const overrides = {
   comments: {
     add: "إضافة تعليق...",
     cancel: "إلغاء",
+    discardCommentQuestion: "تجاهل التعليق؟",
+    discardReplyQuestion: "تجاهل الرد؟",
+    discardEditQuestion: "تجاهل التغييرات؟",
+    discardDescription: "سيُفقد ما كتبته.",
+    discardEditDescription: "سيبقى تعليقك كما كان.",
+    discard: "تجاهل",
+    keepEditing: "متابعة التحرير",
     submit: "تعليق",
     askAi: "اسأل الذكاء الاصطناعي",
     aiBadge: "الذكاء الاصطناعي",

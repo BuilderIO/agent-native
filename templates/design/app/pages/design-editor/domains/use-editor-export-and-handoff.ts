@@ -77,6 +77,7 @@ import type { EditorHistory } from "./use-editor-history";
 import type { EditorLiveEditsAndPresence } from "./use-editor-live-edits-and-presence";
 import type { EditorSelectionAndStyles } from "./use-editor-selection-and-styles";
 import type { EditorToolsAndVectors } from "./use-editor-tools-and-vectors";
+import { useHubspotHtmlExport } from "./use-hubspot-html-export";
 
 export function useEditorExportAndHandoff({
   editorCore,
@@ -147,7 +148,7 @@ export function useEditorExportAndHandoff({
   } = editorHistory;
   const {
     setRuntimeLayerSnapshotRequest,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     setDrawMode,
     setPinMode,
     design,
@@ -165,6 +166,7 @@ export function useEditorExportAndHandoff({
     designSourceType,
     boardFileId,
     overviewScreens,
+    flushPendingFileContentSavesForBackground,
   } = editorFilesAndSaving;
   const {
     exportCanvasFrameGeometryById,
@@ -179,6 +181,7 @@ export function useEditorExportAndHandoff({
     exportPreviewScreenIdRef,
     runtimeLayerSnapshotReadinessByIdRef,
     canvasIframeRef,
+    getScreenContent,
   } = editorCanvasAndScreens;
   const { activeCodeLayerProjection, selectedElementLayerId } =
     editorLiveEditsAndPresence;
@@ -215,7 +218,7 @@ export function useEditorExportAndHandoff({
   );
 
   const handleSelectAllFrames = useCallback(() => {
-    recordSelectionHistoryAroundChange(() => {
+    applySelectionChange(() => {
       const projection = activeFile
         ? buildCodeLayerProjection(getFreshActiveContent(), {
             source: codeLayerSourceForScreen(activeFile.id),
@@ -263,7 +266,7 @@ export function useEditorExportAndHandoff({
     files,
     getFreshActiveContent,
     overviewScreens,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     selectedLayerIdsState,
   ]);
 
@@ -608,6 +611,20 @@ export function useEditorExportAndHandoff({
       },
     });
   }, [exportHtmlMutation, fallbackExportName, id, t, triggerBlobDownload]);
+
+  const hubspotHtmlExport = useHubspotHtmlExport({
+    designId: id,
+    selectedFile:
+      viewMode === "single"
+        ? activeFile
+        : selectedScreenIds.length === 1
+          ? files.find((file) => file.id === selectedScreenIds[0])
+          : undefined,
+    getScreenContent,
+    flushPendingFileContentSaves: flushPendingFileContentSavesForBackground,
+    triggerBlobDownload,
+    t,
+  });
 
   const handleDownloadZip = useCallback(() => {
     if (!id) return;
@@ -1446,6 +1463,7 @@ export function useEditorExportAndHandoff({
     handleApplyPendingVisualStylesWithAgent,
     handleCopyPendingVisualStylePrompt,
     handleDownloadHtml,
+    ...hubspotHtmlExport,
     handleDownloadZip,
     handleDownloadPng,
     handleDownloadAllScreensPdf,

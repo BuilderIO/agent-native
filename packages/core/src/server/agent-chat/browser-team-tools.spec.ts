@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AgentEngine } from "../../agent/engine/types.js";
+import {
+  actionsToEngineTools,
+  runAgentLoop,
+} from "../../agent/production-agent.js";
+import { runWithRequestContext } from "../request-context.js";
 import {
   createBuilderBrowserTool,
   createTeamTools,
@@ -230,6 +236,200 @@ describe("createTeamTools Plan-mode effects", () => {
     expect(effect({ action: "list" })).toBe("read");
     expect(effect({ action: "spawn" })).toBe("write");
     expect(effect({ action: "send" })).toBe("write");
+  });
+});
+
+describe("createTeamTools bounded task reads", () => {
+  const task = {
+    taskId: "task-1",
+    threadId: "child-1",
+    parentThreadId: "parent-1",
+    status: "running",
+    description: "Review email",
+    summary: "",
+    preview: "Inspecting",
+  };
+  function teamTool() {
+    return createTeamTools({
+      getOwner: () => "owner@example.test",
+      getSystemPrompt: () => "",
+      getActions: () => ({}),
+      getEngine: () => ({}) as AgentEngine,
+      getModel: () => "test-model",
+      getParentThreadId: () => "parent-1",
+      getSend: () => null,
+    })["agent-teams"];
+  }
+  beforeEach(() => {
+    mocks.getTask.mockReset().mockResolvedValue(task);
+    mocks.getAgentTeamRunDispatchState.mockReset().mockResolvedValue(null);
+  });
+  afterEach(() => {
+    mocks.getTask.mockReset();
+    mocks.getAgentTeamRunDispatchState.mockReset();
+  });
+
+  it("waits for a terminal result and keeps every read in the caller's scope", async () => {
+    mocks.getTask.mockResolvedValueOnce(task).mockResolvedValue({
+      ...task,
+      status: "completed",
+      summary: "Reviewed unchanged hash; no issues.",
+    });
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        teamTool().run({
+          action: "read-result",
+          taskId: "task-1",
+          waitMs: 1000,
+        }),
+    );
+    expect(JSON.parse(result)).toMatchObject({
+      status: "completed",
+      summary: "Reviewed unchanged hash; no issues.",
+    });
+    expect(mocks.getTask.mock.calls).toEqual([
+      ["task-1", { ownerEmail: "owner@example.test", orgId: "org-1" }],
+      ["task-1", { ownerEmail: "owner@example.test", orgId: "org-1" }],
+    ]);
+  });
+
+  it("returns an honest queued snapshot when the wait expires", async () => {
+    mocks.getAgentTeamRunDispatchState.mockResolvedValue({ status: "queued" });
+    const result = JSON.parse(
+      await teamTool().run({
+        action: "read-result",
+        taskId: "task-1",
+        waitMs: 20,
+      }),
+    );
+    expect(result).toMatchObject({ status: "queued", taskId: "task-1" });
+    expect(result).not.toHaveProperty("summary");
+    expect(mocks.getTask).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not wait or expose queue state for a foreign or missing task", async () => {
+    mocks.getTask.mockResolvedValue(undefined);
+    expect(
+      JSON.parse(
+        await teamTool().run({
+          action: "status",
+          taskId: "foreign",
+          waitMs: 20000,
+        }),
+      ),
+    ).toEqual({ error: "Task not found" });
+    expect(mocks.getTask).toHaveBeenCalledTimes(1);
+    expect(mocks.getAgentTeamRunDispatchState).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicit personal scope instead of falling back to the ambient organization", async () => {
+    mocks.getTask.mockResolvedValue(undefined);
+    await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        teamTool().run(
+          { action: "status", taskId: "task-1" },
+          { caller: "agent", orgId: null },
+        ),
+    );
+    expect(mocks.getTask).toHaveBeenCalledWith("task-1", {
+      ownerEmail: "owner@example.test",
+      orgId: null,
+    });
+  });
+
+  it("aborts an active wait without another task read", async () => {
+    const controller = new AbortController();
+    const waiting = teamTool().run(
+      { action: "status", taskId: "task-1", waitMs: 1000 },
+      { caller: "agent", signal: controller.signal },
+    );
+    const outcome = waiting.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(mocks.getTask).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([-1, 20001, 1.5, "1000"])(
+    "rejects invalid wait bounds (%s)",
+    async (waitMs) => {
+      await expect(
+        teamTool().run({ action: "status", taskId: "task-1", waitMs }),
+      ).rejects.toThrow("waitMs");
+      expect(mocks.getTask).not.toHaveBeenCalled();
+    },
+  );
+
+  it("observes changed task status across identical bounded waits in one agent turn", async () => {
+    let calls = 0;
+    mocks.getTask.mockImplementation(async () =>
+      calls < 10 ? task : { ...task, status: "completed", summary: "Clear" },
+    );
+    const entry = teamTool();
+    const observed: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      async *stream(opts) {
+        const last = opts.messages[opts.messages.length - 1];
+        for (const part of last?.content ?? [])
+          if (part.type === "tool-result") observed.push(part.content);
+        if (++calls <= 10) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: `status-${calls}`,
+                name: "agent-teams",
+                input: { action: "status", taskId: "task-1", waitMs: 1 },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Review complete." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "Observe task state",
+      tools: actionsToEngineTools({ "agent-teams": entry }),
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Wait until the task completes" }],
+        },
+      ],
+      actions: { "agent-teams": entry },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+    expect(mocks.getTask.mock.calls.length).toBeGreaterThanOrEqual(10);
+    expect(observed.map((content) => JSON.parse(content).status)).toEqual([
+      ...Array(9).fill("running"),
+      "completed",
+    ]);
   });
 });
 

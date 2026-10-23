@@ -3012,9 +3012,11 @@ describe("document editor layout", () => {
 
     expect(activationStart).toBeGreaterThan(-1);
     expect(activation).toContain("setSelectedThreadId(threadId)");
+    // A comment on the whole page opens in the Discussion panel.
     expect(activation).toContain(
-      "setCommentsBrowseOpen(preserveBrowseContext)",
+      "setCommentsBrowseOpen(preserveBrowseContext || !!pageThread)",
     );
+    expect(activation).toContain("isPageCommentThread(thread)");
     expect(activation).toContain('setUtilityPanel("comments")');
     expect(source).toContain(
       'activateCommentThread(threadId, presentation === "history")',

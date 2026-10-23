@@ -17,10 +17,39 @@ import {
   scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
   trackAgentChatRunLifecycle,
+  trackAgentChatRunStarted,
 } from "./agent-chat-plugin.js";
 import { runWithRequestContext } from "./request-context.js";
 
 describe("agent chat run lifecycle tracking", () => {
+  it("sends one run_started carrying its turn id", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-started-turn-test",
+      track(event) {
+        if (event.name === "run_started") events.push(event);
+      },
+    });
+    try {
+      trackAgentChatRunStarted(
+        "thread-started-1",
+        "run-started-1",
+        "turn-started-1",
+        "owner@example.com",
+        "slides",
+      );
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-started-turn-test");
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0].properties).toMatchObject({
+      thread_id: "thread-started-1",
+      attempt_id: "run-started-1",
+      turn_id: "turn-started-1",
+    });
+  });
+
   it("keys server run events by durable thread and attempt ids", () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({

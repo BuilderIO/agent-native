@@ -31,6 +31,14 @@ inputs:
     required: false
     default: "false"
 
+  native-canvas-deps:
+    description: >-
+      `true` installs the cairo/pango build libraries the `canvas` npm module
+      compiles against. Jobs that never load `canvas` can pass `false` and skip
+      the apt-get (~3 min on a slow mirror).
+    required: false
+    default: "true"
+
 runs:
   using: composite
   steps:
@@ -62,7 +70,7 @@ runs:
         key: dist-${{ hashFiles('packages/*/src/**', 'packages/*/package.json', 'scripts/prebuild-workspace-packages.ts', 'pnpm-lock.yaml') }}
 
     - name: Install native canvas build dependencies
-      if: runner.os == 'Linux' && inputs.install == 'full'
+      if: runner.os == 'Linux' && inputs.install == 'full' && inputs.native-canvas-deps == 'true'
       shell: bash
       run: |
         sudo apt-get update

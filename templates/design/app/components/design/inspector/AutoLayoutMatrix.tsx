@@ -301,6 +301,8 @@ export interface AutoLayoutMatrixProps {
     axis: AutoLayoutSizingAxis,
     sizing: AutoLayoutSizing,
   ) => void;
+  /** Hugs both axes as one change; without it Resize to fit commits per axis. */
+  onResizeToFit?: () => void;
   onChildSizeChange?: (
     axis: AutoLayoutSizingAxis,
     value: number,
@@ -397,6 +399,7 @@ export function AutoLayoutMatrix({
   onDistribute,
   onGapModeChange,
   onChildSizingChange,
+  onResizeToFit,
   onChildMinMaxChange,
   onApplyVariable,
   onFlowChange,
@@ -627,6 +630,10 @@ export function AutoLayoutMatrix({
                         "Resize to fit" /* i18n-ignore inspector tooltip */
                       }
                       onClick={() => {
+                        if (onResizeToFit) {
+                          onResizeToFit();
+                          return;
+                        }
                         onChildSizingChange("horizontal", "hug");
                         onChildSizingChange("vertical", "hug");
                       }}
@@ -2034,7 +2041,7 @@ export function SizingField({
     ? "Mixed"
     : resolvedSize == null
       ? ""
-      : String(roundToOneDecimal(resolvedSize));
+      : String(Math.round(resolvedSize));
 
   const addMinLabel = isWidth ? labels.addMinWidth : labels.addMinHeight;
   const addMaxLabel = isWidth ? labels.addMaxWidth : labels.addMaxHeight;
@@ -2159,15 +2166,15 @@ export function SizingField({
               ariaLabel={`${axis} size in pixels`}
               tooltipLabel={`${axis} size`}
               icon={null}
-              value={mixed ? 0 : roundToOneDecimal(resolvedSize ?? 0)}
+              value={mixed ? 0 : Math.round(resolvedSize ?? 0)}
               onChange={(next, meta) =>
-                onSizeChange!(Math.max(0, roundToOneDecimal(next)), meta)
+                onSizeChange!(Math.max(0, Math.round(next)), meta)
               }
               mixed={mixed}
               unit="px"
               min={0}
               step={1}
-              precision={1}
+              precision={0}
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
               labelClassName="h-6 w-4 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"

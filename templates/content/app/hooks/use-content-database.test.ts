@@ -1,7 +1,9 @@
 import type {
   ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseSourceFieldPropertyResponse,
 } from "@shared/api";
+import { compactContentDatabaseItems } from "@shared/database-row-properties";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
@@ -329,6 +331,7 @@ describe("optimistic Content database items", () => {
     const property = { ...current.properties[0]!, value: "2026-09-01" };
     const bounded = {
       items: [{ ...current.items[0]!, properties: [property] }],
+      properties: current.properties,
       source: current.source,
       sources: current.sources,
       pagination: current.pagination,
@@ -406,7 +409,7 @@ describe("optimistic Content database items", () => {
       databaseId: "database",
       documentId: "database-page",
       sourceTable: "agent-native-blog-article-test",
-      base: databaseResponse(),
+      base: databaseResponsePayload(),
       items: [previewItem],
       fetchedAt: createdAt,
       hasMore: true,
@@ -450,7 +453,7 @@ describe("optimistic Content database items", () => {
       databaseId: "database",
       documentId: "database-page",
       sourceTable: "agent-native-blog-article-test",
-      base: databaseResponse(),
+      base: databaseResponsePayload(),
       items: [previewItem],
       fetchedAt: createdAt,
       hasMore: true,
@@ -526,6 +529,16 @@ describe("optimistic Content database items", () => {
     ).toBe(current);
   });
 });
+
+function databaseResponsePayload(): ContentDatabaseResponsePayload {
+  const response = databaseResponse();
+  return {
+    ...response,
+    items: compactContentDatabaseItems(response.items),
+    createdItem: undefined,
+    duplicatedItems: undefined,
+  };
+}
 
 function databaseResponse(): ContentDatabaseResponse {
   return {

@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { getDbExec, type DbExec } from "../db/client.js";
+import {
+  getDbExec,
+  getScopedTransactionDbExec,
+  type DbExec,
+} from "../db/client.js";
 
 export interface ExecutionFence {
   threadId: string;
@@ -160,6 +164,10 @@ export async function withFencedExecutionWrite<T>(
   );
   if (!scopedFence) {
     throw new StaleExecutionFenceError(fence);
+  }
+  if (getScopedTransactionDbExec() === client) {
+    await lockAndAssertCurrentExecutionFences(client);
+    return write(client);
   }
   if (!client.transaction) {
     throw new Error("Fenced execution writes require transaction support");

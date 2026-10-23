@@ -1025,6 +1025,7 @@ export function useEditorScreenRendering({
               : getEmbeddedFrame(screen.id, geometry.width, geometry.height)
           }
           fitRootBodyToFrame={metadata.heightMode !== "hug"}
+          screenHeightMode={metadata.heightMode}
           editorChromeScaleX={overviewCanvasZoom / 100}
           editorChromeScaleY={overviewCanvasZoom / 100}
           editMode={

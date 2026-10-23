@@ -68,7 +68,7 @@ test("Layers search toggles open and closed from the heading", async ({
 }) => {
   await app.open(await app.seed(CHROME_FIXTURE));
   const search = app.page.locator('[data-layers-panel-action="search"]');
-  const input = app.page.getByPlaceholder("Search layers...");
+  const input = app.page.getByPlaceholder("Search layers");
 
   await expect(input).toHaveCount(0);
   await search.click();
@@ -331,7 +331,7 @@ async function assertAutoLayoutGeometry(page: Page): Promise<void> {
 async function assertLayersInteractions(page: Page): Promise<void> {
   const search = page.locator('[data-layers-panel-action="search"]');
   await search.click();
-  const input = page.getByPlaceholder("Search layers...");
+  const input = page.getByPlaceholder("Search layers");
   await expect(input).toBeVisible();
   await input.fill("Auto Card");
   await expect(layerRow(page, "Auto Card")).toBeVisible();

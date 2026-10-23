@@ -385,6 +385,12 @@ export interface AgentChatRichEventEnvelope {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Why a failed tool call failed, where the loop could tell: its arguments
+ * failed validation before it ran, or it failed having written nothing.
+ */
+export type ToolErrorClass = "input_invalid" | "rejected";
+
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
@@ -444,6 +450,8 @@ export type AgentChatEvent =
       /** False marks current completed events; absence is reserved for older journals. */
       approvalPause?: boolean;
       outcomeUnknown?: true;
+      /** Why a failed call failed, where the loop could tell. */
+      errorClass?: ToolErrorClass;
       replayed?: true;
       fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];
@@ -535,6 +543,10 @@ export type AgentChatEvent =
       details?: string;
       recoverable?: boolean;
       providerRetryable?: boolean;
+      /** For `write_tool_outcome_unknown`: the call held back. */
+      blockedTool?: string;
+      /** What left the earlier call of `blockedTool` unknown. */
+      blockedBy?: "rejection" | "interruption";
     }
   /**
    * Legacy SSE terminal event. New streams emit

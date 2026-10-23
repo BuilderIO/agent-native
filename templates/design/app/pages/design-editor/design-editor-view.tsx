@@ -82,6 +82,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ResponsiveEditScope, ShareExportFormat } from "./command-types";
+import { layoutMoveRefusalMessageKey } from "./commands/align-selection";
 import { resolveUrlScreen } from "./derive/url-screen";
 import { pageHasWebMcpHost } from "./design-editor-shared";
 import type { EditorActiveScreenAndGeometry } from "./domains/use-editor-active-screen-and-geometry";
@@ -673,7 +674,6 @@ export function renderDesignEditorView({
     handleSelectionColorChange,
     handleSelectionColorPickerOpenChange,
     canSelectSelectionColorTarget,
-    handleGroupFillStylesChange,
     handleSelectionColorTarget,
     activeScreenPreviewUrl,
     statesPanelProps,
@@ -1164,6 +1164,7 @@ export function renderDesignEditorView({
       editorLayoutAndStructure,
       editorModes,
       editorScreenRendering,
+      editorSourceAndSync,
       controlId,
     });
 
@@ -1501,6 +1502,12 @@ export function renderDesignEditorView({
   const selectedRouteScreen = overviewScreens.find(
     (screen) => screen.id === selectedScreenGeometry?.id,
   );
+  const alignDisabledReasonKey = alignAvailability.canAlign
+    ? null
+    : layoutMoveRefusalMessageKey(alignAvailability.blocker);
+  const alignDisabledReason = alignDisabledReasonKey
+    ? t(alignDisabledReasonKey)
+    : undefined;
   const editPanelProps = {
     selectedElement,
     textEditingState,
@@ -1584,9 +1591,6 @@ export function renderDesignEditorView({
       : undefined,
     onSelectionColorPickerOpenChange: canEditActiveVisualScreen
       ? handleSelectionColorPickerOpenChange
-      : undefined,
-    onGroupFillStylesChange: canEditActiveVisualScreen
-      ? handleGroupFillStylesChange
       : undefined,
     viewMode,
     mode,
@@ -2027,6 +2031,7 @@ export function renderDesignEditorView({
     reviewPanelProps: resolvedReviewPanelProps,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     alignSelectionDisabled: !alignAvailability.canAlign,
+    alignSelectionDisabledReason: alignDisabledReason,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
     onApplyLayoutFlow: canEditDesign ? handleApplyLayoutFlow : undefined,
     onInteractionStateChange: handleInteractionStateChange,
@@ -2272,6 +2277,7 @@ export function renderDesignEditorView({
         editorClipboard,
         editorLayoutAndStructure,
         editorSourceAndSync,
+        editorExportAndHandoff,
         id,
         pendingVisualStyleWarningOpen,
       })}

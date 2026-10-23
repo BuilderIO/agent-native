@@ -41,6 +41,7 @@ import {
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
 } from "../server/lib/document-body-intents.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentMetadataUpdatedAt } from "../server/lib/document-metadata-updated-at.js";
@@ -1274,7 +1275,7 @@ const updateDocumentAction = defineAction({
           }
           if (ctx?.caller === "frontend" && content !== undefined) {
             const [page] = await tx
-              .select(liveBodyWriterPageColumns)
+              .select(liveBodyWriterPageColumns())
               .from(schema.documents)
               .where(eq(schema.documents.id, id))
               .limit(1);
@@ -1604,8 +1605,16 @@ const updateDocumentAction = defineAction({
           if (lockedDescriptionChanged)
             updates.description = args.description?.trim();
           if (lockedContentChanged) {
+            // Only a browser save takes a switched page's body to its live
+            // copy; it reached here because the gate above chose legacy.
+            const legacy = await lockLegacyBodyWrites(tx, [id], {
+              operation: "update-document",
+              routed: ctx?.caller === "frontend",
+              instead: "Write the body with edit-document.",
+              content: content as string,
+            });
             updates.content = content;
-            updates.bodyRevision = historyBefore.bodyRevision + 1;
+            updates.bodyRevision = legacy.bodyRevision(content as string);
           }
           if (lockedIconChanged)
             updates.icon =

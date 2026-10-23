@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
 import {
   evaluateFeatureFlagRules,
@@ -52,15 +53,19 @@ export type LiveBodyWriterPageRow = Pick<
   | "orgId"
 >;
 
-export const liveBodyWriterPageColumns = {
-  id: schema.documents.id,
-  liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
-  bodyRevision: schema.documents.bodyRevision,
-  collabBodyRevision: schema.documents.collabBodyRevision,
-  liveCopyVersion: schema.documents.liveCopyVersion,
-  ownerEmail: schema.documents.ownerEmail,
-  orgId: schema.documents.orgId,
-};
+// Built on call, not at import: this module loads wherever a page's write path
+// is checked, including tests that mock the schema without `documents`.
+export function liveBodyWriterPageColumns() {
+  return {
+    id: schema.documents.id,
+    liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
+    bodyRevision: schema.documents.bodyRevision,
+    collabBodyRevision: schema.documents.collabBodyRevision,
+    liveCopyVersion: schema.documents.liveCopyVersion,
+    ownerEmail: schema.documents.ownerEmail,
+    orgId: schema.documents.orgId,
+  };
+}
 
 /**
  * Decides the write path for a page row the caller read under its row lock;
@@ -83,14 +88,86 @@ export async function liveBodyWriterGateForRow(
       });
       return (rows[0] as { version?: unknown } | undefined)?.version;
     },
-    options,
+    (page) => liveBodyWriterFlagsOn(page, options),
   );
+}
+
+/**
+ * `liveBodyWriterGateForRow` for rows locked together, in their order. The
+ * live copies' versions are read in one statement and the flags once per
+ * owner and organization, so a bulk writer doesn't hold its locks across
+ * reads for every page.
+ */
+export async function liveBodyWriterGatesForRows(
+  rows: readonly LiveBodyWriterPageRow[],
+  options: { transaction?: DbExec } = {},
+): Promise<LiveBodyWriterGate[]> {
+  const exec = options.transaction ?? getDbExec();
+  const switched = rows.filter((row) => row.liveBodySwitchedAt);
+  const versions = new Map<string, unknown>();
+  if (switched.length > 0) {
+    const { rows: docs } = await exec.execute({
+      sql: `SELECT doc_id, version FROM _collab_docs WHERE doc_id IN (${switched.map(() => "?").join(", ")})`,
+      args: switched.map((row) => row.id),
+    });
+    for (const doc of docs as Array<{ doc_id: unknown; version: unknown }>) {
+      versions.set(String(doc.doc_id), doc.version);
+    }
+  }
+  const flagsByScope = new Map<string, Promise<boolean>>();
+  const flagsOn = (
+    page: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">,
+  ) => {
+    const scope = JSON.stringify([page.ownerEmail, page.orgId]);
+    let on = flagsByScope.get(scope);
+    if (!on) {
+      on = liveBodyWriterFlagsOn(page, { transaction: exec });
+      flagsByScope.set(scope, on);
+    }
+    return on;
+  };
+  const gates: LiveBodyWriterGate[] = [];
+  for (const row of rows) {
+    gates.push(
+      await gateForMarkers(row, async () => versions.get(row.id), flagsOn),
+    );
+  }
+  return gates;
+}
+
+/** The refusal of a legacy body write to a page that switched in flight. */
+export function liveBodyWritePathChanged(documentId: string) {
+  return new ActionContractError(
+    `Page ${documentId} started taking writes through its live copy while this write was in flight. Read it again and retry.`,
+    {
+      errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+      statusCode: 409,
+      details: { documentId, reason: "live_copy" },
+    },
+  );
+}
+
+/**
+ * Refuses a legacy body write to a page that now writes its body through its
+ * live copy. Call it in the write's transaction, on the page row read under
+ * its lock: a page can switch after the writer chose the legacy path, and a
+ * SQL write then would never reach the live copy or the tabs open on it.
+ */
+export async function assertLegacyBodyWritePath(
+  row: LiveBodyWriterPageRow,
+  options: { transaction?: DbExec } = {},
+): Promise<void> {
+  if ((await liveBodyWriterGateForRow(row, options)).writePath === "legacy")
+    return;
+  throw liveBodyWritePathChanged(row.id);
 }
 
 async function gateForMarkers(
   row: LiveBodyWriterPageRow | null | undefined,
   readCollabVersion: (documentId: string) => Promise<unknown>,
-  options: { transaction?: DbExec },
+  flagsOn: (
+    page: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">,
+  ) => Promise<boolean>,
 ): Promise<LiveBodyWriterGate> {
   if (!row) return { writePath: "legacy", reason: "no_page" };
   if (!row.liveBodySwitchedAt)
@@ -105,7 +182,7 @@ async function gateForMarkers(
   );
   if (collabVersion === null || row.liveCopyVersion !== collabVersion)
     return { writePath: "legacy", reason: "stored_body_behind" };
-  return (await liveBodyWriterFlagsOn(row, options))
+  return (await flagsOn(row))
     ? { writePath: "live_copy" }
     : { writePath: "legacy", reason: "flag_off" };
 }
@@ -274,7 +351,7 @@ export async function liveBodyWriterGate(
   const context = readContext(options);
   const db = drizzleOverExec(context.executor);
   const [row] = await db
-    .select(liveBodyWriterPageColumns)
+    .select(liveBodyWriterPageColumns())
     .from(schema.documents)
     .where(eq(schema.documents.id, docId))
     .limit(1);
@@ -289,7 +366,7 @@ export async function liveBodyWriterGate(
   // guard:allow-unscoped — callers check access to the page first, and the gate returns only its write path.
   const [markers] = await db
     .select({
-      ...liveBodyWriterPageColumns,
+      ...liveBodyWriterPageColumns(),
       collabVersion: sql<unknown>`(SELECT collab.version FROM _collab_docs AS collab WHERE collab.doc_id = documents.id)`,
     })
     .from(schema.documents)
@@ -298,7 +375,11 @@ export async function liveBodyWriterGate(
   return gateForMarkers(
     markers,
     async () => markers?.collabVersion,
-    context.kind === "transaction" ? { transaction: context.executor } : {},
+    (page) =>
+      liveBodyWriterFlagsOn(
+        page,
+        context.kind === "transaction" ? { transaction: context.executor } : {},
+      ),
   );
 }
 

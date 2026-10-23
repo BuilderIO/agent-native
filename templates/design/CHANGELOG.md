@@ -5,6 +5,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-22
 
+### Added
+
+- Prototype links can play code-authored screen transitions.
+
 ### Fixed
 
 - Collapsed shader layers no longer interrupt other shaders on the canvas
@@ -53,6 +57,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The Design / Full app toggle on the home page no longer hides behind the Connect AI card.
 - Read-only Design views render native shader previews in nested frames.
 - Selected screens with shader effects can be exported together as a PNG
 - Shader previews stay aligned while you zoom.

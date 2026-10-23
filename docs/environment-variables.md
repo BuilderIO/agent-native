@@ -257,6 +257,7 @@ authority for defaults and accepted values.
 | `*_FILE` / `*_REVISION` / `HEAD_*` / `PR_*` / `REQUESTED_*` / `RUNNER_*`                                                                                                                                                                                                        | Additional CI handoff paths, revisions, pull-request, runner, and request metadata.         |
 | `ACTION` / `ACTOR` / `CALLER` / `DEPLOY` / `METHOD` / `OPERATION` / `TEMPLATE` / `WORKSPACE` / `TARGET` / `ROUTE` / `REF` / `SHA` / `TRUSTED_REPOSITORY`                                                                                                                        | Trusted-acceptance and deployment workflow selectors.                                       |
 | `MERGED` / `REPO` / `PUBLISHED` / `REDISPATCH`                                                                                                                                                                                                                                  | Internal workflow state and repository identifiers.                                         |
+| `RELEASE_PHASE`                                                                                                                                                                                                                                                                 | Internal phase selector for the reusable Release everything workflow.                       |
 | `RELEASE_TYPE`                                                                                                                                                                                                                                                                  | Manual stable npm package release bump selected by the package release workflow.            |
 | `CORE_VERSION` / `CORE_VERSION_INPUT`                                                                                                                                                                                                                                           | Core version the starter-template mirror checks out by release tag.                         |
 | `APPLE_*` / `MACOSX_*` / `GGML_*` / `NEON_*` / `CORE_CLI_VERSION` / `RELEASE_VERSION` / `RELEASE_VERSION_INPUT` / `RELEASE_SOURCE_REF_INPUT` / `RELEASE_CHANNEL` / `RELEASE_DIST_TAG` / `RELEASE_NAME_PREFIX` / `RELEASE_POINTER_TAG` / `RELEASE_TAG_PREFIX` / `EP_PRE_RELEASE` | Desktop signing, native build, preview-database, and CLI release settings.                  |
@@ -444,10 +445,11 @@ deterministic signup canary.
 
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,
-`ROLLBACK_SHA`, `ASSERTIONS`, `RELEASE_ERROR`, `TRIGGER`, and `RECAP_*`. They are workflow plumbing, not
-application configuration. The secrets and vars used by those workflows are
-listed in the workflow files under `.github/workflows`; values must be supplied
-through GitHub Actions secrets/variables, never committed to this repository.
+`ROLLBACK_SHA`, `ASSERTIONS`, `RELEASE_ERROR`, `PAYLOAD_OUTCOME`, `TRIGGER`,
+and `RECAP_*`. They are workflow plumbing, not application configuration. The
+secrets and vars used by those workflows are listed in the workflow files under
+`.github/workflows`; values must be supplied through GitHub Actions
+secrets/variables, never committed to this repository.
 
 The following variables are set by the CI workflow for job gates, test runners,
 and integration-test service containers only — they are not used in application

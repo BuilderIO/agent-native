@@ -137,6 +137,8 @@ const database = {
     "Änderungen werden geholt: {{done}} von {{total}} Dateien",
   githubPicturesWaiting:
     "Einige Bilder werden erst angezeigt, wenn ein Admin des Arbeitsbereichs den Dateispeicher einrichtet.",
+  githubPicturesNotSaved:
+    "Einige Bilder konnten nicht im Dateispeicher gespeichert werden. Jede Synchronisierung versucht es erneut.",
   githubReconnect: "GitHub erneut verbinden",
   githubProblemConnection:
     "Aktualisierung gestoppt: Du musst dich erneut bei GitHub anmelden.",
@@ -1225,6 +1227,10 @@ const comments = {
   proposalEditCount_other: "{{count}} Änderungen",
   acceptRemaining: "Übrige annehmen",
   rejectRemaining: "Übrige ablehnen",
+  acceptAll: "Alle annehmen",
+  rejectAll: "Alle ablehnen",
+  suggestionReviewReadOnly:
+    "Nur wer diese Seite bearbeiten kann, kann ihre Vorschläge annehmen oder ablehnen.",
   typeFilter: "Typ",
   statusFilter: "Status",
   authorFilter: "Person",
@@ -1681,6 +1687,13 @@ const overrides = {
   comments: {
     add: "Kommentar hinzufügen...",
     cancel: "Abbrechen",
+    discardCommentQuestion: "Kommentar verwerfen?",
+    discardReplyQuestion: "Antwort verwerfen?",
+    discardEditQuestion: "Änderungen verwerfen?",
+    discardDescription: "Was Sie geschrieben haben, geht verloren.",
+    discardEditDescription: "Ihr Kommentar bleibt unverändert.",
+    discard: "Verwerfen",
+    keepEditing: "Weiter bearbeiten",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",
