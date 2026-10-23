@@ -74,4 +74,42 @@ describe("safeReportLinkHref", () => {
     expect(safeReportLinkHref("data:text/html,x", BASE)).toBeNull();
     expect(safeReportLinkHref("", BASE)).toBeNull();
   });
+
+  it("blocks framework endpoints however the path is written", () => {
+    for (const href of [
+      "/%5Fagent-native/actions/run",
+      "/%255Fagent-native/actions/run",
+      "/%5fagent%2Dnative/auth/session",
+      "/dashboards/%2F_agent-native/actions/run",
+      "/analytics/_agent-native/actions/run",
+      "/\\_agent-native\\actions\\run",
+    ]) {
+      expect(safeReportLinkHref(href, BASE)).toBeNull();
+    }
+  });
+
+  it("blocks framework endpoints on the dashboard's own origin", () => {
+    expect(
+      safeReportLinkHref(
+        "https://analytics.example.com/_agent-native/actions/run",
+        BASE,
+      ),
+    ).toBeNull();
+    expect(
+      safeReportLinkHref(
+        "https://analytics.example.com/%5Fagent-native/actions/run",
+        BASE,
+      ),
+    ).toBeNull();
+    expect(
+      safeReportLinkHref("https://analytics.example.com/dashboards/prs", BASE),
+    ).toBe("https://analytics.example.com/dashboards/prs");
+    expect(
+      safeReportLinkHref("https://other.example.com/_agent-native/open", BASE),
+    ).toBe("https://other.example.com/_agent-native/open");
+  });
+
+  it("keeps a relative link on the dashboard's origin", () => {
+    expect(safeReportLinkHref("/\\evil.example.com/x", BASE)).toBeNull();
+  });
 });

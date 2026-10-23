@@ -3033,7 +3033,7 @@ function TableRenderer({
   }, [rows, config?.limit]);
 
   const [sortColumns, setSortColumns] = useState<TableSort[]>([]);
-  const [page, setPage] = useState(0);
+  const [requestedPage, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
   const sortedRows = useMemo(() => {
@@ -3043,6 +3043,9 @@ function TableRenderer({
   }, [limitedRows, sortColumns, sortable, savedColumns]);
 
   const pageCount = Math.ceil(sortedRows.length / pageSize);
+  // A refresh can return fewer rows than the page a viewer was on; show the
+  // last page that still has rows.
+  const page = Math.min(requestedPage, Math.max(pageCount - 1, 0));
   const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
 
   const numberColumns = useMemo(
@@ -3365,7 +3368,7 @@ function TableRenderer({
               variant="ghost"
               size="icon"
               className="h-6 w-6"
-              onClick={() => setPage((p) => p - 1)}
+              onClick={() => setPage(page - 1)}
               disabled={page === 0}
             >
               <IconChevronLeft className="h-3.5 w-3.5" />
@@ -3374,7 +3377,7 @@ function TableRenderer({
               variant="ghost"
               size="icon"
               className="h-6 w-6"
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => setPage(page + 1)}
               disabled={page >= pageCount - 1}
             >
               <IconChevronRight className="h-3.5 w-3.5" />

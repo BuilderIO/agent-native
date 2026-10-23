@@ -26,10 +26,45 @@ function escapeReportHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+function isWebProtocol(protocol: string): boolean {
+  return protocol === "http:" || protocol === "https:";
+}
+
+function decodePathSegments(pathname: string): string {
+  return pathname
+    .split("/")
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
+}
+
+/**
+ * Whether a path reaches the framework's `_agent-native` endpoints, under any
+ * base path, once percent-encoding (up to three layers) and backslashes are
+ * undone.
+ */
+function isFrameworkPath(pathname: string): boolean {
+  let candidate = pathname;
+  for (let pass = 0; pass <= 3; pass += 1) {
+    const normalized = candidate.replace(/\\/g, "/");
+    if (normalized.split("/").includes("_agent-native")) return true;
+    const decoded = decodePathSegments(normalized);
+    if (decoded === normalized) return false;
+    candidate = decoded;
+  }
+  return false;
+}
+
 /**
  * The URL a report link may point at, or null to show the link's text alone:
- * http(s) only, and a relative path resolves against the dashboard's origin,
- * except the framework's own `/_agent-native/` endpoints.
+ * http(s) only, and a relative path resolves against the dashboard's origin.
+ * Links on the dashboard's own origin never reach the framework's
+ * `_agent-native` endpoints.
  */
 export function safeReportLinkHref(
   href: string,
@@ -37,17 +72,21 @@ export function safeReportLinkHref(
 ): string | null {
   const trimmed = href.trim();
   if (!trimmed || trimmed.startsWith("//")) return null;
+  const origin =
+    baseUrl && URL.canParse(baseUrl) ? new URL(baseUrl).origin : null;
   if (trimmed.startsWith("/")) {
-    if (!baseUrl || !URL.canParse(baseUrl)) return null;
-    const resolved = new URL(trimmed, new URL(baseUrl).origin);
-    if (resolved.pathname.startsWith("/_agent-native/")) return null;
-    return resolved.protocol === "http:" || resolved.protocol === "https:"
-      ? resolved.href
-      : null;
+    if (!origin) return null;
+    const resolved = new URL(trimmed, origin);
+    if (resolved.origin !== origin || isFrameworkPath(resolved.pathname)) {
+      return null;
+    }
+    return isWebProtocol(resolved.protocol) ? resolved.href : null;
   }
   if (!URL.canParse(trimmed)) return null;
-  const protocol = new URL(trimmed).protocol;
-  return protocol === "http:" || protocol === "https:" ? trimmed : null;
+  const parsed = new URL(trimmed);
+  if (!isWebProtocol(parsed.protocol)) return null;
+  if (parsed.origin === origin && isFrameworkPath(parsed.pathname)) return null;
+  return trimmed;
 }
 
 /** Index just past the `]` closing the bracket at `open`, or -1. */
