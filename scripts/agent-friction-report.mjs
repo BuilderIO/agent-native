@@ -953,17 +953,18 @@ function isOtherProductMergeGate(sentence, gate) {
 }
 
 const PR_REVIEW_LINKED_COMMENT_URL = String.raw`(?:\[\s*)?(?:https?:\/\/)?github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+(?:#(?:issuecomment-\d+|discussion_r\d+|pullrequestreview-\d+)|\/comments\/\d+)`;
-const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+(?:they\s+)?should\s+do|what\s+happens\s+next)`;
+const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+(?:(?:they|the\s+author|the\s+contributor)\s+)?(?:(?:should\s+)?do|to\s+do)(?:\s+next)?|what\s+happens\s+next)`;
 const PR_REVIEW_NO_FEEDBACK_ACTION = String.raw`(?:say|saying|write|writing|use|using|tell|telling|reply|replying|post|posting|send|sending)`;
 const PR_REVIEW_NO_FEEDBACK_BRIDGE = String.raw`(?:\s+(?:with|that|to|as|me|them|someone|anyone|the\s+author|the\s+contributor|saying))?`;
-const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PR|pull\s+request)(?:\s+(?:comment|reply|response|review|thread))?\b`;
+const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PR|pull\s+request)(?:\s+(?:comment|reply|response|review|thread))?\b(?!\s+templates?\b)`;
 const PR_REVIEW_NO_FEEDBACK_TEXT = String.raw`(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback`;
 const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
   String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_BRIDGE}\s+['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b(?:[^.!?\n]{0,80}${PR_REVIEW_PR_CONTEXT}|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b[^.!?\n]{0,20}${PR_REVIEW_PR_CONTEXT}[^.!?\n]{0,50}\b${PR_REVIEW_NO_FEEDBACK_TEXT}\b)`,
   "i",
 );
+const PR_REVIEW_AMBIGUOUS_COMMENT_CORE = String.raw`(?:\b(?:I|you|we)\b[^.!?\n]{0,30}\b(?:should|must|need to)\s+(?:never|not)\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b)`;
 const PR_REVIEW_AMBIGUOUS_COMMENT_RE = new RegExp(
-  String.raw`(?:\b(?:I|you|we)\b[^.!?\n]{0,30}\b(?:should|must|need to)\s+(?:never|not)\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b)`,
+  String.raw`(?:${PR_REVIEW_AMBIGUOUS_COMMENT_CORE}[^.!?\n]{0,100}\b${PR_REVIEW_NEXT_ACTION_CUE}\b|\b${PR_REVIEW_NEXT_ACTION_CUE}\b[^.!?\n]{0,100}${PR_REVIEW_AMBIGUOUS_COMMENT_CORE})`,
   "i",
 );
 const PR_REVIEW_AMBIGUOUS_LINKED_COMMENT_RE = new RegExp(
@@ -1099,9 +1100,18 @@ const PR_REVIEW_DISPOSITION_REGEX_CASES = [
     true,
     "I should never leave the PR comment ambiguous about the next action.",
   ],
+  [true, "Don't leave the PR reply vague; tell the author what to do next."],
+  [
+    false,
+    "The template says don't leave the PR comment vague when documenting the artifact.",
+  ],
   [
     true,
     "Don’t say in the pull request reply that ‘I have no further feedback’; name the next action.",
+  ],
+  [
+    false,
+    "Don't say 'I have no further feedback' in PR templates; the wording is generic.",
   ],
   [
     true,
