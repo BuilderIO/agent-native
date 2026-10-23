@@ -2708,7 +2708,14 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     });
   });
 
-  it.each(["journal", "delivery evidence", "thread", "transcript", "claim"])(
+  it.each([
+    "journal",
+    "delivery evidence",
+    "thread",
+    "transcript",
+    "claim",
+    "projection",
+  ])(
     "keeps unfinished history retryable after a temporary %s storage failure",
     async (failureAt) => {
       const store = await import("../agent/run-store.js");
@@ -2782,6 +2789,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
           new Error("evidence database temporarily unavailable"),
         );
       const finish = vi.spyOn(history, "finishAutomationRun");
+      const projection = vi.spyOn(store, "retryRunThreadProjection");
       const claim = vi
         .spyOn(store, "tryClaimRunSlot")
         .mockImplementation(async (id, runId, _staleMs, options) => {
@@ -2795,6 +2803,10 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       if (failureAt === "journal")
         journal.mockRejectedValueOnce(
           new Error("journal database temporarily unavailable"),
+        );
+      else if (failureAt === "projection")
+        projection.mockRejectedValueOnce(
+          new Error("projection database temporarily unavailable"),
         );
       else if (failureAt === "delivery evidence")
         getSystemPrompt.mockRejectedValueOnce(
@@ -2890,6 +2902,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
         journal.mockRestore();
         ref.mockRestore();
         evidence.mockRestore();
+        projection.mockRestore();
         finish.mockRestore();
         claim.mockRestore();
         getThreadMock.mockReset();
@@ -2940,6 +2953,80 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     } finally {
       attach.mockRestore();
     }
+  });
+
+  it("records an outcome when a resumed predecessor has corrupt projected thread data", async () => {
+    const runStore = await import("../agent/run-store.js");
+    const history = await import("./run-history.js");
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("corrupt-predecessor-projection");
+    const threadId = `thread-corrupt-projection-${Date.now()}`;
+    const turnId = `turn-corrupt-projection-${Date.now()}`;
+    const previousRunId = `run-corrupt-projection-${Date.now()}`;
+    const historyId = await history.startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+      runId: previousRunId,
+      threadId,
+    });
+    await runStore.insertRun(previousRunId, threadId, turnId);
+    await runStore.insertRunEvent(
+      previousRunId,
+      0,
+      JSON.stringify({ type: "text", text: "Persisted assistant output" }),
+    );
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(Date.now(), previousRunId);
+    getThreadMock.mockResolvedValueOnce({
+      id: threadId,
+      title: "Interrupted",
+      preview: "",
+      messageCount: 1,
+      threadData: "not valid JSON",
+    });
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+
+    await expect(
+      runBackgroundAutomation(
+        runOptions(automation, {
+          historyId,
+          resume: {
+            historyId,
+            threadId,
+            turnId,
+            previousRunId,
+            hardDeadlineAt: Date.now() + 60_000,
+          },
+        }),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({ errorCode: "tool_call_journal_unreadable" });
+
+    expect(await history.getAutomationRun(historyId)).toMatchObject({
+      runId: previousRunId,
+      status: "error",
+      finishedAt: expect.any(Number),
+      errorCode: "tool_call_journal_unreadable",
+    });
+    const marker = (await pglite
+      .prepare(
+        `SELECT thread_projection_pending, thread_projection_retry_order
+         FROM agent_runs WHERE id = ?`,
+      )
+      .get(previousRunId)) as {
+      thread_projection_pending: boolean;
+      thread_projection_retry_order: number | null;
+    };
+    expect(marker.thread_projection_pending).toBe(true);
+    expect(marker.thread_projection_retry_order).not.toBeNull();
+    expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
   });
 
   it.each([

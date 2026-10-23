@@ -4636,8 +4636,38 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
   // that worker still saves its own reply.
   if (!row || row.status === "running") return null;
   const events: RunEvent[] = [];
-  for (const { seq, eventData } of await getRunEventsSince(runId, 0)) {
-    events.push({ seq, event: JSON.parse(eventData) as AgentChatEvent });
+  for (const [rowIndex, { seq, eventData }] of (
+    await getRunEventsSince(runId, 0)
+  ).entries()) {
+    if (!Number.isSafeInteger(seq) || seq < 0) {
+      throw new AgentRunJournalUnreadableError(
+        row.thread_id,
+        row.turn_id,
+        rowIndex,
+        "invalid_row",
+      );
+    }
+    let event: unknown;
+    try {
+      event = JSON.parse(eventData);
+    } catch (cause) {
+      throw new AgentRunJournalUnreadableError(
+        row.thread_id,
+        row.turn_id,
+        rowIndex,
+        "invalid_event_json",
+        { cause },
+      );
+    }
+    if (!isReadableJournalEvent(event)) {
+      throw new AgentRunJournalUnreadableError(
+        row.thread_id,
+        row.turn_id,
+        rowIndex,
+        "invalid_event",
+      );
+    }
+    events.push({ seq, event });
   }
   return {
     threadId: row.thread_id,
@@ -4956,7 +4986,9 @@ export class AgentRunJournalUnreadableError extends Error {
       | "invalid_turn"
       | "invalid_row"
       | "invalid_event_json"
-      | "invalid_event",
+      | "invalid_event"
+      | "invalid_thread_data"
+      | "invalid_execution_step",
     options?: ErrorOptions,
   ) {
     super(automationRecoveryMessagesForLocale().unreadable, options);
