@@ -968,6 +968,37 @@ describe("task execution leases", () => {
     ).toBeNull();
   });
 
+  it("resets a prepared or dispatched step before its handler starts", async () => {
+    const threadId = "thread-reset-before-invocation";
+    const turnId = "turn-reset-before-invocation";
+    const runId = "run-reset-before-invocation";
+    const stepId = "step-reset-before-invocation";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const intent = {
+      ...fence,
+      stepId,
+      operationId: "test:reset-before-invocation",
+      toolName: "write",
+      inputJson: "{}",
+      replayPolicy: "never" as const,
+    };
+
+    await withExecutionFence(fence, async () => {
+      await beginAgentExecutionStep(intent);
+      await resetAgentExecutionStepBeforeInvocation(intent);
+      await markAgentExecutionStepDispatched(intent);
+      await resetAgentExecutionStepBeforeInvocation(intent);
+    });
+
+    const step = await pglite.query(
+      `SELECT status FROM agent_execution_steps
+        WHERE thread_id = ? AND turn_id = ? AND step_id = ?`,
+      [threadId, turnId, stepId],
+    );
+    expect(step.rows[0]).toMatchObject({ status: "prepared" });
+  });
+
   it("commits terminal status and failure details before a successor claims", async () => {
     const threadId = "thread-terminal-state-fence";
     const turnId = "terminal-state-fence";

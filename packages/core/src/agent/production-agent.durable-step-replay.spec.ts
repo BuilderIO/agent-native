@@ -1798,11 +1798,13 @@ describe("durable execution step replay", () => {
       claimTurnExecutionLease,
       insertRun,
       markAgentExecutionStepDispatched,
+      resetAgentExecutionStepBeforeInvocation,
       markAgentExecutionStepUnknown,
     } = await import("./run-store.js");
     const runId = `durable-marker-cancel-${Date.now()}`;
     const threadId = `thread-${runId}`;
     const turnId = runId;
+    vi.mocked(resetAgentExecutionStepBeforeInvocation).mockClear();
     await insertRun(runId, threadId, turnId);
     const executionFence = await claimTurnExecutionLease(
       threadId,
@@ -1835,13 +1837,20 @@ describe("durable execution step replay", () => {
         signal: controller.signal,
       }),
     );
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
 
     await markerEntered;
     controller.abort();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
     releaseMarker();
     await pending;
 
     expect(actionRun).not.toHaveBeenCalled();
+    expect(resetAgentExecutionStepBeforeInvocation).toHaveBeenCalledOnce();
   });
 
   it("bounds an oversized replay projection without losing the committed result", async () => {

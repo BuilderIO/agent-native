@@ -852,7 +852,7 @@ export async function resetAgentExecutionStepBeforeInvocation(
                   updated_at = clock_timestamp()
               WHERE thread_id = ? AND turn_id = ? AND step_id = ?
                 AND run_id = ? AND generation = CAST(? AS BIGINT)
-                AND status = 'dispatched'`,
+                AND status IN ('prepared', 'dispatched')`,
         args: [
           intent.threadId,
           intent.turnId,
@@ -2802,6 +2802,7 @@ async function reconcileTerminalRunInRecoveryTransaction(
               error_detail = ?,
               terminal_reason = ?
           WHERE id = ? AND status = 'running'
+            AND ${earlierTurnProjectionPendingSql()}
           ${ENDED_RUN_RETURNING}`,
     args: [
       status,
@@ -5165,6 +5166,7 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
   const scanned = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
+            AND ${earlierTurnProjectionPendingSql()}
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
           ORDER BY started_at ASC
           LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,

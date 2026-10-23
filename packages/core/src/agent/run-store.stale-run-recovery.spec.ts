@@ -1556,6 +1556,80 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
     expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("defers terminal-event repair behind an earlier run projection", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    const laterRunId = `${runId}-later`;
+    await insertRun(runId, thread, turn, { continuationOrder: 0 });
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(Date.now(), runId);
+    await insertRun(laterRunId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({
+        prompt: "Continue after earlier work",
+      }),
+      continuationOrder: 1,
+    });
+    await pglite
+      .prepare(
+        "INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)",
+      )
+      .run(laterRunId, 0, Date.now(), JSON.stringify({ type: "done" }));
+    await setStaleLiveness(laterRunId, Date.now() - STALE_PAST_MS);
+    foldReapedRunIntoThreadMock.mockImplementation(async (foldedRunId) =>
+      foldedRunId === runId ? "retry" : "projected",
+    );
+
+    const swept = await reapAllStaleRuns();
+
+    expect(swept).toEqual({ reaped: 0, failed: 1, truncated: false });
+    expect((await readRow(laterRunId))?.status).toBe("running");
+    expect(foldReapedRunIntoThreadMock).not.toHaveBeenCalledWith(laterRunId);
+  });
+
+  it("does not let projection-blocked rows starve later stale runs", async () => {
+    currentClient = makeRawClient(true);
+    const blockedCount = 201;
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { continuationOrder: 0 });
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(Date.now(), runId);
+    for (let order = 1; order <= blockedCount; order += 1) {
+      await insertRun(`${runId}-blocked-${order}`, thread, turn, {
+        continuationOrder: order,
+      });
+    }
+    const staleAt = Date.now() - STALE_PAST_MS;
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET started_at = 1, heartbeat_at = ?, last_progress_at = ?
+         WHERE thread_id = ? AND id <> ?`,
+      )
+      .run(staleAt, staleAt, thread, runId);
+    const eligible = ids();
+    await insertRun(eligible.runId, eligible.thread, eligible.turn);
+    await setStaleLiveness(eligible.runId, staleAt);
+    foldReapedRunIntoThreadMock.mockImplementation(async (foldedRunId) =>
+      foldedRunId === runId ? "retry" : "projected",
+    );
+
+    const swept = await reapAllStaleRuns();
+
+    expect(swept).toEqual({ reaped: 1, failed: 1, truncated: false });
+    expect((await readRow(eligible.runId))?.status).toBe("errored");
+  });
+
   it("defers recovered successors until their predecessor projection can be retried", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();

@@ -8837,6 +8837,7 @@ export async function runAgentLoop(opts: {
       let toolDonePersistenceFailed = false;
       let executionStepFinalizationAttempted = false;
       let executionStepDispatched = false;
+      let executionStepDispatchWrite: Promise<void> | undefined;
       let executionStepOutcomeRecorded = false;
       let actionInvoked = false;
       // Live once invoked, so an abandoned call still reads what ran in it.
@@ -10013,8 +10014,12 @@ export async function runAgentLoop(opts: {
               throw new Error("Run aborted");
             }
             if (executionStepIntent) {
-              await markAgentExecutionStepDispatched(executionStepIntent);
-              executionStepDispatched = true;
+              executionStepDispatchWrite = markAgentExecutionStepDispatched(
+                executionStepIntent,
+              ).then(() => {
+                executionStepDispatched = true;
+              });
+              await executionStepDispatchWrite;
             }
             if (timeoutSignal.aborted) {
               throw new Error(timeoutMessage());
@@ -10465,11 +10470,15 @@ export async function runAgentLoop(opts: {
           }
         }
 
-        if (executionStepIntent && executionStepDispatched) {
+        if (
+          executionStepIntent &&
+          (executionStepDispatched || executionStepDispatchWrite)
+        ) {
           executionStepFinalizationAttempted = true;
           if (!actionInvoked) {
             // The dispatch marker can persist while cancellation wins; it does
             // not prove the action handler started.
+            await executionStepDispatchWrite?.catch(() => {});
             await resetAgentExecutionStepBeforeInvocation(executionStepIntent);
           } else if (toolResultLost || callEffect === "unknown") {
             await markAgentExecutionStepUnknown(executionStepIntent);
