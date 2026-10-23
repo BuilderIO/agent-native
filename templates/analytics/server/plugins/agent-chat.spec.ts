@@ -2567,6 +2567,72 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   it.each([
     [
       "time range",
+      { timeRange: activeAccountsRange },
+      { timeRange: activeAccountsRange, groupBy: [] },
+      question,
+      "Active accounts were 10 last month.",
+    ],
+    [
+      "all-time scope",
+      { allTime: true },
+      { allTime: true, groupBy: [] },
+      "How many active accounts have we had overall?",
+      "We have had 10 active accounts overall.",
+    ],
+  ])(
+    "clears a scalar dbt failure when groupBy is omitted for %s",
+    async (_scope, inputScope, querySpec, userText, draftText) => {
+      const activeSuccess = {
+        name: "query-dbt-semantic-metric",
+        toolCallId: "dbt-success",
+        isError: false,
+        content: JSON.stringify({
+          status: "success",
+          metricName: "active_accounts",
+          truncated: false,
+          querySpec,
+          rows: [{ active_accounts: 10 }],
+        }),
+      };
+      const { asked, result } = await judged(
+        {
+          userText,
+          draftText,
+          toolCalls: [
+            {
+              toolCallId: "dbt-failure",
+              name: "query-dbt-semantic-metric",
+              input: { metricName: "active_accounts", ...inputScope },
+            },
+            {
+              toolCallId: "dbt-success",
+              name: "query-dbt-semantic-metric",
+              input: { metricName: "active_accounts", ...inputScope },
+            },
+          ],
+          toolResults: [
+            {
+              ...dbtNotFound,
+              toolCallId: "dbt-failure",
+              content: JSON.stringify({
+                status: "not_found",
+                metricName: "active_accounts",
+              }),
+            },
+            activeSuccess,
+          ],
+        },
+        "YES",
+      );
+
+      expect(asked).toHaveLength(0);
+      expect(result).toBeNull();
+    },
+  );
+
+  it.each([
+    [
+      "time range",
       { timeRange: activeAccountsRange, groupBy: [] },
       {
         timeRange: { startDate: "2026-08-01", endDate: "2026-08-31" },

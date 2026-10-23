@@ -827,25 +827,22 @@ function dbtQueryForResult(
       ? null
       : dbtQuerySpecKey(inputMetricName, output.querySpec);
   if (output.querySpec !== undefined && outputScope === null) return null;
-  const inputScope =
-    input.groupBy === undefined
-      ? null
-      : dbtQuerySpecKey(inputMetricName, {
-          groupBy: input.groupBy,
-          ...(input.timeRange !== undefined
-            ? { timeRange: input.timeRange }
-            : {}),
-          ...(input.allTime !== undefined ? { allTime: input.allTime } : {}),
-        });
-  if (input.groupBy !== undefined && inputScope === null) return null;
+  const hasInputScope =
+    input.groupBy !== undefined ||
+    input.timeRange !== undefined ||
+    input.allTime !== undefined;
+  const inputScope = hasInputScope
+    ? dbtQuerySpecKey(inputMetricName, {
+        groupBy: input.groupBy ?? [],
+        ...(input.timeRange !== undefined
+          ? { timeRange: input.timeRange }
+          : {}),
+        ...(input.allTime !== undefined ? { allTime: input.allTime } : {}),
+      })
+    : null;
+  if (hasInputScope && inputScope === null) return null;
   if (outputScope && inputScope && outputScope !== inputScope) return null;
   const querySpecKey = outputScope ?? inputScope;
-  if (
-    inputScope === null &&
-    (input.timeRange !== undefined || input.allTime !== undefined)
-  ) {
-    return null;
-  }
   return {
     metricName: String(input.metricName).trim(),
     metricKey: inputMetricName,
