@@ -662,6 +662,89 @@ describe("content collection", () => {
     },
   );
 
+  it.each(["succeeds", "fails"])(
+    "keeps newer GA4 snapshots and terminal run states when an abandoned request later %s",
+    async (completion) => {
+      const collection = await onlySteps({ builderBlog: true, ga4: true });
+      feed(article("a1"));
+      await collectContentForCollection(collection, {
+        trigger: "manual",
+        steps: ["builder_blog"],
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      let releaseOld!: (rows: ReturnType<typeof ga4Row>[]) => void;
+      let rejectOld!: (error: Error) => void;
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const oldReport = new Promise<ReturnType<typeof ga4Row>[]>(
+        (resolve, reject) => {
+          releaseOld = resolve;
+          rejectOld = reject;
+        },
+      );
+      mocks.runFullReport.mockImplementationOnce(() => {
+        markStarted();
+        return oldReport;
+      });
+      const older = collectContentForCollection(collection, {
+        trigger: "manual",
+        steps: ["ga4"],
+        now: new Date("2026-10-15T07:00:00Z"),
+      });
+      await started;
+      try {
+        const updated = await writeContentCollection(ORG_A, {
+          enabled: true,
+          config: {
+            ...collection.config,
+            ga4: { enabled: true, propertyId: "987654321" },
+          },
+        });
+        mocks.runFullReport.mockResolvedValueOnce([
+          ga4Row("20261014", "/blog/post-a1", 7),
+        ]);
+        expect(
+          await collectContentForCollection(updated, {
+            trigger: "manual",
+            steps: ["ga4"],
+            now: new Date("2026-10-15T07:31:00Z"),
+          }),
+        ).toEqual([expect.objectContaining({ status: "succeeded" })]);
+        const savedSnapshots = await snapshots("ga4_pageviews");
+        expect(savedSnapshots).toContainEqual({
+          external_id: "a1",
+          metric_date: "2026-10-14",
+          value: 7,
+          source: "ga4",
+        });
+        const savedRuns = await rows(
+          "SELECT status, error_code, finished_at, config_fingerprint FROM analytics_content_collection_runs WHERE step = 'ga4' ORDER BY started_at",
+        );
+        expect(savedRuns.map((run) => [run.status, run.error_code])).toEqual([
+          ["failed", "abandoned"],
+          ["succeeded", null],
+        ]);
+        if (completion === "fails")
+          rejectOld(new Error("late provider failure"));
+        else releaseOld([ga4Row("20261013", "/blog/post-a1", 99)]);
+        expect(await older).toEqual([
+          expect.objectContaining({ status: "failed" }),
+        ]);
+        expect(await snapshots("ga4_pageviews")).toEqual(savedSnapshots);
+        expect(
+          await rows(
+            "SELECT status, error_code, finished_at, config_fingerprint FROM analytics_content_collection_runs WHERE step = 'ga4' ORDER BY started_at",
+          ),
+        ).toEqual(savedRuns);
+      } finally {
+        releaseOld([]);
+        await older;
+      }
+    },
+  );
+
   it("does not query the shared property when the collection has no GA4 property", async () => {
     const collection = await onlySteps({ builderBlog: true, ga4: true });
     await writeContentCollection(ORG_A, {
