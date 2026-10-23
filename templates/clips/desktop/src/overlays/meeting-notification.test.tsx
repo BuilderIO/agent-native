@@ -196,6 +196,8 @@ describe("meeting notification recovery", () => {
         payload: { meetingId: "meeting-b", reason: "shown" },
       });
     } finally {
+      // jsdom has no elementFromPoint, so removing the stub restores it.
+      Reflect.deleteProperty(document, "elementFromPoint");
       vi.useRealTimers();
     }
   });
