@@ -557,7 +557,8 @@ function isSafeStaticRuntimeStateHandler(
   let program: unknown;
   try {
     program = parseJavaScript(value, { ecmaVersion: "latest" });
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
     return false;
   }
   if (!isJavaScriptNode(program) || !Array.isArray(program.body)) return false;
@@ -611,7 +612,8 @@ function isStaticAlpineBootstrapRuntime(node: HtmlNode): boolean {
       ecmaVersion: "latest",
       sourceType: "module",
     });
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
     return false;
   }
   if (!isJavaScriptNode(program) || !Array.isArray(program.body)) return false;
@@ -640,7 +642,7 @@ function isStaticAlpineBootstrapRuntime(node: HtmlNode): boolean {
     return false;
   }
 
-  const startCall = afterImport.at(-1);
+  const startCall = afterImport[afterImport.length - 1];
   if (
     !isJavaScriptNode(startCall) ||
     startCall.type !== "ExpressionStatement" ||
@@ -988,6 +990,15 @@ function assertExecutableScriptsSafe(
     }
 
     if (node.tagName !== "script") continue;
+    if (
+      alpineBootstrap &&
+      attributes(node, "type")[0]?.value.trim().toLowerCase() === "importmap"
+    ) {
+      sourceError(
+        "unsupported-target",
+        "HTML Motion targets cannot be synchronized safely while an executable script may change their class or style.",
+      );
+    }
     if (
       !isExecutableScript(node) &&
       !hasPotentialRuntimeMutationHandler(node.attrs)

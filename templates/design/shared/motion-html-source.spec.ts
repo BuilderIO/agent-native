@@ -261,6 +261,40 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it("fails closed when an import map can redirect the managed Alpine runtime", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        '<main x-data="{ open: true }" @click="open = !open">',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" x-show="open">Hello</h1>',
+      )
+      .replace(
+        "</body>",
+        '<script type="importmap">{"imports":{"alpinejs":"/custom-alpine.js"}}</script>\n<script type="module">import Alpine from "alpinejs"; Alpine.start();</script>\n</body>',
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+    });
+
+    let writeError: unknown;
+    try {
+      apply(source);
+    } catch (error) {
+      writeError = error;
+    }
+    expect(writeError).toMatchObject({ code: "unsupported-target" });
+  });
+
   it.each([
     ['x-show="visible"', '<main class="card">'],
     ['x-show="open || visible"', '<main x-data="{ open: true }">'],
