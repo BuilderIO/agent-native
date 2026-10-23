@@ -1334,7 +1334,7 @@ async function nextContinuationOrder(
 ): Promise<number> {
   await lockContinuationOrder(db, threadId, turnId);
   const { rows } = await db.execute({
-    sql: `SELECT MAX(continuation_order) AS max_order
+    sql: `SELECT MAX(COALESCE(continuation_order, 0)) AS max_order
           FROM agent_runs
           WHERE thread_id = ? AND COALESCE(turn_id, id) = ?`,
     args: [threadId, turnId],
@@ -1429,8 +1429,15 @@ function earlierTurnProjectionPendingSql(): string {
           COALESCE(agent_runs.turn_id, agent_runs.id)
       AND pending_projection.id <> agent_runs.id
       AND pending_projection.thread_projection_pending IS TRUE
-      AND COALESCE(pending_projection.continuation_order, 0) <
-          COALESCE(agent_runs.continuation_order, 0)
+      AND (
+        COALESCE(pending_projection.continuation_order, 0) <
+            COALESCE(agent_runs.continuation_order, 0)
+        OR (
+          COALESCE(pending_projection.continuation_order, 0) =
+              COALESCE(agent_runs.continuation_order, 0)
+          AND pending_projection.started_at <= agent_runs.started_at
+        )
+      )
   )`;
 }
 
@@ -3092,6 +3099,7 @@ export async function reapUnclaimedBackgroundRun(
               AND status = 'running'
               AND dispatch_mode = 'background'
               AND COALESCE(heartbeat_at, started_at) < ?
+              AND ${earlierTurnProjectionPendingSql()}
             ${ENDED_RUN_RETURNING}`,
       args: [
         completedAt,

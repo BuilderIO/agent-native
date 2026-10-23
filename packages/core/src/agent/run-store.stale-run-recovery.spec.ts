@@ -115,6 +115,7 @@ const {
   listUnclaimedBackgroundRunRows,
   reapIfStale,
   reapAllStaleRuns,
+  reapUnclaimedBackgroundRun,
   cleanupOldRuns,
   failRunBeforeDispatch,
   markRunAbortedAtSafeBoundary,
@@ -740,6 +741,53 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const reapedAgain = await reapIfStale(runId);
     expect(reapedAgain).toBe(false);
     expect(await rowsForTurn(turn)).toHaveLength(2);
+  });
+
+  it("keeps a legacy-order recovery successor unclaimable and unreapable until predecessor projection finishes", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ message: "recover this turn" }),
+    });
+    expect(await claimBackgroundRun(runId)).toBe(true);
+    const staleAt = Date.now() - STALE_PAST_MS;
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET continuation_order = NULL, started_at = ?, heartbeat_at = ?,
+             last_progress_at = ?
+         WHERE id = ?`,
+      )
+      .run(staleAt, staleAt, staleAt, runId);
+    foldReapedRunIntoThreadMock.mockResolvedValueOnce("retry");
+
+    expect(await reapIfStale(runId)).toBe(true);
+    const [successor] = (await pglite
+      .prepare(
+        `SELECT id, continuation_order FROM agent_runs
+         WHERE thread_id = ? AND id <> ?`,
+      )
+      .all(thread, runId)) as Array<{
+      id: string;
+      continuation_order: number;
+    }>;
+    expect(successor).toMatchObject({ continuation_order: 1 });
+    expect(await claimBackgroundRun(successor!.id)).toBe(false);
+
+    await setStaleLiveness(
+      successor!.id,
+      Date.now() - UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 1_000,
+    );
+    expect(await reapUnclaimedBackgroundRun(successor!.id)).toBe(false);
+    expect((await readRow(successor!.id))?.status).toBe("running");
+
+    await pglite
+      .prepare(
+        "UPDATE agent_runs SET thread_projection_pending = FALSE WHERE id = ?",
+      )
+      .run(runId);
+    expect(await claimBackgroundRun(successor!.id)).toBe(true);
   });
 
   it("does not let another thread's reused turn id suppress stale recovery", async () => {

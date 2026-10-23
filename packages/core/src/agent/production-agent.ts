@@ -8835,6 +8835,7 @@ export async function runAgentLoop(opts: {
       let toolDoneEmitted = false;
       let toolDonePersistenceFailed = false;
       let executionStepFinalizationAttempted = false;
+      let executionStepDispatched = false;
       let executionStepOutcomeRecorded = false;
       let actionInvoked = false;
       // Live once invoked, so an abandoned call still reads what ran in it.
@@ -9857,6 +9858,7 @@ export async function runAgentLoop(opts: {
         if (cacheKey && cachedResult) {
           if (executionStepIntent) {
             await markAgentExecutionStepDispatched(executionStepIntent);
+            executionStepDispatched = true;
           }
           const previousResult = cachedResult.content;
           const visible = isCachedToolResultVisibleInContext(
@@ -10011,6 +10013,7 @@ export async function runAgentLoop(opts: {
             }
             if (executionStepIntent) {
               await markAgentExecutionStepDispatched(executionStepIntent);
+              executionStepDispatched = true;
             }
             if (timeoutSignal.aborted) {
               throw new Error(timeoutMessage());
@@ -10364,7 +10367,7 @@ export async function runAgentLoop(opts: {
           thrown = err;
           toolReportedError = false;
           toolResultLost =
-            signal.aborted ||
+            (signal.aborted && (actionInvoked || executionStepDispatched)) ||
             isToolCallTimeoutResult(String((err as Error)?.message ?? err));
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
@@ -10461,7 +10464,7 @@ export async function runAgentLoop(opts: {
           }
         }
 
-        if (executionStepIntent) {
+        if (executionStepIntent && executionStepDispatched) {
           executionStepFinalizationAttempted = true;
           if (toolResultLost || callEffect === "unknown") {
             await markAgentExecutionStepUnknown(executionStepIntent);

@@ -142,6 +142,56 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
+  it("leaves a prepared write retryable when interrupted before dispatch", async () => {
+    const controller = new AbortController();
+    const actionRun = vi.fn(async () => "Deck saved");
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: {
+          type: "object" as const,
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    const runStore = await import("./run-store.js");
+    vi.mocked(runStore.markAgentExecutionStepDispatched).mockClear();
+    vi.mocked(runStore.markAgentExecutionStepUnknown).mockClear();
+    vi.mocked(runStore.completeAgentExecutionStep).mockClear();
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("interrupted-write", { id: "deck-1" })]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Create a deck." }],
+          },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: () => {},
+        signal: controller.signal,
+        beforeWrite: async () => controller.abort(),
+      }),
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(runStore.markAgentExecutionStepDispatched).not.toHaveBeenCalled();
+    expect(runStore.markAgentExecutionStepUnknown).not.toHaveBeenCalled();
+    expect(runStore.completeAgentExecutionStep).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       label: "different inputs",
