@@ -1536,6 +1536,10 @@ div[data-notion-column] > :last-child {
   line-height: 1.4;
 }
 
+.media-block__broken--fill {
+  width: 100%;
+}
+
 .media-block__broken-icon {
   width: 1.75rem;
   height: 1.75rem;

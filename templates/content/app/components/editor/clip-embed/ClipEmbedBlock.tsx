@@ -79,7 +79,10 @@ function ClipMessage({
   action?: ReactNode;
 }) {
   return (
-    <div className="media-block__broken w-full max-w-none" role="status">
+    <div
+      className="media-block__broken media-block__broken--fill"
+      role="status"
+    >
       <IconMovie className="media-block__broken-icon" aria-hidden />
       <div className="media-block__broken-copy">
         <span className="media-block__broken-title">{message}</span>
