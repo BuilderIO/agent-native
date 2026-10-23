@@ -1901,8 +1901,12 @@ export default {
         small: "Desplazamiento pequeño",
         big: "Desplazamiento grande",
         unit: "px",
-        description:
-          "Las flechas mueven la cantidad pequeña y Mayús flecha la grande. Dentro de un marco de autodiseño, las flechas reordenan la capa.",
+        close: "Cerrar cantidad de desplazamiento",
+        done: "Listo",
+        smallDescription:
+          "Define cuántos píxeles se mueve un objeto al usar las flechas.",
+        bigDescription:
+          "Define cuántos píxeles se mueve un objeto al usar Mayús + flechas.",
       },
       keys: {
         or: "o",

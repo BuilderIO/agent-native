@@ -187,38 +187,6 @@ describe("KeyboardShortcutsDialog", () => {
     expect(categoryButtons()[0]?.getAttribute("aria-current")).toBeNull();
   });
 
-  it("keeps the nudge-size fields in the Cursor section", async () => {
-    const onNudgeAmountsChange = vi.fn();
-    await renderDialog({
-      nudgeAmounts: { small: 1, big: 10 },
-      onNudgeAmountsChange,
-    });
-    const field = document.querySelector<HTMLInputElement>(
-      '[data-shortcut-section="cursor"] [data-nudge-amount="big"]',
-    )!;
-    expect(field.value).toBe("10");
-    const setter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )!.set!;
-    await act(async () => {
-      setter.call(field, "25");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(onNudgeAmountsChange).toHaveBeenCalledWith({ small: 1, big: 25 });
-  });
-
-  it("focuses the small nudge field when opened for the nudge amount", async () => {
-    await renderDialog({
-      initialFocus: "nudge",
-      nudgeAmounts: { small: 1, big: 10 },
-      onNudgeAmountsChange: vi.fn(),
-    });
-    expect(document.activeElement).toBe(
-      document.querySelector('[data-nudge-amount="small"]'),
-    );
-  });
-
   it("closes on Escape and consumes the event so editor hotkeys never see it", async () => {
     const { onClose } = await renderDialog();
     const event = new KeyboardEvent("keydown", {

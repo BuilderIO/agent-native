@@ -2230,8 +2230,10 @@ export default {
         small: "小距離",
         big: "大距離",
         unit: "px",
-        description:
-          "方向鍵以小距離移動，Shift 方向鍵以大距離移動。在自動版面配置框架內，方向鍵改為調整圖層順序。",
+        close: "關閉微調距離",
+        done: "完成",
+        smallDescription: "設定使用方向鍵時物件移動的像素數。",
+        bigDescription: "設定使用 Shift + 方向鍵時物件移動的像素數。",
       },
       keys: {
         or: "或",
