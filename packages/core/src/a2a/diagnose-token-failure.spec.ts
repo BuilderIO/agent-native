@@ -24,6 +24,7 @@ const ORG = { orgId: "org-1", orgDomain: "example.test" };
 async function sign(
   options: {
     secret?: string;
+    algorithm?: "HS256" | "HS384" | "HS512";
     audience?: string;
     expiresIn?: string | number;
     claims?: Record<string, unknown>;
@@ -35,7 +36,7 @@ async function sign(
       org_domain: "example.test",
     },
   )
-    .setProtectedHeader({ alg: "HS256" })
+    .setProtectedHeader({ alg: options.algorithm ?? "HS256" })
     .setIssuer("https://workspace.example.test")
     .setIssuedAt()
     .setExpirationTime(options.expiresIn ?? "1m");
@@ -63,7 +64,21 @@ describe("diagnoseA2ATokenFailure", () => {
     mocks.resolveMetadataById.mockReset();
   });
 
-  describe("a token the deploy secret verifies", () => {
+  describe("a token signed with the deploy secret", () => {
+    it.each([
+      ["HS256", "undetermined"],
+      ["HS384", "algorithm"],
+      ["HS512", "algorithm"],
+    ] as const)(
+      "uses the verifier's algorithm policy for %s",
+      async (algorithm, cause) => {
+        mocks.resolveMetadataByDomain.mockResolvedValue(ORG);
+        await expect(
+          diagnoseA2ATokenFailure(await sign({ algorithm })),
+        ).resolves.toBe(cause);
+      },
+    );
+
     it("says the organization could not be bound when the domain is unknown here", async () => {
       await expect(diagnoseA2ATokenFailure(await sign())).resolves.toBe(
         "org-binding",
@@ -140,6 +155,22 @@ describe("diagnoseA2ATokenFailure", () => {
         secret: ORG_SECRET,
       });
     });
+
+    it.each([
+      ["HS256", "undetermined"],
+      ["HS384", "algorithm"],
+      ["HS512", "algorithm"],
+    ] as const)(
+      "uses the verifier's algorithm policy for %s",
+      async (algorithm, cause) => {
+        vi.stubEnv("A2A_SECRET", "");
+        await expect(
+          diagnoseA2ATokenFailure(
+            await sign({ algorithm, secret: ORG_SECRET }),
+          ),
+        ).resolves.toBe(cause);
+      },
+    );
 
     it("blames the audience, not the signature, when the audience is wrong", async () => {
       const token = await sign({

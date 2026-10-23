@@ -5,6 +5,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-22
 
+### Added
+
+- Blocks with several comment threads fold into one stack in the margin, which opens in place when you click it or a highlight
+
 ### Improved
 
 - A collection linked to a big GitHub folder fills faster, and pushes to other linked collections aren't held up while it does
@@ -13,6 +17,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Opening a page no longer saves an edit again after another open tab's save already stored it.
 - Changes made from a menu or popover, such as an image's alt text, are always saved.
 - Agents can read saved page titles and text after an unrelated icon change fails.
 - Text an agent writes inside a callout, column or synced block without indenting it now shows on the page and survives your edits.
@@ -42,6 +47,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Suggested edits that add, remove, split, or merge paragraphs, line breaks, and list items now show where the break goes and save as one clear suggestion
 - Builder content sync keeps read and write status accurate when API responses fail.
 - HTML table cells preserve a trailing backslash when opening Markdown.
 - Preserve empty paragraph colors and refuse unsupported inline image and oversized math formatting before content is stored.
@@ -109,6 +115,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Accepting a suggestion on a Page that changed since it was suggested no longer shows "Something went wrong"
 - A page open in a tab that shows it's in the trash reopens within seconds when someone restores it.
 - A page restored from Trash returns to its place in its collection, and edits to a page in Trash are refused
 - Agent-written Markdown keeps nested lists indented with spaces, underscore bold and italics, and escaped punctuation

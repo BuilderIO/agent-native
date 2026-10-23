@@ -11,6 +11,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceExecutionState,
@@ -78,7 +79,10 @@ import {
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 type DatabaseRecord = NonNullable<
   Awaited<ReturnType<typeof resolveDatabaseForSourceMutation>>
@@ -2333,10 +2337,14 @@ export default defineAction({
   }),
   run: async (
     args: ExecuteBuilderSourceExecutionRequest,
-  ): Promise<ContentDatabaseResponse> => {
-    return executeBuilderSourceExecutionWithDeps(
-      args,
-      realExecutionDeps(args.sourceId, args.changeSetId),
+    context,
+  ): Promise<ContentDatabaseResponsePayload> => {
+    return contentDatabaseResponseForCaller(
+      await executeBuilderSourceExecutionWithDeps(
+        args,
+        realExecutionDeps(args.sourceId, args.changeSetId),
+      ),
+      context,
     );
   },
 });

@@ -51,6 +51,36 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.219.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- bf92e9d: Restrict A2A bearer token verification and failure diagnostics to the supported HS256 signing algorithm.
+
+  Report unsupported signing algorithms as a distinct diagnostic cause.
+
+- 9701c0d: Hold route module preloads until 4 seconds after the page's load event, so Safari no longer logs "preloaded using link preload but not used" for every warmed route. Meanwhile, module files are fetched into the HTTP cache, so early clicks still skip the network. Hovering, touching or focusing a link still preloads it right away, and data warmup still starts right away.
+- 619ddc8: A run that finishes no longer marks itself aborted as "displaced" when the periodic abort check reads its own completed status mid-finalization. Delegated A2A calls no longer report a successful specialist run as "aborted before completion".
+- Updated dependencies
+  - @agent-native/agentkit@0.219.0
+  - @agent-native/recap-cli@0.5.88
+
+## 0.218.0
+
+### Minor Changes
+
+- fc038a0: Add opt-in transcript positioning and chart presentation controls to shared chat, including regular tool-call renderers.
+
+### Patch Changes
+
+- 84e4b2e: Exclude the Chat sidebar regression test when deriving the Builder Code starter, which replaces that sidebar, so newly scaffolded apps typecheck without orphan imports.
+- 84e4b2e: Add a result-bearing chat-list refresh method so ownership-aware adapters can preserve local rows and changes after failed or superseded refreshes.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.218.0
+  - @agent-native/recap-cli@0.5.87
+
 ## 0.217.0
 
 ### Patch Changes
@@ -4344,17 +4374,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
-
-## 0.168.12
-
-### Patch Changes
-
-- 51b31ed: Format localized core documentation after the release sync.
-
-## 0.168.11
-
-### Patch Changes
-
-- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -47,6 +47,7 @@ import React, {
   useRef,
 } from "react";
 
+import type { AgentChatDataChartLayout } from "../../agentkit/react/data-chart-layout.js";
 import {
   workedForRowChevronStyle,
   workedForRowSummaryStyle,
@@ -78,7 +79,10 @@ import {
   IntegrationToolBadge,
   resolveToolIntegration,
 } from "./tool-integration.js";
-import { resolveToolRenderer } from "./tool-render-registry.js";
+import {
+  resolveToolRenderer,
+  type ToolRendererContext,
+} from "./tool-render-registry.js";
 import {
   isBuiltinDataWidgetActionRenderer,
   isBuiltinWorkspaceFileResult,
@@ -635,6 +639,7 @@ export function ToolCallDisplay({
   argsText,
   args,
   result,
+  status,
   mcpApp,
   chatUI,
   isRunning,
@@ -647,6 +652,7 @@ export function ToolCallDisplay({
   isLatestRunning = isRunning,
   isActiveTail,
   workedForRowLayout,
+  dataChartLayout,
   formatWorkedForDuration,
 }: {
   toolName: string;
@@ -654,6 +660,7 @@ export function ToolCallDisplay({
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
+  status?: ToolRendererContext["status"];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
@@ -670,6 +677,7 @@ export function ToolCallDisplay({
   repeatCount?: number;
   isActiveTail?: boolean;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
   /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
@@ -747,6 +755,7 @@ export function ToolCallDisplay({
       argsText={argsText}
       args={args}
       result={result}
+      status={status}
       mcpApp={mcpApp}
       chatUI={chatUI}
       isRunning={effectiveIsRunning}
@@ -758,6 +767,7 @@ export function ToolCallDisplay({
       repeatCount={repeatCount}
       context={builderContext}
       workedForRowLayout={workedForRowLayout}
+      dataChartLayout={dataChartLayout}
       formatWorkedForDuration={formatWorkedForDuration}
     />,
   );
@@ -771,6 +781,7 @@ function ToolCallDisplayGeneric({
   argsText,
   args,
   result,
+  status,
   mcpApp,
   chatUI,
   isRunning,
@@ -782,6 +793,7 @@ function ToolCallDisplayGeneric({
   repeatCount,
   context,
   workedForRowLayout,
+  dataChartLayout,
   formatWorkedForDuration,
 }: {
   toolName: string;
@@ -789,6 +801,7 @@ function ToolCallDisplayGeneric({
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
+  status?: ToolRendererContext["status"];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
@@ -805,6 +818,7 @@ function ToolCallDisplayGeneric({
   repeatCount?: number;
   context?: string;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
 }) {
   const t = useT();
@@ -917,8 +931,10 @@ function ToolCallDisplayGeneric({
     args,
     resultText: result,
     resultJson: parsedResult,
+    status,
     isRunning,
     isActiveTail,
+    dataChartLayout,
     ...(typeof toolCallId === "string"
       ? { widgetId: `${toolCallId}:chat-ui` }
       : {}),

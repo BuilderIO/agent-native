@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { MAX_TOOL_RESULT_IMAGES } from "@agent-native/core/agent/tool-result-images";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -7,6 +8,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isAllowedFigmaSvgRenderRequest } from "../server/lib/design-to-figma-svg.js";
+import {
+  createHubSpotEmailPreview,
+  sampleContactValuesSchema,
+} from "../server/lib/hubspot-email-preview.js";
+import { prepareScreenshotPage } from "../server/lib/screenshot-readiness.js";
 import { readLiveSourceFile } from "../server/source-workspace.js";
 import "../server/db/index.js";
 
@@ -407,48 +413,81 @@ export default defineAction({
     "the diagnostics are actionable immediately, and screenshots are saved " +
     "at durable URLs for review. Requires a headless Chromium binary; in hosted/serverless " +
     "deploys where one isn't available, returns `{ ok: false, reason }` " +
-    "instead of throwing — fall back to run-design-audit in that case.",
-  schema: z.object({
-    designId: z
-      .string()
-      .optional()
-      .describe(
-        "Design project id. Required unless fileId is provided. Combined with filename to resolve the screen.",
-      ),
-    fileId: z
-      .string()
-      .optional()
-      .describe(
-        "Specific design_files.id to screenshot. Takes priority over designId/filename.",
-      ),
-    filename: z
-      .string()
-      .optional()
-      .default("index.html")
-      .describe(
-        "Filename to screenshot when fileId is not provided. Defaults to index.html.",
-      ),
-    widths: z
-      .array(z.number().int().min(200).max(3840))
-      .optional()
-      .describe(
-        "Viewport widths in px to render. Defaults to [1280, 375] (desktop + mobile). " +
-          "Height is derived per width using standard device aspect ratios.",
-      ),
-    heights: z
-      .array(z.number().int().min(200).max(4096))
-      .optional()
-      .describe(
-        "Exact viewport heights in px, matched index-for-index against `widths`. " +
-          "Use when the caller needs the screenshot's aspect ratio to match a " +
-          "known on-screen rect exactly (e.g. compositing an overlay on top) " +
-          "instead of the device-heuristic default. Omit an index to fall back " +
-          "to the standard derived height for that width.",
-      ),
-  }),
+    "instead of throwing — fall back to run-design-audit in that case. Agent/MCP calls include screenshot image attachments for visual inspection. Prefer one call with widths [600,375] for the HubSpot desktop/mobile completion pass. Optional templatePreview=hubspot-email renders documented tokens with fake sample values/contact defaults for browser-layout checks only, not HubSpot compilation or inbox proof; source and HTML export stay unchanged.",
+  schema: z
+    .object({
+      designId: z
+        .string()
+        .optional()
+        .describe(
+          "Design project id. Required unless fileId is provided. Combined with filename to resolve the screen.",
+        ),
+      fileId: z
+        .string()
+        .optional()
+        .describe(
+          "Specific design_files.id to screenshot. Takes priority over designId/filename.",
+        ),
+      filename: z
+        .string()
+        .optional()
+        .default("index.html")
+        .describe(
+          "Filename to screenshot when fileId is not provided. Defaults to index.html.",
+        ),
+      templatePreview: z
+        .literal("hubspot-email")
+        .optional()
+        .describe(
+          "Optional hubspot-email sample browser preview; substitutes supported template tokens in a temporary HTML copy and reports unresolved tokens. Omit for unchanged raw HTML rendering.",
+        ),
+      sampleContactValues: sampleContactValuesSchema
+        .optional()
+        .describe(
+          "Optional in-memory recipient samples for templatePreview=hubspot-email only: an array of at most 8 unique {field, value} entries, with contact.field names and values of at most 500 characters. For example, [{field: 'contact.firstname', value: 'Alex'}]. Fields must match supported personalization_token calls in this frame; unknown or unused fields fail. Omit a field to use its literal default. No source or QA frame is saved.",
+        ),
+      widths: z
+        .array(z.number().int().min(200).max(3840))
+        .optional()
+        .describe(
+          "Viewport widths in px to render. Defaults to [1280, 375] (desktop + mobile). " +
+            "Height is derived per width using standard device aspect ratios.",
+        ),
+      heights: z
+        .array(z.number().int().min(200).max(4096))
+        .optional()
+        .describe(
+          "Exact viewport heights in px, matched index-for-index against `widths`. " +
+            "Use when the caller needs the screenshot's aspect ratio to match a " +
+            "known on-screen rect exactly (e.g. compositing an overlay on top) " +
+            "instead of the device-heuristic default. Omit an index to fall back " +
+            "to the standard derived height for that width.",
+        ),
+    })
+    .refine(
+      ({ templatePreview, sampleContactValues }) =>
+        sampleContactValues === undefined ||
+        templatePreview === "hubspot-email",
+      {
+        message:
+          'sampleContactValues requires templatePreview="hubspot-email".',
+        path: ["sampleContactValues"],
+      },
+    ),
   readOnly: true,
   http: { method: "POST" },
-  run: async ({ designId, fileId, filename, widths, heights }, ctx) => {
+  run: async (
+    {
+      designId,
+      fileId,
+      filename,
+      widths,
+      heights,
+      templatePreview,
+      sampleContactValues,
+    },
+    ctx,
+  ) => {
     if (!designId && !fileId) {
       throw new Error("designId or fileId is required.");
     }
@@ -498,6 +537,11 @@ export default defineAction({
     }
 
     const html = await liveContent(file.id, file.content ?? "");
+    const emailPreview =
+      templatePreview === "hubspot-email"
+        ? createHubSpotEmailPreview(html, sampleContactValues)
+        : undefined;
+    const renderHtml = emailPreview?.html ?? html;
     const native = parseEffectsFromHtml(html);
     if (
       native.errors.length ||
@@ -509,19 +553,68 @@ export default defineAction({
       });
     }
 
+    const captureTimings: Array<{
+      stage: string;
+      durationMs: number;
+      viewportWidth?: number;
+      status: "completed" | "failed";
+      error?: { name: string; message: string };
+    }> = [];
+    const measure = async <T>(
+      stage: string,
+      work: () => Promise<T>,
+      viewportWidth?: number,
+    ): Promise<T> => {
+      const startedAt = Date.now();
+      console.info("[design-screenshot] stage started", {
+        stage,
+        designId: file.designId,
+        fileId: file.id,
+        ...(viewportWidth === undefined ? {} : { viewportWidth }),
+      });
+      let status: "completed" | "failed" = "failed";
+      let failure: { name: string; message: string } | undefined;
+      try {
+        const result = await work();
+        status = "completed";
+        return result;
+      } catch (error) {
+        failure = {
+          name: error instanceof Error ? error.name : "Error",
+          message: error instanceof Error ? error.message : String(error),
+        };
+        throw error;
+      } finally {
+        captureTimings.push({
+          stage,
+          durationMs: Date.now() - startedAt,
+          ...(viewportWidth === undefined ? {} : { viewportWidth }),
+          status,
+          ...(failure ? { error: failure } : {}),
+        });
+        if (status === "failed")
+          console.error("[design-screenshot] stage failed", {
+            designId: file.designId,
+            fileId: file.id,
+            captureTimings,
+          });
+      }
+    };
     let playwright: PlaywrightModule;
     try {
-      playwright = await importPlaywright();
+      playwright = await measure("load-renderer", () => importPlaywright());
     } catch (err) {
-      return { ok: false, reason: chromiumUnavailableReason(err) };
+      return { ok: false as const, reason: chromiumUnavailableReason(err) };
     }
 
     const viewports = resolveViewports(widths, heights);
     let browser: import("@playwright/test").Browser | undefined;
     try {
-      browser = await launchChromium(playwright.chromium);
+      browser = await measure("allocate-browser", () =>
+        launchChromium(playwright.chromium),
+      );
     } catch (err) {
-      return { ok: false, reason: chromiumUnavailableReason(err) };
+      return { ok: false as const, reason: chromiumUnavailableReason(err) };
     }
 
     const ownerEmail = getRequestUserEmail() ?? undefined;
@@ -530,22 +623,33 @@ export default defineAction({
     try {
       for (const viewport of viewports) {
         if (ctx?.signal?.aborted) break;
-        const context = await browser.newContext({
-          viewport: { width: viewport.widthPx, height: viewport.heightPx },
-          deviceScaleFactor: 2,
-        });
-        await context.addInitScript(
-          "globalThis.__name = globalThis.__name || function (value) { return value; };",
+        const context = await measure(
+          "setup-context",
+          () =>
+            browser!.newContext({
+              viewport: { width: viewport.widthPx, height: viewport.heightPx },
+              deviceScaleFactor: 2,
+            }),
+          viewport.widthPx,
         );
-        await context.route("**/*", async (route) => {
-          if (await isAllowedFigmaSvgRenderRequest(route.request().url())) {
-            await route.continue();
-          } else {
-            await route.abort("blockedbyclient");
-          }
-        });
-        await context.routeWebSocket("**/*", () => {});
-        const page = await context.newPage();
+        const page = await measure(
+          "setup-page",
+          async () => {
+            await context.addInitScript(
+              "globalThis.__name = globalThis.__name || function (value) { return value; };",
+            );
+            await context.route("**/*", async (route) => {
+              if (await isAllowedFigmaSvgRenderRequest(route.request().url())) {
+                await route.continue();
+              } else {
+                await route.abort("blockedbyclient");
+              }
+            });
+            await context.routeWebSocket("**/*", () => {});
+            return context.newPage();
+          },
+          viewport.widthPx,
+        );
         const consoleErrors: string[] = [];
         const fontLoadFailures: string[] = [];
         page.on("console", (msg) => {
@@ -568,64 +672,38 @@ export default defineAction({
         });
 
         try {
-          await page.setContent(degradeWideColorsInHtml(html), {
-            waitUntil: "networkidle",
-          });
-          await page
-            .evaluate(async () => {
-              const fontsReady = document.fonts?.ready;
-              if (!fontsReady) return;
-              await Promise.race([
-                fontsReady,
-                new Promise<void>((resolve) => setTimeout(resolve, 4_000)),
-              ]);
-            })
-            .catch(() => {});
-          await page
-            .waitForFunction(
-              () => {
-                const win = window as unknown as {
-                  __anExportRuleCounts?: number[];
-                  __anExportRuleStart?: number;
-                };
-                win.__anExportRuleStart ??= Date.now();
-                const count = Array.from(document.styleSheets).reduce(
-                  (sum, sheet) => {
-                    try {
-                      return sum + (sheet.cssRules?.length ?? 0);
-                    } catch {
-                      return sum + 1;
-                    }
-                  },
-                  0,
-                );
-                const history = [
-                  ...(win.__anExportRuleCounts ?? []).slice(-5),
-                  count,
-                ];
-                win.__anExportRuleCounts = history;
-                return (
-                  history.length >= 6 &&
-                  history.every((value) => value === history[0]) &&
-                  Date.now() - win.__anExportRuleStart >= 600
-                );
-              },
-              { timeout: 2500, polling: 100 },
-            )
-            .catch(() => {});
-
-          const pageDiagnostics = await page.evaluate(collectPageDiagnostics);
-          const png = await page.screenshot({ type: "png", fullPage: true });
+          await measure(
+            "ready",
+            () =>
+              prepareScreenshotPage(page, degradeWideColorsInHtml(renderHtml)),
+            viewport.widthPx,
+          );
+          const pageDiagnostics = await measure(
+            "diagnostics",
+            () => page.evaluate(collectPageDiagnostics),
+            viewport.widthPx,
+          );
+          const png = await measure(
+            "capture",
+            () =>
+              page.screenshot({ type: "png", fullPage: true, timeout: 30_000 }),
+            viewport.widthPx,
+          );
 
           let uploaded: Awaited<ReturnType<typeof uploadFile>> | null = null;
           let uploadError: ScreenshotUploadError | undefined;
           try {
-            uploaded = await uploadFile({
-              data: png,
-              mimeType: "image/png",
-              filename: `design-${file.designId}-${file.filename}-${viewport.label}.png`,
-              ownerEmail,
-            });
+            uploaded = await measure(
+              "upload",
+              () =>
+                uploadFile({
+                  data: png,
+                  mimeType: "image/png",
+                  filename: `design-${file.designId}-${file.filename}-${viewport.label}.png`,
+                  ownerEmail,
+                }),
+              viewport.widthPx,
+            );
           } catch {
             uploadError = {
               code: "file_upload_failed",
@@ -663,11 +741,20 @@ export default defineAction({
             screenshotPngs.set(screenshot, png);
           }
         } finally {
-          await context.close().catch(() => {});
+          await measure(
+            "cleanup-context",
+            () => context.close(),
+            viewport.widthPx,
+          ).catch(() => {});
         }
       }
     } finally {
-      await browser.close().catch(() => {});
+      await measure("cleanup-browser", () => browser!.close()).catch(() => {});
+      console.info("[design-screenshot] stage timings", {
+        designId: file.designId,
+        fileId: file.id,
+        captureTimings,
+      });
     }
 
     const totalIssues = screenshots.reduce((sum, s) => {
@@ -685,11 +772,25 @@ export default defineAction({
     }, 0);
 
     return {
-      ok: true,
+      ok: true as const,
       designId: file.designId,
       fileId: file.id,
       filename: file.filename,
       capturedAt: new Date().toISOString(),
+      captureTimings,
+      ...(emailPreview ? { preview: emailPreview.preview } : {}),
+      ...((ctx?.caller === "tool" || ctx?.caller === "mcp") &&
+      screenshots.some((screenshot) => screenshot.url.startsWith("https://"))
+        ? {
+            _agentImages: screenshots
+              .filter((screenshot) => screenshot.url.startsWith("https://"))
+              .slice(0, MAX_TOOL_RESULT_IMAGES)
+              .map((screenshot) => ({
+                url: screenshot.url,
+                label: `${file.filename} (${screenshot.viewport.widthPx}px)`,
+              })),
+          }
+        : {}),
       screenshots,
       summary: {
         viewportsRendered: screenshots.length,

@@ -2,7 +2,7 @@ import { parseIconValue } from "@agent-native/core/icons";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, isNull } from "drizzle-orm";
 
-import { nfmToDoc } from "../../shared/nfm.js";
+import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
 import { assertPrivateIconOwner } from "./private-icon-authority.js";
 
@@ -194,7 +194,9 @@ export async function syncPrivateCalloutReferences(
       !source ||
       source.ownerEmail !== input.ownerEmail ||
       source.orgId !== input.orgId ||
-      source.content !== input.after
+      // A switched page stores the canonical form of the body it copies.
+      (source.content !== input.after &&
+        docToNfm(nfmToDoc(source.content)) !== input.after)
     ) {
       throw new Error("Private icon is unavailable to this user.");
     }

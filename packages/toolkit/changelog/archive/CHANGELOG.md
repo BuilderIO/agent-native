@@ -1,3 +1,15 @@
+## 0.13.8
+
+### Patch Changes
+
+- c41fd16: Use theme tokens for collaboration edit highlight labels.
+
+## 0.13.7
+
+### Patch Changes
+
+- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
 ## 0.13.6
 
 ### Patch Changes

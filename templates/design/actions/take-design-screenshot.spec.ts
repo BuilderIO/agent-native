@@ -65,6 +65,9 @@ vi.mock("../server/lib/playwright-runtime.js", async (importOriginal) => {
     launchChromium: playwrightMocks.launchChromium,
   };
 });
+vi.mock("../server/lib/screenshot-readiness.js", () => ({
+  prepareScreenshotPage: vi.fn(async (page, html) => page.setContent(html)),
+}));
 vi.mock("../server/source-workspace.js", () => ({
   readLiveSourceFile: vi.fn(async () => ({
     content:
@@ -88,6 +91,18 @@ import action, {
 } from "./take-design-screenshot.js";
 
 describe("public design screenshot access", () => {
+  it("rejects contact samples for raw screenshots before reading a file", async () => {
+    const args = {
+      fileId: "file_1",
+      sampleContactValues: [{ field: "contact.firstname", value: "Alex" }],
+    };
+    expect(action.schema.safeParse(args).success).toBe(false);
+    mockGetDb.mockClear();
+    await expect(action.run(args)).rejects.toThrow(
+      'sampleContactValues requires templatePreview="hubspot-email"',
+    );
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
   it("includes public link visibility when reading a specific design file", async () => {
     mockAccessFilter.mockClear();
     const result = await action.run(
@@ -137,10 +152,7 @@ describe("screenshot image handoff", () => {
     const page = {
       on: vi.fn(),
       setContent: vi.fn().mockResolvedValue(undefined),
-      evaluate: vi
-        .fn()
-        .mockResolvedValueOnce(undefined)
-        .mockResolvedValue(diagnostics),
+      evaluate: vi.fn().mockResolvedValue(diagnostics),
       waitForFunction: vi.fn().mockResolvedValue(undefined),
       screenshot: vi.fn().mockResolvedValue(png),
     };
@@ -161,7 +173,7 @@ describe("screenshot image handoff", () => {
       url: "https://files.example.test/screen.png",
     } as never);
 
-    const args = { fileId: "file_1", widths: [900] };
+    const args = { fileId: "file_1", widths: [600, 375, 500, 400, 300] };
     const screenshotResult = await action.run(args, {
       caller: "tool",
       actionName: "take-design-screenshot",
@@ -181,7 +193,18 @@ describe("screenshot image handoff", () => {
     expect(renderedHtml).toContain("background: #00c248");
     expect(renderedHtml).not.toContain("oklch(");
 
-    expect(screenshotResult).not.toHaveProperty("_agentImages");
+    expect(screenshotResult._agentImages).toHaveLength(4);
+    expect(screenshotResult._agentImages?.slice(0, 2)).toEqual([
+      {
+        url: "https://files.example.test/screen.png",
+        label: "index.html (600px)",
+      },
+      {
+        url: "https://files.example.test/screen.png",
+        label: "index.html (375px)",
+      },
+    ]);
+    expect(httpExportResult).not.toHaveProperty("_agentImages");
     expect(JSON.stringify(screenshotResult)).not.toContain(
       png.toString("base64"),
     );

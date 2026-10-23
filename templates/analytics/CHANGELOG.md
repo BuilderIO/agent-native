@@ -74,6 +74,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Owned and shared chats appear in separate history sections, with each shared chat's owner shown as an avatar and a Copy link action on every chat.
 - In Edit mode, rename or delete a multi-select filter's group from its dropdown while that group is selected.
 - The Content dashboard can show signups per blog article, collected once a day behind a BigQuery cost cap that a dry run measures first
 - Click a table row to see its numbers broken down by app, or another column, in a side panel.
@@ -96,6 +97,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The activation funnel counts visitors who decline analytics cookies and then sign up in the same visit
 - A key-date marker opens its card on hover even where a chart's hovered point sits on top of it.
 - Alert polls enforce a query byte limit and report evaluations that exceed it as errors.
 - All-time dashboard panels keep their historical label when you edit a title or description

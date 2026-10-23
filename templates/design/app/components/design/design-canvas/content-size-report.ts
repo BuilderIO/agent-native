@@ -1,6 +1,9 @@
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 
-export const CONTENT_SIZE_REPORT_BRIDGE = `
+import type { ScreenHeightMode } from "../multi-screen/screen-height";
+
+export function contentSizeReportBridge(heightMode?: ScreenHeightMode): string {
+  return `
 <style data-agent-native-content-size-guard>
   .min-h-screen { min-height: var(--agent-native-device-vh, 100vh) !important; }
   .h-screen { height: var(--agent-native-device-vh, 100vh) !important; }
@@ -116,6 +119,7 @@ export const CONTENT_SIZE_REPORT_BRIDGE = `
   }
 
   function usesNaturalHeight() {
+    if (${heightMode === "hug"}) return true;
     if (document.querySelector('meta[data-agent-native-screen-height-mode="hug"]')) {
       return true;
     }
@@ -297,6 +301,9 @@ export const CONTENT_SIZE_REPORT_BRIDGE = `
 })();
 </script>
 `;
+}
+
+export const CONTENT_SIZE_REPORT_BRIDGE = contentSizeReportBridge();
 
 export const CONTENT_SIZE_REPORT_MESSAGE_TYPE = "agent-native:content-size";
 
@@ -325,8 +332,11 @@ export function resolveStableContentSizeSample(
   };
 }
 
-export function appendContentSizeReporter(html: string): string {
-  return injectDocumentMarkup(html, CONTENT_SIZE_REPORT_BRIDGE);
+export function appendContentSizeReporter(
+  html: string,
+  heightMode?: ScreenHeightMode,
+): string {
+  return injectDocumentMarkup(html, contentSizeReportBridge(heightMode));
 }
 
 export function measureNaturalDocumentHeight(doc: Document): number | null {

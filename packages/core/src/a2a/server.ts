@@ -61,6 +61,8 @@ import {
 } from "./task-store.js";
 import type { A2AConfig, AgentSkill } from "./types.js";
 
+const A2A_TOKEN_ALGORITHMS = ["HS256"];
+
 let _warnedUnauthA2A = false;
 function warnA2AUnauthOnce(): void {
   if (_warnedUnauthA2A) return;
@@ -333,6 +335,7 @@ export type A2ATokenFailureCause =
   | "issuer"
   | "expired"
   | "signature"
+  | "algorithm"
   | "invalid-claims"
   | "mcp-credential"
   | "missing-subject"
@@ -358,6 +361,7 @@ async function checkAgainstSecret(
     return { payload };
   } catch (error) {
     const { code, claim } = error as { code?: unknown; claim?: unknown };
+    if (code === "ERR_JOSE_ALG_NOT_ALLOWED") return { cause: "algorithm" };
     if (code === "ERR_JWT_EXPIRED") return { cause: "expired" };
     if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") {
       return { cause: "signature" };
@@ -407,7 +411,7 @@ export async function diagnoseA2ATokenFailure(
   }
   const secret = readDeployCredentialEnv("A2A_SECRET")?.trim();
 
-  const options: jose.JWTVerifyOptions = {};
+  const options: jose.JWTVerifyOptions = { algorithms: A2A_TOKEN_ALGORITHMS };
   if (typeof claims.aud !== "undefined") {
     const audience = expectedJwtAudience(event);
     if (!audience) return "audience-unresolvable";
@@ -521,7 +525,9 @@ async function verifyA2ATokenInternal(
     return { payload: { email: null, orgDomain: null } };
   }
 
-  const verifyOptions: jose.JWTVerifyOptions = {};
+  const verifyOptions: jose.JWTVerifyOptions = {
+    algorithms: A2A_TOKEN_ALGORITHMS,
+  };
   if (hasAudience) {
     // Fail closed: the token was minted for a specific audience, but this
     // receiver can't derive its own expected audience (no APP_URL/URL and no
@@ -641,14 +647,10 @@ async function verifyA2ATokenInternal(
   }
   if (!organization) return { payload: { email: null, orgDomain: null } };
 
-  const orgVerifyOptions =
-    unverifiedPayload?.typ === A2A_ORG_MEMBER_DELEGATION_TYPE
-      ? { ...verifyOptions, algorithms: ["HS256"] }
-      : verifyOptions;
   const payload = await verifyJwtWithSecret(
     token,
     organization.secret,
-    orgVerifyOptions,
+    verifyOptions,
   );
   if (!payload) return { payload: { email: null, orgDomain: null } };
 
