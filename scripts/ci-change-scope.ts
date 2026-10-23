@@ -612,6 +612,36 @@ const CORE_BUILDER_CODE_SCAFFOLD_FILES = new Set([
   "packages/core/src/cli/index.ts",
 ]);
 
+const CORE_CLI_SCAFFOLD_FILES = new Set([
+  "packages/core/src/agent/engine/ai-sdk-engine.ts",
+  "packages/core/src/cli/setup-agents.ts",
+  "packages/core/src/cli/skills.ts",
+  "packages/core/src/cli/tar-command.ts",
+  "packages/core/src/cli/template-layer.ts",
+  "packages/core/src/cli/templates-meta.ts",
+  "packages/core/src/cli/upgrade.ts",
+  "packages/core/src/cli/workspace-skill-policy.ts",
+  "packages/core/src/cli/workspace-yaml.ts",
+  "packages/core/src/cli/workspacify.ts",
+  "packages/core/src/shared/workspace-app-id.ts",
+]);
+
+const CORE_QUERY_BUDGET_REQUEST_FILES = new Set([
+  "packages/core/src/server/auth.ts",
+  "packages/core/src/server/core-routes-plugin.ts",
+  "packages/core/src/server/framework-request-context.ts",
+  "packages/core/src/server/framework-request-handler.ts",
+  "packages/core/src/server/index.ts",
+  "packages/core/src/server/poll-events.ts",
+  "packages/core/src/server/poll.ts",
+  "packages/core/src/server/request-context.ts",
+  "packages/core/src/server/ssr-handler.ts",
+]);
+
+const CORE_SSR_CLIENT_RUNTIME_FILES = new Set([
+  "packages/core/src/client/agent-provider-catalog.ts",
+]);
+
 const CORE_BRAIN_EVAL_PATHS = [
   "packages/core/src/action.ts",
   "packages/core/src/action-",
@@ -1693,6 +1723,7 @@ function isSlidesTypingChatSharedRuntimePath(path: string): boolean {
 function isCoreScaffoldRuntimePath(path: string): boolean {
   return (
     CORE_BUILDER_CODE_SCAFFOLD_FILES.has(path) ||
+    CORE_CLI_SCAFFOLD_FILES.has(path) ||
     path.startsWith("packages/core/src/templates/") ||
     path === "packages/core/package.json"
   );
@@ -1933,6 +1964,8 @@ function isCoreQueryBudgetRuntimePath(path: string): boolean {
   if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
   return (
     isCoreDatabaseRuntimePath(path) ||
+    CORE_QUERY_BUDGET_REQUEST_FILES.has(path) ||
+    path.startsWith("packages/core/src/app-config/") ||
     path === "packages/core/src/action.ts" ||
     path.startsWith("packages/core/src/action-") ||
     path.startsWith("packages/core/src/server/action-")
@@ -2016,13 +2049,16 @@ function isToolkitSsrBootRuntimePath(path: string): boolean {
 
 function isCoreSsrBootRuntimePath(path: string): boolean {
   if (!isSsrBootSourcePath(path)) return false;
-  return [
-    "packages/core/package.json",
-    "packages/core/src/app-config/",
-    "packages/core/src/db/",
-    "packages/core/src/server/",
-    "packages/core/src/vite/",
-  ].some((prefix) => path === prefix || path.startsWith(prefix));
+  return (
+    [
+      "packages/core/package.json",
+      "packages/core/src/app-config/",
+      "packages/core/src/db/",
+      "packages/core/src/server/",
+      "packages/core/src/vite/",
+    ].some((prefix) => path === prefix || path.startsWith(prefix)) ||
+    CORE_SSR_CLIENT_RUNTIME_FILES.has(path)
+  );
 }
 
 function isSsrBootAuxiliaryPackageRuntimePath(path: string): boolean {
@@ -2103,22 +2139,28 @@ function designCanvasBroadWorkflowShardsFor(
   changedPaths: readonly string[],
   full: boolean,
   checks: CheckSelection,
+  deletedPaths: ReadonlySet<string>,
 ): string[] {
   if (!checks.design_canvas_broad_workflows) return [];
-  if (full) return [...DESIGN_BROAD_WORKFLOW_SHARDS.values()];
+  const availableShards = [...DESIGN_BROAD_WORKFLOW_SHARDS].flatMap(
+    ([spec, shard]) => (deletedPaths.has(spec) ? [] : [shard]),
+  );
+  if (full) return availableShards;
   if (
     changedPaths.some((path) =>
       DESIGN_CANVAS_CONFIG_FILES.has(normalizeChangedPath(path)),
     )
   ) {
-    return [...DESIGN_BROAD_WORKFLOW_SHARDS.values()];
+    return availableShards;
   }
   return [
     ...new Set(
-      specs.flatMap((path) => {
-        const shard = DESIGN_BROAD_WORKFLOW_SHARDS.get(path);
-        return shard ? [shard] : [];
-      }),
+      specs
+        .filter((path) => !deletedPaths.has(path))
+        .flatMap((path) => {
+          const shard = DESIGN_BROAD_WORKFLOW_SHARDS.get(path);
+          return shard ? [shard] : [];
+        }),
     ),
   ];
 }
@@ -2132,6 +2174,7 @@ function scaffoldCliFor(
   if (full) return true;
   return (
     changedPaths.some((path) => CORE_BUILDER_CODE_SCAFFOLD_FILES.has(path)) ||
+    changedPaths.some((path) => CORE_CLI_SCAFFOLD_FILES.has(path)) ||
     changedPaths.some((path) =>
       path.startsWith("packages/core/src/templates/headless/"),
     ) ||
@@ -2380,8 +2423,10 @@ export function classifyChangedPaths(
   paths: readonly string[],
   sameDirectoryPureDesignSpecRenames: readonly string[] = [],
   repositoryRoot = process.cwd(),
+  deletedPaths: readonly string[] = [],
 ): ChangeScope {
   const changedPaths = paths.map(normalizeChangedPath);
+  const deletedPathSet = new Set(deletedPaths.map(normalizeChangedPath));
   const nonDocsPaths = changedPaths.filter((path) => !isDocsPath(path));
   const sameDirectoryPureDesignSpecRenameSet = new Set(
     sameDirectoryPureDesignSpecRenames.map(normalizeChangedPath),
@@ -2429,6 +2474,7 @@ export function classifyChangedPaths(
     changedPaths,
     full,
     checks,
+    deletedPathSet,
   );
   checks.design_canvas_broad_workflows =
     designCanvasBroadWorkflowShards.length > 0;
@@ -2468,6 +2514,22 @@ export function readChangedPaths(
   const output = execFileSync(
     "git",
     ["diff", "--name-only", "-z", `${baseSha}...${headSha}`],
+    {
+      encoding: "utf8",
+      cwd,
+    },
+  );
+  return output.split("\0").filter(Boolean);
+}
+
+export function readDeletedPaths(
+  baseSha: string,
+  headSha: string,
+  cwd = process.cwd(),
+): string[] {
+  const output = execFileSync(
+    "git",
+    ["diff", "--name-only", "--diff-filter=D", "-z", `${baseSha}...${headSha}`],
     {
       encoding: "utf8",
       cwd,
@@ -2612,6 +2674,7 @@ function main(): void {
   }
 
   const changedPaths = readChangedPaths(baseSha, headSha);
+  const deletedPaths = readDeletedPaths(baseSha, headSha);
   const sameDirectoryPureDesignSpecRenames =
     readSameDirectoryPureDesignSpecRenames(baseSha, headSha);
   const runtimeSourceChanges = runtimeSourceChangesInTestTitledPr(
@@ -2630,6 +2693,8 @@ function main(): void {
   const scope = classifyChangedPaths(
     changedPaths,
     sameDirectoryPureDesignSpecRenames,
+    process.cwd(),
+    deletedPaths,
   );
   console.log(JSON.stringify(scope, null, 2));
   writeOutputs(scope);

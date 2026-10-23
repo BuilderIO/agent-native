@@ -100,6 +100,7 @@ assert.deepEqual(workflow.on?.pull_request?.paths, [
   "templates/design/scripts/runtime-budget.ts",
   "templates/design/scripts/design-export-validation/lib/compare.ts",
   "templates/design/scripts/design-export-validation/lib/redact-diagnostic.ts",
+  "templates/design/scripts/design-export-validation/corpus/**",
   "templates/design/server/db/**",
   "templates/design/server/handlers/design.ts",
   "templates/design/shared/canvas-*.ts",

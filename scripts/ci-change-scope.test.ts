@@ -718,6 +718,16 @@ test("runs guards for a docs-app cache-header change", () => {
 
 test("runs cold-request query budgets for framework and template changes", () => {
   const core = classifyChangedPaths(["packages/core/src/db/client.ts"]);
+  const coreRequestPaths = [
+    "packages/core/src/server/auth.ts",
+    "packages/core/src/server/core-routes-plugin.ts",
+    "packages/core/src/server/framework-request-context.ts",
+    "packages/core/src/server/framework-request-handler.ts",
+    "packages/core/src/server/poll.ts",
+  ];
+  const coreConfig = classifyChangedPaths([
+    "packages/core/src/app-config/analytics.ts",
+  ]);
   const coreTest = classifyChangedPaths([
     "packages/core/src/db/client.spec.ts",
   ]);
@@ -752,6 +762,12 @@ test("runs cold-request query budgets for framework and template changes", () =>
   const docs = classifyChangedPaths(["docs/guide.md"]);
 
   assert.equal(core.checks.neon_query_budget, true);
+  for (const path of coreRequestPaths) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.neon_query_budget, true, path);
+    assert.deepEqual(scope.queryBudgetApps, [...QUERY_BUDGET_APPS], path);
+  }
+  assert.equal(coreConfig.checks.neon_query_budget, true);
   assert.equal(coreTest.checks.neon_query_budget, false);
   assert.equal(unrelatedCore.checks.neon_query_budget, false);
   assert.equal(creativeContext.checks.neon_query_budget, true);
@@ -944,6 +960,24 @@ test("checks the Builder Code starter scaffold for core and Chat changes", () =>
   assert.equal(template.checks.builder_code_starter_scaffold, true);
   assert.equal(core.checks.scaffold, true);
   assert.equal(core.checks.builder_code_starter_scaffold, true);
+  for (const path of [
+    "packages/core/src/cli/setup-agents.ts",
+    "packages/core/src/cli/skills.ts",
+    "packages/core/src/cli/tar-command.ts",
+    "packages/core/src/cli/template-layer.ts",
+    "packages/core/src/cli/templates-meta.ts",
+    "packages/core/src/cli/upgrade.ts",
+    "packages/core/src/cli/workspace-skill-policy.ts",
+    "packages/core/src/cli/workspace-yaml.ts",
+    "packages/core/src/cli/workspacify.ts",
+    "packages/core/src/agent/engine/ai-sdk-engine.ts",
+    "packages/core/src/shared/workspace-app-id.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.scaffold, true, path);
+    assert.equal(scope.scaffoldCli, true, path);
+    assert.equal(scope.checks.builder_code_starter_scaffold, false, path);
+  }
   assert.equal(unrelatedCore.checks.scaffold, false);
   assert.equal(unrelatedCore.checks.builder_code_starter_scaffold, false);
   assert.equal(unrelatedCoreTemplate.checks.scaffold, true);
@@ -1090,6 +1124,12 @@ test("smokes every SSR template when a shared package or CI changes", () => {
   const unrelatedCore = classifyChangedPaths([
     "packages/core/src/feature-flags/registry.ts",
   ]);
+  const coreClientRuntime = classifyChangedPaths([
+    "packages/core/src/client/agent-provider-catalog.ts",
+  ]);
+  const unrelatedCoreClient = classifyChangedPaths([
+    "packages/core/src/client/use-active-agent-chat-run.ts",
+  ]);
   const coreTest = classifyChangedPaths([
     "packages/core/src/server/request-context.spec.ts",
   ]);
@@ -1105,6 +1145,10 @@ test("smokes every SSR template when a shared package or CI changes", () => {
   assert.deepEqual(toolkitTest.ssrBootApps, []);
   assert.equal(unrelatedCore.checks.ssr_boot, false);
   assert.deepEqual(unrelatedCore.ssrBootApps, []);
+  assert.equal(coreClientRuntime.checks.ssr_boot, true);
+  assert.deepEqual(coreClientRuntime.ssrBootApps, [...SSR_BOOT_APPS]);
+  assert.equal(unrelatedCoreClient.checks.ssr_boot, false);
+  assert.deepEqual(unrelatedCoreClient.ssrBootApps, []);
   assert.equal(coreTest.checks.ssr_boot, false);
   assert.equal(otelTest.checks.ssr_boot, false);
   assert.equal(otel.checks.ssr_boot, true);
@@ -2014,6 +2058,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "templates/design/e2e/helpers.ts",
     "templates/design/e2e/rails.ts",
     "templates/design/e2e/global-setup.ts",
+    "templates/design/scripts/design-export-validation/corpus/**",
   ]) {
     assert.ok(
       designPullRequestTriggers.includes(input),
@@ -3292,13 +3337,35 @@ test("selects the pre-auth replay browser smoke for its runtime paths", () => {
 });
 
 test("a deleted Design E2E path runs only changed-spec diagnostics", () => {
-  const scope = classifyChangedPaths([
+  const scope = classifyChangedPaths(
+    ["templates/design/e2e/removed-by-this-change.spec.ts"],
+    [],
+    process.cwd(),
+    ["templates/design/e2e/removed-by-this-change.spec.ts"],
+  );
+
+  assert.equal(scope.checks.design_canvas_core_regression, false);
+  assert.equal(scope.checks.design_canvas_broad_workflows, false);
+  assert.deepEqual(scope.designCanvasBroadWorkflowShards, []);
+  assert.deepEqual(scope.designCanvasE2eSpecs, [
     "templates/design/e2e/removed-by-this-change.spec.ts",
   ]);
 
-  assert.equal(scope.checks.design_canvas_core_regression, false);
-  assert.deepEqual(scope.designCanvasE2eSpecs, [
-    "templates/design/e2e/removed-by-this-change.spec.ts",
+  const fullRunWithDeletedShard = classifyChangedPaths(
+    ["pnpm-lock.yaml"],
+    [],
+    process.cwd(),
+    ["templates/design/e2e/home-system-selection.spec.ts"],
+  );
+  assert.equal(
+    fullRunWithDeletedShard.checks.design_canvas_broad_workflows,
+    true,
+  );
+  assert.deepEqual(fullRunWithDeletedShard.designCanvasBroadWorkflowShards, [
+    "ai-sidebar-loopback",
+    "music-app-workflow",
+    "landing-page-build",
+    "autolayout-vertical-center-trailing",
   ]);
 });
 

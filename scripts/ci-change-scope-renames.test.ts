@@ -14,6 +14,7 @@ import test from "node:test";
 import {
   classifyChangedPaths,
   readChangedPaths,
+  readDeletedPaths,
   readSameDirectoryPureDesignSpecRenames,
 } from "./ci-change-scope.ts";
 
@@ -62,10 +63,17 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
         headSha,
         repoPath,
       );
+      const deletedPaths = readDeletedPaths(baseSha, headSha, repoPath);
       return {
         changedPaths,
         pureRenames,
-        scope: classifyChangedPaths(changedPaths, pureRenames),
+        deletedPaths,
+        scope: classifyChangedPaths(
+          changedPaths,
+          pureRenames,
+          repoPath,
+          deletedPaths,
+        ),
       };
     };
 
@@ -159,6 +167,18 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     assert.deepEqual(titleEdit.scope.designCanvasE2eDiagnosticSpecs, [
       sourcePath,
     ]);
+
+    const deletedSpecHead = commitFromBase("delete Design spec", () => {
+      rmSync(sourceFile);
+    });
+    const deletedSpec = scopeFor(deletedSpecHead);
+    assert.deepEqual(deletedSpec.deletedPaths, [sourcePath]);
+    assert.deepEqual(deletedSpec.scope.designCanvasE2eSpecs, [sourcePath]);
+    assert.deepEqual(deletedSpec.scope.designCanvasE2eDiagnosticSpecs, [
+      sourcePath,
+    ]);
+    assert.equal(deletedSpec.scope.checks.design_canvas_broad_workflows, false);
+    assert.deepEqual(deletedSpec.scope.designCanvasBroadWorkflowShards, []);
   } finally {
     rmSync(repoPath, { recursive: true, force: true });
   }
