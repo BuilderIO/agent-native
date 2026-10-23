@@ -11,6 +11,9 @@ type Workflow = Record<string, unknown>;
 const workflow = parse(
   readFileSync(".github/workflows/release-everything.yml", "utf8"),
 ) as Workflow;
+const phaseWorkflow = parse(
+  readFileSync(".github/workflows/release-everything-phase.yml", "utf8"),
+) as Workflow;
 const autoPublishWorkflow = parse(
   readFileSync(".github/workflows/auto-publish.yml", "utf8"),
 ) as Workflow;
@@ -36,7 +39,11 @@ const trigger = workflow.on as Workflow;
 const schedules = trigger.schedule as Workflow[];
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
-const job = (workflow.jobs as Workflow)["release-everything"] as Workflow;
+const workflowJobs = workflow.jobs as Workflow;
+const prepareJob = workflowJobs["prepare-release"] as Workflow;
+const postMergeJob = workflowJobs["post-merge-release"] as Workflow;
+const notifyFailureJob = workflowJobs["notify-failure"] as Workflow;
+const job = (phaseWorkflow.jobs as Workflow).release as Workflow;
 const steps = job.steps as Workflow[];
 const coordinator = steps.find(
   (step) => step.name === RELEASE_COORDINATOR_STEP_NAME,
@@ -50,7 +57,7 @@ describe("release everything workflow", () => {
       { cron: "0 10 * * 5", timezone: "America/Los_Angeles" },
     ]);
     assert.match(
-      String((job.env as Workflow).RELEASE_TYPE),
+      String((prepareJob.with as Workflow).release_type),
       /inputs\.releaseType \|\| 'patch'/,
     );
     assert.deepEqual(inputs.releaseType, {
@@ -66,6 +73,53 @@ describe("release everything workflow", () => {
       contents: "write",
       "pull-requests": "read",
     });
+  });
+
+  it("gives merge preparation and post-merge work independent runner budgets", () => {
+    const phaseInputs = (phaseWorkflow.on as Workflow)
+      .workflow_call as Workflow;
+    const outputs = phaseInputs.outputs as Workflow;
+    const postMergeWith = postMergeJob.with as Workflow;
+    const notifySteps = notifyFailureJob.steps as Workflow[];
+    const failureError = String((notifySteps[0].env as Workflow).RELEASE_ERROR);
+    const source = String((coordinator.with as Workflow).script);
+
+    assert.equal(
+      prepareJob.uses,
+      "./.github/workflows/release-everything-phase.yml",
+    );
+    assert.equal(postMergeJob.uses, prepareJob.uses);
+    assert.equal(postMergeJob.needs, "prepare-release");
+    assert.match(
+      String(postMergeWith.release_sha),
+      /needs\.prepare-release\.outputs\.release_sha/,
+    );
+    assert.match(
+      String(postMergeWith.release_pr_url),
+      /needs\.prepare-release\.outputs\.release_pr_url/,
+    );
+    assert.match(
+      String((outputs.release_sha as Workflow).value),
+      /jobs\.release\.outputs\.release_sha/,
+    );
+    assert.equal(job["timeout-minutes"], 360);
+    assert.equal(coordinator["timeout-minutes"], 355);
+    assert.match(String((job.env as Workflow).RELEASE_PHASE), /inputs\.phase/);
+    assert.match(
+      source,
+      /const coordinatorDeadline = startedAt \+ 350 \* 60_000/,
+    );
+    assert.match(source, /const deadline = phaseDeadline\(210 \* 60_000\)/);
+    assert.doesNotMatch(source, /postMergeReserveMs/);
+    assert.match(source, /core\.setOutput\("release_sha", releaseSha\)/);
+    assert.match(source, /process\.env\.RELEASE_SHA/);
+    assert.match(String(notifyFailureJob.if), /always\(\)/);
+    assert.match(
+      String(notifyFailureJob.if),
+      /post-merge-release\.result == 'failure'/,
+    );
+    assert.match(failureError, /needs\.prepare-release\.outputs\.error/);
+    assert.match(failureError, /needs\.post-merge-release\.outputs\.error/);
   });
 
   it("reconciles ambiguous workflow dispatches without risking duplicate children", async () => {
@@ -538,7 +592,6 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
       source,
       /const coordinatorDeadline = startedAt \+ 350 \* 60_000/,
     );
-    assert.match(source, /const postMergeReserveMs = 60 \* 60_000/);
     assert.match(
       source,
       /Math\.min\(coordinatorDeadline, Date\.now\(\) \+ timeoutMs\)/,
@@ -577,7 +630,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     );
     assert.match(
       source,
-      /async function waitForReleaseMerge\(pr\)[\s\S]*?phaseDeadline\(210 \* 60_000\)[\s\S]*?coordinatorDeadline - postMergeReserveMs/,
+      /async function waitForReleaseMerge\(pr\)[\s\S]*?const deadline = phaseDeadline\(210 \* 60_000\)/,
     );
     assert.match(source, /readJsonAt\(\s*releaseBaseSha,/);
     assert.match(
@@ -794,7 +847,7 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     const source = String((coordinator.with as Workflow).script);
     const helperStart = source.indexOf("const docsDeploymentPaths = [");
     const helperEnd = source.indexOf(
-      "\n\nconst previousReleaseNumbers",
+      '\n\nif (process.env.RELEASE_PHASE === "prepare")',
       helperStart,
     );
     assert(helperStart >= 0 && helperEnd > helperStart);
@@ -1096,8 +1149,6 @@ return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
       "owner",
       "repo",
       "phaseDeadline",
-      "coordinatorDeadline",
-      "postMergeReserveMs",
       "sleep",
       "pollIntervalMs",
       "core",
@@ -1108,8 +1159,6 @@ return waitForReleaseMerge;`,
       owner: string,
       repo: string,
       phaseDeadline: (timeoutMs: number) => number,
-      coordinatorDeadline: number,
-      postMergeReserveMs: number,
       sleep: (ms: number) => Promise<void>,
       pollIntervalMs: number,
       core: Workflow,
@@ -1136,8 +1185,6 @@ return waitForReleaseMerge;`,
         "BuilderIO",
         "agent-native",
         (timeoutMs) => Math.min(350 * 60_000, Date.now() + timeoutMs),
-        350 * 60_000,
-        60 * 60_000,
         async (ms) => {
           now += ms;
         },
@@ -1147,7 +1194,7 @@ return waitForReleaseMerge;`,
       assert.equal(await waitForReleaseMerge({ number: 8062 }), "a".repeat(40));
       assert(now < 210 * 60_000);
 
-      now = 160 * 60_000;
+      now = 120 * 60_000;
       const noMergeGithub = {
         rest: {
           pulls: {
@@ -1160,8 +1207,6 @@ return waitForReleaseMerge;`,
         "BuilderIO",
         "agent-native",
         (timeoutMs) => Math.min(350 * 60_000, Date.now() + timeoutMs),
-        350 * 60_000,
-        60 * 60_000,
         async (ms) => {
           now += ms;
         },
@@ -1172,7 +1217,7 @@ return waitForReleaseMerge;`,
         reserveBoundedWait({ number: 8102 }),
         /did not merge in time/,
       );
-      assert.equal(now, 290 * 60_000);
+      assert.equal(now, 330 * 60_000);
     } finally {
       Date.now = realNow;
     }
