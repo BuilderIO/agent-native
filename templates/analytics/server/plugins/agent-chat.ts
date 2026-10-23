@@ -779,6 +779,18 @@ function canReturnData(result: {
   return !(name === DBT_QUERY_TOOL && dbtQueryDidNotComplete(result));
 }
 
+// The index of the first dbt metric failure no later query resolved, or -1.
+function firstUnresolvedDbtFailureIndex(
+  results: NonNullable<AgentLoopFinalResponseGuardContext["toolResults"]>,
+): number {
+  return results.findIndex(
+    (result, index) =>
+      isNamedTool(result.name, DBT_QUERY_TOOL) &&
+      dbtQueryDidNotComplete(result) &&
+      !dbtFailureResolvedLater(results, index),
+  );
+}
+
 // Whether this turn holds a dbt failure no later query resolved and a tool result that
 // could carry data, in any position. Default-deny: a figure may have come from
 // any tool that can return data, so only a turn of non-data tools is exempt.
@@ -787,32 +799,40 @@ function hasUnresolvedDbtFailureInTurn(
 ): boolean {
   const results = context.toolResults ?? [];
   return (
-    results.some(
-      (result, index) =>
-        isNamedTool(result.name, DBT_QUERY_TOOL) &&
-        dbtQueryDidNotComplete(result) &&
-        !dbtFailureResolvedLater(results, index),
-    ) && results.some(canReturnData)
+    firstUnresolvedDbtFailureIndex(results) !== -1 &&
+    results.some(canReturnData)
   );
 }
 
-// A disclosed figure is released only when a successful BigQuery read in this turn
-// returned complete, non-empty rows to support it. A schema lookup returns rows too, and
-// the call and its result cannot be paired reliably, so a turn that made one cannot
-// support a figure this way.
+function isSchemaCall(call: { name?: string; input?: unknown }): boolean {
+  return (
+    isNamedTool(call.name, "bigquery") &&
+    /information_schema/i.test(JSON.stringify(call.input ?? ""))
+  );
+}
+
+// A disclosed figure is released only when a successful BigQuery read made after the dbt
+// failure returned complete, non-empty rows. Each BigQuery result is paired with its call
+// by order, so a schema lookup excludes only its own result. When the counts differ the
+// pairing is unknown, and a schema lookup anywhere in the turn withholds.
 function warehouseReadHasRows(
   context: AgentLoopFinalResponseGuardContext,
 ): boolean {
-  const schemaLookup = (context.toolCalls ?? []).some(
-    (call) =>
-      isNamedTool(call.name, "bigquery") &&
-      /information_schema/i.test(JSON.stringify(call.input ?? "")),
+  const results = context.toolResults ?? [];
+  const calls = (context.toolCalls ?? []).filter((call) =>
+    isNamedTool(call.name, "bigquery"),
   );
-  if (schemaLookup) return false;
-  return (context.toolResults ?? []).some((result) => {
-    if (!isNamedTool(result.name, "bigquery") || result.isError === true) {
-      return false;
-    }
+  const resultIndexes = results.flatMap((result, index) =>
+    isNamedTool(result.name, "bigquery") ? [index] : [],
+  );
+  const pairable = resultIndexes.length === calls.length;
+  if (!pairable && calls.some(isSchemaCall)) return false;
+  const failureIndex = firstUnresolvedDbtFailureIndex(results);
+  return resultIndexes.some((resultIndex, ordinal) => {
+    if (resultIndex <= failureIndex) return false;
+    if (pairable && isSchemaCall(calls[ordinal])) return false;
+    const result = results[resultIndex];
+    if (result.isError === true) return false;
     const rows = bigQueryRowValues(result.content);
     return (
       rows !== null && rows.length > 0 && !hasPartialBigQueryResult([result])

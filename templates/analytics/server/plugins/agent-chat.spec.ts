@@ -1756,6 +1756,68 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result?.exhaustedDraftPrefix).toBeUndefined();
   });
 
+  it("supports a disclosed figure with a data read even when a schema lookup ran in the turn", async () => {
+    const schemaRows = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({ rows: [{ column_name: "active_accounts" }] }),
+    };
+    const dataRows = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({ rows: [{ n: 10 }], totalRows: 1 }),
+    };
+    const { asked, result } = await judged(
+      {
+        userText: "Show the active accounts figure from BigQuery.",
+        draftText: disclosed,
+        toolCalls: [
+          {
+            name: "bigquery",
+            input: {
+              sql: "SELECT column_name FROM `proj.ds.INFORMATION_SCHEMA.COLUMNS`",
+            },
+          },
+          {
+            name: "bigquery",
+            input: { sql: "SELECT COUNT(*) AS n FROM accounts" },
+          },
+        ],
+        toolResults: [dbtNotFound, schemaRows, dataRows],
+      },
+      "NO",
+    );
+
+    expect(asked).toHaveLength(0);
+    expect(result).toBeNull();
+  });
+
+  it("does not support a disclosed figure with a BigQuery read made before the dbt failure", async () => {
+    const earlierRows = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({ rows: [{ n: 10 }], totalRows: 1 }),
+    };
+    const { result } = await judged(
+      {
+        userText: "Show the active accounts figure from BigQuery.",
+        draftText: disclosed,
+        toolCalls: [
+          {
+            name: "bigquery",
+            input: { sql: "SELECT COUNT(*) AS n FROM accounts" },
+          },
+        ],
+        toolResults: [earlierRows, dbtNotFound],
+      },
+      "NO",
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+  });
+
   it("clears a failed metric once a later query for the same metric succeeds", async () => {
     const activeSuccess = {
       name: "query-dbt-semantic-metric",
