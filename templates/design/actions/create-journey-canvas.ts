@@ -1018,7 +1018,10 @@ export default defineAction({
     }
   },
   changeResource: (_input, result) =>
-    designChangeResource((result as { designId?: string }).designId, result),
+    designChangeResource(
+      (result as { designId?: string } | undefined)?.designId,
+      result,
+    ),
   link: ({ result }) => {
     const { url } = (result ?? {}) as { url?: string };
     return url

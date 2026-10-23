@@ -789,5 +789,5 @@ export default defineAction({
     };
   },
   changeResource: (_input, result) =>
-    designChangeResource(result.designId, result),
+    designChangeResource(result?.designId, result),
 });
