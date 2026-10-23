@@ -7,9 +7,7 @@ import {
 } from "@agent-native/core/collab";
 import type { DbExec } from "@agent-native/core/db";
 import { assertAccess, currentAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 
-import { getDb, schema } from "../db/index.js";
 import { isLiveBodyWriterPage } from "../lib/live-body-writer.js";
 import { CONTENT_LIVE_COPY_EDITS, contentLiveCopy } from "./binding.js";
 import { persistUnchangedContentBodyEdit } from "./persist.js";
@@ -184,13 +182,13 @@ export async function editContentLiveCopy<Edit extends string>(
 }
 
 /**
- * Writes `rewrite(body)` to a switched page for a server writer that derives
- * its change from the page's current body, such as alt text or a
- * transcript. The change is rebased onto any tab's commit since the read,
- * as an agent's edit is: the rewrite's target is the block it changed, not
- * whatever a selector such as "the first image with this URL" would pick in
- * the newer body. A change whose place that commit leaves ambiguous, or a
- * target `rewrite` (null) doesn't find, is refused as
+ * Writes `candidate` to a switched page for a server writer that made it
+ * from `base`, the body it read, such as alt text or a transcript. The
+ * change is rebased onto any tab's commit since that read, as an agent's
+ * edit is: its target is the block it changed in `base`, not whatever a
+ * selector such as "the first image with this URL" would pick in a newer
+ * body, so the writer selects only in the body it read. A change whose
+ * place that commit leaves ambiguous is refused as
  * DOCUMENT_REVISION_CONFLICT. The caller's editor access is checked again in
  * the commit's transaction. False when the page is not on its live copy,
  * or left it before anything committed, so the writer takes its legacy path.
@@ -199,28 +197,16 @@ export async function rewriteContentLiveCopyBody(
   documentId: string,
   options: {
     cause: ContentBodyWriteCause;
-    rewrite: (body: string) => string | null;
+    base: string;
+    candidate: string;
   },
 ): Promise<boolean> {
   if (!(await isLiveBodyWriterPage(documentId))) return false;
-  // guard:allow-unscoped — callers assert editor access to the page first.
-  const [row] = await getDb()
-    .select({ content: schema.documents.content })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, documentId));
-  const body = row?.content ?? "";
-  const content = options.rewrite(body);
-  if (content === null) {
-    throw new ActionContractError(
-      "The document changed, and this change no longer applies to it. Read it again and retry.",
-      { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
-    );
-  }
   try {
     await editContentLiveCopy(documentId, {
       cause: options.cause,
       edit: CONTENT_LIVE_COPY_EDITS.rebaseBody,
-      input: { base: body, candidate: content },
+      input: { base: options.base, candidate: options.candidate },
       persist: async (tx) => {
         await assertAccess("document", documentId, "editor", {
           ...currentAccess(),

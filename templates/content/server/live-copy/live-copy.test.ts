@@ -32,48 +32,81 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   >()),
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
+// Runs once, after the next write-path read from another module: a server
+// writer reads its path after it read the body it changes.
+const { afterWritePathRead } = vi.hoisted(() => ({
+  afterWritePathRead: { current: null as null | (() => Promise<void>) },
+}));
+vi.mock("../lib/live-body-writer.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../lib/live-body-writer.js")>();
+  const thenHook =
+    <A extends unknown[], R>(read: (...args: A) => Promise<R>) =>
+    async (...args: A) => {
+      const result = await read(...args);
+      const hook = afterWritePathRead.current;
+      afterWritePathRead.current = null;
+      await hook?.();
+      return result;
+    };
+  return {
+    ...actual,
+    liveBodyWriterGate: thenHook(actual.liveBodyWriterGate),
+    isLiveBodyWriterPage: thenHook(actual.isLiveBodyWriterPage),
+  };
+});
+// Counts the edit bases rebuilt from body steps. History can record a base
+// after the agent read it, so only this tells which edits the steps served.
+const { rebuiltBases } = vi.hoisted(() => ({ rebuiltBases: { count: 0 } }));
+vi.mock("../lib/document-body-steps.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../lib/document-body-steps.js")>();
+  return {
+    ...actual,
+    rebuildDocumentBodyBase: async (
+      ...args: Parameters<typeof actual.rebuildDocumentBodyBase>
+    ) => {
+      const base = await actual.rebuildDocumentBodyBase(...args);
+      if (base !== null) rebuiltBases.count += 1;
+      return base;
+    },
+  };
+});
 
 // The live copy's worker bundles its own Yjs and serializer, so these record
-// only what ran on this thread, and only while `recording` is set.
+// only what ran on this thread, and only while `recording` is set. They record
+// every call and construction of every export: an export reaches the others'
+// work through the module's own bindings, which a wrapper never sees.
 const { thisThread, recordedOnThisThread } = vi.hoisted(() => {
   const thisThread = { recording: false, calls: [] as string[] };
-  function recordedOnThisThread<T extends object>(
-    actual: T,
-    names: readonly string[],
-  ): T {
+  const record = (name: string) => {
+    if (thisThread.recording) thisThread.calls.push(name);
+  };
+  function recordedOnThisThread<T extends object>(actual: T): T {
     const recorded = { ...actual } as Record<string, unknown>;
-    for (const name of names) {
-      const call = recorded[name] as (...args: unknown[]) => unknown;
-      recorded[name] = (...args: unknown[]) => {
-        if (thisThread.recording) thisThread.calls.push(name);
-        return call(...args);
-      };
+    for (const [name, value] of Object.entries(recorded)) {
+      if (typeof value !== "function") continue;
+      recorded[name] = new Proxy(value, {
+        apply(target, self, args) {
+          record(name);
+          return Reflect.apply(target, self, args);
+        },
+        construct(target, args, newTarget) {
+          record(`new ${name}`);
+          return Reflect.construct(target, args, newTarget);
+        },
+      });
     }
     return recorded as T;
   }
   return { thisThread, recordedOnThisThread };
 });
 vi.mock("yjs", async (importOriginal) =>
-  recordedOnThisThread(await importOriginal<typeof import("yjs")>(), [
-    "applyUpdate",
-    "applyUpdateV2",
-    "readUpdate",
-    "readUpdateV2",
-    "diffUpdate",
-    "diffUpdateV2",
-    "mergeUpdates",
-    "mergeUpdatesV2",
-    "decodeUpdate",
-    "decodeUpdateV2",
-    "decodeStateVector",
-    "encodeStateVectorFromUpdate",
-    "encodeStateVectorFromUpdateV2",
-  ]),
+  recordedOnThisThread(await importOriginal<typeof import("yjs")>()),
 );
 vi.mock("../../shared/nfm.js", async (importOriginal) =>
   recordedOnThisThread(
     await importOriginal<typeof import("../../shared/nfm.js")>(),
-    ["docToNfm", "nfmToDoc"],
   ),
 );
 
@@ -1600,8 +1633,8 @@ describe("edit-document on a switched page", () => {
       }
     };
     let edits = 0;
-    let unrecorded = 0;
-    let overtaken = 0;
+    let stale = 0;
+    rebuiltBases.count = 0;
     try {
       const until = Date.now() + 30_000;
       while (Date.now() < until) {
@@ -1614,7 +1647,6 @@ describe("edit-document on a switched page", () => {
             { caller: "mcp", userEmail: OWNER } as never,
           ),
         )) as { bodyRevision: number; content: string };
-        if (!(await historyHolds("liveness", read))) unrecorded += 1;
         // The tab types on while the agent thinks. A base History lacks is
         // rebuilt from at most 256 body steps, about 10 s at this pace.
         await keystrokesLand(2);
@@ -1625,9 +1657,7 @@ describe("edit-document on a switched page", () => {
           `liveness-${edits}`,
         );
         expect(result.receipt.outcome).toBe("applied");
-        if (result.receipt.bodyRevision.before > read.bodyRevision) {
-          overtaken += 1;
-        }
+        if (result.receipt.bodyRevision.before > read.bodyRevision) stale += 1;
         edits += 1;
       }
     } finally {
@@ -1638,9 +1668,10 @@ describe("edit-document on a switched page", () => {
 
     expect(edits).toBeGreaterThan(10);
     expect(keystrokes).toBeGreaterThan(100);
-    // Unless History missed some edits' bases, the loop proves nothing.
-    expect(unrecorded).toBeGreaterThan(0);
-    expect(overtaken).toBe(edits);
+    // Every edit was made on a body the tab had since typed past. Unless
+    // History missed some of those bases, the loop proves nothing.
+    expect(stale).toBe(edits);
+    expect(rebuiltBases.count).toBeGreaterThan(0);
     expect((await page("liveness")).content).toBe(
       `Agent ${edits}\nTab${"x".repeat(keystrokes)}`,
     );
@@ -1690,6 +1721,51 @@ describe("edit-document on a switched page", () => {
       expect(result.receipt.outcome).toBe("applied");
       expect(result.receipt.bodyRevision.before - newer.bodyRevision).toBe(256);
       expect((await page("step-limit")).content).toBe(
+        typed.replace("Agent", "Agent A"),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 120_000);
+
+  it("refuses an unrecorded base a commit replacing more than 64 KB has passed, and lands the edit on a fresh read", async () => {
+    await switchedPage("big-step", `Agent\n\n${"a".repeat(70_000)}`);
+    const now = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(now + 10);
+      await typeInTab("big-step", `Agent\n\n${"a".repeat(70_000)}x`);
+      await typeInTab("big-step", `Agent\n\n${"a".repeat(70_000)}xy`);
+      const before = await page("big-step");
+      // The tab replaces the long paragraph in one commit, which records no
+      // step.
+      await typeInTab("big-step", `Agent\n\n${"b".repeat(70_000)}`);
+      expect(await historyHolds("big-step", before)).toBe(false);
+
+      await expect(
+        agentEdit(
+          "big-step",
+          before,
+          [{ find: "Agent", replace: "Agent A" }],
+          "big-step-before",
+        ),
+      ).rejects.toMatchObject({ errorCode: "STALE_BASE_REVISION" });
+
+      const after = await page("big-step");
+      await typeInTab("big-step", `Agent\n\n${"b".repeat(70_000)}x`);
+      expect(await historyHolds("big-step", after)).toBe(false);
+      const typed = (await page("big-step")).content;
+      rebuiltBases.count = 0;
+      const result = await agentEdit(
+        "big-step",
+        after,
+        [{ find: "Agent", replace: "Agent A" }],
+        "big-step-after",
+      );
+
+      expect(result.receipt.outcome).toBe("applied");
+      expect(rebuiltBases.count).toBe(1);
+      expect((await page("big-step")).content).toBe(
         typed.replace("Agent", "Agent A"),
       );
     } finally {
@@ -1963,6 +2039,49 @@ describe("edit-document on a switched page", () => {
     expect((await page("no-revision")).content).toBe("Hello world");
     expect(await gateFor("no-revision")).toEqual({ writePath: "live_copy" });
   });
+
+  it("refuses an edit without a revision whose editor access was revoked before it committed", async () => {
+    await switchedPage("no-revision-revoked", "Hello there");
+    await getDb().insert(schema.documentShares).values({
+      id: "no-revision-revoked-share",
+      resourceId: "no-revision-revoked",
+      principalType: "user",
+      principalId: OTHER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const version = await collabVersion("no-revision-revoked");
+    const action = (await import("../../actions/edit-document.js")).default;
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    const spy = vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+      const result = await run(...args);
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, "no-revision-revoked-share"));
+      return result;
+    });
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OTHER }, async () =>
+          action.run(
+            {
+              id: "no-revision-revoked",
+              find: "there",
+              replace: "world",
+            } as never,
+            { caller: "frontend", userEmail: OTHER } as never,
+          ),
+        ),
+      ).rejects.toThrow("No access to document no-revision-revoked");
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("no-revision-revoked")).content).toBe("Hello there");
+    expect(await collabVersion("no-revision-revoked")).toBe(version);
+  });
 });
 
 describe("a server rewrite of a switched page's body", () => {
@@ -2030,6 +2149,36 @@ describe("a server rewrite of a switched page's body", () => {
     }
 
     const after = await page("alt-text-same-url");
+    expect(after.content).toContain(`![peer](${IMAGE})`);
+    expect(after.content).toContain(`Original\n![A cat](${IMAGE})`);
+    expect(after.content).not.toContain("![original]");
+  });
+
+  it("writes alt text to the image it read, though a tab added one with the same URL before the write began", async () => {
+    await switchedPage(
+      "alt-text-early-tab",
+      `Original\n\n![original](${IMAGE})`,
+    );
+    afterWritePathRead.current = async () => {
+      await asOwner(async () =>
+        collab.applyUpdate(
+          "alt-text-early-tab",
+          await editorUpdate(
+            "alt-text-early-tab",
+            markdownBlocks(
+              `Inserted\n\n![peer](${IMAGE})\n\nOriginal\n\n![original](${IMAGE})`,
+            ),
+          ),
+        ),
+      );
+    };
+    try {
+      await setAltText("alt-text-early-tab", "A cat");
+    } finally {
+      afterWritePathRead.current = null;
+    }
+
+    const after = await page("alt-text-early-tab");
     expect(after.content).toContain(`![peer](${IMAGE})`);
     expect(after.content).toContain(`Original\n![A cat](${IMAGE})`);
     expect(after.content).not.toContain("![original]");
@@ -2705,6 +2854,13 @@ describe("the SF-07 bound on Content's derive and build", () => {
     );
     expect(result.tasks).toEqual([]);
     expect(result.thisThread).toContain("applyUpdate");
+  });
+
+  it("records serializer work this thread reaches through any export", async () => {
+    const result = await whereItRan(async () =>
+      nfm.canonicalizeNfm("Hello there"),
+    );
+    expect(result.thisThread).toEqual(["canonicalizeNfm"]);
   });
 
   it("refuses indent feeding repeat() (about 100 MB) as output_too_large", async () => {
