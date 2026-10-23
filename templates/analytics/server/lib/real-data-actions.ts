@@ -1272,11 +1272,9 @@ function isRecoveredDbtContinuation(
     return false;
   }
   const record = payload as Record<string, unknown>;
-  if (
-    record.status !== "pending" &&
-    record.status !== "provider_error" &&
-    !(record.status === "success" && typeof record.nextPage === "string")
-  ) {
+  // Any status that carries the resume cursors can be continued, including a
+  // recoverable error. A success is continued only while it has a next page.
+  if (record.status === "success" && typeof record.nextPage !== "string") {
     return false;
   }
   if (

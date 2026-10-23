@@ -406,6 +406,40 @@ describe("real data action classification", () => {
     expect(failedDataQueryAttemptMessage([interrupted, completed])).toBeNull();
   });
 
+  it("clears a recoverable connection error once the same query completes", () => {
+    const querySpec = {
+      groupBy: [{ name: "metric_time", grain: "WEEK" }],
+      timeRange: { startDate: "2026-10-05", endDate: "2026-10-11" },
+    };
+    const cursor = `metric-results-v5.AA.${"A".repeat(43)}`;
+    const interrupted = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "connection_error",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        nextPage: cursor,
+        querySpec,
+        message:
+          "The dbt Semantic Layer request timed out. Retry with the same metricName, queryId, and nextPage cursor to resume.",
+      }),
+    };
+    const completed = {
+      name: "query-dbt-semantic-metric",
+      content: JSON.stringify({
+        status: "success",
+        metricName: "activation_rate",
+        queryId: "synthetic-query-id",
+        querySpec,
+        rows: [{ metric_time: "2026-10-05", activation_rate: 42 }],
+        truncated: false,
+      }),
+    };
+
+    expect(hasDataQueryAttempt([interrupted, completed])).toBe(true);
+    expect(failedDataQueryAttemptMessage([interrupted, completed])).toBeNull();
+  });
+
   it("clears an empty continued page once the same query returns rows", () => {
     const querySpec = {
       groupBy: [{ name: "metric_time", grain: "WEEK" }],

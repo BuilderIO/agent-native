@@ -960,7 +960,7 @@ export default defineAction({
     "Choose a bounded inclusive date range up to 366 days for scalar queries or explicitly set allTime:true; grouped queries require a bounded range. " +
     "Daily-capable metrics accept exact dates; monthly-only metrics require complete calendar months. Unsupported filter grains return an explicit error. " +
     "The action returns the metric definition, querySpec, and live rows with explicit permission, deployment, or connection states. Grouped time columns are returned as metric_time__<GRAIN>. It cannot run dbt jobs or accept arbitrary GraphQL. " +
-    "On `not_found`, search `find-data` for the exact name once, then retry. On `ambiguous_metric`, list the matching names and ask which metric is meant; retrying the same name returns the same ambiguity. " +
+    "On `not_found`, search `find-data` for the exact name once; retry only with a different exact name it returns. On `ambiguous_metric`, list the matching names and ask which one is meant. " +
     "On `connection_selection_required`, pass a `connectionId` from its `connections` list. On a connection-required error, report the Settings step (Settings → Integrations) and do not answer with a different metric.",
   schema: z
     .object({
