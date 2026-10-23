@@ -77,6 +77,46 @@ function resizeNotificationWindow(expanded: boolean, recovery = false) {
     });
 }
 
+// Debug-only: the Rust command writes this to the app log folder and is a
+// no-op unless CLIPS_DEBUG is set, so the card's on-screen state can be read
+// back without screen capture.
+function writeDebugSnapshot(reason: string, data: NotificationData) {
+  const el = document.querySelector<HTMLElement>(".meeting-notification");
+  const rect = el?.getBoundingClientRect() ?? null;
+  const style = el ? getComputedStyle(el) : null;
+  const hit = rect
+    ? document.elementFromPoint(
+        rect.x + rect.width / 2,
+        rect.y + rect.height / 2,
+      )
+    : null;
+  invoke("debug_write_snapshot", {
+    name: "meeting-notif-dom",
+    payload: {
+      reason,
+      at: new Date().toISOString(),
+      meetingId: data.meetingId,
+      hasElement: el !== null,
+      rect: rect && { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+      opacity: style?.opacity ?? null,
+      display: style?.display ?? null,
+      visibility: style?.visibility ?? null,
+      documentVisibility: document.visibilityState,
+      viewport: {
+        w: window.innerWidth,
+        h: window.innerHeight,
+        dpr: window.devicePixelRatio,
+      },
+      hitTestInsideCard: hit
+        ? Boolean(hit.closest(".meeting-notification"))
+        : null,
+      hitTestTag: hit?.tagName ?? null,
+    },
+  }).catch((err) => {
+    console.warn("[clips-meeting-notif] debug snapshot failed", err);
+  });
+}
+
 function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
   if (provider === "zoom") {
     return (
@@ -251,6 +291,9 @@ export function MeetingNotification() {
     const win = getCurrentWindow();
     if (data) {
       win.show().catch(() => {});
+      requestAnimationFrame(() =>
+        setTimeout(() => writeDebugSnapshot("shown", data), 250),
+      );
     } else {
       win.hide().catch(() => {});
     }
