@@ -45,6 +45,7 @@ import {
   markAgentExecutionStepDispatched,
   insertRun,
   tryClaimRunSlot,
+  retryRunThreadProjection,
   releaseBackgroundRunBeforeStart,
   type AgentExecutionStepIntent,
 } from "../agent/run-store.js";
@@ -1461,6 +1462,15 @@ async function executeBackgroundAutomation(
       const systemPrompt = `${baseSystemPrompt}${workspaceAppContext ? `\n\n${workspaceAppContext}` : ""}\n\n${messages.noOpInstruction}`;
       assertHardDeadline(options.hardDeadlineAt);
       const resume = options.resume;
+      if (resume) {
+        await withAutomationRecoveryStorage(async () => {
+          if (!(await retryRunThreadProjection(resume.previousRunId))) {
+            throw new Error(
+              `Automation recovery could not project prior run ${resume.previousRunId}`,
+            );
+          }
+        });
+      }
       const thread = resume
         ? await withAutomationRecoveryStorage(() => getThread(resume.threadId))
         : await createThread(ownerEmail, {

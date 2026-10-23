@@ -5688,6 +5688,24 @@ async function finalizeStaleRun(
   }
 }
 
+export async function retryRunThreadProjection(
+  runId: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT thread_projection_pending FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  if (rows.length === 0) return true;
+  const pending = (
+    rows[0] as { thread_projection_pending?: unknown } | undefined
+  )?.thread_projection_pending;
+  if (pending === true || pending === "t" || pending === 1) {
+    return finalizeStaleRun(runId, "background-automation-resume");
+  }
+  return pending === false || pending === "f" || pending === 0;
+}
+
 class AbortTerminalEventWriteError extends Error {
   readonly runId: string;
 

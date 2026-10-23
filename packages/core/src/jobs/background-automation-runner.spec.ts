@@ -1025,7 +1025,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
         .get(previous!.threadId, turnId)) as { status: string } | undefined;
       expect(step).toEqual({ status: "dispatched" });
 
-      getThreadMock.mockResolvedValueOnce({
+      const interruptedThread = {
         id: previous!.threadId!,
         title: "Interrupted automation",
         preview: "",
@@ -1039,7 +1039,10 @@ describe("runBackgroundAutomation — confirmed work", () => {
             },
           ],
         }),
-      });
+      };
+      getThreadMock
+        .mockResolvedValueOnce(interruptedThread)
+        .mockResolvedValueOnce(interruptedThread);
       runLoop.mockImplementationOnce(async (opts) => {
         await opts.send?.({
           type: "tool_done",
@@ -1081,6 +1084,12 @@ describe("runBackgroundAutomation — confirmed work", () => {
         )
         .get(previous!.threadId, turnId)) as { status: string } | undefined;
       expect(replayedStep).toEqual({ status: "unknown" });
+      const previousProjection = (await pglite
+        .prepare(
+          `SELECT thread_projection_pending FROM agent_runs WHERE id = ?`,
+        )
+        .get(previous!.runId!)) as { thread_projection_pending: boolean };
+      expect(previousProjection.thread_projection_pending).toBe(false);
     } finally {
       finish.mockRestore();
       completeReceipt.mockRestore();
