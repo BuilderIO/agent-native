@@ -2189,6 +2189,7 @@ describe("queryFirstPartyAnalytics", () => {
         rows: [{ count: 1 }],
         schema: [{ name: "count", type: "number" }],
         backend: "postgres",
+        bytesProcessed: 0,
       });
       expect(backendMocks.query).not.toHaveBeenCalled();
     });

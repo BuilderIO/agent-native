@@ -1772,12 +1772,9 @@ export async function queryFirstPartyAnalytics(
   scope: AnalyticsScope,
   options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
-  const { backend, ...result } = await queryFirstPartyAnalyticsWithBackend(
-    sql,
-    scope,
-    options,
-  );
-  return backend === "postgres" ? { ...result, bytesProcessed: 0 } : result;
+  const { backend: _backend, ...result } =
+    await queryFirstPartyAnalyticsWithBackend(sql, scope, options);
+  return result;
 }
 
 export async function queryFirstPartyAnalyticsWithBackend(
@@ -1997,7 +1994,8 @@ export async function queryFirstPartyAnalyticsWithBackend(
         throw failure;
       }
     };
-    if (!options.cache) return { ...(await compute()), backend: "postgres" };
+    if (!options.cache)
+      return { ...(await compute()), backend: "postgres", bytesProcessed: 0 };
     await withVerifiedPostgresQuery(
       statement,
       remainingTime(),
@@ -2013,7 +2011,7 @@ export async function queryFirstPartyAnalyticsWithBackend(
       }),
       signal,
     );
-    return { ...result, backend: "postgres" };
+    return { ...result, backend: "postgres", bytesProcessed: 0 };
   } catch (error) {
     throw normalizeFailure(error);
   } finally {
