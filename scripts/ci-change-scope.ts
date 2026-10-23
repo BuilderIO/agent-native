@@ -792,6 +792,24 @@ export const QUERY_BUDGET_SHARD_COUNT = 2;
 // every one; a template change rebuilds only that template.
 export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
 
+// Slides authoring runs as these jobs, inside the prebuilt image in
+// docker/ci-slides-authoring. The `--authoring` parity suite is the longest
+// single command, so each browser runs it as three slices.
+export const SLIDES_AUTHORING_SHARDS = [
+  "chromium-1",
+  "chromium-2",
+  "chromium-3",
+  "webkit-1",
+  "webkit-2",
+  "webkit-3",
+  "corpus",
+  "fuzz",
+] as const;
+
+export function slidesAuthoringMatrix(): { include: { shard: string }[] } {
+  return { include: SLIDES_AUTHORING_SHARDS.map((shard) => ({ shard })) };
+}
+
 type CheckName = (typeof CHECK_NAMES)[number];
 
 const GLOBAL_RUNTIME_INPUTS = new Set([
@@ -1650,6 +1668,10 @@ function isSlidesAuthoringPath(path: string): boolean {
   return (
     SLIDES_TEXT_AUTHORING_FILES.has(path) ||
     isSlidesEditFidelityHarnessPath(path) ||
+    // The image and the actions that run the shards are what the job executes.
+    path.startsWith("docker/ci-slides-authoring/") ||
+    path.startsWith(".github/actions/slides-authoring-image/") ||
+    path.startsWith(".github/actions/slides-authoring-shard/") ||
     [
       "templates/slides/agent-native.config.ts",
       "templates/slides/agent-native.json",
@@ -2628,6 +2650,7 @@ function writeOutputs(scope: ChangeScope): void {
       `scaffold_workspace=${scope.scaffoldWorkspace ? "true" : "false"}`,
       `scaffold_workspace_apps=${JSON.stringify(scope.scaffoldWorkspaceApps)}`,
       `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
+      `slides_authoring_matrix=${JSON.stringify(slidesAuthoringMatrix())}`,
       `trusted_acceptance_apps=${JSON.stringify(scope.trustedAcceptanceApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(
