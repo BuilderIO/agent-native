@@ -1382,6 +1382,57 @@ describe("HTML Motion source adapter", () => {
     ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
   });
 
+  it("rejects an x-teleport template whose content changes a Motion target", () => {
+    const source = html.replace(
+      "</body>",
+      `<div x-data><template x-teleport="body"><p x-init="document.querySelector('[data-agent-native-node-id=hero-title]').style.color = 'red'"></p></template></div>\n${ALPINE_CDN}\n</body>`,
+    );
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("resolves $root to the closest x-data, not an x-init between them", () => {
+    const source = html
+      .replace('<main class="card">', '<main class="card" x-data>')
+      .replace(
+        "</main>",
+        `  <template x-if="true"><div x-init="ready = true"><p x-text="($root.querySelector('[data-agent-native-node-id=hero-title]').style.color = 'red') && ''"></p></div></template>\n  </main>`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    ["$refs", `$refs.card.innerHTML = ''`, 'x-ref="card"'],
+    ["$root", `$root.replaceChildren()`, ""],
+  ])(
+    "rejects %s replacing the content around a Motion target",
+    (_label, expression, ref) => {
+      const source = html
+        .replace('<main class="card">', `<main class="card" x-data ${ref}>`)
+        .replace(
+          "</main>",
+          `  <p x-text="(${expression}) || ''"></p>\n  </main>`,
+        )
+        .replace("</body>", `${ALPINE_CDN}\n</body>`);
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
   it("allows a $root selector whose root does not contain the Motion target", () => {
     const source = html.replace(
       "</body>",

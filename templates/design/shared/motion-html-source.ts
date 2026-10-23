@@ -858,13 +858,15 @@ function assertExecutableScriptsSafe(
   }
 }
 
-// Alpine clones x-if and x-for template content into the live document, so
-// what it renders runs like any other markup.
+// Alpine clones x-if, x-for and x-teleport template content into the live
+// document, so what it renders runs like any other markup.
 function isRenderedByAlpine(node: HtmlNode): boolean {
   for (let current = node.parentNode; current; current = current.parentNode) {
     if (
       current.tagName === "template" &&
-      current.attrs?.some(({ name }) => /^x-(?:if|for)$/i.test(name))
+      current.attrs?.some(({ name }) =>
+        /^x-(?:if|for|teleport)(?:\.|$)/i.test(name),
+      )
     ) {
       return true;
     }
@@ -1016,8 +1018,9 @@ function handlerMayMutateMotionTarget(
 
 // $root and $refs hand an expression elements it never selects, so the
 // selector checks cannot see them reach a Motion target. Both resolve
-// through the Alpine roots around the expression, and an expression with
-// no root around it is never evaluated.
+// through the x-data components around the expression; x-init runs an
+// expression without starting one, so it is not a root. Replacing an
+// element's content removes any Motion target inside it.
 function alpineMagicMayMutateMotionTarget(
   value: string,
   handlerNode: HtmlNode,
@@ -1025,7 +1028,12 @@ function alpineMagicMayMutateMotionTarget(
   targetIds: ReadonlySet<string>,
   generatedIds: Map<number | undefined, string>,
 ): boolean {
-  if (!MUTATION_MEMBER_ACCESS_PATTERN.test(value)) return false;
+  if (
+    !MUTATION_MEMBER_ACCESS_PATTERN.test(value) &&
+    !CONTENT_REPLACEMENT_ACCESS.test(value)
+  ) {
+    return false;
+  }
   const roots = alpineRoots(handlerNode);
   if (roots.length === 0) return false;
   const reachesTarget = (node: HtmlNode) =>
@@ -1050,6 +1058,9 @@ function alpineMagicMayMutateMotionTarget(
   return false;
 }
 
+const CONTENT_REPLACEMENT_ACCESS =
+  /(?:\?\.|\.)\s*(?:innerHTML|outerHTML|textContent|innerText|outerText|replaceChildren|replaceWith|remove|removeChild|insertAdjacentHTML)\b|\[\s*["'](?:innerHTML|outerHTML|textContent|innerText|outerText|replaceChildren|replaceWith|remove|removeChild|insertAdjacentHTML)["']\s*\]/;
+
 function alpineRoots(node: HtmlNode): HtmlNode[] {
   const roots: HtmlNode[] = [];
   for (
@@ -1057,12 +1068,7 @@ function alpineRoots(node: HtmlNode): HtmlNode[] {
     current;
     current = current.parentNode
   ) {
-    if (
-      attributes(current, "x-data").length > 0 ||
-      attributes(current, "x-init").length > 0
-    ) {
-      roots.push(current);
-    }
+    if (attributes(current, "x-data").length > 0) roots.push(current);
   }
   return roots;
 }
