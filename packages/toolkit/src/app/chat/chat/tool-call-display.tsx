@@ -79,7 +79,10 @@ import {
   IntegrationToolBadge,
   resolveToolIntegration,
 } from "./tool-integration.js";
-import { resolveToolRenderer } from "./tool-render-registry.js";
+import {
+  resolveToolRenderer,
+  type ToolRendererContext,
+} from "./tool-render-registry.js";
 import {
   isBuiltinDataWidgetActionRenderer,
   isBuiltinWorkspaceFileResult,
@@ -636,6 +639,7 @@ export function ToolCallDisplay({
   argsText,
   args,
   result,
+  status,
   mcpApp,
   chatUI,
   isRunning,
@@ -656,6 +660,7 @@ export function ToolCallDisplay({
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
+  status?: ToolRendererContext["status"];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
@@ -750,6 +755,7 @@ export function ToolCallDisplay({
       argsText={argsText}
       args={args}
       result={result}
+      status={status}
       mcpApp={mcpApp}
       chatUI={chatUI}
       isRunning={effectiveIsRunning}
@@ -775,6 +781,7 @@ function ToolCallDisplayGeneric({
   argsText,
   args,
   result,
+  status,
   mcpApp,
   chatUI,
   isRunning,
@@ -794,6 +801,7 @@ function ToolCallDisplayGeneric({
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
+  status?: ToolRendererContext["status"];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
@@ -923,6 +931,7 @@ function ToolCallDisplayGeneric({
     args,
     resultText: result,
     resultJson: parsedResult,
+    status,
     isRunning,
     isActiveTail,
     dataChartLayout,

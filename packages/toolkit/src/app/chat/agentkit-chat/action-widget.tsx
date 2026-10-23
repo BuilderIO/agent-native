@@ -94,6 +94,7 @@ export function AgentKitActionWidget({
     resultJson,
     ...(relatedResults.length > 1 ? { relatedResults } : {}),
     widgetId: widget.id,
+    status: tool.status,
     isRunning: tool.status === "running",
     dataChartLayout,
     chatUI: {
