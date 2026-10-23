@@ -218,6 +218,9 @@ export function CommentEntry({
         propertyId: comment.parent_id
           ? undefined
           : (comment.property_id ?? undefined),
+        databaseId: comment.parent_id
+          ? undefined
+          : (comment.property_database_id ?? undefined),
         fieldId: comment.parent_id
           ? undefined
           : (comment.field_id ?? undefined),

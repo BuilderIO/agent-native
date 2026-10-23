@@ -208,12 +208,25 @@ it("retries an uncertain new thread on its Property or in its tab", async () => 
   });
   const cases: [Comment, Record<string, unknown>][] = [
     [
-      uncertain("operation-property", { property_id: "status" }),
-      { propertyId: "status", fieldId: undefined, quotedText: undefined },
+      uncertain("operation-property", {
+        property_id: "status",
+        property_database_id: "collection-2",
+      }),
+      {
+        propertyId: "status",
+        databaseId: "collection-2",
+        fieldId: undefined,
+        quotedText: undefined,
+      },
     ],
     [
       uncertain("operation-tab", { field_id: "notes", quoted_text: "dolor" }),
-      { fieldId: "notes", propertyId: undefined, quotedText: "dolor" },
+      {
+        fieldId: "notes",
+        propertyId: undefined,
+        databaseId: undefined,
+        quotedText: "dolor",
+      },
     ],
   ];
   for (const [entry, target] of cases) {
