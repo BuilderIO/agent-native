@@ -126,19 +126,20 @@ export function assertReleaseCoordinatorStepActive(
     }
   }
 
-  if (releaseSteps.length !== 1) {
-    throw new Error(
-      `Expected one active release step in coordinator run ${runId}; GitHub returned ${releaseSteps.length}.`,
-    );
-  }
-  const [{ job, step }] = releaseSteps;
-  if (
-    job.status !== "in_progress" ||
-    step.status !== "in_progress" ||
-    step.conclusion != null
-  ) {
+  const activeReleaseSteps = releaseSteps.filter(
+    ({ job, step }) =>
+      job.status === "in_progress" &&
+      step.status === "in_progress" &&
+      step.conclusion == null,
+  );
+  if (activeReleaseSteps.length === 0 && releaseSteps.length === 1) {
     throw new Error(
       `Release everything coordinator run ${runId} is no longer performing the release step.`,
+    );
+  }
+  if (activeReleaseSteps.length !== 1) {
+    throw new Error(
+      `Expected one active release step in coordinator run ${runId}; GitHub returned ${activeReleaseSteps.length}.`,
     );
   }
 }

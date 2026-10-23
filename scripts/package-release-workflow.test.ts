@@ -357,6 +357,46 @@ describe("npm package release workflow", () => {
     assert.doesNotThrow(() =>
       assertReleaseCoordinatorStepActive(activePages, 123),
     );
+    const preparePhaseJob = {
+      name: "Run the prepare release phase",
+      status: "completed",
+      steps: [
+        {
+          name: RELEASE_COORDINATOR_STEP_NAME,
+          status: "completed",
+          conclusion: "success",
+        },
+      ],
+    };
+    const postMergePhaseJob = {
+      name: "Run the post-merge release phase",
+      status: "in_progress",
+      steps: [
+        {
+          name: RELEASE_COORDINATOR_STEP_NAME,
+          status: "in_progress",
+          conclusion: null,
+        },
+      ],
+    };
+    const sequentialPhasePages = [
+      { jobs: [preparePhaseJob, postMergePhaseJob] },
+    ];
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorStepActive(sequentialPhasePages, 123),
+    );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorStepActive(
+          [
+            {
+              jobs: [postMergePhaseJob, postMergePhaseJob],
+            },
+          ],
+          123,
+        ),
+      /Expected one active release step.*returned 2/,
+    );
     assert.throws(
       () =>
         assertReleaseCoordinatorStepActive(
