@@ -1886,6 +1886,26 @@ function replyExplicitlyOwnsRecordedAction(
             target.every((word, index) => followingWords[index] === word),
         );
         if (matchedSummary) {
+          const commitmentPrefix = [
+            ...clauses.slice(0, clauseIndex),
+            normalized.slice(0, match.index),
+          ]
+            .join(" ")
+            .normalize("NFKC")
+            .replace(/[’‘]/g, "'");
+          const currentSentencePrefix =
+            commitmentPrefix
+              .split(/[.!?;\n]+/)
+              .at(-1)
+              ?.trim() ?? "";
+          if (
+            /^(?:if|unless|provided that|assuming(?: that)?|depending on|once|when|after|until|pending|awaiting|subject to|dependent on|as long as|in case)\b/i.test(
+              currentSentencePrefix,
+            )
+          ) {
+            continue;
+          }
+
           const continuation = [
             followingWords.slice(matchedSummary.length).join(" "),
             ...clauses.slice(clauseIndex + 1),
@@ -4002,8 +4022,20 @@ function explicitlyIdentifiesMissingHumanTicketAction(text: string): boolean {
 }
 
 function claimsHumanTicketAction(text: string): boolean {
+  const humanActor =
+    "(?:i|we|they|owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|someone|anyone)";
+  const namedActor =
+    "(?!(?:the|a|an|this|that|it|ticket|issue|action|task|work|request|handoff|bug|repro|pr|scope|fix|behavior|disposition|thread|root|mark|status|report|evidence|comment|message|system|bot|team|app|run|file|page|channel|calendar|database|service|agent|assistant|server|model|tool|api)\\b)\\p{Lu}[\\p{L}'-]*";
+  const actionTarget =
+    "(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)";
+
   return splitEvidenceClauses(text).some((clause) => {
     const normalized = normalizeReplyPhrase(clause);
+    const hasHumanActorStatement = (statement: string) =>
+      new RegExp(`\\b${humanActor}\\s+${statement}`, "i").test(normalized) ||
+      new RegExp(`\\b${namedActor}\\s+${statement}`, "u").test(
+        clause.normalize("NFKC"),
+      );
     return (
       /\b(?:ticket|issue|action)\b.{0,40}\b(?:opened|created|filed|assigned|accepted|started|owned|taken|picked)\b/i.test(
         normalized,
@@ -4011,8 +4043,17 @@ function claimsHumanTicketAction(text: string): boolean {
       /\b(?:opened|created|filed|assigned|accepted|started|owned|took|taken|picked)\b.{0,40}\b(?:ticket|issue|action)\b/i.test(
         normalized,
       ) ||
-      /\b(?:i|we|they|owner|reporter|[a-z]{2,})\s+(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:accept(?:s|ed|ing)?|own(?:s|ed|ing)?|handle(?:s|d|ing)?|take|takes|took|taken|taking\s+on|pick(?:s|ed|ing)\s+up|work(?:s|ed|ing)\s+on|track(?:s|ed|ing)|follow(?:s|ed)?\s+up)\b.{0,50}\b(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)\b/i.test(
-        normalized,
+      hasHumanActorStatement(
+        String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:accept(?:s|ed|ing)?|own(?:s|ed|ing)?|handle(?:s|d|ing)?|take|takes|took|taken|taking\s+on|pick(?:s|ed|ing)\s+up|work(?:s|ed|ing)\s+on|track(?:s|ed|ing)|follow(?:s|ed)?\s+up)\b.{0,50}\b${actionTarget}\b`,
+      ) ||
+      hasHumanActorStatement(
+        String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:assign(?:s|ed|ing)?|delegate(?:s|d|ing)?)\b.{0,50}\b${actionTarget}\b`,
+      ) ||
+      hasHumanActorStatement(
+        String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:on the hook for|responsible for|accountable for|in charge of)\b.{0,50}\b${actionTarget}\b`,
+      ) ||
+      hasHumanActorStatement(
+        String.raw`(?:has|have|got|gets)\s+(?:it|this|that|(?:the\s+)?(?:work|task|issue|ticket|request|handoff|bug|repro|pr))\b`,
       )
     );
   });
@@ -4033,21 +4074,27 @@ function explicitlyIdentifiesUnverifiedScope(text: string): boolean {
 }
 
 function claimsVerifiedScope(text: string): boolean {
-  return splitEvidenceClauses(text).some((clause) => {
-    const normalized = normalizeReplyPhrase(clause);
-    const claimsVerification =
-      /\b(?:verified|passed|fixed|completed)\b.{0,50}\b(?:scope|fix|behavior|disposition)\b/i.test(
-        normalized,
-      ) ||
-      /\b(?:scope|fix|behavior|disposition)\b.{0,50}\b(?:verified|passed|fixed|completed)\b/i.test(
-        normalized,
-      );
-    const deniesVerification =
-      /\b(?:no|not|without|unverified|does not|doesnt|did not)\b.{0,50}\b(?:verified|passed|fixed|completed)\b/i.test(
-        normalized,
-      );
-    return claimsVerification && !deniesVerification;
-  });
+  return splitEvidenceClauses(text)
+    .flatMap((clause) =>
+      clause.split(
+        /\b(?:but|however|whereas|while|although|though|yet|and)\b/i,
+      ),
+    )
+    .some((clause) => {
+      const normalized = normalizeReplyPhrase(clause);
+      const claimsVerification =
+        /\b(?:verified|passed|fixed|completed)\b.{0,50}\b(?:scope|fix|behavior|disposition)\b/i.test(
+          normalized,
+        ) ||
+        /\b(?:scope|fix|behavior|disposition)\b.{0,50}\b(?:verified|passed|fixed|completed)\b/i.test(
+          normalized,
+        );
+      const deniesVerification =
+        /\b(?:no|not|without|unverified|does not|doesnt|did not)\b.{0,50}\b(?:verified|passed|fixed|completed)\b/i.test(
+          normalized,
+        );
+      return claimsVerification && !deniesVerification;
+    });
 }
 
 function validateHandoffTicketParity(
@@ -9154,6 +9201,31 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test failed to preserve a documented unreconciled ticket mark",
     );
   }
+  const trackedTicketSnapshot: ThreadSnapshot = {
+    ...unreconciledTicketSnapshot,
+    replies: [
+      {
+        ...unreconciledTicketSnapshot.replies[0]!,
+        text: "The :ticket: has no separate owner or reporter action; the ticket tracks the internal repro.",
+      },
+      ...unreconciledTicketSnapshot.replies.slice(1),
+    ],
+  };
+  if (
+    !validateUnreconciledTicketMark(
+      "self-test root 10.000000",
+      unreconciledTicketParent,
+      true,
+      false,
+      0,
+      trackedTicketSnapshot,
+      "USWEEPER",
+    )
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test treated internal ticket tracking as human ownership",
+    );
+  }
   expectFocusedFailure(
     "unreconciled ticket mark with conflicting human-action evidence",
     () =>
@@ -9221,6 +9293,81 @@ if (args[0] === "--self-test" && args.length === 1) {
       ),
     "must identify the missing separate human action",
   );
+  expectFocusedFailure(
+    "unreconciled ticket status with a human assignment",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            text: "In progress — no separate owner or reporter action is attached to the ticket, but I am assigning it to Sam. this was sent from a bot.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "must identify the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket status with a responsible owner",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            evidence:
+              "No separate owner or reporter action is attached to the ticket; Sam is on the hook for it.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "must identify the missing separate human action",
+  );
+  expectFocusedFailure(
+    "unreconciled ticket evidence with a person who has it",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        unreconciledTicketParent,
+        true,
+        false,
+        0,
+        {
+          ...unreconciledTicketSnapshot,
+          replies: [
+            {
+              ...unreconciledTicketSnapshot.replies[0]!,
+              text: "The :ticket: has no separate owner or reporter action, but Alex has it.",
+            },
+            ...unreconciledTicketSnapshot.replies.slice(1),
+          ],
+        },
+        "USWEEPER",
+      ),
+    "identifies the missing separate human action",
+  );
+  for (const negatedAssignment of [
+    "I am not assigning it to Sam.",
+    "Sam is not on the hook for it.",
+    "Alex does not have it.",
+  ]) {
+    if (claimsHumanTicketAction(negatedAssignment)) {
+      throw new Error(
+        `Feedback inventory checker self-test treated a negated human action as active: ${negatedAssignment}`,
+      );
+    }
+  }
   expectFocusedFailure(
     "unreconciled ticket status with a prior ticket assignment",
     () =>
@@ -9326,6 +9473,49 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test failed to preserve a documented unreconciled checkmark",
     );
   }
+  expectFocusedFailure(
+    "unreconciled checkmark evidence with a separate positive claim",
+    () =>
+      validateUnreconciledCheckmarkMark(
+        "self-test root 20.000000",
+        unreconciledCheckmarkParent,
+        true,
+        false,
+        0,
+        {
+          ...unreconciledCheckmarkSnapshot,
+          replies: [
+            {
+              ...unreconciledCheckmarkSnapshot.replies[0]!,
+              text: "The retained :white_check_mark: is described, but the scope is not verified, but this fix is fixed.",
+            },
+            ...unreconciledCheckmarkSnapshot.replies.slice(1),
+          ],
+        },
+        "USWEEPER",
+      ),
+    "identifies an unverified scope",
+  );
+  expectFocusedFailure(
+    "unreconciled checkmark status evidence with a separate positive claim",
+    () =>
+      validateUnreconciledCheckmarkMark(
+        "self-test root 20.000000",
+        {
+          ...unreconciledCheckmarkParent,
+          statusReply: {
+            ...unreconciledCheckmarkStatus,
+            evidence: "The scope is not verified, but this fix is fixed.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledCheckmarkSnapshot,
+        "USWEEPER",
+      ),
+    "identify the unverified scope",
+  );
   expectFocusedFailure(
     "unreconciled checkmark mark with unrelated evidence",
     () =>
@@ -16389,6 +16579,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       ["I will review PR #8008, but I won’t take it on.", "review PR #8008"],
       ["I will review PR #8008 once the owner confirms.", "review PR #8008"],
       ["I will review PR #8008, pending approval.", "review PR #8008"],
+      ["If the owner confirms, I will review PR #8008.", "review PR #8008"],
+      ["Unless someone objects, I will review PR #8008.", "review PR #8008"],
       [
         "I will review PR #8008. I’m not going to review it.",
         "review PR #8008",
@@ -16420,6 +16612,22 @@ if (args[0] === "--self-test" && args.length === 1) {
     ) {
       throw new Error(
         "self-test let an unrelated PR negation cancel an owned action",
+      );
+    }
+    if (
+      !replyExplicitlyOwnsRecordedAction(
+        "If you need anything, ask. I will review PR #8008.",
+        "review PR #8008",
+        "PR #8008",
+      ) ||
+      !replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test rejected an unconditional ownership commitment after a separate conditional sentence",
       );
     }
     if (
