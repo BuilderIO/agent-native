@@ -953,7 +953,7 @@ function isOtherProductMergeGate(sentence, gate) {
 }
 
 const PR_REVIEW_VAGUE_CLOSURE_RE = new RegExp(
-  String.raw`(?:\b(?:PR|pull\s+request|review\s+thread)(?:\s+(?:comment|reply|response))?\b[^.!?\n]{0,120}\b(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b|\b(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b[^.!?\n]{0,120}\b(?:PR|pull\s+request|review\s+thread)(?:\s+(?:comment|reply|response))?\b|\b(?:don['’]t|do\s+not|never|avoid)\b[^.!?\n]{0,100}\b(?:say|write|use|leave)\b[^.!?\n]{0,80}\b(?:I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b[^.!?\n]{0,100}\b(?:in|on)\s+(?:the\s+)?(?:PR|pull\s+request|review\s+thread)\b)`,
+  String.raw`(?:\b(?:PR|pull\s+request|review\s+thread)(?:\s+(?:comment|reply|response))?\b[^\n]{0,120}\b(?:don['’]t|do\s+not|never|avoid|should\s+never|must\s+never)\b[^\n]{0,80}\b(?:say|write|use|leave|comment|reply)\b[^\n]{0,100}\b(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b|\b(?:don['’]t|do\s+not|never|avoid|should\s+never|must\s+never)\b[^\n]{0,80}\b(?:say|write|use|leave|comment|reply)\b[^\n]{0,120}(?:\b(?:PR|pull\s+request|review\s+thread)(?:\s+(?:comment|reply|response))?\b[^\n]{0,80}\b(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b|\b(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)\b[^\n]{0,120}(?:\b(?:PR|pull\s+request|review\s+thread)(?:\s+(?:comment|reply|response))?\b|\/pull\/\d+\b)))`,
   "i",
 );
 
@@ -1076,6 +1076,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "Don’t say in the pull request reply that ‘I have no further feedback’; name the next action.",
   ],
   [
+    true,
+    "I should never leave it ambiguous like this https://github.com/BuilderIO/agent-native/pull/7629#issuecomment-6359578348.",
+  ],
+  [
     false,
     "I should never leave the customer report ambiguous about the next action.",
   ],
@@ -1083,6 +1087,9 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     false,
     "Don't ever say 'I have no further feedback' in the customer report.",
   ],
+  [false, "The PR reply was vague after the latest author update."],
+  [false, "A PR review can be vague without requiring a follow-up."],
+  [false, "The pull request comment is unclear to me."],
   [false, "I have no further feedback on this check."],
   [
     true,
