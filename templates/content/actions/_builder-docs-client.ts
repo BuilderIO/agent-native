@@ -1105,6 +1105,7 @@ export async function pushBuilderDocsSource(args: {
 
   const writeResult = await executeBuilderCmsWrite({
     request,
+    legacyOnly: true,
     fetchImpl: args.fetchImpl,
   });
   const refreshedDocument =

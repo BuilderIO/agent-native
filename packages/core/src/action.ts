@@ -466,6 +466,52 @@ export function ranCallEmitsChange(
 }
 
 /**
+ * PostgreSQL breaks a deadlock (40P01) or a serializable conflict (40001) by
+ * rolling back one whole transaction. Drivers and Drizzle surface that as an
+ * untyped "Failed query", which reads as a bug and hides the rollback, so an
+ * action reports it as a typed conflict. The message must not claim nothing
+ * was saved: an action can commit an earlier transaction or an external write
+ * before the one that rolled back.
+ */
+const TRANSACTION_CONFLICT_SQLSTATES = new Set(["40P01", "40001"]);
+
+/** What a run that threw `error` throws: a transaction conflict as typed. */
+function typedTransactionConflict(error: unknown): unknown {
+  let sqlState: string | null;
+  try {
+    sqlState = transactionConflictSqlState(error);
+  } catch {
+    // Any read of a thrown value may throw. That value goes on as thrown,
+    // so readableFailure reports it as unreadable instead of the read's own
+    // error replacing it.
+    return error;
+  }
+  if (!sqlState) return error;
+  return new ActionContractError(
+    "The database rolled back this action's transaction because it conflicted with another transaction running at the same time. Anything the action saved outside that transaction stays saved, so read the current state and redo only what is missing.",
+    {
+      errorCode: "transaction_conflict",
+      statusCode: 409,
+      details: { sqlState },
+    },
+  );
+}
+
+function transactionConflictSqlState(error: unknown): string | null {
+  if (isActionContractError(error)) return null;
+  let cause = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!cause || typeof cause !== "object") return null;
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === "string" && TRANSACTION_CONFLICT_SQLSTATES.has(code)) {
+      return code;
+    }
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
+/**
  * What a write action verified about its own effect. An action opts in by
  * returning a plain-object result with a reserved `_receipt: WriteReceipt`.
  * The agent loop reads it before the result is stringified and truncated, so
@@ -1079,10 +1125,22 @@ export function defineAction(options: any) {
     }
     return options.run(args, ctx);
   };
-  const guardedRun =
+  const accessCheckedRun =
     typeof options.authorize === "function" || options.access
       ? wrapRunWithAccess(handlerRun, options.access, options.authorize)
       : handlerRun;
+  // Access checks query the database too, so they convert the same way.
+  const guardedRun = async (
+    args: any,
+    ctx?: ActionRunContext,
+    gateArgs?: () => unknown,
+  ) => {
+    try {
+      return await accessCheckedRun(args, ctx, gateArgs);
+    } catch (error) {
+      throw typedTransactionConflict(error);
+    }
+  };
   const uiOnlyGuardedRun =
     options.uiOnly === true
       ? async (args: any, ctx?: ActionRunContext, gateArgs?: () => unknown) => {

@@ -99,7 +99,7 @@ const commentSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Blocks field ID, to start a thread in that field's tab; quotedText and the anchor fields then come from that field's text. Omit for the page body (the primary Blocks field's ID also means the body). Field IDs are the Blocks-type properties get-document returns. Replies stay in their thread's tab, so omit it when replying. Not used with propertyId.",
+      "Blocks field ID, to start a thread in that field's tab; quotedText, which is then required, and the anchor fields come from that field's text. Omit for the page body (the primary Blocks field's ID also means the body). Field IDs are the Blocks-type properties get-document returns. Replies stay in their thread's tab, so omit it when replying. Not used with propertyId.",
     ),
   mentions: z
     .union([z.string(), z.array(z.unknown())])
@@ -266,42 +266,60 @@ export async function addCommentWithGuard(
     actorKind === "agent"
       ? (ctx?.threadId ?? runContext?.threadId ?? null)
       : null;
-  const propertyTarget = args.propertyId
+  // A retry of a submission that was saved replays it, even after the
+  // Property or tab it targets was deleted or left the Page.
+  const savedSubmission = async () => {
+    if (!args.clientOperationId && !args.idempotencyKey) return undefined;
+    const [saved] = await db
+      .select({
+        propertyId: schema.documentComments.propertyId,
+        propertyName: schema.documentComments.propertyName,
+        propertyValue: schema.documentComments.propertyValue,
+        fieldId: schema.documentComments.fieldId,
+        fieldName: schema.documentComments.fieldName,
+      })
+      .from(schema.documentComments)
+      .where(
+        and(
+          eq(schema.documentComments.id, id),
+          eq(schema.documentComments.documentId, documentId),
+          eq(schema.documentComments.authorEmail, email),
+        ),
+      )
+      .limit(1);
+    return saved;
+  };
+  const propertyId = args.propertyId;
+  const propertyTarget = propertyId
     ? await resolveCommentPropertyTarget(
         access.resource as Parameters<typeof listPropertiesForDocument>[0],
-        args.propertyId,
+        propertyId,
         args.databaseId,
-      )
+      ).catch(async (error: unknown) => {
+        const saved = await savedSubmission();
+        if (saved?.propertyId === propertyId) {
+          return {
+            propertyId,
+            propertyName: saved.propertyName,
+            propertyValue: saved.propertyValue,
+          };
+        }
+        throw error;
+      })
     : null;
   const fieldTarget = await (
     args.threadId && args.parentId
       ? replyBlocksField(documentId, args.threadId, args.fieldId)
       : resolveCommentBlocksField(documentId, args.fieldId)
   ).catch(async (error: unknown) => {
-    // A retry of a submission that was saved replays it, even after its tab
-    // was deleted. The primary field is saved as the body (null), so a retry
-    // naming it matches a body comment.
-    if (args.clientOperationId || args.idempotencyKey) {
-      const [saved] = await db
-        .select({
-          fieldId: schema.documentComments.fieldId,
-          fieldName: schema.documentComments.fieldName,
-        })
-        .from(schema.documentComments)
-        .where(
-          and(
-            eq(schema.documentComments.id, id),
-            eq(schema.documentComments.documentId, documentId),
-            eq(schema.documentComments.authorEmail, email),
-          ),
-        )
-        .limit(1);
-      if (
-        saved &&
-        (saved.fieldId === null || saved.fieldId === (args.fieldId ?? null))
-      ) {
-        return saved;
-      }
+    // The primary field is saved as the body (null), so a retry naming it
+    // matches a body comment.
+    const saved = await savedSubmission();
+    if (
+      saved &&
+      (saved.fieldId === null || saved.fieldId === (args.fieldId ?? null))
+    ) {
+      return { fieldId: saved.fieldId, fieldName: saved.fieldName };
     }
     throw error;
   });
@@ -372,6 +390,15 @@ export async function addCommentWithGuard(
       (await existingReceipt())
     )
       return false;
+    // A new thread that quotes nothing is a comment on the whole page, which
+    // belongs to no tab. Checked after the receipt, so a retry of one saved
+    // before this rule still replays.
+    if (!args.threadId && fieldTarget.fieldId && !args.quotedText?.trim()) {
+      fail(
+        "A thread in a Blocks field tab quotes text from that tab; pass quotedText, or omit fieldId to comment on the whole page",
+        { statusCode: 400, errorCode: "comment_field_quote_required" },
+      );
+    }
     await assertAccess("document", documentId, "commenter", {
       userEmail: email,
       orgId: ctx?.orgId ?? undefined,
@@ -457,7 +484,7 @@ export async function addCommentWithGuard(
 
 export default defineAction({
   description:
-    "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. To reply, provide both threadId and parentId; omit both to start a thread. Pass fieldId to start a thread in a Blocks field tab other than the page body.",
+    "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. To reply, provide both threadId and parentId; omit both to start a thread. A new thread with no quotedText and no propertyId is a comment on the whole page; it shows in the page's Discussion. Pass fieldId to start a thread in a Blocks field tab other than the page body.",
   deferLoading: false,
   mcpTool: true,
   schema: commentSchema,

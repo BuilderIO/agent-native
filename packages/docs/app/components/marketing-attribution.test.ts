@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   appendFirstTouchAttribution,
@@ -185,13 +185,23 @@ describe("appendSiteHandoff", () => {
 describe("installAppLinkAttribution", () => {
   let uninstall: (() => void) | undefined;
 
+  beforeEach(() => {
+    // Attribution storage depends on the visitor's time zone, so pin it.
+    const realOptions = new Intl.DateTimeFormat().resolvedOptions();
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      ...realOptions,
+      timeZone: "America/Los_Angeles",
+    });
+  });
+
   afterEach(() => {
+    vi.restoreAllMocks();
     uninstall?.();
     uninstall = undefined;
     document.body.innerHTML = "";
     localStorage.clear();
     // Capture reads a touch back from its cookie when storage is empty.
-    for (const name of ["an_ft", "an_lt"]) {
+    for (const name of ["an_ft", "an_lt", "an_fts"]) {
       document.cookie = `${name}=; path=/; max-age=0`;
     }
     history.replaceState(null, "", "/");

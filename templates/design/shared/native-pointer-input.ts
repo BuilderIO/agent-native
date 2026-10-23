@@ -1,7 +1,7 @@
 import { planNativeEffectTransform } from "./native-effect-transform";
 import {
   packNativeProperties,
-  propertySlots,
+  planNativePropertyLayout,
   type EffectDefinition,
   type EffectInstance,
   type EffectValue,
@@ -129,16 +129,14 @@ export function packNativePointerProperties(
     typeof pointer.active !== "boolean"
   )
     throw new NativePointerInputError();
-  let slot = 0;
-  for (const [name, property] of Object.entries(definition.properties)) {
-    if (name === definition.interaction.positionProperty) {
-      packed[slot * 4] = Math.max(0, Math.min(1, pointer.x));
-      packed[slot * 4 + 1] = Math.max(0, Math.min(1, pointer.y));
-    }
-    if (name === definition.interaction.activeProperty)
-      packed[slot * 4] = pointer.active ? 1 : 0;
-    slot += propertySlots(property);
-  }
+  const { offsets } = planNativePropertyLayout(definition);
+  const positionOffset = offsets[definition.interaction.positionProperty];
+  const activeOffset = offsets[definition.interaction.activeProperty];
+  if (positionOffset === undefined || activeOffset === undefined)
+    throw new NativePointerInputError();
+  packed[positionOffset] = Math.max(0, Math.min(1, pointer.x));
+  packed[positionOffset + 1] = Math.max(0, Math.min(1, pointer.y));
+  packed[activeOffset] = pointer.active ? 1 : 0;
   return packed;
 }
 

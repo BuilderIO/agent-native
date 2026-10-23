@@ -4,9 +4,11 @@ import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
 
 import type { EditorClipboard } from "../domains/use-editor-clipboard";
 import type { EditorCore } from "../domains/use-editor-core";
+import type { EditorExportAndHandoff } from "../domains/use-editor-export-and-handoff";
 import type { EditorHistory } from "../domains/use-editor-history";
 import type { EditorLayoutAndStructure } from "../domains/use-editor-layout-and-structure";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
+import { HubspotEmailConversionDialog } from "./hubspot-email-conversion-dialog";
 
 export function renderEditorDialogs({
   editorCore,
@@ -14,6 +16,7 @@ export function renderEditorDialogs({
   editorClipboard,
   editorLayoutAndStructure,
   editorSourceAndSync,
+  editorExportAndHandoff,
   id,
   pendingVisualStyleWarningOpen,
 }: {
@@ -22,6 +25,7 @@ export function renderEditorDialogs({
   editorClipboard: EditorClipboard;
   editorLayoutAndStructure: EditorLayoutAndStructure;
   editorSourceAndSync: EditorSourceAndSync;
+  editorExportAndHandoff: EditorExportAndHandoff;
   id: string;
   pendingVisualStyleWarningOpen: boolean;
 }) {
@@ -41,6 +45,12 @@ export function renderEditorDialogs({
 
   return (
     <>
+      <HubspotEmailConversionDialog
+        conversion={editorExportAndHandoff.hubspotEmailConversion}
+        onClose={editorExportAndHandoff.closeHubspotEmailConversion}
+        onConvert={editorExportAndHandoff.handleConvertHubspotEmailWithAgent}
+        t={editorCore.t}
+      />
       <PendingVisualStyleWarningDialog
         open={pendingVisualStyleWarningOpen}
         pendingVisualEditCount={pendingVisualEditCount}

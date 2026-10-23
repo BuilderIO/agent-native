@@ -393,6 +393,102 @@ describe("ordinary property and table-view setup", () => {
     ]);
   });
 
+  it("saves filter group modes and rejects a mode without its group", async () => {
+    const created = await asOwner(() =>
+      createDatabase.run({
+        spaceId,
+        title: "Filter group modes",
+        idempotencyKey: "filter-group-mode-database",
+      }),
+    );
+    const target = {
+      spaceId,
+      databaseId: created.database.id,
+      databaseDocumentId: created.database.documentId,
+    };
+    const revisions = async () => {
+      const current = await asOwner(() =>
+        readDatabase.run({ databaseId: created.database.id }),
+      );
+      if (
+        !("mutationContract" in current) ||
+        !current.mutationContract ||
+        !("configurationRevision" in current)
+      ) {
+        throw new Error("Expected setup revisions");
+      }
+      return {
+        expectedSchemaRevision: current.mutationContract.schemaRevision,
+        expectedConfigurationRevision: current.configurationRevision,
+      };
+    };
+    const grouped = [
+      {
+        key: "name",
+        label: "Name",
+        operator: "contains" as const,
+        value: "Launch",
+        filterGroupId: "advanced",
+        filterGroupMode: "or" as const,
+      },
+      {
+        key: "name",
+        label: "Name",
+        operator: "contains" as const,
+        value: "Draft",
+        filterGroupId: "advanced-nested",
+        parentFilterGroupId: "advanced",
+        filterGroupMode: "and" as const,
+        parentFilterGroupMode: "or" as const,
+      },
+    ];
+
+    const saved = await asOwner(async () =>
+      updateView.run({
+        operation: "update",
+        target,
+        ...(await revisions()),
+        idempotencyKey: "save-filter-group-modes",
+        viewId: "default",
+        patch: { filters: grouped },
+      }),
+    );
+    expect(saved.value.filters).toEqual(grouped);
+
+    for (const [index, filter] of [
+      {
+        key: "name",
+        label: "Name",
+        operator: "contains" as const,
+        value: "Launch",
+        filterGroupMode: "or" as const,
+      },
+      {
+        key: "name",
+        label: "Name",
+        operator: "contains" as const,
+        value: "Launch",
+        filterGroupId: "advanced",
+        parentFilterGroupMode: "or" as const,
+      },
+    ].entries()) {
+      const before = await revisions();
+      await expect(
+        asOwner(() =>
+          updateView.run({
+            operation: "update",
+            target,
+            ...before,
+            idempotencyKey: `misplaced-filter-group-mode-${index}`,
+            viewId: "default",
+            patch: { filters: [filter] },
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+      expect(await revisions()).toEqual(before);
+    }
+  });
+
   it("sets a list view's row layout from a preset and slot patches", async () => {
     const created = await asOwner(() =>
       createDatabase.run({
@@ -524,6 +620,28 @@ describe("ordinary property and table-view setup", () => {
         itemLayout: { line2: { propertyId: propertyIds.Due } },
       }),
     ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+
+    // Page text takes line 2 instead of a property, and switching back
+    // brings the first text property.
+    const pageText = await update("page-text", "ideas", {
+      itemLayout: { line2: { source: "page", lines: 3 } },
+    });
+    expect(pageText.value.itemLayout?.line2).toEqual({
+      source: "page",
+      propertyId: null,
+      lines: 3,
+    });
+    await expect(
+      update("page-text-and-property", "ideas", {
+        itemLayout: {
+          line2: { source: "page", propertyId: propertyIds.Pitch },
+        },
+      }),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+    const backToProperty = await update("back-to-property", "ideas", {
+      itemLayout: { line2: { source: "property", lines: 2 } },
+    });
+    expect(backToProperty.value.itemLayout).toEqual(tweaked.value.itemLayout);
     await expect(
       update("list-wrap", "ideas", { wrapCells: true }),
     ).rejects.toMatchObject({ errorCode: "UNSUPPORTED_SCHEMA_CHANGE" });

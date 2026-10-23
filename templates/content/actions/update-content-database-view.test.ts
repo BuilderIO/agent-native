@@ -75,6 +75,52 @@ describe("update content database view", () => {
     });
   });
 
+  it("keeps each filter group's mode on saved views", () => {
+    const filters = [
+      {
+        key: "status",
+        label: "Status",
+        operator: "equals",
+        value: "done",
+        filterGroupId: "advanced",
+        filterGroupMode: "or",
+      },
+      {
+        key: "author",
+        label: "Author",
+        operator: "contains",
+        value: "Alice",
+        filterGroupId: "advanced-nested",
+        parentFilterGroupId: "advanced",
+        filterGroupMode: "and",
+        parentFilterGroupMode: "or",
+      },
+    ];
+    const parsed = action.schema.parse({
+      databaseId: "database",
+      viewConfig: {
+        views: [{ id: "table", name: "Table", type: "table", filters }],
+      },
+    });
+
+    expect(parsed.viewConfig.views[0]?.filters).toEqual(filters);
+    expect(() =>
+      action.schema.parse({
+        databaseId: "database",
+        viewConfig: {
+          views: [
+            {
+              id: "table",
+              name: "Table",
+              type: "table",
+              filters: [{ ...filters[0], filterGroupMode: "xor" }],
+            },
+          ],
+        },
+      }),
+    ).toThrow();
+  });
+
   it("preserves explicit null freeze and rejects malformed presentation values", () => {
     const parsed = action.schema.parse({
       databaseId: "database",

@@ -134,7 +134,12 @@ item is in scope, add `👀` before investigation or delegation.
 During triage and replies, follow `review-latest-feedback`'s single-owner
 rule: use one owner-thread reply for a cluster and list duplicate source
 permalinks there unless a distinct question or update needs a separate reply.
-Do not send a routine second reply just to announce merge or live beta.
+Normal `/ship` does not monitor beta publication or send beta timing updates.
+When a beta check is explicitly requested or a concrete beta-specific risk
+applies, `/ship-and-monitor` owns that check; name its owner before promising a
+24-hour publish expectation, and make that owner responsible for rechecking
+and correcting a missed publish. Do not assign future beta follow-up to a
+completed feedback sweep.
 
 A tracked clear bug or authorized upvoted improvement receives at most one
 disposition per run. **Verified locally**, **Built - live unverified**,
@@ -149,26 +154,28 @@ Terminal dispositions: **Fixed**, **Shipped**, **Live verified**,
 concise **Skipped** reply if absent.
 **Fixed** closes the issue after a verified source fix merges; publication,
 beta, and live verification follow separately. Use **In progress** while the
-source PR is open. For that reply, link the PR and say beta should follow soon
-after merge, without an exact date. For an already merged fix, follow
-`review-latest-feedback`'s reply reference for verified publisher status.
+source PR is open. Link the PR and say merge is pending. Do not poll for beta
+publication or promise beta timing as part of normal `/ship`. An explicitly
+requested beta check may report timing only when it has an assigned owner who
+will recheck and correct a missed publish; follow
+`review-latest-feedback`'s beta update guidance.
 **In progress** is an open ownership state. Do not send an interim progress
 reply for work fixed in the same run. If work continues beyond this run, follow
-`review-latest-feedback` and post one concrete status before the next sweep.
+`review-latest-feedback` and post one brief update only when the next step
+changes.
 Continue or coordinate existing work instead of starting a duplicate. Never
 use a vague update or replace verification. The next run must revisit this
 state and resolve it to **Fixed**, **Clarification needed**, or evidence-backed
 **Open - no question** when no safe fix or reproduction remains. `Blocked`,
 `not fixed yet`, `still needs a fix`, and similar phrases are internal notes,
 never a complete Slack reply. **Open - no question** is terminal with our eye
-retained and no checkmark. A reply must state a verified resolution, concrete
-active work, a needed question, or one terminal disposition with its reason;
-never send a vague status alone. These are ledger states, not mandatory
+retained and no checkmark. Keep each Slack reply to one short, plain-language
+paragraph: say what changed or what is still needed, without repeating proof,
+scope lists, or absent reactions. These are ledger states, not mandatory
 headings: keep the reporter-facing wording natural instead of opening with the
-robotic phrase “Clarification needed”. A
-substantive diagnosis, fix, or in-progress ownership statement from someone in
-the thread is not a reason to ask for clarification; verify it or continue the
-existing handoff first.
+robotic phrase “Clarification needed”. A substantive diagnosis, fix, or
+in-progress ownership statement from someone in the thread is not a reason to
+ask for clarification; verify it or continue the existing handoff first.
 
 **Clarification needed** is an open state, not a completed product fix. Asking
 the question creates a standing obligation to come back for the answer. It is
@@ -243,10 +250,9 @@ non-repeating question only if one specific required detail still blocks it.
 5. Prepare or reuse one short current status for each report root this actor
    owns with `👀`, `✅`, or `🎫`. Record clustered source links and disposition
    in the owner thread or linked work; do not send duplicate replies:
-   - **Fixed** - name the verified fix and remaining scope, and link the PR.
-     For an open beta app PR, say it should reach beta soon after merge. If it
-     has merged, say so without claiming it is live. Do not send a routine
-     second reply solely to announce merge or live beta.
+   - **Fixed** - name the fix in plain language and link the PR. For an open
+     beta app PR, say merge is pending. After merge, follow the beta
+     availability guidance below.
    - **Shipped** - use for an authorized upvoted improvement after its requested
      behavior and verification check are complete.
    - **In progress** - only when work continues beyond this run; thank the
@@ -290,16 +296,19 @@ non-repeating question only if one specific required detail still blocks it.
 ## Slack reply voice
 
 Write as the invoking user from the same connected Slack identity. Keep each
-reporter reply to one short, plain-language paragraph. Start with
-`ty for the feedback -` or `thanks for the feedback -`; end with
+reporter reply to one short sentence in plain, non-technical language. Start
+with `ty for the feedback -` or `thanks for the feedback -`; end with
 `this was sent from a bot.`.
 
-Say what changed, what meaningful scope remains, and the next action/owner.
-Link an external tracker ticket only if one exists. The workflow's Slack `🎫`
-reaction tracks a handoff; it does not mean an external ticket was created or
-assigned. For a beta app fix in an open PR, link it and say it
-should reach beta soon after merge; do not give an exact date or claim it is
-live. If work continues beyond this run, name the concrete action and owner.
+Say what changed. Use `🎫` only for unresolved work; if you use it, briefly say
+what remains to investigate or what action is needed, and name its owner when
+known. Do not mention or explain absent reactions. The Slack `🎫` reaction does
+not mean an external tracker ticket was created or assigned. For a beta app fix
+in an open PR, link it and say merge is pending. Do not give beta timing as
+part of normal `/ship`; only an explicitly requested or concrete-risk beta
+check with an assigned owner may report an expectation. If work
+continues beyond this run, name the next action only when a reporter needs to
+know it.
 For a clarification, ask one direct question only when reporter input changes
 the next step. Never ask for supplied evidence or internal access gaps.
 
@@ -311,10 +320,14 @@ count as the status reply.
 
 ## Beta availability
 
-Keep merge, publisher, and live verification details in the recap. Do not send
-a routine second Slack reply solely to announce merge or that beta is live.
-Correct the stated availability if a material publisher issue changes it, or
-answer a reporter's follow-up.
+Keep merge, publisher, and live verification details in the recap. Normal
+`/ship` does not poll beta publication or send beta timing updates. An
+explicitly requested or concrete-risk beta check may report an expectation
+only when it has an assigned owner who will recheck and correct a missed
+publish. Say the site is on beta only when `/ship-and-monitor` or an
+explicitly requested beta check verifies it is current. Use `🎫` only when
+another person or team must act. Do not say the site is live until checked.
+Answer direct reporter follow-ups.
 
 ## Verification
 

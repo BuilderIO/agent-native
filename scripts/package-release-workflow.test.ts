@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,7 +23,27 @@ import {
   preparePackagesForTagging,
 } from "./changeset-publish-sequential.ts";
 import { packagesCoveredBy } from "./check-changeset.mjs";
-import { syncCommunityQrCoreLock } from "./sync-community-qr-core-lock.ts";
+import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
+import {
+  isMajorVersionPromotion,
+  packageManifestVersion,
+  packageManifestVersionChange,
+} from "./release-package-version-policy.ts";
+import {
+  gitBlobSha,
+  syncCommunityQrBlobPins,
+  syncCommunityQrCoreLock,
+} from "./sync-community-qr-core-lock.ts";
+import {
+  assertCompletePullRequestFiles,
+  assertCommunityQrFilePinsSynced,
+  decodeGitHubContentResponse,
+  parseCompletePullRequestFiles,
+} from "./verify-community-qr-release-pin.ts";
+import {
+  assertReleaseOnlyPullRequestFiles,
+  extractPullRequestFileNames,
+} from "./verify-release-package-files.ts";
 
 type Workflow = Record<string, unknown>;
 
@@ -43,8 +71,89 @@ const trigger = workflow.on as Workflow;
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
 const jobs = workflow.jobs as Workflow;
+const autoMergeWorkflow = parse(
+  readFileSync(".github/workflows/auto-merge-version-packages.yml", "utf8"),
+) as Workflow;
 
 describe("npm package release workflow", () => {
+  it("allows a modified private app manifest without a package version", () => {
+    assert.equal(
+      packageManifestVersionChange(
+        "templates/community/qr/package.json",
+        "modified",
+        { version: null },
+        { version: null },
+      ),
+      null,
+    );
+  });
+
+  it("distinguishes an omitted package version from an invalid null version", () => {
+    assert.deepEqual(packageManifestVersion({ name: "qr" }), {
+      version: null,
+    });
+    assert.throws(
+      () => packageManifestVersion({ name: "qr", version: null }),
+      /invalid package version/,
+    );
+  });
+
+  it("still rejects missing manifests and version fields that appear or disappear", () => {
+    for (const [before, after] of [
+      [{ version: null }, { version: "1.0.0" }],
+      [{ version: "1.0.0" }, { version: null }],
+    ]) {
+      assert.throws(
+        () =>
+          packageManifestVersionChange(
+            "templates/community/qr/package.json",
+            "modified",
+            before,
+            after,
+          ),
+        /Could not verify package manifest versions/,
+      );
+    }
+    assert.throws(
+      () =>
+        packageManifestVersionChange(
+          "packages/core/package.json",
+          "modified",
+          { version: "0.216.0" },
+          null,
+        ),
+      /Could not verify package manifest versions/,
+    );
+  });
+
+  it("does not allow adding or removing a versionless package manifest", () => {
+    assert.throws(
+      () =>
+        packageManifestVersionChange(
+          "templates/community/qr/package.json",
+          "added",
+          null,
+          { version: null },
+        ),
+      /Could not verify added package manifest/,
+    );
+    assert.throws(
+      () =>
+        packageManifestVersionChange(
+          "templates/community/qr/package.json",
+          "removed",
+          { version: null },
+          null,
+        ),
+      /Could not verify removed package manifest/,
+    );
+  });
+
+  it("keeps the major-promotion check for versioned package manifests", () => {
+    assert.equal(isMajorVersionPromotion("0.216.0", "1.0.0"), true);
+    assert.equal(isMajorVersionPromotion("0.216.0", "0.217.0"), false);
+  });
+
   it("offers an explicit stable bump with patch as the default", () => {
     assert.deepEqual(inputs.releaseType, {
       description: "Stable release bump for all public npm packages",
@@ -472,6 +581,643 @@ importers:
 
     const lockfile = readFileSync("pnpm-lock.yaml", "utf8");
     assert.equal(syncCommunityQrCoreLock(lockfile, coreSpecifier), lockfile);
+  });
+
+  it("rewrites the QR template blob pins from the files on disk", () => {
+    const source = `templatePath: "templates/other-first",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${"d".repeat(40)}",
+        },
+      ],
+    },
+    {
+      templatePath: "templates/community/qr",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${"a".repeat(40)}",
+        },
+        {
+          path: "README.md",
+          blobSha: "${"b".repeat(40)}",
+        },
+      ],
+    },
+    {
+      templatePath: "templates/other",
+      files: [
+        {
+          path: "package.json",
+          blobSha: "${"c".repeat(40)}",
+        },
+      ],
+    },`;
+
+    const updated = syncCommunityQrBlobPins(source, (file) =>
+      file === "package.json" ? "1".repeat(40) : "2".repeat(40),
+    );
+
+    assert.match(updated, /package\.json",\n\s+blobSha: "1{40}"/);
+    assert.match(updated, /README\.md",\n\s+blobSha: "2{40}"/);
+    assert.match(updated, /blobSha: "c{40}"/);
+    assert.match(updated, /blobSha: "d{40}"/);
+    assert.equal(
+      syncCommunityQrBlobPins(updated, (file) =>
+        file === "package.json" ? "1".repeat(40) : "2".repeat(40),
+      ),
+      updated,
+    );
+    assert.throws(
+      () => syncCommunityQrBlobPins("export {};\n", () => "x"),
+      /Missing templates\/community\/qr source/,
+    );
+    assert.equal(
+      gitBlobSha(Buffer.from("hello\n")),
+      "ce013625030ba8dba906f756967f9e9ca394464a",
+    );
+  });
+
+  it("accepts all synchronized community QR template pins and rejects other catalog changes", () => {
+    const basePackage = Buffer.from('{"name":"qr","version":"0.40.35"}\n');
+    const headPackage = Buffer.from('{"name":"qr","version":"0.40.36"}\n');
+    const headReadme = Buffer.from("updated QR template docs\n");
+    const headAction = Buffer.from("updated QR action\n");
+    const source = (pins: Map<string, string>) => `
+      templatePath: "templates/community/qr",
+      files: [
+        ${["package.json", "README.md", "actions/run.ts"]
+          .map(
+            (path) => `{
+          path: "${path}",
+          blobSha: "${pins.get(path)}",
+        }`,
+          )
+          .join(",\n        ")},
+      ],
+    },`;
+    const baseSource = source(
+      new Map([
+        ["package.json", gitBlobSha(basePackage)],
+        ["README.md", "b".repeat(40)],
+        ["actions/run.ts", "d".repeat(40)],
+      ]),
+    );
+    const headFiles = new Map([
+      ["package.json", headPackage],
+      ["README.md", headReadme],
+      ["actions/run.ts", headAction],
+    ]);
+    const headPins = new Map(
+      [...headFiles].map(([path, content]) => [path, gitBlobSha(content)]),
+    );
+    const headSource = source(headPins);
+
+    assert.doesNotThrow(() =>
+      assertCommunityQrFilePinsSynced(baseSource, headSource, headPins),
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrFilePinsSynced(
+          baseSource,
+          source(new Map(headPins).set("package.json", "c".repeat(40))),
+          headPins,
+        ),
+      /Head QR template blob pin does not match package.json/,
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrFilePinsSynced(
+          baseSource,
+          headSource,
+          new Map([...headPins].filter(([path]) => path !== "README.md")),
+        ),
+      /Missing head QR template blob for README.md/,
+    );
+    assert.throws(
+      () =>
+        assertCommunityQrFilePinsSynced(
+          baseSource,
+          headSource.replace(
+            'templatePath: "templates/community/qr",',
+            'templatePath: "templates/community/qr",\n      description: "unexpected",',
+          ),
+          headPins,
+        ),
+      /Community app catalog does not match the synchronized QR template file pins/,
+    );
+  });
+
+  it("rejects incomplete or capped pull request file listings", () => {
+    assert.deepEqual(assertCompletePullRequestFiles(["one", "two"], 2), [
+      "one",
+      "two",
+    ]);
+    assert.throws(
+      () => assertCompletePullRequestFiles(["one"], 2),
+      /GitHub returned 1 of 2 changed pull request files/,
+    );
+    assert.throws(
+      () => assertCompletePullRequestFiles([], 3_000),
+      /endpoint is capped at 3000/,
+    );
+  });
+
+  it("rejects pull request file lists at GitHub's 3,000-file cap", () => {
+    const belowLimit = Array.from(
+      { length: 2_999 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+    const atLimit = Array.from(
+      { length: 3_000 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+
+    assert.equal(parseCompletePullRequestFiles(belowLimit).length, 2_999);
+    assert.throws(
+      () => parseCompletePullRequestFiles(atLimit),
+      /pull request files API reached its 3,000-file limit/,
+    );
+  });
+
+  it("checks complete release paths as filenames and rejects embedded newlines", () => {
+    const allowedFiles = [
+      ".changeset/release.md",
+      "packages/core/package.json",
+      "packages/dispatch/src/server/lib/community-apps.ts",
+    ];
+    assert.deepEqual(
+      assertReleaseOnlyPullRequestFiles(allowedFiles, allowedFiles.length),
+      allowedFiles,
+    );
+    assert.throws(
+      () =>
+        assertReleaseOnlyPullRequestFiles(
+          [".changeset/release.md\npackages/core/package.json"],
+          1,
+        ),
+      /filename with control characters/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles(["README.md"], 1),
+      /unexpected release PR path/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles(["package.json"], 2),
+      /returned 1 of 2 changed pull request files/,
+    );
+    assert.throws(
+      () => assertReleaseOnlyPullRequestFiles([], 3_000),
+      /endpoint is capped at 3000/,
+    );
+  });
+
+  it("collects filenames from every paginated GitHub file response", () => {
+    assert.deepEqual(
+      extractPullRequestFileNames([
+        [{ filename: ".changeset/release.md" }],
+        [
+          { filename: "package.json" },
+          { filename: "packages/core/CHANGELOG.md" },
+        ],
+      ]),
+      [".changeset/release.md", "package.json", "packages/core/CHANGELOG.md"],
+    );
+    assert.throws(
+      () => extractPullRequestFileNames([[{ filename: 1 }]]),
+      /invalid pull request file list/,
+    );
+  });
+
+  it("rejects unreadable or incomplete GitHub Contents API responses", () => {
+    const content = Buffer.from("manifest");
+    assert.deepEqual(
+      decodeGitHubContentResponse(
+        {
+          encoding: "base64",
+          content: content.toString("base64"),
+          size: content.length,
+        },
+        "manifest.json",
+        "head-sha",
+      ),
+      content,
+    );
+
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "none", content: "", size: 1_048_577 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned unreadable file content/,
+    );
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "base64", content: "%%%", size: 3 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned invalid base64 content/,
+    );
+    assert.throws(
+      () =>
+        decodeGitHubContentResponse(
+          { encoding: "base64", content: "bWFuaWZlc3Q=", size: 99 },
+          "manifest.json",
+          "head-sha",
+        ),
+      /GitHub returned incomplete file content/,
+    );
+  });
+
+  it("rejects pull request file lists at GitHub's 3,000-file cap", () => {
+    const belowLimit = Array.from(
+      { length: 2_999 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+    const atLimit = Array.from(
+      { length: 3_000 },
+      (_, index) => `file-${index}.txt`,
+    ).join("\n");
+
+    assert.equal(parseCompletePullRequestFiles(belowLimit).length, 2_999);
+    assert.throws(
+      () => parseCompletePullRequestFiles(atLimit),
+      /pull request files API reached its 3,000-file limit/,
+    );
+  });
+
+  it("runs both release verifier CLIs through the shared file request", () => {
+    const files = [
+      { filename: "packages/core/package.json", status: "modified" },
+      { filename: ".changeset/core-fix.md", status: "added" },
+      { filename: "packages/core/CHANGELOG.md", status: "modified" },
+    ];
+    const pages = JSON.stringify([[files[0], files[1]], [files[2]]]);
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-pr-files-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    mkdirSync(binDirectory);
+    const ghPath = path.join(binDirectory, "gh");
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+printf '%s\\n' '---' "$@" >> "$GH_CALLS_FILE"
+if [ "$#" -eq 4 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] && [ "$3" = "--slurp" ] && [ "$4" = "$GH_EXPECTED_FILE_ENDPOINT" ]; then
+  printf '%s' "$GH_FILE_PAGES"
+elif [ "$#" -eq 2 ] && [ "$1" = "api" ] && [ "$2" = "$GH_EXPECTED_PR_ENDPOINT" ]; then
+  printf '%s' "$GH_PULL_REQUEST"
+else
+  printf '%s\\n' 'unexpected gh arguments' >&2
+  exit 1
+fi
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    const endpoint = "repos/BuilderIO/agent-native/pulls/8062/files";
+    const pullRequestEndpoint = "repos/BuilderIO/agent-native/pulls/8062";
+    const env = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+      REPO: "BuilderIO/agent-native",
+      PR_NUMBER: "8062",
+      GH_CALLS_FILE: callsPath,
+      GH_EXPECTED_FILE_ENDPOINT: endpoint,
+      GH_EXPECTED_PR_ENDPOINT: pullRequestEndpoint,
+      GH_FILE_PAGES: pages,
+      GH_PULL_REQUEST: JSON.stringify({ changed_files: files.length }),
+    };
+
+    const runCli = (script: string) =>
+      execFileSync(
+        process.execPath,
+        ["--experimental-strip-types", path.resolve(script)],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    try {
+      const packageOutput = runCli("scripts/list-release-pr-package-files.ts");
+      assert.deepEqual(JSON.parse(packageOutput), [
+        { filename: "packages/core/package.json", status: "modified" },
+      ]);
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "---",
+        "api",
+        "--paginate",
+        "--slurp",
+        endpoint,
+      ]);
+
+      writeFileSync(callsPath, "");
+      assert.match(
+        runCli("scripts/verify-release-package-files.ts"),
+        /Verified 3 complete release PR file paths against the allowlist\./,
+      );
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "---",
+        "api",
+        "--paginate",
+        "--slurp",
+        endpoint,
+        "---",
+        "api",
+        pullRequestEndpoint,
+      ]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+
+    assert.throws(
+      () => parseReleasePullRequestPackageFiles([[{}]]),
+      /invalid release PR file list/,
+    );
+    assert.throws(
+      () => parseReleasePullRequestPackageFiles({ files: [] }),
+      /invalid release PR file list/,
+    );
+  });
+
+  it("verifies versionless manifests through the release guard CLI", () => {
+    const file = "templates/community/qr/package.json";
+    const files = JSON.stringify([[{ filename: file, status: "modified" }]]);
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-version-guard-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    mkdirSync(binDirectory);
+    const ghPath = path.join(binDirectory, "gh");
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALLS_FILE"
+if [ "$#" -eq 4 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] && [ "$3" = "--slurp" ]; then
+  printf '%s' "$GH_FILE_PAGES"
+elif [ "$#" -eq 2 ] && [ "$1" = "api" ]; then
+  case "$2" in
+    *ref=base-sha)
+      if [ "$GH_BASE_MANIFEST" = "__HTTP_404__" ]; then
+        printf '%s\\n' 'gh: HTTP 404' >&2
+        exit 1
+      fi
+      printf '%s' "$GH_BASE_MANIFEST"
+      ;;
+    *ref=head-sha) printf '%s' "$GH_HEAD_MANIFEST" ;;
+    *) printf '%s\\n' 'unexpected gh endpoint' >&2; exit 1 ;;
+  esac
+else
+  printf '%s\\n' 'unexpected gh arguments' >&2
+  exit 1
+fi
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    const manifestResponse = (manifest: Record<string, unknown>) => {
+      const content = Buffer.from(JSON.stringify(manifest));
+      return JSON.stringify({
+        encoding: "base64",
+        content: content.toString("base64"),
+        size: content.length,
+      });
+    };
+    const env = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+      REPO: "BuilderIO/agent-native",
+      PR_NUMBER: "8062",
+      BASE_SHA: "base-sha",
+      HEAD_SHA: "head-sha",
+      GH_CALLS_FILE: callsPath,
+      GH_FILE_PAGES: files,
+      GH_BASE_MANIFEST: manifestResponse({ name: "qr" }),
+      GH_HEAD_MANIFEST: manifestResponse({
+        name: "qr",
+        dependencies: { "@agent-native/core": "^0.217.0" },
+      }),
+    };
+
+    const runCli = () =>
+      execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          path.resolve("scripts/verify-release-package-version-changes.ts"),
+        ],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    try {
+      assert.match(
+        runCli(),
+        /No forbidden promotion in 1 changed package.json file/,
+      );
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "api --paginate --slurp repos/BuilderIO/agent-native/pulls/8062/files",
+        `api repos/BuilderIO/agent-native/contents/${file}?ref=base-sha`,
+        `api repos/BuilderIO/agent-native/contents/${file}?ref=head-sha`,
+      ]);
+
+      writeFileSync(callsPath, "");
+      env.GH_FILE_PAGES = JSON.stringify([
+        [{ filename: "packages/core/package.json", status: "modified" }],
+      ]);
+      env.GH_BASE_MANIFEST = manifestResponse({
+        name: "core",
+        version: "0.216.0",
+      });
+      env.GH_HEAD_MANIFEST = manifestResponse({
+        name: "core",
+        version: "1.0.0",
+      });
+      assert.throws(runCli, (error: unknown) => {
+        const commandError = error as { status?: number; stderr?: Buffer };
+        assert.equal(commandError.status, 1);
+        assert.match(
+          String(commandError.stderr),
+          /::error::This release PR contains a forbidden major promotion/,
+        );
+        return true;
+      });
+
+      env.GH_FILE_PAGES = files;
+      env.GH_BASE_MANIFEST = "__HTTP_404__";
+      env.GH_HEAD_MANIFEST = manifestResponse({ name: "qr" });
+      assert.throws(runCli, (error: unknown) => {
+        const commandError = error as { status?: number; stderr?: Buffer };
+        assert.equal(commandError.status, 1);
+        assert.match(
+          String(commandError.stderr),
+          /Could not verify package manifest versions/,
+        );
+        return true;
+      });
+
+      env.GH_BASE_MANIFEST = JSON.stringify({
+        encoding: "base64",
+        content: "%%%",
+        size: 3,
+      });
+      assert.throws(runCli, (error: unknown) => {
+        const commandError = error as { status?: number; stderr?: Buffer };
+        assert.equal(commandError.status, 1);
+        assert.match(
+          String(commandError.stderr),
+          /GitHub returned invalid base64 for/,
+        );
+        return true;
+      });
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("runs the community QR pin guard from the base commit before auto-merge", () => {
+    const autoMergeTriggers = autoMergeWorkflow.on as Workflow;
+    const workflowDispatch = autoMergeTriggers.workflow_dispatch as Workflow;
+    const workflowDispatchInputs = workflowDispatch.inputs as Workflow;
+    const autoMergeJobs = autoMergeWorkflow.jobs as Workflow;
+    const autoMergeJob = autoMergeJobs["auto-merge"] as Workflow;
+    const autoMergeSteps = autoMergeJob.steps as Workflow[];
+    const checkout = autoMergeSteps.find(
+      (step) =>
+        step.uses ===
+        "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+    );
+    const releaseDiff = autoMergeSteps.find(
+      (step) => step.name === "Verify release-only diff",
+    );
+    const qrPinGuard = autoMergeSteps.find(
+      (step) => step.name === "Verify community QR template pins",
+    );
+    const releasePrContext = autoMergeSteps.find(
+      (step) => step.name === "Verify release PR identity and event-bound SHAs",
+    );
+    const manualDispatcherGate = autoMergeSteps.find(
+      (step) =>
+        step.name === "Verify manual release dispatcher is an administrator",
+    );
+    const majorPromotionGuard = autoMergeSteps.find(
+      (step) => step.name === "Refuse unattended major promotions",
+    );
+    const requiredChecks = autoMergeSteps.find(
+      (step) => step.name === "Wait for required release PR checks",
+    );
+    const releasePrRecheck = autoMergeSteps.find(
+      (step) => step.name === "Revalidate release PR before merge",
+    );
+    const forceMerge = autoMergeSteps.find(
+      (step) => step.name === "Force-merge with admin bypass",
+    );
+
+    for (const input of ["pull_request_number", "base_sha", "head_sha"]) {
+      assert.equal((workflowDispatchInputs[input] as Workflow).required, true);
+    }
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(String(autoMergeJob.if), /github\.ref == 'refs\/heads\/main'/);
+
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.pull_request\.head\.ref == 'changeset-release\/main'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.pull_request\.user\.login == 'builder-io-integration\[bot\]'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /github\.event\.sender\.login == 'builder-io-integration\[bot\]'/,
+    );
+    assert.match(
+      String(autoMergeJob.if),
+      /!github\.event\.pull_request\.draft/,
+    );
+
+    assert(checkout);
+    assert.equal(
+      (checkout.with as Workflow).ref,
+      "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.base.sha }}",
+    );
+    assert(manualDispatcherGate);
+    assert.match(
+      String(manualDispatcherGate.if),
+      /github\.event_name == 'workflow_dispatch'/,
+    );
+    assert.match(
+      String((manualDispatcherGate.env as Workflow).DISPATCH_ACTOR),
+      /github\.triggering_actor/,
+    );
+    assert.match(
+      String(manualDispatcherGate.run),
+      /collaborators\/\$DISPATCH_ACTOR\/permission/,
+    );
+    assert.match(
+      String(manualDispatcherGate.run),
+      /dispatch_permission" != "admin"/,
+    );
+    assert(releasePrContext);
+    assert.match(String(releasePrContext.run), /\.user\.login/);
+    assert.match(
+      String(releasePrContext.run),
+      /\.head\.repo\.full_name == \$repo/,
+    );
+    assert.match(String(releasePrContext.run), /\.head\.sha == \$head/);
+    assert.match(String(releasePrContext.run), /\.base\.sha == \$base/);
+    assert(requiredChecks);
+    assert.match(String(requiredChecks.run), /--required --watch/);
+    assert.match(String(requiredChecks.run), /all\(\.\[\]; \.bucket == "pass"/);
+    assert(releaseDiff);
+    assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
+    assert(majorPromotionGuard);
+    assert.equal(
+      majorPromotionGuard.run,
+      "node --experimental-strip-types scripts/verify-release-package-version-changes.ts",
+    );
+    assert(
+      autoMergeSteps.indexOf(releaseDiff) <
+        autoMergeSteps.indexOf(majorPromotionGuard),
+    );
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).BASE_SHA),
+      /inputs\.base_sha/,
+    );
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).HEAD_SHA),
+      /inputs\.head_sha/,
+    );
+    assert.match(
+      String((majorPromotionGuard.env as Workflow).PR_NUMBER),
+      /inputs\.pull_request_number/,
+    );
+    assert(qrPinGuard);
+    assert.equal(
+      qrPinGuard.run,
+      "node --experimental-strip-types scripts/verify-community-qr-release-pin.ts",
+    );
+    assert(releasePrRecheck);
+    assert.match(String(releasePrRecheck.run), /\.state == "open"/);
+    assert.match(String(releasePrRecheck.run), /\.user\.login/);
+    assert.match(
+      String(releasePrRecheck.run),
+      /\.head\.repo\.full_name == \$repo/,
+    );
+    assert.match(String(releasePrRecheck.run), /\.head\.sha == \$head/);
+    assert.match(String(releasePrRecheck.run), /\.base\.sha == \$base/);
+    assert.match(String(releasePrRecheck.run), /--required --json name,bucket/);
+    assert(forceMerge);
+    assert.match(String(forceMerge.run), /branches\/main/);
+    assert.match(String(forceMerge.run), /current_main.*BASE_SHA/s);
+    assert.match(String(forceMerge.run), /--match-head-commit "\$HEAD_SHA"/);
+    assert.match(
+      String(forceMerge.run),
+      /Required release PR checks are no longer green/,
+    );
   });
 
   it("waits until local runtime packages are fetchable before publishing dependents", async () => {

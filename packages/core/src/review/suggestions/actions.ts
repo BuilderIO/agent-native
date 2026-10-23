@@ -16,6 +16,7 @@ import {
 import { getSuggestionAdapter } from "./registry.js";
 import {
   getSuggestion,
+  getSuggestions,
   ensureSuggestionTables,
   insertSuggestion,
   listSuggestions,
@@ -211,6 +212,12 @@ export const createResourceSuggestion = defineAction({
     );
     return url ? { url, label: "Open suggestion" } : null;
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     const access = await assertReviewableResourceAccess(
       args.resourceType,
@@ -370,6 +377,12 @@ export const updateResourceSuggestion = defineAction({
         "Optional replacement summary; omission preserves the existing summary.",
       ),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     const initial = await getSuggestion(args.id);
     if (!initial)
@@ -564,6 +577,12 @@ export const decideResourceSuggestion = defineAction({
     observedBase: z.string().min(1),
     observedRevision: z.number().int().positive().optional(),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
     if (!suggestion) throw new Error("Suggestion not found");
@@ -804,6 +823,12 @@ export const createResourceSuggestionProposal = defineAction({
   description:
     "Create or append independently reviewable suggestions under one durable proposal. Pass supersedes to replace your own earlier pending suggestions on the same resource in the same step.",
   schema: proposalCreationSchema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,
@@ -1039,6 +1064,12 @@ export const decideResourceSuggestionProposal = defineAction({
       )
       .min(1),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     await ensureSuggestionTables();
     const db = getDbExec();
@@ -1100,9 +1131,7 @@ export const decideResourceSuggestionProposal = defineAction({
         throw new Error(
           "Proposal decision receipt references a missing proposal",
         );
-      const suggestions = await Promise.all(
-        prior.suggestionIds.map((id) => getSuggestion(id, tx)),
-      );
+      const suggestions = await getSuggestions(prior.suggestionIds, tx);
       if (suggestions.some((suggestion) => !suggestion))
         throw new Error(
           "Proposal decision receipt references a missing suggestion",
@@ -1132,8 +1161,12 @@ export const decideResourceSuggestionProposal = defineAction({
         const prior = await getProposalDecision(tx, args.idempotencyKey);
         if (prior) return replayDecision(tx, prior);
         const suggestions: ResourceSuggestion[] = [];
-        for (const observed of members) {
-          const current = await getSuggestion(observed.id, tx);
+        const loaded = await getSuggestions(
+          members.map((member) => member.id),
+          tx,
+        );
+        for (const [index, observed] of members.entries()) {
+          const current = loaded[index];
           if (
             !current ||
             current.proposalId !== proposal.id ||
@@ -1152,6 +1185,15 @@ export const decideResourceSuggestionProposal = defineAction({
           }
           suggestions.push(current);
         }
+        const staleProposal = (error: unknown) => {
+          if (error instanceof Error && error.name === "SuggestionStaleError") {
+            fail("A proposal member is stale; no proposal edits were applied", {
+              statusCode: 409,
+              errorCode: "suggestion_stale",
+            });
+          }
+          throw error;
+        };
         for (const suggestion of suggestions) {
           const updated = await updateSuggestionStatus(
             tx,
@@ -1181,16 +1223,7 @@ export const decideResourceSuggestionProposal = defineAction({
                 coordination,
               });
             } catch (error) {
-              if (
-                error instanceof Error &&
-                error.name === "SuggestionStaleError"
-              ) {
-                fail(
-                  "A proposal member is stale; no proposal edits were applied",
-                  { statusCode: 409, errorCode: "suggestion_stale" },
-                );
-              }
-              throw error;
+              staleProposal(error);
             }
           }
           await resolveReviewThreadWithClient(
@@ -1205,12 +1238,16 @@ export const decideResourceSuggestionProposal = defineAction({
           );
         }
         if (args.decision === "accepted") {
-          await adapter.finalizeProposalDecision?.({
-            resourceType: proposal.resourceType,
-            resourceId: proposal.resourceId,
-            transaction: tx,
-            coordination,
-          });
+          try {
+            await adapter.finalizeProposalDecision?.({
+              resourceType: proposal.resourceType,
+              resourceId: proposal.resourceId,
+              transaction: tx,
+              coordination,
+            });
+          } catch (error) {
+            staleProposal(error);
+          }
         }
         await recordProposalDecision(
           tx,
@@ -1221,15 +1258,15 @@ export const decideResourceSuggestionProposal = defineAction({
           request,
           suggestions.map((suggestion) => suggestion.id),
         );
+        const decided = await getSuggestions(
+          suggestions.map((suggestion) => suggestion.id),
+          tx,
+        );
+        if (decided.some((suggestion) => !suggestion))
+          throw new Error("Decided suggestion disappeared");
         return {
           proposal: currentProposal,
-          suggestions: await Promise.all(
-            suggestions.map(async (suggestion) => {
-              const latest = await getSuggestion(suggestion.id, tx);
-              if (!latest) throw new Error("Decided suggestion disappeared");
-              return latest;
-            }),
-          ),
+          suggestions: decided as ResourceSuggestion[],
         };
       }).catch(async (error) => {
         const prior = await getProposalDecision(db, args.idempotencyKey);

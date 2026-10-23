@@ -4,6 +4,7 @@ import {
   setNativeCaptureRoi,
   type NativeCaptureRoi,
 } from "./native-capture-roi";
+import { isNativeElement } from "./native-dom";
 import type { NativeAffine2D } from "./native-source-affine-geometry";
 import {
   MAX_NATIVE_SVG_PATTERN_WORK,
@@ -826,6 +827,13 @@ export function serializeNativeSvgSource(
                 ? authoredSvgOpacity(original, style)
                 : style[key];
       if (
+        SVG_CSS_GEOMETRY.has(name) &&
+        value?.trim().toLowerCase() === "auto"
+      ) {
+        clone.removeAttribute(name);
+        continue;
+      }
+      if (
         name === "transform" &&
         ["linearGradient", "radialGradient"].includes(original.localName)
       ) {
@@ -835,6 +843,8 @@ export function serializeNativeSvgSource(
             "gradientTransform",
             localPaintReferences(value, ids),
           );
+      } else if (name === "transform" && (!value || value === "none")) {
+        clone.removeAttribute("transform");
       } else if (value)
         clone.setAttribute(name, localPaintReferences(value, ids));
     }
@@ -843,7 +853,7 @@ export function serializeNativeSvgSource(
     for (const child of original.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
         clone.append(document.createTextNode(child.textContent ?? ""));
-      } else if (child instanceof Element) {
+      } else if (isNativeElement(child)) {
         clone.append(copy(child));
       } else if (child.nodeType !== Node.COMMENT_NODE) {
         throw new NativeSvgSourceError(

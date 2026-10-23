@@ -6,6 +6,8 @@ import type { NativeEffectExtentPlan } from "./native-effect-extent";
 import type { NativeSourceRecord } from "./native-source-provider";
 
 export const NATIVE_WORKER_PROTOCOL_VERSION = 1;
+export const NATIVE_WORKER_MAX_DIMENSION = 4096;
+export const NATIVE_WORKER_MAX_PIXELS = 8_388_608;
 
 export type NativeWorkerSourceRecord = Omit<
   NativeSourceRecord,
@@ -38,6 +40,7 @@ export type NativeWorkerEffectTarget = {
   textMaskAssetId?: string;
   receiverGeometryAssetId?: string;
   receiverInteriorAssetId?: string;
+  inputAssetIds?: Readonly<Record<string, string>>;
   sourceRecords: readonly NativeWorkerSourceRecord[];
   groupLocalOwnerId?: string;
   fillLocalSourceRecords?: readonly NativeWorkerSourceRecord[];
@@ -62,6 +65,7 @@ export type NativeWorkerAsset =
       assetId: string;
       revision: number;
       bitmap: ImageBitmap;
+      sampleEncoding?: "srgb-color" | "linear-data";
     }
   | {
       kind: "rgba16float";
@@ -85,7 +89,13 @@ export type NativeWorkerScene = {
   pixelRatio: number;
   colorSpace: "srgb" | "display-p3";
   frameRateTarget?: 60 | 120;
-  clock: { playing: boolean; timeSeconds: number; speed: number };
+  compact?: boolean;
+  clock: {
+    playing: boolean;
+    timeSeconds: number;
+    speed: number;
+    sampledAtEpochMs?: number;
+  };
   requiredAssets: readonly { assetId: string; revision: number }[];
   definitions: readonly EffectDefinition[];
   instances: readonly EffectInstance[];
@@ -93,6 +103,33 @@ export type NativeWorkerScene = {
   records: readonly NativeWorkerSourceRecord[];
   backdropRecords?: readonly NativeWorkerSourceRecord[];
 };
+
+export type NativeWorkerCamera = Pick<
+  NativeWorkerScene,
+  | "sceneId"
+  | "generation"
+  | "sourceEpoch"
+  | "authoredEpoch"
+  | "viewport"
+  | "width"
+  | "height"
+  | "pixelRatio"
+  | "clock"
+> & { baseGeneration: number };
+
+export function nativeWorkerClockSampleValid(
+  clock: NativeWorkerScene["clock"],
+  nowEpochMs: number,
+): boolean {
+  const sampledAt = clock.sampledAtEpochMs;
+  return (
+    sampledAt === undefined ||
+    (typeof sampledAt === "number" &&
+      Number.isFinite(sampledAt) &&
+      sampledAt > 0 &&
+      Math.abs(nowEpochMs - sampledAt) <= 300_000)
+  );
+}
 
 export type NativeWorkerToGpu =
   | {
@@ -102,6 +139,7 @@ export type NativeWorkerToGpu =
       canvas: OffscreenCanvas;
     }
   | { type: "scene"; scene: NativeWorkerScene }
+  | ({ type: "camera" } & NativeWorkerCamera)
   | ({ type: "asset" } & NativeWorkerAsset)
   | {
       type: "export";
@@ -151,6 +189,7 @@ export type NativeWorkerFromGpu =
       frame: number;
       timeSeconds: number;
       presentedAtMs: number;
+      presentationSubmittedAtMs?: number;
       committedInstances?: readonly {
         instanceId: string;
         definitionHash: string;

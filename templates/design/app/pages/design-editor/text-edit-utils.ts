@@ -218,22 +218,6 @@ export function scheduleBeginTextEditForScreen(
   };
 }
 
-export function postShaderFillPreviewClearToPreviewIframes() {
-  if (typeof document === "undefined") return;
-  document
-    .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
-    .forEach((iframe) => {
-      try {
-        iframe.contentWindow?.postMessage(
-          { type: "shader-fill-preview-clear" },
-          "*",
-        );
-      } catch {
-        // Ignore inaccessible iframe windows; same-origin previews handle this.
-      }
-    });
-}
-
 export function removeElementFromHtml(
   content: string,
   selector: string,

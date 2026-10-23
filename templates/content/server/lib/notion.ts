@@ -22,7 +22,7 @@ import {
   type H3Event,
 } from "h3";
 
-import { canonicalizeNfm } from "../../shared/nfm.js";
+import { canonicalizeNotionNfm } from "../../shared/nfm.js";
 
 export const NOTION_PROVIDER = "notion";
 export const NOTION_API_BASE = "https://api.notion.com/v1";
@@ -296,7 +296,7 @@ async function hydrateUnknownBlockSubtrees(
 
       hydrated = replaceFirstUnknownPlaceholder(
         hydrated,
-        canonicalizeNfm(resolvedSubtree),
+        canonicalizeNotionNfm(resolvedSubtree),
       );
     } catch (error) {
       if (
@@ -348,7 +348,7 @@ export async function resolveNotionMarkdownResponse(
     );
   }
 
-  markdown = canonicalizeNfm(markdown);
+  markdown = canonicalizeNotionNfm(markdown);
 
   return { markdown, warnings: uniqueWarnings(warnings) };
 }
@@ -466,7 +466,7 @@ export async function pushDocumentToNotionPage(args: {
   const notionIcon = iconForNotion(args.icon);
   const page = await fetchNotionPage(args.accessToken, args.pageId);
 
-  const markdown = canonicalizeNfm(args.content);
+  const markdown = canonicalizeNotionNfm(args.content);
 
   try {
     await notionFetch(`/pages/${args.pageId}/markdown`, args.accessToken, {
@@ -526,7 +526,7 @@ export async function createNotionPageWithMarkdown(args: {
         ],
       },
     },
-    markdown: canonicalizeNfm(args.content),
+    markdown: canonicalizeNotionNfm(args.content),
   };
 
   const notionIcon = iconForNotion(args.icon);

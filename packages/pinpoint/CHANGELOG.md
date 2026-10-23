@@ -1,5 +1,35 @@
 # @agent-native/pinpoint
 
+## 0.1.100
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.99
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.98
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.97
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.96
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.95
 
 ### Patch Changes
