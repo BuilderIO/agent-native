@@ -4544,6 +4544,102 @@ describe("private preview document drafts", () => {
     },
   );
 
+  it("does not restore a draft whose separate copy landed before its settlement failed", async () => {
+    const documentId = await createDocument();
+    const draft = {
+      ...payload("Separate local body"),
+      deferredReason: "conflict" as const,
+      editorSessionId: "separate-settle-tab",
+      editGeneration: 4,
+    };
+    await asUser(OWNER, async () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft,
+      }),
+    );
+    const request = {
+      trigger: "reviewed" as const,
+      choice: "save_separately" as const,
+      documentId,
+      ...(await selectedDraftIdentity(documentId)),
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: "Separate local body",
+      expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+    };
+    // Only the first settlement fails, so the restore that follows can settle.
+    const settle = settlement.settlePreviewDocumentDraft;
+    let failed = false;
+    const settleSpy = vi
+      .spyOn(settlement, "settlePreviewDocumentDraft")
+      .mockImplementation(async (input) => {
+        if (!failed && input.editorSessionId === draft.editorSessionId) {
+          failed = true;
+          throw new Error("settlement stopped once");
+        }
+        return settle(input);
+      });
+    try {
+      await expect(
+        asUser(OWNER, async () => resolveDraft.run(request)),
+      ).rejects.toThrow("settlement stopped once");
+    } finally {
+      settleSpy.mockRestore();
+    }
+
+    const [claim] = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, documentId),
+          eq(
+            schema.documentVersions.operation,
+            "claim-preview-draft-save_separately",
+          ),
+        ),
+      );
+    expect(JSON.parse(claim.chatContext!)).toMatchObject({
+      choice: "save_separately",
+      status: "resolved",
+    });
+    const copyId = `recovery-${claim.id.slice("draft-claim-".length)}`;
+    const [copy] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, copyId));
+    expect(copy).toMatchObject({
+      ownerEmail: OWNER,
+      title: "Builder row",
+      content: "Separate local body",
+    });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentPreviewDrafts)
+        .where(eq(schema.documentPreviewDrafts.documentId, documentId)),
+    ).toEqual([]);
+
+    await expect(
+      asUser(OWNER, async () => resolveDraft.run(request)),
+    ).resolves.toMatchObject({
+      status: "resolved",
+      choice: "save_separately",
+      createdDocumentId: copyId,
+    });
+    await expect(
+      asUser(OWNER, async () =>
+        resolveDraft.run({ ...request, choice: "use_saved" }),
+      ),
+    ).rejects.toThrow("This draft was already resolved with another choice.");
+    expect((await documentRowForDraftTest(documentId)).content).toBe(
+      "Server body",
+    );
+  });
+
   it.each(["use_saved", "keep_mine", "save_separately"] as const)(
     "settles a %s claim an earlier resolver marked resolved without settling",
     async (choice) => {

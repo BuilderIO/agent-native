@@ -2593,10 +2593,13 @@ function PageEditorSessionBody({
   });
   const queryClient = useQueryClient();
   const { session } = useSession();
+  // A page created later under a deleted page's id reuses this session, so
+  // only its creation time ends the old page's recovery work.
   const recoveryScopeKey = JSON.stringify([
     session?.email?.trim().toLowerCase() ?? null,
     session?.orgId ?? null,
     documentId,
+    document.createdAt ?? null,
   ]);
   const beginRecoveryAttempt = useRecoveryAttemptOwner(recoveryScopeKey);
   const lastLocationScope = filesRootHintScope(session?.email, session?.orgId);

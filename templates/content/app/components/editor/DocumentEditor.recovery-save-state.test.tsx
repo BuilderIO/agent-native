@@ -1763,6 +1763,65 @@ it("republishes an acknowledged save when recovery alone finishes", async () => 
   });
 });
 
+it("ends a pending recovery save when another page takes over its id", async () => {
+  fixture.page = { ...fixture.page!, createdAt: "2026-10-19T11:00:00.000Z" };
+  let finish!: (value: unknown) => void;
+  fixture.save.mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await act(async () => renderEditor());
+
+  act(() => fixture.recovery!.report("conflict", "Prior page edit"));
+  act(() => fixture.editor!.onChange("Prior page edit"));
+  let resolved!: Promise<boolean>;
+  await act(async () => {
+    resolved = fixture.recovery!.resolve({
+      title: fixture.page!.title,
+      content: fixture.page!.content,
+      updatedAt: fixture.page!.updatedAt,
+      revision: fixture.page!.revision,
+    });
+  });
+  expect(fixture.save).toHaveBeenCalledOnce();
+
+  // The page was deleted for good and a new one created under its id.
+  const replacement = {
+    ...fixture.page!,
+    title: "Replacement title",
+    content: "Replacement body",
+    revision: "r9",
+    createdAt: "2026-10-19T13:00:00.000Z",
+    updatedAt: "2026-10-19T13:00:00.000Z",
+  };
+  fixture.page = replacement;
+  await act(async () => renderEditor());
+  const upserts = () =>
+    fixture.mutation.mutateAsync.mock.calls.filter(
+      ([input]) => input.operation === "upsert",
+    );
+  const upsertsBefore = upserts().length;
+  await act(async () => {
+    finish({ conflict: true, document: replacement });
+    await resolved;
+  });
+
+  expect(await resolved).toBe(false);
+  expect(fixture.save).toHaveBeenCalledOnce();
+  // The refused save still keeps its own edit for review, against the page it
+  // was written on. The old page's recovery keeps nothing of the new page.
+  expect(
+    upserts()
+      .slice(upsertsBefore)
+      .map(([input]) => [
+        input.draft.content,
+        input.draft.baseDocumentUpdatedAt,
+      ]),
+  ).toEqual([["Prior page edit", "2026-10-19T12:00:00.000Z"]]);
+  expect(fixture.recovery!.state).toBeNull();
+});
+
 it("republishes a newer acknowledged save when an obsolete retry is consumed", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   fixture.flushUpdates.mockResolvedValueOnce(false);
