@@ -939,9 +939,7 @@ describe("GitHub folder source", () => {
         github.commit({
           ...BASE_FILES,
           ...files,
-          "docs/faq.md": `${FAQ}
-${image}
-`,
+          "docs/faq.md": `${FAQ}\n${image}\n`,
         });
         await expect(
           as(() => syncFolder.run({ databaseId: database.id })),
@@ -1138,6 +1136,60 @@ ${image}
     );
     expect(followed?.documentId).not.toBe(faq.documentId);
     expect(followed?.content).toContain("Answers moved to the forum.");
+  });
+
+  it("gives a file a new page with its images when a restore releases its switched page while the sync reads it", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    const now = new Date().toISOString();
+    const holderId = `holder-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: holderId,
+      spaceId,
+      ownerEmail: owner,
+      title: "Holder",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: holderId })
+      .where(eq(schema.documents.id, faq.documentId));
+    await as(() => deleteDocument.run({ id: holderId }));
+
+    github.commit({
+      ...BASE_FILES,
+      "docs/images/chart.png": "PNGCHART",
+      "docs/faq.md":
+        "# Frequently asked\n\nAnswers moved to the forum.\n\n![Chart](images/chart.png)\n",
+    });
+    // The restore releases the page after the sync planned its file, and the
+    // released page then switches to its live copy.
+    github.state.duringBlobRead = async () => {
+      await as(() => restoreDocument.run({ id: holderId }));
+      await liveCopyPage.putPageOnLiveCopy(faq.documentId);
+    };
+    try {
+      const uploads = github.state.uploads;
+      await as(() => syncFolder.run({ databaseId: database.id }));
+
+      expect(github.state.uploads).toBe(uploads + 1);
+      const followed = (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      );
+      expect(followed?.documentId).not.toBe(faq.documentId);
+      expect(followed?.content).toContain("Answers moved to the forum.");
+      expect(followed?.content).toContain("chart.png");
+      const [released] = await getDb()
+        .select({ content: schema.documents.content })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, faq.documentId));
+      expect(released?.content).not.toContain("forum");
+    } finally {
+      await liveCopyPage.turnLiveCopyFlagsOff();
+    }
   });
 
   it("doesn't count a page a restore releases as moved to Trash", async () => {

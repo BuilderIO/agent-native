@@ -1256,13 +1256,16 @@ async function applyFile(
   if (text === null) return { skipped: "not-text" };
   const linkedRow = file.row ?? file.renamedFrom;
   // An upload can't roll back with the write, so a page the write would refuse
-  // refuses before the first one. The write still checks the page under its
-  // lock, since it can switch in between.
+  // refuses before the first one. Only a page this file's record still links
+  // refuses here: a restore that released the record gives the file a new
+  // page. The write rechecks both under its locks.
   let uploadsAllowed: Promise<void> | undefined;
   const beforeUpload = () =>
-    (uploadsAllowed ??= linkedRow
-      ? assertLegacyBodyWriter(linkedRow.documentId, GITHUB_BODY_WRITER)
-      : Promise.resolve());
+    (uploadsAllowed ??= (async () => {
+      if (linkedRow && (await recordStillLinked(run.db, linkedRow))) {
+        await assertLegacyBodyWriter(linkedRow.documentId, GITHUB_BODY_WRITER);
+      }
+    })());
   const { draft, page, assets, imagesWaiting } = await buildPage(
     run,
     relativePath,
