@@ -98,6 +98,8 @@ import {
   BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
   buildBuilderCmsFixtureEntry,
   builderCmsQualifiedId,
+  builderCmsReferenceIdKey,
+  builderCmsReferenceIdSourceValues,
   builderCmsSourceFieldKey,
   builderCmsSourceMetadata,
   builderCmsSourceRowIdentity,
@@ -106,6 +108,7 @@ import {
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
 import {
+  builderCmsBodyStillSavedOver,
   builderSourceValuesKeepingUnpublishedChanges,
   readBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes.js";
@@ -826,7 +829,7 @@ export const CANCELLED_BUILDER_REVIEW_NOTE_PREFIX =
   "Cancelled prepared Builder update before dispatch";
 
 export function builderReferenceIdSourceValueKey(sourceFieldKey: string) {
-  return `__agent_native_builder_reference_id:${sourceFieldKey}`;
+  return builderCmsReferenceIdKey(sourceFieldKey);
 }
 
 function riskRank(level: ContentDatabaseSourceRiskLevel) {
@@ -2110,7 +2113,10 @@ async function processBuilderBodyHydrationJob(
   const incomingIsBodySavedOver =
     unpublishedChanges.state === "pending" &&
     !!incomingBlocksHash &&
-    unpublishedChanges.changes.liveBlocksHash === incomingBlocksHash;
+    builderCmsBodyStillSavedOver(
+      unpublishedChanges.changes,
+      entryWithBody.sourceValues,
+    );
   if (
     !isCodecMigration &&
     !incomingIsBodySavedOver &&
@@ -2141,7 +2147,7 @@ async function processBuilderBodyHydrationJob(
       ...entryWithBody.sourceValues,
     },
     existing: sourceValues,
-    keepFields: true,
+    incomingFilledFromRow: true,
   });
   let nextContent =
     stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
@@ -2242,7 +2248,7 @@ async function processBuilderBodyHydrationJob(
           nextValues = builderSourceValuesKeepingUnpublishedChanges({
             incoming: liveValues,
             existing: sourceValues,
-            keepFields: true,
+            incomingFilledFromRow: true,
           });
           nextContent = liveContent;
         }
@@ -6012,36 +6018,18 @@ export function sourceValuesForSeededSourceRow(args: {
     Record<string, DocumentPropertyValue>
   >(args.existingSourceValuesJson);
   if (args.builderEntry?.sourceValues) {
-    const values = builderSourceValuesWithPreservedBodyBaseline({
-      incoming: args.builderEntry.sourceValues,
-      existing: existingSourceValues,
-      existingLastSourceUpdatedAt: args.existingLastSourceUpdatedAt,
-    });
-    const rawData = args.builderEntry.rawEntry?.data;
-    if (rawData && typeof rawData === "object" && !Array.isArray(rawData)) {
-      for (const [name, rawValue] of Object.entries(rawData)) {
-        if (
-          !rawValue ||
-          typeof rawValue !== "object" ||
-          Array.isArray(rawValue)
-        )
-          continue;
-        const reference = rawValue as Record<string, unknown>;
-        if (
-          reference["@type"] !== "@builder.io/core:Reference" ||
-          typeof reference.id !== "string" ||
-          !reference.id.trim()
-        ) {
-          continue;
-        }
-        const sourceFieldKey = `data.${name}`;
-        values[builderReferenceIdSourceValueKey(sourceFieldKey)] =
-          reference.id.trim();
-      }
-    }
+    const values = {
+      ...builderSourceValuesWithPreservedBodyBaseline({
+        incoming: args.builderEntry.sourceValues,
+        existing: existingSourceValues,
+        existingLastSourceUpdatedAt: args.existingLastSourceUpdatedAt,
+      }),
+      ...builderCmsReferenceIdSourceValues(args.builderEntry.rawEntry?.data),
+    };
     return builderSourceValuesKeepingUnpublishedChanges({
       incoming: values,
       existing: existingSourceValues,
+      builderBodyValues: args.builderEntry.sourceValues,
     });
   }
   if (existingSourceValues) return existingSourceValues;

@@ -21,6 +21,35 @@ export const BUILDER_CMS_BODY_READABLE_MAP_KEY =
 export const BUILDER_CMS_BODY_BLOCK_COUNT_KEY = "__builder.body.blockCount";
 /** Builder's `meta.hasAutosaves`: a published entry has unpublished changes. */
 export const BUILDER_CMS_HAS_AUTOSAVES_KEY = "__builder.meta.hasAutosaves";
+export const BUILDER_CMS_REFERENCE_ID_KEY_PREFIX =
+  "__agent_native_builder_reference_id:";
+
+export function builderCmsReferenceIdKey(sourceFieldKey: string) {
+  return `${BUILDER_CMS_REFERENCE_ID_KEY_PREFIX}${sourceFieldKey}`;
+}
+
+/** The ids of an entry's reference fields, keyed as a refresh stores them. */
+export function builderCmsReferenceIdSourceValues(
+  data: unknown,
+): Record<string, string> {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+  const values: Record<string, string> = {};
+  for (const [name, rawValue] of Object.entries(data)) {
+    if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      continue;
+    }
+    const reference = rawValue as Record<string, unknown>;
+    if (
+      reference["@type"] !== "@builder.io/core:Reference" ||
+      typeof reference.id !== "string" ||
+      !reference.id.trim()
+    ) {
+      continue;
+    }
+    values[builderCmsReferenceIdKey(`data.${name}`)] = reference.id.trim();
+  }
+  return values;
+}
 
 export interface BuilderCmsSourceEntry {
   id: string;

@@ -3026,6 +3026,45 @@ describe("database source helpers", () => {
     expect(published).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 
+  it("keeps a saved unpublished body through a metadata refresh that puts the stored body back", () => {
+    const refreshed = sourceValuesForSeededSourceRow({
+      sourceType: "builder-cms",
+      item: item("doc-1", "Same title"),
+      sourceTable: "blog_article",
+      now: "2026-06-08T13:00:00.000Z",
+      builderEntry: {
+        id: "entry-1",
+        model: "blog_article",
+        title: "Same title",
+        urlPath: "/blog/same-title",
+        updatedAt: "2026-06-08T13:00:00.000Z",
+        sourceValues: {
+          published: "published",
+          lastUpdated: "1000",
+          "data.title": "Same title",
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "live-body-hash",
+        },
+      },
+      existingSourceValuesJson: JSON.stringify({
+        published: "published",
+        lastUpdated: "1000",
+        "data.title": "Same title",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "saved-body-hash",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Saved body",
+        [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+          liveValues: {},
+          liveBlocksHash: "live-body-hash",
+        }),
+      }),
+    });
+
+    expect(refreshed[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
+    expect(refreshed[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).toBe("saved-body-hash");
+    expect(
+      JSON.parse(refreshed[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY] as string),
+    ).toEqual({ liveValues: {}, liveBlocksHash: "live-body-hash" });
+  });
+
   it("preserves a hydrated Builder body baseline across metadata-only refreshes with the same hash", () => {
     expect(
       sourceValuesForSeededSourceRow({

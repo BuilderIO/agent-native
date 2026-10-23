@@ -19,6 +19,7 @@ import {
   type BuilderContentEntry,
 } from "../shared/builder-mdx.js";
 import {
+  builderCmsReferenceIdSourceValues,
   builderEntryHasAutosaves,
   normalizeBuilderCmsApiEntry,
   type BuilderCmsSourceEntry,
@@ -393,6 +394,13 @@ function stringOrNumberFromUnknown(value: unknown) {
   return stringFromUnknown(value);
 }
 
+function liveSourceValues(record: Record<string, unknown>, model: string) {
+  const sourceValues = normalizeBuilderCmsApiEntry(record, model)?.sourceValues;
+  return sourceValues
+    ? { ...sourceValues, ...builderCmsReferenceIdSourceValues(record.data) }
+    : null;
+}
+
 function liveStateFromBuilderEntry(
   value: unknown,
   model: string,
@@ -464,7 +472,7 @@ function liveStateFromBuilderEntry(
       stringOrNumberFromUnknown(data.updatedAt),
     blocksHash: blocks.length > 0 ? builderBlocksHash(blocks) : null,
     id,
-    values: normalizeBuilderCmsApiEntry(record, model)?.sourceValues ?? null,
+    values: liveSourceValues(record, model),
     hasAutosaves: builderEntryHasAutosaves(record),
   };
 }

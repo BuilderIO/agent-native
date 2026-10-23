@@ -2107,6 +2107,12 @@ describe("Builder unpublished saves", () => {
       metadata: {
         builderModelFields: [
           { name: "title", label: "Title", type: "string", required: true },
+          {
+            name: "author",
+            label: "Author",
+            type: "reference",
+            model: "blog-author",
+          },
         ],
       },
     });
@@ -2234,6 +2240,78 @@ describe("Builder unpublished saves", () => {
 
     await expect(run()).resolves.toMatchObject(RESPONSE);
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("compares a reference by id, so another author with the same name blocks the save", async () => {
+    const authorChange = changeSet({
+      fieldChanges: [
+        {
+          propertyId: "author-property",
+          propertyName: "Author",
+          localFieldKey: "author-property",
+          sourceFieldKey: "data.author",
+          currentValue: "Sam Lee",
+          proposedValue: "Alex Kim",
+          builderValueJson: JSON.stringify({
+            "@type": "@builder.io/core:Reference",
+            id: "author-2",
+            model: "blog-author",
+          }),
+        },
+      ],
+    });
+    const reviewedRow = publishedRow({
+      lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
+      sourceValues: {
+        published: "published",
+        "data.title": "Old title",
+        "data.author": "Sam Lee",
+        "__agent_native_builder_reference_id:data.author": "author-1",
+      },
+    });
+    const live = (authorId: string): BuilderCmsEntryLiveState => ({
+      exists: true,
+      published: "published",
+      lastUpdated: BUILDER_LAST_UPDATED_MS,
+      blocksHash: null,
+      id: "builder-entry-1",
+      values: {
+        "data.title": "Old title",
+        "data.author": "Sam Lee",
+        "__agent_native_builder_reference_id:data.author": authorId,
+      },
+    });
+
+    const otherAuthor = unpublishedSave({
+      rows: [reviewedRow],
+      changeSet: authorChange,
+      readLiveEntry: live("author-3"),
+    });
+    await expect(otherAuthor.run()).rejects.toThrow(
+      "Author changed in Builder since you edited it; refresh and re-review.",
+    );
+    expect(otherAuthor.deps.executeWrite).not.toHaveBeenCalled();
+
+    const sameAuthor = unpublishedSave({
+      rows: [reviewedRow],
+      changeSet: authorChange,
+      readLiveEntry: live("author-1"),
+    });
+    await expect(sameAuthor.run()).resolves.toMatchObject(RESPONSE);
+    expect(sameAuthor.deps.reconcileWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          payload: expect.objectContaining({
+            livePreflight: expect.objectContaining({
+              values: {
+                "data.author": "Sam Lee",
+                "__agent_native_builder_reference_id:data.author": "author-1",
+              },
+            }),
+          }),
+        }),
+      }),
+    );
   });
 
   it("blocks a body save Builder changed around when the live body cannot be compared", async () => {
@@ -2391,6 +2469,96 @@ describe("Builder unpublished saves", () => {
     expect(JSON.parse(values[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY])).toEqual({
       liveValues: { "data.title": "Old title" },
     });
+  });
+
+  it("takes a live write's fields out of the record, even from a response stored without live values", () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      rows: [publishedRow()],
+      changeSets: [approvedChangeSet],
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      pushModeConfirmation: "draft",
+    });
+    expect(plan.payload.effect).toBe("update_in_place");
+
+    const values = JSON.parse(
+      builderCmsReconciledSourceValuesJson({
+        existingSourceValuesJson: JSON.stringify(
+          withBuilderCmsUnpublishedChanges(
+            { published: "published", "data.title": "Saved title" },
+            { liveValues: { "data.title": "Live title" } },
+          ),
+        ),
+        snapshotSourceValues: undefined,
+        changeSet: approvedChangeSet,
+        plan,
+      }),
+    );
+
+    expect(values["data.title"]).toBe("New title");
+    expect(values).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+
+  it("reconciles a stored live-write response with the live values it recorded", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      pushModeConfirmation: "draft",
+    });
+    const livePreflight = {
+      checkedAt: NOW,
+      exists: true,
+      id: "builder-entry-1",
+      published: "published",
+      lastUpdated: BUILDER_LAST_UPDATED_MS,
+      blocksHash: null,
+      hasAutosaves: null,
+      values: { "data.title": "Old title" },
+    };
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      state: "failed",
+      payloadJson: JSON.stringify({
+        ...plan.payload,
+        livePreflight,
+        response: {
+          ok: true,
+          status: 200,
+          entryId: "builder-entry-1",
+          body: { id: "builder-entry-1" },
+        },
+      }),
+    });
+    const deps = depsFor({ source: builderSource, execution });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+      ),
+    ).resolves.toMatchObject(RESPONSE);
+
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.reconcileWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          payload: expect.objectContaining({
+            effect: "update_in_place",
+            livePreflight,
+          }),
+        }),
+      }),
+    );
   });
 
   it("leaves the record alone for a stored response from before live values were kept", () => {
