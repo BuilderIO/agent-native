@@ -215,6 +215,27 @@ vi.mock("./_database-source-utils.js", async (importOriginal) => {
   };
 });
 
+// The time each sync is given, in call order, to see how the background sync
+// shares its time between links.
+const syncBudgets = vi.hoisted(
+  () => [] as Array<{ sourceId: string; budgetMs: number }>,
+);
+vi.mock("./_github-source.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./_github-source.js")>();
+  return {
+    ...actual,
+    syncGitHubSource: (
+      options: Parameters<typeof actual.syncGitHubSource>[0],
+    ) => {
+      syncBudgets.push({
+        sourceId: options.sourceId,
+        budgetMs: options.budgetMs,
+      });
+      return actual.syncGitHubSource(options);
+    },
+  };
+});
+
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: async () =>
     github.state.noStorage ? null : { id: "test" },
@@ -2063,6 +2084,63 @@ describe("GitHub folder freshness", () => {
     github.state.slowContents.clear();
     expect(await sync()).toMatchObject({ updated: 1, remaining: 0 });
     expect(await titles()).toEqual(["One, edited", "Two, edited"]);
+  });
+
+  it("gives folders partway through a push a longer share of a background sync, after the rest and in turn", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const linked = async () => {
+      const database = await newCollection();
+      await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      return { databaseId: database.id, id: await sourceId(database.id) };
+    };
+    const notStarted = await linked();
+    const fillingLately = await linked();
+    const fillingLongAgo = await linked();
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    // Two collections get one file into the push, as a big folder's first
+    // fill does in a run; the third hasn't seen it yet.
+    for (const filling of [fillingLately, fillingLongAgo]) {
+      github.state.blobReads = 0;
+      github.state.hangAfterBlobReads = 1;
+      await as(() =>
+        syncGitHubSource({ sourceId: filling.id, budgetMs: 1_500 }),
+      );
+    }
+    github.state.hangAfterBlobReads = null;
+    await pushMovedAgo(fillingLately.databaseId, 60_000);
+    await pushMovedAgo(fillingLongAgo.databaseId, 3 * 60_000);
+    for (const link of [notStarted, fillingLately, fillingLongAgo]) {
+      await checkedAgo(link.databaseId, 5 * 60_000);
+    }
+    syncBudgets.length = 0;
+
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+
+    const ours = new Set([notStarted.id, fillingLately.id, fillingLongAgo.id]);
+    const budgets = syncBudgets.filter(({ sourceId }) => ours.has(sourceId));
+    expect(budgets.map(({ sourceId }) => sourceId)).toEqual([
+      notStarted.id,
+      fillingLongAgo.id,
+      fillingLately.id,
+    ]);
+    expect(budgets[0]!.budgetMs).toBe(20_000);
+    expect(budgets[1]!.budgetMs).toBe(50_000);
+    expect(budgets[2]!.budgetMs).toBe(50_000);
+    for (const link of [notStarted, fillingLately, fillingLongAgo]) {
+      expect((await liveRows(link.databaseId)).map((row) => row.title)).toEqual(
+        ["One, edited", "Two, edited", "Three, edited"],
+      );
+    }
   });
 
   it("lets a read carry on a push no run has moved for two minutes", async () => {

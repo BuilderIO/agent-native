@@ -25,6 +25,7 @@ import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
+import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import {
   DESIGN_REPROMPT_PENDING_STATE_PREFIX,
   DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX,
@@ -340,6 +341,18 @@ export default defineAction({
           navigation,
           designSelection,
         );
+        let activeFrameType: "hubspot-email" | null = null;
+        if (activeScreen) {
+          const [activeFile] = await db
+            .select({ content: schema.designFiles.content })
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.id, activeScreen.id))
+            .limit(1);
+          activeFrameType =
+            activeFile && isHubSpotEmailHtml(activeFile.content)
+              ? "hubspot-email"
+              : null;
+        }
         const linkedDesignSystem = await loadAgentDesignSystemContext(
           typeof (access.resource as { designSystemId?: unknown })
             .designSystemId === "string"
@@ -360,7 +373,9 @@ export default defineAction({
               : null,
           designSystem: linkedDesignSystem,
           screens: overviewScreens,
-          activeScreen,
+          activeScreen: activeScreen
+            ? { ...activeScreen, frameType: activeFrameType }
+            : null,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };

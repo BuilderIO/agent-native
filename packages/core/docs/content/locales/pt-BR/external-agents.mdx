@@ -280,7 +280,7 @@ precisa de um conector como `npx @agent-native/core@latest connect https://asset
 | ---------- | ------------------ | ----------------------- |
 | `assets`   | `image-generation` | geração de imagem/vídeo |
 
-A seleção de cliente padrão é composta por todos os clientes locais suportados; adicione `--client codex`, `--client claude-code` ou outro alvo específico para restringir a configuração. Hosts inline (bate-papo principal ChatGPT, Claude.ai, Claude Desktop) renderizam a grade do seletor/variante no bate-papo; Hosts CLI/somente link (Codex, Claude Code, guia "Código" do Claude Desktop) retornam um link "Abrir em… →" onde o usuário escolhe no navegador e cola um resumo de transferência de volta.
+A seleção de cliente padrão é composta por todos os clientes locais suportados; adicione `--client codex`, `--client claude-code` ou outro alvo específico para restringir a configuração. Hosts inline (ChatGPT, chat do Claude na web, no desktop e no celular, além da aba Code do Claude Desktop) renderizam o seletor ou a grade de variantes no chat; hosts CLI ou somente link (Codex CLI, terminal do Claude Code, Cowork, Code na web claude.ai) retornam um link "Abrir em… →". O usuário escolhe no navegador e cola um resumo da transferência de volta no chat. [O Cowork ainda não declara suporte a MCP Apps, e usá-lo no mesmo conector pode fazer os aplicativos inline desaparecerem do Chat até que você reconecte o conector.](https://github.com/anthropics/claude-code/issues/103924)
 
 Quando você realmente precisa de um aplicativo isolado em vez do gateway do espaço de trabalho do Dispatch,
 execute o mesmo comando com o host desse aplicativo:

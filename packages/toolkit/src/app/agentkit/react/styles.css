@@ -104,6 +104,7 @@
     var(--agent-kit-composer-surface, var(--agentkit-surface))
   );
   box-shadow: var(--agentkit-elevation);
+  container-type: inline-size;
 }
 
 .agentkit-composer[data-agent-composer-slot="root"]:focus-within {
@@ -161,9 +162,11 @@
   flex: 1;
 }
 
+/* Only the model picker shrinks, so narrow composers never push out send. */
 .agentkit-composer [data-agent-composer-slot="model-button"] {
-  flex: none;
+  flex: 0 1 auto;
   max-inline-size: 11rem;
+  overflow: hidden;
 }
 
 .agentkit-composer [data-agent-composer-slot="mode-button"] {
@@ -627,6 +630,8 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 .agentkit-transcript {
   grid-column: 1;
   grid-row: 2;
+  container-name: agentkit-transcript;
+  container-type: inline-size;
   inline-size: 100%;
   min-block-size: 0;
   overflow-y: auto;
@@ -681,6 +686,22 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   );
   padding: 1.5rem 1rem;
   padding-block-start: var(--agentkit-transcript-top-inset, 1.5rem);
+}
+
+.agentkit-transcript-content[data-lane-offset-mode="responsive"] {
+  inset-inline-start: var(--agentkit-transcript-lane-offset-inline, 0px);
+}
+
+@container agentkit-transcript (max-width: 74.999rem) {
+  .agentkit-transcript-content[data-lane-offset-mode="responsive"] {
+    inset-inline-start: clamp(
+      calc(
+        (100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / -2
+      ),
+      var(--agentkit-transcript-lane-offset-inline, 0px),
+      calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / 2)
+    );
+  }
 }
 
 .agentkit-scroll-to-bottom-control {
@@ -2151,9 +2172,16 @@ button.agentkit-object {
     padding-inline: 0;
   }
 
+  .agentkit-message[data-role="user"] .agentkit-message-content {
+    max-inline-size: min(94%, var(--agentkit-user-bubble-max-width, 38rem));
+  }
+}
+
+/* Composer width, not viewport: desktop side panels are as narrow as phones. */
+@container (max-width: 24rem) {
   .agentkit-composer [data-agent-composer-slot="toolbar"] {
     gap: 0.125rem;
-    padding-inline: 0.5rem;
+    padding-inline: 0.375rem;
   }
 
   .agentkit-composer [data-agent-composer-slot="model-button"] {
@@ -2162,14 +2190,11 @@ button.agentkit-object {
   }
 
   .agentkit-composer [data-agent-composer-slot="mode-button"] {
+    min-inline-size: 0;
     padding-inline: 0.375rem;
   }
 
   .agentkit-composer .agent-composer-model-effort {
     display: none;
-  }
-
-  .agentkit-message[data-role="user"] .agentkit-message-content {
-    max-inline-size: min(94%, var(--agentkit-user-bubble-max-width, 38rem));
   }
 }

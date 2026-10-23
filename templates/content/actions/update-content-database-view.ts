@@ -18,7 +18,10 @@ import {
   setupAuditSummary,
   setupGuardSchema,
 } from "./_database-setup-mutation.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import {
   contentDatabaseItemLayoutSchema,
   runReplaceContentDatabaseViews,
@@ -274,7 +277,10 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 }),
+      context,
+    );
   },
   link: ({ result }) => {
     const receipt = (

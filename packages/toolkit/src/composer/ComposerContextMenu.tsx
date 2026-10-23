@@ -215,7 +215,7 @@ function ContextSubmenu({
   icon?: ReactNode;
   disabled?: boolean;
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (open: boolean, reason?: "escape") => void;
   children: ReactNode;
 }) {
   const trigger = useRef<HTMLDivElement>(null);
@@ -244,7 +244,7 @@ function ContextSubmenu({
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          onOpenChange(false);
+          onOpenChange(false, "escape");
           trigger.current?.focus();
         }}
       >
@@ -312,10 +312,14 @@ export function ComposerContextMenu({
   const onDisabledFocusRef = useRef(onDisabledFocus);
   onDisabledFocusRef.current = onDisabledFocus;
   const disabledFocusFrame = useRef<number | null>(null);
+  const resumedPageClose = useRef<string | null>(null);
+  const resumedPageCloseFrame = useRef<number | null>(null);
   useEffect(
     () => () => {
       if (disabledFocusFrame.current !== null)
         window.cancelAnimationFrame(disabledFocusFrame.current);
+      if (resumedPageCloseFrame.current !== null)
+        window.cancelAnimationFrame(resumedPageCloseFrame.current);
     },
     [],
   );
@@ -545,7 +549,19 @@ export function ComposerContextMenu({
               label={entry.label}
               disabled={entry.disabled}
               open={expanded}
-              onOpenChange={(next) => {
+              onOpenChange={(next, reason) => {
+                if (
+                  !next &&
+                  reason !== "escape" &&
+                  resumedPageClose.current === entry.id
+                ) {
+                  resumedPageClose.current = null;
+                  if (resumedPageCloseFrame.current !== null) {
+                    window.cancelAnimationFrame(resumedPageCloseFrame.current);
+                    resumedPageCloseFrame.current = null;
+                  }
+                  return;
+                }
                 const isOpen = branch.every(
                   (id, index) => pathRef.current[index] === id,
                 );
@@ -588,6 +604,19 @@ export function ComposerContextMenu({
                         );
                         return;
                       }
+                      // Radix can emit one stale close after native-picker focus returns.
+                      resumedPageClose.current = entry.id;
+                      if (resumedPageCloseFrame.current !== null)
+                        window.cancelAnimationFrame(
+                          resumedPageCloseFrame.current,
+                        );
+                      resumedPageCloseFrame.current =
+                        window.requestAnimationFrame(() => {
+                          resumedPageCloseFrame.current = null;
+                          if (resumedPageClose.current === entry.id)
+                            resumedPageClose.current = null;
+                        });
+                      triggerRef.current?.focus();
                       changeOpen(true);
                       activate(action, origin, false);
                     },

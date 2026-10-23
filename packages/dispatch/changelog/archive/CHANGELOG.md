@@ -1,3 +1,36 @@
+## 0.30.2
+
+### Patch Changes
+
+- 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
+
+## 0.30.1
+
+### Patch Changes
+
+- a2f21dc: Keep workspace apps inline outside Builder.io embeds.
+- Updated dependencies [a2f21dc]
+  - @agent-native/toolkit@0.16.6
+
+## 0.30.0
+
+### Minor Changes
+
+- a688849: Add organization groups and privacy controls for workspace apps. New apps use the organization default (organization-wide by default), while creators and organization admins can manage individual, group, and organization access from the shared popover.
+
+## 0.29.5
+
+### Patch Changes
+
+- Updated dependencies [0b57293]
+  - @agent-native/toolkit@0.16.5
+
+## 0.29.4
+
+### Patch Changes
+
+- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
+
 ## 0.29.3
 
 ### Patch Changes

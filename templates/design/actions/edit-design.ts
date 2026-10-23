@@ -171,7 +171,7 @@ export default defineAction({
     "from `get-design-snapshot` first, then call `index-design-tokens` and reuse " +
     "the design's existing tokens so the edited screen matches its siblings; " +
     "introduce values the design does not already use only when asked. " +
-    "Use `generate-design` instead only for brand-new files.",
+    "When refining email HTML, preserve email-safe tables, inline-compatible styles, required HubL footer tokens and any existing internal marker; validate its handoff with export-hubspot-html, which accepts any HTML frame. To rebuild an ordinary frame as a HubSpot email, read it first and use create-file for a new sibling rather than overwriting the source. Use `generate-design` instead only for brand-new files.",
   schema: z
     .object({
       designId: z.string().describe("Design project ID"),

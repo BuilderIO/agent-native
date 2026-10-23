@@ -80,6 +80,7 @@ describe("get-design-snapshot", () => {
         id: "file-b",
         filename: "variant-b.html",
         fileType: "html",
+        frameType: null,
         content: "<html>B</html>",
         source: "collab",
       },

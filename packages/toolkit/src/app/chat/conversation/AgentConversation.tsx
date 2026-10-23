@@ -17,7 +17,10 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { ActionChatUiSurface } from "../chat/action-chat-ui-surface.js";
-import { resolveToolRenderer } from "../chat/tool-render-registry.js";
+import {
+  resolveToolRenderer,
+  type ToolRendererContext,
+} from "../chat/tool-render-registry.js";
 import {
   isBuiltinConnectRequiredResult,
   resolveBuiltinActionChatRenderer,
@@ -407,11 +410,17 @@ function parseJsonObject(value: string | undefined): Record<string, unknown> {
 function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
   const t = useT();
   const resultJson = parseJsonText(tool.result);
-  const nativeToolContext = {
+  const nativeToolContext: ToolRendererContext = {
     toolName: tool.name,
     args: tool.args ?? parseJsonObject(tool.input),
     resultText: tool.result,
     resultJson: tool.resultJson ?? resultJson,
+    status:
+      tool.state === "errored"
+        ? undefined
+        : tool.state === "activity"
+          ? "running"
+          : tool.state,
     isRunning: tool.state === "running" || tool.state === "activity",
     chatUI: tool.chatUI,
   };

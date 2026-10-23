@@ -312,11 +312,14 @@ export function GitHubSourceStatusLine({
   documentId,
   canEdit,
   pageCount,
+  onOpenSource,
 }: {
   source: ContentDatabaseSource | null;
   documentId: string;
   canEdit: boolean;
   pageCount: number;
+  /** Opens the folder's page in Sources; without it, the folder is plain text. */
+  onOpenSource?: () => void;
 }) {
   const now = useNow();
   const [unlinkOpen, setUnlinkOpen] = useState(false);
@@ -334,6 +337,7 @@ export function GitHubSourceStatusLine({
       documentId={documentId}
       canEdit={canEdit}
       pageCount={pageCount}
+      onOpenSource={onOpenSource}
       detailsOpen={detailsOpen}
       onDetailsOpenChange={setDetailsOpen}
       unlinkOpen={unlinkOpen}
@@ -349,6 +353,7 @@ function GitHubStatusLineContent({
   documentId,
   canEdit,
   pageCount,
+  onOpenSource,
   detailsOpen,
   onDetailsOpenChange,
   unlinkOpen,
@@ -360,6 +365,7 @@ function GitHubStatusLineContent({
   documentId: string;
   canEdit: boolean;
   pageCount: number;
+  onOpenSource?: () => void;
   detailsOpen: boolean;
   onDetailsOpenChange: (open: boolean) => void;
   unlinkOpen: boolean;
@@ -387,8 +393,27 @@ function GitHubStatusLineContent({
       <div className="-m-px overflow-hidden p-px">
         <div className="-ms-3 flex min-w-0 flex-wrap items-center gap-y-1 text-muted-foreground">
           <Dotted>
-            <IconBrandGithub className="me-1.5 size-3.5 shrink-0" aria-hidden />
-            <FromFolder status={status} />
+            {onOpenSource ? (
+              <button
+                type="button"
+                onClick={onOpenSource}
+                className="inline-flex min-w-0 items-center rounded-sm text-start underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <IconBrandGithub
+                  className="me-1.5 size-3.5 shrink-0"
+                  aria-hidden
+                />
+                <FromFolder status={status} />
+              </button>
+            ) : (
+              <>
+                <IconBrandGithub
+                  className="me-1.5 size-3.5 shrink-0"
+                  aria-hidden
+                />
+                <FromFolder status={status} />
+              </>
+            )}
           </Dotted>
           {stops ? null : (
             <Dotted>

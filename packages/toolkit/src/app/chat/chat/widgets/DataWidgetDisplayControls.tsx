@@ -148,7 +148,7 @@ export function DataWidgetDisplayControls({
 }: {
   display?: DataWidgetDisplay;
   chartActions?: DataWidgetChartAction[];
-  variant?: "primary" | "secondary";
+  variant?: "primary" | "secondary" | "quiet";
   kind?: "chart" | "table";
 }) {
   const t = useT();
@@ -219,7 +219,9 @@ export function DataWidgetDisplayControls({
           className={
             variant === "secondary"
               ? "inline-flex max-w-44 items-center gap-1.5 truncate rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground no-underline hover:bg-muted hover:no-underline"
-              : "inline-flex max-w-44 items-center gap-1.5 truncate rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground no-underline hover:bg-primary/90 hover:no-underline"
+              : variant === "quiet"
+                ? "inline-flex max-w-44 items-center gap-1.5 truncate rounded-sm px-1 py-0.5 text-[11px] font-medium text-muted-foreground no-underline hover:bg-muted hover:text-foreground hover:no-underline"
+                : "inline-flex max-w-44 items-center gap-1.5 truncate rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground no-underline hover:bg-primary/90 hover:no-underline"
           }
         />
       ) : null}
@@ -230,7 +232,7 @@ export function DataWidgetDisplayControls({
           label={item.action.label}
           icon={item.action.icon}
           iconOnly
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={`inline-flex ${variant === "quiet" ? "size-7" : "size-8"} shrink-0 items-center justify-center rounded-md ${variant === "quiet" ? "" : "border border-border"} text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
         />
       ))}
       {overflowActions.length > 0 ? (
@@ -240,7 +242,7 @@ export function DataWidgetDisplayControls({
               type="button"
               aria-label={actionsLabel}
               title={actionsLabel}
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={`inline-flex ${variant === "quiet" ? "size-7" : "size-8"} shrink-0 items-center justify-center rounded-md ${variant === "quiet" ? "" : "border border-border"} text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
             >
               <IconDotsVertical aria-hidden="true" className="size-4" />
             </button>
