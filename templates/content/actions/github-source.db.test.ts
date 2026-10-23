@@ -2231,6 +2231,46 @@ describe("GitHub folder source", () => {
     }
   });
 
+  it("doesn't ask for file storage that a sync found set up before it failed", async () => {
+    github.state.noStorage = true;
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const linked = await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(linked.sync).toMatchObject({ imagesWaiting: 1 });
+
+    github.state.noStorage = false;
+    github.state.failure = new Error("socket hang up");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const id = await sourceId(database.id);
+      const failed = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(failed).toMatchObject({ state: "error", imagesWaiting: 1 });
+      const status = await as(() => getSource.run({ databaseId: database.id }));
+      expect(status.source?.metadata.github).toMatchObject({
+        imagesWaiting: 1,
+        imagesFailed: false,
+        storageReady: true,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+
+    // Storage going away again before the next sync asks for it again.
+    github.state.failure = null;
+    github.state.noStorage = true;
+    const still = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(still.sync).toMatchObject({
+      imagesWaiting: 1,
+      problem: { code: "storage_unavailable" },
+    });
+    const after = await as(() => getSource.run({ databaseId: database.id }));
+    expect(after.source?.metadata.github?.storageReady).toBe(false);
+  });
+
   it("puts pages whose images failed after the files a sync ran out of time on", async () => {
     github.state.rejectFilename = "poster.png";
     const poster = {

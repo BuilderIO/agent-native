@@ -2202,14 +2202,20 @@ export async function syncGitHubSource(
   // them too, so the next one doesn't read them again.
   let readSkipsSoFar: GitHubReadSkip[] | null = null;
   // The images this run's planned files wait on, once it has planned them,
-  // and whether storage failed to save some. A run that fails partway records
-  // them, so the next sync goes back for the ones still missing, stops
-  // counting the ones it stored, and the status line still says why.
-  let imagesSoFar: (() => { waiting: number; failed: boolean }) | null = null;
+  // whether storage failed to save some, and whether storage is set up. A run
+  // that fails partway records them, so the next sync goes back for the ones
+  // still missing, stops counting the ones it stored, and the status line
+  // still says why.
+  let imagesSoFar:
+    | (() => { waiting: number; failed: boolean; ready: boolean })
+    | null = null;
+  // Whether this run found storage set up for the images it found waiting.
+  let storageFound: boolean | null = null;
   const imagesNow = (current: GitHubSourceState) =>
     imagesSoFar?.() ?? {
       waiting: current.imagesWaiting,
       failed: current.imagesFailed,
+      ready: storageFound ?? current.storageReady,
     };
   const failed = (problem: GitHubSourceState["problem"]): GitHubSyncResult => ({
     ...emptyResult("error", state.pendingCommitSha, problem),
@@ -2233,6 +2239,7 @@ export async function syncGitHubSource(
           getActiveFileUploadProviderForRequest(),
         ),
       );
+    storageFound = retryImages;
     const canSkip =
       !options.force &&
       !retryImages &&
@@ -2260,6 +2267,7 @@ export async function syncGitHubSource(
           checkedAt: now,
           headEtag: head.status === "ok" ? head.etag : current.headEtag,
           problem: storageProblem(current.imagesWaiting, now),
+          storageReady: false,
         }),
         () => ({
           syncState: "linked",
@@ -2450,6 +2458,7 @@ export async function syncGitHubSource(
       return {
         waiting: images.waiting,
         failed: images.waiting > 0 && storageFailed,
+        ready: retryImages && !run.storageMissing,
       };
     };
     imagesSoFar = imagesOfRun;
@@ -2589,9 +2598,8 @@ export async function syncGitHubSource(
     // left some pages for the next sync to fill in.
     const images = imagesOfRun();
     result.imagesWaiting = images.waiting;
-    const storageSetUp = retryImages && !run.storageMissing;
     result.problem =
-      storageSetUp && !images.failed
+      images.ready && !images.failed
         ? null
         : storageProblem(result.imagesWaiting, now, images.failed);
     const complete = result.remaining === 0;
@@ -2628,6 +2636,7 @@ export async function syncGitHubSource(
           readSkips,
           imagesWaiting: result.imagesWaiting,
           imagesFailed: images.failed,
+          storageReady: images.ready,
           ...(complete
             ? {
                 syncedCommitSha: head.sha,
@@ -2672,6 +2681,7 @@ export async function syncGitHubSource(
             ...current,
             imagesWaiting: images.waiting,
             imagesFailed: images.failed,
+            storageReady: images.ready,
           };
         },
         (next) => ({
@@ -2706,13 +2716,14 @@ export async function syncGitHubSource(
     }
     await release(
       (current) => {
-        // The problem says why the sync failed, and imagesFailed still says
-        // why its pictures are missing.
+        // The problem says why the sync failed, and imagesFailed and
+        // storageReady still say why its pictures are missing.
         const images = imagesNow(current);
         return {
           ...current,
           imagesWaiting: images.waiting,
           imagesFailed: images.failed,
+          storageReady: images.ready,
           checkedAt: now,
           problem,
           ...(readSkipsSoFar ? { readSkips: readSkipsSoFar } : {}),
@@ -2767,6 +2778,7 @@ export async function createGitHubSourceLink(args: {
     pendingCommitSha: resolved.commitSha,
     imagesWaiting: 0,
     imagesFailed: false,
+    storageReady: false,
     progress: { done: 0, total: preview.markdownFiles },
     cutShort: [],
     files: preview.markdownFiles,

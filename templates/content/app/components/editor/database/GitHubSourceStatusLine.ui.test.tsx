@@ -74,6 +74,7 @@ function githubSource(
         skippedCount: status.skipped?.length ?? 0,
         imagesWaiting: 0,
         imagesFailed: false,
+        storageReady: false,
         problem: null,
         ...status,
       },
@@ -333,6 +334,30 @@ describe("GitHub source status line", () => {
     );
     expect(statusLine().textContent).not.toContain("sets up file storage");
     // The problem that stopped the sync still shows too.
+    expect(statusLine().textContent).toContain(
+      "Updates are paused for a moment.",
+    );
+  });
+
+  it("still asks for file storage when another problem stopped the sync", () => {
+    renderLine(
+      githubSource({ problem: problem("unavailable"), imagesWaiting: 1 }),
+    );
+    expect(statusLine().textContent).toContain(
+      "Some pictures won’t show until a workspace admin sets up file storage.",
+    );
+  });
+
+  it("doesn't ask for file storage the stopped sync found set up", () => {
+    renderLine(
+      githubSource({
+        problem: problem("unavailable"),
+        imagesWaiting: 1,
+        storageReady: true,
+      }),
+    );
+    expect(statusLine().textContent).not.toContain("sets up file storage");
+    expect(statusLine().textContent).not.toContain("couldn’t be saved");
     expect(statusLine().textContent).toContain(
       "Updates are paused for a moment.",
     );

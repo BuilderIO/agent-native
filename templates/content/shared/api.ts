@@ -1088,6 +1088,8 @@ export interface ContentGitHubSourceStatus {
   imagesWaiting: number;
   /** Whether file storage is set up but couldn't save some of those images. */
   imagesFailed: boolean;
+  /** Whether the last sync found file storage set up while images waited. */
+  storageReady: boolean;
   problem: {
     code: GitHubSourceProblemCode;
     message: string;

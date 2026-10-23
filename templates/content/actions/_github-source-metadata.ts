@@ -67,6 +67,11 @@ export interface GitHubSourceState extends GitHubFolderLocation {
    * the status line says so even when another problem stopped the sync.
    */
   imagesFailed: boolean;
+  /**
+   * Whether the last sync found file storage set up while images waited, so
+   * a sync another problem stopped doesn't ask for storage that's there.
+   */
+  storageReady: boolean;
   problem: {
     code: GitHubSourceProblemCode;
     message: string;
@@ -204,6 +209,7 @@ export function readGitHubSourceState(
     imagesWaiting:
       typeof github.imagesWaiting === "number" ? github.imagesWaiting : 0,
     imagesFailed: github.imagesFailed === true,
+    storageReady: github.storageReady === true,
     problem:
       problem &&
       typeof problem.code === "string" &&
@@ -254,6 +260,7 @@ export function githubSourceStatus(
     skippedCount: state.skippedCount,
     imagesWaiting: state.imagesWaiting,
     imagesFailed: state.imagesFailed,
+    storageReady: state.storageReady,
     problem: state.problem,
   };
 }
