@@ -442,6 +442,43 @@ describe("Builder unpublished changes", () => {
     });
   });
 
+  it("tracks a body saved over an empty live body by Builder's update time", () => {
+    const changes = builderCmsUnpublishedChangesAfterWrite({
+      existing: { published: "published" },
+      effect: "autosave",
+      writtenFieldKeys: [],
+      wroteBody: true,
+      live: { values: {}, blocksHash: null, lastUpdated: 1000 },
+    });
+    expect(changes).toEqual({ liveValues: {}, liveLastUpdated: 1000 });
+    const existing = withBuilderCmsUnpublishedChanges(
+      {
+        published: "published",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Saved body",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "saved-hash",
+      },
+      changes,
+    );
+
+    const stillEmpty = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: { published: "published", lastUpdated: 1000 },
+      existing,
+    });
+    expect(stillEmpty[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
+
+    const published = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: {
+        published: "published",
+        lastUpdated: 2000,
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Published body",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "published-hash",
+      },
+      existing,
+    });
+    expect(published[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Published body");
+    expect(published).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+
   it("refuses to record an autosave without the live values", () => {
     expect(() =>
       builderCmsUnpublishedChangesAfterWrite({

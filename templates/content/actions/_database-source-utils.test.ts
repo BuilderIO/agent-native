@@ -29,6 +29,7 @@ import {
   builderBodyHydrationNextAttemptAt,
   builderBodyHydrationFailureEvidence,
   builderBodyNeedsSourceComponentWrite,
+  builderBodyReadSourceValues,
   knownBuilderReviewDocumentIds,
   builderSourcePropertyAssignments,
   builderBodyHydrationVersion,
@@ -3023,6 +3024,32 @@ describe("database source helpers", () => {
     expect(refreshed("Live title")["data.title"]).toBe("Saved title");
     const published = refreshed("Published in Builder");
     expect(published["data.title"]).toBe("Published in Builder");
+    expect(published).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+
+  it("keeps saved unpublished fields through every Builder body read", () => {
+    const rowValues = {
+      published: "published",
+      "data.title": "Saved title",
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+        liveValues: { "data.title": "Live title" },
+      }),
+    };
+
+    const kept = builderBodyReadSourceValues(rowValues, {
+      published: "published",
+      "data.title": "Live title",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Live body",
+    });
+    expect(kept["data.title"]).toBe("Saved title");
+    expect(kept[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Live body");
+    expect(kept).toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+
+    const published = builderBodyReadSourceValues(rowValues, {
+      published: "published",
+      "data.title": "Published title",
+    });
+    expect(published["data.title"]).toBe("Published title");
     expect(published).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 

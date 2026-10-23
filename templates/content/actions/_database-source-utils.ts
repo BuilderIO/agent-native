@@ -1999,6 +1999,23 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
   });
 }
 
+/**
+ * A Builder body read's values over the row's. Every body read goes through
+ * this, so none of them overwrites Content's unpublished saves with the live
+ * values Builder still returns.
+ */
+export function builderBodyReadSourceValues(
+  rowValues: Record<string, DocumentPropertyValue>,
+  builderValues: Record<string, DocumentPropertyValue>,
+) {
+  return builderSourceValuesKeepingUnpublishedChanges({
+    incoming: { ...rowValues, ...builderValues },
+    existing: rowValues,
+    incomingFilledFromRow: true,
+    builderBodyValues: builderValues,
+  });
+}
+
 function parseHydrationEntry(
   row: ContentDatabaseBodyHydrationQueueRowDb,
 ): BuilderCmsSourceEntry | null {
@@ -2141,14 +2158,10 @@ async function processBuilderBodyHydrationJob(
       "Builder returned inconsistent body variants for the same lastUpdated value; the stored baseline and local document were preserved for retry.",
     );
   }
-  let nextValues = builderSourceValuesKeepingUnpublishedChanges({
-    incoming: {
-      ...sourceValues,
-      ...entryWithBody.sourceValues,
-    },
-    existing: sourceValues,
-    incomingFilledFromRow: true,
-  });
+  let nextValues = builderBodyReadSourceValues(
+    sourceValues,
+    entryWithBody.sourceValues,
+  );
   let nextContent =
     stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
   let emptyBodyRead: Extract<
@@ -2213,10 +2226,10 @@ async function processBuilderBodyHydrationJob(
       });
       if (liveRead.state === "body") {
         const liveEntry = liveRead.entry;
-        const liveValues = {
-          ...sourceValues,
-          ...liveEntry.sourceValues,
-        };
+        const liveValues = builderBodyReadSourceValues(
+          sourceValues,
+          liveEntry.sourceValues,
+        );
         const liveContent =
           stringSourceValue(liveValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
         if (liveContent.trim()) {
@@ -2245,11 +2258,7 @@ async function processBuilderBodyHydrationJob(
           if (!upgraded) return;
           activeSourceEntryJson = liveSourceEntryJson;
           entryWithBody = liveEntry;
-          nextValues = builderSourceValuesKeepingUnpublishedChanges({
-            incoming: liveValues,
-            existing: sourceValues,
-            incomingFilledFromRow: true,
-          });
+          nextValues = liveValues;
           nextContent = liveContent;
         }
       } else {
@@ -2291,10 +2300,12 @@ async function processBuilderBodyHydrationJob(
           await tx
             .update(schema.contentDatabaseSourceRows)
             .set({
-              sourceValuesJson: JSON.stringify({
-                ...sourceValues,
-                ...emptyBodyRead.entry.sourceValues,
-              }),
+              sourceValuesJson: JSON.stringify(
+                builderBodyReadSourceValues(
+                  sourceValues,
+                  emptyBodyRead.entry.sourceValues,
+                ),
+              ),
               lastSyncedAt: now,
               lastSourceUpdatedAt: emptyBodyRead.entry.updatedAt ?? now,
               updatedAt: now,
@@ -2682,10 +2693,10 @@ async function preparePristineBuilderBodyHydration(args: {
       },
     }),
   );
-  const nextValues = {
-    ...sourceValues,
-    ...entryWithBody.sourceValues,
-  };
+  const nextValues = builderBodyReadSourceValues(
+    sourceValues,
+    entryWithBody.sourceValues,
+  );
   const content =
     stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
   if (!content.trim()) return null;
