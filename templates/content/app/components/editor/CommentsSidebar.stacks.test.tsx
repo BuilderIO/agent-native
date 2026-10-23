@@ -379,6 +379,34 @@ describe("comment stacks in the margin", () => {
     ).toBe("quote a");
   });
 
+  it("moves focus and scroll to the opened card, and focus back on Collapse", async () => {
+    const scrolled: Element[] = [];
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(function (this: Element) {
+        scrolled.push(this);
+      });
+    try {
+      render();
+      openButton("d").focus();
+      act(() => openButton("d").click());
+      const card = container.querySelector('[data-thread-card="d"]');
+      expect(document.activeElement).toBe(card);
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      await wait(320);
+      expect(scrolled).toEqual([card]);
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        block: "nearest",
+        behavior: "smooth",
+      });
+
+      act(() => collapseButton()!.click());
+      expect(document.activeElement).toBe(openButton("d"));
+    } finally {
+      scrollIntoView.mockRestore();
+    }
+  });
+
   it("opens from any highlight in the block, on that thread", () => {
     render();
     act(() => harness.select("b"));
@@ -494,9 +522,7 @@ describe("comment stacks in the margin", () => {
 
     // Its highlight still opens the stack, though the thread is selected.
     act(() =>
-      scroll
-        .querySelector<HTMLElement>('[data-comment-thread="new"]')!
-        .click(),
+      scroll.querySelector<HTMLElement>('[data-comment-thread="new"]')!.click(),
     );
     expect(margin()).toEqual(
       expect.arrayContaining(["a", "b", "c", "d", "new"]),

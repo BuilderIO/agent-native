@@ -354,7 +354,9 @@ describe("comments sidebar layout", () => {
     const globalStyles = readFileSync("app/global.css", { encoding: "utf8" });
 
     expect(source).not.toContain('container.addEventListener("scroll"');
-    expect(source.match(/scrollIntoView/g)).toHaveLength(1);
+    // The second brings an opened comment stack's selected card into view;
+    // CommentsSidebar.stacks.test.tsx covers it.
+    expect(source.match(/scrollIntoView/g)).toHaveLength(2);
     expect(source).toMatch(
       /if \(!focusRequested\) return;[\s\S]*?requestAnimationFrame[\s\S]*?target\.scrollIntoView/,
     );
