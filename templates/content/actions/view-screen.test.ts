@@ -70,6 +70,48 @@ describe("buildSelectionScreenSection", () => {
     expect(section?.hint).toContain("baseRevision");
     expect(section?.hint).toContain("idempotencyKey");
   });
+
+  it("names a selected Clip block and the recording it plays", () => {
+    const selection = {
+      documentId: "doc1",
+      collapsed: false,
+      selectedBlock: {
+        blockType: "clip-embed",
+        blockId: "clip-embed-1a2b3c4d",
+        recordingId: "rec_1",
+      },
+      blockText: "",
+      heading: "Demo",
+    };
+    const section = buildSelectionScreenSection(selection, "doc1");
+    expect(section).toMatchObject({
+      documentId: "doc1",
+      collapsed: false,
+      selectedBlock: {
+        blockType: "clip-embed",
+        blockId: "clip-embed-1a2b3c4d",
+        recordingId: "rec_1",
+      },
+      heading: "Demo",
+    });
+    expect(section).not.toHaveProperty("selectedText");
+    expect(section?.hint).toContain("clip-embed-1a2b3c4d");
+  });
+
+  it("ignores a selected block it can't read", () => {
+    const section = buildSelectionScreenSection(
+      {
+        documentId: "doc1",
+        collapsed: true,
+        selectedBlock: { blockType: 7 },
+        blockText: "",
+        heading: null,
+      },
+      "doc1",
+    );
+    expect(section).not.toHaveProperty("selectedBlock");
+    expect(section?.collapsed).toBe(true);
+  });
 });
 
 function property(

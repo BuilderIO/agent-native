@@ -31,6 +31,7 @@ import {
 } from "@agent-native/core/blocks/server";
 
 import { builderDocsBlockConfigs } from "./builder-docs-blocks";
+import { clipEmbedBlockConfig } from "./clip-embed-block";
 import { inlineDatabaseBlockConfig } from "./inline-database-block";
 import { sourceComponentBlockConfig } from "./source-component-block";
 
@@ -43,6 +44,7 @@ export function registerContentBlocks(registry: BlockRegistry): void {
   }
   registry.register(sourceComponentBlockConfig);
   registry.register(inlineDatabaseBlockConfig);
+  registry.register(clipEmbedBlockConfig);
 }
 
 let cachedRegistry: BlockRegistry | null = null;

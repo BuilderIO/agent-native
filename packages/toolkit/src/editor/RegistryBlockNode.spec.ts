@@ -234,6 +234,45 @@ describe("RegistryBlockNode keyboard guard", () => {
   });
 });
 
+describe("RegistryBlockNode clipboard", () => {
+  it("keeps a copied block's source when it is pasted, under a fresh id", () => {
+    const editor = createEditor();
+    const raw = '<Diagram id="diagram-1" source="graph TD; A-->B" />';
+
+    try {
+      const pos = findPlanBlockPos(editor);
+      editor.view.dispatch(
+        editor.state.tr.setNodeMarkup(pos, undefined, {
+          ...editor.state.doc.nodeAt(pos)!.attrs,
+          __raw: raw,
+        }),
+      );
+      selectPlanBlock(editor);
+      const { dom } = editor.view.serializeForClipboard(
+        editor.state.selection.content(),
+      );
+
+      editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+      editor.view.pasteHTML(dom.innerHTML);
+
+      const blocks: Record<string, unknown>[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "planBlock") blocks.push(node.attrs);
+        return true;
+      });
+      expect(blocks).toHaveLength(2);
+      expect(blocks[1]).toMatchObject({
+        blockType: "diagram",
+        blockId: "diagram-fresh",
+        sourceBlockId: "diagram-1",
+        __raw: raw,
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
 describe("LegacyJsonEditSurface", () => {
   let container: HTMLDivElement;
   let root: Root;

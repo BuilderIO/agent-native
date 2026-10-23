@@ -533,16 +533,23 @@ export function createRegistryBlockNode(
               title: node.getAttribute("data-title") || null,
               summary: node.getAttribute("data-summary") || null,
               sourceBlockId: node.getAttribute("data-source-block-id") || null,
+              __raw: node.getAttribute("data-block-source") || null,
             };
           },
         },
       ];
     },
 
-    renderHTML({ HTMLAttributes }) {
+    renderHTML({ node, HTMLAttributes }) {
       return [
         "div",
         mergeAttributes(HTMLAttributes, {
+          // The clipboard carries a block only as this HTML, so a pasted copy
+          // without its source would lose its data and drop out of the save.
+          "data-block-source":
+            typeof node.attrs.__raw === "string" && node.attrs.__raw
+              ? node.attrs.__raw
+              : undefined,
           [dataTag]: "",
           "data-block-type": HTMLAttributes.blockType ?? "",
           "data-block-id": HTMLAttributes.blockId ?? "",

@@ -16,10 +16,11 @@ import {
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
 import { buildPublicDocumentDescription } from "@shared/og-description";
 import { IconLayoutSidebarRight, IconLock } from "@tabler/icons-react";
 import { and, eq, isNull } from "drizzle-orm";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   HeadersArgs,
   LoaderFunctionArgs,
@@ -27,6 +28,7 @@ import type {
 } from "react-router";
 import { data, redirect, useLoaderData } from "react-router";
 
+import { publicContentBlockRegistry } from "@/blocks/publicBlockRegistry";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import {
   HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
@@ -274,8 +276,18 @@ function PublicDocumentContextSync({
   return null;
 }
 
-function ReadOnlyMarkdownContent({ content }: { content: string }) {
+function ReadOnlyMarkdownContent({
+  documentId,
+  content,
+}: {
+  documentId: string;
+  content: string;
+}) {
   const [mounted, setMounted] = useState(false);
+  const blockContext = useMemo(
+    () => ({ dialect: "nfm" as const, documentId, canEdit: false }),
+    [documentId],
+  );
 
   useEffect(() => setMounted(true), []);
 
@@ -286,7 +298,12 @@ function ReadOnlyMarkdownContent({ content }: { content: string }) {
   }
 
   return (
-    <VisualEditor content={content} onChange={() => {}} editable={false} />
+    <BlockRegistryProvider
+      registry={publicContentBlockRegistry}
+      ctx={blockContext}
+    >
+      <VisualEditor content={content} onChange={() => {}} editable={false} />
+    </BlockRegistryProvider>
   );
 }
 
@@ -425,7 +442,10 @@ export default function PublicDocumentPage() {
           {document.title}
         </h1>
         <div className="mt-8 border-t border-border pt-4">
-          <ReadOnlyMarkdownContent content={document.content} />
+          <ReadOnlyMarkdownContent
+            documentId={document.id}
+            content={document.content}
+          />
         </div>
       </article>
     </main>

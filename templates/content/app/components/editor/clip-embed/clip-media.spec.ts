@@ -1,0 +1,118 @@
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  grantRefreshDelay,
+  MIN_GRANT_REFRESH_DELAY_MS,
+  swapMediaSource,
+  youtubeEmbedSrc,
+} from "./clip-media";
+
+class FakeMedia extends EventTarget {
+  currentTime = 0;
+  paused = true;
+  volume = 1;
+  muted = false;
+  playbackRate = 1;
+  src = "";
+  play = vi.fn(async () => {
+    this.paused = false;
+  });
+
+  // Loading a source resets playback the way a browser does.
+  load = vi.fn(() => {
+    this.currentTime = 0;
+    this.paused = true;
+    this.playbackRate = 1;
+  });
+}
+
+describe("grantRefreshDelay", () => {
+  const now = Date.parse("2026-10-23T12:00:00.000Z");
+
+  it("asks again 30 seconds before the grant runs out", () => {
+    expect(grantRefreshDelay("2026-10-23T12:05:00.000Z", now)).toBe(270_000);
+  });
+
+  it("waits a little even when the grant is almost gone or unreadable", () => {
+    expect(grantRefreshDelay("2026-10-23T12:00:10.000Z", now)).toBe(
+      MIN_GRANT_REFRESH_DELAY_MS,
+    );
+    expect(grantRefreshDelay("soon", now)).toBe(MIN_GRANT_REFRESH_DELAY_MS);
+  });
+});
+
+describe("swapMediaSource", () => {
+  it("keeps the time, play state, volume and rate across the new source", () => {
+    const media = new FakeMedia();
+    Object.assign(media, {
+      src: "https://clips.example.test/v?cg=1",
+      currentTime: 42.5,
+      paused: false,
+      volume: 0.4,
+      muted: true,
+      playbackRate: 1.5,
+    });
+
+    swapMediaSource(
+      media as unknown as HTMLMediaElement,
+      "https://clips.example.test/v?cg=2",
+    );
+    expect(media.src).toBe("https://clips.example.test/v?cg=2");
+    expect(media.load).toHaveBeenCalledTimes(1);
+
+    media.dispatchEvent(new Event("loadedmetadata"));
+    expect(media).toMatchObject({
+      currentTime: 42.5,
+      volume: 0.4,
+      muted: true,
+      playbackRate: 1.5,
+    });
+    expect(media.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a paused Clip paused", () => {
+    const media = new FakeMedia();
+    Object.assign(media, { currentTime: 7, paused: true });
+
+    swapMediaSource(
+      media as unknown as HTMLMediaElement,
+      "https://clips.example.test/v?cg=2",
+    );
+    media.dispatchEvent(new Event("loadedmetadata"));
+    expect(media.currentTime).toBe(7);
+    expect(media.play).not.toHaveBeenCalled();
+  });
+
+  it("restores only once", () => {
+    const media = new FakeMedia();
+    Object.assign(media, { currentTime: 7, paused: false });
+
+    swapMediaSource(
+      media as unknown as HTMLMediaElement,
+      "https://clips.example.test/v?cg=2",
+    );
+    media.dispatchEvent(new Event("loadedmetadata"));
+    media.currentTime = 20;
+    media.dispatchEvent(new Event("loadedmetadata"));
+    expect(media.currentTime).toBe(20);
+    expect(media.play).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("youtubeEmbedSrc", () => {
+  it("plays a bare YouTube embed URL without cookies", () => {
+    expect(youtubeEmbedSrc("https://www.youtube.com/embed/dQw4w9WgXcQ")).toBe(
+      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0",
+    );
+  });
+
+  it.each([
+    null,
+    "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1",
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://evil.example/embed/dQw4w9WgXcQ",
+    "javascript:alert(1)//https://www.youtube.com/embed/dQw4w9WgXcQ",
+  ])("refuses %s", (url) => {
+    expect(youtubeEmbedSrc(url)).toBeNull();
+  });
+});

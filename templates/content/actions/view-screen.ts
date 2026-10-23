@@ -239,10 +239,24 @@ export function documentContentPreview(content: string) {
 interface ContentSelectionAppState {
   documentId?: unknown;
   collapsed?: unknown;
+  selectedBlock?: unknown;
   selectedText?: unknown;
   textTruncated?: unknown;
   blockText?: unknown;
   heading?: unknown;
+}
+
+function readSelectedBlock(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const { blockType, blockId, recordingId } = value as Record<string, unknown>;
+  if (typeof blockType !== "string" || typeof blockId !== "string") {
+    return null;
+  }
+  return {
+    blockType,
+    blockId,
+    ...(typeof recordingId === "string" ? { recordingId } : {}),
+  };
 }
 
 export function buildSelectionScreenSection(
@@ -261,6 +275,21 @@ export function buildSelectionScreenSection(
 
   const heading = typeof state.heading === "string" ? state.heading : null;
   const blockText = typeof state.blockText === "string" ? state.blockText : "";
+
+  const selectedBlock = readSelectedBlock(state.selectedBlock);
+  if (selectedBlock) {
+    return {
+      documentId: state.documentId,
+      collapsed: false,
+      selectedBlock,
+      heading,
+      hint:
+        `The user selected a whole ${selectedBlock.blockType} block. It is the tag with id="${selectedBlock.blockId}" in get-document's body` +
+        (selectedBlock.recordingId
+          ? `; it plays Clips recording ${selectedBlock.recordingId}.`
+          : "."),
+    };
+  }
 
   if (state.collapsed === true || typeof state.selectedText !== "string") {
     return {

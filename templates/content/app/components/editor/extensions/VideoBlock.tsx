@@ -18,7 +18,6 @@ import {
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import {
   type ChangeEvent,
-  type FormEvent,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useRef,
@@ -26,6 +25,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { clipEmbedBlockContent } from "@/components/editor/clip-embed/clip-embed-content";
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,7 +34,6 @@ import {
   DialogPortal,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
@@ -51,6 +50,7 @@ import {
   EDITOR_NON_EDIT_META,
 } from "../editor-transaction-meta";
 import { uploadVideoFile, videoUploadErrorMessage } from "../image-upload";
+import { VideoLinkForm } from "./VideoLinkForm";
 import type { ContentVideoOptions } from "./VideoNode";
 
 type VideoSourceTab = "upload" | "link";
@@ -161,7 +161,6 @@ export function VideoBlock({
   const [isHovered, setIsHovered] = useState(false);
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
-  const [videoUrl, setVideoUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
@@ -249,7 +248,6 @@ export function VideoBlock({
 
   function openReplacePanel() {
     if (!canMutateMediaNow()) return;
-    setVideoUrl("");
     setSourcePanelDismissed(false);
     setSourcePanel({ sourcePanelOpen: true, sourceTab: "upload" });
   }
@@ -441,28 +439,27 @@ export function VideoBlock({
     fileInputRef.current?.click();
   }
 
-  function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!canMutateMediaNow()) return;
-    const nextSrc = videoUrl.trim();
-    if (!nextSrc) return;
-
-    try {
-      const url = new URL(nextSrc);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        throw new Error("Invalid protocol");
-      }
-    } catch {
-      toast.error(t("editor.media.pasteValidVideoUrl"));
-      return;
-    }
-
+  function handleEmbedLink(nextSrc: string) {
+    if (editor.isDestroyed || !canMutateMediaNow()) return;
     updateAttributes({
       src: nextSrc,
       sourcePanelOpen: false,
       sourceTab: "upload",
     });
-    setVideoUrl("");
+  }
+
+  function replaceWithClip(recordingId: string) {
+    if (editor.isDestroyed || !canMutateMediaNow()) return;
+    const pos = typeof getPos === "function" ? getPos() : undefined;
+    if (typeof pos !== "number") return;
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(
+        { from: pos, to: pos + node.nodeSize },
+        clipEmbedBlockContent(recordingId, "link"),
+      )
+      .run();
   }
 
   function renderSourcePanel(replace = false) {
@@ -520,23 +517,11 @@ export function VideoBlock({
             />
           </div>
         ) : (
-          <form className="media-source-panel__body" onSubmit={handleEmbedLink}>
-            <Input
-              autoFocus
-              type="url"
-              value={videoUrl}
-              onChange={(event) => setVideoUrl(event.target.value)}
-              placeholder={t("editor.media.pasteVideoLink")}
-            />
-            <Button type="submit" className="w-full">
-              {replace
-                ? t("editor.media.replaceVideo")
-                : t("editor.media.embedVideo")}
-            </Button>
-            <p className="text-center text-xs text-muted-foreground">
-              {t("editor.media.videoLinkHint")}
-            </p>
-          </form>
+          <VideoLinkForm
+            replace={replace}
+            onVideo={handleEmbedLink}
+            onClip={replaceWithClip}
+          />
         )}
       </div>
     );
