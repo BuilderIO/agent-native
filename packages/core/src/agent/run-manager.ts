@@ -1654,6 +1654,8 @@ export function startRun(
   let lastAbortCheck = Date.now() - 3000;
   let consecutiveAbortCheckFailures = 0;
   let completionInProgress = false;
+  let ownTerminalStatusEstablished = false;
+  let terminalStatusWrite: Promise<boolean> | null = null;
   const checkSqlAbort = () => {
     const now = Date.now();
     if (now - lastAbortCheck < 3000) return;
@@ -1664,14 +1666,16 @@ export function startRun(
           abortInMemoryRun(run, state.reason ?? "user");
           return;
         }
-        // Once completion starts, a non-running row is this run's own
-        // terminal write, not another worker taking over.
-        if (!abort.signal.aborted && !completionInProgress) {
+        if (!abort.signal.aborted && !ownTerminalStatusEstablished) {
           const status = await getRunStatus(runId);
+          if (status !== null && status !== "running") {
+            const pendingStatusWrite = terminalStatusWrite;
+            if (pendingStatusWrite) await pendingStatusWrite;
+          }
           if (
             status !== null &&
             status !== "running" &&
-            !completionInProgress
+            !ownTerminalStatusEstablished
           ) {
             abortInMemoryRun(run, "displaced");
           }
@@ -2261,6 +2265,17 @@ export function startRun(
               persistedStatus,
               terminalStatusOptions,
             );
+      const persistOwnTerminalStatus = async () => {
+        const write = withWorkerFence(persistTerminalStatus);
+        terminalStatusWrite = write;
+        try {
+          const updated = await write;
+          if (updated) ownTerminalStatusEstablished = true;
+          return updated;
+        } finally {
+          if (terminalStatusWrite === write) terminalStatusWrite = null;
+        }
+      };
       const reconcileTerminalRun = () =>
         threadProjectionPending
           ? reconcileTerminalRunFromEvents(runId, {
@@ -2312,9 +2327,8 @@ export function startRun(
           } else {
             try {
               await insertRunPromise;
-              continuationStatusPersistedBeforeEvent = await withWorkerFence(
-                persistTerminalStatus,
-              );
+              continuationStatusPersistedBeforeEvent =
+                await persistOwnTerminalStatus();
               if (!continuationStatusPersistedBeforeEvent) {
                 await withWorkerFence(reconcileTerminalRun);
                 const persistedRun = await getRunById(runId);
@@ -2424,7 +2438,7 @@ export function startRun(
           ) {
             let statusUpdated = false;
             try {
-              statusUpdated = await withWorkerFence(persistTerminalStatus);
+              statusUpdated = await persistOwnTerminalStatus();
             } catch (error) {
               reportTerminalStatusPersistenceError(error);
             }
