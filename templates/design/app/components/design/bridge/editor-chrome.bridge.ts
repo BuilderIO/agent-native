@@ -2170,8 +2170,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   var runtimeLayerSnapshotPendingPostReadinessRequestId: number | null = null;
   var lastRuntimeLayerSnapshotHtml = "";
   var lastRuntimeLayerSnapshotReservationToken = "";
+  var runtimeLayerSnapshotImageSources = new WeakMap<
+    HTMLImageElement,
+    string
+  >();
   var runtimeDocumentId =
     "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+
+  function runtimeLayerImageSource(image: HTMLImageElement): string {
+    return image.currentSrc || image.src || "";
+  }
 
   function runtimeLayerHash(value: string): string {
     var hash = 0x811c9dc5;
@@ -3222,9 +3230,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           HTMLImageElement
         >();
         var unavailableImageSources = new Set<HTMLImageElement>();
+        var snapshotImageSources = new Map<HTMLImageElement, string>();
         preparedResults.forEach(function ([image, prepared]) {
           if (prepared) preparedImageSources.set(image, prepared);
           else unavailableImageSources.add(image);
+        });
+        Array.from(document.querySelectorAll("img")).forEach(function (image) {
+          snapshotImageSources.set(
+            image,
+            runtimeLayerImageSource(preparedImageSources.get(image) || image),
+          );
         });
         var snapshot = serializeRuntimeLayerSnapshot(
           undefined,
@@ -3268,6 +3283,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
                 lastRuntimeLayerSnapshotReservationToken &&
               !Number.isSafeInteger(postReadinessRequestId)
             ) {
+              if (inlined.complete) {
+                snapshotImageSources.forEach(function (source, image) {
+                  runtimeLayerSnapshotImageSources.set(image, source);
+                });
+              }
               (window.parent as Window).postMessage(
                 {
                   type: "agent-native:runtime-layer-snapshot-unchanged",
@@ -3300,6 +3320,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
             ) {
               postSnapshotTooLargeError();
               return;
+            }
+            if (inlined.complete) {
+              snapshotImageSources.forEach(function (source, image) {
+                runtimeLayerSnapshotImageSources.set(image, source);
+              });
             }
             lastRuntimeLayerSnapshotHtml = snapshot.html;
             lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
@@ -32263,9 +32288,14 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       document.addEventListener(
         type,
         function (event) {
+          if (!(event.target instanceof HTMLImageElement)) return;
+          var image = event.target;
+          if (isOverlayElement(image)) return;
           if (
-            event.target instanceof HTMLImageElement &&
-            !isOverlayElement(event.target)
+            event.type === "error" ||
+            isResponsiveExportImage(image) ||
+            runtimeLayerSnapshotImageSources.get(image) !==
+              runtimeLayerImageSource(image)
           ) {
             scheduleRuntimeLayerSnapshot();
           }

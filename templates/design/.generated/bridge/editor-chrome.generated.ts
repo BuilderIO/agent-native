@@ -2683,7 +2683,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     var runtimeLayerSnapshotPendingPostReadinessRequestId = null;
     var lastRuntimeLayerSnapshotHtml = "";
     var lastRuntimeLayerSnapshotReservationToken = "";
+    var runtimeLayerSnapshotImageSources = /* @__PURE__ */ new WeakMap();
     var runtimeDocumentId = "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+    function runtimeLayerImageSource(image) {
+      return image.currentSrc || image.src || "";
+    }
     function runtimeLayerHash(value) {
       var hash = 2166136261;
       for (var index = 0; index < value.length; index += 1) {
@@ -3500,9 +3504,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
         var preparedImageSources = /* @__PURE__ */ new Map();
         var unavailableImageSources = /* @__PURE__ */ new Set();
+        var snapshotImageSources = /* @__PURE__ */ new Map();
         preparedResults.forEach(function([image, prepared]) {
           if (prepared) preparedImageSources.set(image, prepared);
           else unavailableImageSources.add(image);
+        });
+        Array.from(document.querySelectorAll("img")).forEach(function(image) {
+          snapshotImageSources.set(
+            image,
+            runtimeLayerImageSource(preparedImageSources.get(image) || image)
+          );
         });
         var snapshot = serializeRuntimeLayerSnapshot(
           void 0,
@@ -3536,6 +3547,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             var snapshotReservationToken = reservationToken || "";
             if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(postReadinessRequestId)) {
+              if (inlined.complete) {
+                snapshotImageSources.forEach(function(source, image) {
+                  runtimeLayerSnapshotImageSources.set(image, source);
+                });
+              }
               window.parent.postMessage(
                 {
                   type: "agent-native:runtime-layer-snapshot-unchanged",
@@ -3563,6 +3579,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             if (new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength > 5e6) {
               postSnapshotTooLargeError();
               return;
+            }
+            if (inlined.complete) {
+              snapshotImageSources.forEach(function(source, image) {
+                runtimeLayerSnapshotImageSources.set(image, source);
+              });
             }
             lastRuntimeLayerSnapshotHtml = snapshot.html;
             lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
@@ -25228,7 +25249,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.addEventListener(
           type,
           function(event) {
-            if (event.target instanceof HTMLImageElement && !isOverlayElement(event.target)) {
+            if (!(event.target instanceof HTMLImageElement)) return;
+            var image = event.target;
+            if (isOverlayElement(image)) return;
+            if (event.type === "error" || isResponsiveExportImage(image) || runtimeLayerSnapshotImageSources.get(image) !== runtimeLayerImageSource(image)) {
               scheduleRuntimeLayerSnapshot();
             }
           },

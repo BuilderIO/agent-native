@@ -11940,6 +11940,137 @@ it(
 );
 
 it(
+  "ordinary image events skip captured sources and refresh changed sources",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html>
+<html><head><base href="https://export.test/"></head><body><img id="ordinary-image"></body></html>`);
+      const ordinaryImageUrl = "https://export.test/assets/ordinary-image.svg";
+      const updatedImageUrl =
+        "https://export.test/assets/updated-ordinary-image.svg";
+      await page.route(ordinaryImageUrl, async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        await route.fulfill({
+          status: 200,
+          contentType: "image/svg+xml",
+          body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>',
+        });
+      });
+      await page.route(updatedImageUrl, async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        await route.fulfill({
+          status: 200,
+          contentType: "image/svg+xml",
+          body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>',
+        });
+      });
+      await page.evaluate(() => {
+        (window as any).__resourceRequests = [];
+        (window as any).__ordinaryImageLoaded = false;
+        window.fetch = (async (input: RequestInfo | URL) => {
+          const source = String(input);
+          (window as any).__resourceRequests.push(source);
+          return new Response(
+            new Blob(
+              [
+                `<svg xmlns="http://www.w3.org/2000/svg"><title>${source}</title></svg>`,
+              ],
+              { type: "image/svg+xml" },
+            ),
+            { status: 200 },
+          );
+        }) as typeof fetch;
+        const image =
+          document.querySelector<HTMLImageElement>("#ordinary-image")!;
+        image.addEventListener(
+          "load",
+          () => ((window as any).__ordinaryImageLoaded = true),
+          { once: true },
+        );
+        image.setAttribute("src", "assets/ordinary-image.svg");
+      });
+      await collectBridgeMessages(page);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot",
+        ),
+      );
+
+      const initialRequests = await page.evaluate(
+        () => (window as any).__resourceRequests as string[],
+      );
+      expect(initialRequests).toEqual([ordinaryImageUrl]);
+      await page.waitForFunction(() => (window as any).__ordinaryImageLoaded);
+      await page.waitForTimeout(500);
+
+      const requestsAfterLoad = await page.evaluate(
+        () => (window as any).__resourceRequests as string[],
+      );
+      expect(requestsAfterLoad).toEqual(initialRequests);
+
+      await page.locator("#ordinary-image").evaluate((image, source) => {
+        (image as HTMLImageElement).src = source;
+      }, updatedImageUrl);
+      await page.waitForFunction((source) => {
+        return ((window as any).__bridgeMessages ?? []).some((message: any) => {
+          if (
+            message.type !== "agent-native:runtime-layer-snapshot" ||
+            typeof message.payload?.html !== "string"
+          ) {
+            return false;
+          }
+          const doc = new DOMParser().parseFromString(
+            message.payload.html,
+            "text/html",
+          );
+          const imageSource =
+            doc.querySelector<HTMLImageElement>("#ordinary-image")?.src || "";
+          return (
+            imageSource.startsWith("data:image/svg+xml;base64,") &&
+            atob(imageSource.split(",")[1] || "").includes(source)
+          );
+        });
+      }, updatedImageUrl);
+
+      const finalState = await page.evaluate(() => ({
+        resourceRequests: (window as any).__resourceRequests as string[],
+        ordinaryImageSource: document
+          .querySelector<HTMLImageElement>("#ordinary-image")
+          ?.getAttribute("src"),
+        latestSnapshotSource: (() => {
+          const snapshots = ((window as any).__bridgeMessages ?? []).filter(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot",
+          );
+          const html = snapshots.at(-1)?.payload?.html as string | undefined;
+          if (!html) return "";
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          const imageSource =
+            doc.querySelector<HTMLImageElement>("#ordinary-image")?.src || "";
+          return imageSource.startsWith("data:image/svg+xml;base64,")
+            ? atob(imageSource.split(",")[1] || "")
+            : imageSource;
+        })(),
+      }));
+      expect(finalState.resourceRequests).toEqual(
+        expect.arrayContaining([updatedImageUrl]),
+      );
+      expect(finalState.ordinaryImageSource).toBe(updatedImageUrl);
+      expect(finalState.latestSnapshotSource).toContain(updatedImageUrl);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "runtime export resource inlining fails when its shared deadline aborts fetches",
   { timeout: 30_000 },
   async () => {
