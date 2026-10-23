@@ -540,6 +540,11 @@ export function mountMCP(
       ? [...MCP_ROUTE_PREFIXES]
       : [joinMcpRoute(routePrefix, "/mcp")];
   if (config.directoryProfile) routePaths.unshift(MCP_DIRECTORY_ROUTE_PREFIX);
+  if (config.appApprovalPage && routePrefix !== "/_agent-native") {
+    throw new Error(
+      `appApprovalPage needs MCP mounted under /_agent-native, where the app's review page reads approvals, not under ${routePrefix}.`,
+    );
+  }
 
   mountMcpApprovalRoute(
     nitroApp,

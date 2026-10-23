@@ -11,6 +11,7 @@ import {
 } from "./approval-summary.js";
 import {
   formatApprovalTime,
+  formatRequestedTime,
   formatTimeZoneName,
   isTimeZone,
   readApprovalTime,
@@ -146,6 +147,36 @@ describe("approval times", () => {
         messages: en,
       }),
     ).toBe("Thu, Oct 22, 2:00 PM PDT");
+  });
+
+  it("names the call's zone when it shares the reader's offset but is another zone", () => {
+    // London and Lagos are both UTC+1 until London's clocks go back.
+    expect(
+      describeApprovalTime(
+        { at: EVENT_AT, zone: "Europe/London" },
+        { readerZone: "Africa/Lagos", locale: "en-US", messages: en },
+      ),
+    ).toBe(
+      "Thu, Oct 22, 10:00 PM GMT+1 (Thu, Oct 22, 10:00 PM United Kingdom Time as requested)",
+    );
+    expect(
+      formatRequestedTime(
+        EVENT_AT,
+        "America/Vancouver",
+        "America/Los_Angeles",
+        "en-US",
+        "time",
+      ),
+    ).toBeUndefined();
+    expect(
+      formatRequestedTime(
+        EVENT_AT,
+        "-07:00",
+        "America/Los_Angeles",
+        "en-US",
+        "time",
+      ),
+    ).toBeUndefined();
   });
 });
 

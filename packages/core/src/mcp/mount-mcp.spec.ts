@@ -205,6 +205,18 @@ describe("mountMCP", () => {
     ]);
   });
 
+  it("refuses the app's own review page under a route prefix it doesn't read", () => {
+    const use = vi.fn();
+    expect(() =>
+      mountMCP(
+        { h3: { use } },
+        { actions: {}, appApprovalPage: true } as any,
+        "/custom",
+      ),
+    ).toThrow("appApprovalPage needs MCP mounted under /_agent-native");
+    expect(use).not.toHaveBeenCalled();
+  });
+
   it("mounts the curated directory before the broader public MCP prefix", () => {
     const use = vi.fn();
     mountMCP({ h3: { use } }, { actions: {}, directoryProfile: {} } as any);

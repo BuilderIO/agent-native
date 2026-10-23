@@ -20,8 +20,8 @@ export {
 } from "../localization/mcp-approval-messages.js";
 export {
   formatApprovalTime,
+  formatRequestedTime,
   formatWallTime,
-  zoneOffsetMinutes,
 } from "../mcp/approval-time.js";
 export { describeFieldValue } from "../mcp/approval-summary.js";
 export type {

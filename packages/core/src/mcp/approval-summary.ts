@@ -3,12 +3,12 @@ import { redactedArgsWereCut } from "../audit/redact.js";
 import type { McpApprovalMessages } from "../localization/mcp-approval-messages.js";
 import {
   formatApprovalTime,
+  formatRequestedTime,
   formatTimeZoneName,
   formatWallTime,
   isTimeZone,
   readApprovalTime,
   readWallTime,
-  zoneOffsetMinutes,
   type McpApprovalTime,
 } from "./approval-time.js";
 import type { McpApprovalPriorRun } from "./execute-action-call.js";
@@ -395,7 +395,7 @@ export function summarizeMcpApproval(input: {
 
 /**
  * `time` in the reader's zone, followed by the time as the call wrote it
- * when the call's zone is a different offset at that moment. Without a
+ * when the call's zone reads differently (`formatRequestedTime`). Without a
  * reader zone, the call's own zone is the only honest choice.
  */
 export function describeApprovalTime(
@@ -410,15 +410,15 @@ export function describeApprovalTime(
   const style = input.style ?? "date-time";
   const zone = input.readerZone ?? time.zone;
   const shown = formatApprovalTime(time.at, zone, input.locale, style);
-  if (
-    zoneOffsetMinutes(time.at, zone) === zoneOffsetMinutes(time.at, time.zone)
-  ) {
-    return shown;
-  }
-  return `${shown} (${input.messages.requestedAs.replace(
-    "{time}",
-    formatApprovalTime(time.at, time.zone, input.locale, style),
-  )})`;
+  const requested = formatRequestedTime(
+    time.at,
+    time.zone,
+    zone,
+    input.locale,
+    style,
+  );
+  if (requested === undefined) return shown;
+  return `${shown} (${input.messages.requestedAs.replace("{time}", requested)})`;
 }
 
 /** A field that names no time, as a person reads it. */

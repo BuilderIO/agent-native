@@ -256,6 +256,35 @@ const getHtml = (id: string, headers: Record<string, string> = {}) =>
     headers: { accept: "text/html,application/xhtml+xml", ...headers },
   });
 
+/** The text of the plain page's times once its own script has run over them. */
+function localizedTimes(html: string): string[] {
+  const data =
+    /<script type="application\/json" id="approval-data">([\s\S]*?)<\/script>/.exec(
+      html,
+    )?.[1];
+  const script = /<script nonce="[^"]+">([\s\S]*?)<\/script>/.exec(html)?.[1];
+  if (data === undefined || script === undefined) {
+    throw new Error("The page has no script");
+  }
+  const times = [...html.matchAll(/<time ([^>]*)>/g)].map(([, attributes]) => {
+    const values = new Map(
+      [...attributes.matchAll(/([\w-]+)="([^"]*)"/g)].map(
+        ([, name, value]) => [name, value] as const,
+      ),
+    );
+    return {
+      getAttribute: (name: string) => values.get(name) ?? null,
+      textContent: "",
+    };
+  });
+  new Function("document", script)({
+    getElementById: (id: string) =>
+      id === "approval-data" ? { textContent: data } : null,
+    querySelectorAll: () => times,
+  });
+  return times.map((time) => time.textContent);
+}
+
 function post(
   id: string,
   body: unknown,
@@ -501,6 +530,27 @@ describe("the owner's view", () => {
     const html = await getHtml(grant.nonce, { "accept-language": "ar-SA" });
     expect(html.body).toContain('<html lang="de-DE" dir="ltr">');
     expect(html.body).toContain("Genehmigen");
+  });
+
+  it("names the call's zone on the plain page when it only shares the reader's offset", async () => {
+    settings.getUserSetting.mockResolvedValue({
+      locale: "en-US",
+      timezone: "Africa/Lagos",
+    });
+    const grant = await createdGrant(
+      {},
+      {
+        title: "Team sync",
+        start: "2026-10-22T14:00:00",
+        startTimeZone: "Europe/London",
+      },
+    );
+
+    const { body } = await getHtml(grant.nonce);
+
+    expect(localizedTimes(body)).toContain(
+      "Thu, Oct 22, 2:00 PM GMT+1 (Thu, Oct 22, 2:00 PM United Kingdom Time as requested)",
+    );
   });
 
   describe("an earlier run of the identical call", () => {

@@ -183,14 +183,16 @@ export function formatTimeZoneName(
 }
 
 /**
- * `at` as the reader sees it in `zone`, with the zone named. `time` is a
- * time of day; `date-time` adds the day; `date` is the day alone.
+ * `at` as the reader sees it in `zone`, with the zone named: briefly, or by
+ * its full name with `"name"`. `time` is a time of day; `date-time` adds the
+ * day; `date` is the day alone.
  */
 export function formatApprovalTime(
   at: number,
   zone: string,
   locale: string,
   style: "time" | "date-time" | "date",
+  zoneLabel: "short" | "name" = "short",
 ): string {
   const options: Intl.DateTimeFormatOptions =
     style === "date"
@@ -212,9 +214,45 @@ export function formatApprovalTime(
     }).format(new Date(at + minutes * 60_000));
     return style === "date" ? text : `${text} ${offsetLabel(minutes)}`;
   }
-  return new Intl.DateTimeFormat(locale, {
+  const format = new Intl.DateTimeFormat(locale, {
     ...options,
     timeZone: zone,
     ...(style === "date" ? {} : { timeZoneName: "short" }),
-  }).format(new Date(at));
+  });
+  const text = format.format(new Date(at));
+  if (zoneLabel === "short") return text;
+  // `format` and `formatToParts` can space a time differently (V8 gives
+  // `format` plain spaces), so the name replaces the zone in `format`'s text.
+  const short = format
+    .formatToParts(new Date(at))
+    .find((part) => part.type === "timeZoneName")?.value;
+  const index = short ? text.lastIndexOf(short) : -1;
+  if (!short || index < 0) return text;
+  return `${text.slice(0, index)}${formatTimeZoneName(zone, locale, at)}${text.slice(index + short.length)}`;
+}
+
+/**
+ * `at` as the call wrote it in `zone`, to show beside the reader's time, or
+ * undefined when the reader's zone reads the same. Two zones can share an
+ * offset on the day and still be different zones (London and Lagos in
+ * October), so a zone with another name is shown too, by that name.
+ */
+export function formatRequestedTime(
+  at: number,
+  zone: string,
+  readerZone: string,
+  locale: string,
+  style: "time" | "date-time" | "date",
+): string | undefined {
+  if (zoneOffsetMinutes(at, zone) !== zoneOffsetMinutes(at, readerZone)) {
+    return formatApprovalTime(at, zone, locale, style);
+  }
+  if (
+    FIXED_OFFSET.test(zone) ||
+    formatTimeZoneName(zone, locale, at) ===
+      formatTimeZoneName(readerZone, locale, at)
+  ) {
+    return undefined;
+  }
+  return formatApprovalTime(at, zone, locale, style, "name");
 }

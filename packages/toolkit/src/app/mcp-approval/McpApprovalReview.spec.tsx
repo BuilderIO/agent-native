@@ -194,6 +194,26 @@ describe("a pending review", () => {
     );
   });
 
+  it("names the call's zone when it only shares the reader's offset", async () => {
+    // London and Lagos are both UTC+1 until London's clocks go back.
+    const view = pendingView({ readerTimeZone: "Africa/Lagos" });
+    view.summary.fields = [
+      {
+        label: "Start",
+        value: "2026-10-22T14:00:00",
+        time: { at: Date.parse("2026-10-22T13:00:00Z"), zone: "Europe/London" },
+      },
+    ];
+    serve(() => respond(200, view));
+
+    await renderPage();
+
+    expect(facts()).toContainEqual([
+      "Start",
+      "Thu, Oct 22, 2:00 PM GMT+1 (Thu, Oct 22, 2:00 PM United Kingdom Time as requested)",
+    ]);
+  });
+
   it("warns when the identical call already ran, and when the server couldn't keep all of it", async () => {
     serve(() =>
       respond(

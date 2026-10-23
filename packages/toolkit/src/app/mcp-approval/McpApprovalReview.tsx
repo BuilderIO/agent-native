@@ -3,11 +3,11 @@ import {
   describeFieldValue,
   fetchMcpApproval,
   formatApprovalTime,
+  formatRequestedTime,
   formatWallTime,
   mcpApprovalMessagesForLocale,
   readMcpApprovalId,
   sendMcpApprovalDecision,
-  zoneOffsetMinutes,
   type McpApprovalDecisionResult,
   type McpApprovalField,
   type McpApprovalMessages,
@@ -408,7 +408,7 @@ function readerZone(view: McpApprovalView): string {
 
 /**
  * `at` in the reader's zone; with the call's own `zone`, also the time as the
- * call wrote it when that zone's clock differs from the reader's.
+ * call wrote it when that zone reads differently (`formatRequestedTime`).
  */
 function ApprovalTime({
   at,
@@ -425,11 +425,10 @@ function ApprovalTime({
 }) {
   const reader = readerZone(view);
   let text = formatApprovalTime(at, reader, view.locale, style);
-  if (zone && zoneOffsetMinutes(at, zone) !== zoneOffsetMinutes(at, reader)) {
-    text += ` (${messages.requestedAs.replace(
-      "{time}",
-      formatApprovalTime(at, zone, view.locale, style),
-    )})`;
+  const requested =
+    zone && formatRequestedTime(at, zone, reader, view.locale, style);
+  if (requested) {
+    text += ` (${messages.requestedAs.replace("{time}", requested)})`;
   }
   return <time dateTime={new Date(at).toISOString()}>{text}</time>;
 }
