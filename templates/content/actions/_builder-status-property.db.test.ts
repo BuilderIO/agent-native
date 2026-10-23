@@ -500,3 +500,30 @@ it("clears statuses when a local source replaces the Builder one, except rows an
 
   expect(await statuses()).toEqual({ doc_status_autosaved: "published" });
 });
+
+it("clears statuses when a Builder source turns into details for rows another source keeps", async () => {
+  // The local source from the test above still keeps the autosaved row.
+  expect(await statuses()).toEqual({ doc_status_autosaved: "published" });
+  const { removeRowsOwnedOnlyBySource } =
+    await import("./change-content-database-source-role.js");
+
+  await removeRowsOwnedOnlyBySource({
+    databaseId: DATABASE_ID,
+    sourceId: "src_builder_status_details",
+  });
+  await utils.storeSecondarySourceRows({
+    sourceId: "src_builder_status_details",
+    ownerEmail: OWNER,
+    sourceType: "builder-cms",
+    sourceTable: MODEL,
+    entries: [],
+    now: NOW,
+  });
+
+  expect(await statuses()).toEqual({});
+  const [membership] = await getDb()
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.id, "item_doc_status_autosaved"));
+  expect(membership).toBeTruthy();
+});

@@ -7861,36 +7861,54 @@ export async function storeSecondarySourceRows(args: {
   now: string;
 }) {
   const db = getDb();
-  await db
-    .delete(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
-  if (args.entries.length === 0) return;
-  await db.insert(schema.contentDatabaseSourceRows).values(
-    args.entries.map((entry, index) => ({
-      id: crypto.randomUUID(),
-      ownerEmail: args.ownerEmail,
-      sourceId: args.sourceId,
-      databaseItemId: "",
-      documentId: "",
-      sourceRowId: entry.id || `${args.sourceType}-${index + 1}`,
-      sourceQualifiedId: `${args.sourceType}://${args.sourceTable}/${
-        entry.id || index + 1
-      }`,
-      sourceDisplayKey:
-        entry.title?.trim() || `${args.sourceTable}-${index + 1}`,
-      sourceValuesJson: JSON.stringify(entry.sourceValues ?? {}),
-      provenance:
-        args.sourceType === "notion-database"
-          ? "Notion database read adapter"
-          : "secondary source row",
-      syncState: "linked" as const,
-      freshness: "fresh" as const,
-      lastSyncedAt: args.now,
-      lastSourceUpdatedAt: entry.updatedAt || args.now,
-      createdAt: args.now,
-      updatedAt: args.now,
-    })),
-  );
+  await db.transaction(async (tx) => {
+    const oldRows = await tx
+      .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
+    await tx
+      .delete(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
+    const [source] = await tx
+      .select({ databaseId: schema.contentDatabaseSources.databaseId })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+    if (source) {
+      await clearBuilderStatusValues(tx, {
+        databaseId: source.databaseId,
+        documentIds: oldRows
+          .map((row) => row.documentId)
+          .filter((documentId): documentId is string => !!documentId),
+      });
+    }
+    if (args.entries.length === 0) return;
+    await tx.insert(schema.contentDatabaseSourceRows).values(
+      args.entries.map((entry, index) => ({
+        id: crypto.randomUUID(),
+        ownerEmail: args.ownerEmail,
+        sourceId: args.sourceId,
+        databaseItemId: "",
+        documentId: "",
+        sourceRowId: entry.id || `${args.sourceType}-${index + 1}`,
+        sourceQualifiedId: `${args.sourceType}://${args.sourceTable}/${
+          entry.id || index + 1
+        }`,
+        sourceDisplayKey:
+          entry.title?.trim() || `${args.sourceTable}-${index + 1}`,
+        sourceValuesJson: JSON.stringify(entry.sourceValues ?? {}),
+        provenance:
+          args.sourceType === "notion-database"
+            ? "Notion database read adapter"
+            : "secondary source row",
+        syncState: "linked" as const,
+        freshness: "fresh" as const,
+        lastSyncedAt: args.now,
+        lastSourceUpdatedAt: entry.updatedAt || args.now,
+        createdAt: args.now,
+        updatedAt: args.now,
+      })),
+    );
+  });
 }
 
 export async function seedSecondarySourceFields(args: {
