@@ -139,6 +139,7 @@ import {
   foldAgentChatRunCompletion,
   extractThreadMeta,
   foldUnstartedTurnFailure,
+  latestRunAwaitsUser,
   mergeThreadDataForClientSave,
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
@@ -8919,6 +8920,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
               if (blocked) result.blocked += 1;
               else deferReceipt(receipt.threadId);
+              continue;
+            }
+            if (
+              message.interruptActiveRun !== true &&
+              latestRunAwaitsUser(JSON.parse(thread.threadData || "{}"))
+            ) {
+              // The decision's continuation run drains this receipt when it ends.
+              deferReceipt(receipt.threadId);
               continue;
             }
 
