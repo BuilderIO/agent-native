@@ -1772,9 +1772,12 @@ export async function queryFirstPartyAnalytics(
   scope: AnalyticsScope,
   options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
-  const { backend: _backend, ...result } =
-    await queryFirstPartyAnalyticsWithBackend(sql, scope, options);
-  return result;
+  const { backend, ...result } = await queryFirstPartyAnalyticsWithBackend(
+    sql,
+    scope,
+    options,
+  );
+  return backend === "postgres" ? { ...result, bytesProcessed: 0 } : result;
 }
 
 export async function queryFirstPartyAnalyticsWithBackend(
