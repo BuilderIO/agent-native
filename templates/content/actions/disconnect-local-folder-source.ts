@@ -164,10 +164,16 @@ export default defineAction({
                 ),
               ),
             )
+            .orderBy(schema.contentDatabaseSources.id)
         : [];
-      const remainingLocalRowByDocument = new Map<string, RemainingLocalRow>(
-        remainingLocalRows.map((row) => [row.documentId, row]),
-      );
+      // A page in several remaining folders relinks to the first by id, the
+      // one conflict resolution relinks it to.
+      const remainingLocalRowByDocument = new Map<string, RemainingLocalRow>();
+      for (const row of remainingLocalRows) {
+        if (!remainingLocalRowByDocument.has(row.documentId)) {
+          remainingLocalRowByDocument.set(row.documentId, row);
+        }
+      }
       const documentsToClear = documentIds.filter(
         (documentId) => !remainingLocalRowByDocument.has(documentId),
       );

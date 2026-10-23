@@ -1699,6 +1699,59 @@ describe("local-folder Content source", () => {
     ]);
   });
 
+  it("relinks a page two remaining folders name to the first by id, as conflict resolution does", async () => {
+    const connect = async (connectionId: string, spaceId?: string) => ({
+      connectionId,
+      ...(await runWithRequestContext({ userEmail: OWNER }, () =>
+        connectLocalFolder.run({
+          connectionId,
+          label: connectionId,
+          ...(spaceId ? { spaceId } : { createSourceBackedSpace: true }),
+          truthPolicy: "source_primary",
+        }),
+      )),
+    });
+    const disconnected = await connect("desktop-folder-relink-order-a");
+    const remaining = [
+      await connect("desktop-folder-relink-order-b", disconnected.spaceId),
+      await connect("desktop-folder-relink-order-c", disconnected.spaceId),
+    ];
+    const [firstById, secondById] = remaining.sort((left, right) =>
+      left.sourceId < right.sourceId ? -1 : 1,
+    );
+    const sharedDocument = `---\nid: relink-order-page\n---\nBody.`;
+    // The later folder's row last, so rows read in insertion order end on it.
+    for (const [connection, path] of [
+      [disconnected, "from-a.md"],
+      [firstById!, "from-first.md"],
+      [secondById!, "from-second.md"],
+    ] as const) {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: connection.sourceId,
+          files: { [path]: sharedDocument },
+        }),
+      );
+    }
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      disconnectLocalFolder.run({ sourceId: disconnected.sourceId }),
+    );
+
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "relink-order-page")),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        sourceMode: "local-files",
+        sourcePath: "from-first.md",
+        sourceRootPath: firstById!.connectionId,
+      }),
+    ]);
+  });
+
   it("rechecks remaining folder links inside the disconnect transaction", async () => {
     const first = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({

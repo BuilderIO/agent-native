@@ -2960,6 +2960,65 @@ describe.skipIf(!POSTGRES_URL)(
       ).toEqual([{ id: membership }]);
     });
 
+    it("keeps the link another folder's sync makes while an accepted file deletion waits for the page", async () => {
+      const seed = await seedFolderDisconnect();
+      const page = seed.ids.cleared;
+      const linking = seed.ids.remaining;
+      const changeSetId = `${seed.key}_deletion`;
+      await getDb()
+        .insert(schema.contentDatabaseSourceChangeSets)
+        .values({
+          id: changeSetId,
+          ownerEmail: OWNER,
+          sourceId: seed.ids.disconnected,
+          documentId: page,
+          summary: "Folder file deleted",
+          bodyChangeJson: JSON.stringify({ operation: "source_delete" }),
+          createdAt: STAMP,
+          updatedAt: STAMP,
+        });
+      const { action } = await raceAgainst(
+        // sync-local-folder-source of the other folder: the page, then the
+        // row that names it, then the link.
+        async (tx) => {
+          await lockDocumentRows(tx, [page]);
+          await tx.insert(schema.contentDatabaseSourceRows).values({
+            id: `${linking}_${page}`,
+            ownerEmail: OWNER,
+            sourceId: linking,
+            databaseItemId: `${page}_item`,
+            documentId: page,
+            sourceRowId: "moved.md",
+            sourceQualifiedId: `${linking}:moved.md`,
+            sourceDisplayKey: "moved.md",
+            sourceValuesJson: JSON.stringify({ relativePath: "moved.md" }),
+            createdAt: STAMP,
+            updatedAt: STAMP,
+          });
+          await tx
+            .update(schema.documents)
+            .set({
+              sourcePath: "moved.md",
+              sourceRootPath: `${seed.key}_folder_b`,
+            })
+            .where(eq(schema.documents.id, page));
+        },
+        () =>
+          asOwner(() =>
+            resolveLocalFolderConflict.run({
+              changeSetId,
+              decision: "accept_source",
+            }),
+          ),
+      );
+      await action;
+      expect(await readPage(page)).toMatchObject({
+        sourceMode: "local-files",
+        sourcePath: "moved.md",
+        sourceRootPath: `${seed.key}_folder_b`,
+      });
+    });
+
     it.each([
       {
         path: "revisioned",

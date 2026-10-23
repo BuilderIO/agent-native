@@ -17,6 +17,7 @@ import {
 } from "../server/lib/private-icon-references.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 
@@ -223,6 +224,10 @@ export default defineAction({
         );
       }
       if (decision === "accept_source" && sourceDeletion) {
+        // The page before its remaining rows: another folder's sync adds its
+        // row under the page's lock, and a read before it would miss that row
+        // and clear the link the sync just made.
+        await lockDocumentRows(tx, [target.document.id]);
         await tx
           .delete(schema.contentDatabaseSourceRows)
           .where(
