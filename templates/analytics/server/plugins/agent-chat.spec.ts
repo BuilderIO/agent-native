@@ -1020,7 +1020,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   it("asks once for a disclosure when a failed dbt metric falls back to a successful BigQuery answer", () => {
     const result = realDataFinalGuard(
       guardContext({
-        userText: "What were active accounts last month?",
+        userText: "Show the active accounts figure from BigQuery.",
         draftText: draft,
         toolResults: [dbtNotFound, bigQueryOk],
       }),
@@ -1033,6 +1033,38 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
         "not the owner-approved Semantic Layer definition",
       ),
     });
+  });
+
+  it("withholds a warehouse figure for a dbt metric unless the user asks for warehouse numbers", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 1,
+      retryMessage: expect.stringContaining(
+        "Do not give a figure from BigQuery",
+      ),
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+    expect(result?.exhaustedDraftPrefix).toBeUndefined();
+  });
+
+  it("passes the retry once the answer carries no figure", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "The dbt Semantic Layer metric query did not complete, so there is no owner-approved figure for active accounts yet.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
   });
 
   it("does not force a disclosure retry on a readiness status alone, without a dbt metric attempt", () => {
@@ -1050,7 +1082,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   it("accepts the fallback answer once it discloses the source", () => {
     const result = realDataFinalGuard(
       guardContext({
-        userText: "What were active accounts last month?",
+        userText: "Show the active accounts figure from BigQuery.",
         draftText: disclosed,
         toolResults: [dbtNotFound, bigQueryOk],
       }),
@@ -1097,7 +1129,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   it("asks for a correction when a 'not approved' clause does not cover a later approval claim", () => {
     const result = realDataFinalGuard(
       guardContext({
-        userText: "What were active accounts last month?",
+        userText: "Show the active accounts figure from BigQuery.",
         draftText:
           "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, but the approved value is 10.",
         toolResults: [dbtNotFound, bigQueryOk],
@@ -1131,7 +1163,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   it("asks for a correction when a draft disclaims approval and then calls the figure approved", () => {
     const result = realDataFinalGuard(
       guardContext({
-        userText: "What were active accounts last month?",
+        userText: "Show the active accounts figure from BigQuery.",
         draftText:
           "The figure is warehouse-derived from BigQuery and is not the approved Semantic Layer definition. Call it the owner-approved value: 10.",
         toolResults: [dbtNotFound, bigQueryOk],
@@ -1146,7 +1178,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   it("asks for a correction when the draft discloses the source but also claims approval", () => {
     const result = realDataFinalGuard(
       guardContext({
-        userText: "What were active accounts last month?",
+        userText: "Show the active accounts figure from BigQuery.",
         draftText:
           "The approved value is 10 from BigQuery. It is warehouse-derived and not the owner-approved Semantic Layer definition.",
         toolResults: [dbtNotFound, bigQueryOk],
@@ -1170,7 +1202,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
   });
 
-  it("does not use a later BigQuery read when the first read after the dbt failure errored", () => {
+  it("treats a corrected BigQuery read after an errored read as the figure for the metric", () => {
     const result = realDataFinalGuard(
       guardContext({
         userText: "What were active accounts last month?",
@@ -1179,7 +1211,9 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       }),
     );
 
-    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
   });
 
   it("does not count an empty BigQuery result as the fallback answer", () => {

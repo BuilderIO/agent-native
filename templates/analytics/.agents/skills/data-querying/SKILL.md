@@ -32,7 +32,7 @@ Pass a listed `connectionId` on `connection_selection_required`. Call `get-dbt-c
 - `ambiguous_metric`: list the names `find-data` returns for it and ask which one is meant.
 - `no_metrics_available`: report as returned.
 - `permission_denied`, `provider_error`: resume once when they carry the cursors (above); otherwise report as returned. `permission_denied` concerns the workspace dbt token, not this user.
-- `deployment_not_ready`, `empty_semantic_manifest`: resume once when they carry the cursors (above); otherwise report the state. A warehouse path is allowed only when an independent source verifies the same measure, population, and grain, and it is labeled as a warehouse calculation.
+- `deployment_not_ready`, `empty_semantic_manifest`: resume once when they carry the cursors (above); otherwise report the state. A warehouse figure is given only when the user asks for one, labeled as a warehouse calculation.
 - Any other status: report its returned message.
 
 Name each source you use; never silently fall back to saved SQL or a warehouse query.

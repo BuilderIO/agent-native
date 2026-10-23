@@ -571,9 +571,14 @@ function claimsApproval(text: string): boolean {
 const DBT_FALLBACK_NOT_APPROVED =
   /\bnot\s+(?:the\s+)?(?:owner[-\s]approved|approved)\s+(?:dbt\s+)?(?:semantic[-\s]layer\s+)?definition\b/i;
 
-// A dbt-defined metric answered from BigQuery after dbt did not answer must say
-// so. Only that case retries, and only once: unrelated BigQuery answers never
-// asked dbt, so they pass through untouched.
+// The user asked for warehouse numbers in this turn, so a labeled BigQuery figure
+// is what they want. Otherwise a warehouse figure for a dbt metric is withheld.
+const WAREHOUSE_REQUEST = /\b(?:bigquery|big\s+query|warehouse|sql)\b/i;
+const DBT_FALLBACK_BLOCK_RETRY =
+  "Do not give a figure from BigQuery for this owner-defined metric. Its dbt metric query did not complete, so the answer has no owner-approved figure. Say that, name the missing step or mapping gap from the dbt result, and do not restate any warehouse number.";
+// A dbt-defined metric answered from BigQuery after dbt did not answer is withheld
+// unless the user asked for warehouse numbers. Only that case retries, and only
+// once: unrelated BigQuery answers never asked dbt, so they pass through untouched.
 function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
   // An empty draft has no figure for the disclosure to describe.
   if (context.text.trim() === "") return null;
@@ -595,16 +600,27 @@ function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
   ) {
     return null;
   }
-  // The fallback answer is the first warehouse read after the dbt failure. A later
-  // read, or one that errored, is not the answer to this metric.
-  const firstReadAfterDbt = results.find(
-    (result, index) => index > latestDbtIndex && named(result.name, "bigquery"),
+  // Any successful warehouse read with rows after the dbt failure is a figure for
+  // this metric, including a corrected retry of a read that errored.
+  const warehouseAnswered = results.some(
+    (result, index) =>
+      index > latestDbtIndex &&
+      named(result.name, "bigquery") &&
+      result.isError !== true &&
+      isBigQueryRowsPayload(result.content),
   );
-  const warehouseAnswered =
-    firstReadAfterDbt !== undefined &&
-    firstReadAfterDbt.isError !== true &&
-    isBigQueryRowsPayload(firstReadAfterDbt.content);
   if (!warehouseAnswered) return null;
+  // Without an explicit request for warehouse numbers, the figure is withheld. A
+  // draft with no digits carries no figure, so the retry's answer passes.
+  if (!WAREHOUSE_REQUEST.test(context.requestText ?? "")) {
+    return /\d/.test(context.text)
+      ? {
+          retryMessage: DBT_FALLBACK_BLOCK_RETRY,
+          fallbackMessage: DBT_FALLBACK_WITHHELD,
+          maxRetries: 1,
+        }
+      : null;
+  }
   const disclosed =
     DBT_FALLBACK_SOURCE.test(context.text) &&
     DBT_FALLBACK_NOT_APPROVED.test(context.text) &&
