@@ -1067,12 +1067,16 @@ function dbtMultiMetricFallbackMessages(
   metricNames: string[],
   askedForWarehouse: boolean,
 ) {
+  const plural = metricNames.length > 1;
   const names = metricNames.map((name) => JSON.stringify(name)).join(", ");
+  const warehouseMessage = plural
+    ? `Warehouse values for ${names} are not shown because their calculations have not been proven equivalent to the owner-defined metrics.`
+    : `A warehouse value for ${names} is not shown because the returned result does not prove that its calculation matches the owner-defined metric.`;
   return {
     retryMessage: askedForWarehouse
-      ? `Do not state any figure, count, or list of values for the unresolved owner-defined dbt metric${metricNames.length === 1 ? "" : "s"} ${names}. Its dbt query did not complete, and the warehouse query does not prove an equivalent calculation. Keep figures from other complete successful dbt metric queries when they answer the question, and say only the unresolved metric is unavailable.`
-      : `Do not state any figure, count, or list of values for the unresolved owner-defined dbt metric${metricNames.length === 1 ? "" : "s"} ${names}. Keep figures from other complete successful dbt metric queries when they answer the question, and say only the unresolved metric is unavailable.`,
-    fallbackMessage: `The dbt Semantic Layer query for ${names} did not complete, so no owner-approved figure for ${names} is available. Other metrics with complete successful dbt queries remain independently verified. A warehouse value for ${names} is not shown because the returned result does not prove that its calculation matches the owner-defined metric.`,
+      ? `Do not state any figure, count, or list of values for the unresolved owner-defined dbt metric${plural ? "s" : ""} ${names}. ${plural ? "Their dbt queries did" : "Its dbt query did"} not complete, and a warehouse query does not prove an equivalent calculation. Keep figures from other complete successful dbt metric queries when they answer the question, and say only the unresolved metric${plural ? "s" : ""} ${plural ? "are" : "is"} unavailable.`
+      : `Do not state any figure, count, or list of values for the unresolved owner-defined dbt metric${plural ? "s" : ""} ${names}. Keep figures from other complete successful dbt metric queries when they answer the question, and say only the unresolved metric${plural ? "s" : ""} ${plural ? "are" : "is"} unavailable.`,
+    fallbackMessage: `The dbt Semantic Layer quer${plural ? "ies" : "y"} for ${names} did not complete, so no owner-approved figure${plural ? "s" : ""} for ${names} ${plural ? "are" : "is"} available. Other metrics with complete successful dbt queries remain independently verified. ${warehouseMessage}`,
   };
 }
 
