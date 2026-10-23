@@ -287,6 +287,12 @@ not already settled by Steve's written direction, flag it to Steve and do not
 merge until he decides. A routine bug fix or bounded improvement within an
 established workflow is not a major decision.
 
+Keep the PR thread silent while a product, UX, or app-owner decision is
+unresolved. Do not comment or reply to request, announce, or explain that the
+decision is needed; record the gate only in the recap. This remains true after
+an author update, so do not send a thanks-only or status-only reply while the
+decision is pending.
+
 The app-owner map is for approval exceptions only; an owner approval is not a
 merge requirement:
 
@@ -455,12 +461,29 @@ code or screenshot requests. This also applies when another comment or bot
 event is newer than Steve's request; bot activity alone does not reopen the
 handoff.
 
+On a contributor-owned PR, do not draft a follow-up unless the author has made
+a substantive update since Steve's last message. Begin a first reply by
+thanking the author for the PR; if replying after an author update, begin by
+thanking them for that update. Never write “I have no further feedback” or
+another vague closing. State the disposition, the exact next action, and who
+owns it. If a product, UX, or app-owner decision is still needed, do not post
+an author-facing status comment or ask the author to get that review; keep the
+thread silent and report the decision gate in the recap. Never comment that a
+product owner needs to review the PR. For a contributor thread paused by an
+unresolved gate, an internal decision does not count as an author update, and
+an author update made while the decision is pending does not qualify for a
+follow-up. Keep the thread silent until the decision is resolved and the author
+makes a substantive update after resolution; then thank them for that update
+and state the resolved disposition, exact next action, and owner. This
+contributor-update gate does not govern review feedback on the active user's
+own PR; follow the own-PR review-update rule in `ship`.
+
 If no prior Steve request is awaiting an update and this would be Steve's first
 comment on that PR, begin the draft with a warm thank-you that tags the author
 using the exact GitHub `author.login` from the live PR metadata, for example:
 
 ```text
-Thanks for the contribution @username!
+Thanks for the PR, @username!
 
 Couple requests. Can you please [make the specific update] so [the intended
 behavior or outcome] is preserved?
@@ -473,8 +496,9 @@ the concrete request in a friendly, conversational way (for example, "Couple
 requests. Can you please ...?"). Keep the technical request specific,
 actionable, and supported by the diff or source evidence; ask for a regression
 test when appropriate to the code change rather than as a blanket requirement.
-Do not repeat a thank-you on a follow-up. Do not draft a duplicate request when
-an existing Steve comment already covers it; link or summarize that request
+For a follow-up after an author update, thank them for that update rather than
+repeating the first-contact thanks. Do not draft a duplicate request when an
+existing Steve comment already covers it; link or summarize that request
 instead. Drafts are for the user to review and are never posted by this skill
 unless the current invocation explicitly authorizes posting.
 

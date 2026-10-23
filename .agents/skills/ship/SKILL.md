@@ -45,6 +45,30 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   recap, unless the current request explicitly authorizes commenting on that
   exact PR. Review, monitor, fix, push, or merge authorization alone does not
   authorize comments.
+- On a contributor-owned PR, begin an authorized reply by thanking the author
+  for the PR or their substantive update since the last message. If the author
+  has not made a substantive update since then, do not reply again. Never write
+  “I have no further feedback” or another vague closing; state the disposition,
+  exact next action, and who owns it. If the next step is an unresolved
+  product, UX, or app-owner decision, do not post a status comment asking for
+  or announcing that review; keep the thread silent and record the gate in the
+  ship ledger and final recap. For a contributor thread silenced by that gate,
+  an internal decision does not count as an author update, and an author update
+  made while the decision is pending does not qualify for a follow-up. Wait
+  until the decision is resolved and the contributor makes a substantive
+  update after resolution; then thank them for that update and state the
+  resolved disposition, exact next action, and owner. Never comment that a
+  product owner needs to review a PR.
+- On the active user's own PR, disposition a substantive reviewer update after
+  its fix or terminal disposition. Begin by thanking them for that update; if
+  they have not made a new substantive review update since the last reply, do
+  not reply again to the same feedback. Add a concise top-level recap when
+  feedback appears only in a review body. If disposition depends on an
+  unresolved decision, leave the item active and the thread silent; it is
+  neither fixed nor skipped while that gate is open. Once resolved, record the
+  disposition and send one thanks-first reply if that feedback has not already
+  received a reply. Do not repeat an earlier reply unless the reviewer makes a
+  new substantive update.
 - Before asking for any approval during a resumed shipment, inspect the
   current task transcript for the user's authorization. Record its exact PR,
   repository, branch, and allowed endpoint there once; reuse it across replies,
