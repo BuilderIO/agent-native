@@ -47,17 +47,17 @@ shards (at most 8 at a time), `fleet`, and `advisory` start as soon as
 5 at a time). The authenticated lane is one job per slot, 12 in all, so a hang
 or failure in one place is isolated and named:
 
-| Slot                                       | Project                | Tests                                                                   | Job limit / `globalTimeout` |
-| ------------------------------------------ | ---------------------- | ----------------------------------------------------------------------- | --------------------------- |
-| `chat-slides`                              | `chat` (slides)        | chat, A2A, realtime (10 idle minutes), reliability                      | 30 / 27 min                 |
-| `chat-analytics`, `chat-chat`              | `chat` (that app)      | chat, reliability (5 scenarios, ~8 turns)                               | 30 / 25 min                 |
-| `chat-content`, `chat-dispatch`            | `chat` (that app)      | chat, reliability (1 scenario)                                          | 20 / 15 min                 |
-| `journeys-session-1`, `journeys-session-2` | `journeys-session`     | `[journey] [session]`, 13 tests split by `--shard=1/2`, `2/2`           | 30 / 25 min                 |
-| `journeys-credentials`                     | `journeys-credentials` | `[credentials]` (12) and `[settings-keys]` (3)                          | 30 / 25 min                 |
-| `journeys-flows`                           | `journeys-flows`       | `[slides-import]`, `[forms]`, `[design-systems]`, `[dispatch-apps]` (7) | 30 / 25 min                 |
-| `journeys-core`                            | `journeys-core`        | the original 38 journeys                                                | 20 / 15 min                 |
-| `design`                                   | `design`               | editor interactions and culling                                         | 15 / 11 min                 |
-| `registry`                                 | `registry`             | per-app registry checks                                                 | 10 / 7 min                  |
+| Slot                                       | Project                | Tests                                                                                            | Job limit / `globalTimeout` |
+| ------------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------ | --------------------------- |
+| `chat-slides`                              | `chat` (slides)        | chat, A2A, realtime (10 idle minutes), reliability                                               | 30 / 27 min                 |
+| `chat-analytics`, `chat-chat`              | `chat` (that app)      | chat, reliability (5 scenarios, ~8 turns)                                                        | 30 / 25 min                 |
+| `chat-content`, `chat-dispatch`            | `chat` (that app)      | chat, reliability (1 scenario)                                                                   | 20 / 15 min                 |
+| `journeys-session-1`, `journeys-session-2` | `journeys-session`     | `[journey] [session]`, 13 tests split by `--shard=1/2`, `2/2`                                    | 30 / 25 min                 |
+| `journeys-credentials`                     | `journeys-credentials` | `[credentials]` (12) and `[settings-keys]` (3)                                                   | 30 / 25 min                 |
+| `journeys-flows`                           | `journeys-flows`       | `[slides-import]`, `[forms]`, `[design-systems]`, `[dispatch-apps]` (7), `[content-review]` (11) | 30 / 25 min                 |
+| `journeys-core`                            | `journeys-core`        | the original 38 journeys                                                                         | 20 / 15 min                 |
+| `design`                                   | `design`               | editor interactions and culling                                                                  | 15 / 11 min                 |
+| `registry`                                 | `registry`             | per-app registry checks                                                                          | 10 / 7 min                  |
 
 The journeys used to be one slot of ~75 serial tests with a 15 minute limit. A
 spec file belongs to exactly one project (`journeys-core` takes every file under

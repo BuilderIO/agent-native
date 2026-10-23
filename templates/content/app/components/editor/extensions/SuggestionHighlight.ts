@@ -1,3 +1,4 @@
+import { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION } from "@agent-native/toolkit/editor";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
 import {
@@ -11,8 +12,15 @@ import {
   type SuggestionPresentationNode,
 } from "@shared/suggestion-text";
 import { Extension } from "@tiptap/core";
+import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
+import {
+  Plugin,
+  PluginKey,
+  type EditorState,
+  type Selection,
+  type Transaction,
+} from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 import { buildDocText } from "../comment-anchors";
@@ -36,6 +44,8 @@ export interface SuggestionHighlightSpec {
   editableBoundary?: boolean;
   editableText?: boolean;
   settling?: boolean;
+  /** Accepted but not saved yet, drawn as a suggestion: its words hold still. */
+  frozen?: boolean;
   settlingBeforePresentation?: SuggestionPresentationContext;
   settlingAfterSource?: string;
   settlingReadbackContent?: string | null;
@@ -815,6 +825,60 @@ function buildDecorations(
   return DecorationSet.create(doc, decorations);
 }
 
+/**
+ * Whether a local edit touches words an accepted suggestion is replacing.
+ * They stay fixed until the server's change arrives over live sync, so a
+ * keystroke can't land in text that's about to be replaced.
+ */
+export function editsSettlingSuggestion(
+  transaction: Transaction,
+  specs: readonly SuggestionHighlightSpec[],
+): boolean {
+  if (
+    !transaction.docChanged ||
+    isChangeOrigin(transaction) ||
+    transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION) ||
+    transaction.getMeta("addToHistory") === false
+  )
+    return false;
+  let ranges = specs
+    .filter((spec) => spec.settling || spec.frozen)
+    .map(({ from, to }) => ({ from, to }));
+  for (const step of transaction.steps) {
+    if (ranges.length === 0) return false;
+    const touched: Array<{ from: number; to: number }> = [];
+    const { from, to } = step as { from?: unknown; to?: unknown };
+    if (typeof from === "number" && typeof to === "number")
+      touched.push({ from, to });
+    const map = step.getMap();
+    map.forEach((oldStart, oldEnd) =>
+      touched.push({ from: oldStart, to: oldEnd }),
+    );
+    if (
+      touched.some((edit) =>
+        ranges.some((range) => edit.from <= range.to && edit.to >= range.from),
+      )
+    )
+      return true;
+    ranges = ranges.map((range) => ({
+      from: map.map(range.from, -1),
+      to: map.map(range.to, 1),
+    }));
+  }
+  return false;
+}
+
+/**
+ * Whether undo and redo wait for a decision to save. Undo comes back through
+ * live sync, where an edit can't be refused, and it could rewrite the words
+ * an accepted suggestion is replacing.
+ */
+export function suggestionDecisionHoldsHistory(state: EditorState): boolean {
+  return (suggestionHighlightKey.getState(state)?.specs ?? []).some(
+    (spec) => spec.settling || spec.frozen,
+  );
+}
+
 export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightState> {
   return new Plugin<SuggestionHighlightState>({
     key: suggestionHighlightKey,
@@ -869,6 +933,11 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
         };
       },
     },
+    filterTransaction: (transaction, state) =>
+      !editsSettlingSuggestion(
+        transaction,
+        suggestionHighlightKey.getState(state)?.specs ?? [],
+      ),
     props: {
       decorations(state) {
         return suggestionHighlightKey.getState(state)?.decorations ?? null;

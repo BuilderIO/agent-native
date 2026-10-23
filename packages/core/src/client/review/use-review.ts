@@ -245,6 +245,8 @@ export interface DecideResourceSuggestionInput {
   idempotencyKey: string;
   observedBase: string;
   observedRevision?: number;
+  /** Where the resource's editor showed the suggestion; editors set it. */
+  placement?: unknown;
 }
 export interface CreateResourceSuggestionProposalInput {
   resourceType: string;
@@ -264,7 +266,13 @@ export interface DecideResourceSuggestionProposalInput {
   proposalId: string;
   decision: SuggestionDecision;
   idempotencyKey: string;
-  members: { id: string; observedRevision: number; observedBase: string }[];
+  members: {
+    id: string;
+    observedRevision: number;
+    observedBase: string;
+    /** Where the resource's editor showed the suggestion; editors set it. */
+    placement?: unknown;
+  }[];
 }
 export interface ResourceSuggestionProposalResult {
   proposal: ResourceSuggestionProposal;

@@ -6,8 +6,9 @@ import { resolve } from "node:path";
 import { canonicalizeNfm } from "@shared/nfm";
 import { markdownSuggestionOperation } from "@shared/suggestion-diff";
 import { Schema, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { EditorState } from "@tiptap/pm/state";
+import { EditorState, type Transaction } from "@tiptap/pm/state";
 import { EditorView } from "@tiptap/pm/view";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -34,6 +35,7 @@ vi.mock("@shared/nfm", async (importOriginal) => {
 
 import {
   createSuggestionHighlightPlugin,
+  suggestionDecisionHoldsHistory,
   suggestionHighlightKey,
   type SuggestionHighlightSpec,
 } from "./SuggestionHighlight";
@@ -76,6 +78,11 @@ function state(text = "Before after"): EditorState {
     doc: doc(text),
     plugins: [createSuggestionHighlightPlugin()],
   });
+}
+
+// The server's accepted change reaches the editor over live sync.
+function fromLiveSync(transaction: Transaction): Transaction {
+  return transaction.setMeta(ySyncPluginKey, { isChangeOrigin: true });
 }
 
 function setSpecs(
@@ -609,7 +616,7 @@ describe("SuggestionHighlight", () => {
           view.dom.querySelector(".suggestion-settling-text"),
         ).not.toBeNull();
 
-        view.dispatch(view.state.tr.addMark(1, 5, mark()));
+        view.dispatch(fromLiveSync(view.state.tr.addMark(1, 5, mark())));
 
         expect(view.state.doc.textContent).toBe("Echo sample. peer");
         expect(view.dom.querySelector(".suggestion-settling-text")).toBeNull();
@@ -653,7 +660,7 @@ describe("SuggestionHighlight", () => {
       ).not.toBeNull();
 
       view.dispatch(
-        view.state.tr
+        fromLiveSync(view.state.tr)
           .replaceWith(1, 9, schema.text("New", [strong]))
           .setMeta(suggestionHighlightKey, {
             specs: [{ ...spec, from: 1, to: 4 }],
@@ -691,7 +698,7 @@ describe("SuggestionHighlight", () => {
       ).not.toBeNull();
 
       view.dispatch(
-        view.state.tr
+        fromLiveSync(view.state.tr)
           .replaceWith(1, 4, schema.text("New York"))
           .setMeta(suggestionHighlightKey, {
             specs: [{ ...spec, from: 1, to: 9 }],
@@ -1850,5 +1857,65 @@ describe("SuggestionHighlight", () => {
     } finally {
       view.destroy();
     }
+  });
+});
+
+describe("settling suggestions", () => {
+  const settling: SuggestionHighlightSpec = {
+    suggestionId: "accepted",
+    kind: "replace",
+    from: 1,
+    to: 7,
+    insertedText: "Later",
+    settling: true,
+  };
+
+  it("keeps local edits out of the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(3, "x")).toBe("Before after");
+    expect(type(7, "x")).toBe("Before after");
+    expect(type(13, "!")).toBe("Before after!");
+  });
+
+  it("lets live sync replace those words, and leaves pending suggestions editable", () => {
+    const base = setSpecs(state(), [settling]);
+    expect(
+      base.applyTransaction(fromLiveSync(base.tr.insertText("Later", 1, 7)))
+        .state.doc.textContent,
+    ).toBe("Later after");
+    const pending = setSpecs(state(), [{ ...settling, settling: false }]);
+    expect(
+      pending.applyTransaction(pending.tr.insertText("x", 3)).state.doc
+        .textContent,
+    ).toBe("Bexfore after");
+  });
+
+  it("holds the words of an accepted suggestion still drawn as a suggestion", () => {
+    const frozen = setSpecs(state(), [
+      { ...settling, settling: false, frozen: true },
+    ]);
+    expect(
+      frozen.applyTransaction(frozen.tr.insertText("x", 3)).state.doc
+        .textContent,
+    ).toBe("Before after");
+  });
+
+  it("holds undo and redo while a decision saves", () => {
+    expect(suggestionDecisionHoldsHistory(state())).toBe(false);
+    expect(
+      suggestionDecisionHoldsHistory(
+        setSpecs(state(), [{ ...settling, settling: false }]),
+      ),
+    ).toBe(false);
+    expect(suggestionDecisionHoldsHistory(setSpecs(state(), [settling]))).toBe(
+      true,
+    );
+    expect(
+      suggestionDecisionHoldsHistory(
+        setSpecs(state(), [{ ...settling, settling: false, frozen: true }]),
+      ),
+    ).toBe(true);
   });
 });

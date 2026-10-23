@@ -20,7 +20,6 @@ import {
   type TransactionalChange,
 } from "@agent-native/core/server";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
 
@@ -54,6 +53,10 @@ import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { rebaselineSuggestions } from "../../shared/suggestion-rebaseline.js";
 import { getDb, schema } from "../db/index.js";
 import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion-edit.js";
+import {
+  liveCopyMarkdown,
+  writeAcceptedSuggestion,
+} from "./accepted-suggestion-live-copy.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
@@ -375,17 +378,6 @@ async function assertSuggestionBodyTarget(
           (membership.system_role === "files" && !ordinaryMemberships.length)),
     )
     .map((membership) => String(membership.primary_id));
-}
-
-function replacePreparedCollabContent(
-  lease: PreparedYDocMutationLease,
-  proseMirrorDoc: ReturnType<typeof parseSuggestionMarkdown>,
-): void {
-  prosemirrorJSONToYXmlFragment(
-    suggestionEditorSchema(),
-    proseMirrorDoc.toJSON(),
-    lease.doc.getXmlFragment("default"),
-  );
 }
 
 const STALE_ACCEPT_MESSAGE =
@@ -769,13 +761,13 @@ async function commitAcceptedContent(input: {
   orgId: string | null;
   operationId: string;
   now: string;
-  afterWrite: () => Promise<void>;
+  /** Receives the Markdown the live copy now holds. */
+  afterWrite: (collabContent: string) => Promise<void>;
 }) {
   const { tx, documentId, nextContent, now } = input;
   const { current, primaryBlocksFields, identityTx } = input.target;
   const currentContent = String(current.content);
   const bodyRevision = Number(current.body_revision);
-  replacePreparedCollabContent(input.ydoc, input.nextDocument);
   const nextBodyRevision = bodyRevision + 1;
   const nextRevision = documentRevisionToken(nextBodyRevision, nextContent);
   const intent = {
@@ -885,7 +877,12 @@ async function commitAcceptedContent(input: {
         canonicalChanged: true,
         now,
       });
-      await input.afterWrite();
+      await input.afterWrite(
+        liveCopyMarkdown(input.ydoc.doc, suggestionEditorSchema(), {
+          content: nextContent,
+          document: input.nextDocument,
+        }),
+      );
     },
   });
   if (!applied)
@@ -1098,8 +1095,8 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       orgId: proposal.orgId,
       operationId: proposal.operationId,
       now: proposal.now,
-      afterWrite: async () => {
-        await coordination.ydoc.persist(tx, proposal.content);
+      afterWrite: async (collabContent) => {
+        await coordination.ydoc.persist(tx, collabContent);
         await coordination.sync.persist(tx);
       },
     });
@@ -1144,6 +1141,14 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       ...(await lockSuggestionTarget(tx, context.resourceId)),
     };
     const now = placed?.now ?? new Date().toISOString();
+    const currentDocument =
+      placed?.document ?? parseSuggestionMarkdown(currentContent);
+    // Each accepted edit reaches the live copy where the reviewer saw it.
+    writeAcceptedSuggestion(coordination.ydoc.doc, suggestionEditorSchema(), {
+      before: currentDocument,
+      after: nextDocument,
+      placement: context.placement,
+    });
     if (coordination.deferPersistence) {
       await reanchorSourceComment(
         tx,
@@ -1161,9 +1166,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         intermediateContents.push(currentContent);
       const blockCountChanged =
         placed?.blockCountChanged === true ||
-        nextDocument.childCount !==
-          (placed?.document ?? parseSuggestionMarkdown(currentContent))
-            .childCount;
+        nextDocument.childCount !== currentDocument.childCount;
       coordination.proposal = {
         ...target,
         content: nextContent,
@@ -1188,7 +1191,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       orgId: context.suggestion.orgId ?? null,
       operationId: context.suggestion.id,
       now,
-      afterWrite: async () => {
+      afterWrite: async (collabContent) => {
         await reanchorSourceComment(
           tx,
           context.resourceId,
@@ -1197,7 +1200,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
           nextContent,
           now,
         );
-        await coordination.ydoc.persist(tx, nextContent);
+        await coordination.ydoc.persist(tx, collabContent);
         await coordination.sync.persist(tx);
       },
     });
