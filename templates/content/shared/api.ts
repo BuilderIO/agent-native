@@ -646,6 +646,32 @@ export interface ContentDatabaseItem {
   comments?: ContentDatabaseItemComments;
 }
 
+/**
+ * One row's value for one Property in a compact Collection read. The
+ * Property's definition is the read's top-level `properties` entry with this
+ * `propertyId`: a select's options can run to hundreds of kilobytes, so they
+ * go once per read, not once per row.
+ */
+export type ContentDatabaseItemPropertyValue = Omit<
+  DocumentProperty,
+  "definition"
+> & { propertyId: string };
+
+/** A row in a compact Collection read; see `ContentDatabaseItemPropertyValue`. */
+export type ContentDatabaseCompactItem = Omit<
+  ContentDatabaseItem,
+  "properties"
+> & { properties: ContentDatabaseItemPropertyValue[] };
+
+/**
+ * A row as a Collection read sends it. Content's own frontend, and callers
+ * that pass `compactRows`, get compact rows; every other caller gets rows that
+ * carry their definitions.
+ */
+export type ContentDatabaseItemPayload =
+  | ContentDatabaseItem
+  | ContentDatabaseCompactItem;
+
 export interface ContentDatabaseItemComments {
   /** Open threads on the row's Page, whatever each one targets. */
   open: number;
@@ -1155,10 +1181,39 @@ export interface ContentDatabaseResponse {
   };
 }
 
+/**
+ * A Collection read as sent, with rows in either shape (see
+ * `ContentDatabaseItemPayload`). `hydrateContentDatabaseResponse` attaches
+ * the definitions from `properties` to compact rows.
+ */
+export type ContentDatabaseResponsePayload = Omit<
+  ContentDatabaseResponse,
+  "items" | "createdItem" | "duplicatedItems"
+> & {
+  items: ContentDatabaseItemPayload[];
+  createdItem?: ContentDatabaseItemPayload;
+  duplicatedItems?: ContentDatabaseItemPayload[];
+};
+
 export type ContentDatabaseItemsPageResponse = Pick<
   ContentDatabaseResponse,
-  "items" | "source" | "sources" | "pagination" | "tableQueryMode"
+  | "items"
+  | "properties"
+  | "source"
+  | "sources"
+  | "pagination"
+  | "tableQueryMode"
 >;
+
+/**
+ * One page of rows as sent. A compact page carries the definitions its rows
+ * name in `properties`; a page whose rows carry their own has none.
+ */
+export type ContentDatabaseItemsPagePayload = Pick<
+  ContentDatabaseResponsePayload,
+  "items" | "source" | "sources" | "pagination" | "tableQueryMode"
+> &
+  Partial<Pick<ContentDatabaseResponsePayload, "properties">>;
 
 export type ContentDatabaseNavigationSort =
   | "custom"
@@ -1379,14 +1434,14 @@ export interface ContentDatabaseSourceAttachmentAck {
 }
 
 export type ContentDatabaseSourceAttachmentResult =
-  | ContentDatabaseResponse
+  | ContentDatabaseResponsePayload
   | ContentDatabaseSourceAttachmentAck;
 
 export interface BuilderCmsAttachPreviewResponse {
   databaseId: string;
   documentId: string;
   sourceTable: string;
-  base: ContentDatabaseResponse;
+  base: ContentDatabaseResponsePayload;
   items: ContentDatabaseItem[];
   fetchedAt: string;
   hasMore: boolean;
@@ -1571,7 +1626,7 @@ export interface CancelPreparedBuilderSourceUpdateRequest {
   note?: string;
 }
 
-export interface CancelPreparedBuilderSourceUpdateResponse extends ContentDatabaseResponse {
+export interface CancelPreparedBuilderSourceUpdateResponse extends ContentDatabaseResponsePayload {
   cancellation: {
     sourceId: string;
     changeSetId: string;

@@ -9,7 +9,7 @@ import {
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseOpenPagesIn,
-  type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
@@ -217,16 +217,16 @@ export function DatabaseSettingsPanelSheet({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -646,16 +646,16 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -1670,7 +1670,7 @@ function detailsReasonText(suggestion: SourceJoinSuggestion | null) {
 }
 
 function findDetailsSource(
-  response: ContentDatabaseResponse,
+  response: Pick<ContentDatabaseResponsePayload, "sources">,
   candidate: PendingSourceCandidate,
 ) {
   return (
