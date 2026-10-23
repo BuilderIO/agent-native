@@ -2869,6 +2869,46 @@ describe("ownership history adapter", () => {
       expect(toasts.toast.error).not.toHaveBeenCalled();
     });
 
+    it("leaves an Undo row out of a search that does not return it", async () => {
+      shared = [
+        row("first", { accessBasis: "direct" }),
+        row("hidden", { accessBasis: "organization" }),
+      ];
+      sharedBeforeHide = shared;
+      const hideAndPages = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation(async (urlValue, init) => {
+        const url = new URL(String(urlValue), "http://test.local");
+        if (
+          url.searchParams.get("q") === "beta" &&
+          url.searchParams.get("ownership") === "shared"
+        )
+          return Response.json({
+            threads: [row("beta-match", { accessBasis: "direct" })],
+            hasMore: false,
+          });
+        return hideAndPages(urlValue, init);
+      });
+      await render({ apiUrl: "/test-chat", query: "alpha" });
+      await act(async () => {
+        expect(await latest.listProps.onHide!("hidden")).toBe(true);
+      });
+      await render({ apiUrl: "/test-chat", query: "beta" });
+      await settle();
+      expect(ids("shared")).toEqual(["beta-match"]);
+
+      const [, options] = toasts.toast.mock.calls[0]!;
+      act(() => {
+        (options as { action: { onClick: () => void } }).action.onClick();
+      });
+      expect(ids("shared")).toEqual(["beta-match"]);
+      await settle();
+      expect(hideBodies).toEqual([
+        { id: "hidden", hidden: true },
+        { id: "hidden", hidden: false },
+      ]);
+      expect(ids("shared")).toEqual(["beta-match"]);
+    });
+
     it("puts a shared chat back and says so when hiding fails", async () => {
       shared = [row("kept", { accessBasis: "direct" })];
       hideStatus = 404;

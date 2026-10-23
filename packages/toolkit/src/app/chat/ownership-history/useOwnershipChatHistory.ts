@@ -291,7 +291,7 @@ export function useOwnershipChatHistory(
   const tokenRef = useRef(0);
   // Undo can outlive the view that hid the row, e.g. after a search change.
   const hiddenShared = useRef(
-    new Map<string, { row: ChatThreadListRow; index: number }>(),
+    new Map<string, { row: ChatThreadListRow; index: number; view: string }>(),
   );
   const unhideRef = useRef<(id: string) => Promise<boolean>>(async () => false);
   const latest = useRef({ mine, shared, options });
@@ -603,7 +603,11 @@ export function useOwnershipChatHistory(
   listProps.onHide = (id) => {
     const index = sharedRows.findIndex((row) => row.id === id);
     if (index < 0) return Promise.resolve(false);
-    hiddenShared.current.set(id, { row: sharedRows[index], index });
+    hiddenShared.current.set(id, {
+      row: sharedRows[index],
+      index,
+      view: scopeKey,
+    });
     const notice = toast(t("agentChat.history.hidden"), {
       action: {
         label: t("agentChat.history.undo"),
@@ -670,9 +674,10 @@ export function useOwnershipChatHistory(
     projectedIntent(overrides.get(id)?.hidden)?.value;
   const visibleMine = mineRows.filter((row) => !hiddenIntent(row.id));
   const visibleShared = sharedRows.filter((row) => !hiddenIntent(row.id));
-  // Undo shows the row again before the refresh that returns it.
-  for (const [id, { row, index }] of hiddenShared.current) {
-    if (hiddenIntent(id) === false && !serverIds.has(id))
+  // Undo shows the row again before the refresh that returns it, but only in
+  // the view that hid it; any other view waits for the server.
+  for (const [id, { row, index, view }] of hiddenShared.current) {
+    if (view === scopeKey && hiddenIntent(id) === false && !serverIds.has(id))
       visibleShared.splice(Math.min(index, visibleShared.length), 0, row);
   }
   const pinIntent = (id: string) => projectedIntent(overrides.get(id)?.pinned);
