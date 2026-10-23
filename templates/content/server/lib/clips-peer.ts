@@ -161,11 +161,17 @@ function failureFor(status: number, code: unknown): ClipPlaybackErrorCode {
   }
 }
 
-async function readJson(response: Response): Promise<unknown> {
+type ClipsBody = { readable: true; value: unknown } | { readable: false };
+
+async function readJson(response: Response): Promise<ClipsBody> {
   try {
-    return await response.json();
-  } catch {
-    return undefined;
+    return { readable: true, value: await response.json() };
+  } catch (error) {
+    console.warn("[content-clips] Clips answered with a body that isn't JSON", {
+      status: response.status,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { readable: false };
   }
 }
 
@@ -218,13 +224,13 @@ export async function requestClips(input: {
   const body = await readJson(response);
   if (response.status !== 200) {
     const code =
-      body && typeof body === "object"
-        ? (body as { code?: unknown }).code
+      body.readable && body.value && typeof body.value === "object"
+        ? (body.value as { code?: unknown }).code
         : undefined;
     return { ok: false, code: failureFor(response.status, code) };
   }
-  if (body === undefined) {
+  if (!body.readable) {
     return { ok: false, code: CLIP_PLAYBACK_ERRORS.unreachable };
   }
-  return { ok: true, body };
+  return { ok: true, body: body.value };
 }

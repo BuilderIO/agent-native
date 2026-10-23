@@ -75,11 +75,8 @@ export function Scrubber(props: ScrubberProps) {
     e.stopPropagation();
     activePointerIdRef.current = e.pointerId;
     setDragging(true);
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // Older test/browser environments may not implement pointer capture.
-    }
+    // Older test/browser environments may not implement pointer capture.
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     seekFromClientX(e.clientX);
   }
 
@@ -102,12 +99,8 @@ export function Scrubber(props: ScrubberProps) {
     activePointerIdRef.current = null;
     setDragging(false);
     if (e.pointerType !== "mouse") setHoverMs(null);
-    try {
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
-    } catch {
-      // Older test/browser environments may not implement pointer capture.
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
     }
   }
 
