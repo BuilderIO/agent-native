@@ -35,6 +35,7 @@ vi.mock("@shared/nfm", async (importOriginal) => {
 
 import {
   createSuggestionHighlightPlugin,
+  isProvisionalDraftSpec,
   suggestionDecisionHoldsHistory,
   suggestionHighlightKey,
   type SuggestionHighlightSpec,
@@ -1944,5 +1945,136 @@ describe("settling suggestions", () => {
         setSpecs(state(), [{ ...settling, settling: false, frozen: true }]),
       ),
     ).toBe(true);
+  });
+});
+
+describe("drafts while the author types", () => {
+  // "The lazy dog." with "lazy" replaced by a draft "s": the Page has drawn
+  // the draft, and the author keeps typing before it redraws.
+  const replacement: SuggestionHighlightSpec = {
+    suggestionId: "draft-1",
+    kind: "mark",
+    from: 5,
+    to: 6,
+    deletedText: "lazy",
+    editableBoundary: true,
+    editableText: true,
+    draft: true,
+  };
+
+  function drafting(
+    text: string,
+    specs: SuggestionHighlightSpec[],
+  ): EditorState {
+    const editorState = state(text);
+    return editorState.apply(
+      editorState.tr.setMeta(suggestionHighlightKey, {
+        specs,
+        activeId: null,
+        drafting: true,
+      }),
+    );
+  }
+
+  function specsOf(editorState: EditorState): SuggestionHighlightSpec[] {
+    return suggestionHighlightKey.getState(editorState)!.specs;
+  }
+
+  function struckText(editorState: EditorState): string[] {
+    const view = new EditorView(document.createElement("div"), {
+      state: editorState,
+    });
+    try {
+      return Array.from(
+        view.dom.querySelectorAll(".suggestion-delete-widget"),
+        (widget) => widget.textContent ?? "",
+      );
+    } finally {
+      view.destroy();
+    }
+  }
+
+  it("keeps the struck-out word and grows the draft over each letter typed", () => {
+    let editorState = drafting("The s dog.", [replacement]);
+    for (const letter of "leepy") {
+      editorState = editorState.apply(
+        editorState.tr.insertText(letter, editorState.doc.content.size - 6),
+      );
+      expect(struckText(editorState)).toEqual(["lazy"]);
+    }
+    expect(editorState.doc.textContent).toBe("The sleepy dog.");
+    expect(specsOf(editorState)).toMatchObject([
+      { suggestionId: "draft-1", from: 5, to: 11, deletedText: "lazy" },
+    ]);
+  });
+
+  it("keeps the struck-out word when every typed letter is removed", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    const next = editorState.apply(editorState.tr.delete(5, 6));
+    expect(next.doc.textContent).toBe("The  dog.");
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("strikes out a word typed over at once, before the Page draws the draft", () => {
+    const editorState = drafting("The lazy dog.", []);
+    const next = editorState.apply(editorState.tr.insertText("s", 5, 9));
+    expect(next.doc.textContent).toBe("The s dog.");
+    expect(struckText(next)).toEqual(["lazy"]);
+    const [typed] = specsOf(next);
+    expect(isProvisionalDraftSpec(typed!)).toBe(true);
+    expect(typed).toMatchObject({ kind: "mark", from: 5, to: 6 });
+  });
+
+  it("joins letters deleted beside a draft to its struck-out text", () => {
+    const deletion: SuggestionHighlightSpec = {
+      suggestionId: "draft-2",
+      kind: "delete",
+      from: 4,
+      to: 4,
+      deletedText: "dy",
+      editableBoundary: true,
+      draft: true,
+    };
+    let editorState = drafting("lazog.", [deletion]);
+    editorState = editorState.apply(editorState.tr.delete(3, 4));
+    editorState = editorState.apply(editorState.tr.delete(2, 3));
+    expect(editorState.doc.textContent).toBe("log.");
+    expect(struckText(editorState)).toEqual(["azdy"]);
+    expect(specsOf(editorState)).toHaveLength(1);
+  });
+
+  it("turns a draft deletion into a replacement when the author types there", () => {
+    const deletion: SuggestionHighlightSpec = {
+      suggestionId: "draft-3",
+      kind: "delete",
+      from: 5,
+      to: 5,
+      deletedText: "lazy",
+      editableBoundary: true,
+      draft: true,
+    };
+    const editorState = drafting("The  dog.", [deletion]);
+    const next = editorState.apply(editorState.tr.insertText("s", 5));
+    expect(specsOf(next)).toMatchObject([
+      { kind: "mark", from: 5, to: 6, deletedText: "lazy", editableText: true },
+    ]);
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("leaves undo, live sync and loads to the Page's next redraw", () => {
+    const editorState = drafting("The lazy dog.", []);
+    const undo = editorState.tr.insertText("s", 5, 9).setMeta("history$", {});
+    const sync = fromLiveSync(editorState.tr.insertText("s", 5, 9));
+    const load = editorState.tr
+      .insertText("s", 5, 9)
+      .setMeta("addToHistory", false);
+    for (const transaction of [undo, sync, load])
+      expect(specsOf(editorState.apply(transaction))).toEqual([]);
+  });
+
+  it("draws nothing new for typing when the author isn't suggesting", () => {
+    const editorState = state("The lazy dog.");
+    const next = editorState.apply(editorState.tr.insertText("s", 5, 9));
+    expect(specsOf(next)).toEqual([]);
   });
 });
