@@ -81,7 +81,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.userEmail = "reader@example.test";
   mocks.userName = "Robin Reader";
-  mocks.documentRows = [{ visibility: "private", trashedAt: null }];
+  mocks.documentRows = [
+    { visibility: "private", trashedAt: null, orgId: "org_page" },
+  ];
   mocks.resolveDocumentAccess.mockResolvedValue({ role: "viewer" });
   mocks.isFeatureFlagEnabled.mockResolvedValue(true);
   mocks.requestClips.mockResolvedValue({ ok: true, body: playback });
@@ -93,6 +95,10 @@ describe("get-clip-playback", () => {
     expect(mocks.resolveDocumentAccess).toHaveBeenCalledWith("doc_1", {
       skipResourceBody: true,
     });
+    expect(mocks.isFeatureFlagEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "content.clip-embed" }),
+      { userEmail: "reader@example.test", orgId: "org_1" },
+    );
     expect(mocks.requestClips).toHaveBeenCalledWith({
       reader: {
         kind: "signed-in",
@@ -130,15 +136,17 @@ describe("get-clip-playback", () => {
     ["no session", undefined],
     ["a public page's anonymous viewer", PUBLIC_VIEWER],
   ])(
-    "vouches for %s as a public reader of a public page",
+    "vouches for %s as a public reader of a public page, under the page's org",
     async (_label, email) => {
       mocks.userEmail = email;
-      mocks.documentRows = [{ visibility: "public", trashedAt: null }];
+      mocks.documentRows = [
+        { visibility: "public", trashedAt: null, orgId: "org_page" },
+      ];
       await getClipPlayback.run(args);
       expect(mocks.resolveDocumentAccess).not.toHaveBeenCalled();
       expect(mocks.isFeatureFlagEnabled).toHaveBeenCalledWith(
         expect.objectContaining({ key: "content.clip-embed" }),
-        { userEmail: undefined, orgId: "org_1" },
+        { userEmail: undefined, orgId: "org_page" },
       );
       expect(mocks.requestClips).toHaveBeenCalledWith(
         expect.objectContaining({ reader: { kind: "public" } }),

@@ -87,11 +87,12 @@ export function failClip(code: ClipPlaybackErrorCode): never {
 }
 
 async function documentState(documentId: string) {
-  // guard:allow-unscoped — reads only whether a page is public or in Trash; signed-in access is decided by resolveDocumentAccess, signed-out access only by visibility "public".
+  // guard:allow-unscoped — reads only whether a page is public or in Trash, and its org for the rollout flag; signed-in access is decided by resolveDocumentAccess, signed-out access only by visibility "public".
   const [row] = await getDb()
     .select({
       visibility: schema.documents.visibility,
       trashedAt: schema.documents.trashedAt,
+      orgId: schema.documents.orgId,
     })
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId))
@@ -124,9 +125,11 @@ export async function authorizeClipReader(
     failClip(CLIP_PLAYBACK_ERRORS.documentNotFound);
   }
 
+  // A signed-out reader has no org of their own, so an org's rollout reaches
+  // its public pages only through the page's org.
   const enabled = await isFeatureFlagEnabled(CLIP_EMBED_FLAG, {
     userEmail: signedIn ? email : undefined,
-    orgId: getRequestOrgId(),
+    orgId: signedIn ? getRequestOrgId() : state.orgId,
   });
   if (!enabled) failClip(CLIP_PLAYBACK_ERRORS.disabled);
 
