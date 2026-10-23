@@ -98,30 +98,6 @@ describe("npm package release workflow", () => {
       },
     ]);
     assert.deepEqual(contexts, required);
-    assert.deepEqual(
-      requiredContextsFromRules([
-        [
-          {
-            type: "required_status_checks",
-            parameters: {
-              required_status_checks: required
-                .slice(0, 2)
-                .map((context) => ({ context })),
-            },
-          },
-        ],
-        [
-          {
-            type: "required_status_checks",
-            parameters: {
-              required_status_checks: [{ context: required[2] }],
-            },
-          },
-        ],
-      ]),
-      required,
-    );
-
     assert.deepEqual(evaluateRequiredChecks(required, []), {
       status: "pending",
       missing: required,
@@ -231,23 +207,28 @@ describe("npm package release workflow", () => {
     assert.equal(now, 240 * 60_000);
   });
 
-  it("reads every page of main branch rules before verifying release checks", () => {
+  it("does not miss a required check on a later main rules page", () => {
     const tempRoot = mkdtempSync(path.join(tmpdir(), "release-checks-"));
     const binDirectory = path.join(tempRoot, "bin");
-    const callsPath = path.join(tempRoot, "gh-calls.txt");
     const ghPath = path.join(binDirectory, "gh");
     mkdirSync(binDirectory);
     writeFileSync(
       ghPath,
       `#!/bin/sh
 set -eu
-printf '%s\\n' "$*" >> "$GH_CALLS_FILE"
 case "$1" in
   api)
-    printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build"}]}}]]'
+    case " $* " in
+      *" --paginate --slurp "*)
+        printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build"}]}}],[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Fast tests"}]}}]]'
+        ;;
+      *)
+        printf '%s\\n' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build"}]}}]'
+        ;;
+    esac
     ;;
   pr)
-    printf '%s\\n' '[{"name":"Build","bucket":"pass"}]'
+    printf '%s\\n' '[{"name":"Build","bucket":"pass"},{"name":"Fast tests","bucket":"fail"}]'
     ;;
   *)
     exit 1
@@ -258,28 +239,32 @@ esac
     chmodSync(ghPath, 0o755);
 
     try {
-      execFileSync(
-        process.execPath,
-        [
-          "--experimental-strip-types",
-          path.resolve("scripts/release-required-checks.ts"),
-          "verify",
-          "8102",
-          "BuilderIO/agent-native",
-        ],
-        {
-          cwd: process.cwd(),
-          env: {
-            ...process.env,
-            PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
-            GH_CALLS_FILE: callsPath,
-          },
+      assert.throws(
+        () =>
+          execFileSync(
+            process.execPath,
+            [
+              "--experimental-strip-types",
+              path.resolve("scripts/release-required-checks.ts"),
+              "verify",
+              "8102",
+              "BuilderIO/agent-native",
+            ],
+            {
+              cwd: process.cwd(),
+              env: {
+                ...process.env,
+                PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+              },
+            },
+          ),
+        (error: unknown) => {
+          const commandError = error as { status?: number; stderr?: Buffer };
+          assert.equal(commandError.status, 1);
+          assert.match(String(commandError.stderr), /Fast tests/);
+          return true;
         },
       );
-      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
-        "api --paginate --slurp repos/BuilderIO/agent-native/rules/branches/main",
-        "pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket",
-      ]);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
