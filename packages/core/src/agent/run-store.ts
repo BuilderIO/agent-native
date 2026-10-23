@@ -2082,6 +2082,23 @@ export async function setRunTerminalReason(
   }
 }
 
+export async function setRunTerminalReasonIfStatus(
+  runId: string,
+  expectedStatus: "completed" | "truncated" | "errored" | "aborted",
+  terminalReason: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const { rowsAffected } = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_runs SET terminal_reason = ? WHERE id = ? AND status = ? AND terminal_reason IS NULL`,
+        args: [terminalReason.slice(0, 200), runId, expectedStatus],
+      }),
+    { runId },
+  );
+  return (rowsAffected ?? 0) > 0;
+}
+
 /**
  * INVARIANT: a terminal event yields `completed` if and only if its reason is
  * `done`. Everything else either failed (`errored`) or stopped short

@@ -191,6 +191,7 @@ vi.mock("./run-store.js", () => ({
   }),
   setRunError: vi.fn(() => Promise.resolve()),
   setRunTerminalReason: vi.fn(() => Promise.resolve()),
+  setRunTerminalReasonIfStatus: vi.fn(() => Promise.resolve(false)),
   persistRunCheckpointEvent: vi.fn(() => Promise.resolve()),
   recordRunDiagnostic: vi.fn(() => Promise.resolve()),
   RUN_DIAG_STAGE: { runBoundaryReached: "run_boundary_reached" },
@@ -312,6 +313,7 @@ import {
   bumpRunProgress,
   setRunError,
   setRunTerminalReason,
+  setRunTerminalReasonIfStatus,
   recordRunDiagnostic,
   reapIfStale,
   reapUnclaimedBackgroundRun,
@@ -420,6 +422,8 @@ describe("run manager soft timeout", () => {
     vi.mocked(bumpRunProgress).mockClear();
     vi.mocked(setRunError).mockClear();
     vi.mocked(setRunTerminalReason).mockClear();
+    vi.mocked(setRunTerminalReasonIfStatus).mockReset();
+    vi.mocked(setRunTerminalReasonIfStatus).mockResolvedValue(false);
     vi.mocked(persistRunCheckpointEvent).mockReset();
     vi.mocked(persistRunCheckpointEvent).mockResolvedValue(undefined);
     vi.mocked(reapUnclaimedBackgroundRun).mockReset();
@@ -4120,9 +4124,11 @@ describe("run manager soft timeout", () => {
       errorDetail: null,
       terminalReason: persistedTerminalReason,
     }));
-    vi.mocked(setRunTerminalReason).mockImplementationOnce(
-      async (_id, terminalReason) => {
-        persistedTerminalReason = terminalReason ?? null;
+    vi.mocked(setRunTerminalReasonIfStatus).mockImplementationOnce(
+      async (_id, expectedStatus, terminalReason) => {
+        expect(expectedStatus).toBe("completed");
+        persistedTerminalReason = terminalReason;
+        return true;
       },
     );
     vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
@@ -4147,11 +4153,61 @@ describe("run manager soft timeout", () => {
     expect(run.status).toBe("completed");
     expect(run.abortReason).toBeUndefined();
     expect(getRunById).toHaveBeenCalledWith("run-ambiguous-terminal-write");
-    expect(setRunTerminalReason).toHaveBeenCalledWith(
+    expect(setRunTerminalReasonIfStatus).toHaveBeenCalledWith(
       "run-ambiguous-terminal-write",
+      "completed",
       "done",
     );
     expect(persistedTerminalReason).toBe("done");
+  });
+
+  it("does not confirm an ambiguous status when another writer wins before the reason write", async () => {
+    let persistedStatus = "completed";
+    let persistedTerminalReason: string | null = null;
+    vi.mocked(getRunById).mockImplementation(async (id) => ({
+      id,
+      threadId: "thread-ambiguous-terminal-race",
+      status: persistedStatus,
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: persistedTerminalReason,
+    }));
+    vi.mocked(setRunTerminalReasonIfStatus).mockImplementationOnce(
+      async (_id, expectedStatus, terminalReason) => {
+        persistedStatus = "errored";
+        persistedTerminalReason = "error:other_worker_failed";
+        if (persistedStatus !== expectedStatus || persistedTerminalReason) {
+          return false;
+        }
+        persistedTerminalReason = terminalReason;
+        return true;
+      },
+    );
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
+      vi.mocked(getRunStatus).mockResolvedValue("completed");
+      throw new Error("terminal status write outcome is unknown");
+    });
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(false);
+
+    const run = startRun(
+      "run-ambiguous-terminal-race",
+      "thread-ambiguous-terminal-race",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    await run.finalized;
+
+    expect(setRunTerminalReasonIfStatus).toHaveBeenCalledWith(
+      "run-ambiguous-terminal-race",
+      "completed",
+      "done",
+    );
+    expect(persistedStatus).toBe("errored");
+    expect(persistedTerminalReason).toBe("error:other_worker_failed");
   });
 
   it("confirms the checkpoint reason on an ambiguously committed truncated status", async () => {

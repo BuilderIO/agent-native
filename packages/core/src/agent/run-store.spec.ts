@@ -376,6 +376,7 @@ const {
   persistRunCheckpointEvent,
   reconcileTerminalRunFromEvents,
   setRunTerminalReason,
+  setRunTerminalReasonIfStatus,
   getRunEventsSince,
   getRunPendingConnectionRequestId,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
@@ -2764,6 +2765,25 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
         "(status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')",
       );
     }
+  });
+
+  it("setRunTerminalReasonIfStatus only writes for the expected terminal row without a reason", async () => {
+    execCalls.length = 0;
+
+    const matched = await setRunTerminalReasonIfStatus(
+      "run-final",
+      "completed",
+      "done",
+    );
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs/i.test(call.sql),
+    );
+    expect(update?.sql).toContain(
+      "WHERE id = ? AND status = ? AND terminal_reason IS NULL",
+    );
+    expect(update?.args).toEqual(["done", "run-final", "completed"]);
+    expect(matched).toBe(true);
   });
 });
 

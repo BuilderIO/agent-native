@@ -65,6 +65,7 @@ import {
   resolveErroredRunTerminalEvent,
   setRunError,
   setRunTerminalReason,
+  setRunTerminalReasonIfStatus,
   persistRunCheckpointEvent,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
@@ -2308,13 +2309,12 @@ export function startRun(
         }
         if (persistedRun.terminalReason) return false;
 
-        await withWorkerFence(() =>
-          setRunTerminalReason(runId, terminalReason),
-        );
-        const confirmedRun = await getRunById(runId);
-        return (
-          confirmedRun?.status === persistedStatus &&
-          confirmedRun.terminalReason === expectedTerminalReason
+        return withWorkerFence(() =>
+          setRunTerminalReasonIfStatus(
+            runId,
+            persistedStatus,
+            expectedTerminalReason,
+          ),
         );
       };
       const reconcileTerminalRun = async () => {
