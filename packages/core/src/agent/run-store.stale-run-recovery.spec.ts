@@ -119,6 +119,7 @@ const {
   cleanupOldRuns,
   failRunBeforeDispatch,
   markRunAbortedAtSafeBoundary,
+  retryRunThreadProjection,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
   BACKGROUND_RUN_STALE_MS,
@@ -237,6 +238,7 @@ async function readRow(runId: string): Promise<
       dispatch_mode: string | null;
       dispatch_payload: string | null;
       terminal_reason: string | null;
+      thread_projection_pending: boolean;
       diag_stage: string | null;
       error_code: string | null;
     }
@@ -244,7 +246,7 @@ async function readRow(runId: string): Promise<
 > {
   const rows = await pglite
     .prepare(
-      `SELECT id, status, turn_id, dispatch_mode, dispatch_payload, terminal_reason, diag_stage, error_code FROM agent_runs WHERE id = ?`,
+      `SELECT id, status, turn_id, dispatch_mode, dispatch_payload, terminal_reason, thread_projection_pending, diag_stage, error_code FROM agent_runs WHERE id = ?`,
     )
     .all(runId);
   return rows[0] as any;
@@ -741,6 +743,30 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const reapedAgain = await reapIfStale(runId);
     expect(reapedAgain).toBe(false);
     expect(await rowsForTurn(turn)).toHaveLength(2);
+  });
+
+  it("distinguishes an untracked predecessor from a completed projection retry", async () => {
+    currentClient = makeRawClient(true);
+    await expect(
+      retryRunThreadProjection("missing-predecessor"),
+    ).resolves.toEqual({ state: "untracked" });
+  });
+
+  it("reports a rejected predecessor fold as deferred and keeps its marker", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await pglite
+      .prepare(
+        "UPDATE agent_runs SET thread_projection_pending = TRUE WHERE id = ?",
+      )
+      .run(runId);
+    foldReapedRunIntoThreadMock.mockResolvedValueOnce("retry");
+
+    await expect(retryRunThreadProjection(runId)).resolves.toEqual({
+      state: "deferred",
+    });
+    expect((await readRow(runId))?.thread_projection_pending).toBe(true);
   });
 
   it("keeps a legacy-order recovery successor unclaimable and unreapable until predecessor projection finishes", async () => {
@@ -1568,6 +1594,19 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
     const siblings = await rowsForTurn(turn);
     const successor = siblings.find((row) => row.id !== runId);
     expect(successor?.status).toBe("running");
+    await setStaleLiveness(successor!.id, Date.now() - STALE_PAST_MS);
+    await expect(reapIfStale(successor!.id)).resolves.toBe(false);
+    expect((await readRow(successor!.id))?.status).toBe("running");
+    const successorStaleEvents = await pglite
+      .prepare(
+        "SELECT event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      )
+      .all(successor!.id);
+    expect(
+      successorStaleEvents.some((row) =>
+        String(row.event_data).includes('"errorCode":"stale_run"'),
+      ),
+    ).toBe(false);
     await setStaleLiveness(
       successor!.id,
       Date.now() - UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 1_000,

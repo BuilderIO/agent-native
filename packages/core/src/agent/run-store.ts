@@ -840,6 +840,36 @@ export async function markAgentExecutionStepDispatched(
   }
 }
 
+export async function resetAgentExecutionStepBeforeInvocation(
+  intent: AgentExecutionStepIntent,
+): Promise<void> {
+  await ensureRunTables();
+  const result = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_execution_steps
+              SET status = 'prepared', dispatched_at = NULL,
+                  updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+                AND run_id = ? AND generation = CAST(? AS BIGINT)
+                AND status = 'dispatched'`,
+        args: [
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.runId,
+          intent.generation,
+        ],
+      }),
+    { threadId: intent.threadId, turnId: intent.turnId, runId: intent.runId },
+  );
+  if (result.rowsAffected !== 1) {
+    throw new Error(
+      `Execution step ${intent.stepId} was not reset before invocation`,
+    );
+  }
+}
+
 export async function completeAgentExecutionStep(
   intent: AgentExecutionStepIntent,
   resultJson: string,
@@ -2810,6 +2840,7 @@ async function reapSingleStaleRun(
               terminal_reason = ?
           WHERE id = ?
             AND status = 'running'
+            AND ${earlierTurnProjectionPendingSql()}
             AND ${terminalRunEventExclusionSql()}
             AND ${staleClause}
           ${ENDED_RUN_RETURNING}`;
@@ -5665,16 +5696,7 @@ async function finalizeStaleRun(
 ): Promise<boolean> {
   if (!projectThread) return true;
   try {
-    const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
-    const disposition = await foldReapedRunIntoThread(runId);
-    if (disposition === "retry") return false;
-    await getDbExec().execute({
-      sql: `UPDATE agent_runs
-            SET thread_projection_pending = FALSE
-            WHERE id = ? AND thread_projection_pending IS TRUE`,
-      args: [runId],
-    });
-    return true;
+    return (await projectRunThread(runId)) === "projected";
   } catch (error) {
     captureError(error, {
       tags: {
@@ -5688,22 +5710,47 @@ async function finalizeStaleRun(
   }
 }
 
+async function projectRunThread(
+  runId: string,
+): Promise<"projected" | "deferred"> {
+  const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
+  const disposition = await foldReapedRunIntoThread(runId);
+  if (disposition === "retry") return "deferred";
+  await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET thread_projection_pending = FALSE
+          WHERE id = ? AND thread_projection_pending IS TRUE`,
+    args: [runId],
+  });
+  return "projected";
+}
+
+export type RunThreadProjectionRetry =
+  | { state: "untracked" }
+  | { state: "already_projected" }
+  | { state: "projected" }
+  | { state: "deferred" };
+
 export async function retryRunThreadProjection(
   runId: string,
-): Promise<boolean> {
+): Promise<RunThreadProjectionRetry> {
   await ensureRunTables();
   const { rows } = await getDbExec().execute({
     sql: `SELECT thread_projection_pending FROM agent_runs WHERE id = ?`,
     args: [runId],
   });
-  if (rows.length === 0) return true;
+  // Outcome pruning retains every run whose projection marker is still set.
+  if (rows.length === 0) return { state: "untracked" };
   const pending = (
     rows[0] as { thread_projection_pending?: unknown } | undefined
   )?.thread_projection_pending;
   if (pending === true || pending === "t" || pending === 1) {
-    return finalizeStaleRun(runId, "background-automation-resume");
+    return { state: await projectRunThread(runId) };
   }
-  return pending === false || pending === "f" || pending === 0;
+  if (pending === false || pending === "f" || pending === 0) {
+    return { state: "already_projected" };
+  }
+  throw new Error(`Run ${runId} has an unreadable thread projection marker`);
 }
 
 class AbortTerminalEventWriteError extends Error {

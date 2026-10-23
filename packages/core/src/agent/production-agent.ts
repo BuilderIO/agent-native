@@ -392,6 +392,7 @@ import {
   beginAgentExecutionStep,
   completeAgentExecutionStep,
   markAgentExecutionStepDispatched,
+  resetAgentExecutionStepBeforeInvocation,
   markAgentExecutionStepUnknown,
   recordLateAgentExecutionStepOutcome,
   type AgentExecutionStepIntent,
@@ -10367,7 +10368,7 @@ export async function runAgentLoop(opts: {
           thrown = err;
           toolReportedError = false;
           toolResultLost =
-            (signal.aborted && (actionInvoked || executionStepDispatched)) ||
+            (signal.aborted && actionInvoked) ||
             isToolCallTimeoutResult(String((err as Error)?.message ?? err));
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
@@ -10466,7 +10467,11 @@ export async function runAgentLoop(opts: {
 
         if (executionStepIntent && executionStepDispatched) {
           executionStepFinalizationAttempted = true;
-          if (toolResultLost || callEffect === "unknown") {
+          if (!actionInvoked) {
+            // The dispatch marker can persist while cancellation wins; it does
+            // not prove the action handler started.
+            await resetAgentExecutionStepBeforeInvocation(executionStepIntent);
+          } else if (toolResultLost || callEffect === "unknown") {
             await markAgentExecutionStepUnknown(executionStepIntent);
           } else {
             await completeAgentExecutionStep(

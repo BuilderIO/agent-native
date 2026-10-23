@@ -49,6 +49,7 @@ vi.mock("./run-store.js", async (importOriginal) => {
         : { status: "execute" as const, wasDispatched: false };
     }),
     markAgentExecutionStepDispatched: vi.fn(async () => {}),
+    resetAgentExecutionStepBeforeInvocation: vi.fn(async () => {}),
     markAgentExecutionStepUnknown: vi.fn(async () => {}),
     completeAgentExecutionStep: vi.fn(
       async (intent: AgentExecutionStepIntent, resultJson: string) => {
@@ -190,6 +191,84 @@ describe("durable execution step replay", () => {
     expect(runStore.markAgentExecutionStepDispatched).not.toHaveBeenCalled();
     expect(runStore.markAgentExecutionStepUnknown).not.toHaveBeenCalled();
     expect(runStore.completeAgentExecutionStep).not.toHaveBeenCalled();
+  });
+
+  it("resets a persisted dispatch when cancellation wins before invocation", async () => {
+    const controller = new AbortController();
+    let finishDispatch!: () => void;
+    let dispatchStarted!: () => void;
+    const dispatchStartedPromise = new Promise<void>((resolve) => {
+      dispatchStarted = resolve;
+    });
+    const actionRun = vi.fn(async () => "Deck saved");
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: {
+          type: "object" as const,
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    const runStore = await import("./run-store.js");
+    vi.mocked(runStore.markAgentExecutionStepDispatched).mockClear();
+    vi.mocked(runStore.resetAgentExecutionStepBeforeInvocation).mockClear();
+    vi.mocked(runStore.markAgentExecutionStepUnknown).mockClear();
+    vi.mocked(runStore.completeAgentExecutionStep).mockClear();
+    vi.mocked(runStore.markAgentExecutionStepDispatched).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishDispatch = resolve;
+          dispatchStarted();
+        }),
+    );
+    const events: AgentChatEvent[] = [];
+
+    const run = withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("cancelled-after-dispatch", { id: "deck-1" })]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Create a deck." }],
+          },
+        ],
+        actions: { "create-deck": action },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: controller.signal,
+      }),
+    );
+
+    await dispatchStartedPromise;
+    controller.abort();
+    finishDispatch();
+    await run;
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(
+      runStore.resetAgentExecutionStepBeforeInvocation,
+    ).toHaveBeenCalledOnce();
+    expect(runStore.markAgentExecutionStepUnknown).not.toHaveBeenCalled();
+    expect(runStore.completeAgentExecutionStep).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "create-deck",
+        isError: true,
+        completedSideEffect: false,
+      }),
+    );
   });
 
   it.each([

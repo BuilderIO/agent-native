@@ -1097,6 +1097,47 @@ describe("runBackgroundAutomation — confirmed work", () => {
     }
   });
 
+  it("keeps a resume retryable when its predecessor projection is deferred", async () => {
+    const runStore = await import("../agent/run-store.js");
+    const history = await import("./run-history.js");
+    const { AutomationRecoveryProjectionDeferredError } =
+      await import("./automation-recovery.js");
+    const automation = precondition("projection-deferred");
+    const historyId = await history.startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+    });
+    const retryProjection = vi
+      .spyOn(runStore, "retryRunThreadProjection")
+      .mockResolvedValueOnce({ state: "deferred" });
+
+    try {
+      await expect(
+        runBackgroundAutomation(
+          runOptions(automation, {
+            historyId,
+            resume: {
+              historyId,
+              threadId: "thread-projection-deferred",
+              turnId: "turn-projection-deferred",
+              previousRunId: "run-projection-deferred",
+              hardDeadlineAt: Date.now() + 60_000,
+            },
+          }),
+          standardDeps,
+        ),
+      ).rejects.toBeInstanceOf(AutomationRecoveryProjectionDeferredError);
+      expect(await history.getAutomationRun(historyId)).toMatchObject({
+        finishedAt: null,
+        status: "running",
+      });
+      expect(await countRowsWithPrefix("job-projection-deferred")).toBe(0);
+    } finally {
+      retryProjection.mockRestore();
+    }
+  });
+
   it.each([false, true])(
     "rejects an undelivered digest (successful read: %s)",
     async (readSucceeded) => {

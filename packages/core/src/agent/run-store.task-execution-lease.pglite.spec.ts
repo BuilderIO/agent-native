@@ -87,6 +87,7 @@ const {
   insertRunEvent,
   insertRunEvents,
   markAgentExecutionStepDispatched,
+  resetAgentExecutionStepBeforeInvocation,
   markRunAbortedAtSafeBoundary,
   updateRunStatusIfRunning,
   recordLateAgentExecutionStepOutcome,
@@ -114,6 +115,57 @@ afterAll(async () => {
 });
 
 describe("task execution leases", () => {
+  it("reopens a persisted dispatch after cancellation before action invocation", async () => {
+    const threadId = "thread-cancel-before-invocation";
+    const turnId = "turn-cancel-before-invocation";
+    const runId = "run-cancel-before-invocation";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const intent = {
+      ...fence,
+      stepId: "cancelled-write",
+      operationId: "test:cancel-before-invocation",
+      toolName: "write",
+      inputJson: "{}",
+      replayPolicy: "never" as const,
+    };
+
+    await withExecutionFence(fence, async () => {
+      await expect(beginAgentExecutionStep(intent)).resolves.toEqual({
+        status: "execute",
+        wasDispatched: false,
+      });
+      await markAgentExecutionStepDispatched(intent);
+      await resetAgentExecutionStepBeforeInvocation(intent);
+    });
+
+    const retryRunId = `${runId}-retry`;
+    await insertRun(retryRunId, threadId, turnId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    const retryFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      retryRunId,
+    );
+    await withExecutionFence(retryFence, () =>
+      expect(
+        beginAgentExecutionStep({
+          ...retryFence,
+          stepId: intent.stepId,
+          operationId: intent.operationId,
+          toolName: intent.toolName,
+          inputJson: intent.inputJson,
+          replayPolicy: intent.replayPolicy,
+        }),
+      ).resolves.toEqual({ status: "execute", wasDispatched: false }),
+    );
+  });
+
   it("writes a continuation checkpoint and terminal reason atomically", async () => {
     const runId = "run-atomic-checkpoint";
     await insertRun(runId, "thread-atomic-checkpoint");
