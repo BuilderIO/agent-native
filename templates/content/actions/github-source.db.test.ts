@@ -38,6 +38,11 @@ const github = vi.hoisted(() => {
     storageDown: false,
     /** Uploads of a file with this name throw, as storage rejecting one file does. */
     rejectFilename: null as string | null,
+    /**
+     * Uploads left that return nothing while storage is set up, as
+     * `uploadFile` does when its Builder credential check throws.
+     */
+    emptyUploads: 0,
     uploadFailures: 0,
     /** The file name of every upload tried, in order. */
     uploadAttempts: [] as string[],
@@ -85,6 +90,7 @@ const github = vi.hoisted(() => {
       state.noStorage = false;
       state.storageDown = false;
       state.rejectFilename = null;
+      state.emptyUploads = 0;
       state.uploadFailures = 0;
       state.uploadAttempts = [];
       state.duringBlobRead = null;
@@ -309,6 +315,10 @@ vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: async (input: { filename: string }) => {
     if (github.state.noStorage) return null;
     github.state.uploadAttempts.push(input.filename);
+    if (github.state.emptyUploads > 0) {
+      github.state.emptyUploads -= 1;
+      return null;
+    }
     if (github.state.storageDown) {
       github.state.uploadFailures += 1;
       throw new Error("S3 PutObject failed (503): Service Unavailable");
@@ -2269,6 +2279,79 @@ describe("GitHub folder source", () => {
     });
     const after = await as(() => getSource.run({ databaseId: database.id }));
     expect(after.source?.metadata.github?.storageReady).toBe(false);
+
+    github.state.noStorage = false;
+    const filled = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(filled.sync).toMatchObject({ imagesWaiting: 0, problem: null });
+  });
+
+  it("counts an empty upload as a failure while storage is still set up", async () => {
+    github.state.emptyUploads = 1;
+    github.commit({
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+      "docs/b-chart.md": "# Chart\n\n![Chart](images/chart.png)\n",
+      "docs/images/chart.png": "PNGCHART",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const linked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      // The chart still uploads, and the poster waits on a retry, not setup.
+      expect(github.state.uploadAttempts).toEqual(["poster.png", "chart.png"]);
+      expect(linked.sync).toMatchObject({
+        state: "synced",
+        imagesWaiting: 1,
+        problem: { code: "storage_failed" },
+      });
+    } finally {
+      warn.mockRestore();
+    }
+    const filled = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(filled.sync).toMatchObject({ imagesWaiting: 0, problem: null });
+  });
+
+  it("stops saying storage failed once a sync found it gone before another problem stopped it", async () => {
+    github.state.rejectFilename = "poster.png";
+    github.commit({
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const linked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      expect(linked.sync).toMatchObject({
+        imagesWaiting: 1,
+        problem: { code: "storage_failed" },
+      });
+
+      github.state.noStorage = true;
+      github.state.failure = new Error("socket hang up");
+      const id = await sourceId(database.id);
+      const failed = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(failed).toMatchObject({ state: "error", imagesWaiting: 1 });
+      const status = await as(() => getSource.run({ databaseId: database.id }));
+      expect(status.source?.metadata.github).toMatchObject({
+        imagesWaiting: 1,
+        imagesFailed: false,
+        storageReady: false,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+
+    github.state.failure = null;
+    github.state.noStorage = false;
+    github.state.rejectFilename = null;
+    const filled = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(filled.sync).toMatchObject({ imagesWaiting: 0, problem: null });
   });
 
   it("puts pages whose images failed after the files a sync ran out of time on", async () => {

@@ -1082,7 +1082,9 @@ function folderRelative(run: SyncRun, repoPath: string) {
 /**
  * Stores one image's bytes and returns its URL. Returns null when storage
  * isn't set up, which stops the run's uploads, or `"failed"` when this upload
- * failed; a later sync tries it again.
+ * failed; a later sync tries it again. `uploadFile` also returns nothing when
+ * it couldn't check a Builder credential, so storage that's still set up
+ * after an empty answer counts as a failed upload.
  */
 async function storeImage(
   run: SyncRun,
@@ -1096,6 +1098,10 @@ async function storeImage(
       run.uploadFailuresInARow = 0;
       return { url: uploaded.url };
     }
+    const provider = await asLinker(run.state, run.database.orgId, () =>
+      getActiveFileUploadProviderForRequest(),
+    );
+    if (provider) throw new Error("File storage didn't save the image.");
     run.storageMissing = true;
     return null;
   } catch (error) {
@@ -2209,12 +2215,14 @@ export async function syncGitHubSource(
   let imagesSoFar:
     | (() => { waiting: number; failed: boolean; ready: boolean })
     | null = null;
-  // Whether this run found storage set up for the images it found waiting.
+  // Whether this run found storage set up for the images it found waiting,
+  // or null when it hasn't looked.
   let storageFound: boolean | null = null;
   const imagesNow = (current: GitHubSourceState) =>
     imagesSoFar?.() ?? {
       waiting: current.imagesWaiting,
-      failed: current.imagesFailed,
+      // Storage this run found missing didn't fail to save them.
+      failed: current.imagesFailed && storageFound !== false,
       ready: storageFound ?? current.storageReady,
     };
   const failed = (problem: GitHubSourceState["problem"]): GitHubSyncResult => ({
@@ -2232,14 +2240,15 @@ export async function syncGitHubSource(
   try {
     // Pages left without images get rebuilt once storage is set up, even
     // when the branch hasn't moved.
-    const retryImages =
-      state.imagesWaiting > 0 &&
-      Boolean(
-        await asLinker(state, database.orgId, () =>
-          getActiveFileUploadProviderForRequest(),
-        ),
-      );
-    storageFound = retryImages;
+    storageFound =
+      state.imagesWaiting > 0
+        ? Boolean(
+            await asLinker(state, database.orgId, () =>
+              getActiveFileUploadProviderForRequest(),
+            ),
+          )
+        : null;
+    const retryImages = storageFound === true;
     const canSkip =
       !options.force &&
       !retryImages &&
@@ -2267,6 +2276,8 @@ export async function syncGitHubSource(
           checkedAt: now,
           headEtag: head.status === "ok" ? head.etag : current.headEtag,
           problem: storageProblem(current.imagesWaiting, now),
+          // Images wait here only when storage isn't set up.
+          imagesFailed: false,
           storageReady: false,
         }),
         () => ({
@@ -2458,7 +2469,7 @@ export async function syncGitHubSource(
       return {
         waiting: images.waiting,
         failed: images.waiting > 0 && storageFailed,
-        ready: retryImages && !run.storageMissing,
+        ready: !run.storageMissing && (retryImages || run.storageFailed),
       };
     };
     imagesSoFar = imagesOfRun;
