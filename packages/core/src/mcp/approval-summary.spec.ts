@@ -301,6 +301,13 @@ describe("summarizeMcpApproval", () => {
                 items: { type: "string", enum: ["monday", "friday"] },
               },
               currency: { type: "string", enum: ["USD", "EUR"] },
+              shared: {
+                type: "boolean",
+                oneOf: [
+                  { const: true, title: "Anyone with the link" },
+                  { const: false, title: "Only me" },
+                ],
+              },
             },
           },
         },
@@ -312,6 +319,7 @@ describe("summarizeMcpApproval", () => {
         priority: "high_priority",
         days: ["monday", "friday"],
         currency: "USD",
+        shared: false,
         note: "all",
       }),
       labels,
@@ -322,6 +330,7 @@ describe("summarizeMcpApproval", () => {
       "High priority",
       "Monday, Friday",
       undefined,
+      "Only me",
       undefined,
     ]);
   });

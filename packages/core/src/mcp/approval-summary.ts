@@ -178,7 +178,7 @@ function choiceText(
       ? words.join(", ")
       : undefined;
   }
-  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  if (!["string", "number", "boolean"].includes(typeof value)) return undefined;
   for (const option of [...(schema.oneOf ?? []), ...(schema.anyOf ?? [])]) {
     if (option.const === value) {
       const label = [option.title, option.description].find(

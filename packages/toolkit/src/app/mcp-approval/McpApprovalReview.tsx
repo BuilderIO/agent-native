@@ -145,19 +145,7 @@ export function McpApprovalReviewPage({
   useEffect(() => {
     const controller = new AbortController();
     setLoaded({ status: "loading" });
-    fetchMcpApproval(id, { signal: controller.signal }).then(
-      (result) => {
-        if (controller.signal.aborted) return;
-        setLoaded(
-          result.status === "ready"
-            ? { status: "ready", view: withClientExpiry(result.view) }
-            : result,
-        );
-      },
-      () => {
-        if (!controller.signal.aborted) setLoaded({ status: "failed" });
-      },
-    );
+    readReview(id, controller.signal, setLoaded);
     return () => controller.abort();
   }, [id, attempt]);
 
@@ -182,17 +170,30 @@ export function McpApprovalReviewPage({
     if (!view || (view.state !== "pending" && view.state !== "approved")) {
       return;
     }
+    const controller = new AbortController();
     const timer = window.setTimeout(
-      () =>
+      () => {
+        if (view.state === "approved") {
+          // Only the server knows whether the agent used the grant in time.
+          readReview(id, controller.signal, setLoaded);
+          return;
+        }
         setLoaded((current) =>
           current.status === "ready"
             ? { status: "ready", view: withClientExpiry(current.view) }
             : current,
-        ),
-      Math.max(0, view.expiresAt - Date.now()) + 50,
+        );
+      },
+      // An approved grant is read again a second late, so a server clock a
+      // little behind this one doesn't answer "approved" over and over.
+      Math.max(0, view.expiresAt - Date.now()) +
+        (view.state === "approved" ? 1_000 : 50),
     );
-    return () => window.clearTimeout(timer);
-  }, [view]);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [id, view]);
 
   const decided = (state: McpApprovalViewState, expiresAt: number) =>
     setLoaded((current) =>
@@ -242,12 +243,34 @@ export function McpApprovalReviewSkeleton({ appName }: { appName: string }) {
   );
 }
 
-/** A live grant past its deadline reads as expired without a reload. */
+/**
+ * A pending review past its deadline reads as expired without a reload. An
+ * approved one may already have run, so it waits for the server to say.
+ */
 function withClientExpiry(view: McpApprovalView): McpApprovalView {
-  const live = view.state === "pending" || view.state === "approved";
-  return live && view.expiresAt <= Date.now()
+  return view.state === "pending" && view.expiresAt <= Date.now()
     ? { ...view, state: "expired", csrfToken: undefined }
     : view;
+}
+
+function readReview(
+  id: string,
+  signal: AbortSignal,
+  setLoaded: (loaded: Loaded) => void,
+) {
+  fetchMcpApproval(id, { signal }).then(
+    (result) => {
+      if (signal.aborted) return;
+      setLoaded(
+        result.status === "ready"
+          ? { status: "ready", view: withClientExpiry(result.view) }
+          : result,
+      );
+    },
+    () => {
+      if (!signal.aborted) setLoaded({ status: "failed" });
+    },
+  );
 }
 
 function useDocumentTitle(title: string | undefined) {

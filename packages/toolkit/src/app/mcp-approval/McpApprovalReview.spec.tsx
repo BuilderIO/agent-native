@@ -467,6 +467,27 @@ describe("a review that can't be decided", () => {
     expect(() => button("Approve")).toThrow();
   });
 
+  it("asks the server at an approved grant's deadline, since the agent may have used it", async () => {
+    const states = ["approved", "used"] as const;
+    let reads = 0;
+    serve(() =>
+      respond(
+        200,
+        pendingView({ state: states[reads++], csrfToken: undefined }),
+      ),
+    );
+    await renderPage();
+
+    await act(async () => {
+      vi.advanceTimersByTime(10 * 60_000 + 1_100);
+    });
+    await settle();
+
+    expect(reads).toBe(2);
+    expect(text()).toContain("This request was approved and has run.");
+    expect(text()).not.toContain("nothing ran");
+  });
+
   it("names the signed-in account when the grant is in another organization", async () => {
     serve(() =>
       respond(404, { error: "Not found", reason: "other-organization" }),
