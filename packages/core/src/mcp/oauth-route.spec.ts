@@ -1137,7 +1137,7 @@ describe("MCP OAuth route", () => {
         $mcp_client_name: "ChatGPT",
         $mcp_redirect_host: "chatgpt.com",
         $mcp_vendor_client: "openai",
-        $mcp_vendor_verified: true,
+        $mcp_vendor_source: "redirect_host",
       };
       expect(authorizeFunnelCalls()).toEqual([
         [
@@ -1177,6 +1177,24 @@ describe("MCP OAuth route", () => {
           }),
           { userId: "steve@example.com", sessionId: undefined },
         ],
+      ]);
+    });
+
+    it("serves a new user's attempt as a signed-out open and wall, then a signed-in open", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      await openAuthorize();
+      // The browser returns to the authorize URL after sign-in, now with a session.
+      await openAuthorize();
+
+      expect(
+        authorizeFunnelCalls().map(([name, props]) => [
+          name,
+          props.$mcp_oauth_signed_in,
+        ]),
+      ).toEqual([
+        ["$mcp_oauth_authorize_opened", false],
+        ["$mcp_oauth_login_wall_shown", undefined],
+        ["$mcp_oauth_authorize_opened", true],
       ]);
     });
 
@@ -1220,7 +1238,7 @@ describe("MCP OAuth route", () => {
 
       expect(authorizeFunnelCalls()[0][1]).toMatchObject({
         $mcp_vendor_client: "openai",
-        $mcp_vendor_verified: true,
+        $mcp_vendor_source: "redirect_host",
       });
     });
 
@@ -1233,7 +1251,7 @@ describe("MCP OAuth route", () => {
 
       expect(authorizeFunnelCalls()[0][1]).toMatchObject({
         $mcp_vendor_client: "openai",
-        $mcp_vendor_verified: true,
+        $mcp_vendor_source: "redirect_host",
       });
     });
 
@@ -1247,10 +1265,10 @@ describe("MCP OAuth route", () => {
       const props = authorizeFunnelCalls()[0][1];
       expect(props.$mcp_redirect_host).toBe("openai.evil.example");
       expect(props.$mcp_vendor_client).toBeUndefined();
-      expect(props.$mcp_vendor_verified).toBe(false);
+      expect(props.$mcp_vendor_source).toBeUndefined();
     });
 
-    it("flags a vendor taken from a client-chosen name as unverified", async () => {
+    it("records a vendor taken from a client-chosen name as coming from the name", async () => {
       getSessionMock.mockResolvedValueOnce(null);
       await openAuthorize({}, undefined, {
         name: "ChatGPT",
@@ -1259,7 +1277,7 @@ describe("MCP OAuth route", () => {
 
       expect(authorizeFunnelCalls()[0][1]).toMatchObject({
         $mcp_vendor_client: "openai",
-        $mcp_vendor_verified: false,
+        $mcp_vendor_source: "client_name",
       });
     });
 

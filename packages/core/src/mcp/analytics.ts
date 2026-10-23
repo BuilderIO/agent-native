@@ -67,10 +67,11 @@ export function detectVendorClient(
   return undefined;
 }
 
-// The client picks its redirect URI, but an authorization code sent to a domain
-// it does not control is useless to it, so a known vendor domain is a reliable
-// signal where `client_name` is not. Match the host itself or a subdomain,
-// never a substring: that would credit `openai.evil.example`.
+// A known redirect host is a stronger hint than `client_name`: a client that
+// points its callback at a domain it does not control cannot use the code. It
+// is still the client's own registration, so it labels a vendor without proving
+// who the client is. Match the host itself or a subdomain, never a substring:
+// that would credit `openai.evil.example`.
 const REDIRECT_HOST_VENDORS: Array<[domain: string, vendor: string]> = [
   ["chatgpt.com", "openai"],
   ["openai.com", "openai"],
@@ -121,8 +122,9 @@ function captureParameters(): boolean {
 }
 
 function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
-  // A known redirect host is verified; a client-supplied name or user agent is
-  // only a hint, so OAuth events (the ones with a redirect host) flag it.
+  // Where the label came from stays visible on OAuth events (the ones with a
+  // redirect host): a host is a stronger hint than a client-chosen name, but
+  // neither proves who the client is.
   const hostVendor = vendorForRedirectHost(ctx.redirectHost);
   const vendor =
     hostVendor ?? detectVendorClient(ctx.clientName, ctx.clientUserAgent);
@@ -138,7 +140,9 @@ function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
       : {}),
     ...(ctx.redirectHost ? { $mcp_redirect_host: ctx.redirectHost } : {}),
     ...(vendor ? { $mcp_vendor_client: vendor } : {}),
-    ...(ctx.redirectHost ? { $mcp_vendor_verified: Boolean(hostVendor) } : {}),
+    ...(vendor && ctx.redirectHost
+      ? { $mcp_vendor_source: hostVendor ? "redirect_host" : "client_name" }
+      : {}),
     ...(ctx.protocolVersion
       ? { $mcp_protocol_version: ctx.protocolVersion }
       : {}),
@@ -243,6 +247,9 @@ export function trackMcpResourceRead(
 
 export type McpOAuthRoute = "directory" | "mcp";
 
+// A new user's attempt serves two pages: the sign-in page (signedIn false, with
+// a login wall) and, after sign-in, the consent page (signedIn true). Count
+// starts from signedIn false or from the login wall, not from every open.
 export function trackMcpOAuthAuthorizeOpened(
   ctx: McpAnalyticsContext,
   args: { route: McpOAuthRoute; signedIn: boolean },
