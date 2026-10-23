@@ -18,7 +18,11 @@ import { getAuthSecret } from "../server/better-auth-instance.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
-import { connectionApp, trackAgentConnected } from "./agent-connected.js";
+import {
+  connectionApp,
+  connectionClientKey,
+  trackAgentConnected,
+} from "./agent-connected.js";
 import {
   trackMcpOAuthAuthorizeOpened,
   trackMcpOAuthLoginWallShown,
@@ -854,6 +858,9 @@ function trackAuthorizeStage(
         input.options.appName || input.options.appId || "Agent-Native",
       appId: connectionApp(input.issuer, input.options.appId),
       ...(input.clientName ? { clientName: input.clientName } : {}),
+      // The key agent_connected reports, so a client's starts and finished
+      // connections join on it.
+      clientKey: connectionClientKey(input.clientName ?? "unknown"),
       // Host only: the redirect URI's path and query can carry per-attempt values.
       ...(URL.canParse(input.redirectUri)
         ? { redirectHost: new URL(input.redirectUri).hostname }

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { connectionClientKey } from "./agent-connected.js";
+
 const trackMock = vi.hoisted(() => vi.fn());
 const connectionClaims = new Map<string, Record<string, unknown>>();
 vi.mock("../tracking/registry.js", () => ({
@@ -462,6 +464,10 @@ describe("MCP OAuth route", () => {
         { userId: "steve@example.com" },
       ],
     ]);
+    // The funnel events share the client key agent_connected reports.
+    expect(
+      new Set(authorizeFunnelCalls().map(([, props]) => props.$mcp_client_key)),
+    ).toEqual(new Set(["claude"]));
   });
 
   it("does not record OAuth consent, invalid grants or failed issuance", async () => {
@@ -1135,6 +1141,7 @@ describe("MCP OAuth route", () => {
         $mcp_app_id: "mail",
         $mcp_server_name: "Mail",
         $mcp_client_name: "ChatGPT",
+        $mcp_client_key: connectionClientKey("ChatGPT"),
         $mcp_redirect_host: "chatgpt.com",
         $mcp_vendor_client: "openai",
         $mcp_vendor_source: "redirect_host",
@@ -1242,7 +1249,7 @@ describe("MCP OAuth route", () => {
       });
     });
 
-    it("prefers a known redirect host over a contradicting client name", async () => {
+    it("keeps the vendor the client name gives, as on tool events, and records that the host did not", async () => {
       getSessionMock.mockResolvedValueOnce(null);
       await openAuthorize({}, undefined, {
         name: "Cursor",
@@ -1250,8 +1257,9 @@ describe("MCP OAuth route", () => {
       });
 
       expect(authorizeFunnelCalls()[0][1]).toMatchObject({
-        $mcp_vendor_client: "openai",
-        $mcp_vendor_source: "redirect_host",
+        $mcp_vendor_client: "cursor",
+        $mcp_vendor_source: "client_name",
+        $mcp_redirect_host: "chatgpt.com",
       });
     });
 
