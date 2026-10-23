@@ -25,10 +25,23 @@ import {
 import { packagesCoveredBy } from "./check-changeset.mjs";
 import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
+  RELEASE_COORDINATOR_STEP_NAME,
+  assertReleaseCoordinatorStepActive,
+  selectActiveReleaseCoordinator,
+} from "./release-coordinator.ts";
+import {
   isMajorVersionPromotion,
   packageManifestVersion,
   packageManifestVersionChange,
 } from "./release-package-version-policy.ts";
+import {
+  COORDINATED_RELEASE_CHECK_TIMEOUT_MS,
+  DEFAULT_REQUIRED_CHECK_TIMEOUT_MS,
+  evaluateRequiredChecks,
+  requiredCheckTimeoutForEvent,
+  requiredContextsFromRules,
+  waitForRequiredChecks,
+} from "./release-required-checks.ts";
 import {
   gitBlobSha,
   syncCommunityQrBlobPins,
@@ -62,6 +75,10 @@ const publisherSource = readFileSync(
   "scripts/changeset-publish-sequential.ts",
   "utf8",
 );
+const releaseEverythingWorkflowSource = readFileSync(
+  ".github/workflows/release-everything.yml",
+  "utf8",
+);
 const ciLintJob = (
   parse(readFileSync(".github/workflows/ci.yml", "utf8")) as {
     jobs: Record<string, { name: string; steps: Workflow[] }>;
@@ -76,6 +93,595 @@ const autoMergeWorkflow = parse(
 ) as Workflow;
 
 describe("npm package release workflow", () => {
+  it("waits for every active main ruleset check before auto-merging a release PR", async () => {
+    const required = ["Build", "Fast tests", "Lint & format"];
+    const contexts = requiredContextsFromRules([
+      {
+        type: "required_status_checks",
+        parameters: {
+          required_status_checks: required.map((context) => ({
+            context,
+            integration_id: null,
+          })),
+        },
+      },
+      {
+        type: "required_status_checks",
+        parameters: {
+          required_status_checks: [{ context: "Build", integration_id: null }],
+        },
+      },
+    ]);
+    assert.deepEqual(contexts, required);
+    assert.deepEqual(evaluateRequiredChecks(required, []), {
+      status: "pending",
+      missing: required,
+      pending: [],
+    });
+    assert.deepEqual(
+      evaluateRequiredChecks(required, [
+        { name: "Build", bucket: "pass" },
+        { name: "Fast tests", bucket: "pass" },
+      ]),
+      {
+        status: "pending",
+        missing: ["Lint & format"],
+        pending: [],
+      },
+    );
+
+    let now = 0;
+    let reads = 0;
+    await waitForRequiredChecks({
+      readRequiredContexts: async () => required,
+      readStatuses: async () => {
+        reads += 1;
+        if (reads === 1) return [];
+        if (reads === 2) {
+          return [
+            { name: "Build", bucket: "pass" },
+            { name: "Fast tests", bucket: "pass" },
+          ];
+        }
+        return required.map((name) => ({ name, bucket: "pass" }));
+      },
+      sleep: async (ms) => {
+        now += ms;
+      },
+      now: () => now,
+      timeoutMs: 60_000,
+      intervalMs: 15_000,
+    });
+    assert.equal(reads, 3);
+    assert.deepEqual(
+      evaluateRequiredChecks(
+        required,
+        required.map((name) => ({ name, bucket: "pass" })),
+      ),
+      { status: "passed" },
+    );
+  });
+
+  it("fails closed when required checks fail, remain partial, or are unconfigured", async () => {
+    const required = ["Build", "Fast tests"];
+    assert.deepEqual(
+      evaluateRequiredChecks(required, [
+        { name: "Build", bucket: "fail" },
+        { name: "Fast tests", bucket: "pending" },
+      ]),
+      {
+        status: "failed",
+        reason: "Required release PR checks are not green: Build.",
+      },
+    );
+    assert.throws(
+      () => requiredContextsFromRules([]),
+      /No required status checks are configured for main/,
+    );
+    assert.throws(
+      () =>
+        requiredContextsFromRules([
+          {
+            type: "required_status_checks",
+            parameters: {
+              required_status_checks: [{ context: " ", integration_id: null }],
+            },
+          },
+        ]),
+      /without a context name/,
+    );
+    assert.throws(
+      () =>
+        requiredContextsFromRules([
+          {
+            type: "required_status_checks",
+            parameters: {
+              required_status_checks: [
+                { context: "Build", integration_id: 15368 },
+              ],
+            },
+          },
+        ]),
+      /bound to GitHub App 15368.*cannot verify check provenance/,
+    );
+    assert.deepEqual(
+      requiredContextsFromRules([
+        {
+          type: "required_status_checks",
+          parameters: {
+            required_status_checks: [{ context: "Build" }],
+          },
+        },
+      ]),
+      ["Build"],
+    );
+
+    let now = 0;
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => required,
+        readStatuses: async () => [{ name: "Build", bucket: "pass" }],
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+        timeoutMs: 30_000,
+        intervalMs: 15_000,
+      }),
+      /Timed out waiting for required release PR checks: Fast tests \(not reported\)/,
+    );
+  });
+
+  it("caps delayed required-check polling at the coordinator merge window", async () => {
+    assert.match(
+      releaseEverythingWorkflowSource,
+      /phaseDeadline\(210 \* 60_000\),\s*coordinatorDeadline - postMergeReserveMs/,
+    );
+    assert.equal(
+      requiredCheckTimeoutForEvent("pull_request"),
+      COORDINATED_RELEASE_CHECK_TIMEOUT_MS,
+    );
+    assert.equal(COORDINATED_RELEASE_CHECK_TIMEOUT_MS, 210 * 60_000);
+    let now = 0;
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => ["Build"],
+        readStatuses: async () => [],
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+        timeoutMs: requiredCheckTimeoutForEvent("pull_request"),
+        intervalMs: 60 * 60_000,
+      }),
+      /Timed out waiting for required release PR checks: Build \(not reported\)/,
+    );
+    assert.equal(now, COORDINATED_RELEASE_CHECK_TIMEOUT_MS);
+    assert.equal(
+      requiredCheckTimeoutForEvent("workflow_dispatch"),
+      DEFAULT_REQUIRED_CHECK_TIMEOUT_MS,
+    );
+    assert.equal(DEFAULT_REQUIRED_CHECK_TIMEOUT_MS, 240 * 60_000);
+  });
+
+  it("stops polling when the matching release coordinator ends", async () => {
+    let now = 0;
+    let coordinatorReads = 0;
+    let statusReads = 0;
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => ["Build"],
+        readStatuses: async () => {
+          statusReads += 1;
+          return [];
+        },
+        verifyCoordinator: async (expectedRunId) => {
+          coordinatorReads += 1;
+          if (coordinatorReads === 1) {
+            assert.equal(expectedRunId, undefined);
+            return 123;
+          }
+          assert.equal(expectedRunId, 123);
+          throw new Error("Release everything coordinator run 123 ended.");
+        },
+        coordinatorCheckIntervalMs: 30_000,
+        intervalMs: 15_000,
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+      }),
+      /Release everything coordinator run 123 ended/,
+    );
+    assert.equal(coordinatorReads, 2);
+    assert.equal(statusReads, 2);
+  });
+
+  it("matches one in-progress coordinator to the release PR update", () => {
+    const run = {
+      id: 123,
+      event: "schedule",
+      head_branch: "main",
+      run_started_at: "2026-10-23T10:00:00Z",
+      status: "in_progress",
+    };
+    const pages = [{ workflow_runs: [run] }];
+    assert.equal(
+      selectActiveReleaseCoordinator(pages, "2026-10-23T10:01:00Z"),
+      123,
+    );
+    assert.equal(
+      selectActiveReleaseCoordinator(pages, "2026-10-23T10:01:00Z", 123),
+      123,
+    );
+    assert.throws(
+      () => selectActiveReleaseCoordinator(pages, "2026-10-23T09:58:00Z"),
+      /does not match the release PR update/,
+    );
+    assert.throws(
+      () =>
+        selectActiveReleaseCoordinator(
+          [{ workflow_runs: [run] }, { workflow_runs: [{ ...run, id: 124 }] }],
+          "2026-10-23T10:01:00Z",
+        ),
+      /Expected one active Release everything coordinator/,
+    );
+    assert.throws(
+      () =>
+        selectActiveReleaseCoordinator(
+          [{ workflow_runs: [] }],
+          "2026-10-23T10:01:00Z",
+        ),
+      /returned 0/,
+    );
+  });
+
+  it("requires the coordinator release step to remain active", () => {
+    const activePages = [
+      {
+        jobs: [
+          {
+            name: "Release packages, desktop apps, and production sites",
+            status: "in_progress",
+            steps: [
+              {
+                name: RELEASE_COORDINATOR_STEP_NAME,
+                status: "in_progress",
+                conclusion: null,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorStepActive(activePages, 123),
+    );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorStepActive(
+          [
+            {
+              jobs: [
+                {
+                  name: "Release packages, desktop apps, and production sites",
+                  status: "in_progress",
+                  steps: [
+                    {
+                      name: RELEASE_COORDINATOR_STEP_NAME,
+                      status: "completed",
+                      conclusion: "failure",
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          123,
+        ),
+      /no longer performing the release step/,
+    );
+    assert.throws(
+      () => assertReleaseCoordinatorStepActive([{ jobs: [] }], 123),
+      /Expected one active release step/,
+    );
+  });
+
+  it("does not miss a required check on a later main rules page", () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-checks-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const ghPath = path.join(binDirectory, "gh");
+    mkdirSync(binDirectory);
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+set -eu
+case "$1" in
+  api)
+    case " $* " in
+      *" --paginate --slurp "*)
+        printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build","integration_id":null}]}}],[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Fast tests","integration_id":null}]}}]]'
+        ;;
+      *)
+        printf '%s\\n' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build","integration_id":null}]}}]'
+        ;;
+    esac
+    ;;
+  pr)
+    printf '%s\\n' '[{"name":"Build","bucket":"pass"},{"name":"Fast tests","bucket":"fail"}]'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    try {
+      assert.throws(
+        () =>
+          execFileSync(
+            process.execPath,
+            [
+              "--experimental-strip-types",
+              path.resolve("scripts/release-required-checks.ts"),
+              "verify",
+              "8102",
+              "BuilderIO/agent-native",
+            ],
+            {
+              cwd: process.cwd(),
+              env: {
+                ...process.env,
+                PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+              },
+            },
+          ),
+        (error: unknown) => {
+          const commandError = error as { status?: number; stderr?: Buffer };
+          assert.equal(commandError.status, 1);
+          assert.match(String(commandError.stderr), /Fast tests/);
+          return true;
+        },
+      );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("treats an unreported required-check set as pending", () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "release-checks-empty-"));
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-status-calls.txt");
+    const ghPath = path.join(binDirectory, "gh");
+    mkdirSync(binDirectory);
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+case "$1" in
+  api)
+    printf '%s\\n' '[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Build","integration_id":null}]}}]]'
+    ;;
+  pr)
+    calls=0
+    if [ -f "$GH_CALLS_FILE" ]; then calls=$(cat "$GH_CALLS_FILE"); fi
+    calls=$((calls + 1))
+    printf '%s' "$calls" > "$GH_CALLS_FILE"
+    if [ "$calls" -eq 1 ]; then
+      printf '%s\\n' "gh: no required checks reported on the 'main' branch" >&2
+      exit 1
+    fi
+    printf '%s' '[{"name":"Build","bucket":"fail"}]'
+    ;;
+  *) exit 1 ;;
+esac
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    try {
+      assert.throws(
+        () =>
+          execFileSync(
+            process.execPath,
+            [
+              "--experimental-strip-types",
+              path.resolve("scripts/release-required-checks.ts"),
+              "verify",
+              "8102",
+              "BuilderIO/agent-native",
+            ],
+            {
+              cwd: process.cwd(),
+              env: {
+                ...process.env,
+                PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+                GH_CALLS_FILE: callsPath,
+              },
+            },
+          ),
+        (error: unknown) => {
+          const commandError = error as { status?: number; stderr?: Buffer };
+          assert.equal(commandError.status, 1);
+          assert.match(
+            String(commandError.stderr),
+            /Required release PR checks are missing or pending: Build/,
+          );
+          return true;
+        },
+      );
+      assert.equal(readFileSync(callsPath, "utf8"), "1");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("waits only while the matching coordinator release step is active", () => {
+    const tempRoot = mkdtempSync(
+      path.join(tmpdir(), "release-coordinator-wait-"),
+    );
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    const ghPath = path.join(binDirectory, "gh");
+    mkdirSync(binDirectory);
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+printf '%s|%s\\n' "$GH_TOKEN" "$*" >> "$GH_CALLS_FILE"
+case " $* " in
+  *" repos/BuilderIO/agent-native/actions/workflows/release-everything.yml/runs?branch=main&status=in_progress&per_page=100 "*) printf '%s' "$GH_RUN_PAGES" ;;
+  *" repos/BuilderIO/agent-native/actions/runs/123/jobs?per_page=100 "*) printf '%s' "$GH_JOB_PAGES" ;;
+  *" repos/BuilderIO/agent-native/rules/branches/main "*) printf '%s' "$GH_RULE_PAGES" ;;
+  *" pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket "*) printf '%s' '[{"name":"Build","bucket":"pass"}]' ;;
+  *) printf '%s\\n' 'unexpected gh arguments' >&2; exit 1 ;;
+esac
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    const run = {
+      id: 123,
+      event: "schedule",
+      head_branch: "main",
+      run_started_at: "2026-10-23T10:00:00Z",
+      status: "in_progress",
+    };
+    const jobs = [
+      {
+        name: "Release packages, desktop apps, and production sites",
+        status: "in_progress",
+        steps: [
+          {
+            name: RELEASE_COORDINATOR_STEP_NAME,
+            status: "in_progress",
+            conclusion: null,
+          },
+        ],
+      },
+    ];
+    const env = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "workflow-token",
+      GH_ACTIONS_TOKEN: "actions-read-token",
+      GH_CALLS_FILE: callsPath,
+      GH_RUN_PAGES: JSON.stringify([{ workflow_runs: [run] }]),
+      GH_JOB_PAGES: JSON.stringify([{ jobs }]),
+      GH_RULE_PAGES: JSON.stringify([
+        [
+          {
+            type: "required_status_checks",
+            parameters: {
+              required_status_checks: [
+                { context: "Build", integration_id: null },
+              ],
+            },
+          },
+        ],
+      ]),
+      PR_NUMBER: "8102",
+      REPO: "BuilderIO/agent-native",
+      RELEASE_EVENT_NAME: "pull_request",
+      PR_UPDATED_AT: "2026-10-23T10:01:00Z",
+      EXPECTED_COORDINATOR_RUN_ID: "",
+    };
+    const runWait = () =>
+      execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          path.resolve("scripts/release-required-checks.ts"),
+          "wait",
+          "8102",
+          "BuilderIO/agent-native",
+        ],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    try {
+      assert.equal(runWait(), "123\n");
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/workflows/release-everything.yml/runs?branch=main&status=in_progress&per_page=100",
+        "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/runs/123/jobs?per_page=100",
+        "workflow-token|api --paginate --slurp repos/BuilderIO/agent-native/rules/branches/main",
+        "workflow-token|pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket",
+      ]);
+
+      writeFileSync(callsPath, "");
+      env.RELEASE_EVENT_NAME = "workflow_dispatch";
+      delete (env as { PR_UPDATED_AT?: string }).PR_UPDATED_AT;
+      assert.equal(runWait(), "");
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "workflow-token|api --paginate --slurp repos/BuilderIO/agent-native/rules/branches/main",
+        "workflow-token|pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket",
+      ]);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("retries transient GitHub command failures while reading rules and checks", async () => {
+    const required = ["Build"];
+    const commandFailure = () =>
+      Object.assign(new Error("GitHub request failed"), {
+        status: 1,
+        stderr: "HTTP 503",
+      });
+    const delays: number[] = [];
+    let contextReads = 0;
+    let statusReads = 0;
+
+    await waitForRequiredChecks({
+      readRequiredContexts: async () => {
+        contextReads += 1;
+        if (contextReads === 1) throw commandFailure();
+        return required;
+      },
+      readStatuses: async () => {
+        statusReads += 1;
+        if (statusReads === 1) throw commandFailure();
+        return [{ name: "Build", bucket: "pass" }];
+      },
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+      readRetryDelaysMs: [5, 10],
+    });
+
+    assert.equal(contextReads, 2);
+    assert.equal(statusReads, 2);
+    assert.deepEqual(delays, [5, 5]);
+  });
+
+  it("fails with the GitHub error after bounded retries are exhausted", async () => {
+    const commandFailure = () =>
+      Object.assign(new Error("GitHub request failed"), {
+        status: 1,
+        stderr: "HTTP 503",
+      });
+    let reads = 0;
+    let now = 0;
+
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => ["Build"],
+        readStatuses: async () => {
+          reads += 1;
+          throw commandFailure();
+        },
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+        readRetryDelaysMs: [1, 2],
+      }),
+      /Reading required release PR check results failed after 3 attempts: HTTP 503/,
+    );
+    assert.equal(reads, 3);
+    assert.equal(now, 3);
+  });
+
   it("allows a modified private app manifest without a package version", () => {
     assert.equal(
       packageManifestVersionChange(
@@ -1106,6 +1712,9 @@ fi
     const requiredChecks = autoMergeSteps.find(
       (step) => step.name === "Wait for required release PR checks",
     );
+    const mergeToken = autoMergeSteps.find(
+      (step) => step.name === "Generate fresh merge token",
+    );
     const releasePrRecheck = autoMergeSteps.find(
       (step) => step.name === "Revalidate release PR before merge",
     );
@@ -1116,6 +1725,13 @@ fi
     for (const input of ["pull_request_number", "base_sha", "head_sha"]) {
       assert.equal((workflowDispatchInputs[input] as Workflow).required, true);
     }
+    assert.deepEqual(autoMergeWorkflow.permissions, {
+      actions: "read",
+      checks: "read",
+      contents: "read",
+      "pull-requests": "read",
+      statuses: "read",
+    });
     assert.match(
       String(autoMergeJob.if),
       /github\.event_name == 'workflow_dispatch'/,
@@ -1170,9 +1786,54 @@ fi
     assert.match(String(releasePrContext.run), /\.head\.sha == \$head/);
     assert.match(String(releasePrContext.run), /\.base\.sha == \$base/);
     assert(requiredChecks);
-    assert.match(String(requiredChecks.run), /--required --watch/);
-    assert.match(String(requiredChecks.run), /all\(\.\[\]; \.bucket == "pass"/);
+    assert.equal(requiredChecks.id, "required-checks");
+    assert.match(
+      String(requiredChecks.run),
+      /release-required-checks\.ts wait "\$PR_NUMBER" "\$REPO"/,
+    );
+    assert.equal(
+      (requiredChecks.env as Workflow).GH_TOKEN,
+      "${{ github.token }}",
+    );
+    assert.equal(
+      (requiredChecks.env as Workflow).GH_ACTIONS_TOKEN,
+      "${{ github.token }}",
+    );
+    assert.equal(
+      (requiredChecks.env as Workflow).RELEASE_EVENT_NAME,
+      "${{ github.event_name }}",
+    );
+    assert.match(
+      String((requiredChecks.env as Workflow).PR_UPDATED_AT),
+      /pull_request\.updated_at/,
+    );
+    assert.match(
+      String(requiredChecks.run),
+      /coordinator_run_id=.*GITHUB_OUTPUT/,
+    );
+    assert.doesNotMatch(String(requiredChecks.run), /gh pr checks/);
+    assert(mergeToken);
     assert(releaseDiff);
+    assert.match(String(mergeToken.uses), /actions\/create-github-app-token/);
+    assert(
+      autoMergeSteps.indexOf(requiredChecks) <
+        autoMergeSteps.indexOf(mergeToken),
+    );
+    assert(
+      autoMergeSteps.indexOf(mergeToken) < autoMergeSteps.indexOf(releaseDiff),
+    );
+    for (const step of autoMergeSteps.slice(
+      autoMergeSteps.indexOf(mergeToken) + 1,
+    )) {
+      const env = step.env as Workflow | undefined;
+      if (env && "GH_TOKEN" in env) {
+        assert.equal(env.GH_TOKEN, "${{ steps.merge-token.outputs.token }}");
+      }
+    }
+    assert.equal(
+      (releaseDiff.env as Workflow).GH_TOKEN,
+      "${{ steps.merge-token.outputs.token }}",
+    );
     assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
     assert(majorPromotionGuard);
     assert.equal(
@@ -1201,6 +1862,10 @@ fi
       "node --experimental-strip-types scripts/verify-community-qr-release-pin.ts",
     );
     assert(releasePrRecheck);
+    assert.equal(
+      (releasePrRecheck.env as Workflow).GH_TOKEN,
+      "${{ steps.merge-token.outputs.token }}",
+    );
     assert.match(String(releasePrRecheck.run), /\.state == "open"/);
     assert.match(String(releasePrRecheck.run), /\.user\.login/);
     assert.match(
@@ -1209,14 +1874,33 @@ fi
     );
     assert.match(String(releasePrRecheck.run), /\.head\.sha == \$head/);
     assert.match(String(releasePrRecheck.run), /\.base\.sha == \$base/);
-    assert.match(String(releasePrRecheck.run), /--required --json name,bucket/);
+    assert.match(
+      String(releasePrRecheck.run),
+      /release-required-checks\.ts verify "\$PR_NUMBER" "\$REPO"/,
+    );
+    assert.match(
+      String((releasePrRecheck.env as Workflow).EXPECTED_COORDINATOR_RUN_ID),
+      /required-checks\.outputs\.coordinator_run_id/,
+    );
     assert(forceMerge);
+    assert.equal(
+      (forceMerge.env as Workflow).GH_TOKEN,
+      "${{ steps.merge-token.outputs.token }}",
+    );
     assert.match(String(forceMerge.run), /branches\/main/);
     assert.match(String(forceMerge.run), /current_main.*BASE_SHA/s);
     assert.match(String(forceMerge.run), /--match-head-commit "\$HEAD_SHA"/);
     assert.match(
       String(forceMerge.run),
-      /Required release PR checks are no longer green/,
+      /release-required-checks\.ts verify "\$PR_NUMBER" "\$REPO"/,
+    );
+    assert.match(
+      String((forceMerge.env as Workflow).EXPECTED_COORDINATOR_RUN_ID),
+      /required-checks\.outputs\.coordinator_run_id/,
+    );
+    assert(
+      String(forceMerge.run).indexOf("release-required-checks.ts verify") <
+        String(forceMerge.run).indexOf("gh pr merge"),
     );
   });
 

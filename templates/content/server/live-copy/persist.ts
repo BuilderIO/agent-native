@@ -16,6 +16,7 @@ import { assertSourceAllowsPageEdit } from "../../actions/_document-source.js";
 import { HISTORY_IDLE_MS } from "../../app/components/editor/document-history-session.js";
 import { changedBlocksBetween } from "../../shared/document-intent-merge.js";
 import { getDb, schema } from "../db/index.js";
+import { followCommentAnchors } from "../lib/comment-anchor-follow.js";
 import {
   documentAttributionActor,
   documentEditAttribution,
@@ -510,6 +511,11 @@ async function writeBody(args: {
       ownerEmail: page.ownerEmail,
       now: updatedAt,
       lockedDatabaseIds,
+    });
+    await followCommentAnchors(args.tx, {
+      documentId,
+      before: page.content,
+      after: text,
     });
   }
   if (cause?.intent) {

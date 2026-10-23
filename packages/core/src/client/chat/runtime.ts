@@ -33,6 +33,11 @@ import {
   type SSEEvent,
 } from "../sse-event-processor.js";
 import { runOutcomeForCode, type ServerRunState } from "./run-outcome.js";
+import {
+  DEFAULT_TURN_SURFACE,
+  type TurnInitiator,
+  type TurnSubmittedReport,
+} from "./turn-submitted.js";
 
 export type { ServerRunState } from "./run-outcome.js";
 
@@ -767,6 +772,13 @@ export interface AgentChatRuntimeTurn<
   TEvent extends AgentChatRuntimeEventBase = AgentChatRuntimeKnownEvent,
 > {
   readonly id?: AgentChatRuntimeTurnId;
+  /**
+   * The turn the server stored the run under (its `X-Turn-Id`), else the one
+   * the request carried; absent for a replay the server did not name the turn
+   * of. A continuation sends the turn it continues, and an approval resume
+   * runs under its pending approval's turn, so this is not always `id`.
+   */
+  readonly requestTurnId?: AgentChatRuntimeTurnId;
   readonly sessionId: AgentChatRuntimeSessionId;
   readonly runId?: string;
   readonly metadata?: AgentChatRuntimeMetadata;
@@ -898,7 +910,25 @@ export interface CreateHttpAgentChatRuntimeOptions<
     session: AgentChatRuntimeSessionSummary;
     turn: AgentChatRuntimeTurnInput;
     turnId: AgentChatRuntimeTurnId;
+    requestTurnId: AgentChatRuntimeTurnId;
   }) => unknown;
+  /** The turn id a turn's request carries; the runtime's own id by default. */
+  readonly requestTurnId?: (input: {
+    turn: AgentChatRuntimeTurnInput;
+    turnId: AgentChatRuntimeTurnId;
+  }) => AgentChatRuntimeTurnId;
+  /**
+   * Told once the endpoint accepts a turn, before its events are read. It is
+   * not awaited and anything it throws is ignored.
+   */
+  readonly onTurnAccepted?: (input: {
+    session: AgentChatRuntimeSessionSummary;
+    turn: AgentChatRuntimeTurnInput;
+    turnId: AgentChatRuntimeTurnId;
+    /** The turn the server stored the run under, as on the returned turn. */
+    requestTurnId: AgentChatRuntimeTurnId;
+    runId: string;
+  }) => void;
   /** Called at the final client boundary before a new turn reaches the endpoint. */
   readonly beforeStartTurn?: (input: {
     session: AgentChatRuntimeSessionSummary;
@@ -1412,12 +1442,17 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
 }
 
 /**
- * A turn that failed to start keeps its id: the server records a turn it
- * refused under that id, and the client reports the failure with it.
+ * A turn that failed to start keeps its ids: the server records a turn it
+ * refused under the request's turn id, and the client reports the failure
+ * with both.
  */
-function withTurnId(error: unknown, turnId: string): unknown {
+function withTurnId(
+  error: unknown,
+  turnId: string,
+  requestTurnId: string,
+): unknown {
   if (error !== null && typeof error === "object" && !("turnId" in error)) {
-    Object.assign(error, { turnId });
+    Object.assign(error, { turnId, requestTurnId });
   }
   return error;
 }
@@ -1478,6 +1513,7 @@ export function createHttpAgentChatRuntime<
       turn: AgentChatRuntimeTurnInput,
     ): Promise<AgentChatRuntimeTurn<TEvent>> => {
       const turnId = turn.queuePromotion?.turnId ?? createRuntimeId("turn");
+      const requestTurnId = options.requestTurnId?.({ turn, turnId }) ?? turnId;
       const { controller, cleanup } = createAbortController(turn.abortSignal);
       latestTurn = turn;
       previousTurns.set(turnId, turn);
@@ -1500,8 +1536,17 @@ export function createHttpAgentChatRuntime<
           credentials: options.credentials,
           body: JSON.stringify(
             options.mapRequest
-              ? options.mapRequest({ session: summary, turn, turnId })
-              : defaultHttpRuntimeRequest({ session: summary, turn, turnId }),
+              ? options.mapRequest({
+                  session: summary,
+                  turn,
+                  turnId,
+                  requestTurnId,
+                })
+              : defaultHttpRuntimeRequest({
+                  session: summary,
+                  turn,
+                  turnId: requestTurnId,
+                }),
           ),
           signal: controller.signal,
         });
@@ -1510,7 +1555,7 @@ export function createHttpAgentChatRuntime<
         if (!isRetryableRuntimeFailure(error)) {
           forgetTurnContext(turnId, turn);
         }
-        throw withTurnId(error, turnId);
+        throw withTurnId(error, turnId, requestTurnId);
       }
       if (!response.ok) {
         cleanup();
@@ -1518,7 +1563,7 @@ export function createHttpAgentChatRuntime<
         if (!isRetryableRuntimeFailure(error)) {
           forgetTurnContext(turnId, turn);
         }
-        throw withTurnId(error, turnId);
+        throw withTurnId(error, turnId, requestTurnId);
       }
 
       if (response.status === 202) {
@@ -1563,6 +1608,7 @@ export function createHttpAgentChatRuntime<
               },
             ),
             turnId,
+            requestTurnId,
           );
         }
         cleanup();
@@ -1576,6 +1622,28 @@ export function createHttpAgentChatRuntime<
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
+      const replay = response.headers.get("X-Dispatch-Mode") === "replay";
+      // The server can store the run under another turn than the one asked
+      // for: an approval resume runs under its pending approval's turn. A
+      // replay streams a run an earlier request started, so without the
+      // server's turn its turn is unknown, not this request's.
+      const storedTurnId = response.headers.get("X-Turn-Id") || undefined;
+      const runTurnId = storedTurnId ?? (replay ? undefined : requestTurnId);
+      try {
+        // A replay streams a turn the server already finished, and a stream
+        // with no run id is a refusal (no model connected), not new work.
+        if (runId && !replay) {
+          options.onTurnAccepted?.({
+            session: summary,
+            turn,
+            turnId,
+            requestTurnId: storedTurnId ?? requestTurnId,
+            runId,
+          });
+        }
+      } catch {
+        // coercion-ok: an observer of a started turn must not stop it.
+      }
       const events = (async function* () {
         let retryableFailure = false;
         try {
@@ -1610,6 +1678,7 @@ export function createHttpAgentChatRuntime<
 
       return {
         id: turnId,
+        requestTurnId: runTurnId,
         sessionId,
         runId,
         events,
@@ -4808,6 +4877,46 @@ function metadataStringList(
   return strings.length > 0 ? strings : undefined;
 }
 
+/** The turn a continuation continues; a queued turn keeps its queue id. */
+function agentNativeRequestTurnId(input: {
+  turn: AgentChatRuntimeTurnInput;
+  turnId: AgentChatRuntimeTurnId;
+}): AgentChatRuntimeTurnId {
+  return (
+    metadataString(
+      input.turn.metadata,
+      AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY,
+    ) ??
+    input.turn.queuePromotion?.turnId ??
+    input.turnId
+  );
+}
+
+function agentNativeTurnInitiator(
+  metadata: AgentChatRuntimeMetadata | undefined,
+): TurnInitiator {
+  const custom = asRecord(metadata?.custom);
+  const startedByChat =
+    metadata?.[AGENT_NATIVE_INTERNAL_CONTINUATION_METADATA_KEY] === true ||
+    metadata?.trackInRunsTray === true ||
+    metadata?.hideUserMessage === true ||
+    [
+      AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY,
+      AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY,
+      "approvedToolCalls",
+      AUTO_CONTINUE_OF_RUN_METADATA_KEY,
+      CONTINUE_OF_RUN_METADATA_KEY,
+    ].some((key) => metadata?.[key] !== undefined) ||
+    custom?.agentNativeRecoveryAction !== undefined ||
+    custom?.agentNativeResumeAfterSetup === true;
+  if (startedByChat) return "system";
+  // A send deferred while the thread restored is still the sender's own.
+  const fromApp =
+    metadataString(metadata, "submitMessageId") !== undefined ||
+    custom?.agentNativeDeferredFromApp === true;
+  return fromApp ? "app" : "user";
+}
+
 function terminalRuntimeTurn(input: {
   sessionId: AgentChatRuntimeSessionId;
   turnId?: AgentChatRuntimeTurnId;
@@ -4822,8 +4931,17 @@ function terminalRuntimeTurn(input: {
   };
 }
 
+/**
+ * Where the runtime reports telemetry. It is injected rather than imported so
+ * the runtime stays loadable without the browser analytics module.
+ */
+export interface AgentNativeChatRuntimeTelemetry {
+  readonly onTurnSubmitted?: (report: TurnSubmittedReport) => void;
+}
+
 export function createAgentNativeChatRuntime(
   options: CreateAgentNativeChatRuntimeOptions = {},
+  telemetry: AgentNativeChatRuntimeTelemetry = {},
 ): AgentChatRuntime<AgentChatRuntimeKnownEvent> {
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const runtimeId = options.id ?? "agent-native";
@@ -4911,6 +5029,30 @@ export function createAgentNativeChatRuntime(
       options.description ?? "Agent-Native's built-in chat transport.",
     endpoint: apiUrl,
     fetch: runtimeFetch,
+    requestTurnId: agentNativeRequestTurnId,
+    onTurnAccepted: ({ session, turn, requestTurnId, runId }) => {
+      const metadata = turn.metadata;
+      const custom = asRecord(metadata?.custom) ?? undefined;
+      const requestMode =
+        metadataString(metadata, "requestMode") ??
+        metadataString(metadata, "mode") ??
+        options.mode;
+      telemetry.onTurnSubmitted?.({
+        turnId: requestTurnId,
+        threadId: session.threadId ?? options.threadId,
+        runId,
+        surface:
+          metadataString(metadata, "agentNativeSurface") ??
+          DEFAULT_TURN_SURFACE,
+        initiator: agentNativeTurnInitiator(metadata),
+        submitMessageId: metadataString(metadata, "submitMessageId"),
+        recoveryOfRunId:
+          metadataString(custom, "agentNativeRecoveryOfRunId") ??
+          metadataString(metadata, CONTINUE_OF_RUN_METADATA_KEY) ??
+          metadataString(metadata, AUTO_CONTINUE_OF_RUN_METADATA_KEY),
+        requestMode,
+      });
+    },
     beforeStartTurn: async ({ session, turn, turnId }) => {
       const metadata = turn.metadata;
       const isAdmittedContinuation =
@@ -4971,7 +5113,7 @@ export function createAgentNativeChatRuntime(
         connectionRequests: true,
       },
     },
-    mapRequest: ({ session, turn, turnId }) => {
+    mapRequest: ({ session, turn, turnId, requestTurnId }) => {
       const latestUserMessage = [...(turn.messages ?? [])]
         .reverse()
         .find((message) => message.role === "user");
@@ -5067,7 +5209,7 @@ export function createAgentNativeChatRuntime(
         history,
         ...(structuredHistory?.length ? { structuredHistory } : {}),
         ...(loadedSkillSlugs.length ? { loadedSkillSlugs } : {}),
-        turnId: continuationTurnId ?? turn.queuePromotion?.turnId ?? turnId,
+        turnId: requestTurnId,
         threadId: session.threadId ?? options.threadId,
         ...(turn.submissionPayload !== undefined
           ? { submissionPayload: turn.submissionPayload }

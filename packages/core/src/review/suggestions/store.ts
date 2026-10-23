@@ -280,11 +280,12 @@ export async function amendSuggestion(
   summary: string,
   idempotencyKey: string,
   request: string,
+  baseRevision: string = before.baseRevision,
 ): Promise<ResourceSuggestion | null> {
   const now = new Date().toISOString();
   const claimed = await client.execute({
-    sql: "UPDATE agent_review_suggestions SET revision = revision + 1, summary = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND revision = ?",
-    args: [summary, now, before.id, before.revision],
+    sql: "UPDATE agent_review_suggestions SET revision = revision + 1, summary = ?, base_revision = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND revision = ?",
+    args: [summary, baseRevision, now, before.id, before.revision],
   });
   if (claimed.rowsAffected !== 1) return null;
   await client.execute({
@@ -311,6 +312,37 @@ export async function amendSuggestion(
     ],
   });
   return after;
+}
+
+/**
+ * Moves a pending suggestion onto `baseRevision` with `operations` that make
+ * the same change there, as when its resource was rewritten into an
+ * equivalent form. It is recorded as an amendment, so the suggestion's
+ * revision moves and anyone holding the old one refreshes before deciding.
+ * Null when the suggestion was decided or changed since `before` was read.
+ */
+export function rebaseSuggestion(
+  client: DbExec,
+  before: ResourceSuggestion,
+  input: {
+    operations: SuggestionOperation[];
+    baseRevision: string;
+    idempotencyKey: string;
+    reason: string;
+  },
+): Promise<ResourceSuggestion | null> {
+  return amendSuggestion(
+    client,
+    before,
+    input.operations,
+    before.summary,
+    input.idempotencyKey,
+    JSON.stringify({
+      rebase: input.reason,
+      baseRevision: input.baseRevision,
+    }),
+    input.baseRevision,
+  );
 }
 
 export async function getSuggestion(
