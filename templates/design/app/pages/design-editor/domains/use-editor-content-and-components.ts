@@ -630,16 +630,26 @@ export function useEditorContentAndComponents({
         );
         markMotionTracksDirty();
       }
+      // Marked here, not in the updater: React may run that later, after a
+      // pending save has already sent the tracks from before the prune.
+      if (
+        motionTracks.some((track) => nodeIdsToRemove.has(track.targetNodeId))
+      ) {
+        markMotionTracksDirty();
+      }
       setMotionTracks((current) => {
         const next = current.filter(
           (track) => !nodeIdsToRemove.has(track.targetNodeId),
         );
-        if (next.length === current.length) return current;
-        markMotionTracksDirty();
-        return next;
+        return next.length === current.length ? current : next;
       });
     },
-    [markMotionTracksDirty, motionTextDocument, setMotionTextDocument],
+    [
+      markMotionTracksDirty,
+      motionTextDocument,
+      motionTracks,
+      setMotionTextDocument,
+    ],
   );
 
   const handleMotionTracksChange = useCallback(
