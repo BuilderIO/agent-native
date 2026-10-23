@@ -11,7 +11,7 @@ import {
   LIVE_BODY_WRITER_FLAG,
 } from "../../shared/feature-flags.js";
 import { drizzleOverExec } from "../db/exec.js";
-import { schema } from "../db/index.js";
+import { schema, type getDb } from "../db/index.js";
 
 // Decision D2 of the stored-form rebuild: a page's body is written through its
 // live copy only when the page is switched, its live copy holds the page's
@@ -164,6 +164,8 @@ export async function assertLegacyBodyWritePath(
     return;
   throw liveBodyWritePathChanged(row.id);
 }
+
+type ContentDb = Pick<ReturnType<typeof getDb>, "select">;
 
 /**
  * Refuses to link a page that takes body writes through its live copy to a

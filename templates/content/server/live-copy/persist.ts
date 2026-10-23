@@ -103,7 +103,6 @@ const pageColumns = {
   bodyRevision: schema.documents.bodyRevision,
   collabBodyRevision: schema.documents.collabBodyRevision,
   liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
-  sourceMode: schema.documents.sourceMode,
   liveCopyVersion: schema.documents.liveCopyVersion,
   ownerEmail: schema.documents.ownerEmail,
   orgId: schema.documents.orgId,
@@ -121,7 +120,6 @@ export type PageRow = {
   bodyRevision: number;
   collabBodyRevision: number | null;
   liveBodySwitchedAt: string | null;
-  sourceMode: string | null;
   liveCopyVersion: number | null;
   ownerEmail: string;
   orgId: string | null;
