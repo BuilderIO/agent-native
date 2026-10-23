@@ -905,9 +905,12 @@ export const editorChromeBridgeScript: string = `"use strict";
 
   // shared/export-image-source.ts
   var EXPORT_IMAGE_NATURAL_WIDTH = "data-agent-native-export-image-natural-width";
+  function isResponsiveExportImage(image) {
+    return image.hasAttribute("srcset") || Boolean(image.closest("picture")?.querySelector("source[srcset]")) || image.hasAttribute(EXPORT_IMAGE_NATURAL_WIDTH);
+  }
   function copyExportImageSource(source, clone) {
     if (source.currentSrc) clone.setAttribute("src", source.currentSrc);
-    if (source.hasAttribute("srcset") || source.closest("picture")?.querySelector("source[srcset]") || source.hasAttribute(EXPORT_IMAGE_NATURAL_WIDTH)) {
+    if (isResponsiveExportImage(source)) {
       clone.setAttribute(EXPORT_IMAGE_NATURAL_WIDTH, String(source.naturalWidth));
     }
     clone.removeAttribute("srcset");
@@ -926,6 +929,27 @@ export const editorChromeBridgeScript: string = `"use strict";
     } finally {
       signal.removeEventListener("abort", onAbort);
     }
+  }
+  async function prepareExportImageSource(source, signal) {
+    let image = source;
+    if (source.loading === "lazy" && !source.complete) {
+      const picture = source.closest("picture");
+      if (picture) {
+        const sourceImages = Array.from(picture.querySelectorAll("img"));
+        const imageIndex = sourceImages.indexOf(source);
+        const clonedImages = picture.cloneNode(true).querySelectorAll("img");
+        const clonedImage = clonedImages[imageIndex];
+        if (!clonedImage) {
+          throw new Error("Export image source is unavailable.");
+        }
+        image = clonedImage;
+      } else {
+        image = source.cloneNode(true);
+      }
+      image.loading = "eager";
+    }
+    await decodeExportImage(image, signal);
+    return image;
   }
   async function resolveExportImageSource(image, source, signal) {
     const naturalWidth = image.getAttribute(EXPORT_IMAGE_NATURAL_WIDTH);
@@ -2713,7 +2737,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return !(isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]"));
     }
-    function serializeRuntimeLayerSnapshot(excludedRoot) {
+    function serializeRuntimeLayerSnapshot(excludedRoot, preparedImageSources, unavailableImageSources) {
       if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
       var snapshotFailures = [];
       function cloneRuntimeStylesheet(sourceNode2, cloneNode2) {
@@ -2810,7 +2834,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           snapshotFailures.push("foreign-object-unavailable");
         }
         if (sourceNode instanceof HTMLImageElement && cloneNode instanceof HTMLImageElement) {
-          copyExportImageSource(sourceNode, cloneNode);
+          var preparedImage = preparedImageSources?.get(sourceNode);
+          copyExportImageSource(preparedImage || sourceNode, cloneNode);
+          if (unavailableImageSources?.has(sourceNode)) {
+            snapshotFailures.push("image-unavailable");
+          }
         }
         var provenance = elementDebugProvenance(sourceNode);
         if (provenance.sourceFile) {
@@ -3455,39 +3483,40 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         clearPendingPostReadiness();
       }
-      var snapshot = serializeRuntimeLayerSnapshot();
-      if (!snapshot.ok) {
-        window.parent.postMessage(
-          {
-            type: "agent-native:runtime-layer-snapshot-error",
-            payload: {
-              ...snapshot,
-              requestId,
-              documentId: runtimeDocumentId,
-              ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
-              ...reservationToken ? { reservationToken } : {}
-            }
-          },
-          "*"
-        );
-        clearPendingPostReadiness();
-        return;
-      }
-      void inlineRuntimeSnapshotResources(snapshot.html, 5e6).then(function(inlined) {
+      var imagePreparationSignal = AbortSignal.timeout(15e3);
+      var responsiveImages = Array.prototype.slice.call(document.querySelectorAll("img")).filter(isResponsiveExportImage);
+      void Promise.all(
+        responsiveImages.map(async function(image) {
+          try {
+            return [
+              image,
+              await prepareExportImageSource(image, imagePreparationSignal)
+            ];
+          } catch {
+            return [image, null];
+          }
+        })
+      ).then(function(preparedResults) {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
-        snapshot.html = inlined.html;
-        if (inlined.errorCode === "export_too_large" || snapshot.html.length > 14e6) {
-          postSnapshotTooLargeError();
-          return;
-        }
-        var snapshotReservationToken = reservationToken || "";
-        if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(postReadinessRequestId)) {
+        var preparedImageSources = /* @__PURE__ */ new Map();
+        var unavailableImageSources = /* @__PURE__ */ new Set();
+        preparedResults.forEach(function([image, prepared]) {
+          if (prepared) preparedImageSources.set(image, prepared);
+          else unavailableImageSources.add(image);
+        });
+        var snapshot = serializeRuntimeLayerSnapshot(
+          void 0,
+          preparedImageSources,
+          unavailableImageSources
+        );
+        if (!snapshot.ok) {
           window.parent.postMessage(
             {
-              type: "agent-native:runtime-layer-snapshot-unchanged",
+              type: "agent-native:runtime-layer-snapshot-error",
               payload: {
+                ...snapshot,
                 requestId,
-                documentId: snapshot.documentId,
+                documentId: runtimeDocumentId,
                 ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
                 ...reservationToken ? { reservationToken } : {}
               }
@@ -3497,23 +3526,50 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearPendingPostReadiness();
           return;
         }
-        if (requestId !== void 0) snapshot.requestId = requestId;
-        if (Number.isSafeInteger(postReadinessRequestId)) {
-          snapshot.readinessRequestId = postReadinessRequestId;
-        }
-        if (reservationToken) snapshot.reservationToken = reservationToken;
-        var snapshotMessage = {
-          type: "agent-native:runtime-layer-snapshot",
-          payload: snapshot
-        };
-        if (new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength > 5e6) {
-          postSnapshotTooLargeError();
-          return;
-        }
-        lastRuntimeLayerSnapshotHtml = snapshot.html;
-        lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
-        window.parent.postMessage(snapshotMessage, "*");
-        clearPendingPostReadiness();
+        return inlineRuntimeSnapshotResources(snapshot.html, 5e6).then(
+          function(inlined) {
+            if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+            snapshot.html = inlined.html;
+            if (inlined.errorCode === "export_too_large" || snapshot.html.length > 14e6) {
+              postSnapshotTooLargeError();
+              return;
+            }
+            var snapshotReservationToken = reservationToken || "";
+            if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(postReadinessRequestId)) {
+              window.parent.postMessage(
+                {
+                  type: "agent-native:runtime-layer-snapshot-unchanged",
+                  payload: {
+                    requestId,
+                    documentId: snapshot.documentId,
+                    ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
+                    ...reservationToken ? { reservationToken } : {}
+                  }
+                },
+                "*"
+              );
+              clearPendingPostReadiness();
+              return;
+            }
+            if (requestId !== void 0) snapshot.requestId = requestId;
+            if (Number.isSafeInteger(postReadinessRequestId)) {
+              snapshot.readinessRequestId = postReadinessRequestId;
+            }
+            if (reservationToken) snapshot.reservationToken = reservationToken;
+            var snapshotMessage = {
+              type: "agent-native:runtime-layer-snapshot",
+              payload: snapshot
+            };
+            if (new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength > 5e6) {
+              postSnapshotTooLargeError();
+              return;
+            }
+            lastRuntimeLayerSnapshotHtml = snapshot.html;
+            lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+            window.parent.postMessage(snapshotMessage, "*");
+            clearPendingPostReadiness();
+          }
+        );
       }).catch(function() {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
         window.parent.postMessage(

@@ -1,16 +1,20 @@
 const EXPORT_IMAGE_NATURAL_WIDTH =
   "data-agent-native-export-image-natural-width";
 
+export function isResponsiveExportImage(image: HTMLImageElement): boolean {
+  return (
+    image.hasAttribute("srcset") ||
+    Boolean(image.closest("picture")?.querySelector("source[srcset]")) ||
+    image.hasAttribute(EXPORT_IMAGE_NATURAL_WIDTH)
+  );
+}
+
 export function copyExportImageSource(
   source: HTMLImageElement,
   clone: HTMLImageElement,
 ): void {
   if (source.currentSrc) clone.setAttribute("src", source.currentSrc);
-  if (
-    source.hasAttribute("srcset") ||
-    source.closest("picture")?.querySelector("source[srcset]") ||
-    source.hasAttribute(EXPORT_IMAGE_NATURAL_WIDTH)
-  ) {
+  if (isResponsiveExportImage(source)) {
     clone.setAttribute(EXPORT_IMAGE_NATURAL_WIDTH, String(source.naturalWidth));
   }
   clone.removeAttribute("srcset");
@@ -33,6 +37,33 @@ export async function decodeExportImage(
   } finally {
     signal.removeEventListener("abort", onAbort!);
   }
+}
+
+export async function prepareExportImageSource(
+  source: HTMLImageElement,
+  signal: AbortSignal,
+): Promise<HTMLImageElement> {
+  let image = source;
+  if (source.loading === "lazy" && !source.complete) {
+    const picture = source.closest("picture");
+    if (picture) {
+      const sourceImages = Array.from(picture.querySelectorAll("img"));
+      const imageIndex = sourceImages.indexOf(source);
+      const clonedImages = (
+        picture.cloneNode(true) as Element
+      ).querySelectorAll("img");
+      const clonedImage = clonedImages[imageIndex];
+      if (!clonedImage) {
+        throw new Error("Export image source is unavailable.");
+      }
+      image = clonedImage;
+    } else {
+      image = source.cloneNode(true) as HTMLImageElement;
+    }
+    image.loading = "eager";
+  }
+  await decodeExportImage(image, signal);
+  return image;
 }
 
 export async function resolveExportImageSource(

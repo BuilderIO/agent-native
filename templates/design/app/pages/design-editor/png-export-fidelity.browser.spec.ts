@@ -162,7 +162,7 @@ it.each([
     redHeight: 50,
   },
   {
-    name: "an offscreen lazy image without modifying its source attributes",
+    name: "an offscreen lazy responsive image in direct export",
     width: 400,
     height: 400,
     frameHeight: 400,
@@ -171,6 +171,30 @@ it.each([
       '<style>html,body{margin:0}</style><img id="probe" loading="lazy" srcset="/density.svg 2x">',
     redWidth: 100,
     redHeight: 50,
+  },
+  {
+    name: "an offscreen lazy responsive image in a runtime snapshot",
+    width: 400,
+    height: 400,
+    frameHeight: 400,
+    lazy: true,
+    runtime: true,
+    content:
+      '<style>html,body{margin:0}</style><img id="probe" loading="lazy" srcset="/density.svg 2x">',
+    redWidth: 100,
+    redHeight: 50,
+  },
+  {
+    name: "an offscreen lazy image with only a fallback source",
+    width: 400,
+    height: 400,
+    frameHeight: 400,
+    lazy: true,
+    runtime: true,
+    content:
+      '<style>html,body{margin:0}</style><img id="probe" loading="lazy" src="/density.svg">',
+    redWidth: 200,
+    redHeight: 100,
   },
   {
     name: "unsupported picture source sharing the fallback URL",
@@ -261,10 +285,23 @@ it.each([
       );
     }
   }, fixture);
+  if ("lazy" in fixture && fixture.lazy) {
+    await page.frames()[1]!.evaluate(() => {
+      (window as any).__initialImageCurrentSrc =
+        document.querySelector("img")?.currentSrc ?? "";
+    });
+  }
   await page.frames()[1]!.addScriptTag({
     content: hydrateBridge("runtime" in fixture && fixture.runtime === true),
   });
   if ("runtime" in fixture && fixture.runtime) {
+    if ("lazy" in fixture && fixture.lazy) {
+      expect(
+        await page
+          .frames()[1]!
+          .evaluate(() => (window as any).__initialImageCurrentSrc),
+      ).toBe("");
+    }
     await page.waitForFunction(
       () => typeof (window as any).__exportSnapshot === "string",
     );

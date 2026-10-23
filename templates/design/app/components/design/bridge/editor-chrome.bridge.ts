@@ -32,6 +32,8 @@ import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
 import {
   copyExportImageSource,
+  isResponsiveExportImage,
+  prepareExportImageSource,
   resolveExportImageSource,
 } from "../../../../shared/export-image-source";
 import { relativePositionContainingBlockDirection } from "../../../../shared/relative-position-containing-block";
@@ -2243,6 +2245,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   function serializeRuntimeLayerSnapshot(
     excludedRoot?: Element,
+    preparedImageSources?: Map<HTMLImageElement, HTMLImageElement>,
+    unavailableImageSources?: Set<HTMLImageElement>,
   ):
     | { ok: true; html: string; nodeCount: number; documentId: string }
     | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
@@ -2387,7 +2391,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         sourceNode instanceof HTMLImageElement &&
         cloneNode instanceof HTMLImageElement
       ) {
-        copyExportImageSource(sourceNode, cloneNode);
+        var preparedImage = preparedImageSources?.get(sourceNode);
+        copyExportImageSource(preparedImage || sourceNode, cloneNode);
+        if (unavailableImageSources?.has(sourceNode)) {
+          snapshotFailures.push("image-unavailable");
+        }
       }
       var provenance = elementDebugProvenance(sourceNode);
       if (provenance.sourceFile) {
@@ -3186,50 +3194,46 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       );
       clearPendingPostReadiness();
     }
-    var snapshot = serializeRuntimeLayerSnapshot();
-    if (!snapshot.ok) {
-      (window.parent as Window).postMessage(
-        {
-          type: "agent-native:runtime-layer-snapshot-error",
-          payload: {
-            ...snapshot,
-            requestId,
-            documentId: runtimeDocumentId,
-            ...(Number.isSafeInteger(postReadinessRequestId)
-              ? { readinessRequestId: postReadinessRequestId }
-              : {}),
-            ...(reservationToken ? { reservationToken } : {}),
-          },
-        },
-        "*",
-      );
-      clearPendingPostReadiness();
-      return;
-    }
-    void inlineRuntimeSnapshotResources(snapshot.html, 5_000_000)
-      .then(function (inlined) {
-        if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
-        snapshot.html = inlined.html;
-        if (
-          inlined.errorCode === "export_too_large" ||
-          snapshot.html.length > 14_000_000
-        ) {
-          postSnapshotTooLargeError();
-          return;
+    var imagePreparationSignal = AbortSignal.timeout(15_000);
+    var responsiveImages = Array.prototype.slice
+      .call(document.querySelectorAll("img"))
+      .filter(isResponsiveExportImage) as HTMLImageElement[];
+    void Promise.all(
+      responsiveImages.map(async function (image) {
+        try {
+          return [
+            image,
+            await prepareExportImageSource(image, imagePreparationSignal),
+          ] as const;
+        } catch {
+          return [image, null] as const;
         }
-        var snapshotReservationToken = reservationToken || "";
-        if (
-          snapshot.html === lastRuntimeLayerSnapshotHtml &&
-          snapshotReservationToken ===
-            lastRuntimeLayerSnapshotReservationToken &&
-          !Number.isSafeInteger(postReadinessRequestId)
-        ) {
+      }),
+    )
+      .then(function (preparedResults) {
+        if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+        var preparedImageSources = new Map<
+          HTMLImageElement,
+          HTMLImageElement
+        >();
+        var unavailableImageSources = new Set<HTMLImageElement>();
+        preparedResults.forEach(function ([image, prepared]) {
+          if (prepared) preparedImageSources.set(image, prepared);
+          else unavailableImageSources.add(image);
+        });
+        var snapshot = serializeRuntimeLayerSnapshot(
+          undefined,
+          preparedImageSources,
+          unavailableImageSources,
+        );
+        if (!snapshot.ok) {
           (window.parent as Window).postMessage(
             {
-              type: "agent-native:runtime-layer-snapshot-unchanged",
+              type: "agent-native:runtime-layer-snapshot-error",
               payload: {
+                ...snapshot,
                 requestId,
-                documentId: snapshot.documentId,
+                documentId: runtimeDocumentId,
                 ...(Number.isSafeInteger(postReadinessRequestId)
                   ? { readinessRequestId: postReadinessRequestId }
                   : {}),
@@ -3241,26 +3245,63 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           clearPendingPostReadiness();
           return;
         }
-        if (requestId !== undefined) snapshot.requestId = requestId;
-        if (Number.isSafeInteger(postReadinessRequestId)) {
-          snapshot.readinessRequestId = postReadinessRequestId;
-        }
-        if (reservationToken) snapshot.reservationToken = reservationToken;
-        var snapshotMessage = {
-          type: "agent-native:runtime-layer-snapshot",
-          payload: snapshot,
-        };
-        if (
-          new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength >
-          5_000_000
-        ) {
-          postSnapshotTooLargeError();
-          return;
-        }
-        lastRuntimeLayerSnapshotHtml = snapshot.html;
-        lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
-        (window.parent as Window).postMessage(snapshotMessage, "*");
-        clearPendingPostReadiness();
+        return inlineRuntimeSnapshotResources(snapshot.html, 5_000_000).then(
+          function (inlined) {
+            if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+            snapshot.html = inlined.html;
+            if (
+              inlined.errorCode === "export_too_large" ||
+              snapshot.html.length > 14_000_000
+            ) {
+              postSnapshotTooLargeError();
+              return;
+            }
+            var snapshotReservationToken = reservationToken || "";
+            if (
+              snapshot.html === lastRuntimeLayerSnapshotHtml &&
+              snapshotReservationToken ===
+                lastRuntimeLayerSnapshotReservationToken &&
+              !Number.isSafeInteger(postReadinessRequestId)
+            ) {
+              (window.parent as Window).postMessage(
+                {
+                  type: "agent-native:runtime-layer-snapshot-unchanged",
+                  payload: {
+                    requestId,
+                    documentId: snapshot.documentId,
+                    ...(Number.isSafeInteger(postReadinessRequestId)
+                      ? { readinessRequestId: postReadinessRequestId }
+                      : {}),
+                    ...(reservationToken ? { reservationToken } : {}),
+                  },
+                },
+                "*",
+              );
+              clearPendingPostReadiness();
+              return;
+            }
+            if (requestId !== undefined) snapshot.requestId = requestId;
+            if (Number.isSafeInteger(postReadinessRequestId)) {
+              snapshot.readinessRequestId = postReadinessRequestId;
+            }
+            if (reservationToken) snapshot.reservationToken = reservationToken;
+            var snapshotMessage = {
+              type: "agent-native:runtime-layer-snapshot",
+              payload: snapshot,
+            };
+            if (
+              new TextEncoder().encode(JSON.stringify(snapshotMessage))
+                .byteLength > 5_000_000
+            ) {
+              postSnapshotTooLargeError();
+              return;
+            }
+            lastRuntimeLayerSnapshotHtml = snapshot.html;
+            lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+            (window.parent as Window).postMessage(snapshotMessage, "*");
+            clearPendingPostReadiness();
+          },
+        );
       })
       .catch(function () {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;

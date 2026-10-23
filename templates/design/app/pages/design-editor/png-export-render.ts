@@ -3,7 +3,7 @@ import { isDesignHotkeyEditableTarget } from "@/hooks/useDesignHotkeys";
 
 import {
   copyExportImageSource,
-  decodeExportImage,
+  prepareExportImageSource,
   resolveExportImageSource,
 } from "../../../shared/export-image-source";
 import {
@@ -96,17 +96,7 @@ async function normalizeClonedResponsiveImages(
   await Promise.all(
     Array.from(sourceDocument.querySelectorAll<HTMLImageElement>("img")).map(
       async (sourceImage) => {
-        let loadedImage = sourceImage;
-        if (sourceImage.loading === "lazy" && !sourceImage.complete) {
-          const picture = sourceImage.closest("picture");
-          loadedImage = picture
-            ? (picture.cloneNode(true) as Element).querySelectorAll("img")[
-                Array.from(picture.querySelectorAll("img")).indexOf(sourceImage)
-              ]!
-            : (sourceImage.cloneNode(true) as HTMLImageElement);
-          loadedImage.loading = "eager";
-        }
-        await decodeExportImage(loadedImage, signal);
+        const loadedImage = await prepareExportImageSource(sourceImage, signal);
         const clonedImage = resolveClonedElement(
           sourceDocument,
           clonedDocument,
