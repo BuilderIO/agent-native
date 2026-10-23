@@ -9365,6 +9365,55 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
+    it.each([
+      { "x-forwarded-host": "" },
+      { "x-forwarded-host": "localhost/path" },
+      { "x-forwarded-proto": "" },
+      { "x-forwarded-proto": "javascript" },
+    ])(
+      "preserves browser cookie sessions with unrelated malformed forwarding: %j",
+      async (forwardedHeaders) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        delete process.env.AUTH_DISABLED;
+        const auth = {
+          api: {
+            getSession: vi.fn(async ({ headers }: { headers: Headers }) =>
+              headers.get("cookie") ===
+              "better-auth.session_token=browser-login"
+                ? {
+                    user: { id: "browser-user", email: "owner@example.com" },
+                    session: { token: "browser-login" },
+                  }
+                : null,
+            ),
+          },
+        };
+        vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          getBetterAuth: vi.fn(async () => auth),
+          getBetterAuthSync: vi.fn(() => auth),
+          resumeIdentityRekeysForEmail: vi.fn(async () => {}),
+        }));
+        vi.doMock("../org/context.js", () => ({
+          resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+        }));
+        const { getSession } = await import("./auth.js");
+        const event = createMockEvent({
+          headers: {
+            cookie: "better-auth.session_token=browser-login",
+            ...forwardedHeaders,
+          },
+        });
+
+        await expect(getSession(event)).resolves.toMatchObject({
+          email: "owner@example.com",
+          token: "browser-login",
+        });
+      },
+    );
+
     it("rechecks the database after a legacy session is revoked", async () => {
       vi.stubEnv("NODE_ENV", "production");
       let sessionPresent = true;

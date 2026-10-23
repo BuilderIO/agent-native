@@ -61,7 +61,8 @@ function fakeUnsignedJwt(payload: Record<string, string>): string {
   return `${encode({ alg: "none" })}.${encode(payload)}.not-a-real-signature`;
 }
 
-vi.mock("h3", () => ({
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
   createError: (opts: any) =>
     Object.assign(new Error(opts?.statusMessage), opts),
   defineEventHandler: (handler: any) => handler,
@@ -796,9 +797,11 @@ describe("mountActionRoutes", () => {
         "invalid",
         "marked",
         "live-capability",
+        "live-capability-malformed",
+        "live-capability-empty",
       ] as const
     ).flatMap((credential) =>
-      (credential === "live-capability" ? [true] : [true, false]).map(
+      (credential.startsWith("live-capability") ? [true] : [true, false]).map(
         (needsApproval) => ({ credential, needsApproval }),
       ),
     ),
@@ -840,7 +843,7 @@ describe("mountActionRoutes", () => {
               audienceHost: "app.example.com",
               targetPath: "/page/doc-1",
               ttlSeconds: 60,
-              ...(credential === "live-capability"
+              ...(credential.startsWith("live-capability")
                 ? { scope: "capability:visual-edit:design:doc-1" }
                 : {}),
             });
@@ -868,6 +871,11 @@ describe("mountActionRoutes", () => {
           origin: "https://app.example.com",
           "sec-fetch-site": "same-origin",
           "x-agent-native-frontend": "1",
+          ...(credential === "live-capability-malformed"
+            ? { "x-forwarded-host": "app.example.com/path" }
+            : credential === "live-capability-empty"
+              ? { "x-forwarded-host": "" }
+              : {}),
           ...(credential === "marked"
             ? { "x-agent-native-embed-target": "/page/doc-1" }
             : {}),
@@ -879,13 +887,17 @@ describe("mountActionRoutes", () => {
           json: async () => ({ id: "doc-1", designId: "doc-1" }),
         },
       };
+      event.req.headers = new Headers(event._headers);
       if (credential === "live-capability") {
         await expect(mounted[0]!.handler(event)).resolves.toMatchObject({
           errorCode: "approval_required",
         });
         expect(event._status).toBe(409);
         expect(run).not.toHaveBeenCalled();
-      } else if (credential !== "marked") {
+      } else if (
+        !credential.startsWith("live-capability") &&
+        credential !== "marked"
+      ) {
         await expect(mounted[0]!.handler(event)).resolves.toEqual({ ok: true });
         expect(run).toHaveBeenCalledOnce();
         expect(getOwnerFromEvent).toHaveBeenCalledOnce();

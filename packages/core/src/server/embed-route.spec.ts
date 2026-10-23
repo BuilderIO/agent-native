@@ -7,7 +7,8 @@ import {
 
 const setResponseHeader = vi.hoisted(() => vi.fn());
 
-vi.mock("h3", () => ({
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
   createError: (input: { statusCode: number; statusMessage: string }) =>
     Object.assign(new Error(input.statusMessage), input),
   defineEventHandler: (handler: any) => handler,
@@ -46,6 +47,13 @@ function fakeEvent(
   headers: Record<string, string> = {},
 ) {
   return {
+    req: {
+      headers: new Headers({
+        host: "app.test",
+        "x-forwarded-proto": "https",
+        ...headers,
+      }),
+    },
     method,
     ip: "127.0.0.1",
     query,

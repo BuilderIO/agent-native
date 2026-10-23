@@ -32,6 +32,8 @@ import {
   isMcpDirectoryWidgetWriteCapabilityScope,
   renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
+import { resolveEmbedRequestOrigin } from "./embed-request-origin.js";
+import { createEmbedStartRouteHandler } from "./embed-route.js";
 import {
   requestMatchesEmbedTarget,
   normalizeEmbedTargetPath,
@@ -51,6 +53,7 @@ import {
   setEmbedSessionCookie,
   signEmbedSessionToken,
   verifyEmbedSessionToken,
+  embedSessionsStore,
 } from "./embed-session.js";
 import { getRequestContext, runWithRequestContext } from "./request-context.js";
 
@@ -1153,6 +1156,83 @@ describe("requestMatchesEmbedTarget", () => {
       ...headers,
     });
   }
+
+  it.each([
+    { "x-forwarded-host": "" },
+    { "x-forwarded-host": "mail.test/path" },
+    { "x-forwarded-proto": "" },
+    { "x-forwarded-proto": "javascript" },
+  ])(
+    "does not resolve an embed session with malformed authority: %j",
+    async (headers) => {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        audienceHost: "mail.test",
+        targetPath: "/inbox",
+      });
+      const event = credentialEvent("/inbox", token, "cookie", headers);
+      await expect(resolveEmbedSessionFromRequest(event)).resolves.toBeNull();
+      await expect(
+        isExpiredMcpDirectoryWidgetSessionRequest(event),
+      ).resolves.toBe(false);
+    },
+  );
+
+  it.each([
+    { "x-forwarded-host": "" },
+    { "x-forwarded-host": "mail.test/path" },
+    { "x-forwarded-proto": "" },
+    { "x-forwarded-proto": "javascript" },
+  ])(
+    "keeps ticket mint, start and renewal strict for malformed authority: %j",
+    async (headers) => {
+      await embedSessionsStore.ready();
+      const rows = installTicketStore();
+      const scope = contentWidgetWriteScope();
+      const ticket = await createEmbedSessionTicket({
+        ownerEmail: "owner@example.com",
+        targetPath: "/inbox",
+        scope,
+        audienceHost: "mail.test",
+        revocationAnchorCreatedAtMs: Date.now(),
+      });
+      const event = fakeEvent(
+        `/_agent-native/embed/start?ticket=${ticket.ticket}`,
+        {
+          host: "mail.test",
+          ...headers,
+        },
+      );
+      const context = {
+        userEmail: "owner@example.com",
+        requestOrigin: "http://mail.test",
+        resolveEmbedRequestOrigin: () => resolveEmbedRequestOrigin(event),
+      };
+      await expect(
+        runWithRequestContext(context, () =>
+          createEmbedSessionTicketForAudience({
+            ownerEmail: "owner@example.com",
+            targetPath: "/inbox",
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      await expect(createEmbedStartRouteHandler()(event)).rejects.toMatchObject(
+        { statusCode: 400 },
+      );
+      await expect(
+        runWithRequestContext(context, () =>
+          renewMcpDirectoryWidgetSessionForAudience({
+            sourceTicket: ticket.ticket,
+            ownerEmail: "owner@example.com",
+            expectedScope: scope,
+            renewedScope: scope,
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(rows.get(ticket.ticketHash)?.consumed_at).toBeNull();
+      expect(rows.get(ticket.ticketHash)?.scope).toBe(scope);
+    },
+  );
 
   it.each([
     ["/_agent-native/auth/session", "GET"],
