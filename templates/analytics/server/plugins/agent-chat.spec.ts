@@ -1886,7 +1886,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
           timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
           groupBy: [],
         },
-        rows: [{ signups: 3 }],
+        rows: [[3]],
       }),
     };
     const warehouseRows = {
@@ -1946,7 +1946,78 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       'no owner-approved figure for "active_accounts"',
     );
     expect(result?.fallbackMessage).toContain(
-      "Other metrics with complete successful dbt queries remain independently verified",
+      '"signups" from 2026-09-01 through 2026-09-30 returned 3',
+    );
+  });
+
+  it("keeps a successful metric value in the exhausted fallback after the retry still includes a failed metric", async () => {
+    const signupsSuccess = {
+      name: "query-dbt-semantic-metric",
+      isError: false,
+      content: JSON.stringify({
+        status: "success",
+        metricName: "signups",
+        truncated: false,
+        querySpec: {
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+          groupBy: [],
+        },
+        rows: [[3]],
+      }),
+    };
+    const params = {
+      userText: "What were active accounts and signups last month?",
+      draftText: "There were 10 active accounts and 3 signups last month.",
+      runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+      toolCalls: [
+        {
+          toolCallId: "dbt-failure",
+          name: "query-dbt-semantic-metric",
+          input: {
+            metricName: "active_accounts",
+            timeRange: activeAccountsRange,
+            groupBy: [],
+          },
+        },
+        {
+          toolCallId: "dbt-success",
+          name: "query-dbt-semantic-metric",
+          input: {
+            metricName: "signups",
+            timeRange: activeAccountsRange,
+            groupBy: [],
+          },
+        },
+      ],
+      toolResults: [
+        {
+          ...dbtNotFound,
+          toolCallId: "dbt-failure",
+          content: JSON.stringify({
+            status: "not_found",
+            metricName: "active_accounts",
+          }),
+        },
+        { ...signupsSuccess, toolCallId: "dbt-success" },
+      ],
+    };
+
+    const firstAttempt = await judged(params, "YES");
+    const exhaustedRetry = await judged(
+      {
+        ...params,
+        draftText:
+          "There were 10 active accounts and 3 signups last month, but the active account result was unavailable.",
+      },
+      "YES",
+    );
+
+    expect(firstAttempt.result).toMatchObject(withheld);
+    expect(exhaustedRetry.result?.fallbackMessage).toContain(
+      '"signups" from 2026-09-01 through 2026-09-30 returned 3',
+    );
+    expect(exhaustedRetry.result?.fallbackMessage).not.toContain(
+      "10 active accounts",
     );
   });
 

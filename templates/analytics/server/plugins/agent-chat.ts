@@ -1046,6 +1046,97 @@ function mixedMetricDbtFailureNames(
   ];
 }
 
+function dbtRowsSummary(rows: unknown[]): string {
+  if (rows.length === 1) {
+    const [row] = rows;
+    if (Array.isArray(row) && row.length === 1) {
+      return JSON.stringify(row[0]) ?? "null";
+    }
+    if (
+      row !== null &&
+      typeof row === "object" &&
+      !Array.isArray(row) &&
+      Object.keys(row).length === 1
+    ) {
+      return JSON.stringify(Object.values(row)[0]) ?? "null";
+    }
+  }
+  return JSON.stringify(rows) ?? "[]";
+}
+
+function dbtMetricScopeSummary(value: unknown): string {
+  const parsed = actionSummaryRecord(value);
+  if (parsed.kind !== "record") return "";
+  const parts: string[] = [];
+  const timeRange = metricTimeRange(parsed.record.timeRange);
+  if (timeRange) {
+    parts.push(`from ${timeRange.startDate} through ${timeRange.endDate}`);
+  } else if (parsed.record.allTime === true) {
+    parts.push("across all time");
+  }
+  if (Array.isArray(parsed.record.groupBy)) {
+    const dimensions = parsed.record.groupBy.flatMap((item) => {
+      const dimension = actionSummaryRecord(item);
+      if (
+        dimension.kind !== "record" ||
+        typeof dimension.record.name !== "string"
+      ) {
+        return [];
+      }
+      return [
+        `${dimension.record.name}${
+          typeof dimension.record.grain === "string"
+            ? ` (${dimension.record.grain})`
+            : ""
+        }`,
+      ];
+    });
+    if (dimensions.length > 0) {
+      parts.push(`grouped by ${dimensions.join(", ")}`);
+    }
+  }
+  return parts.length > 0 ? ` ${parts.join(", ")}` : "";
+}
+
+function mixedMetricDbtSuccessSummaries(
+  context: AgentLoopFinalResponseGuardContext,
+): string[] {
+  const results = context.toolResults ?? [];
+  const failures = unresolvedDbtFailures(context);
+  if (failures.length === 0 || failures.some(({ query }) => !query)) {
+    return [];
+  }
+  const failedMetricKeys = new Set(
+    failures.map(({ query }) => query!.metricKey),
+  );
+  const failedScopes = new Set(
+    failures.map(({ query }) => query!.querySpecKey),
+  );
+  return results.flatMap((result, index) => {
+    if (
+      !isNamedTool(result.name, DBT_QUERY_TOOL) ||
+      !isCompleteDbtSuccess(result)
+    ) {
+      return [];
+    }
+    const query = dbtQueryForResult(context, index);
+    const payload = readDbtPayload(result.content);
+    if (
+      !query ||
+      failedMetricKeys.has(query.metricKey) ||
+      !failedScopes.has(query.querySpecKey) ||
+      payload === null ||
+      payload === UNREADABLE_DBT_PAYLOAD ||
+      !Array.isArray(payload.rows)
+    ) {
+      return [];
+    }
+    return [
+      `"${query.metricName}"${dbtMetricScopeSummary(payload.querySpec)} returned ${dbtRowsSummary(payload.rows)}`,
+    ];
+  });
+}
+
 // Whether this turn holds an unresolved dbt result and another result that could carry data,
 // in any position. The unresolved result does not count as that other result: a paged dbt
 // success is for the paging guard to continue. Complete results for other metrics are handled
@@ -1066,6 +1157,7 @@ function hasUnresolvedDbtFailureInTurn(
 function dbtMultiMetricFallbackMessages(
   metricNames: string[],
   askedForWarehouse: boolean,
+  successfulMetricSummaries: string[],
 ) {
   const plural = metricNames.length > 1;
   const names = metricNames.map((name) => JSON.stringify(name)).join(", ");
@@ -1076,7 +1168,7 @@ function dbtMultiMetricFallbackMessages(
     retryMessage: askedForWarehouse
       ? `Do not state any figure, count, or list of values for the unresolved owner-defined dbt metric${plural ? "s" : ""} ${names}. ${plural ? "Their dbt queries did" : "Its dbt query did"} not complete, and a warehouse query does not prove an equivalent calculation. Keep figures from other complete successful dbt metric queries when they answer the question, and say only the unresolved metric${plural ? "s" : ""} ${plural ? "are" : "is"} unavailable.`
       : `Do not state any figure, count, or list of values for the unresolved owner-defined dbt metric${plural ? "s" : ""} ${names}. Keep figures from other complete successful dbt metric queries when they answer the question, and say only the unresolved metric${plural ? "s" : ""} ${plural ? "are" : "is"} unavailable.`,
-    fallbackMessage: `The dbt Semantic Layer quer${plural ? "ies" : "y"} for ${names} did not complete, so no owner-approved figure${plural ? "s" : ""} for ${names} ${plural ? "are" : "is"} available. Other metrics with complete successful dbt queries remain independently verified. ${warehouseMessage}`,
+    fallbackMessage: `The dbt Semantic Layer quer${plural ? "ies" : "y"} for ${names} did not complete, so no owner-approved figure${plural ? "s" : ""} for ${names} ${plural ? "are" : "is"} available. ${successfulMetricSummaries.length > 0 ? `A complete dbt query returned ${successfulMetricSummaries.join("; ")}.` : "A separate dbt result could not be matched to the failed metric's query scope, so its values are not included."} ${warehouseMessage}`,
   };
 }
 
@@ -1098,6 +1190,7 @@ function dbtFallbackGuard(
     ? dbtMultiMetricFallbackMessages(
         mixedMetricFailures,
         askedForWarehouseNumbers(context),
+        mixedMetricDbtSuccessSummaries(context),
       )
     : null;
   if (!askedForWarehouseNumbers(context)) {
