@@ -1144,6 +1144,40 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toBeNull();
   });
 
+  it("does not withhold a date or error code the warehouse did not return", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "The dbt query failed after 2 attempts in 2026, so no figure is given.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("withholds a spelled-out figure above ninety-nine", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: "Active accounts were one hundred twenty last month.",
+        toolResults: [
+          dbtNotFound,
+          {
+            name: "bigquery",
+            isError: false,
+            content: JSON.stringify({ rows: [{ n: 120 }], totalRows: 1 }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+  });
+
   it("does not force a disclosure retry on a readiness status alone, without a dbt metric attempt", () => {
     const result = realDataFinalGuard(
       guardContext({

@@ -616,19 +616,45 @@ const TENS = [
   "eighty",
   "ninety",
 ];
-// The word for a whole number the warehouse returned. Zero and one are left out:
-// they are too common in ordinary prose to count as a figure.
-function numberWordsFor(value: number): string | null {
-  if (!Number.isInteger(value) || value < 2 || value > 99) return null;
-  if (value < 20) return ONES[value];
-  const ones = value % 10;
-  const tens = TENS[Math.floor(value / 10)];
-  return ones === 0 ? tens : `${tens} ${ONES[ones]}`;
+// Words for a number below one thousand, such as "one hundred twenty".
+function wordsBelowThousand(value: number): string {
+  const hundreds = Math.floor(value / 100);
+  const rest = value % 100;
+  const parts: string[] = [];
+  if (hundreds > 0) parts.push(`${ONES[hundreds]} hundred`);
+  if (rest > 0) {
+    parts.push(
+      rest < 20
+        ? ONES[rest]
+        : `${TENS[Math.floor(rest / 10)]}${rest % 10 === 0 ? "" : ` ${ONES[rest % 10]}`}`,
+    );
+  }
+  return parts.join(" ");
 }
-// A figure is a digit, a number from this turn's warehouse rows written as a word,
-// or a warehouse value the draft repeats. Warehouse values are in wordsOf form.
-function draftHasWarehouseFigure(text: string, warehouseValues: string[]) {
-  if (/\d/.test(text)) return true;
+// The words for a whole number the warehouse returned, from ten to 999,999. Two to
+// nine are left out: "two" and "three" are too common in ordinary prose to count.
+function numberWordsFor(value: number): string | null {
+  if (!Number.isInteger(value) || value < 10 || value > 999_999) return null;
+  const thousands = Math.floor(value / 1000);
+  const rest = value % 1000;
+  const parts: string[] = [];
+  if (thousands > 0) parts.push(`${wordsBelowThousand(thousands)} thousand`);
+  if (rest > 0) parts.push(wordsBelowThousand(rest));
+  return parts.join(" ");
+}
+// A figure is a digit that is a number the warehouse returned, a number from those
+// rows written as a word, or a warehouse value the draft repeats. Phrases are in
+// wordsOf form. A date, duration, or error code is not a figure unless the warehouse
+// returned that same number.
+function draftHasWarehouseFigure(
+  text: string,
+  warehouseValues: string[],
+  warehouseNumbers: Set<string>,
+) {
+  const digits = text.match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
+  if (digits.some((token) => warehouseNumbers.has(token.replace(/,/g, "")))) {
+    return true;
+  }
   const draft = wordsOf(text);
   return warehouseValues.some((value) => draft.includes(value));
 }
@@ -671,28 +697,43 @@ function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
   // Without an explicit request for warehouse numbers, the figure is withheld. A
   // draft with no digits carries no figure, so the retry's answer passes.
   if (!WAREHOUSE_REQUEST.test(context.requestText ?? "")) {
-    // What the answer could repeat from the rows read after the dbt failure: a row's
-    // text, or the word for a small number it returned. A value the user already asked
-    // about is the category they named, not evidence of a figure.
+    // What the answer could repeat from the rows read after the dbt failure: the
+    // numbers the warehouse returned, and their text and word forms. A text value the
+    // user already asked about is the category they named, not evidence of a figure.
     const requested = wordsOf(context.requestText ?? "");
-    const warehouseValues = results.flatMap((result, index) => {
-      if (index <= latestDbtIndex || result.isError === true) return [];
-      if (!named(result.name, "bigquery")) return [];
-      return (bigQueryRowValues(result.content) ?? [])
-        .flatMap((row) =>
-          Object.values(row !== null && typeof row === "object" ? row : {}),
-        )
-        .flatMap((value): string[] => {
-          if (typeof value === "number") {
-            const words = numberWordsFor(value);
-            return words === null ? [] : [wordsOf(words)];
+    const warehouseValues: string[] = [];
+    const warehouseNumbers = new Set<string>();
+    for (const [index, result] of results.entries()) {
+      if (index <= latestDbtIndex || result.isError === true) continue;
+      if (!named(result.name, "bigquery")) continue;
+      for (const row of bigQueryRowValues(result.content) ?? []) {
+        const cells = Object.values(
+          row !== null && typeof row === "object" ? row : {},
+        );
+        for (const cell of cells) {
+          if (typeof cell === "number") {
+            warehouseNumbers.add(String(cell));
+            const words = numberWordsFor(cell);
+            if (words !== null) warehouseValues.push(wordsOf(words));
+            continue;
           }
-          if (typeof value !== "string" || value.trim().length < 3) return [];
-          const phrase = wordsOf(value);
-          return requested.includes(phrase) ? [] : [phrase];
-        });
-    });
-    return draftHasWarehouseFigure(context.text, warehouseValues)
+          if (typeof cell !== "string") continue;
+          const text = cell.trim();
+          if (/^\d[\d,]*(?:\.\d+)?$/.test(text)) {
+            warehouseNumbers.add(text.replace(/,/g, ""));
+            continue;
+          }
+          if (text.length < 3) continue;
+          const phrase = wordsOf(text);
+          if (!requested.includes(phrase)) warehouseValues.push(phrase);
+        }
+      }
+    }
+    return draftHasWarehouseFigure(
+      context.text,
+      warehouseValues,
+      warehouseNumbers,
+    )
       ? {
           retryMessage: DBT_FALLBACK_BLOCK_RETRY,
           fallbackMessage: DBT_FALLBACK_WITHHELD,
