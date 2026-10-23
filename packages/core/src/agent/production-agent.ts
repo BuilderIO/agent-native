@@ -10570,7 +10570,13 @@ export async function runAgentLoop(opts: {
         }
 
         toolDonePersistenceFailed = true;
-        unknownOutcomeCause = toolResultLost ? "interruption" : "rejection";
+        // A call that returned, but whose effect cannot be attributed, was
+        // neither rejected nor interrupted.
+        unknownOutcomeCause = toolResultLost
+          ? "interruption"
+          : isError
+            ? "rejection"
+            : undefined;
         await emitToolDone({
           type: "tool_done",
           id: toolCall.id,

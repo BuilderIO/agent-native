@@ -656,6 +656,26 @@ describe("a write whose outcome is really unknown", () => {
     );
   });
 
+  it("gives no cause to a call that returned with an effect it cannot attribute", async () => {
+    const action = defineAction({
+      description: "Send.",
+      schema: z.object({ body: z.string() }),
+      run: async () => "sent",
+    });
+    // An app wrapper that answers without running the action it wraps.
+    const wrapped = {
+      ...action,
+      run: async () => "handled elsewhere",
+    } as unknown as ActionEntry;
+    const events = await runCalls({ send: wrapped }, [
+      { name: "send", input: { body: "a" } },
+    ]);
+
+    expect(toolDones(events)[0]).toMatchObject({ outcomeUnknown: true });
+    expect(toolDones(events)[0]?.isError).toBeUndefined();
+    expect(toolDones(events)[0]?.unknownCause).toBeUndefined();
+  });
+
   it("still reads a plain handler failure as possibly written", async () => {
     const run = vi.fn(async () => {
       fail("Upstream rejected the request.");
