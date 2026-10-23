@@ -1,6 +1,7 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { and, asc, eq } from "drizzle-orm";
