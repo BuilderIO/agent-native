@@ -2924,6 +2924,26 @@ function Card() {
     expect(() => apply(dynamic)).toThrow(MotionReactSourceError);
   });
 
+  it("writes motion for a static JSX expression child", () => {
+    const staticChild = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '{<span data-agent-native-node-id="hero-title" />}',
+    );
+    const edit = apply(staticChild);
+
+    expect(edit.source).toContain(
+      '{<span data-agent-native-node-id="hero-title" />}',
+    );
+    expect(
+      readMotionReactSource(edit.source, "src/components/Card.tsx"),
+    ).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [{ targetNodeId: "hero-title", property: "opacity" }],
+      },
+    });
+  });
+
   it("allows metadata-only React capability only for an existing source style library", () => {
     const modulePath = "src/components/Card.tsx";
     const moduleVersionHash = "a".repeat(64);

@@ -148,7 +148,7 @@ interface ReactAuthoredHost {
   element: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement;
   ordinal: number;
   tagName: string;
-  isInsideJsxExpression: boolean;
+  isInsideDynamicJsxExpression: boolean;
 }
 
 interface ManagedTextAnimation {
@@ -3448,7 +3448,7 @@ function findReactAuthoredHosts(
           element: node,
           ordinal,
           tagName: tag.text.toLowerCase(),
-          isInsideJsxExpression: isInsideJsxExpression(node),
+          isInsideDynamicJsxExpression: isInsideDynamicJsxExpression(node),
         });
         ordinal += 1;
       }
@@ -3500,7 +3500,7 @@ function resolveAuthoredReactTarget(
     }
     if (hasDynamicSelectorAttribute) return { status: "ambiguous" };
     if (!matchesSelector) continue;
-    if (host.isInsideJsxExpression) {
+    if (host.isInsideDynamicJsxExpression) {
       return {
         status: "unsupported",
         reason:
@@ -3632,7 +3632,7 @@ function findStaticTargets(
     Array<{
       element: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement;
       needsAuthoredNodeId: boolean;
-      isInsideJsxExpression: boolean;
+      isInsideDynamicJsxExpression: boolean;
     }>
   >();
   let hostElementOrdinal = 0;
@@ -3663,7 +3663,7 @@ function findStaticTargets(
         const nodeId = hasStaticId
           ? (idAttributes[0].initializer as TypeScript.StringLiteral).text
           : generatedMotionNodeId(modulePath, ordinal);
-        const dynamicJsxExpression = isInsideJsxExpression(node);
+        const dynamicJsxExpression = isInsideDynamicJsxExpression(node);
         if (dynamicJsxExpression && requestedNodeIds.has(nodeId)) {
           throw new MotionReactSourceError(
             "unsupported-authored-motion",
@@ -3674,7 +3674,7 @@ function findStaticTargets(
         matches.push({
           element: node,
           needsAuthoredNodeId: !hasStaticId,
-          isInsideJsxExpression: dynamicJsxExpression,
+          isInsideDynamicJsxExpression: dynamicJsxExpression,
         });
         elements.set(nodeId, matches);
       }
@@ -3703,8 +3703,9 @@ function findStaticTargets(
         `React source contains ${matches.length} elements with ${NODE_ID_ATTRIBUTE}="${nodeId}".`,
       );
     }
-    const { element, needsAuthoredNodeId, isInsideJsxExpression } = matches[0];
-    if (isInsideJsxExpression) {
+    const { element, needsAuthoredNodeId, isInsideDynamicJsxExpression } =
+      matches[0];
+    if (isInsideDynamicJsxExpression) {
       throw new MotionReactSourceError(
         "unsupported-authored-motion",
         "React Motion targets inside conditional or mapped JSX expressions are unsupported.",
@@ -3718,13 +3719,24 @@ function findStaticTargets(
   });
 }
 
-function isInsideJsxExpression(node: TypeScript.Node): boolean {
+function isInsideDynamicJsxExpression(node: TypeScript.Node): boolean {
   for (
     let current: TypeScript.Node | undefined = node.parent;
     current;
     current = current.parent
   ) {
-    if (ts.isJsxExpression(current)) return true;
+    if (!ts.isJsxExpression(current) || !current.expression) continue;
+    let expression = current.expression;
+    while (ts.isParenthesizedExpression(expression)) {
+      expression = expression.expression;
+    }
+    if (
+      !ts.isJsxElement(expression) &&
+      !ts.isJsxSelfClosingElement(expression) &&
+      !ts.isJsxFragment(expression)
+    ) {
+      return true;
+    }
   }
   return false;
 }
