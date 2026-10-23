@@ -2784,6 +2784,7 @@ describe("Builder unpublished saves", () => {
     const publishedAfter = (args: {
       effect: (typeof plan)["payload"]["effect"];
       existing: string;
+      existingLastUpdated?: string;
       livePublished?: string;
       responseBody?: unknown;
     }) =>
@@ -2791,6 +2792,9 @@ describe("Builder unpublished saves", () => {
         builderCmsReconciledSourceValuesJson({
           existingSourceValuesJson: JSON.stringify({
             published: args.existing,
+            ...(args.existingLastUpdated
+              ? { lastUpdated: args.existingLastUpdated }
+              : {}),
           }),
           snapshotSourceValues: undefined,
           changeSet: approvedChangeSet,
@@ -2846,17 +2850,38 @@ describe("Builder unpublished saves", () => {
     expect(publishedAfter({ effect: "save_draft", existing: "draft" })).toBe(
       "draft",
     );
-    // A reply without the state keeps what a refresh stored since the check.
+    // A reply without the state takes the live check's, unless a refresh
+    // read Builder after the check.
+    const readAt = (offsetMs: number) =>
+      new Date(BUILDER_LAST_UPDATED_MS + offsetMs).toISOString();
     for (const effect of ["save_draft", "update_in_place"] as const) {
       expect(
         publishedAfter({
           effect,
           existing: "published",
+          existingLastUpdated: readAt(-60_000),
+          livePublished: "draft",
+          responseBody: { id: "builder-entry-1" },
+        }),
+      ).toBe("draft");
+      expect(
+        publishedAfter({
+          effect,
+          existing: "published",
+          existingLastUpdated: readAt(60_000),
           livePublished: "draft",
           responseBody: { id: "builder-entry-1" },
         }),
       ).toBe("published");
     }
+    expect(
+      publishedAfter({
+        effect: "autosave",
+        existing: "draft",
+        existingLastUpdated: readAt(60_000),
+        livePublished: "published",
+      }),
+    ).toBe("draft");
   });
 
   it("takes a live write's fields out of the record, even from a response stored without live values", () => {

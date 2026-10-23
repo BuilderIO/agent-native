@@ -440,24 +440,41 @@ function parseSourceValues(
 }
 
 /**
- * The entry's publication state once the write landed. An autosave leaves the
- * entry as the live check found it; Builder's reply describes the autosave.
- * Otherwise Builder's reply wins: a draft save can land on an entry published
- * since the check. A reply without the state leaves the stored state, which a
- * refresh may have updated since the check.
+ * The entry's publication state once the write landed. Builder's reply wins
+ * for a draft save, which can land on an entry published since the check; its
+ * reply to an autosave describes the autosave, not the entry. Without a reply,
+ * the write left the state as the live check found it, unless the stored row
+ * was read from Builder after the check. Null keeps the stored state.
  */
 function builderCmsPublishedAfterWrite(args: {
   effect: BuilderCmsExecutionPayload["effect"];
-  livePublished: string | null | undefined;
+  livePreflight: BuilderCmsExecutionPayload["livePreflight"];
+  storedLastUpdated: DocumentPropertyValue | undefined;
   responseBody: unknown;
 }) {
   if (args.effect === "publish") return "published";
   if (args.effect === "unpublish" || args.effect === "create_draft") {
     return "draft";
   }
-  if (args.effect === "autosave") return args.livePublished ?? null;
-  const replied = builderCmsResponseValue(args.responseBody, ["published"]);
-  return typeof replied === "string" ? replied : null;
+  if (args.effect !== "autosave") {
+    const replied = builderCmsResponseValue(args.responseBody, ["published"]);
+    if (typeof replied === "string") return replied;
+  }
+  const storedEpoch = toEpochMs(
+    typeof args.storedLastUpdated === "string" ||
+      typeof args.storedLastUpdated === "number"
+      ? args.storedLastUpdated
+      : null,
+  );
+  const checkedEpoch = toEpochMs(args.livePreflight?.lastUpdated);
+  if (
+    storedEpoch !== null &&
+    checkedEpoch !== null &&
+    storedEpoch > checkedEpoch
+  ) {
+    return null;
+  }
+  return args.livePreflight?.published ?? null;
 }
 
 export function builderCmsReconciledSourceValuesJson(args: {
@@ -474,7 +491,8 @@ export function builderCmsReconciledSourceValuesJson(args: {
   const next = { ...existing };
   const published = builderCmsPublishedAfterWrite({
     effect: args.plan.payload.effect,
-    livePublished: args.plan.payload.livePreflight?.published,
+    livePreflight: args.plan.payload.livePreflight,
+    storedLastUpdated: existing.lastUpdated,
     responseBody: args.responseBody,
   });
   if (published) next.published = published;
