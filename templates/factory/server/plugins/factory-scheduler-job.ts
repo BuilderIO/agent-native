@@ -56,12 +56,14 @@ import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-re
 import { listFactoryAutomationDefinitions } from "../lib/factory-automation-resources.js";
 import {
   DEFAULT_FACTORY_ID,
+  assertSingleLineFactoryAutomationSettings,
   assignCreatedByIfMissing,
   factoryAutomationJobPath,
   factoryAutomationJobPrefix,
   factoryAutomationLeafName,
   factoryAutomationRunHistoryKey,
   factoryConfigRowId,
+  normalizeFactoryAutomationFrontmatter,
   readFactoryIdFromAutomationPath,
   readTriageConfigRow,
   setAutomationFrontmatterField,
@@ -382,6 +384,12 @@ function automationContent(
   userPrompt?: string,
 ): string {
   const resolved = config ?? defaultAutomationConfig("slack", "blank");
+  assertSingleLineFactoryAutomationSettings({
+    ...resolved,
+    authorIds: resolved.authorIds.join(","),
+    displayName,
+    factoryId,
+  });
   let content = `---
 schedule: "${scheduleCron(resolved)}"
 ${resolved.timezone ? `timezone: ${resolved.timezone}\n` : ""}enabled: ${enabled ? "true" : "false"}
@@ -774,7 +782,7 @@ export async function createFactoryAutomation(
       input.prompt,
     );
     if (outside) {
-      content = setAutomationFrontmatterField(content, "mcpManaged", "true");
+      content = normalizeFactoryAutomationFrontmatter(content, { context });
     }
     const written = await resourcePutIfAbsent(
       owner,

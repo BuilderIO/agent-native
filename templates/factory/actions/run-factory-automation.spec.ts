@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { runWithoutExecutionFence } from "../../../packages/core/src/agent/execution-fence.js";
 import { executeAgentToolCall } from "../../../packages/core/src/agent/production-agent.js";
+import { withMigrationRuntime } from "../../../packages/core/src/db/migrations.js";
+import { settingsStore } from "../../../packages/core/src/settings/store.js";
 
 const findFactoryAutomationDefinitionMock = vi.hoisted(() => vi.fn());
 const queueAutomationRunNowMock = vi.hoisted(() => vi.fn());
@@ -30,6 +32,11 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
   requireWorkspaceMember: requireWorkspaceMemberMock,
   workspaceMemberIdentityFromContext: workspaceMemberIdentityFromContextMock,
 }));
+
+beforeAll(async () => {
+  await import("./run-factory-automation.js");
+  await withMigrationRuntime(() => settingsStore.ready());
+}, 120_000);
 
 beforeEach(() => {
   vi.clearAllMocks();

@@ -1,11 +1,24 @@
 # Delegated companion validation
 
-The companion is validated on frozen parent head `9f2cdd94055d`. No parent refs,
-CLI/embed behavior, Mail catalogs, Dispatch registration, or Design instructions
-are changed by these test repairs. Commands and full logs are indexed in the
-local `.tmp/companion-validation.md` manifest. Those results describe the earlier
-artifact. The P2/P3 repairs below require a fresh exclusive validation run;
-the old seventeen-template, 51-test audit is not evidence for these repairs.
+The companion is rebased at `f109d444be319cb58df592d4442cac0f3b68fd49`
+on frozen parent `8b7b62780d95defdf765f8963d64260a0e932b65`, which includes
+fetched main `ce19f80f156f1903c12c4a7820bdb9e82dba1f69`. The authorized local
+rebase had no conflicts; range-diff preserves the companion patch. The only
+inherited change in its modified source files is main's turn-aware agent-chat
+tracking. CLI/embed behavior, Mail catalogs, Dispatch registration, and Design
+instructions remain outside this companion.
+
+Fresh evidence is indexed in `.tmp/companion-validation-rebased.md`. Earlier
+round1/round2 results and failing-first proofs remain historical evidence;
+the old seventeen-template report must not certify the rebased artifact.
+The current harness labels its own pre/post captures explicitly and records
+actual app-entry identity. The final registry report compares a separately
+executed capture of the exact pinned main above with thirty-two preserved
+companion records and two refreshed Factory records. A current pre-filter
+registry is never treated as a main execution. Main's Design export addition
+from #8086 is inherited, not a companion change. Later Factory setting changes
+require their own affected-owner checks; this capture does not certify action
+body behavior.
 
 ## The twelve initial focused-batch failures
 
@@ -60,7 +73,7 @@ The model choosing to ask in prose before making a tool call remains the
 separate `#8016` follow-up; this validation exercises the actual tool call and
 its durable approval lifecycle.
 
-## P2/P3 repairs awaiting fresh validation
+## P2/P3 repairs and validation contracts
 
 - Both delegated loops explicitly use `actionCaller: "tool"`; replay uses
   `caller: "tool"`. Network protocol/id and the single-invocation audit override
@@ -237,3 +250,105 @@ the entire forwarded object after the existing membership/target checks;
 it supplies no caller default and performs no runtime validation. Missing origin
 stays missing, so this assertion is a typing limitation rather than a grant of
 caller authority. Existing outside-origin and chaining controls remain required.
+
+## Rebased Factory fixture bootstrap
+
+The first rebased parallel run had two first-case 30-second timeouts while the
+real Core schema snapshot initialized. Their unfinished work reached the next
+case and doubled its mock counts. The worker-one diagnostic retained one such
+pair of failures. Both failed logs remain; none is counted as a pass.
+
+| File / test                                                                                                                                 | Exact old → new fixture                                                                                                                                                                                   | Reason and unchanged contract                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `templates/factory/actions/create-factory-automation.spec.ts`: pauses a tool over mcp before creation and binds approval to exact input     | Action import and real store bootstrap inside the first test → awaited action import and `withMigrationRuntime(() => settingsStore.ready())` in `beforeAll` with a 120-second cold-bootstrap hook budget. | The fixture must finish real database initialization before testing approval behavior. Each test keeps its existing 30-second budget and exact pause/input/no-effect/approved-once/origin assertions. |
+| Same file: pauses a tool over a2a before creation and binds approval to exact input                                                         | An earlier timed-out bootstrap could outlive its case → the shared `beforeAll` completes before either protocol case starts.                                                                              | Prevents a prior test's unfinished invocation from contaminating the exact one-effect assertion; no mock-only cleanup or assertion relaxation.                                                        |
+| `templates/factory/actions/run-factory-automation.spec.ts`: requires exact approval for tool over mcp and queues the selected peer job once | First-use action import/store bootstrap → the same existing real readiness helper and awaited module import in `beforeAll`.                                                                               | This owner also hit the same initial cold-bootstrap boundary. Its exact target, argument-bound approval and one-queue checks remain.                                                                  |
+| Same file: requires exact approval for tool over a2a and queues the selected peer job once                                                  | An outstanding prior timed-out invocation → fully awaited common setup before protocol cases.                                                                                                             | Exact member/selected-definition/workflow/chaining/ordinary-call controls and every assertion remain.                                                                                                 |
+
+No production helper, export, gate/store mock, arbitrary sleep, skipped case,
+case reorder, or mutation-latency allowance was added. Only the cold-bootstrap
+hook has a larger budget; action behavior remains under the normal test budget.
+
+## Current review status
+
+The fresh review identified two Factory approval/provenance gaps. The focused
+review of their first repair confirmed the argument-bound action gates and
+server-context propagation, and requested further Factory settings hardening.
+The earlier encoded-settings snapshot passed 194 tests but was superseded by
+the caller-only refusal ruling. The final refusal delta passes all 308 tests
+across eight Factory suites, Factory typecheck, focused lint/format,
+localization/source-reading guards, LF and diff checks. Its corrected
+failing-first run reproduced 105 intended failures with 150 controls passing.
+The initial proof's five incorrect error-type expectations and both earlier
+logs remain retained separately; they are not counted as final evidence.
+
+The required saved-metadata control passed before production changes.
+Operational and condition metadata retain their existing physical
+representation, and prompt bodies remain supported. A read-only inventory of
+45 written header keys established no legitimate multiline caller setting.
+Ordinary settings preserve main's bytes, including last-field header spacing.
+Generic setter no-op and lenient preview behavior remain compatible; strict
+normalization belongs to write candidates. The existing creation stamping
+call-site in `factory-scheduler-job.ts` uses that same strict boundary without
+changing authority, conditional insert or retries. A new independent delta
+review confirmed the marker, byte-compatibility, metadata, preview and CAS
+behavior. It requested a typed validation response for refused caller settings
+and removal of an extra public sentence. The three-file typed-error delta
+passes 219 tests across four affected suites after reproducing 86 intended
+failures with 79 controls passing. Factory typecheck, focused lint/format and
+the relevant guards pass; lint now has explicit exit-status evidence. Refusal
+uses the framework's real `fail` contract with status 400, `invalid_request`
+and the affected field. No serialization or approval behavior changed. The
+final focused review approved that exact typed-error delta and corrected
+claims with no P1/P2 findings. Earlier focused review held the marker,
+byte-compatibility, saved-metadata, preview and CAS behavior; the approval is
+bounded to those covered paths and the final typed-response change.
+
+Task-added encoded-value success cases now assert caller-only refusal under the
+updated product rule. Existing approval/no-effect/input-binding, saved
+metadata/body, authoritative-row/CAS and predecessor-history assertions remain.
+The marked CRLF save/restore/preview/restore sequence exercises the real action
+and history boundaries. The exact final delta, policy ledger and commands are
+indexed by `.tmp/factory-single-line-refusal/manifest.json`.
+
+The new regressions produced sixteen intended failures and forty-seven passes
+on unchanged production. At the first-repair snapshot, all sixty-three owner tests,
+twenty-three create/run tests and fifty-one unchanged-classifier controls pass.
+Factory typecheck, focused formatting/lint, localization and source-reading
+guards, LF and diff checks pass. The exact source/test delta and evidence are
+recorded in `.tmp/factory-two-p1/manifest.json`. The earlier failures and code
+snapshots remain retained; they are not counted as passing evidence.
+
+| Owner fixture            | Old → new                                                                                                                            | Reason and unchanged contract                                                                                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Save action spec         | Identity `defineAction` mock → actual framework `defineAction` through `importOriginal`, retaining the existing failure leaf.        | Approval tests now exercise real argument binding and dispatch. Every existing assertion remains.                                                                             |
+| Save action spec         | No shared bootstrap → real action import and `settingsStore.ready()` inside `withMigrationRuntime` in a 120-second `beforeAll` hook. | Cold initialization finishes before the unchanged 30-second action cases; no mocked gate/store or sleep.                                                                      |
+| History helper spec      | Omitted context → explicit frontend context for ordinary in-app fixtures.                                                            | The internal helper receives server context; a missing context remains outside under the unchanged classifier. Existing authoritative-row and trigger-type assertions remain. |
+| History helper spec      | No delete/returning leaf → a database leaf that records orphan-history cleanup on CAS failure and write errors.                      | Observes the existing cleanup contract without replacing it or weakening its assertions.                                                                                      |
+| History resource fixture | Widened `createdBy` string → literal `"system" as const`.                                                                            | Matches the existing resource type; no runtime or expected-value change.                                                                                                      |
+
+The new restore action owner uses real framework dispatch and the actual history
+helper, with scoped lookup and persistence leaves observed. It covers approval
+before history/resource effects, changed-input rejection, one approved effect,
+outside marking and ordinary unmarked behavior. The eight-case matrix in the
+history helper spec covers retained current provenance.
+The internal helper accepts `ActionRunContext | undefined`; the original value
+is forwarded without a default caller or relabel.
+
+## Coverage boundary
+
+Outside approval and creation/edit marking cover the framework automation
+management actions, Factory's prompt-automation create/save/restore/run actions,
+and Analytics' index scheduler. Marked prompt runs require approval for each
+prepared write. Other persistence paths and a store-level guarantee that every
+write preserves and stamps outside provenance are separate follow-up work.
+This companion makes no universal write-path guarantee.
+
+The complete broader writer inventories are private follow-up material and are
+not published here. CLI, embed, ACL and authentication behavior remain unchanged.
+Final targeted staged guards pass against the frozen parent with no skips:
+MCP call boundary, shrinking legacy hints, localization catalogs/changed copy,
+and source-reading tests. The exact-main registry comparison is complete within
+its stated capture limits. Historical broad checks, subsequent affected-owner
+checks and focused review approvals remain separate evidence epochs; no full
+repository or deployed-provider validation is claimed for the final delta.

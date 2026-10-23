@@ -25,6 +25,7 @@ const booted = vi.hoisted(() => ({
   // What each delegated run's registry held before filterDelegatedRegistry.
   filterInputs: [] as Array<Record<string, any>>,
   plugins: new Map<string, (nitroApp: unknown) => void>(),
+  suppliedAppActions: new Map<string, Record<string, any>>(),
 }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => {
@@ -32,7 +33,23 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
   return {
     ...(await importOriginal<Record<string, unknown>>()),
     createAgentChatPlugin: (options: Record<string, unknown>) => {
-      const plugin = createAgentChatPlugin(options as never);
+      const appId = String(options.appId);
+      const actionOption =
+        options.actions !== undefined ? "actions" : "scripts";
+      const supplied = options[actionOption];
+      const plugin = createAgentChatPlugin({
+        ...options,
+        ...(supplied
+          ? {
+              [actionOption]: async () => {
+                const entries =
+                  typeof supplied === "function" ? await supplied() : supplied;
+                booted.suppliedAppActions.set(appId, { ...entries });
+                return entries;
+              },
+            }
+          : {}),
+      } as never);
       booted.plugins.set(String(options.appId), plugin as never);
       return plugin;
     },
@@ -238,6 +255,8 @@ function describeRun(
   before: Record<string, ActionEntry>,
   runOptions: any,
   templateNames: ReadonlySet<string>,
+  suppliedAppActions: Record<string, ActionEntry>,
+  generatedActions: Record<string, ActionEntry>,
 ) {
   const after = Object.keys(runOptions.actions as object).sort();
   // tool-search attaches after the filter, so it is part of both registries.
@@ -257,6 +276,23 @@ function describeRun(
     after,
     removed,
     added,
+    servedEntryFacts: Object.fromEntries(
+      Object.entries(runOptions.actions as Record<string, ActionEntry>).map(
+        ([name, entry]) => [
+          name,
+          {
+            explicitAppSupplied: Object.hasOwn(suppliedAppActions, name),
+            matchesAppEntry: suppliedAppActions[name] === entry,
+            matchesAppRun: suppliedAppActions[name]?.run === entry.run,
+            matchesGeneratedRun: generatedActions[name]?.run === entry.run,
+            frameworkMarked: isFrameworkMcpTool(entry),
+            cliWrapper: entry.cliWrapper === true,
+            readOnly: entry.readOnly === true,
+            mcpTool: entry.mcpTool ?? null,
+          },
+        ],
+      ),
+    ),
     firstRequest: (runOptions.tools as Array<{ name: string }>)
       .map((tool) => tool.name)
       .sort(),
@@ -503,6 +539,7 @@ async function bootPlugin(appId: string, projectRoot: string) {
   booted.mcpConfig = undefined;
   booted.loopRuns.length = 0;
   booted.filterInputs.length = 0;
+  booted.suppliedAppActions.delete(appId);
   const nitroApp = {
     h3App: createApp(),
     h3: { "~middleware": [] },
@@ -638,7 +675,7 @@ describe("delegated registry inventory, real template plugins", () => {
 
   describe.each(templateIds)("%s", (appId) => {
     it.each(SURFACES)(
-      "captures main and companion registries on $name",
+      "captures current pre-filter and delegated registries on $name",
       async (surface) => {
         const projectRoot = path.join(repoRoot, "templates", appId);
         generateActionRegistryForProject(projectRoot);
@@ -700,6 +737,8 @@ describe("delegated registry inventory, real template plugins", () => {
               booted.filterInputs[filterStart] ?? {},
               run.runOptions,
               templateNames,
+              booted.suppliedAppActions.get(appId) ?? {},
+              templateActions,
             ),
           };
           return run.runOptions;
@@ -769,7 +808,7 @@ describe("delegated registry inventory, real template plugins", () => {
           run.templateMissingVsInApp = inAppTemplate.filter(
             (name) => !run.after.includes(name),
           );
-          run.templateMissingVsMain = inAppTemplate.filter(
+          run.templateMissingVsPreFilter = inAppTemplate.filter(
             (name) => run.before.includes(name) && !run.after.includes(name),
           );
           run.templateRetained = inAppTemplate.filter((name) =>
@@ -810,7 +849,7 @@ describe("delegated registry inventory, real template plugins", () => {
           .map(([name, entry]) => ({
             name,
             inApp: inApp.includes(name),
-            inMainDelegated: Object.values(runs).every(
+            inCurrentPreFilter: Object.values(runs).every(
               (run) => !run.reachedLoop || run.before.includes(name),
             ),
             inCompanionDelegated: Object.values(runs).every(
@@ -829,6 +868,8 @@ describe("delegated registry inventory, real template plugins", () => {
         }
 
         results[`${appId}:${surface.name}`] = {
+          captureVersion: 2,
+          registryBaseline: "current-companion-pre-filter",
           appId,
           surface: surface.name,
           ownMcpMount,

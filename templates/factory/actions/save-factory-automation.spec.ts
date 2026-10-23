@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { runWithoutExecutionFence } from "../../../packages/core/src/agent/execution-fence.js";
+import { executeAgentToolCall } from "../../../packages/core/src/agent/production-agent.js";
+import { withMigrationRuntime } from "../../../packages/core/src/db/migrations.js";
+import { settingsStore } from "../../../packages/core/src/settings/store.js";
 
 const findFactoryAutomationDefinitionMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
@@ -14,17 +19,6 @@ const { assertFactoryConnectorReadyMock, VaultUnavailableError } = vi.hoisted(
     };
   },
 );
-
-vi.mock("@agent-native/core/action", () => ({
-  defineAction: (definition: unknown) => definition,
-  fail: (message: string): never => {
-    const error = new Error(message) as Error & {
-      actionContractError: true;
-    };
-    error.actionContractError = true;
-    throw error;
-  },
-}));
 
 vi.mock("@agent-native/core/jobs", () => ({
   isValidCron: () => true,
@@ -74,6 +68,11 @@ slackChannelId: C123
 Observe Slack.
 `;
 
+beforeAll(async () => {
+  await import("./save-factory-automation.js");
+  await withMigrationRuntime(() => settingsStore.ready());
+}, 120_000);
+
 beforeEach(() => {
   vi.clearAllMocks();
   requireWorkspaceMemberMock.mockResolvedValue({
@@ -120,6 +119,278 @@ beforeEach(() => {
 });
 
 describe("save-factory-automation", () => {
+  const input = {
+    factoryId: "support-triage",
+    automationId: "resource-1",
+    name: "factories/support-triage/factory-slack-feedback",
+    prompt: "A revised prompt.",
+    enabled: false,
+  };
+
+  it.each(
+    [
+      "displayName",
+      "model",
+      "slackChannelId",
+      "slackChannelName",
+      "repository",
+      "sentryOrgSlug",
+      "sentryProjectSlug",
+      "sentryEnvironment",
+      "timezone",
+      "reasoningEffort",
+    ].flatMap((field) =>
+      ["\r", "\n", "\u0085", "\u2028", "\u2029"].map((separator) => ({
+        field,
+        separator,
+      })),
+    ),
+  )(
+    "requires single-line $field settings with separator $separator",
+    async ({ field, separator }) => {
+      const { default: action } = await import("./save-factory-automation.js");
+      const value = `Selected${separator}continued`;
+      const saving = action.run(
+        { ...input, scheduleMode: "daily", timezone: "UTC", [field]: value },
+        {
+          caller: "tool",
+          networkProtocol: "mcp",
+          userEmail: "teammate@example.com",
+        },
+      );
+      if (field === "reasoningEffort") {
+        await expect(saving).rejects.toThrow("Invalid reasoning effort.");
+      } else {
+        await expect(saving).rejects.toMatchObject({
+          actionContractError: true,
+          statusCode: 400,
+          errorCode: "invalid_request",
+          message: expect.stringContaining(field),
+        });
+      }
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(insertValuesMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      caller: "frontend" as const,
+      lineEnding: "\n",
+      marker: "mcpManaged: true\n mcpManaged : false",
+    },
+    {
+      caller: "tool" as const,
+      lineEnding: "\n",
+      marker: " mcpManaged : false\nmcpManaged: true",
+    },
+    {
+      caller: "frontend" as const,
+      lineEnding: "\r\n",
+      marker: "mcpManaged: true\n mcpManaged : false",
+    },
+    {
+      caller: "tool" as const,
+      networkProtocol: "a2a" as const,
+      lineEnding: "\r\n",
+      marker: " mcpManaged : false\nmcpManaged: true",
+    },
+  ])(
+    "saves single reserved settings for $caller/$networkProtocol with line ending $lineEnding",
+    async ({ lineEnding, marker, ...context }) => {
+      const live = existingContent
+        .replace(
+          "domain: factory",
+          `domain: factory\n${marker}\ncustomFactory: retained\nlastRun: older\n lastRun : latest`,
+        )
+        .replace(/\n/g, lineEnding);
+      resourceGetByPathMock.mockResolvedValue({
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-slack-feedback.md",
+        content: live,
+        updatedAt: 42,
+      });
+      const { default: action } = await import("./save-factory-automation.js");
+      await action.run(
+        { ...input, model: "Selected" },
+        { ...context, userEmail: "teammate@example.com" },
+      );
+      const { parseJobResource } =
+        await import("@agent-native/core/jobs/frontmatter");
+      const candidate = resourcePutIfCurrentMock.mock.calls[0][0];
+      expect(parseJobResource(candidate.content).meta).toMatchObject({
+        mcpManaged: true,
+        lastRun: "latest",
+        enabled: false,
+      });
+      const header = candidate.content.split(/\r?\n---/)[0];
+      for (const key of [
+        "mcpManaged",
+        "lastRun",
+        "enabled",
+        "factoryId",
+        "schedule",
+      ]) {
+        expect(
+          header
+            .split(/\r?\n/)
+            .filter((line) => line.split(":")[0].trim() === key),
+        ).toHaveLength(1);
+      }
+      expect(candidate.content).toContain("customFactory: retained");
+      expect(parseJobResource(candidate.content).body).toContain(
+        "A revised prompt.",
+      );
+      expect(candidate).toMatchObject({
+        expectedContent: live,
+        expectedUpdatedAt: 42,
+      });
+      expect(insertValuesMock.mock.calls[0][0].rawContent).toBe(live);
+    },
+  );
+
+  it.each(["mcp", "a2a"] as const)(
+    "saves unmarked CRLF settings from %s",
+    async (networkProtocol) => {
+      const live = existingContent.replace(/\n/g, "\r\n");
+      resourceGetByPathMock.mockResolvedValue({
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-slack-feedback.md",
+        content: live,
+        updatedAt: 42,
+      });
+      const { default: action } = await import("./save-factory-automation.js");
+      await action.run(input, {
+        caller: "tool",
+        networkProtocol,
+        userEmail: "teammate@example.com",
+      });
+      const { parseJobResource } =
+        await import("@agent-native/core/jobs/frontmatter");
+      expect(
+        parseJobResource(resourcePutIfCurrentMock.mock.calls[0][0].content)
+          .meta,
+      ).toMatchObject({ mcpManaged: true, enabled: false });
+    },
+  );
+
+  it.each(["Body only", "---\nenabled: false\nBody"])(
+    "requires complete saved settings for %j",
+    async (content) => {
+      resourceGetByPathMock.mockResolvedValue({
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-slack-feedback.md",
+        content,
+        updatedAt: 42,
+      });
+      const { default: action } = await import("./save-factory-automation.js");
+      await expect(
+        action.run(input, {
+          caller: "tool",
+          networkProtocol: "mcp",
+          userEmail: "teammate@example.com",
+        }),
+      ).rejects.toThrow();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(insertValuesMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["mcp", "a2a"] as const)(
+    "pauses tool over %s before save/history and stamps the exact approved candidate",
+    async (networkProtocol) => {
+      const { default: action } = await import("./save-factory-automation.js");
+      const call = (args = input, approvedToolCalls?: string[]) =>
+        runWithoutExecutionFence(() =>
+          executeAgentToolCall({
+            actions: { "save-factory-automation": action },
+            name: "save-factory-automation",
+            callId: "save-factory",
+            input: args,
+            caller: "tool",
+            networkProtocol,
+            ownerEmail: "teammate@example.com",
+            approvedToolCalls,
+            consumeApproval: async () => true,
+          }),
+        );
+      const paused = await call();
+      expect(paused.status).toBe("approval_required");
+      expect(requireWorkspaceMemberMock).not.toHaveBeenCalled();
+      expect(insertValuesMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      if (paused.status !== "approval_required")
+        throw new Error("Missing approval");
+      expect(
+        (
+          await call({ ...input, prompt: "Changed after approval." }, [
+            paused.approvalKey,
+          ])
+        ).status,
+      ).toBe("approval_required");
+      expect(insertValuesMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      const completed = await call(input, [paused.approvalKey]);
+      expect(completed.status).toBe("completed");
+      expect(resourcePutIfCurrentMock).toHaveBeenCalledOnce();
+      expect(insertValuesMock).toHaveBeenCalledOnce();
+      const { parseJobResource } =
+        await import("@agent-native/core/jobs/frontmatter");
+      const saved = resourcePutIfCurrentMock.mock.calls[0][0];
+      expect(parseJobResource(saved.content).meta.mcpManaged).toBe(true);
+      expect(saved.expectedContent).toBe(existingContent);
+      expect(insertValuesMock.mock.calls[0][0].rawContent).toBe(
+        existingContent,
+      );
+    },
+  );
+
+  it.each(["frontend", "tool"] as const)(
+    "keeps an ordinary %s save unmarked",
+    async (caller) => {
+      const { default: action } = await import("./save-factory-automation.js");
+      const result = await runWithoutExecutionFence(() =>
+        executeAgentToolCall({
+          actions: { "save-factory-automation": action },
+          name: "save-factory-automation",
+          callId: "ordinary-save",
+          input,
+          caller,
+          ownerEmail: "teammate@example.com",
+        }),
+      );
+      expect(result.status).toBe("completed");
+      expect(resourcePutIfCurrentMock).toHaveBeenCalledOnce();
+      const { parseJobResource } =
+        await import("@agent-native/core/jobs/frontmatter");
+      expect(
+        parseJobResource(resourcePutIfCurrentMock.mock.calls[0][0].content).meta
+          .mcpManaged,
+      ).toBeUndefined();
+    },
+  );
+
+  it.each(["mcp", "a2a"] as const)(
+    "stamps outside %s saves at the content boundary",
+    async (networkProtocol) => {
+      const { default: action } = await import("./save-factory-automation.js");
+      await action.run(input, {
+        caller: "tool",
+        networkProtocol,
+        userEmail: "teammate@example.com",
+      });
+      const { parseJobResource } =
+        await import("@agent-native/core/jobs/frontmatter");
+      expect(
+        parseJobResource(resourcePutIfCurrentMock.mock.calls[0][0].content).meta
+          .mcpManaged,
+      ).toBe(true);
+    },
+  );
+
   it("retains the historical outside marker when a trusted teammate edits the prompt", async () => {
     resourceGetByPathMock.mockResolvedValue({
       id: "resource-1",

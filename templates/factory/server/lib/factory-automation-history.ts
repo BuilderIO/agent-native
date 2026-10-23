@@ -1,4 +1,4 @@
-import { fail } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { isUniqueViolation } from "@agent-native/core/db";
 import { type Resource } from "@agent-native/core/resources";
 import { and, desc, eq, lt, max } from "drizzle-orm";
@@ -19,6 +19,7 @@ import {
 } from "./factory-automation-config.js";
 import { findFactoryAutomationByResourceId } from "./factory-automation-resources.js";
 import {
+  normalizeFactoryAutomationFrontmatter,
   readAutomationDisplayName,
   setAutomationFrontmatterField,
 } from "./factory-scope.js";
@@ -234,12 +235,12 @@ export async function insertFactoryAutomationVersionIfChanged(input: {
   version?: number;
 }): Promise<FactoryAutomationVersionRow | null> {
   const previousSnapshot = snapshotFromAutomationResource(
-    input.previousContent,
+    normalizeFactoryAutomationFrontmatter(input.previousContent),
     input.automationName,
     input.factoryId,
   );
   const nextSnapshot = snapshotFromAutomationResource(
-    input.nextContent,
+    normalizeFactoryAutomationFrontmatter(input.nextContent),
     input.automationName,
     input.factoryId,
   );
@@ -341,15 +342,23 @@ function preserveOperationalFrontmatterFields(
   restoredContent: string,
   currentContent: string,
 ): string {
-  let next = restoredContent;
-  for (const key of OPERATIONAL_FRONTMATTER_FIELDS) {
-    next = setAutomationFrontmatterField(
-      next,
-      key,
-      readFrontmatterValue(currentContent, key) ?? "",
-    );
-  }
-  return next;
+  const restored = normalizeFactoryAutomationFrontmatter(restoredContent);
+  const current = normalizeFactoryAutomationFrontmatter(currentContent);
+  const restoredEnd = restored.indexOf("\n---", 4);
+  const currentEnd = current.indexOf("\n---", 4);
+  const keys = new Set<string>(OPERATIONAL_FRONTMATTER_FIELDS);
+  const operational = (line: string) => {
+    const colon = line.indexOf(":");
+    return colon !== -1 && keys.has(line.slice(0, colon).trim());
+  };
+  const lines = restored
+    .slice(4, restoredEnd)
+    .split("\n")
+    .filter((line) => !operational(line));
+  lines.push(...current.slice(4, currentEnd).split("\n").filter(operational));
+  return normalizeFactoryAutomationFrontmatter(
+    `---\n${lines.join("\n")}${restored.slice(restoredEnd)}`,
+  );
 }
 
 export type FactoryAutomationRestoreResult = {
@@ -359,16 +368,19 @@ export type FactoryAutomationRestoreResult = {
   displayName: string | null;
 };
 
-export async function restoreFactoryAutomationVersion(input: {
-  resource: Resource;
-  automationId: string;
-  automationName: string;
-  factoryId: string;
-  historicalContent: string;
-  userEmail: string;
-  orgId: string;
-  summary: string;
-}): Promise<FactoryAutomationRestoreResult> {
+export async function restoreFactoryAutomationVersion(
+  input: {
+    resource: Resource;
+    automationId: string;
+    automationName: string;
+    factoryId: string;
+    historicalContent: string;
+    userEmail: string;
+    orgId: string;
+    summary: string;
+  },
+  context: ActionRunContext | undefined,
+): Promise<FactoryAutomationRestoreResult> {
   const { resourceGetByPath, resourcePutIfCurrent } =
     await import("@agent-native/core/resources");
   const current = await resourceGetByPath(
@@ -378,14 +390,18 @@ export async function restoreFactoryAutomationVersion(input: {
   if (!current) {
     throw new Error("Factory automation not found.");
   }
+  const currentContent = normalizeFactoryAutomationFrontmatter(current.content);
+  const historicalContent = normalizeFactoryAutomationFrontmatter(
+    input.historicalContent,
+  );
 
   const previousSnapshot = snapshotFromAutomationResource(
-    current.content,
+    currentContent,
     input.automationName,
     input.factoryId,
   );
   const restoredSnapshot = snapshotFromAutomationResource(
-    input.historicalContent,
+    historicalContent,
     input.automationName,
     input.factoryId,
   );
@@ -399,8 +415,8 @@ export async function restoreFactoryAutomationVersion(input: {
   const configSavedAt = new Date().toISOString();
 
   let content = preserveOperationalFrontmatterFields(
-    input.historicalContent,
-    current.content,
+    historicalContent,
+    currentContent,
   );
   content = setAutomationFrontmatterField(
     content,
@@ -427,8 +443,8 @@ export async function restoreFactoryAutomationVersion(input: {
   // identity check.
   const stamp = stampAutomationTriggerType(content, {
     orgId: input.orgId,
-    triggerType: readFrontmatterValue(current.content, "triggerType"),
-    identityFrom: current.content,
+    triggerType: readFrontmatterValue(currentContent, "triggerType"),
+    identityFrom: currentContent,
   });
   content = stamp.content;
   if (stamp.skipped) {
@@ -437,6 +453,10 @@ export async function restoreFactoryAutomationVersion(input: {
     );
   }
 
+  content = normalizeFactoryAutomationFrontmatter(content, {
+    context,
+    currentContent,
+  });
   const insertedVersion = await insertFactoryAutomationVersionIfChanged({
     automationId: input.automationId,
     factoryId: input.factoryId,

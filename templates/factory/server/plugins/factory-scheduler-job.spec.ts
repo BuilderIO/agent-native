@@ -123,6 +123,85 @@ describe("createFactoryAutomation origin", () => {
     config: defaultAutomationConfig("github", "blank"),
   };
 
+  it("requires a single-line timezone before creation", async () => {
+    await expect(
+      createFactoryAutomation(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+        {
+          ...input,
+          config: {
+            ...input.config,
+            repository: "example/project",
+            scheduleMode: "daily",
+            timezone: "UTC\nmcpTools: not-json",
+          },
+        },
+        { caller: "tool", networkProtocol: "mcp" } as never,
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      statusCode: 400,
+      errorCode: "invalid_request",
+      message: expect.stringContaining("timezone"),
+    });
+    expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(insertAutomationVersionValuesMock).not.toHaveBeenCalled();
+  });
+
+  it.each(
+    [
+      "displayName",
+      "slackChannelId",
+      "slackChannelName",
+      "repository",
+      "sentryOrgSlug",
+      "sentryProjectSlug",
+      "sentryEnvironment",
+      "timezone",
+    ].flatMap((field) =>
+      ["\r", "\n", "\u0085", "\u2028", "\u2029"].map((separator) => ({
+        field,
+        separator,
+      })),
+    ),
+  )(
+    "requires single-line creation $field with separator $separator",
+    async ({ field, separator }) => {
+      const value = `Selected${separator}continued`;
+      const settings = {
+        ...input,
+        config: {
+          ...input.config,
+          scheduleMode: "daily" as const,
+          timezone: "UTC",
+          [field]: value,
+        },
+        ...(field === "displayName" ? { displayName: value } : {}),
+      };
+      await expect(
+        createFactoryAutomation(
+          "owner@example.com",
+          "org-1",
+          "support-triage",
+          settings,
+          { caller: "tool", networkProtocol: "mcp" } as never,
+        ),
+      ).rejects.toMatchObject({
+        actionContractError: true,
+        statusCode: 400,
+        errorCode: "invalid_request",
+        message: expect.stringContaining(field),
+      });
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(insertAutomationVersionValuesMock).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     { caller: "tool" as const, networkProtocol: "mcp" as const },
     { caller: "tool" as const, networkProtocol: "a2a" as const },
@@ -143,6 +222,12 @@ describe("createFactoryAutomation origin", () => {
       );
       const content = resourcePutIfAbsentMock.mock.calls[0][2] as string;
       expect(parseJobResource(content).meta.mcpManaged).toBe(true);
+      expect(
+        content
+          .split("\n---")[0]
+          .split("\n")
+          .filter((line) => line.split(":")[0].trim() === "mcpManaged"),
+      ).toEqual(["mcpManaged: true"]);
       expect(resourcePutMock).not.toHaveBeenCalled();
     },
   );
@@ -290,6 +375,74 @@ describe("createFactoryAutomation origin", () => {
 });
 
 describe("ensureFactoryAutomations", () => {
+  it.each(["crlf", "headerless"])(
+    "preserves compatible %s seed settings",
+    async (format) => {
+      const path = "jobs/factories/support-triage/factory-pr-governance.md";
+      const content =
+        format === "headerless"
+          ? "Legacy prompt.\nSecond paragraph.\n"
+          : [
+              "---",
+              'schedule: "15 10 * * *"',
+              "enabled: false",
+              "timezone: Pacific/Auckland",
+              "source: github",
+              "template: pr-governance",
+              "repository: acme/widgets",
+              "displayName: Custom governance",
+              "scheduleMode: daily",
+              "dailyTime: 10:15",
+              "intervalMinutes: 60",
+              "orgId: org-1",
+              "createdBy: owner@example.com",
+              "runAs: creator",
+              "mcpManaged: true",
+              "maxIterations: 9",
+              "maxRunInputTokens: 54321",
+              "---",
+              "Custom prompt.",
+              "",
+            ].join("\r\n");
+      resourceListContentMock.mockResolvedValue([
+        { id: "compatible", owner: "__organization__:org-1", path, content },
+      ]);
+      resourceGetByPathMock.mockImplementation(
+        (_owner: string, selectedPath: string) =>
+          selectedPath === path
+            ? {
+                id: "compatible",
+                owner: "__organization__:org-1",
+                path,
+                content,
+                updatedAt: 42,
+              }
+            : null,
+      );
+      await expect(
+        ensureFactoryAutomations(
+          "owner@example.com",
+          "org-1",
+          "support-triage",
+        ),
+      ).resolves.toBeUndefined();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
+      expect(insertAutomationVersionValuesMock).not.toHaveBeenCalled();
+      expect(resourceDeleteByPathMock).not.toHaveBeenCalled();
+      if (format === "crlf")
+        expect(parseJobResource(content).meta).toMatchObject({
+          enabled: false,
+          schedule: "15 10 * * *",
+          timezone: "Pacific/Auckland",
+          mcpManaged: true,
+          maxIterations: 9,
+          maxRunInputTokens: 54321,
+        });
+    },
+  );
+
   it("does not create missing seed jobs", async () => {
     resourceGetByPathMock.mockResolvedValue(null);
 
