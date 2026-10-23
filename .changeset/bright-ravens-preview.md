@@ -1,5 +1,4 @@
 ---
-"@agent-native/core": patch
 "@agent-native/toolkit": minor
 ---
 
