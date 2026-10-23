@@ -1406,7 +1406,7 @@ export default {
       sourceWriteUnavailable:
         "No momento, o código de movimento só pode ser gravado em designs HTML inline.",
       unresolvedStylesheets:
-        "Resolva as folhas de estilo externas antes de editar ou adicionar Motion.",
+        "Resolva os estilos externos ou gerados em tempo de execução antes de editar ou adicionar Motion.",
       sourceConflict:
         "O código do Motion mudou enquanto esta linha do tempo tinha alterações não salvas. Recarregue o código para descartá-las e usar a fonte atual.",
       reloadFromSource: "Recarregar código",

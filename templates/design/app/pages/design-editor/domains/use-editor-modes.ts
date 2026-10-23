@@ -45,6 +45,7 @@ import {
   getScreenFrameOriginCanvas,
   shouldPopToOverviewOnZoomChange,
 } from "../overview-camera";
+import { cancelPrototypeNavigationTransition } from "../prototype-navigation-transition";
 import { computeInteractZoomToFit } from "../responsive-interact";
 import { hasSelectableCodeLayerParent } from "../selection-state";
 import {
@@ -306,8 +307,11 @@ export function useEditorModes({
   }, []);
 
   const focusOverviewScreen = useCallback(
-    (screenId: string) => {
+    (screenId: string, options?: { fromPrototypeNavigation?: boolean }) => {
       if (!files.some((file) => file.id === screenId)) return;
+      if (!options?.fromPrototypeNavigation) {
+        cancelPrototypeNavigationTransition();
+      }
       const geometry = exportCanvasFrameGeometryById[screenId];
       const plan = geometry
         ? getFocusedScreenNavigationPlan({
@@ -507,9 +511,12 @@ export function useEditorModes({
         pendingLiveEditsAlreadyHandled?: boolean;
         targetFileId?: string;
         keepInteractDevice?: boolean;
+        fromPrototypeNavigation?: boolean;
       },
-    ) =>
-      runModeChange(
+    ) => {
+      const { fromPrototypeNavigation, ...modeOptions } = options ?? {};
+      if (!fromPrototypeNavigation) cancelPrototypeNavigationTransition();
+      return runModeChange(
         {
           activeFile,
           annotateLab,
@@ -548,8 +555,9 @@ export function useEditorModes({
           viewModeRef,
         },
         next,
-        options,
-      ),
+        options ? modeOptions : undefined,
+      );
+    },
     [
       activeFile,
       annotateLab,
@@ -707,7 +715,8 @@ export function useEditorModes({
   ]);
 
   const handleSidebarScreenSelect = useCallback(
-    (screenId: string) => focusOverviewScreen(screenId),
+    (screenId: string, options?: { fromPrototypeNavigation?: boolean }) =>
+      focusOverviewScreen(screenId, options),
     [focusOverviewScreen],
   );
 
