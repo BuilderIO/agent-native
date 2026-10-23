@@ -2252,14 +2252,11 @@ describe("applyVisualEdit", () => {
         /<div[^>]*data-agent-native-node-id="frame"[^>]*>/,
       )?.[0];
       expect(frameTag).toBeTruthy();
-      expect(frameTag).toMatch(/position:\s*relative\s*!important/i);
-      for (const side of ["left", "top", "right", "bottom"]) {
-        expect(frameTag).toMatch(
-          new RegExp(`${side}:\\s*auto\\s*!important`, "i"),
-        );
-      }
-      expect(frameTag).not.toMatch(/!absolute/);
-      expect(frameTag).toContain("!inset-0");
+      // Nothing measured its rendered size, so clearing its insets would
+      // collapse it; it stays absolute (and a containing block) instead.
+      expect(frameTag).toMatch(/position:absolute!important/i);
+      expect(frameTag).toContain("inset:24px");
+      expect(frameTag).not.toMatch(/position:\s*relative/i);
       expect(moved.content).toContain(
         'data-agent-native-node-id="badge" style="position:absolute;right:10px;bottom:13px"',
       );
@@ -3882,6 +3879,7 @@ describe("autoLayout", () => {
       targetId: "workspace",
       enabled: true,
       direction: "row",
+      childRects: { frame: { x: 24, y: 24, width: 272, height: 152 } },
     });
 
     expect(patch.result.status).toBe("applied");
@@ -3889,6 +3887,8 @@ describe("autoLayout", () => {
       /<div[^>]*data-agent-native-node-id="frame"[^>]*>/,
     )?.[0];
     expect(frameTag).toBeTruthy();
+    expect(frameTag).toMatch(/width:\s*272px/);
+    expect(frameTag).toMatch(/height:\s*152px/);
     expect(frameTag).toMatch(/position:\s*relative\s*!important/i);
     expect(frameTag).toMatch(/left:\s*auto\s*!important/i);
     expect(frameTag).toMatch(/top:\s*auto\s*!important/i);
@@ -4547,8 +4547,23 @@ describe("autoLayout", () => {
     expect(patch.content).not.toContain("position: absolute");
   });
 
-  it("strips absolute positioning from direct children when enabling", () => {
+  it("keeps an unmeasured inset-sized child absolute instead of collapsing it", () => {
     const html = `<div data-agent-native-node-id="container"><div data-agent-native-node-id="child" style="position: absolute; left: 0; top: 0; right: 0; bottom: 0">Child</div></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "container",
+      enabled: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: flex");
+    expect(patch.content).toContain(
+      'style="position: absolute; left: 0; top: 0; right: 0; bottom: 0"',
+    );
+  });
+
+  it("strips absolute positioning from direct children when enabling", () => {
+    const html = `<div data-agent-native-node-id="container"><div data-agent-native-node-id="child" style="position: absolute; left: 0; top: 0; width: 40px; height: 20px">Child</div></div>`;
     const patch = applyVisualEdit(html, {
       kind: "autoLayout",
       targetId: "container",

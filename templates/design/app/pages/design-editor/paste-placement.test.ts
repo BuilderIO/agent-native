@@ -345,6 +345,28 @@ describe("resolveClipboardSourceCanvasRects", () => {
     ).toEqual([{ x: 50, y: 140, width: 200, height: 100 }]);
   });
 
+  it("cannot locate a layer on a rotated screen, so the paste falls back to the view", () => {
+    expect(
+      resolveClipboardSourceCanvasRects({
+        entries: [{ html: rect, rootNodeId: "rect-1", sourceFileId: "home" }],
+        getContent: () => screen,
+        frames: [{ id: "home", geometry: { x: 100, y: 200, rotation: 15 } }],
+        boardFileId: "board",
+      }),
+    ).toBeNull();
+  });
+
+  it("still locates a layer on a screen rotated a full turn", () => {
+    expect(
+      resolveClipboardSourceCanvasRects({
+        entries: [{ html: rect, rootNodeId: "rect-1", sourceFileId: "home" }],
+        getContent: () => screen,
+        frames: [{ id: "home", geometry: { x: 100, y: 200, rotation: 360 } }],
+        boardFileId: "board",
+      }),
+    ).toEqual([{ x: 150, y: 340, width: 200, height: 100 }]);
+  });
+
   it("cannot locate a copy from a file this design does not have", () => {
     expect(
       resolveClipboardSourceCanvasRects({

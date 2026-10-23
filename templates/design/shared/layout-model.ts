@@ -603,10 +603,12 @@ function circularFillChildren(
   );
 }
 
-// A child list the reader cut short may hide a child that fills, which Hug
-// would have to freeze; unreadable children are a separate, older state.
+// Hug has to freeze every child that fills the axis it hugs. A list the
+// reader cut short, or an auto layout frame whose children could not be
+// read at all, may hide one of them.
 function childListComplete(model: LayoutModel): boolean {
-  return model.children.status !== "read" || model.children.complete;
+  if (model.children.status === "read") return model.children.complete;
+  return model.frame.mode === "none" || model.children.childCount === 0;
 }
 
 export function availableSizing(
@@ -701,7 +703,7 @@ export function sizingStylePatch(
  * size of its own once the insets go, so it would collapse in flow. Its
  * rendered size is written first so joining the flow changes nothing visible.
  */
-export function joinFlowPatch(child: LayoutNodeInput): LayoutStylePatch {
+export function joinFlowPatch(child: LayoutNodeInput): LayoutStylePatch | null {
   // An in-flow child is already where flow puts it; a relative offset is
   // part of how it looks, so it stays.
   if (!isOutOfFlow(child)) return {};
@@ -722,22 +724,24 @@ export function joinFlowPatch(child: LayoutNodeInput): LayoutStylePatch {
     for (const property of MARGIN_PROPERTIES) patch[property] = null;
     patch.margin = "0";
   }
-  if (!child.rect) return patch;
   const unsized = (value: string | undefined) =>
     !set(value) || lower(value) === "fit-content";
   const hasInset = set(styles.inset);
-  if (
+  const insetWidth =
     (hasInset || (set(styles.left) && set(styles.right))) &&
-    unsized(child.declaredSize?.width ?? styles.width) &&
-    child.rect.width > 0
-  ) {
+    unsized(child.declaredSize?.width ?? styles.width);
+  const insetHeight =
+    (hasInset || (set(styles.top) && set(styles.bottom))) &&
+    unsized(child.declaredSize?.height ?? styles.height);
+  if (!insetWidth && !insetHeight) return patch;
+  // Clearing the insets would collapse it, and nothing says how big it was.
+  if (!child.rect) return null;
+  // The measured rect is a border box; a padded content-box child would grow.
+  patch.boxSizing = "border-box";
+  if (insetWidth && child.rect.width > 0) {
     patch.width = wholePx(child.rect.width);
   }
-  if (
-    (hasInset || (set(styles.top) && set(styles.bottom))) &&
-    unsized(child.declaredSize?.height ?? styles.height) &&
-    child.rect.height > 0
-  ) {
+  if (insetHeight && child.rect.height > 0) {
     patch.height = wholePx(child.rect.height);
   }
   return patch;
@@ -829,8 +833,15 @@ function writeEnable(
     };
   }
   const children = new Map<string, LayoutStylePatch>();
+  const unmeasured: string[] = [];
   for (const child of model.children.items) {
-    if (child.id !== null) children.set(child.id, joinFlowPatch(child.node));
+    if (child.id === null) continue;
+    const patch = joinFlowPatch(child.node);
+    if (patch === null) unmeasured.push(child.id);
+    else children.set(child.id, patch);
+  }
+  if (unmeasured.length > 0) {
+    return { status: "unreadable", reason: "unmeasured", nodeIds: unmeasured };
   }
   if (change.frame) {
     return { status: "ok", frame: { ...change.frame }, children };
@@ -950,10 +961,18 @@ function writeChildPositioning(
     };
   }
   if (change.positioning === "auto") {
+    const patch = joinFlowPatch(child.node);
+    if (patch === null) {
+      return {
+        status: "unreadable",
+        reason: "unmeasured",
+        nodeIds: [change.childId],
+      };
+    }
     return {
       status: "ok",
       frame: {},
-      children: new Map([[change.childId, joinFlowPatch(child.node)]]),
+      children: new Map([[change.childId, patch]]),
     };
   }
   if (!child.rect) {
@@ -1157,15 +1176,11 @@ export function inferFlowArrangement(
       near(primaryLeading, primaryTrailing)
         ? "space-between"
         : "flex-start",
+    // Padding is measured off the container, so content plus padding always
+    // equals its size; even insets are what say the frame wraps its content.
     hugs: {
-      horizontal: near(
-        container.width,
-        maxX - minX + padding.left + padding.right,
-      ),
-      vertical: near(
-        container.height,
-        maxY - minY + padding.top + padding.bottom,
-      ),
+      horizontal: near(padding.left, padding.right),
+      vertical: near(padding.top, padding.bottom),
     },
     overlaps,
     irregular,

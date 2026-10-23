@@ -91,8 +91,14 @@ function boardBodyId(nodes: Map<string, SavedNode>) {
   return body.id;
 }
 
+// The board file is created lazily, sometimes by the draw itself, so its
+// html and body can be new without being layers anyone drew.
+const DOCUMENT_TAGS = new Set(["html", "head", "body"]);
+
 function newIds(before: Map<string, SavedNode>, after: Map<string, SavedNode>) {
-  return [...after.keys()].filter((id) => !before.has(id));
+  return [...after.entries()]
+    .filter(([id, node]) => !before.has(id) && !DOCUMENT_TAGS.has(node.tag))
+    .map(([id]) => id);
 }
 
 /** Below 100% zoom one page pixel spans several design pixels, so drawn and dropped geometry rounds. */

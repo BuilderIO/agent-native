@@ -76,21 +76,28 @@ export function measureFrameElement(
       continue;
     }
     const childStyles = view.getComputedStyle(child);
+    const transformed = hasMeaningfulCssTransform({
+      transform: childStyles.transform,
+      rotate: childStyles.rotate,
+      scale: childStyles.scale,
+    });
+    // A client rect is the transformed box's bounds; frozen as left/top/width/
+    // height with the transform kept, it would be moved and resized twice.
+    const layout = transformed ? layoutBox(child, container) : null;
+    if (transformed && !layout) {
+      return { status: "unmeasurable", reason: "transformed" };
+    }
     const rect = child.getBoundingClientRect();
     children.push({
       id,
-      rect: {
+      rect: layout ?? {
         x: rect.left - originLeft,
         y: rect.top - originTop,
         width: rect.width,
         height: rect.height,
       },
       position: childStyles.position,
-      transformed: hasMeaningfulCssTransform({
-        transform: childStyles.transform,
-        rotate: childStyles.rotate,
-        scale: childStyles.scale,
-      }),
+      transformed,
     });
   }
   return {
@@ -105,6 +112,25 @@ export function measureFrameElement(
     children,
     unidentifiedChildren,
   };
+}
+
+/** The untransformed border box, relative to the container's padding box. */
+function layoutBox(child: Element, container: Element): LayoutRect | null {
+  const el = child as HTMLElement;
+  const frame = container as HTMLElement;
+  if (typeof el.offsetWidth !== "number") return null;
+  const size = { width: el.offsetWidth, height: el.offsetHeight };
+  if (el.offsetParent === frame) {
+    return { x: el.offsetLeft, y: el.offsetTop, ...size };
+  }
+  if (el.offsetParent && el.offsetParent === frame.offsetParent) {
+    return {
+      x: el.offsetLeft - frame.offsetLeft - frame.clientLeft,
+      y: el.offsetTop - frame.offsetTop - frame.clientTop,
+      ...size,
+    };
+  }
+  return null;
 }
 
 function isTranslationOnly(styles: CSSStyleDeclaration): boolean {

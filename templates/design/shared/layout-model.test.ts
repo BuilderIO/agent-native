@@ -291,6 +291,27 @@ describe("availability", () => {
     expect(availableSizing(unmeasured).vertical).toContain("hug");
   });
 
+  it("withholds Hug from an auto layout frame whose children could not be read", () => {
+    const unread = model(ROW, {
+      status: "unreadable",
+      childCount: 3,
+      hasText: null,
+    });
+    expect(availableSizing(unread).horizontal).not.toContain("hug");
+    expect(
+      writeLayoutChange(unread, {
+        kind: "sizing",
+        sizing: { horizontal: "hug" },
+      }).status,
+    ).toBe("unreadable");
+    const emptyText = model(
+      { tagName: "p", styles: { display: "block" } },
+      { status: "unreadable", childCount: 0, hasText: true },
+    );
+    expect(canHugContent(emptyText)).toBe(true);
+    expect(availableSizing(emptyText).horizontal).toContain("hug");
+  });
+
   it("withholds Hug while the child list was cut short, since a missing child may fill", () => {
     const truncated = model(
       ROW,
@@ -729,6 +750,43 @@ describe("joinFlowPatch", () => {
     ).not.toHaveProperty("width");
   });
 
+  it("pins an inset-sized child's measured size as a border box", () => {
+    expect(
+      joinFlowPatch(
+        child(
+          "panel",
+          { x: 24, y: 24, width: 272, height: 152 },
+          { styles: { position: "absolute", inset: "24px", padding: "16px" } },
+        ),
+      ),
+    ).toMatchObject({
+      boxSizing: "border-box",
+      width: "272px",
+      height: "152px",
+    });
+  });
+
+  it("refuses to join flow when an inset-sized child was never measured", () => {
+    expect(
+      joinFlowPatch(
+        child("panel", null, {
+          styles: { position: "absolute", left: "0", right: "0" },
+        }),
+      ),
+    ).toBeNull();
+    const freeform = model(
+      { styles: { display: "block", position: "relative" } },
+      read([
+        child("panel", null, {
+          styles: { position: "absolute", left: "0", right: "0" },
+        }),
+      ]),
+    );
+    expect(
+      writeLayoutChange(freeform, { kind: "enable-auto-layout" }).status,
+    ).toBe("unreadable");
+  });
+
   it("keeps an in-flow relative child's visible offset", () => {
     expect(
       joinFlowPatch(
@@ -767,6 +825,14 @@ describe("inferFlowArrangement", () => {
   const at = (id: string, x: number, y: number, width = 50, height = 50) => ({
     id,
     rect: { x, y, width, height },
+  });
+
+  it("infers Hug only where opposite paddings balance, not from padding measured off the container", () => {
+    const lopsided = inferFlowArrangement(
+      { x: 0, y: 0, width: 300, height: 70 },
+      [at("a", 10, 10), at("b", 80, 10)],
+    );
+    expect(lopsided?.hugs).toEqual({ horizontal: false, vertical: true });
   });
 
   it("keeps layer order for children that start at the same point", () => {

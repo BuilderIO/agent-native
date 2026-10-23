@@ -3827,10 +3827,18 @@ const FLATTENABLE_CHILD_TAGS = new Set([
  * layer the user has to dig through. Inline children stay wrapped because the
  * div is what puts them on their own line.
  */
+// Selectors that match on tree shape: removing a wrapper would change what
+// they select, so any of them in the page's own CSS keeps every wrapper.
+const STRUCTURAL_SELECTOR = /[>+~]|:(?:nth-|first-|last-|only-|empty\b|has\()/;
+
 export function flattenRedundantWrappersInHtml(html: string): {
   content: string;
   removed: number;
 } {
+  const pageCss = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)];
+  if (pageCss.some((match) => STRUCTURAL_SELECTOR.test(match[1] ?? ""))) {
+    return { content: html, removed: 0 };
+  }
   const elements = parseHtmlElements(html);
   const ranges: Array<{ start: number; end: number }> = [];
   for (const element of elements) {
@@ -8667,15 +8675,16 @@ function stripAbsolutePositioningFromChild(
 ): string {
   const currentStyle = attributeValue(child, "style");
   const declarations = parseStyleDeclarations(currentStyle ?? "");
-  applyLayoutStylePatch(
-    declarations,
-    joinFlowPatch(
-      layoutNodeFromParsed(
-        child,
-        renderedSize ? { x: 0, y: 0, ...renderedSize } : null,
-      ),
+  const joinPatch = joinFlowPatch(
+    layoutNodeFromParsed(
+      child,
+      renderedSize ? { x: 0, y: 0, ...renderedSize } : null,
     ),
   );
+  // Without a measurement an inset-sized child cannot keep its size in flow;
+  // it stays absolute inside the frame rather than collapsing.
+  if (joinPatch === null) return html;
+  applyLayoutStylePatch(declarations, joinPatch);
   const isFrame =
     (
       attributeValue(child, "data-an-primitive") ||

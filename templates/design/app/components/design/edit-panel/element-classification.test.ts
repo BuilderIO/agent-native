@@ -1519,6 +1519,7 @@ describe("commitElementSizingForAxes — one patch for both axes", () => {
       parentDisplay: "flex",
       parentLayout: { display: "flex", flexDirection: "row" },
       isFlexContainer: true,
+      childLayouts: childLayouts([]),
       computedStyles: { width: "200px", height: "80px", flexGrow: "1" },
     });
     commitElementSizingForAxes(

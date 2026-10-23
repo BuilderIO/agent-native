@@ -386,7 +386,10 @@ type ClipboardSourceEntry = {
 
 interface ClipboardSourceCanvas {
   getContent: (fileId: string) => string | undefined;
-  frames: ReadonlyArray<{ id: string; geometry: { x: number; y: number } }>;
+  frames: ReadonlyArray<{
+    id: string;
+    geometry: { x: number; y: number; rotation?: number };
+  }>;
   boardFileId: string | undefined;
 }
 
@@ -403,6 +406,9 @@ export function clipboardSourceCanvasRect(
       : canvas.frames.find((frame) => frame.id === entry.sourceFileId)
           ?.geometry;
   if (!origin) return null;
+  // A rotated screen turns its layers about its centre; adding its origin
+  // would place the copy somewhere the original never was.
+  if ("rotation" in origin && (origin.rotation ?? 0) % 360 !== 0) return null;
   const content = canvas.getContent(entry.sourceFileId);
   if (!content) return null;
   const position = authoredDocumentPositionForNode(content, entry.rootNodeId);

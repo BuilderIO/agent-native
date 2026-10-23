@@ -56,3 +56,22 @@ describe("annotateAgentScreenHtmlForPersist", () => {
     );
   });
 });
+
+describe("flattenRedundantWrappersInHtml with authored structural CSS", () => {
+  it.each([
+    ["a child combinator", "div > section { color: red }"],
+    ["a structural pseudo-class", "section:first-child { color: red }"],
+    ["a sibling combinator", "div + div { margin-top: 8px }"],
+  ])("leaves wrappers alone when the page's own CSS uses %s", (_label, css) => {
+    const html = `<html><head><style>${css}</style></head><body><div><section>Hi</section></div></body></html>`;
+    expect(flattenRedundantWrappersInHtml(html)).toEqual({
+      content: html,
+      removed: 0,
+    });
+  });
+
+  it("still flattens when the page CSS cannot depend on the wrapper", () => {
+    const html = `<html><head><style>.card { color: red } @media (min-width: 600px) { .card { color: blue } }</style></head><body><div><section class="card">Hi</section></div></body></html>`;
+    expect(flattenRedundantWrappersInHtml(html).removed).toBe(1);
+  });
+});

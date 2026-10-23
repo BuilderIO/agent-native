@@ -105,3 +105,18 @@ describe("measureFrameElement under a transform", () => {
     expect(kidRect(container)).toMatchObject({ x: 10, y: 20 });
   });
 });
+
+describe("measureFrameElement with a transformed child", () => {
+  it("reports a rotated child's untransformed layout box, which its transform then moves", () => {
+    const { container, child } = mountPreview("position:relative");
+    (child as HTMLElement).style.transform = "rotate(45deg)";
+    Object.defineProperties(child, {
+      offsetParent: { get: () => container },
+      offsetLeft: { get: () => 30 },
+      offsetTop: { get: () => 12 },
+      offsetWidth: { get: () => 80 },
+      offsetHeight: { get: () => 20 },
+    });
+    expect(kidRect(container)).toEqual({ x: 30, y: 12, width: 80, height: 20 });
+  });
+});
