@@ -35,8 +35,8 @@ interface NotificationData {
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
   autoStart?: boolean;
-  // Set by the Rust side only when debug logging is on (see debug_enabled in
-  // debug.rs), so release builds get no snapshot IPC at all.
+  // Set by Rust when debug_enabled() is on (see debug.rs); release processes
+  // can enable snapshot IPC by setting CLIPS_DEBUG or DEBUG.
   debugSnapshots?: boolean;
 }
 
