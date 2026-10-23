@@ -75,8 +75,8 @@ const publisherSource = readFileSync(
   "scripts/changeset-publish-sequential.ts",
   "utf8",
 );
-const releaseEverythingWorkflowSource = readFileSync(
-  ".github/workflows/release-everything.yml",
+const releasePhaseWorkflowSource = readFileSync(
+  ".github/workflows/release-everything-phase.yml",
   "utf8",
 );
 const ciLintJob = (
@@ -234,8 +234,8 @@ describe("npm package release workflow", () => {
 
   it("caps delayed required-check polling at the coordinator merge window", async () => {
     assert.match(
-      releaseEverythingWorkflowSource,
-      /phaseDeadline\(210 \* 60_000\),\s*coordinatorDeadline - postMergeReserveMs/,
+      releasePhaseWorkflowSource,
+      /const deadline = phaseDeadline\(210 \* 60_000\);/,
     );
     assert.equal(
       requiredCheckTimeoutForEvent("pull_request"),
