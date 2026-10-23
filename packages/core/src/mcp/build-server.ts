@@ -4473,7 +4473,7 @@ export async function resolveMcpIdentityOrgId(
   try {
     const { resolveOrgIdForEmail } = await import("../org/context.js");
     return (await resolveOrgIdForEmail(userEmail)) ?? undefined;
-  } catch {
-    return undefined;
+  } catch (cause) {
+    throw new McpIdentityVerificationUnavailableError(cause);
   }
 }

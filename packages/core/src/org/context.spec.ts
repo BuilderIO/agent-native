@@ -1255,11 +1255,11 @@ describe("resolveOrgIdForEmail", () => {
   });
 
   it("keeps scope unknown when the membership query is unavailable", async () => {
-    mockExecute.mockRejectedValueOnce(
-      new Error('relation "org_members" does not exist'),
-    );
+    const cause = new Error('relation "org_members" does not exist');
+    mockExecute.mockRejectedValueOnce(cause);
     await expect(resolveOrgScopeForEmail("nobody@b.com")).resolves.toEqual({
       status: "unknown",
+      cause,
     });
   });
 
@@ -1310,9 +1310,7 @@ describe("resolveOrgIdForEmail", () => {
     }),
   ])("throws when organization scope is unavailable: %s", async (error) => {
     mockExecute.mockRejectedValueOnce(error);
-    await expect(resolveOrgIdForEmail("a@b.com")).rejects.toThrow(
-      "Organization scope is unavailable",
-    );
+    await expect(resolveOrgIdForEmail("a@b.com")).rejects.toBe(error);
   });
 
   it("throws when org_members is unreadable, so callers cannot mistake it for 'no org'", async () => {
