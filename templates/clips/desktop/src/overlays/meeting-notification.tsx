@@ -35,8 +35,8 @@ interface NotificationData {
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
   autoStart?: boolean;
-  // Set by the Rust side only when CLIPS_DEBUG is on, so release builds get no
-  // snapshot IPC at all.
+  // Set by the Rust side only when debug logging is on (see debug_enabled in
+  // debug.rs), so release builds get no snapshot IPC at all.
   debugSnapshots?: boolean;
 }
 
@@ -81,7 +81,7 @@ function resizeNotificationWindow(expanded: boolean, recovery = false) {
 }
 
 // Debug-only: the Rust command writes this to the app log folder and is a
-// no-op unless CLIPS_DEBUG is set, so the card's on-screen state can be read
+// no-op unless debug logging is on, so the card's on-screen state can be read
 // back without screen capture.
 function writeDebugSnapshot(reason: string, data: NotificationData) {
   const el = document.querySelector<HTMLElement>(".meeting-notification");

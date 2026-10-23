@@ -113,7 +113,7 @@ fn start_meeting_notification_hover_tracking(app: &AppHandle) {
 }
 
 /// Debug-only: writes a JSON snapshot into the app log folder so the card's
-/// state can be read without screen capture. A no-op unless CLIPS_DEBUG is set.
+/// state can be read without screen capture. A no-op unless debug logging is on.
 fn write_debug_snapshot(app: &AppHandle, name: &str, payload: &Value) -> Result<(), String> {
     if !crate::debug::debug_enabled() {
         return Ok(());
