@@ -1582,6 +1582,21 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
+  it("withholds a warehouse calculation over comma-separated tables", () => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(disclosed, {
+        query:
+          "SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts, subscriptions WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
+        rows: [{ active_accounts: 10 }],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+      retryMessage: expect.stringContaining("calculation"),
+    });
+  });
+
   it("rejects a literal even when it is returned under the metric alias", () => {
     const result = realDataFinalGuard(
       explicitWarehouseContext(
@@ -1620,6 +1635,10 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     [
       "parenthesized constant",
       "SELECT (10 + 0) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
+    ],
+    [
+      "combined aggregates",
+      "SELECT COUNT(*) + SUM(revenue) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'",
     ],
   ])("rejects a computed SQL constant: %s", (_case, query) => {
     const result = realDataFinalGuard(
@@ -3097,7 +3116,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     );
   });
 
-  it("does not treat find-data's echoed question as a returned metric candidate", async () => {
+  it("does not treat a find-data echoed question as a returned metric candidate", async () => {
     const { asked, result } = await judged(
       {
         userText: "What were active accounts last month?",
@@ -3158,10 +3177,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     );
 
     expect(asked).toHaveLength(1);
-    expect(result).toMatchObject({
-      fallbackMessage: expect.stringContaining("no owner-approved figure"),
-      maxRetries: 1,
-    });
+    expect(result).toMatchObject(withheld);
   });
 
   it("does not clear a failed lookup with a success under a name find-data did not return", async () => {

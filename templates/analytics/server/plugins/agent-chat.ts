@@ -1111,8 +1111,8 @@ function dbtFailureResolvedLater(
     ) &&
     normalizedDbtMetricName(metricName) === failedQuery.metricKey;
   if (!failedQuery.querySpecKey && !isScopeLessMetricLookup) return false;
-  // find-data echoes the question as well as its candidates, so a name in the echo also
-  // counts. Only a name the agent typed can appear there, not a value from the rows.
+  // Only returned candidates can establish an alternate metric name; the echoed search
+  // question is input, not evidence that a metric definition was found.
   const namesFound = new Set<string>();
   for (const [offset, result] of results.slice(index + 1).entries()) {
     if (isNamedTool(result.name, "find-data")) {
