@@ -1813,8 +1813,14 @@ export function createAgentChatPlugin(
                 sniffed = cliWrapperFlagsFromSource(
                   _fs.readFileSync(filePath, "utf-8"),
                 );
-              } catch {
-                // File read failed — leave the flags unset (default POST)
+              } catch (error) {
+                // Without the source there's no telling whether the action
+                // asks first, so it asks. The route stays the default POST.
+                console.warn(
+                  `[agent-native] Could not read ${dir}/${file}; it will ask for approval before it runs.`,
+                  error,
+                );
+                sniffed = { needsApproval: true };
               }
 
               // Fallback: bash-based wrapper for CLI-style scripts
