@@ -283,7 +283,7 @@ describe("CommentsPanel reply composer", () => {
       completeRenewal = resolve;
     });
     const cancel = vi.spyOn(queryClient, "cancelQueries");
-    const fetch = vi.fn(
+    const fetch = vi.fn<typeof globalThis.fetch>(
       async () =>
         new Response(JSON.stringify({ id: "comment-1" }), {
           status: 200,

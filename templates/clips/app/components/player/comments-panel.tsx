@@ -218,7 +218,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
     applyComments = defaultLens.applyComments,
     presentation = "default",
   } = props;
-  const commentAccessTokenRef = useRef(props.commentAccessToken);
+  const commentAccessTokenRef = useRef<string | null | undefined>(
+    props.commentAccessToken,
+  );
   useEffect(() => {
     commentAccessTokenRef.current = props.commentAccessToken;
   }, [props.commentAccessToken]);
