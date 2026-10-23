@@ -54,7 +54,12 @@ type Loaded =
   | { status: "signed-out" }
   | { status: "sign-in-unavailable" }
   | { status: "not-found"; otherOrganization: boolean }
-  | { status: "ready"; view: McpApprovalView };
+  | {
+      status: "ready";
+      view: McpApprovalView;
+      /** How far the server's clock is ahead of this one. */
+      clockOffset: number;
+    };
 
 /** Why the last decision didn't land, in the page's own words. */
 type DecisionProblem =
@@ -167,42 +172,30 @@ export function McpApprovalReviewPage({
       : undefined,
   );
 
+  const clockOffset = loaded.status === "ready" ? loaded.clockOffset : 0;
   useEffect(() => {
     if (!view || (view.state !== "pending" && view.state !== "approved")) {
       return;
     }
     const controller = new AbortController();
+    // Only the server knows whether the request was decided, or the grant
+    // used, in time. Its deadline is timed on its clock, not this device's,
+    // and read a second late so the answer is final rather than "approved"
+    // again.
     const timer = window.setTimeout(
-      () => {
-        if (view.state === "approved") {
-          // Only the server knows whether the agent used the grant in time.
-          readReview(id, controller.signal, setLoaded);
-          return;
-        }
-        setLoaded((current) =>
-          current.status === "ready"
-            ? { status: "ready", view: withClientExpiry(current.view) }
-            : current,
-        );
-      },
-      // An approved grant is read again a second late, so a server clock a
-      // little behind this one doesn't answer "approved" over and over.
-      Math.max(0, view.expiresAt - Date.now()) +
-        (view.state === "approved" ? 1_000 : 50),
+      () => readReview(id, controller.signal, setLoaded),
+      Math.max(0, view.expiresAt - (Date.now() + clockOffset)) + 1_000,
     );
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [id, view]);
+  }, [id, view, clockOffset]);
 
   const decided = (state: McpApprovalViewState, expiresAt: number) =>
     setLoaded((current) =>
       current.status === "ready"
-        ? {
-            status: "ready",
-            view: withClientExpiry({ ...current.view, state, expiresAt }),
-          }
+        ? { ...current, view: { ...current.view, state, expiresAt } }
         : current,
     );
 
@@ -244,16 +237,6 @@ export function McpApprovalReviewSkeleton({ appName }: { appName: string }) {
   );
 }
 
-/**
- * A pending review past its deadline reads as expired without a reload. An
- * approved one may already have run, so it waits for the server to say.
- */
-function withClientExpiry(view: McpApprovalView): McpApprovalView {
-  return view.state === "pending" && view.expiresAt <= Date.now()
-    ? { ...view, state: "expired", csrfToken: undefined }
-    : view;
-}
-
 function readReview(
   id: string,
   signal: AbortSignal,
@@ -264,7 +247,7 @@ function readReview(
       if (signal.aborted) return;
       setLoaded(
         result.status === "ready"
-          ? { status: "ready", view: withClientExpiry(result.view) }
+          ? { ...result, clockOffset: result.view.servedAt - Date.now() }
           : result,
       );
     },

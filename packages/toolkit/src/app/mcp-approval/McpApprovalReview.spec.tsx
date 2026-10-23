@@ -62,6 +62,7 @@ function pendingView(
     },
     createdAt: NOW,
     expiresAt: NOW + 10 * 60_000,
+    servedAt: NOW,
     priorRun: undefined,
     readerTimeZone: "America/New_York",
     locale: "en-US",
@@ -496,17 +497,78 @@ describe("deciding", () => {
 });
 
 describe("a review that can't be decided", () => {
-  it("turns expired at its deadline without a reload", async () => {
-    serve(() => respond(200, pendingView()));
+  it("asks the server at a pending review's deadline, and shows its answer", async () => {
+    const states = ["pending", "expired"] as const;
+    let reads = 0;
+    serve(() => respond(200, pendingView({ state: states[reads++] })));
     await renderPage();
     expect(button("Approve")).toBeTruthy();
 
     await act(async () => {
-      vi.advanceTimersByTime(10 * 60_000 + 100);
+      vi.advanceTimersByTime(10 * 60_000 + 1_100);
     });
+    await settle();
 
+    expect(reads).toBe(2);
     expect(text()).toContain("This request expired, and nothing ran.");
     expect(() => button("Approve")).toThrow();
+  });
+
+  it("times the deadline on the server's clock when this device's runs fast", async () => {
+    const states = ["pending", "expired"] as const;
+    let reads = 0;
+    // This device reads five minutes later than the server.
+    serve(() =>
+      respond(
+        200,
+        pendingView({
+          state: states[reads++],
+          servedAt: NOW - 5 * 60_000,
+          expiresAt: NOW + 5 * 60_000,
+        }),
+      ),
+    );
+    await renderPage();
+
+    await act(async () => {
+      vi.advanceTimersByTime(5 * 60_000 + 1_100);
+    });
+    await settle();
+    expect(reads).toBe(1);
+    expect(button("Approve").disabled).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(5 * 60_000);
+    });
+    await settle();
+    expect(reads).toBe(2);
+    expect(text()).toContain("This request expired, and nothing ran.");
+  });
+
+  it("times the deadline on the server's clock when this device's runs slow", async () => {
+    const states = ["approved", "used"] as const;
+    let reads = 0;
+    // This device reads five minutes earlier than the server.
+    serve(() =>
+      respond(
+        200,
+        pendingView({
+          state: states[reads++],
+          csrfToken: undefined,
+          servedAt: NOW + 5 * 60_000,
+          expiresAt: NOW + 15 * 60_000,
+        }),
+      ),
+    );
+    await renderPage();
+
+    await act(async () => {
+      vi.advanceTimersByTime(10 * 60_000 + 1_100);
+    });
+    await settle();
+
+    expect(reads).toBe(2);
+    expect(text()).toContain("This request was approved and has run.");
   });
 
   it("asks the server at an approved grant's deadline, since the agent may have used it", async () => {

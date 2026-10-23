@@ -143,6 +143,8 @@ export interface McpApprovalView {
   requester: McpApprovalRequester | undefined;
   createdAt: number | null;
   expiresAt: number;
+  /** The server's clock when it built this view; deadlines are on that clock. */
+  servedAt: number;
   priorRun: McpApprovalPriorRun | undefined;
   /** The reader's chosen time zone; null means the device's own. */
   readerTimeZone: string | null;
@@ -261,6 +263,7 @@ async function buildView(
     requester: await requesterFor(record, reader.email),
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
+    servedAt: now,
     priorRun:
       state === "pending"
         ? await findPriorApprovedRun(record, record.retrySafe)
