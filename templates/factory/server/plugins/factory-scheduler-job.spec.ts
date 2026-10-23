@@ -1,4 +1,7 @@
+import { parseJobResource } from "@agent-native/core/jobs/frontmatter";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { defaultAutomationConfig } from "../lib/factory-automation-config.js";
 
 const deleteAutomationRunsMock = vi.hoisted(() => vi.fn());
 const listAutomationDefinitionsMock = vi.hoisted(() => vi.fn());
@@ -7,6 +10,7 @@ const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceListContentMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfAbsentMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const recordFactoryGovernanceAuditMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
@@ -55,6 +59,7 @@ vi.mock("@agent-native/core/resources", () => ({
   resourceList: resourceListMock,
   resourceListContentByOwnersAndPrefixes: resourceListContentMock,
   resourcePut: resourcePutMock,
+  resourcePutIfAbsent: resourcePutIfAbsentMock,
   resourcePutIfCurrent: resourcePutIfCurrentMock,
   WORKSPACE_OWNER: "workspace",
 }));
@@ -87,6 +92,7 @@ vi.mock("../lib/factory-automation-repair.js", () => ({
 }));
 
 import {
+  createFactoryAutomation,
   ensureFactoryAutomations,
   factoryAutomationTemplatePrompt,
   recordFinishedAutomationPrompt,
@@ -100,12 +106,186 @@ beforeEach(() => {
   listAutomationDefinitionsMock.mockResolvedValue([]);
   resourceListMock.mockResolvedValue([]);
   resourceListContentMock.mockResolvedValue([]);
+  resourcePutIfAbsentMock.mockReset().mockResolvedValue({ id: "new-job" });
   resourceDeleteByPathMock.mockResolvedValue(true);
   deleteAutomationRunsMock.mockResolvedValue(undefined);
   insertAutomationVersionValuesMock.mockResolvedValue(undefined);
   getDbMock.mockReturnValue({
     insert: () => ({ values: insertAutomationVersionValuesMock }),
     select: () => ({ from: () => ({ where: async () => [{ latest: null }] }) }),
+  });
+});
+
+describe("createFactoryAutomation origin", () => {
+  const input = {
+    displayName: "Watch",
+    prompt: "Watch this repository.",
+    config: defaultAutomationConfig("github", "blank"),
+  };
+
+  it.each([
+    { caller: "tool" as const, networkProtocol: "mcp" as const },
+    { caller: "tool" as const, networkProtocol: "a2a" as const },
+    { caller: "cli" as const },
+    undefined,
+  ])(
+    "marks outside-created definitions from %o using server context",
+    async (context) => {
+      await createFactoryAutomation(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+        {
+          ...input,
+          prompt: "---\nmcpManaged: false\n---\nWatch GitHub.",
+        },
+        context as never,
+      );
+      const content = resourcePutIfAbsentMock.mock.calls[0][2] as string;
+      expect(parseJobResource(content).meta.mcpManaged).toBe(true);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["frontend", "tool"] as const)(
+    "keeps ordinary %s definitions unmarked despite input marker",
+    async (caller) => {
+      await createFactoryAutomation(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+        {
+          ...input,
+          mcpManaged: true,
+        } as typeof input,
+        { caller } as never,
+      );
+      expect(
+        parseJobResource(resourcePutIfAbsentMock.mock.calls[0][2]).meta
+          .mcpManaged,
+      ).toBeUndefined();
+    },
+  );
+
+  it("preserves an existing marked peer definition and retries a raced name without dropping origin", async () => {
+    const existing = `---\norgId: org-1\ncreatedBy: peer@example.com\nrunAs: creator\nmcpManaged: true\nenabled: false\n---\nPeer job.\n`;
+    resourceListContentMock.mockResolvedValue([
+      {
+        id: "peer-job",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-github-watch.md",
+        content: existing,
+      },
+    ]);
+    resourcePutIfAbsentMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "new-job" });
+    const result = await createFactoryAutomation(
+      "owner@example.com",
+      "org-1",
+      "support-triage",
+      input,
+      { caller: "tool", networkProtocol: "mcp" } as never,
+    );
+    expect(resourcePutIfAbsentMock).toHaveBeenCalledTimes(2);
+    const paths = resourcePutIfAbsentMock.mock.calls.map((call) => call[1]);
+    expect(paths).toEqual([
+      "jobs/factories/support-triage/factory-github-watch-2.md",
+      "jobs/factories/support-triage/factory-github-watch-3.md",
+    ]);
+    expect(result.path).toBe(paths[1]);
+    for (const call of resourcePutIfAbsentMock.mock.calls) {
+      expect(parseJobResource(call[2]).meta.mcpManaged).toBe(true);
+    }
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts success on the fourth create attempt after three name races", async () => {
+    resourcePutIfAbsentMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "fourth-job" });
+
+    await expect(
+      createFactoryAutomation(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+        input,
+        { caller: "tool", networkProtocol: "mcp" } as never,
+      ),
+    ).resolves.toEqual({
+      id: "fourth-job",
+      name: "factory-github-watch-4",
+      path: "jobs/factories/support-triage/factory-github-watch-4.md",
+    });
+    expect(resourcePutIfAbsentMock).toHaveBeenCalledTimes(4);
+    expect(resourcePutIfAbsentMock.mock.calls.map((call) => call[1])).toEqual([
+      "jobs/factories/support-triage/factory-github-watch.md",
+      "jobs/factories/support-triage/factory-github-watch-2.md",
+      "jobs/factories/support-triage/factory-github-watch-3.md",
+      "jobs/factories/support-triage/factory-github-watch-4.md",
+    ]);
+    for (const call of resourcePutIfAbsentMock.mock.calls) {
+      expect(parseJobResource(call[2]).meta.mcpManaged).toBe(true);
+    }
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
+  it("exhausts exactly four raced creates after scanning occupied names without overwriting a marked job", async () => {
+    const occupiedPaths = [
+      "jobs/factories/support-triage/factory-github-watch.md",
+      "jobs/factories/support-triage/factory-github-watch-2.md",
+      "jobs/factories/support-triage/factory-github-watch-3.md",
+      "jobs/factories/support-triage/factory-github-watch-4.md",
+      "jobs/factories/support-triage/factory-github-watch-5.md",
+      "jobs/factories/support-triage/factory-github-watch-6.md",
+    ];
+    resourceListContentMock.mockResolvedValue(
+      occupiedPaths.map((path, index) => ({
+        id: `peer-job-${index}`,
+        owner: "__organization__:org-1",
+        path,
+        content:
+          "---\norgId: org-1\ncreatedBy: peer@example.com\nrunAs: creator\nmcpManaged: true\nenabled: false\n---\nPeer job.\n",
+      })),
+    );
+    resourcePutIfAbsentMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "forbidden-fifth-job" });
+
+    await expect(
+      createFactoryAutomation(
+        "owner@example.com",
+        "org-1",
+        "support-triage",
+        input,
+        { caller: "tool", networkProtocol: "a2a" } as never,
+      ),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      message:
+        "Factory automation changed concurrently. Refresh and try again.",
+      statusCode: 409,
+      errorCode: "automation_version_conflict",
+    });
+    expect(resourcePutIfAbsentMock).toHaveBeenCalledTimes(4);
+    expect(resourcePutIfAbsentMock.mock.calls.map((call) => call[1])).toEqual([
+      "jobs/factories/support-triage/factory-github-watch-7.md",
+      "jobs/factories/support-triage/factory-github-watch-8.md",
+      "jobs/factories/support-triage/factory-github-watch-9.md",
+      "jobs/factories/support-triage/factory-github-watch-10.md",
+    ]);
+    for (const call of resourcePutIfAbsentMock.mock.calls) {
+      expect(parseJobResource(call[2]).meta.mcpManaged).toBe(true);
+    }
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
   });
 });
 

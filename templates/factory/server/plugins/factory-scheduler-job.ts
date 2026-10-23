@@ -1,3 +1,5 @@
+import { isOutsideAgentCall } from "@agent-native/core";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import type { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
 import { isProductionServerlessFunctionRuntime } from "@agent-native/core/db";
 import { subscribe } from "@agent-native/core/event-bus";
@@ -9,6 +11,7 @@ import {
   resourceGetByPath,
   resourceList,
   resourcePut,
+  resourcePutIfAbsent,
   resourcePutIfCurrent,
   WORKSPACE_OWNER,
 } from "@agent-native/core/resources";
@@ -734,6 +737,7 @@ export async function createFactoryAutomation(
     config: FactoryAutomationConfig;
     enabled?: boolean;
   },
+  context?: ActionRunContext,
 ): Promise<{ id: string; name: string; path: string }> {
   const owner = organizationResourceOwner(orgId);
   const existing = await listFactoryAutomationResources(
@@ -756,23 +760,38 @@ export async function createFactoryAutomation(
   const seed =
     AUTOMATION_SEEDS.find((entry) => entry.name === preferred) ??
     blankAutomationSeed(input.config.source, leafName);
-  const path = factoryAutomationJobPath(factoryId, leafName);
-  const content = automationContent(
-    ownerEmail,
-    orgId,
-    factoryId,
-    { ...seed, name: leafName },
-    input.enabled ?? false,
-    input.config,
-    input.displayName,
-    input.prompt,
-  );
-  const written = await resourcePut(owner, path, content, "text/markdown");
-  return {
-    id: written.id,
-    name: factoryAutomationLeafName(path),
-    path,
-  };
+  const outside = isOutsideAgentCall(context);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const path = factoryAutomationJobPath(factoryId, leafName);
+    let content = automationContent(
+      ownerEmail,
+      orgId,
+      factoryId,
+      { ...seed, name: leafName },
+      input.enabled ?? false,
+      input.config,
+      input.displayName,
+      input.prompt,
+    );
+    if (outside) {
+      content = setAutomationFrontmatterField(content, "mcpManaged", "true");
+    }
+    const written = await resourcePutIfAbsent(
+      owner,
+      path,
+      content,
+      "text/markdown",
+    );
+    if (written) {
+      return { id: written.id, name: factoryAutomationLeafName(path), path };
+    }
+    leafName = `${preferred}-${suffix}`;
+    suffix += 1;
+  }
+  fail("Factory automation changed concurrently. Refresh and try again.", {
+    statusCode: 409,
+    errorCode: "automation_version_conflict",
+  });
 }
 
 export function factoryAutomationTemplateSeed(

@@ -1024,6 +1024,36 @@ describe("prompt content invariants", () => {
     expect(gated).toContain("**Plan and track multi-step work**");
   });
 
+  it("constructs delegated guidance without framework runtime tools and preserves the in-app default", () => {
+    const defaults = _agentChatPromptSectionsForTests.buildFrameworkPrompts();
+    const delegated = _agentChatPromptSectionsForTests.buildFrameworkPrompts(
+      undefined,
+      { delegated: true, databaseTools: "write", extensionTools: true },
+    );
+    expect(defaults.PROD_FRAMEWORK_PROMPT).toContain("connect-builder");
+    expect(defaults.PROD_FRAMEWORK_PROMPT).toContain("render-data-widget");
+    for (const prompt of Object.values(delegated)) {
+      expect(prompt).toContain("registered actions exposed as tools");
+      expect(prompt).toContain("`tool-search`");
+      expect(prompt).toContain("native chat widget");
+      for (const name of [
+        "connect-builder",
+        "get-framework-context",
+        "render-data-widget",
+        "save-memory",
+        "refresh-screen",
+        "set-search-params",
+        "db-query",
+        "call-agent",
+        "spawn",
+        "manage-jobs",
+        "create-extension",
+      ]) {
+        expect(prompt, name).not.toContain(`\`${name}\``);
+      }
+    }
+  });
+
   it("keeps extension tool guidance out of assembled prompts by default", () => {
     const defaultPrompts =
       _agentChatPromptSectionsForTests.buildFrameworkPrompts();
@@ -1489,42 +1519,6 @@ describe("delegated tool surfaces in dev", () => {
     expect(
       resolveA2AAgentDelegationEnabled({ a2aAgentDelegation: false }),
     ).toBe(false);
-  });
-
-  it("keep template actions native so a sibling never has to shell out", () => {
-    const source = readFileSync(agentChatPluginSourceUrl, {
-      encoding: "utf-8",
-    });
-
-    const devBranch = (declaration: string): string => {
-      const start = source.indexOf(declaration);
-      expect(start, `${declaration} not found`).toBeGreaterThan(-1);
-      const branch = source.slice(start, start + 1200);
-      const elseAt = branch.indexOf(": {");
-      expect(elseAt, `${declaration} has no else branch`).toBeGreaterThan(-1);
-      return branch.slice(0, elseAt);
-    };
-
-    expect(devBranch("const a2aRegisteredActions = devActive")).toContain(
-      "...templateScripts,",
-    );
-    expect(devBranch("const mcpRegisteredActions = devActiveMcp")).toContain(
-      "...templateScripts,",
-    );
-
-    const a2aPrompt = source.slice(
-      source.indexOf("// Delegated turns use native template actions"),
-      source.indexOf("// Build tools — same as interactive handler."),
-    );
-    expect(a2aPrompt).toContain("basePrompt +");
-    expect(a2aPrompt).not.toContain("devPrompt +");
-
-    const mcpPrompt = source.slice(
-      source.indexOf("// ask_app receives native template actions"),
-      source.indexOf("const mcpEvents:"),
-    );
-    expect(mcpPrompt).toContain("basePrompt +");
-    expect(mcpPrompt).not.toContain("mcpDevPrompt");
   });
 });
 

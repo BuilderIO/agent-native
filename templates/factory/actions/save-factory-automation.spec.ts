@@ -120,6 +120,36 @@ beforeEach(() => {
 });
 
 describe("save-factory-automation", () => {
+  it("retains the historical outside marker when a trusted teammate edits the prompt", async () => {
+    resourceGetByPathMock.mockResolvedValue({
+      id: "resource-1",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/support-triage/factory-slack-feedback.md",
+      content: existingContent.replace(
+        "domain: factory",
+        "domain: factory\nmcpManaged: true",
+      ),
+      updatedAt: 1,
+    });
+    const { default: action } = await import("./save-factory-automation.js");
+    await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-1",
+        name: "factories/support-triage/factory-slack-feedback",
+        prompt: "---\nmcpManaged: false\n---\nA trusted prompt edit.",
+        enabled: false,
+      },
+      { caller: "frontend", userEmail: "teammate@example.com" },
+    );
+    const { parseJobResource } =
+      await import("@agent-native/core/jobs/frontmatter");
+    expect(
+      parseJobResource(resourcePutIfCurrentMock.mock.calls[0][0].content).meta
+        .mcpManaged,
+    ).toBe(true);
+  });
+
   it("lets a teammate save a Factory job without core canUpdate", async () => {
     const { default: action } = await import("./save-factory-automation.js");
     const result = await action.run(
