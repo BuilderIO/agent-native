@@ -297,6 +297,10 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await expect(iframe).toBeVisible();
     let frame = iframe.contentFrame();
     const target = frame.locator(`#${nodeId}`);
+    const alpineOpenState = () =>
+      frame
+        .locator("main")
+        .evaluate((main) => (window as any).Alpine?.$data(main)?.open);
     await expect(target).toHaveText("Motion target");
     await expect(frame.locator("main")).toHaveAttribute(
       "x-data",
@@ -308,6 +312,16 @@ test.describe.serial("HTML Motion source browser writeback", () => {
       "x-transition.opacity",
       "",
     );
+    await expect.poll(alpineOpenState, { timeout: 15_000 }).toBe(true);
+    await expect(target).toBeVisible();
+    await frame.locator("#alpine-toggle").evaluate((button) => {
+      (button as HTMLButtonElement).click();
+    });
+    await expect(target).toBeHidden();
+    await frame.locator("#alpine-toggle").evaluate((button) => {
+      (button as HTMLButtonElement).click();
+    });
+    await expect(target).toBeVisible();
 
     const initialSourceHash = createHash("sha256")
       .update(fs.readFileSync(path.join(rootPath, sourcePath), "utf8"))
@@ -479,6 +493,15 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     await expect(frame.locator("style[data-agent-native-motion]")).toHaveCount(
       1,
     );
+    await expect.poll(alpineOpenState, { timeout: 15_000 }).toBe(true);
+    await frame.locator("#alpine-toggle").evaluate((button) => {
+      (button as HTMLButtonElement).click();
+    });
+    await expect(target).toBeHidden();
+    await frame.locator("#alpine-toggle").evaluate((button) => {
+      (button as HTMLButtonElement).click();
+    });
+    await expect(target).toBeVisible();
 
     await gotoEditor(page, designId);
     await selectHtmlNodeFromCanvas(page, screenId);

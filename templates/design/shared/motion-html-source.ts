@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/shared/motion-source-node-id";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { parse as parseJavaScript } from "acorn";
 import { parse, type ParserError } from "parse5";
 import postcss from "postcss";
 
@@ -470,6 +471,201 @@ function isStaticRuntimeScopeData(value: string): boolean {
   );
 }
 
+function staticRuntimeScopeHasName(value: string, name: string): boolean {
+  if (!isStaticRuntimeScopeData(value)) return false;
+  const normalized = value.trim();
+  const entries = splitStaticObjectProperties(normalized.slice(1, -1).trim());
+  return (
+    entries?.some((entry) => {
+      const match = /^([A-Za-z_$][\w$]*)\s*:\s*(.+)$/s.exec(entry);
+      return match?.[1] === name;
+    }) ?? false
+  );
+}
+
+function enclosingStaticRuntimeScope(
+  node: HtmlNode,
+  boundary?: HtmlNode,
+): { name: string; value: string } | undefined {
+  let current: HtmlNode | undefined = node;
+  while (current) {
+    const scope = current.attrs?.find(({ name }) =>
+      isRuntimeStyleMutationScope(name),
+    );
+    if (scope) return scope;
+    if (current === boundary) break;
+    current = current.parentNode;
+  }
+  return undefined;
+}
+
+function isSafeStaticVisibilityBinding(
+  node: HtmlNode,
+  name: string,
+  value: string,
+  boundary?: HtmlNode,
+): boolean {
+  const normalized = name.toLowerCase();
+  if (normalized !== "x-show" && normalized !== "v-show") return false;
+
+  const expression = value.trim();
+  if (expression === "true" || expression === "false") return true;
+  const match = /^!?([A-Za-z_$][\w$]*)$/.exec(expression);
+  if (!match) return false;
+
+  const scope = enclosingStaticRuntimeScope(node, boundary);
+  return Boolean(scope && staticRuntimeScopeHasName(scope.value, match[1]!));
+}
+
+function isJavaScriptNode(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function isJavaScriptIdentifier(value: unknown, name: string): boolean {
+  return (
+    isJavaScriptNode(value) &&
+    value.type === "Identifier" &&
+    value.name === name
+  );
+}
+
+function isJavaScriptMember(
+  value: unknown,
+  objectName: string,
+  propertyName: string,
+): boolean {
+  return (
+    isJavaScriptNode(value) &&
+    value.type === "MemberExpression" &&
+    value.computed === false &&
+    isJavaScriptIdentifier(value.object, objectName) &&
+    isJavaScriptIdentifier(value.property, propertyName)
+  );
+}
+
+function isSafeStaticRuntimeStateHandler(
+  node: HtmlNode,
+  name: string,
+  value: string,
+  boundary?: HtmlNode,
+): boolean {
+  if (!isRuntimeEventHandler(name)) return false;
+
+  const scope = enclosingStaticRuntimeScope(node, boundary);
+  if (!scope) return false;
+
+  let program: unknown;
+  try {
+    program = parseJavaScript(value, { ecmaVersion: "latest" });
+  } catch {
+    return false;
+  }
+  if (!isJavaScriptNode(program) || !Array.isArray(program.body)) return false;
+  const [statement, ...rest] = program.body;
+  if (rest.length > 0 || !isJavaScriptNode(statement)) return false;
+  if (statement.type !== "ExpressionStatement") return false;
+
+  const assignment = statement.expression;
+  if (
+    !isJavaScriptNode(assignment) ||
+    assignment.type !== "AssignmentExpression" ||
+    assignment.operator !== "=" ||
+    !isJavaScriptNode(assignment.left) ||
+    assignment.left.type !== "Identifier" ||
+    typeof assignment.left.name !== "string" ||
+    !staticRuntimeScopeHasName(scope.value, assignment.left.name)
+  ) {
+    return false;
+  }
+
+  const assignedName = assignment.left.name;
+  const right = assignment.right;
+  if (
+    isJavaScriptNode(right) &&
+    right.type === "Literal" &&
+    ["string", "number", "boolean"].includes(typeof right.value)
+  ) {
+    return true;
+  }
+  if (isJavaScriptIdentifier(right, assignedName)) return true;
+  return (
+    isJavaScriptNode(right) &&
+    right.type === "UnaryExpression" &&
+    right.operator === "!" &&
+    isJavaScriptIdentifier(right.argument, assignedName)
+  );
+}
+
+function isStaticAlpineBootstrapRuntime(node: HtmlNode): boolean {
+  if (
+    node.tagName !== "script" ||
+    attributes(node, "type")[0]?.value.trim().toLowerCase() !== "module" ||
+    attributes(node, "src").length > 0
+  ) {
+    return false;
+  }
+
+  let program: unknown;
+  try {
+    program = parseJavaScript(textContent(node), {
+      ecmaVersion: "latest",
+      sourceType: "module",
+    });
+  } catch {
+    return false;
+  }
+  if (!isJavaScriptNode(program) || !Array.isArray(program.body)) return false;
+  const body = program.body;
+  if (body.length !== 2 && body.length !== 3) return false;
+
+  const [importDeclaration, ...afterImport] = body;
+  if (
+    !isJavaScriptNode(importDeclaration) ||
+    importDeclaration.type !== "ImportDeclaration" ||
+    !isJavaScriptNode(importDeclaration.source) ||
+    importDeclaration.source.value !== "alpinejs" ||
+    !Array.isArray(importDeclaration.specifiers) ||
+    importDeclaration.specifiers.length !== 1
+  ) {
+    return false;
+  }
+
+  const defaultImport = importDeclaration.specifiers[0];
+  if (
+    !isJavaScriptNode(defaultImport) ||
+    defaultImport.type !== "ImportDefaultSpecifier" ||
+    !isJavaScriptNode(defaultImport.local) ||
+    defaultImport.local.name !== "Alpine"
+  ) {
+    return false;
+  }
+
+  const startCall = afterImport.at(-1);
+  if (
+    !isJavaScriptNode(startCall) ||
+    startCall.type !== "ExpressionStatement" ||
+    !isJavaScriptNode(startCall.expression) ||
+    startCall.expression.type !== "CallExpression" ||
+    !isJavaScriptMember(startCall.expression.callee, "Alpine", "start") ||
+    !Array.isArray(startCall.expression.arguments) ||
+    startCall.expression.arguments.length !== 0
+  ) {
+    return false;
+  }
+
+  if (afterImport.length === 1) return true;
+  const exposure = afterImport[0];
+  return (
+    isJavaScriptNode(exposure) &&
+    exposure.type === "ExpressionStatement" &&
+    isJavaScriptNode(exposure.expression) &&
+    exposure.expression.type === "AssignmentExpression" &&
+    exposure.expression.operator === "=" &&
+    isJavaScriptMember(exposure.expression.left, "window", "Alpine") &&
+    isJavaScriptIdentifier(exposure.expression.right, "Alpine")
+  );
+}
+
 function splitStaticObjectProperties(value: string): string[] | null {
   if (!value) return [];
   const properties: string[] = [];
@@ -529,8 +725,11 @@ function findRuntimeStyleMutationAttribute(target: HtmlNode):
 
   for (let index = 0; index < ancestors.length; index++) {
     const node = ancestors[index]!;
-    const attribute = node.attrs?.find(({ name, value }) =>
-      isRuntimeStyleMutationHandler(name, value),
+    const attribute = node.attrs?.find(
+      ({ name, value }) =>
+        isRuntimeStyleMutationHandler(name, value) &&
+        !isSafeStaticVisibilityBinding(node, name, value) &&
+        !isSafeStaticRuntimeStateHandler(node, name, value),
     );
     if (attribute) {
       return {
@@ -740,6 +939,10 @@ function assertExecutableScriptsSafe(
   targetNodeIds: readonly string[],
   generatedIds: Map<number | undefined, string>,
 ): void {
+  const alpineBootstraps = nodes.filter(isStaticAlpineBootstrapRuntime);
+  const alpineBootstrap =
+    alpineBootstraps.length === 1 ? alpineBootstraps[0] : undefined;
+
   for (const node of nodes) {
     if (node.insideTemplate) continue;
 
@@ -793,7 +996,7 @@ function assertExecutableScriptsSafe(
     }
     if (
       !hasPotentialRuntimeMutationHandler(node.attrs) &&
-      isManagedMotionTextRuntime(source, node)
+      (node === alpineBootstrap || isManagedMotionTextRuntime(source, node))
     ) {
       continue;
     }
@@ -1707,8 +1910,11 @@ function findRuntimeStyleMutationInScope(
     const node = pending.pop()!;
     if (node.insideTemplate || node.tagName === "template") continue;
 
-    const attribute = node.attrs?.find(({ name, value }) =>
-      isRuntimeStyleMutationHandler(name, value),
+    const attribute = node.attrs?.find(
+      ({ name, value }) =>
+        isRuntimeStyleMutationHandler(name, value) &&
+        !isSafeStaticVisibilityBinding(node, name, value, scope) &&
+        !isSafeStaticRuntimeStateHandler(node, name, value, scope),
     );
     if (attribute) return attribute;
 

@@ -200,8 +200,6 @@ describe("HTML Motion source adapter", () => {
       ':style="style"',
       'x-bind:style="style"',
       'v-bind:style="style"',
-      'x-show="visible"',
-      'v-show="visible"',
       ':class="{ active: visible }"',
       'x-bind:class="classes"',
       'v-bind:class="classes"',
@@ -231,6 +229,92 @@ describe("HTML Motion source adapter", () => {
       expect(writeError).toMatchObject({ code: "unsupported-target" });
     }
   });
+
+  it("round-trips an Alpine visibility state through static HTML Motion source", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        '<main x-data="{ open: true }" @click="open = !open">',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" x-show="open">Hello</h1>',
+      )
+      .replace(
+        "</body>",
+        '<script type="module">import Alpine from "alpinejs"; window.Alpine = Alpine; Alpine.start();</script>\n</body>',
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+
+    const edit = apply(source);
+    expect(edit.source).toContain('@click="open = !open"');
+    expect(edit.source).toContain('x-show="open"');
+    expect(readMotionHtmlSource(edit.source)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
+
+  it.each([
+    ['x-show="visible"', '<main class="card">'],
+    ['x-show="open || visible"', '<main x-data="{ open: true }">'],
+    ['x-show="toggle()"', '<main x-data="{ open: true }">'],
+    [
+      'x-show="document.body.style.opacity = 0"',
+      '<main x-data="{ open: true }">',
+    ],
+  ])(
+    "fails closed for unproven Alpine visibility expression %s",
+    (show, scope) => {
+      const source = html
+        .replace('<main class="card">', scope)
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+          `<h1 data-agent-native-node-id="hero-title" ${show}>Hello</h1>`,
+        );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+      expect(() => apply(source)).toThrow(
+        /cannot be proven free of style mutations/,
+      );
+    },
+  );
+
+  it.each(["toggle()", "open = document.body.style.opacity = 0"])(
+    "fails closed for Alpine visibility scopes with executable handlers %s",
+    (handler) => {
+      const source = html
+        .replace(
+          '<main class="card">',
+          `<main x-data="{ open: true }" @click="${handler}">`,
+        )
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+          '<h1 data-agent-native-node-id="hero-title" x-show="open">Hello</h1>',
+        );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+      expect(() => apply(source)).toThrow(
+        /cannot be proven free of style mutations/,
+      );
+    },
+  );
 
   it.each([
     ["Vue v-show", 'v-show="visible"'],
