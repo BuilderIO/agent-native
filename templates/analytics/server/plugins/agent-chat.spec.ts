@@ -184,6 +184,8 @@ import {
   analyticsExtraContext,
   NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
   NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
+  dbtFinalResponseGuard,
+  parseFigureVerdict,
   realDataFinalGuard,
 } from "./agent-chat";
 
@@ -1065,6 +1067,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
           "The dbt Semantic Layer metric query did not complete, so there is no owner-approved figure for active accounts yet.",
         toolResults: [dbtNotFound, bigQueryOk],
       }),
+      false,
     );
 
     expect(result).toBeNull();
@@ -1113,48 +1116,113 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
-  it("does not withhold an answer that repeats a short categorical word from the warehouse", () => {
-    const statusRows = {
-      name: "bigquery",
-      isError: false,
-      content: JSON.stringify({ rows: [{ status: "Active" }], totalRows: 1 }),
-    };
-    const result = realDataFinalGuard(
+  // A stand-in for the model call behind the figure check, answering with `text`.
+  type FigureCheck = NonNullable<Parameters<typeof dbtFinalResponseGuard>[1]>;
+  const figureCheck = (text: string) =>
+    (async () => ({ text })) as unknown as FigureCheck;
+
+  it("withholds the draft when the figure check says it states a figure", async () => {
+    const result = await dbtFinalResponseGuard(
       guardContext({
-        userText: "Which accounts were active last month?",
-        draftText:
-          "The active list is not a complete count, so no total is given.",
-        toolResults: [dbtNotFound, statusRows],
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryOk],
       }),
+      figureCheck("YES"),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+  });
+
+  it("passes the draft when the figure check says it states no figure", async () => {
+    const result = await dbtFinalResponseGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "The dbt Semantic Layer metric query did not complete, so there is no owner-approved figure for active accounts yet.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+      figureCheck("NO"),
     );
 
     expect(result).toBeNull();
   });
 
-  it("does not withhold ordinary prose that uses the word one", () => {
-    const result = realDataFinalGuard(
+  it("withholds the draft when the figure check gives no clear verdict", async () => {
+    const result = await dbtFinalResponseGuard(
       guardContext({
         userText: "What were active accounts last month?",
-        draftText:
-          "One connection needs setup before dbt can answer this metric.",
+        draftText: draft,
         toolResults: [dbtNotFound, bigQueryOk],
       }),
+      figureCheck("Probably."),
     );
 
-    expect(result).toBeNull();
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
   });
 
-  it("does not withhold a date or error code the warehouse did not return", () => {
-    const result = realDataFinalGuard(
+  it("withholds the draft when the figure check fails", async () => {
+    const failing = (async () => {
+      throw new Error("model unavailable");
+    }) as unknown as FigureCheck;
+    const result = await dbtFinalResponseGuard(
       guardContext({
         userText: "What were active accounts last month?",
-        draftText:
-          "The dbt query failed after 2 attempts in 2026, so no figure is given.",
+        draftText: draft,
         toolResults: [dbtNotFound, bigQueryOk],
       }),
+      failing,
     );
 
-    expect(result).toBeNull();
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+  });
+
+  it("does not run the figure check when the user asked for warehouse numbers", async () => {
+    const asked: unknown[] = [];
+    const recording = (async (options: unknown) => {
+      asked.push(options);
+      return { text: "YES" };
+    }) as unknown as FigureCheck;
+    await dbtFinalResponseGuard(
+      guardContext({
+        userText: "Show the active accounts figure from BigQuery.",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+      recording,
+    );
+
+    expect(asked).toHaveLength(0);
+  });
+
+  it("does not run the figure check when no dbt metric query failed", async () => {
+    const asked: unknown[] = [];
+    const recording = (async (options: unknown) => {
+      asked.push(options);
+      return { text: "YES" };
+    }) as unknown as FigureCheck;
+    await dbtFinalResponseGuard(
+      guardContext({
+        userText: "How many sessions did we record yesterday?",
+        draftText: draft,
+        toolResults: [bigQueryOk],
+      }),
+      recording,
+    );
+
+    expect(asked).toHaveLength(0);
+  });
+
+  it("reads the figure check reply only as YES or NO", () => {
+    expect(parseFigureVerdict("YES")).toBe(true);
+    expect(parseFigureVerdict(" no \n")).toBe(false);
+    expect(parseFigureVerdict("Yes.")).toBeNull();
   });
 
   it("withholds a spelled-out figure above ninety-nine", () => {
