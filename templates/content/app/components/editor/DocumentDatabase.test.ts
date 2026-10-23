@@ -12,6 +12,7 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
+import { compactContentDatabaseItems } from "@shared/database-row-properties";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -2405,23 +2406,33 @@ describe("database item preview", () => {
 
   it("finds the duplicated row returned by a duplicate database item action", () => {
     const alpha = item("alpha", "Alpha", {});
-    const beta = item("beta", "Beta", {});
+    const beta = item("beta", "Beta", { number: 2 });
 
     expect(
       databaseDuplicatedItemFromResponse({
         items: [alpha, beta],
+        properties,
         duplicatedItemId: beta.id,
       })?.document.title,
     ).toBe("Beta");
     expect(
       databaseDuplicatedItemFromResponse({
+        items: compactContentDatabaseItems([alpha, beta]),
+        properties,
+        duplicatedItemId: beta.id,
+      }),
+    ).toEqual(beta);
+    expect(
+      databaseDuplicatedItemFromResponse({
         items: [alpha],
+        properties,
         duplicatedItemId: "missing",
       }),
     ).toBeNull();
     expect(
       databaseDuplicatedItemFromResponse({
         items: [alpha, beta],
+        properties,
       }),
     ).toBeNull();
   });

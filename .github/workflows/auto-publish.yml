@@ -272,7 +272,10 @@ jobs:
         id: snapshot
         run: |
           pnpm changeset version --snapshot nightly
-          pnpm install --lockfile-only
+          # Changesets also rewrites plain internal ranges, such as the
+          # community QR template's Core range, to this unpublished snapshot.
+          # Link them to the workspace instead of looking them up on npm.
+          pnpm install --lockfile-only --link-workspace-packages
           if git diff --quiet -- package.json pnpm-lock.yaml 'packages/*/package.json'; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
@@ -374,7 +377,8 @@ jobs:
           DEV_TAG: ${{ inputs.devTag }}
         run: |
           pnpm changeset version --snapshot "$DEV_TAG"
-          pnpm install --lockfile-only
+          # Link snapshot-rewritten plain ranges, as in the nightly job.
+          pnpm install --lockfile-only --link-workspace-packages
 
       - name: Build all packages
         run: pnpm -r build
