@@ -10195,6 +10195,61 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(result).toMatchObject({ error: "Service Unavailable" });
   });
 
+  it.each(["unavailable", "personal"] as const)(
+    "preserves the email-only MCP scope result over HTTP: %s",
+    async (scope) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "email-only@example.test",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      const org =
+        await vi.importActual<typeof import("../org/context.js")>(
+          "../org/context.js",
+        );
+      resolveOrgIdForEmailMock.mockImplementation(org.resolveOrgIdForEmail);
+      const db = await import("../db/client.js");
+      const realDb = db.getDbExec();
+      const execute = vi.fn(async (query: { sql: string; args: unknown[] }) => {
+        if (!query.sql.includes("SELECT org_id FROM org_members"))
+          return realDb.execute(query);
+        if (scope === "unavailable")
+          throw Object.assign(
+            new Error("permission denied for table org_members"),
+            { code: "42501" },
+          );
+        return { rows: [] };
+      });
+      const dbSpy = vi
+        .spyOn(db, "getDbExec")
+        .mockReturnValue({ execute } as any);
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 15, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      try {
+        const result = await handleMcpRequest(event, config as any);
+        expect(result instanceof Response ? result.status : event._status).toBe(
+          scope === "unavailable" ? 503 : 200,
+        );
+        expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+        if (scope === "unavailable") {
+          expect(event._responseHeaders?.["retry-after"]).toBe("5");
+          expect(result).toMatchObject({ error: "Service Unavailable" });
+        }
+        expect(resolveOrgIdForEmailMock).toHaveBeenCalledOnce();
+      } finally {
+        dbSpy.mockRestore();
+      }
+    },
+  );
+
   it.each([
     ["unknown", { status: "not-found" }],
     ["ambiguous", { status: "ambiguous" }],

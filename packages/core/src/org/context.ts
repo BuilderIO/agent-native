@@ -682,7 +682,7 @@ async function loadMembershipsUncached(
 export type OrgScopeResolution =
   | { status: "organization"; orgId: string }
   | { status: "personal" }
-  | { status: "unknown" };
+  | { status: "unknown"; cause?: unknown };
 
 export async function resolveOrgScopeForEmail(
   email: string,
@@ -698,18 +698,22 @@ export async function resolveOrgScopeForEmail(
   if (getRequestContext()?.orgScope === "personal") {
     return { status: "personal" };
   }
-  const idsPromise = requestMemberOrgIds(email, async () => {
-    const rows = await queryOrgMembers({
-      sql: `SELECT org_id FROM org_members
+  let ids: string[];
+  try {
+    ids = await requestMemberOrgIds(email, async () => {
+      const { rows } = await getDbExec().execute({
+        sql: `SELECT org_id FROM org_members
             WHERE LOWER(email) = ?
               AND federation_removal_pending_at IS NULL
             ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
-      args: [email.toLowerCase()],
+        args: [email.toLowerCase()],
+      });
+      return rows.map((r: any) => String(r.org_id));
     });
-    return rows?.map((r: any) => String(r.org_id)) ?? null;
-  });
-  const ids = await idsPromise;
-  if (ids === null) return { status: "unknown" };
+  } catch (cause) {
+    if (isTransientDatabaseError(cause)) throw cause;
+    return { status: "unknown", cause };
+  }
   if (ids.length === 0) return { status: "personal" };
 
   const activeOrgSetting = (await getUserSetting(
@@ -728,6 +732,7 @@ export async function resolveOrgIdForEmail(
 ): Promise<string | null> {
   const resolution = await resolveOrgScopeForEmail(email);
   if (resolution.status === "unknown") {
+    if (resolution.cause !== undefined) throw resolution.cause;
     throw new Error("Organization scope is unavailable");
   }
   return resolution.status === "organization" ? resolution.orgId : null;

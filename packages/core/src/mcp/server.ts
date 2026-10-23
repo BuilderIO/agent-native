@@ -423,14 +423,16 @@ async function handleMcpRequestInternal(
   }
 
   if (
-    authResult.identity?.orgId === undefined &&
-    authResult.identity?.orgDomain !== undefined
+    authResult.identity &&
+    authResult.identity.orgId === undefined &&
+    (authResult.identity.orgDomain !== undefined ||
+      Boolean(authResult.identity.userEmail))
   ) {
     try {
       const orgId = await resolveMcpIdentityOrgId(authResult.identity);
       authResult = {
         ...authResult,
-        identity: { ...authResult.identity, orgId },
+        identity: { ...authResult.identity, orgId: orgId ?? null },
       };
     } catch (error) {
       if (error instanceof McpIdentityVerificationUnavailableError) {
