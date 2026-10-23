@@ -4058,6 +4058,56 @@ function classifyHumanTicketAction(
   const humanActor =
     "(?:i|we|they|owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|someone|anyone)";
   const namedActor = String.raw`\p{Lu}[\p{L}'-]*`;
+  const lowercaseNamedActor = String.raw`\p{Ll}[\p{L}'-]*`;
+  const nonActorWords = new Set([
+    "a",
+    "an",
+    "anyone",
+    "app",
+    "assistant",
+    "automation",
+    "behavior",
+    "bot",
+    "bug",
+    "calendar",
+    "channel",
+    "comment",
+    "database",
+    "disposition",
+    "evidence",
+    "file",
+    "fix",
+    "handoff",
+    "issue",
+    "it",
+    "mark",
+    "message",
+    "model",
+    "nobody",
+    "noone",
+    "not",
+    "never",
+    "one",
+    "page",
+    "pr",
+    "repro",
+    "report",
+    "request",
+    "root",
+    "run",
+    "scope",
+    "server",
+    "system",
+    "task",
+    "team",
+    "the",
+    "that",
+    "this",
+    "thread",
+    "ticket",
+    "tool",
+    "work",
+  ]);
   const actionStatements = [
     String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:open(?:s|ed|ing)?|creat(?:e|es|ed|ing)|fil(?:e|es|ed|ing))\b.{0,50}\b(?:ticket|issue|action)\b`,
     String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:accept(?:s|ed|ing)?|own(?:s|ed|ing)?|handle(?:s|d|ing)?|take|takes|took|taken|taking\s+on|pick(?:s|ed|ing)\s+up|work(?:s|ed|ing)\s+on|track(?:s|ed|ing)|follow(?:s|ed)?\s+up)\b.{0,50}\b(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)\b`,
@@ -4081,7 +4131,11 @@ function classifyHumanTicketAction(
   ) => new RegExp("\\b" + actor + "\\s+" + statement, flags).test(input);
   let hasAmbiguousActor = false;
 
-  for (const clause of splitEvidenceClauses(text)) {
+  for (const clause of splitEvidenceClauses(text).flatMap((sentence) =>
+    sentence.split(
+      /\b(?:but|however|whereas|while|although|though|yet|and)\b/i,
+    ),
+  )) {
     const normalized = normalizeReplyPhrase(clause);
     if (
       /\b(?:automatically|automated|automation|auto[- ]?(?:created|opened|filed)|bot|system)\b/i.test(
@@ -4101,9 +4155,25 @@ function classifyHumanTicketAction(
     // A bare proper noun is ambiguous with a product or service name.
     const hasAmbiguousAction =
       ambiguousPassiveAssignment.test(sourceText) ||
-      actionStatements.some((statement) =>
-        actorStatementMatches(namedActor, statement, sourceText, "u"),
-      );
+      actionStatements.some((statement) => {
+        const matches = sourceText.matchAll(
+          new RegExp(String.raw`\b(${namedActor})\s+${statement}`, "gu"),
+        );
+        return Array.from(matches).some(
+          (match) => !nonActorWords.has(match[1]!.toLowerCase()),
+        );
+      }) ||
+      actionStatements.some((statement) => {
+        const matches = sourceText.matchAll(
+          new RegExp(
+            String.raw`\b(${lowercaseNamedActor})\s+${statement}`,
+            "gu",
+          ),
+        );
+        return Array.from(matches).some(
+          (match) => !nonActorWords.has(match[1]!.toLowerCase()),
+        );
+      });
     if (hasAmbiguousAction) hasAmbiguousActor = true;
   }
 
@@ -9432,6 +9502,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     "SLACK opened an issue.",
     "ServiceNow created a ticket.",
     "Asana opened an issue.",
+    "jira created a ticket.",
+    "slack opened an issue.",
     "The ticket was assigned to ServiceNow.",
     "The issue was assigned to Asana.",
     "The ticket was assigned to Alex.",
@@ -9453,6 +9525,9 @@ if (args[0] === "--self-test" && args.length === 1) {
     "Jira automatically created the ticket.",
     "A bot opened a ticket.",
     "Bot opened a ticket.",
+    "Nobody created a ticket.",
+    "No one has the ticket.",
+    "The ticket has it.",
   ]) {
     if (classifyHumanTicketAction(negatedAssignment) !== "absent") {
       throw new Error(
@@ -9466,6 +9541,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "I created the ticket.",
     "I assigned it to Sam.",
     "The reviewer is taking on the issue.",
+    "Jira automatically created a ticket and I assigned it to Sam.",
   ]) {
     if (classifyHumanTicketAction(positiveAction) !== "present") {
       throw new Error(
