@@ -45,18 +45,21 @@ On a browser host the host is an orchestrator, not the build environment:
    the whole organization. If nothing is needed, say no setup is needed.
    ```
 
-   The tool's schema describes each argument. The call always includes
-   `attachments` ([attachments.md](attachments.md)): the Project instructions as
-   `project-instructions.md` and every knowledge file, each verbatim as
-   `text/plain`, never as a summary. A call without them is incomplete. Never
-   paste whole knowledge files or binary data into `prompt`. Attachments are
-   model context and are not copied into the generated workspace, so tell the
-   Builder agent in `prompt` to persist what the app needs: knowledge files as
-   app resources, the instructions as the in-app agent's instructions. If a file
-   cannot be reproduced verbatim (not in context, too large), say so in the
-   brief and the report; never swap in a digest silently. A workbook cannot be
-   attached (attachments take images, PDF, text, and JSON): pass a bounded CSV
-   rendering as text, or a public URL, and say what was left out.
+   The tool's schema describes each argument. When the source is a Project, the
+   call always includes `attachments` ([attachments.md](attachments.md)): the
+   Project instructions as `project-instructions.md` and every knowledge file,
+   each verbatim as `text/plain`, never as a summary. A Project handoff without
+   them is incomplete. For other sources, attach the files the source has (a
+   skill's `SKILL.md` and references, for example), or none; never invent a
+   `project-instructions.md`. Never paste whole knowledge files or binary data
+   into `prompt`. Attachments are model context and are not copied into the
+   generated workspace, so tell the Builder agent in `prompt` to persist what
+   the app needs: source files as app resources, the instructions as the in-app
+   agent's instructions. If a file cannot be reproduced verbatim (not in
+   context, too large), say so in the brief and the report; never swap in a
+   digest silently. A workbook cannot be attached (attachments take images, PDF,
+   text, and JSON): pass a bounded CSV rendering as text, or a public URL, and
+   say what was left out.
 
 3. Keep the final message to at most four short lines, with no design recap:
    what was handed off; the branch, path, and status Dispatch returned; the
