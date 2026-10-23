@@ -108,17 +108,13 @@ describe("getOrgContext", () => {
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
-  it("marks a swallowed membership read failure as unavailable org scope", async () => {
+  it("rejects a missing membership table instead of marking Personal scope", async () => {
     mockGetSession.mockResolvedValue({ email: "a@b.com" });
-    mockExecute.mockRejectedValueOnce(
-      new Error('relation "org_members" does not exist'),
-    );
+    const cause = new Error('relation "org_members" does not exist');
+    mockExecute.mockRejectedValueOnce(cause);
 
-    await expect(getOrgContext(EVENT)).resolves.toMatchObject({
-      email: "a@b.com",
-      orgId: null,
-    });
-    expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(true);
+    await expect(getOrgContext(EVENT)).rejects.toBe(cause);
+    expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(false);
   });
 
   it("resolves a verified service identity for an existing unlinked org", async () => {
@@ -717,17 +713,27 @@ describe("getOrgContext", () => {
   });
 
   describe("membership-lookup failure (tables missing before migrations)", () => {
-    it("returns the session orgId when present", async () => {
+    it("rejects the lookup even when a session orgId is present", async () => {
+      mockGetSession.mockResolvedValue({
+        email: "a@b.com",
+        orgId: "sess-org",
+        orgRole: "admin",
+      });
+      const cause = new Error('relation "org_members" does not exist');
+      mockExecute.mockRejectedValueOnce(cause);
+      await expect(getOrgContext(EVENT)).rejects.toBe(cause);
+    });
+
+    it("preserves a claimed session org during a transient lookup failure", async () => {
       mockGetSession.mockResolvedValue({
         email: "a@b.com",
         orgId: "sess-org",
         orgRole: "admin",
       });
       mockExecute.mockRejectedValueOnce(
-        new Error('relation "org_members" does not exist'),
+        Object.assign(new Error("db query timed out"), { code: "57014" }),
       );
-      const ctx = await getOrgContext(EVENT);
-      expect(ctx).toEqual({
+      await expect(getOrgContext(EVENT)).resolves.toEqual({
         email: "a@b.com",
         orgId: "sess-org",
         orgName: null,
@@ -735,18 +741,11 @@ describe("getOrgContext", () => {
       });
     });
 
-    it("returns a null-org context when there is no session orgId", async () => {
+    it("rejects the lookup when there is no session orgId", async () => {
       mockGetSession.mockResolvedValue({ email: "a@b.com" });
-      mockExecute.mockRejectedValueOnce(
-        new Error('relation "org_members" does not exist'),
-      );
-      const ctx = await getOrgContext(EVENT);
-      expect(ctx).toEqual({
-        email: "a@b.com",
-        orgId: null,
-        orgName: null,
-        role: null,
-      });
+      const cause = new Error('relation "org_members" does not exist');
+      mockExecute.mockRejectedValueOnce(cause);
+      await expect(getOrgContext(EVENT)).rejects.toBe(cause);
     });
   });
 
@@ -1231,7 +1230,7 @@ describe("getOrgContext", () => {
   });
 });
 
-describe("resolveOrgIdForEmailViaEvent delegated membership", () => {
+describe("resolveOrgIdForEmailViaEvent membership", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockExecute.mockResolvedValue({ rows: [] });
@@ -1275,12 +1274,27 @@ describe("resolveOrgIdForEmailViaEvent delegated membership", () => {
     await expect(resolveDelegated(makeEvent())).resolves.toBe("delegated-org");
   });
 
-  it("keeps the nondelegated first-boot missing-membership-table handling", async () => {
-    mockExecute.mockRejectedValueOnce(
-      Object.assign(new Error('relation "org_members" does not exist'), {
-        code: "42P01",
-      }),
-    );
+  it.each(["42501", "08006", "42P01"])(
+    "rejects unavailable ordinary membership (%s) without caching Personal scope",
+    async (code) => {
+      const cause = Object.assign(new Error("membership read failed"), {
+        code,
+      });
+      mockExecute.mockRejectedValueOnce(cause);
+      const event = makeEvent();
+      const resolve = () =>
+        runWithRequestContext({ userEmail: "member@example.test" }, () =>
+          resolveOrgIdForEmailViaEvent(event, "member@example.test"),
+        );
+      await expect(resolve()).rejects.toBe(cause);
+      queueSelect([
+        { orgId: "ordinary-org", role: "member", orgName: "Example" },
+      ]);
+      await expect(resolve()).resolves.toBe("ordinary-org");
+    },
+  );
+
+  it("returns Personal when the ordinary membership read succeeds without rows", async () => {
     await expect(
       resolveOrgIdForEmailViaEvent(makeEvent(), "personal@example.test"),
     ).resolves.toBeNull();
