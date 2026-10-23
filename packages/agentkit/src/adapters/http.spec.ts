@@ -27,6 +27,37 @@ const sseEvent = (sequence: number): AgentEvent => ({
 });
 
 describe("AgentKit HTTP adapter", () => {
+  it("reads the durable status for a queued submission receipt", async () => {
+    const getQueuedSubmissionStatus = vi.fn(async () => ({
+      state: "expired" as const,
+    }));
+    const handler = createAgentKitHttpHandler({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        getQueuedSubmissionStatus,
+      },
+    });
+    const transport = createAgentKitHttpTransport({
+      baseUrl: "https://agentkit.test/agentkit",
+      fetch: (input, init) => handler(new Request(input, init)),
+    });
+
+    await expect(
+      transport.getQueuedSubmissionStatus?.({
+        threadId: "thread-1",
+        messageId: "queued-1",
+      }),
+    ).resolves.toEqual({ state: "expired" });
+    expect(getQueuedSubmissionStatus).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: "queued-1" },
+      expect.anything(),
+    );
+  });
+
   it("round-trips commands and resumable SSE through Fetch primitives", async () => {
     const events: AgentEvent[] = [
       {

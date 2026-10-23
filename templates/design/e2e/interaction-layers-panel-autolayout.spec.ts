@@ -588,8 +588,7 @@ test.describe("Layers-panel auto-layout interaction", () => {
     expect(childrenOf(redone, "flow-origin")).toEqual(["flow-peer"]);
   });
 
-  // fixme: product bug: After the pointer leaves the screen and comes back, the Layers panel preview stays on 'Flow origin' (the original parent) for the whole
-  test.fixme("leaving the screen mid-drag and coming back resumes the Screen-root preview and commits there", async ({
+  test("leaving the screen mid-drag and coming back resumes the Screen-root preview and commits there", async ({
     app,
     page,
   }) => {
@@ -641,8 +640,7 @@ test.describe("Layers-panel auto-layout interaction", () => {
     );
   });
 
-  // fixme: product bug: The child renders 120x120 and overflows Flow target: its row-axis 'flex:0 0 120px' is carried into the column, where the basis sets
-  test.fixme("a canvas drag of a 120x56 row child into a vertical auto-layout frame makes it the frame's last child and keeps it 120x56", async ({
+  test("a canvas drag of a 120x56 row child into a vertical auto-layout frame makes it the frame's last child and keeps it 120x56", async ({
     app,
     page,
   }) => {
@@ -990,6 +988,7 @@ test.describe("Layers-panel auto-layout interaction", () => {
       width: "76px",
       height: "44px",
       background: "#22d3ee",
+      "flex-shrink": "0",
       position: "relative !important",
       left: "auto !important",
       top: "auto !important",

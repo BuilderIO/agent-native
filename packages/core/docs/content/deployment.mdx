@@ -24,6 +24,16 @@ app communication.
 
 </Cards>
 
+## Agents that outlive their functions {#durable-agents}
+
+Agent runs do not depend on the function that started them staying alive. Each
+run is tracked in your database, so a turn that reaches a serverless time limit
+continues in a fresh invocation, a reconnecting browser picks the reply back
+up, and a function that dies mid-turn is recovered instead of leaving the chat
+stuck. That is what lets the same agent run cheaply on serverless hosts, move
+between providers without code changes, and share a deployment with the rest of
+your app. See [Agents that survive any host](/docs/durable-background-runs#survive-any-host).
+
 ## Before you deploy: choose a persistent database {#persistent-database}
 
 Every deployed app needs a persistent PostgreSQL database. Local development can use

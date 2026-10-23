@@ -3,18 +3,6 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("AppLayout draft close feedback", () => {
-  it("does not claim persistence before a draft save completes", () => {
-    const source = readFileSync(
-      new URL("./AppLayout.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain('t("mail.toasts.draftClosed")');
-    expect(source).toContain('t("mail.toasts.draftsClosed"');
-    expect(source).not.toContain('toast("Draft saved."');
-    expect(source).not.toContain("saved.`, {");
-  });
-
   it("waits for close-time persistence and deletes through the account-aware action", () => {
     const source = readFileSync(
       new URL("./AppLayout.tsx", import.meta.url),

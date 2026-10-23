@@ -58,7 +58,7 @@ describe("comments sidebar layout", () => {
     ).toBeLessThan(
       history.indexOf('if (historyStatus === "open" && thread.resolved)'),
     );
-    expect(history).toContain("threads, selectedThreadId]");
+    expect(history).toMatch(/threads,\s+selectedThreadId,?\s*\]/);
     expect(source).toContain(
       '(presentation === "inline" &&\n            (thread.threadId === selectedThreadId ||',
     );
@@ -354,7 +354,9 @@ describe("comments sidebar layout", () => {
     const globalStyles = readFileSync("app/global.css", { encoding: "utf8" });
 
     expect(source).not.toContain('container.addEventListener("scroll"');
-    expect(source.match(/scrollIntoView/g)).toHaveLength(1);
+    // The second brings an opened comment stack's selected card into view;
+    // CommentsSidebar.stacks.test.tsx covers it.
+    expect(source.match(/scrollIntoView/g)).toHaveLength(2);
     expect(source).toMatch(
       /if \(!focusRequested\) return;[\s\S]*?requestAnimationFrame[\s\S]*?target\.scrollIntoView/,
     );
@@ -421,7 +423,7 @@ describe("comments sidebar layout", () => {
   it("keeps multiline comment highlights padded as one forgiving target", () => {
     const styles = readFileSync("app/global.css", { encoding: "utf8" });
     const highlightStyles = styles.slice(
-      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf(".content-editor .comment-highlight"),
       styles.indexOf("/* @mention tokens inside comment bodies */"),
     );
 
@@ -436,7 +438,7 @@ describe("comments sidebar layout", () => {
   it("smoothly strengthens ordinary comment highlights without moving them", () => {
     const styles = readFileSync("app/global.css", { encoding: "utf8" });
     const highlightStyles = styles.slice(
-      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf(".content-editor .comment-highlight"),
       styles.indexOf("/* Pending suggested edits"),
     );
 
@@ -447,7 +449,7 @@ describe("comments sidebar layout", () => {
       "transition: background-color 160ms var(--ease-out-strong)",
     );
     expect(highlightStyles).toMatch(
-      /\.comment-highlight:hover,\s*\.notion-editor \.comment-highlight\.comment-highlight--hovered\s*\{[^}]*\/ 0\.28\)/,
+      /\.comment-highlight:hover,\s*\.content-editor \.comment-highlight\.comment-highlight--hovered\s*\{[^}]*\/ 0\.28\)/,
     );
     expect(highlightStyles).toMatch(
       /\.comment-highlight\.comment-highlight--active\s*\{[^}]*\/ 0\.38\)/,

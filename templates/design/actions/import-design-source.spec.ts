@@ -320,6 +320,11 @@ describe("import-design-source fig-frame batches", () => {
     );
 
     expect(result.files).toHaveLength(1);
+    expect(result._receipt).toMatchObject({
+      changed: true,
+      verified: true,
+      subject: "design-1",
+    });
     expect(mocks.snapshot).toHaveBeenCalledTimes(1);
     expect(await fileIds()).toHaveLength(2);
   });

@@ -28,6 +28,10 @@ import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import {
+  decodeMotionPrototypeTransitionAttribute,
+  type MotionPrototypeTransitionDecodeResult,
+} from "@shared/motion-prototype-transition";
+import {
   appendPenNode,
   clonePenPath,
   closePenPath,
@@ -79,6 +83,7 @@ import {
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
+import { useCanvasLoadOutcome } from "@/lib/canvas-load-outcome";
 import {
   resolveDesktopDesignSnapshotLayer,
   useDesktopDesignNativePreview,
@@ -169,6 +174,10 @@ import {
   type EmbeddedCanvasPanSession,
 } from "./design-canvas/iframe-pan";
 import { buildInteractPreviewDocument } from "./design-canvas/interact-document";
+import {
+  inlineDesignStylesheets,
+  useDesignStylesheets,
+} from "./design-canvas/linked-stylesheets";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import {
@@ -180,15 +189,24 @@ import type {
   MotionTrackWire,
 } from "./design-canvas/motion-types";
 import {
+  connectNativePreviewSurface,
+  nativePreviewSurfaceDocumentKey,
+  prepareNativePreviewSurface,
+  type NativePreviewSurfaceDocument,
+} from "./design-canvas/native-preview-surface";
+import {
   acknowledgePendingTextInsert,
   beginPendingTextDelivery,
   type BeginTextEditOptions,
   cancelPendingTextCapture,
   cancelPendingTextHostCommit,
+  endPendingTextSession,
   isPendingTextInterceptionOpen,
   isPendingTextRequestLive,
+  isSupersededEmptyTextCommit,
   onPendingTextCaptureCancel,
   owePendingTextCapture,
+  peekPendingTextCapture,
   queuePendingTextHostCommit,
   registerTextEditOwner,
   releasePendingTextCapture,
@@ -230,6 +248,7 @@ import {
   sendLinkedScreenPreviewStyleChange,
 } from "./multi-screen/linked-screen-preview";
 import type { KScaleStyleChange } from "./multi-screen/types";
+import { setNativePreviewIframeRef } from "./native-preview-iframe-lifecycle";
 import { PIXEL_GRID_BACKGROUND_IMAGE, PIXEL_GRID_ZOOM } from "./pixel-grid";
 import {
   getIframePaintRetentionStyle,
@@ -248,6 +267,7 @@ import type {
   RuntimeVerificationRequest,
   TextEditingState,
 } from "./types";
+import { useNativeShaderApprovals } from "./use-native-shader-approvals";
 
 function getSingleScreenZoomTransform(
   zoom: number,
@@ -547,6 +567,7 @@ ${editorChromeBridgeScript}
 interface ReplacedPreviewFrame {
   key: string;
   srcDoc: string;
+  nativePreview: NativePreviewSurfaceDocument | null;
   sandbox: string;
   name: string | undefined;
   interactMode: boolean;
@@ -707,7 +728,9 @@ interface DesignCanvasProps {
     contentOffsetY?: number;
   };
   boardSurface?: boolean;
+  nativeAnimationEpochMs?: number;
   fitRootBodyToFrame?: boolean;
+  screenHeightMode?: "auto" | "fixed" | "hug";
   runtimeReplacementContent?: string;
   authoredSourceContent?: string;
   runtimeReplacementKey?: string;
@@ -820,6 +843,7 @@ interface DesignCanvasProps {
       originalHtml?: string;
       routePath?: string;
       relativeOperations?: Record<string, RelativeStyleOperation>;
+      owedTextPending?: boolean;
     },
   ) => TextCommitStatus | void;
   onTextEditingStateChange?: (
@@ -932,26 +956,28 @@ interface DesignCanvasProps {
   repromptDraftRequest?: RepromptDraftRequest | null;
   onRepromptDraftConsumed?: (nonce: number) => void;
   nodeRewriteCanvasTarget?: boolean;
-  onPrototypeNavigate?: (screen: string, href: string) => void;
+  onPrototypeNavigate?: (
+    screen: string,
+    href: string,
+    transition: MotionPrototypeTransitionDecodeResult,
+    sourceFrame: HTMLIFrameElement,
+  ) => void;
   motionTracks?: MotionTrackWire[];
   motionEasingVariables?: MotionEasingVariable[];
   motionDefaultEase?: string;
   motionDurationMs?: number;
   motionPathEditingEnabled?: boolean;
   motionPathTargetNodeId?: string | null;
+  motionPathTrackId?: string | null;
   motionOriginEditingEnabled?: boolean;
   motionOriginTargetNodeId?: string | null;
   onMotionPathTracksChange?: (
     tracks: MotionTrackWire[],
     targetNodeId: string,
+    trackId?: string,
   ) => MotionPathTracksChangeResult | void;
   previewWidthPx?: number;
   previewHeightPx?: number;
-  shaderFillPreview?: {
-    selector?: string;
-    nodeId?: string;
-    css: string;
-  } | null;
   gradientEditTarget?: {
     nodeId: string;
     cssValue: string;
@@ -1031,6 +1057,22 @@ function isCurrentLiveEditReadyMessage(
   }
 }
 
+// A re-resolved live-edit URL and the live page's route both add the frame's
+// bridge key to a URL the iframe was pinned to without it: same document.
+const FRAME_BRIDGE_KEY_PARAM = "agentNativeBridgeKey";
+
+function liveEditDocumentIdentityUrl(liveEditUrl: string): string {
+  if (!URL.canParse(liveEditUrl)) return liveEditUrl;
+  const liveEdit = new URL(liveEditUrl);
+  const targetUrl = liveEdit.searchParams.get("url");
+  if (!targetUrl || !URL.canParse(targetUrl)) return liveEditUrl;
+  const target = new URL(targetUrl);
+  if (!target.searchParams.has(FRAME_BRIDGE_KEY_PARAM)) return liveEditUrl;
+  target.searchParams.delete(FRAME_BRIDGE_KEY_PARAM);
+  liveEdit.searchParams.set("url", target.toString());
+  return liveEdit.toString();
+}
+
 function liveEditDocumentIdentityForRoute(
   liveEditUrl: string,
   routePath: string,
@@ -1046,7 +1088,10 @@ function liveEditDocumentIdentityForRoute(
     target.search = route.search;
     target.hash = route.hash;
     liveEdit.searchParams.set("url", target.toString());
-    return { status: "ready", identity: `src:${liveEdit.toString()}` };
+    return {
+      status: "ready",
+      identity: `src:${liveEditDocumentIdentityUrl(liveEdit.toString())}`,
+    };
   } catch {
     return { status: "invalid" };
   }
@@ -1323,11 +1368,17 @@ function runtimeDocumentNeedsReload(
   const scriptSignature = (html: string) => {
     const headEnd = html.search(/<\/head\s*>/i);
     const boundary = headEnd === -1 ? 0 : headEnd;
-    return Array.from(
-      html.matchAll(SCRIPT_ELEMENT_RE),
-      (match) =>
-        `${(match.index ?? 0) < boundary ? "head" : "body"}:${normalizeScriptMarkup(match[0])}`,
-    ).join("\n");
+    return Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => {
+      if (
+        /\btype\s*=\s*["']application\/x-agent-native-effects["']/i.test(
+          match[0],
+        )
+      )
+        return null;
+      return `${(match.index ?? 0) < boundary ? "head" : "body"}:${normalizeScriptMarkup(match[0])}`;
+    })
+      .filter((signature) => signature !== null)
+      .join("\n");
   };
   return scriptSignature(previousContent) !== scriptSignature(nextContent);
 }
@@ -1467,7 +1518,9 @@ export function DesignCanvas({
   deviceFrame,
   embeddedFrame,
   boardSurface = false,
+  nativeAnimationEpochMs,
   fitRootBodyToFrame,
+  screenHeightMode,
   runtimeReplacementContent,
   authoredSourceContent,
   runtimeReplacementKey,
@@ -1566,13 +1619,13 @@ export function DesignCanvas({
   motionDurationMs,
   motionPathEditingEnabled = false,
   motionPathTargetNodeId = null,
+  motionPathTrackId = null,
   motionOriginEditingEnabled = false,
   motionOriginTargetNodeId = null,
   onMotionPathTracksChange,
   previewWidthPx,
   previewHeightPx,
   onComponentSourceJump,
-  shaderFillPreview,
   gradientEditTarget,
   onGradientEditChange,
   statePreviewTarget,
@@ -1587,7 +1640,54 @@ export function DesignCanvas({
   const t = useT();
   const { resolvedTheme } = useTheme();
   const browserOrigin = useBrowserOrigin();
+  const [replacedFrame, setReplacedFrame] =
+    useState<ReplacedPreviewFrame | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const replacedFrameRef = useRef<HTMLIFrameElement>(null);
+  const nativeInteractivePreviewCleanupsRef = useRef(
+    new Map<HTMLIFrameElement, () => void>(),
+  );
+  const nativeInteractivePreviewRef =
+    useRef<NativePreviewSurfaceDocument | null>(null);
+  const replacedNativeInteractivePreviewRef =
+    useRef<NativePreviewSurfaceDocument | null>(null);
+  const setPreviewFrameRef = useCallback(
+    (
+      ref: React.RefObject<HTMLIFrameElement | null>,
+      next: HTMLIFrameElement | null,
+    ) => {
+      const previous = ref.current;
+      if (previous === next) return;
+      if (previous && previous !== next) {
+        nativeInteractivePreviewCleanupsRef.current.get(previous)?.();
+        nativeInteractivePreviewCleanupsRef.current.delete(previous);
+      }
+      setNativePreviewIframeRef(ref, next);
+      if (next)
+        nativeInteractivePreviewCleanupsRef.current.set(
+          next,
+          connectNativePreviewSurface(
+            next,
+            ref === replacedFrameRef
+              ? replacedNativeInteractivePreviewRef.current
+              : nativeInteractivePreviewRef.current,
+          ),
+        );
+    },
+    [],
+  );
+  const setIframeRef = useCallback(
+    (next: HTMLIFrameElement | null) => {
+      setPreviewFrameRef(iframeRef, next);
+    },
+    [setPreviewFrameRef],
+  );
+  const setReplacedFrameRef = useCallback(
+    (next: HTMLIFrameElement | null) => {
+      setPreviewFrameRef(replacedFrameRef, next);
+    },
+    [setPreviewFrameRef],
+  );
   const canvasFocusProbeRequestIdRef = useRef(0);
   const pendingCanvasFocusProbeRef = useRef<{
     requestId: number;
@@ -1636,6 +1736,12 @@ export function DesignCanvas({
     frameId: number;
   } | null>(null);
   const runtimeVerificationIframeRef = useRef<HTMLIFrameElement>(null);
+  const setRuntimeVerificationIframeRef = useCallback(
+    (next: HTMLIFrameElement | null) => {
+      setNativePreviewIframeRef(runtimeVerificationIframeRef, next);
+    },
+    [],
+  );
   const embeddedCanvasPanSessionRef = useRef<EmbeddedCanvasPanSession | null>(
     null,
   );
@@ -2242,6 +2348,12 @@ export function DesignCanvas({
   const liveEditRestartAttemptRef = useRef(0);
   const liveEditSameInstanceElapsedMsRef = useRef(0);
   const liveEditSameInstanceDelayRef = useRef(LIVE_EDIT_READY_TIMEOUT_MS);
+  // Snapshots and localhost or Fusion previews may never report ready; timing
+  // them would count a missing bridge as a stalled load.
+  const markCanvasLoadReady = useCanvasLoadOutcome({
+    designId,
+    measure: !snapshotOnly && (sourceType ?? "inline") === "inline",
+  });
   const liveEditSameInstanceRearmTimerRef = useRef<number | undefined>(
     undefined,
   );
@@ -2558,6 +2670,14 @@ export function DesignCanvas({
     iframePreviewUrlRef.current.url = resolvedExternalPreviewUrl;
   }
   const externalPreviewUrl = iframePreviewUrlRef.current.url;
+  const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
+    useNativeShaderApprovals({
+      designId,
+      fileId: screenId,
+      enabled:
+        !externalPreviewUrl &&
+        content.includes("application/x-agent-native-effects"),
+    });
   const runtimeVerificationUrl = useMemo(() => {
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
@@ -3510,20 +3630,23 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerInteractPreview, deviceFrame, contentKey, previewWidthPx]);
 
+  const designStylesheets = useDesignStylesheets();
   const srcdoc = useMemo(() => {
     if (rawExternalPreviewUrl) return undefined;
     // Interact runs the design as authored. Its document carries the theme and
     // links bridges and none of the editor's, so entering or leaving Interact
     // loads a new document rather than asking one to stand down.
     if (interactMode) {
-      return buildInteractPreviewDocument({
+      const interactDocument = buildInteractPreviewDocument({
         content: iframeRenderContent,
         embeddedFrameBackground,
         transparentBackground,
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
+        heightMode: screenHeightMode,
       });
+      return inlineDesignStylesheets(interactDocument, designStylesheets);
     }
     const localizedContent = withLocalRuntimes(iframeRenderContent);
     const frameContent = getEmbeddedFrameDocumentContent({
@@ -3607,8 +3730,12 @@ export function DesignCanvas({
       ].join("");
       frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
+    frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
-      frameDocument = appendContentSizeReporter(frameDocument);
+      frameDocument = appendContentSizeReporter(
+        frameDocument,
+        screenHeightMode,
+      );
     }
     return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
@@ -3620,7 +3747,9 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     boardSurface,
+    designStylesheets,
     fitRootBodyToFrame,
+    screenHeightMode,
     rawExternalPreviewUrl,
     isEmbeddedFrame,
     embeddedFrameBackground,
@@ -3671,7 +3800,7 @@ export function DesignCanvas({
   const interactIdentitySuffix = interactMode ? "#interact" : "";
   const iframeDocumentIdentity =
     (externalPreviewUrl
-      ? `src:${externalPreviewUrl}${interactIdentitySuffix}`
+      ? `src:${liveEditDocumentIdentityUrl(externalPreviewUrl)}${interactIdentitySuffix}`
       : waitingForLiveEditBridge
         ? `live-edit-pending:${liveEditBridgeKey}`
         : `srcdoc:${contentKey ?? ""}:${srcdocHash}`) + reloadSuffix;
@@ -3972,14 +4101,29 @@ export function DesignCanvas({
         !interactMode &&
         onMotionPathTracksChange
       ) {
-        const edit = parseMotionPathEditMessage(e.data, motionPathTargetNodeId);
-        if (!edit) return;
-        const trackIndex = motionTracks?.findIndex(
-          (track) =>
-            track.targetNodeId === edit.targetNodeId &&
-            track.property === "translate",
+        const edit = parseMotionPathEditMessage(
+          e.data,
+          motionPathTargetNodeId,
+          motionPathTrackId,
         );
-        if (trackIndex === undefined || trackIndex < 0 || !motionTracks) return;
+        if (!edit || !motionTracks) return;
+        const matchingTrackIndexes = motionTracks.flatMap((track, index) =>
+          track.targetNodeId === edit.targetNodeId &&
+          track.property === "translate"
+            ? [index]
+            : [],
+        );
+        const trackIndex = edit.trackId
+          ? motionTracks.findIndex(
+              (track) =>
+                track.id === edit.trackId &&
+                track.targetNodeId === edit.targetNodeId &&
+                track.property === "translate",
+            )
+          : matchingTrackIndexes.length === 1
+            ? matchingTrackIndexes[0]
+            : -1;
+        if (trackIndex < 0) return;
         const updated = applyMotionPathEdit(motionTracks[trackIndex], edit);
         if (!updated) return;
         const nextTracks = [...motionTracks];
@@ -3987,6 +4131,7 @@ export function DesignCanvas({
         const changeResult = onMotionPathTracksChange(
           nextTracks,
           edit.targetNodeId,
+          edit.trackId ?? motionTracks[trackIndex]?.id,
         );
         if (changeResult?.status === "unsupported") {
           const iframeWindow = iframeRef.current?.contentWindow;
@@ -4010,8 +4155,10 @@ export function DesignCanvas({
                 !readOnly &&
                 editMode &&
                 !interactMode &&
-                typeof motionPathTargetNodeId === "string",
+                typeof motionPathTargetNodeId === "string" &&
+                typeof motionPathTrackId === "string",
               targetNodeId: motionPathTargetNodeId ?? null,
+              trackId: motionPathTrackId ?? null,
             },
             "*",
           );
@@ -4028,7 +4175,12 @@ export function DesignCanvas({
             },
             "*",
           );
-          toast.error(t("designEditor.motion.pathEditAmbiguous"));
+          toast.error(
+            changeResult.reason === "repeated-position-path"
+              ? t("designEditor.motion.pathEditPositionConflict")
+              : t("designEditor.motion.pathEditAmbiguous"),
+            { id: `motion-path-edit-unsupported:${changeResult.reason}` },
+          );
         }
         return;
       }
@@ -4485,6 +4637,7 @@ export function DesignCanvas({
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
         onBridgeReady?.();
+        markCanvasLoadReady();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         flushPendingOneShotMessages();
       }
@@ -4612,6 +4765,7 @@ export function DesignCanvas({
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
+        markCanvasLoadReady();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         if (shouldRefreshRuntimeLayerSnapshot) {
           refreshRuntimeLayerSnapshotAfterReady();
@@ -4814,8 +4968,28 @@ export function DesignCanvas({
             typeof payload.sourceId === "string"
               ? payload.sourceId
               : null;
+          // A session that ended before its owed text landed is redelivered as a
+          // commit; its empty content here is not the user's, so it must not delete the node.
+          if (
+            owner &&
+            sourceId &&
+            ((!value && peekPendingTextCapture(owner, sourceId)) ||
+              isSupersededEmptyTextCommit(
+                owner,
+                sourceId,
+                value,
+                originalValue,
+              ))
+          ) {
+            return;
+          }
           // The bridge sends inactive state before this content message; consume
           // the owner token now so later screen changes cannot erase its handoff.
+          // Text typed before this session opened has not landed yet: this commit holds
+          // only the rest, so the later commit that lands it creates the box.
+          const owedTextPending = Boolean(
+            owner && sourceId && peekPendingTextCapture(owner, sourceId),
+          );
           const isPendingCreation = consumePendingTextCreation(
             pendingTextCreationNodeOwnersRef.current,
             owner,
@@ -4839,6 +5013,7 @@ export function DesignCanvas({
                   originalHtml,
                   relativeOperations,
                   routePath,
+                  owedTextPending,
                 }),
               queueHostCommit: queuePendingTextHostCommit,
               cancelHostCommit: cancelPendingTextHostCommit,
@@ -5395,10 +5570,22 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "text-editing-state") {
+        // Selecting in a fusion frame moves keyboard focus to the canvas, and
+        // a cross-origin frame cannot take it back itself, so the text edit it
+        // just started would get no keystrokes. The parent can focus the frame.
+        if (e.data.active === true && sourceType === "fusion") {
+          const editingFrame = Array.from(
+            document.querySelectorAll("iframe"),
+          ).find((frame) => frame.contentWindow === e.source);
+          if (editingFrame && document.activeElement !== editingFrame) {
+            editingFrame.focus({ preventScroll: true });
+          }
+        }
         const activatedSourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : "";
         const owner = capturedOwnerRef.current;
         if (!e.data.active && owner && activatedSourceId) {
+          endPendingTextSession(owner, activatedSourceId);
           const activeTextEditIdentity = activeTextEditIdentityRef.current;
           if (
             activeTextEditIdentity?.owner === owner &&
@@ -5604,9 +5791,16 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "prototype-navigate") {
+        const sourceFrame = iframeRef.current;
+        if (!sourceFrame || sourceFrame.contentWindow !== e.source) return;
+        const transition = decodeMotionPrototypeTransitionAttribute(
+          e.data.transition,
+        );
         onPrototypeNavigate?.(
           String(e.data.screen || ""),
           String(e.data.href || ""),
+          transition,
+          sourceFrame,
         );
         return;
       }
@@ -5769,6 +5963,7 @@ export function DesignCanvas({
     onComponentSourceJump,
     motionPathEditingEnabled,
     motionPathTargetNodeId,
+    motionPathTrackId,
     motionOriginEditingEnabled,
     motionOriginTargetNodeId,
     motionTracks,
@@ -5818,8 +6013,10 @@ export function DesignCanvas({
           !readOnly &&
           editMode &&
           !interactMode &&
-          typeof motionPathTargetNodeId === "string",
+          typeof motionPathTargetNodeId === "string" &&
+          typeof motionPathTrackId === "string",
         targetNodeId: motionPathTargetNodeId ?? null,
+        trackId: motionPathTrackId ?? null,
       },
       "*",
     );
@@ -5828,6 +6025,7 @@ export function DesignCanvas({
     interactMode,
     motionPathEditingEnabled,
     motionPathTargetNodeId,
+    motionPathTrackId,
     readOnly,
   ]);
 
@@ -5982,22 +6180,6 @@ export function DesignCanvas({
     }
     sendMotionPathEditingState();
     sendMotionOriginEditingState();
-    if (shaderFillPreview) {
-      iframe.contentWindow?.postMessage(
-        {
-          type: "shader-fill-preview",
-          selector: shaderFillPreview.selector ?? "",
-          nodeId: shaderFillPreview.nodeId ?? "",
-          css: shaderFillPreview.css,
-        },
-        "*",
-      );
-    } else {
-      iframe.contentWindow?.postMessage(
-        { type: "shader-fill-preview-clear" },
-        "*",
-      );
-    }
     iframe.contentWindow?.postMessage(
       {
         type: "state-preview",
@@ -6030,7 +6212,6 @@ export function DesignCanvas({
     selectedSelectorGroups,
     passiveSelectionStyle,
     readOnly,
-    shaderFillPreview,
     spacePanActive,
     statePreviewTarget,
     tweakValues,
@@ -6076,6 +6257,7 @@ export function DesignCanvas({
       bridgeReadyRef.current = true;
       editorChromeReadyRef.current = true;
       onBridgeReady?.();
+      markCanvasLoadReady();
       refreshRuntimeLayerSnapshotAfterReady();
       flushPendingOneShotMessages();
     }
@@ -6148,24 +6330,6 @@ export function DesignCanvas({
     sendMotionPathEditingState,
     sendMotionOriginEditingState,
   ]);
-
-  useEffect(() => {
-    const win = iframeRef.current?.contentWindow;
-    if (!win) return;
-    if (!shaderFillPreview) {
-      win.postMessage({ type: "shader-fill-preview-clear" }, "*");
-    } else {
-      win.postMessage(
-        {
-          type: "shader-fill-preview",
-          selector: shaderFillPreview.selector ?? "",
-          nodeId: shaderFillPreview.nodeId ?? "",
-          css: shaderFillPreview.css,
-        },
-        "*",
-      );
-    }
-  }, [shaderFillPreview]);
 
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
@@ -6540,6 +6704,11 @@ export function DesignCanvas({
       }
     }
     function onPendingTextEditPointerDown() {
+      const pending = pendingTextEditRef.current;
+      const owner = capturedOwnerRef.current;
+      if (owner && pending?.buffer) {
+        returnPendingTextCapture(owner, pending.nodeId, pending.buffer);
+      }
       pendingTextEditRef.current = null;
       pendingTextEditActivationRef.current?.cancelRequest();
       pendingTextEditActivationRef.current = null;
@@ -7084,25 +7253,6 @@ export function DesignCanvas({
     );
   }, []);
 
-  const sendShaderFillPreview = useCallback(
-    (selector: string, nodeId: string, css: string) => {
-      const win = iframeRef.current?.contentWindow;
-      if (!win) return;
-      win.postMessage(
-        { type: "shader-fill-preview", selector, nodeId, css },
-        "*",
-      );
-    },
-    [],
-  );
-
-  const clearShaderFillPreview = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: "shader-fill-preview-clear" },
-      "*",
-    );
-  }, []);
-
   const replacePreviewContent = useCallback(
     (
       nextContent: string,
@@ -7599,9 +7749,6 @@ export function DesignCanvas({
     (window as any).__designCanvasDeleteElement = deleteRuntimeElement;
     (window as any).__designCanvasSendMotionPreview = sendMotionPreview;
     (window as any).__designCanvasClearMotionPreview = clearMotionPreview;
-    (window as any).__designCanvasSendShaderFillPreview = sendShaderFillPreview;
-    (window as any).__designCanvasClearShaderFillPreview =
-      clearShaderFillPreview;
     return () => {
       // Identity-guard each delete so a stale unmounting instance never clobbers
       // a freshly mounted instance's bridge during a remount race.
@@ -7641,18 +7788,6 @@ export function DesignCanvas({
       ) {
         delete (window as any).__designCanvasClearMotionPreview;
       }
-      if (
-        (window as any).__designCanvasSendShaderFillPreview ===
-        sendShaderFillPreview
-      ) {
-        delete (window as any).__designCanvasSendShaderFillPreview;
-      }
-      if (
-        (window as any).__designCanvasClearShaderFillPreview ===
-        clearShaderFillPreview
-      ) {
-        delete (window as any).__designCanvasClearShaderFillPreview;
-      }
     };
   }, [
     deleteRuntimeElement,
@@ -7663,8 +7798,6 @@ export function DesignCanvas({
     sendInteractionStatePreviewStyle,
     sendMotionPreview,
     clearMotionPreview,
-    sendShaderFillPreview,
-    clearShaderFillPreview,
   ]);
 
   const deviceDimensions: Record<
@@ -8110,6 +8243,59 @@ export function DesignCanvas({
     parentOrigin: browserOrigin ?? undefined,
     liveApp: interactMode,
   });
+  const nativeInteractivePreview = useMemo(
+    () =>
+      externalPreviewUrl
+        ? null
+        : prepareNativePreviewSurface({
+            html: privateScreenshotPreview.html,
+            sandbox: previewIframeSandbox,
+            profile: "interactive",
+            approvedHashes: approvedDefinitionHashes,
+            baseHref: browserOrigin ? window.location.href : undefined,
+            alwaysRuntime: true,
+            animationEpochMs: boardSurface ? nativeAnimationEpochMs : undefined,
+          }),
+    [
+      approvedDefinitionHashes,
+      boardSurface,
+      browserOrigin,
+      externalPreviewUrl,
+      nativeAnimationEpochMs,
+      privateScreenshotPreview.html,
+      previewIframeSandbox,
+    ],
+  );
+  const replacedNativeInteractivePreview = replacedFrame?.nativePreview ?? null;
+  nativeInteractivePreviewRef.current = nativeInteractivePreview;
+  replacedNativeInteractivePreviewRef.current =
+    replacedNativeInteractivePreview;
+  useEffect(() => {
+    const frame = iframeRef.current;
+    if (!frame) return;
+    nativeInteractivePreviewCleanupsRef.current.get(frame)?.();
+    nativeInteractivePreviewCleanupsRef.current.set(
+      frame,
+      connectNativePreviewSurface(frame, nativeInteractivePreview),
+    );
+    return () => {
+      nativeInteractivePreviewCleanupsRef.current.get(frame)?.();
+      nativeInteractivePreviewCleanupsRef.current.delete(frame);
+    };
+  }, [nativeInteractivePreview]);
+  useEffect(() => {
+    const frame = replacedFrameRef.current;
+    if (!frame) return;
+    nativeInteractivePreviewCleanupsRef.current.get(frame)?.();
+    nativeInteractivePreviewCleanupsRef.current.set(
+      frame,
+      connectNativePreviewSurface(frame, replacedNativeInteractivePreview),
+    );
+    return () => {
+      nativeInteractivePreviewCleanupsRef.current.get(frame)?.();
+      nativeInteractivePreviewCleanupsRef.current.delete(frame);
+    };
+  }, [replacedNativeInteractivePreview]);
   const previewIframeName = externalPreviewUrl
     ? undefined
     : previewColorSchemeFrameName(previewColorScheme);
@@ -8148,13 +8334,12 @@ export function DesignCanvas({
     !(snapshotOnly && !iframeRenderContent.trim()) &&
     !(rawExternalPreviewUrl && !externalPreviewUrl) &&
     !externalPreviewPendingOrigin;
-  const [replacedFrame, setReplacedFrame] =
-    useState<ReplacedPreviewFrame | null>(null);
   const mountedMarkupFrameRef = useRef<ReplacedPreviewFrame | null>(null);
   const markupFrame: ReplacedPreviewFrame | null = markupFrameMounted
     ? {
         key: iframeElementIdentity,
-        srcDoc: privateScreenshotPreview.html,
+        srcDoc: nativeInteractivePreview?.html ?? privateScreenshotPreview.html,
+        nativePreview: nativeInteractivePreview,
         sandbox: previewIframeSandbox,
         name: previewIframeName,
         interactMode,
@@ -8168,6 +8353,8 @@ export function DesignCanvas({
     } else if (replacedFrame) {
       setReplacedFrame(null);
     }
+  } else if (markupFrame) {
+    mountedMarkupFrameRef.current = markupFrame;
   }
   const releaseReplacedFrame = useCallback(() => {
     window.requestAnimationFrame(() =>
@@ -8270,8 +8457,11 @@ export function DesignCanvas({
         <>
           {replacedFrame ? (
             <iframe
-              key={replacedFrame.key}
-              srcDoc={replacedFrame.srcDoc}
+              key={`${replacedFrame.key}:${nativePreviewSurfaceDocumentKey(replacedNativeInteractivePreview) ?? ""}`}
+              ref={setReplacedFrameRef}
+              srcDoc={
+                replacedNativeInteractivePreview?.html ?? replacedFrame.srcDoc
+              }
               name={replacedFrame.name}
               sandbox={replacedFrame.sandbox}
               data-design-preview-replaced
@@ -8286,11 +8476,14 @@ export function DesignCanvas({
             />
           ) : null}
           <iframe
-            key={iframeElementIdentity}
-            ref={iframeRef}
+            key={`${iframeElementIdentity}:${nativePreviewSurfaceDocumentKey(nativeInteractivePreview) ?? ""}`}
+            ref={setIframeRef}
             src={externalPreviewUrl ?? undefined}
             srcDoc={
-              externalPreviewUrl ? undefined : privateScreenshotPreview.html
+              externalPreviewUrl
+                ? undefined
+                : (nativeInteractivePreview?.html ??
+                  privateScreenshotPreview.html)
             }
             // The starting scheme of a markup preview; see
             // previewColorSchemeFrameName. A URL page keeps its own name.
@@ -8310,6 +8503,8 @@ export function DesignCanvas({
               requestCanvasFocusProbe(event.currentTarget);
             }}
             onLoad={(event) => {
+              if (!externalPreviewUrl)
+                syncNativeShaderApprovals(event.currentTarget);
               pendingCanvasFocusProbeRef.current = null;
               if (!externalPreviewUrl && designId) {
                 connectPrivateReplayScreenshotPreview(
@@ -8345,6 +8540,7 @@ export function DesignCanvas({
                 ? ""
                 : undefined,
             }}
+            data-an-prototype-preview={interactMode ? "" : undefined}
             data-screen-iframe-id={
               boardSurface
                 ? undefined
@@ -8380,7 +8576,7 @@ export function DesignCanvas({
       {runtimeVerificationUrl && browserOrigin ? (
         <iframe
           key={`${runtimeVerificationUrl}::${runtimeVerificationRequest?.requestId ?? 0}`}
-          ref={runtimeVerificationIframeRef}
+          ref={setRuntimeVerificationIframeRef}
           src={runtimeVerificationUrl}
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: true,
@@ -8995,6 +9191,7 @@ function SingleScreenCreationOverlay({
   const continuationPenPathRef = useRef<{
     nodeId: string;
     path: PenPath;
+    sourceOffset: PenPoint;
   } | null>(null);
 
   const seedSelectedPenContinuation = useCallback(() => {
@@ -9029,6 +9226,7 @@ function SingleScreenCreationOverlay({
     continuationPenPathRef.current = {
       nodeId: selectedPenPathNodeId,
       path: translatePenPath(path, offset.x, offset.y),
+      sourceOffset: offset,
     };
   }, [iframeRef, selectedPenPathNodeId, tool]);
 
@@ -9108,7 +9306,11 @@ function SingleScreenCreationOverlay({
       if (continuation) {
         const updated = onUpdatePenPath?.(
           continuation.nodeId,
-          committed,
+          translatePenPath(
+            committed,
+            -continuation.sourceOffset.x,
+            -continuation.sourceOffset.y,
+          ),
           options?.preserveActiveTool === false ? "move" : undefined,
         );
         if (!updated) {
@@ -9154,7 +9356,7 @@ function SingleScreenCreationOverlay({
           typeof nodeId === "string" &&
           !committed.closed &&
           options?.continueAfterCommit
-            ? { nodeId, path: committed }
+            ? { nodeId, path: committed, sourceOffset: { x: 0, y: 0 } }
             : null;
         return;
       }

@@ -151,7 +151,7 @@ export default createProviderApiRequestAction(getBrainProviderApiRuntime(), {
       .string()
       .optional()
       .describe(
-        "Workspace file path to save the full response body to instead of returning it in context, e.g. 'analysis/provider-response.json'. When set, returns only a compact summary and allows up to 20MB response.",
+        "Workspace file path to save the response body to instead of returning it in context, e.g. 'analysis/provider-response.json'. For paginated endpoints, this saves only the current page unless fetchAllPages is also set. When set, returns only a compact summary and allows up to 20MB response.",
       ),
     fetchAllPages: z
       .object({
@@ -190,7 +190,7 @@ export default createProviderApiRequestAction(getBrainProviderApiRuntime(), {
       })
       .optional()
       .describe(
-        "Enable cursor-based pagination. After each response, reads cursorPath and re-issues the request with cursorParam or cursorBodyPath set. Combine with saveToFile to write the full dataset to a workspace file.",
+        "Enable cursor-based pagination. After each response, reads cursorPath and re-issues the request with cursorParam or cursorBodyPath set. Include this when saveToFile must contain every page rather than only the first response.",
       ),
   }),
   http: false,

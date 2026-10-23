@@ -10,6 +10,11 @@ import {
 } from "../shared/view-settings.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Change the current user's Design editor view settings. Pass only the settings to change; the rest keep their saved values.",
   schema: viewSettingsSchema.partial(),

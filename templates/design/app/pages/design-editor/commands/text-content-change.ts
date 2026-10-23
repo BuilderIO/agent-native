@@ -4,6 +4,7 @@ import {
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -23,7 +24,10 @@ import type {
   LiveScreenSnapshot,
   TextCommitStatus,
 } from "@/pages/design-editor/command-types";
-import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
+import {
+  NOT_A_TEXT_CREATION,
+  type PendingTextCreationFinalization,
+} from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import type { PendingRelativeStyleOperation } from "@/pages/design-editor/pending-edits";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
@@ -124,11 +128,12 @@ export function runTextContentChange(
     originalHtml?: string;
     routePath?: string;
     relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+    owedTextPending?: boolean;
   },
 ): TextCommitStatus {
   if (!canEditDesign && !canEditLiveScreen) return "refused";
   if (!activeFile) return "refused";
-  if (activeCanvasSourceType === "localhost") {
+  if (isRunningAppSourceType(activeCanvasSourceType)) {
     recordPendingLiveTextEdit(
       activeFile.id,
       selector,
@@ -264,15 +269,17 @@ export function runTextContentChange(
         defaultTextLayerName(value),
       ) ?? nextContent)
     : nextContent;
-  const finalizedCreation = prepareTextCreationFinalization(
-    activeFile.id,
-    [
-      elementInfo?.sourceId,
-      targetNode?.id,
-      targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
-    ],
-    namedContent,
-  );
+  const finalizedCreation = details?.owedTextPending
+    ? NOT_A_TEXT_CREATION
+    : prepareTextCreationFinalization(
+        activeFile.id,
+        [
+          elementInfo?.sourceId,
+          targetNode?.id,
+          targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
+        ],
+        namedContent,
+      );
   const contentToApply = finalizedCreation.isCreationCommit
     ? namedContent
     : nextContent;

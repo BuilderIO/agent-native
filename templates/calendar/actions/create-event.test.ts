@@ -44,10 +44,62 @@ vi.mock("../server/lib/google-calendar.js", () => ({
   isConnected: isConnectedMock,
 }));
 
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 
 import { dateKeyInTimezone } from "../shared/timezone.js";
 import createEventAction from "./create-event";
+
+describe("create-event approval gate", () => {
+  async function gate(args: Record<string, unknown>) {
+    const needsApproval = createEventAction.needsApproval;
+    if (typeof needsApproval !== "function")
+      throw new Error("expected a predicate");
+    const intent = await actionCallIntent(createEventAction, {
+      title: "Focus time",
+      start: "2026-10-21T16:00:00.000Z",
+      end: "2026-10-21T17:00:00.000Z",
+      ...args,
+    });
+    if (!intent.valid) throw intent.error;
+    return needsApproval(preparedCallArguments(intent) as never);
+  }
+
+  it.each([undefined, "all", "externalOnly", "none"])(
+    "does not request approval with no attendees and sendUpdates=%s",
+    async (sendUpdates) => {
+      for (const attendees of [undefined, [], "", "not-an-address"]) {
+        expect(await gate({ attendees, sendUpdates })).toBe(false);
+      }
+    },
+  );
+
+  it.each([undefined, "all", "externalOnly", "none"])(
+    "requires approval only when guests may be notified with sendUpdates=%s",
+    async (sendUpdates) => {
+      for (const attendees of [
+        "guest@example.com",
+        [{ email: "guest@example.com" }],
+      ]) {
+        expect(await gate({ attendees, sendUpdates })).toBe(
+          sendUpdates !== "none",
+        );
+      }
+    },
+  );
+
+  it("still gates out-of-office auto-declines without attendees", async () => {
+    expect(await gate({ eventType: "outOfOffice", sendUpdates: "none" })).toBe(
+      true,
+    );
+    expect(
+      await gate({ eventType: "outOfOffice", autoDeclineMode: "declineNone" }),
+    ).toBe(false);
+  });
+});
 
 describe("create-event recurrence", () => {
   beforeEach(() => {

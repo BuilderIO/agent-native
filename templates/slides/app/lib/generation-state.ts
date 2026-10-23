@@ -61,13 +61,16 @@ export function shouldShowPartialGenerationFailure({
   generating: boolean;
   waitingOnQuestions: boolean;
 }): boolean {
+  const unresolvedSnapshotUnknown =
+    failureCode === "outcome_unresolved" && failureSlidesFingerprint === null;
   return (
     slideCount > 0 &&
     typeof failureCode === "string" &&
     failureCode !== "incomplete_output" &&
     failureAttemptId === attemptId &&
-    typeof failureSlidesFingerprint === "string" &&
-    failureSlidesFingerprint === currentSlidesFingerprint &&
+    (unresolvedSnapshotUnknown ||
+      (typeof failureSlidesFingerprint === "string" &&
+        failureSlidesFingerprint === currentSlidesFingerprint)) &&
     !generating &&
     !waitingOnQuestions
   );
@@ -94,10 +97,15 @@ export function shouldClearPartialGenerationFailure({
   waitingOnQuestions: boolean;
   retryPending: boolean;
 }): boolean {
+  const unresolvedSnapshotUnknownForCurrentAttempt =
+    failureCode === "outcome_unresolved" &&
+    failureSlidesFingerprint === null &&
+    failureAttemptId === attemptId;
   return (
     slideCount > 0 &&
     typeof failureCode === "string" &&
     failureCode !== "incomplete_output" &&
+    !unresolvedSnapshotUnknownForCurrentAttempt &&
     (failureAttemptId !== attemptId ||
       typeof failureSlidesFingerprint !== "string" ||
       failureSlidesFingerprint !== currentSlidesFingerprint) &&

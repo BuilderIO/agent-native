@@ -344,8 +344,7 @@ test("clicking another URL screen's label moves the selection to that screen", a
   await expect.poll(() => app.selectedLayers()).toEqual(["Localhost inactive"]);
 });
 
-// fixme: product bug: The dropped copy lands in the inactive URL screen's body flex row (parent BODY, between root-frame and nested-frame, rendered top-left
-test.fixme("a board layer dropped on a URL screen's nested frame lands inside it at the drop point as a pending edit", async ({
+test("a board layer dropped on a URL screen's nested frame lands inside it at the drop point as a pending edit", async ({
   page,
   urlDesign,
 }) => {
@@ -563,8 +562,7 @@ test("Option-dragging a frame from one URL screen into another copies it into th
   await expect(reloaded).toHaveCSS("background-color", "rgb(249, 115, 22)");
 });
 
-// fixme: product bug: Same defect as :347: the copy is placed in the target body's flex row (parent BODY, after root-frame) rather than in Nested frame at the
-test.fixme("without CSS Typed OM, Option-dragging a layer into another URL screen's nested frame copies its exact appearance to the drop point", async ({
+test("without CSS Typed OM, Option-dragging a layer into another URL screen's nested frame copies its exact appearance to the drop point", async ({
   page,
   urlDesign,
 }) => {

@@ -16,6 +16,7 @@ import {
 import { getSuggestionAdapter } from "./registry.js";
 import {
   getSuggestion,
+  getSuggestions,
   ensureSuggestionTables,
   insertSuggestion,
   listSuggestions,
@@ -117,6 +118,73 @@ function assertCreationReplay(
   return receipt.suggestion;
 }
 
+// One revised proposal can replace every edit of the one before it.
+const MAX_SUPERSEDED = 100;
+
+async function supersedeSuggestions(
+  tx: DbExec,
+  args: {
+    resourceType: string;
+    resourceId: string;
+    idempotencyKey: string;
+    supersedes?: string[];
+  },
+  authorEmail: string | null,
+  replacementId: string,
+) {
+  for (const supersededId of new Set(args.supersedes ?? [])) {
+    const prior = await getSuggestion(supersededId, tx);
+    if (
+      !prior ||
+      prior.resourceType !== args.resourceType ||
+      prior.resourceId !== args.resourceId
+    ) {
+      fail("A superseded suggestion was not found on this resource", {
+        statusCode: 404,
+        errorCode: "not_found",
+      });
+    }
+    if (!authorEmail || prior.authorEmail !== authorEmail) {
+      fail("Only the author can supersede this suggestion", {
+        statusCode: 403,
+        errorCode: "forbidden",
+      });
+    }
+    if (prior.status !== "pending") continue;
+    const claimed = await updateSuggestionStatus(
+      tx,
+      prior.id,
+      "superseded",
+      prior.revision,
+    );
+    if (!claimed) {
+      const latest = await getSuggestion(prior.id, tx);
+      // A reviewer decided it first; only pending proposals are replaced.
+      if (latest && latest.status !== "pending") continue;
+      fail("The superseded suggestion changed; refresh and try again", {
+        statusCode: 409,
+        errorCode: "suggestion_conflict",
+      });
+    }
+    await recordDecision(tx, {
+      suggestionId: prior.id,
+      idempotencyKey: `${args.idempotencyKey}:supersedes:${prior.id}`,
+      reviewer: authorEmail,
+      decision: "superseded",
+      observedBase: prior.baseRevision,
+      outcome: "superseded",
+      detail: replacementId,
+    });
+    await resolveReviewThreadWithClient(
+      tx,
+      prior.threadId,
+      authorEmail,
+      { resourceType: prior.resourceType, resourceId: prior.resourceId },
+      "superseded",
+    );
+  }
+}
+
 export const createResourceSuggestion = defineAction({
   description:
     "Create a typed pending suggestion without changing the canonical resource. Pass supersedes to replace your own earlier pending suggestions on the same resource in the same step.",
@@ -130,7 +198,7 @@ export const createResourceSuggestion = defineAction({
     metadata: z.record(z.string(), z.unknown()).optional(),
     supersedes: z
       .array(z.string().min(1))
-      .max(20)
+      .max(MAX_SUPERSEDED)
       .optional()
       .describe(
         "IDs of your own earlier suggestions on this resource that this one replaces. Pending ones become superseded atomically with this creation; already decided ones are left as they are.",
@@ -143,6 +211,12 @@ export const createResourceSuggestion = defineAction({
       suggestion.id,
     );
     return url ? { url, label: "Open suggestion" } : null;
+  },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+    idempotentHint: true,
   },
   run: async (args, ctx) => {
     const access = await assertReviewableResourceAccess(
@@ -225,57 +299,7 @@ export const createResourceSuggestion = defineAction({
           threadComment: null,
         };
       }
-      for (const supersededId of new Set(args.supersedes ?? [])) {
-        const prior = await getSuggestion(supersededId, tx);
-        if (
-          !prior ||
-          prior.resourceType !== args.resourceType ||
-          prior.resourceId !== args.resourceId
-        ) {
-          fail("A superseded suggestion was not found on this resource", {
-            statusCode: 404,
-            errorCode: "not_found",
-          });
-        }
-        if (!authorEmail || prior.authorEmail !== authorEmail) {
-          fail("Only the author can supersede this suggestion", {
-            statusCode: 403,
-            errorCode: "forbidden",
-          });
-        }
-        if (prior.status !== "pending") continue;
-        const claimed = await updateSuggestionStatus(
-          tx,
-          prior.id,
-          "superseded",
-          prior.revision,
-        );
-        if (!claimed) {
-          const latest = await getSuggestion(prior.id, tx);
-          // A reviewer decided it first; only pending proposals are replaced.
-          if (latest && latest.status !== "pending") continue;
-          fail("The superseded suggestion changed; refresh and try again", {
-            statusCode: 409,
-            errorCode: "suggestion_conflict",
-          });
-        }
-        await recordDecision(tx, {
-          suggestionId: prior.id,
-          idempotencyKey: `${args.idempotencyKey}:supersedes:${prior.id}`,
-          reviewer: authorEmail,
-          decision: "superseded",
-          observedBase: prior.baseRevision,
-          outcome: "superseded",
-          detail: created.id,
-        });
-        await resolveReviewThreadWithClient(
-          tx,
-          prior.threadId,
-          authorEmail,
-          { resourceType: prior.resourceType, resourceId: prior.resourceId },
-          "superseded",
-        );
-      }
+      await supersedeSuggestions(tx, args, authorEmail, created.id);
       const threadComment = await insertReviewCommentWithClient(
         {
           resourceType: created.resourceType,
@@ -353,6 +377,12 @@ export const updateResourceSuggestion = defineAction({
         "Optional replacement summary; omission preserves the existing summary.",
       ),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     const initial = await getSuggestion(args.id);
     if (!initial)
@@ -547,6 +577,12 @@ export const decideResourceSuggestion = defineAction({
     observedBase: z.string().min(1),
     observedRevision: z.number().int().positive().optional(),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
     if (!suggestion) throw new Error("Suggestion not found");
@@ -730,6 +766,13 @@ const proposalCreationSchema = z.object({
       }),
     )
     .min(1),
+  supersedes: z
+    .array(z.string().min(1))
+    .max(MAX_SUPERSEDED)
+    .optional()
+    .describe(
+      "IDs of your own earlier suggestions on this resource that this proposal replaces. Pending ones become superseded atomically with this creation; already decided ones are left as they are.",
+    ),
 });
 
 export const getResourceSuggestionProposalByCreationKey = defineAction({
@@ -778,8 +821,14 @@ export const getResourceSuggestionProposalByCreationKey = defineAction({
 
 export const createResourceSuggestionProposal = defineAction({
   description:
-    "Create or append independently reviewable suggestions under one durable proposal.",
+    "Create or append independently reviewable suggestions under one durable proposal. Pass supersedes to replace your own earlier pending suggestions on the same resource in the same step.",
   schema: proposalCreationSchema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,
@@ -799,6 +848,7 @@ export const createResourceSuggestionProposal = defineAction({
       summary: args.summary,
       operations: args.suggestions,
       metadata: { proposalId: args.proposalId ?? null },
+      supersedes: args.supersedes,
     });
     const db = getDbExec();
     await ensureSuggestionTables();
@@ -965,6 +1015,7 @@ export const createResourceSuggestionProposal = defineAction({
           suggestions.map((suggestion) => suggestion.id),
         );
         if (!recorded) throw concurrentCreation;
+        await supersedeSuggestions(tx, args, authorEmail, suggestions[0]!.id);
         return { proposal, suggestions, comments };
       })
       .catch(async (error) => {
@@ -1013,6 +1064,12 @@ export const decideResourceSuggestionProposal = defineAction({
       )
       .min(1),
   }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+    idempotentHint: true,
+  },
   run: async (args, ctx) => {
     await ensureSuggestionTables();
     const db = getDbExec();
@@ -1074,9 +1131,7 @@ export const decideResourceSuggestionProposal = defineAction({
         throw new Error(
           "Proposal decision receipt references a missing proposal",
         );
-      const suggestions = await Promise.all(
-        prior.suggestionIds.map((id) => getSuggestion(id, tx)),
-      );
+      const suggestions = await getSuggestions(prior.suggestionIds, tx);
       if (suggestions.some((suggestion) => !suggestion))
         throw new Error(
           "Proposal decision receipt references a missing suggestion",
@@ -1106,8 +1161,12 @@ export const decideResourceSuggestionProposal = defineAction({
         const prior = await getProposalDecision(tx, args.idempotencyKey);
         if (prior) return replayDecision(tx, prior);
         const suggestions: ResourceSuggestion[] = [];
-        for (const observed of members) {
-          const current = await getSuggestion(observed.id, tx);
+        const loaded = await getSuggestions(
+          members.map((member) => member.id),
+          tx,
+        );
+        for (const [index, observed] of members.entries()) {
+          const current = loaded[index];
           if (
             !current ||
             current.proposalId !== proposal.id ||
@@ -1126,6 +1185,15 @@ export const decideResourceSuggestionProposal = defineAction({
           }
           suggestions.push(current);
         }
+        const staleProposal = (error: unknown) => {
+          if (error instanceof Error && error.name === "SuggestionStaleError") {
+            fail("A proposal member is stale; no proposal edits were applied", {
+              statusCode: 409,
+              errorCode: "suggestion_stale",
+            });
+          }
+          throw error;
+        };
         for (const suggestion of suggestions) {
           const updated = await updateSuggestionStatus(
             tx,
@@ -1155,16 +1223,7 @@ export const decideResourceSuggestionProposal = defineAction({
                 coordination,
               });
             } catch (error) {
-              if (
-                error instanceof Error &&
-                error.name === "SuggestionStaleError"
-              ) {
-                fail(
-                  "A proposal member is stale; no proposal edits were applied",
-                  { statusCode: 409, errorCode: "suggestion_stale" },
-                );
-              }
-              throw error;
+              staleProposal(error);
             }
           }
           await resolveReviewThreadWithClient(
@@ -1179,12 +1238,16 @@ export const decideResourceSuggestionProposal = defineAction({
           );
         }
         if (args.decision === "accepted") {
-          await adapter.finalizeProposalDecision?.({
-            resourceType: proposal.resourceType,
-            resourceId: proposal.resourceId,
-            transaction: tx,
-            coordination,
-          });
+          try {
+            await adapter.finalizeProposalDecision?.({
+              resourceType: proposal.resourceType,
+              resourceId: proposal.resourceId,
+              transaction: tx,
+              coordination,
+            });
+          } catch (error) {
+            staleProposal(error);
+          }
         }
         await recordProposalDecision(
           tx,
@@ -1195,15 +1258,15 @@ export const decideResourceSuggestionProposal = defineAction({
           request,
           suggestions.map((suggestion) => suggestion.id),
         );
+        const decided = await getSuggestions(
+          suggestions.map((suggestion) => suggestion.id),
+          tx,
+        );
+        if (decided.some((suggestion) => !suggestion))
+          throw new Error("Decided suggestion disappeared");
         return {
           proposal: currentProposal,
-          suggestions: await Promise.all(
-            suggestions.map(async (suggestion) => {
-              const latest = await getSuggestion(suggestion.id, tx);
-              if (!latest) throw new Error("Decided suggestion disappeared");
-              return latest;
-            }),
-          ),
+          suggestions: decided as ResourceSuggestion[],
         };
       }).catch(async (error) => {
         const prior = await getProposalDecision(db, args.idempotencyKey);

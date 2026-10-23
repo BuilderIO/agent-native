@@ -1,7 +1,13 @@
-import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
+import type {
+  AgentSubmissionReference,
+  AgentSubmissionPayload,
+  AgentRunOptions,
+  AgentSuggestion,
+} from "@agent-native/agentkit/protocol";
 
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { WriteReceipt } from "../action.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -197,17 +203,7 @@ export interface AgentChatStructuredMessage {
   content: AgentChatStructuredContentPart[];
 }
 
-export interface AgentChatReference {
-  type: "file" | "skill" | "mention" | "agent" | "custom-agent";
-  path: string;
-  name: string;
-  source: string;
-  refType?: string;
-  refId?: string;
-  slotKey?: string;
-  slotLabel?: string;
-  metadata?: Record<string, unknown>;
-}
+export type AgentChatReference = AgentSubmissionReference;
 
 export type MentionItemMedia =
   | {
@@ -266,6 +262,8 @@ export interface MentionProvider {
 export interface AgentChatAttachment {
   type: string;
   name: string;
+  id?: string;
+  mediaType?: string;
   displayOnly?: boolean;
   data?: string;
   url?: string;
@@ -275,6 +273,7 @@ export interface AgentChatAttachment {
   storageRequired?: boolean;
   storageUploadFailed?: boolean;
   contentType?: string;
+  referenceUrl?: string;
   text?: string;
 }
 
@@ -292,6 +291,9 @@ export interface AgentChatRequest {
   message: string;
   /** AgentKit's submitted user message ID, used only to reconcile projections. */
   agentKitMessageId?: string;
+  /** Original queue-shaped submit used for idempotent direct/queued admission. */
+  submissionPayload?: AgentSubmissionPayload;
+  options?: AgentRunOptions;
   actionScope?: AgentActionScope;
   queuedMessageId?: string;
   queuedMessageClaimId?: string;
@@ -415,6 +417,7 @@ export type AgentChatEvent =
       type: "tool_start";
       tool: string;
       id?: string;
+      executionStepId?: string;
       input: AgentToolInput;
       inputFingerprint?: string;
       inputStoredFingerprint?: string;
@@ -423,6 +426,7 @@ export type AgentChatEvent =
       type: "tool_done";
       tool: string;
       id?: string;
+      executionStepId?: string;
       input?: AgentToolInput;
       inputFingerprint?: string;
       inputStoredFingerprint?: string;
@@ -430,6 +434,13 @@ export type AgentChatEvent =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      /** Compact action write evidence retained even when `result` is truncated. */
+      receipt?: WriteReceipt;
+      /**
+       * Exact identity of the arguments the call ran with, defaults applied. A
+       * continued turn replays a committed call only for the same identity.
+       */
+      argumentsHash?: string;
       /** False marks current completed events; absence is reserved for older journals. */
       approvalPause?: boolean;
       outcomeUnknown?: true;
@@ -445,6 +456,12 @@ export type AgentChatEvent =
       tool: string;
       input: Record<string, string>;
       approvalKey: string;
+      /**
+       * Fingerprint of the arguments the call would run with, defaults
+       * applied. A transport that echoes `approvalKey` back without a
+       * server-side approval record binds it with `approvalKeyWithArguments`.
+       */
+      argumentsHash?: string;
       allowPersistentApproval?: false;
       toolCallId?: string;
       askId?: string;

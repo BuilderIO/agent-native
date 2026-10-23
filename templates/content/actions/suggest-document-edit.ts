@@ -15,7 +15,11 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
-import { markdownSuggestionOperationsForFindReplace } from "../shared/suggestion-diff.js";
+import {
+  findReplaceSuggestionSummary,
+  markdownSuggestionOperationsForFindReplace,
+  markdownSuggestionOperationSummary,
+} from "../shared/suggestion-diff.js";
 import { contentSuggestionPath } from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
@@ -231,9 +235,7 @@ export default defineAction({
 
     const effectiveSummary =
       args.summary?.trim() ||
-      (args.replace
-        ? `Replace "${args.find.slice(0, 80)}" with "${args.replace.slice(0, 80)}"`
-        : `Delete "${args.find.slice(0, 80)}"`);
+      findReplaceSuggestionSummary(args.find, args.replace ?? "");
     if (args.idempotencyKey) {
       await ensureSuggestionTables();
       const receipt = await getSuggestionByCreationKey(
@@ -366,12 +368,7 @@ export default defineAction({
         proposalId: args.proposalId,
         idempotencyKey: args.idempotencyKey ?? crypto.randomUUID(),
         suggestions: operations.map((operation, index) => ({
-          summary:
-            operation.before.changedText && operation.after.changedText
-              ? `Replace "${operation.before.changedText.slice(0, 80)}" with "${operation.after.changedText.slice(0, 80)}"`
-              : operation.before.changedText
-                ? `Delete "${operation.before.changedText.slice(0, 80)}"`
-                : `Insert "${operation.after.changedText.slice(0, 80)}"`,
+          summary: markdownSuggestionOperationSummary(operation),
           operations: [{ ...operation, ordinal: 0 }],
           metadata:
             index === 0

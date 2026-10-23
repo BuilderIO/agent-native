@@ -46,6 +46,11 @@ const imageUploadState = vi.hoisted(() => ({
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  useActionQuery: () => ({ data: undefined, error: null, isLoading: false }),
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
@@ -60,6 +65,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 vi.mock("@/components/ui/popover", () => ({
   Popover: ({ children }: { children?: unknown }) => children as never,
   PopoverTrigger: ({ children }: { children?: unknown }) => children as never,
+  PopoverAnchor: ({ children }: { children?: unknown }) => children as never,
   PopoverContent: () => null,
 }));
 

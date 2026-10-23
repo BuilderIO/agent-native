@@ -139,6 +139,36 @@ describe("bigquery action error handling", () => {
     });
   });
 
+  it("marks completed results with BigQuery warnings as partial", async () => {
+    runQuery.mockResolvedValue({
+      rows: [{ week: "2026-05-11", signups: 42 }],
+      totalRows: 1,
+      schema: [],
+      bytesProcessed: 0,
+      partial: true,
+      warnings: [{ reason: "other", message: "A shard was unavailable" }],
+    });
+
+    const result = (await bigquery.run({ sql: "SELECT 1" })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(result.partial).toBe(true);
+    expect(result.warnings).toEqual([
+      { reason: "other", message: "A shard was unavailable" },
+    ]);
+    const [, properties] = track.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(properties).toMatchObject({
+      query_status: "partial",
+      partial: true,
+      warning_count: 1,
+    });
+  });
+
   it("tracks bounded query diagnostics without storing SQL literals", async () => {
     runQuery.mockResolvedValue({
       rows: [{ count: 1 }],

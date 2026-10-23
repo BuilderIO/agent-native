@@ -250,32 +250,59 @@ export const documentPreviewDraftSettlements = table(
   ],
 );
 
-export const documentComments = table("document_comments", {
-  id: text("id").primaryKey(),
-  ownerEmail: text("owner_email").notNull().default("local@localhost"),
-  documentId: text("document_id").notNull(),
-  threadId: text("thread_id").notNull(),
-  parentId: text("parent_id"),
-  content: text("content").notNull(),
-  quotedText: text("quoted_text"),
-  anchorPrefix: text("anchor_prefix"),
-  anchorSuffix: text("anchor_suffix"),
-  anchorStartOffset: integer("anchor_start_offset"),
-  mentionsJson: text("mentions_json"),
-  authorEmail: text("author_email").notNull(),
-  authorName: text("author_name"),
-  submissionSource: text("submission_source"),
-  submissionRunId: text("submission_run_id"),
-  submissionThreadId: text("submission_thread_id"),
-  actorKind: text("actor_kind"),
-  authorModel: text("author_model"),
-  authorEffort: text("author_effort"),
-  resolved: integer("resolved").notNull().default(0),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-  notionCommentId: text("notion_comment_id"),
-  notionDiscussionId: text("notion_discussion_id"),
-});
+export const documentComments = table(
+  "document_comments",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    documentId: text("document_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    parentId: text("parent_id"),
+    content: text("content").notNull(),
+    quotedText: text("quoted_text"),
+    anchorPrefix: text("anchor_prefix"),
+    anchorSuffix: text("anchor_suffix"),
+    anchorStartOffset: integer("anchor_start_offset"),
+    /**
+     * A thread on one Property value rather than body text. Set on the root
+     * comment only; the name and value are what they were when it was written,
+     * so the thread keeps its meaning after the value changes or the Property
+     * is deleted.
+     */
+    propertyId: text("property_id"),
+    propertyName: text("property_name"),
+    propertyValue: text("property_value"),
+    /**
+     * The Blocks field tab a thread sits in, when it isn't the page body. Null
+     * means the body, so comments written before tabs had comments stay there.
+     * Set on every comment in the thread (replies copy the root's); the name is
+     * what the field was called when the thread started, so a deleted tab's
+     * threads still read as that tab.
+     */
+    fieldId: text("field_id"),
+    fieldName: text("field_name"),
+    mentionsJson: text("mentions_json"),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    submissionSource: text("submission_source"),
+    submissionRunId: text("submission_run_id"),
+    submissionThreadId: text("submission_thread_id"),
+    actorKind: text("actor_kind"),
+    authorModel: text("author_model"),
+    authorEffort: text("author_effort"),
+    resolved: integer("resolved").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    notionCommentId: text("notion_comment_id"),
+    notionDiscussionId: text("notion_discussion_id"),
+  },
+  (comment) => [
+    index("document_comments_document_idx").on(
+      comment.documentId,
+      comment.ownerEmail,
+    ),
+  ],
+);
 
 /**
  * One person's emoji reaction on one Page comment. Access follows the
@@ -775,6 +802,24 @@ export const contentDatabaseSourceExecutions = table(
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
+);
+
+export const contentDatabaseBuilderBlobCleanup = table(
+  "content_database_builder_blob_cleanup",
+  {
+    blobReference: text("blob_reference").primaryKey(),
+    createdAt: text("created_at").notNull().default(now()),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at")
+      .notNull()
+      .default("1970-01-01T00:00:00.000Z"),
+  },
+  (cleanup) => [
+    index("content_database_builder_blob_cleanup_due_idx").on(
+      cleanup.nextAttemptAt,
+      cleanup.createdAt,
+    ),
+  ],
 );
 
 export const contentDatabaseSourceExecutionClaims = table(

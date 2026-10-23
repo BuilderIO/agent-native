@@ -1,18 +1,24 @@
 ---
 name: design-generation
 description: >-
-  Generate or refine complete interactive HTML prototypes in Design. Use when
-  creating screens, variants, Alpine/Tailwind prototypes, tweaks, or visual
-  refinements from a prompt or selected design.
+  Generate or refine Design web prototypes. Use when creating screens,
+  variants, or applying visual refinements. For HubSpot email requests,
+  read hubspot-email instead.
 ---
 
 # Design Generation
 
-How to generate complete, interactive HTML prototypes using Alpine.js + Tailwind CSS (via CDN). This is the core skill for the design agent.
+Generate complete web prototypes through Design actions.
+
+## HubSpot emails
+
+For HubSpot email creation, alignment, token edits, conversion or HTML handoff,
+read `hubspot-email` before applying the web workflow below. It owns email-safe
+authoring and completion checks, which replace the web stack defaults.
 
 ## Technology Stack
 
-Every generated design uses:
+Web prototypes use:
 - **Tailwind CSS v4** — via `@tailwindcss/browser@4` CDN (NOT the old v3 CDN)
 - **Alpine.js 3.x** — via `alpinejs@3.15.11` CDN with `defer` attribute
 - **Google Fonts** — for distinctive typography (never Inter/Roboto/Arial)
@@ -1049,25 +1055,36 @@ for elements entering, `ease-in` for elements leaving. Animate only
 `prefers-reduced-motion` (see the mandatory `<style>` block below). For
 motion edits, keep a versioned keyframe timeline as the editable source
 model, then compile it back into the design code. Inspect the selected screen
-with `get-motion-timeline` before writing. Inline HTML `<style>` elements and
-React JSX `<style>` elements can adopt static CSS animations from top-level
-rules that use one uniquely resolved simple selector, one `animation-name`,
-and a matching top-level `@keyframes` block. React requires a static id
-selector with one matching static JSX host and one document-unique id. JSX
-`<style>` CSS is global, so React import does not adopt class, type, or
-attribute selectors. React also requires the complete style content to be one
-lossless JSX text or string/template literal with no substitutions. Dynamic
-style elements and style props that cannot be proven free of motion are
-unsupported. Importable animations use a positive fixed `ms`/`s` duration, a
-non-negative fixed delay, a Motion-supported easing, `animation-fill-mode: both`,
-one iteration, normal direction, running state, replace composition, and static
-keyframe stops from 0% through 100% with both endpoints and one supported property: `opacity`,
-`transform`, `translate`, `scale`, `rotate`, `color`, `background-color`,
-`border-radius`, `border-color`, `border-width`, or `box-shadow`. Each target
-can have one imported animation. Shorthand, multiple animation names,
-conditional animation definitions, ambiguous targets, CSS variables in keyframe
-values, and external stylesheets are unsupported; the source reader fails
-closed so Motion does not silently discard or flatten them. The exact global
+with `get-motion-timeline` before writing. Inline HTML/Alpine uses its `fileId`
+as `sourceRef`; a localhost React/TSX screen uses the same selected screen as
+`sourceRef` plus the live module path, connection id, and version hash in
+`localSource`. Write through `apply-motion-edit` so edits stay parseable and
+round-trip between timeline and CSS/JSX. The inline output is standard CSS
+`@keyframes`; the React adapter updates verified JSX/source spans and emits the
+same managed CSS contract.
+
+Inline HTML `<style>` elements and React JSX `<style>` elements can adopt static
+CSS animations from top-level rules that use one uniquely resolved simple
+selector, one `animation-name`, and a matching top-level `@keyframes` block.
+React requires a static id selector with one matching static JSX host and one
+document-unique id. JSX `<style>` CSS is global, so React import does not adopt
+class, type, or attribute selectors. React also requires the complete style
+content to be one lossless JSX text or string/template literal with no
+substitutions. Dynamic style elements and style props that cannot be proven
+free of motion are unsupported. Importable animations use a positive fixed
+`ms`/`s` duration, a non-negative fixed delay, a Motion-supported easing,
+`animation-fill-mode: both`, one iteration, normal direction, running state,
+replace composition, and static keyframe stops from 0% through 100% with both
+endpoints and one or more supported properties: `opacity`, `transform`,
+`translate`, `scale`, `rotate`, `color`, `background-color`, `border-radius`,
+`border-color`, `border-width`, or `box-shadow`. Each property needs static 0%
+and 100% endpoints, and duplicate declarations at one stop are unsupported;
+Motion maps properties to parallel tracks with shared target and animation
+timing. Each target can have one imported animation. Shorthand, multiple
+animation names, conditional animation
+definitions, ambiguous targets, CSS variables in keyframe values, and external
+stylesheets are unsupported; the source reader fails closed so Motion does not
+silently discard or flatten them. The exact global
 `prefers-reduced-motion: reduce` override generated by this skill is preserved
 and does not change the imported timeline.
 
@@ -1079,20 +1096,25 @@ declarations remain in place because other rules may use them.
 declarations, and Text runtime; it leaves authored keyframe definitions in
 place. For localhost source, pass the current `sourceVersionHash` returned by
 `get-motion-timeline` as `timelineVersionHash`; stale or missing hashes preserve
-the source and timeline so you can reload before retrying. This CSS importer does not read
-or edit JavaScript runtime animations, GSAP timelines, Web Animations API
-calls, or Alpine `x-transition`/`x-effect` behavior. Generic Alpine `x-bind`
-on a Motion target is unsupported because it can change attributes dynamically.
-In localhost React/TSX,
-write through the verified module path, connection id, and version hash in
-`localSource`. Include the current `moduleVersionHash` and the captured
-`timelineVersionHash`; autosave compares both before writing so a code edit
-cannot replace the source underneath a dirty timeline. React inline `style`
-props such as `style={{ animationName: "fade" }}` are detected and rejected
-because they cannot be imported losslessly. This is separate from static JSX
-`<style>` elements, which can be imported under the constraints above. Keep
-runtime-only animation code source-owned and do not claim that Motion
-round-trips it.
+the source and timeline so you can reload before retrying. This CSS importer
+does not read or edit JavaScript runtime animations, GSAP timelines, Web
+Animations API calls, or Alpine `x-transition`/`x-effect` behavior. Generic
+Alpine `x-bind` on a Motion target is unsupported because it can change
+attributes dynamically. In localhost React/TSX, write through the verified
+module path, connection id, and version hash in `localSource`. Include the
+current `moduleVersionHash` and captured `timelineVersionHash`; autosave
+compares both before writing so a code edit cannot replace the source
+underneath a dirty timeline. React inline `style` props such as
+`style={{ animationName: "fade" }}` are detected and rejected because they
+cannot be imported losslessly. This is separate from static JSX `<style>`
+elements, which can be imported under the constraints above. Keep runtime-only
+animation code source-owned and do not claim that Motion round-trips it.
+
+Text animations use `textDocument` version 2 for `animationDirection`, `order`,
+`overlapPercent`, and `ignoreSpaces`; preserve their unit, stagger interval,
+property, duration, and keyframes when editing. Version 1 text documents remain
+readable and are normalized on write. Do not keep the only copy of animation
+state in a GSAP runtime timeline or a one-way export.
 
 ## Imagery
 

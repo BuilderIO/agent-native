@@ -230,6 +230,10 @@ describe("standalone follow-up submission", () => {
       );
       expect(button).toBeDefined();
       await act(async () => button!.click());
+      await vi.waitFor(() => {
+        expect(runtime.startRun).toHaveBeenCalledOnce();
+        expect(draft.files).toEqual([]);
+      });
       expect(upload).toHaveBeenCalledOnce();
       expect(beforeSend).toHaveBeenCalledOnce();
       expect(runtime.assertAiSetupReady).toHaveBeenCalledOnce();

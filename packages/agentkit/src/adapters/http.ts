@@ -36,9 +36,11 @@ import {
   parseAgentEvent,
   parseGetRunInput,
   parseAgentQueuedMessages,
+  parseNullableAgentQueuedSubmissionStatus,
   parseAgentThread,
   parseAgentUploadTarget,
   parseAgentProtocolEnvelope,
+  parseAgentRunStartResult,
   parseFilePart,
   parseInvokeActionInput,
   parseListThreadsInput,
@@ -498,6 +500,14 @@ export function createAgentKitHttpTransport(
         context,
       );
     },
+    getQueuedSubmissionStatus(input, context) {
+      return request(
+        `/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}/receipt`,
+        parseNullableAgentQueuedSubmissionStatus,
+        {},
+        context,
+      );
+    },
     queueMessage(input, context) {
       return request(
         `/threads/${encodeURIComponent(input.threadId)}/queue`,
@@ -599,7 +609,7 @@ export function createAgentKitHttpTransport(
     resumeRun(input, context) {
       return request(
         `/runs/${encodeURIComponent(input.runId)}/resume`,
-        parseStartRunResult,
+        parseAgentRunStartResult,
         {
           method: "POST",
           body: JSON.stringify(createAgentProtocolEnvelope("request", input)),
@@ -1110,13 +1120,37 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
         );
       }
       const queueItemMatch = path.match(
-        /^\/threads\/([^/]+)\/queue\/([^/]+)(?:\/(steer|move-to-top))?$/,
+        /^\/threads\/([^/]+)\/queue\/([^/]+)(?:\/(steer|move-to-top|receipt))?$/,
       );
       if (queueItemMatch?.[1] && queueItemMatch[2]) {
         const routeInput = {
           threadId: decodeURIComponent(queueItemMatch[1]),
           messageId: decodeURIComponent(queueItemMatch[2]),
         };
+        if (request.method === "GET" && queueItemMatch[3] === "receipt") {
+          const getQueuedSubmissionStatus = transport.getQueuedSubmissionStatus;
+          if (!getQueuedSubmissionStatus)
+            return notSupported(
+              "getQueuedSubmissionStatus",
+              "Queued submission status is not supported.",
+            );
+          const input = parseThreadMessageInput(routeInput);
+          assertRouteIdentifier(
+            routeInput.threadId,
+            input.threadId,
+            "threadId",
+          );
+          assertRouteIdentifier(
+            routeInput.messageId,
+            input.messageId,
+            "messageId",
+          );
+          return respond(
+            await invoke((context) =>
+              getQueuedSubmissionStatus(input, context),
+            ),
+          );
+        }
         if (request.method === "POST" && queueItemMatch[3] === "steer") {
           const steerQueuedMessage = transport.steerQueuedMessage;
           if (!steerQueuedMessage)

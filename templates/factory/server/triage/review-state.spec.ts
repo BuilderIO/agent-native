@@ -21,6 +21,27 @@ describe("triage review state", () => {
     ).toBe("shadow_decided");
   });
 
+  it("keeps a manually resolved item resolved even when source evidence changes", () => {
+    expect(statusAfterTriageSourceUpdate("resolved", true, "received")).toBe(
+      "resolved",
+    );
+  });
+
+  it("keeps a dismissed item dismissed even when source evidence changes", () => {
+    expect(statusAfterTriageSourceUpdate("dismissed", true, "received")).toBe(
+      "dismissed",
+    );
+    expect(
+      statusAfterPullRequestPoll({
+        existingStatus: "dismissed",
+        nextAuthor: "steve8708",
+        nextState: "open",
+        nextDraft: false,
+        sourceChanged: true,
+      }),
+    ).toBe("dismissed");
+  });
+
   it("reopens an item when the source evidence changes", () => {
     const snapshot = {
       title: "Issue",

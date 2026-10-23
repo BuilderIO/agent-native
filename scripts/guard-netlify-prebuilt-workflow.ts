@@ -26,7 +26,7 @@ export const PRODUCTION_MAPPED_SITE_GROUP =
 export const PRODUCTION_FLEET_CHILD_GROUP =
   "agent-native-production-fleet-child-${{ matrix.site }}";
 export const PUBLISHED_CACHE_PURGE_CONDITION =
-  "(inputs.target == 'production' || inputs.target == 'beta') && inputs.deploy && inputs.deploy_mode == 'production' && (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') && success()";
+  "(inputs.target == 'production' || inputs.target == 'beta') && inputs.deploy && steps.deploy.outputs.deploy_id != '' && inputs.deploy_mode == 'production' && (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') && success()";
 
 const reusable = readFileSync(reusablePath, "utf8");
 const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
@@ -76,7 +76,8 @@ const callOptions = (script: string, call: string): string => {
 export function validateReusableWorkflowConcurrency(
   workflow: Record<string, unknown>,
 ): string[] {
-  const group = asRecord(workflow.concurrency)?.group;
+  const concurrency = asRecord(workflow.concurrency);
+  const group = concurrency?.group;
   if (
     typeof group !== "string" ||
     !group.includes("inputs.caller") ||
@@ -91,10 +92,12 @@ export function validateReusableWorkflowConcurrency(
     !group.includes("inputs.site == 'chat'") ||
     !group.includes("!inputs.deploy") ||
     !group.includes("inputs.deploy_mode != 'production'") ||
-    !group.includes("github.event_name")
+    !group.includes("github.event_name") ||
+    concurrency?.["cancel-in-progress"] !== false ||
+    concurrency?.queue !== "max"
   ) {
     return [
-      "reusable Netlify workflow must serialize beta publishers per site and isolate direct beta dispatches",
+      "reusable Netlify workflow must queue all site publishers and isolate direct beta dispatches",
     ];
   }
   return [];
@@ -230,6 +233,9 @@ export function validateProductionSiteConcurrency(workflows: {
       issues.push(
         `${path} ${jobName} job concurrency.cancel-in-progress must be false`,
       );
+    }
+    if (concurrency?.queue !== "max") {
+      issues.push(`${path} ${jobName} job concurrency.queue must be max`);
     }
   }
 
@@ -818,9 +824,12 @@ issues.push(
   ),
 );
 
-if (asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false) {
+if (
+  asRecord(reusableDocument?.concurrency)?.["cancel-in-progress"] !== false ||
+  asRecord(reusableDocument?.concurrency)?.queue !== "max"
+) {
   issues.push(
-    `${reusablePath} beta child deploys must keep accepted publishers alive and coalesce pending sources`,
+    `${reusablePath} must keep accepted publishers alive and queue every site deployment`,
   );
 }
 const betaWorkflowConcurrency = asRecord(
@@ -897,7 +906,7 @@ if (
   )
 ) {
   issues.push(
-    `${reusablePath} beta publishes must share one latest-wins child queue per site`,
+    `${reusablePath} beta publishes must share the serialized per-site publisher queue`,
   );
 }
 
@@ -906,20 +915,23 @@ const productionConcurrency = asRecord(
 );
 if (
   typeof productionConcurrency?.group !== "string" ||
-  !productionConcurrency.group.includes("agent-native-production-fleet")
+  !productionConcurrency.group.includes("agent-native-production-fleet") ||
+  productionConcurrency["cancel-in-progress"] !== false ||
+  productionConcurrency.queue !== "max"
 ) {
   issues.push(
-    `${productionPath} must keep fleet runs in a dedicated production queue`,
+    `${productionPath} must keep every fleet run in its dedicated production queue`,
   );
 }
 const docsProductionDocument = parsedWorkflows.get(docsProductionPath);
 const docsProductionConcurrency = asRecord(docsProductionDocument?.concurrency);
 if (
   docsProductionConcurrency?.group !== "agent-native-docs-production" ||
-  docsProductionConcurrency["cancel-in-progress"] !== false
+  docsProductionConcurrency["cancel-in-progress"] !== false ||
+  docsProductionConcurrency.queue !== "max"
 ) {
   issues.push(
-    `${docsProductionPath} must keep its path-filtered production queue independent`,
+    `${docsProductionPath} must preserve every pending path-filtered production run in its queue`,
   );
 }
 const docsProductionJobs = asRecord(docsProductionDocument?.jobs);
@@ -929,10 +941,11 @@ for (const jobName of ["pause-netlify-builds", "restore-netlify-builds"]) {
   );
   if (
     concurrency?.group !== "agent-native-production-site-fw" ||
-    concurrency?.["cancel-in-progress"] !== false
+    concurrency?.["cancel-in-progress"] !== false ||
+    concurrency?.queue !== "max"
   ) {
     issues.push(
-      `${docsProductionPath} ${jobName} must share the fw production site queue without cancellation`,
+      `${docsProductionPath} ${jobName} must preserve every publisher in the fw production site queue`,
     );
   }
 }
@@ -969,8 +982,16 @@ const hasOfflineSecretFreePreviewBuild =
   clipsBuild.includes(
     'if [[ "$TARGET" == "preview" && "$DEPLOY" != "true" ]]; then',
   ) &&
-  clipsBuild.includes("build_args+=(--offline)") &&
-  clipsBuild.includes('netlify "${build_args[@]}"');
+  clipsBuild.includes(
+    'netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE" --offline',
+  ) &&
+  clipsBuild.includes("netlify api getEnvVars") &&
+  clipsBuild.includes('\\"scope\\":\\"builds\\"') &&
+  clipsBuild.includes("scripts/netlify-prebuilt-build.ts") &&
+  clipsBuild.includes(
+    "BUILD_BRANCH: ${{ inputs.target == 'beta' && inputs.build_context == 'branch-deploy' && 'main' || '' }}",
+  ) &&
+  clipsBuild.includes('build_options+=(--branch "$BUILD_BRANCH")');
 if (!hasOfflineSecretFreePreviewBuild) {
   issues.push(
     `${reusablePath} must use Netlify offline mode for the secret-free PR build`,
@@ -1692,7 +1713,7 @@ if (
   !betaMigrationRun.includes("netlify api getEnvVars") ||
   !betaMigrationRun.includes("scripts/netlify-migration-url.ts") ||
   !betaMigrationRun.includes("BETA_DATABASE_URL_SECRET") ||
-  !betaMigrationRun.includes("brain|factory") ||
+  betaMigrationRun.includes("relying on the strict") ||
   !betaMigrationRun.includes("@agent-native/docs") ||
   !betaMigrationRun.includes("CONTEXT=production") ||
   !betaMigrationRun.includes("pnpm --filter") ||

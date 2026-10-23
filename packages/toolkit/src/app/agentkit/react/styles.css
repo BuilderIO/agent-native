@@ -104,6 +104,7 @@
     var(--agent-kit-composer-surface, var(--agentkit-surface))
   );
   box-shadow: var(--agentkit-elevation);
+  container-type: inline-size;
 }
 
 .agentkit-composer[data-agent-composer-slot="root"]:focus-within {
@@ -161,9 +162,11 @@
   flex: 1;
 }
 
+/* Only the model picker shrinks, so narrow composers never push out send. */
 .agentkit-composer [data-agent-composer-slot="model-button"] {
-  flex: none;
+  flex: 0 1 auto;
   max-inline-size: 11rem;
+  overflow: hidden;
 }
 
 .agentkit-composer [data-agent-composer-slot="mode-button"] {
@@ -627,6 +630,8 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 .agentkit-transcript {
   grid-column: 1;
   grid-row: 2;
+  container-name: agentkit-transcript;
+  container-type: inline-size;
   inline-size: 100%;
   min-block-size: 0;
   overflow-y: auto;
@@ -669,11 +674,34 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 }
 
 .agentkit-transcript-content {
+  position: relative;
   box-sizing: border-box;
-  inline-size: min(100%, 47rem);
+  inline-size: min(100%, var(--agentkit-transcript-lane-width, 47rem));
   min-inline-size: 0;
   margin-inline: auto;
+  inset-inline-start: clamp(
+    calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / -2),
+    var(--agentkit-transcript-lane-offset-inline, 0px),
+    calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / 2)
+  );
   padding: 1.5rem 1rem;
+  padding-block-start: var(--agentkit-transcript-top-inset, 1.5rem);
+}
+
+.agentkit-transcript-content[data-lane-offset-mode="responsive"] {
+  inset-inline-start: var(--agentkit-transcript-lane-offset-inline, 0px);
+}
+
+@container agentkit-transcript (max-width: 74.999rem) {
+  .agentkit-transcript-content[data-lane-offset-mode="responsive"] {
+    inset-inline-start: clamp(
+      calc(
+        (100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / -2
+      ),
+      var(--agentkit-transcript-lane-offset-inline, 0px),
+      calc((100% - min(100%, var(--agentkit-transcript-lane-width, 47rem))) / 2)
+    );
+  }
 }
 
 .agentkit-scroll-to-bottom-control {
@@ -710,13 +738,21 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  margin-block: 0 1.25rem;
+  margin-block: 0 var(--agentkit-transcript-message-gap, 1.25rem);
   font-size: 0.875rem;
-  line-height: 1.52;
+  font-family: var(
+    --agentkit-transcript-font-family,
+    var(--font-sans, inherit)
+  );
+  line-height: var(--agentkit-transcript-message-line-height, 1.52);
 }
 
 .agentkit-message[data-role="user"] {
   align-items: flex-end;
+  line-height: var(
+    --agentkit-user-bubble-line-height,
+    var(--agentkit-transcript-message-line-height, 1.52)
+  );
 }
 
 .agentkit-message-content {
@@ -726,8 +762,11 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 }
 
 .agentkit-message[data-role="user"] .agentkit-message-content {
-  max-inline-size: min(88%, 38rem);
-  padding: 0.625rem 0.8125rem;
+  position: relative;
+  inset-inline-start: var(--agentkit-user-bubble-offset-inline, 0px);
+  max-inline-size: min(88%, var(--agentkit-user-bubble-max-width, 38rem));
+  padding: var(--agentkit-user-bubble-padding-block, 0.625rem)
+    var(--agentkit-user-bubble-padding-inline, 0.8125rem);
   border-radius: var(--agentkit-radius-inner);
   background: var(--agentkit-subtle);
 }
@@ -843,6 +882,25 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   justify-content: center;
   padding: 1.5rem;
   background: var(--agentkit-canvas);
+}
+
+.agentkit-message-content [data-post-widget-text="true"] {
+  display: contents;
+  color: var(--agentkit-transcript-post-widget-text-color, inherit);
+}
+
+.agentkit-message-content [data-post-widget-text="true"] > p,
+.agentkit-message-content [data-post-widget-text="true"] .agentkit-markdown p {
+  padding-block: var(
+    --agentkit-transcript-post-widget-paragraph-padding-block,
+    0px
+  );
+}
+
+.agentkit-message-content
+  > [data-post-widget-text="true"]:last-child
+  > :last-child {
+  margin-block-end: 0;
 }
 
 .agentkit-image-preview img {
@@ -1182,6 +1240,9 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 
 .agentkit-agent-feed {
   display: grid;
+  /* minmax(0, …): an auto track grows to its widest row's unwrapped text,
+     which pushes rows past the chat column instead of ellipsizing them. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.125rem;
 }
 
@@ -1213,7 +1274,7 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   inline-size: fit-content;
   max-inline-size: 100%;
   align-items: center;
-  gap: 0.375rem;
+  gap: 1rem;
 }
 
 .agentkit-activities {
@@ -1300,6 +1361,51 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   white-space: nowrap;
 }
 
+/* Two agent chips plus a label can be wider than a narrow chat column: the
+   chips shrink and ellipsize instead of overflowing, and a detail that does
+   not fit beside the head drops to its own line. */
+.agentkit-agent-interaction {
+  flex-wrap: wrap;
+  row-gap: 0.125rem;
+}
+
+.agentkit-agent-interaction-head {
+  display: flex;
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.agentkit-agent-interaction-head > .agentkit-agent {
+  flex: 0 1 auto;
+}
+
+.agentkit-agent-interaction-head > .agentkit-agent-interaction-label {
+  flex: none;
+}
+
+.agentkit-agent-interaction > .agentkit-agent-interaction-detail {
+  flex: 1 1 6rem;
+  max-inline-size: 100%;
+  text-align: end;
+}
+
+/* A message is prose: give it its own line under the chips. */
+.agentkit-agent-interaction[data-kind="messaged"]
+  > .agentkit-agent-interaction-detail {
+  display: -webkit-box;
+  flex-basis: 100%;
+  text-align: start;
+  max-inline-size: 100%;
+  margin-inline-start: 0;
+  padding-inline-start: 1.5rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .agentkit-activity-cluster-count,
 .agentkit-tasks-count,
 .agentkit-task-progress {
@@ -1370,7 +1476,7 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 }
 
 .agentkit-activities-summary > .agentkit-summary-chevron {
-  opacity: 0;
+  opacity: 1;
 }
 
 .agentkit-activities[data-expandable="true"]
@@ -1561,6 +1667,29 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   text-align: end;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The detail is bare text: a flex container cannot ellipsize it, so it
+   would be clipped mid-word instead. */
+.agentkit-activity-detail {
+  display: block;
+}
+
+/* A detail that does not fit beside the agent and label drops to its own
+   line rather than squeezing the label. */
+.agentkit-activity-row {
+  flex-wrap: wrap;
+  row-gap: 0.125rem;
+}
+
+.agentkit-activity-row > .agentkit-activity-label {
+  flex: none;
+  max-inline-size: 100%;
+}
+
+.agentkit-activity-row > .agentkit-activity-detail {
+  flex: 1 1 8rem;
+  max-inline-size: 100%;
 }
 
 button.agentkit-object {
@@ -2043,9 +2172,16 @@ button.agentkit-object {
     padding-inline: 0;
   }
 
+  .agentkit-message[data-role="user"] .agentkit-message-content {
+    max-inline-size: min(94%, var(--agentkit-user-bubble-max-width, 38rem));
+  }
+}
+
+/* Composer width, not viewport: desktop side panels are as narrow as phones. */
+@container (max-width: 24rem) {
   .agentkit-composer [data-agent-composer-slot="toolbar"] {
     gap: 0.125rem;
-    padding-inline: 0.5rem;
+    padding-inline: 0.375rem;
   }
 
   .agentkit-composer [data-agent-composer-slot="model-button"] {
@@ -2054,14 +2190,11 @@ button.agentkit-object {
   }
 
   .agentkit-composer [data-agent-composer-slot="mode-button"] {
+    min-inline-size: 0;
     padding-inline: 0.375rem;
   }
 
   .agentkit-composer .agent-composer-model-effort {
     display: none;
-  }
-
-  .agentkit-message[data-role="user"] .agentkit-message-content {
-    max-inline-size: 94%;
   }
 }

@@ -228,8 +228,8 @@ function deriveSource(
   screen: ScreenFile,
   previewUrl?: string,
 ): ScreenSourceType {
-  const haystack =
-    `${screen.filename} ${screen.content.slice(0, 4000)}`.toLowerCase();
+  // Markup that merely links to a loopback or fusion URL (a media src) is still inline.
+  const haystack = screen.filename.toLowerCase();
   const url = getUrl(previewUrl ?? screen.content);
   if (
     url?.hostname === "localhost" ||

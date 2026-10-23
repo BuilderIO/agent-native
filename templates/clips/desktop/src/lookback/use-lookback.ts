@@ -80,7 +80,7 @@ export function useRecordingContext(
   enabled: boolean,
 ): {
   view: RecordingContextView;
-  setItem: (item: RecordingContextItem) => void;
+  setItem: (item: RecordingContextItem | null) => void;
 } {
   const [view, setView] = useState<RecordingContextView>({
     status: "idle",

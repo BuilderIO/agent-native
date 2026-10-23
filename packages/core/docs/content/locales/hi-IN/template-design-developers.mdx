@@ -144,15 +144,15 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 
 ### मोशन और शेडर
 
-| Action                   | यह क्या करता है                                   |
-| ------------------------ | ------------------------------------------------- |
-| `get-motion-timeline`    | किसी एलिमेंट की मोशन टाइमलाइन पढ़ें               |
-| `apply-motion-edit`      | मोशन टाइमलाइन पर एक कीफ़्रेम जोड़ें या एडिट करें  |
-| `remove-motion-timeline` | एक मोशन टाइमलाइन हटाएं                            |
-| `apply-shader`           | एक शेडर इफ़ेक्ट लागू करें                         |
-| `apply-shader-fill`      | एक शेडर को फ़िल के तौर पर लागू करें               |
-| `preview-shader-fill`    | किसी शेडर फ़िल को लागू करने से पहले प्रीव्यू करें |
-| `get-shader`             | किसी शेडर के मौजूदा पैरामीटर पढ़ें                |
+| Action                   | यह क्या करता है                                              |
+| ------------------------ | ------------------------------------------------------------ |
+| `get-motion-timeline`    | किसी एलिमेंट की मोशन टाइमलाइन पढ़ें                          |
+| `apply-motion-edit`      | मोशन टाइमलाइन पर एक कीफ़्रेम जोड़ें या एडिट करें             |
+| `remove-motion-timeline` | एक मोशन टाइमलाइन हटाएं                                       |
+| `get-shader`             | नेटिव परिभाषाएँ और सहेजे गए इफ़ेक्ट मैनिफ़ेस्ट देखें         |
+| `edit-native-shader`     | नेटिव इफ़ेक्ट लागू करें, संपादित करें, स्वीकृत करें या हटाएँ |
+
+नेटिव WebGPU इफ़ेक्ट WGSL का उपयोग करते हैं। कस्टम निर्माण में `edit-native-shader` के `define-definition` से सहेजें, फिर `get-shader` से सहेजा गया `executionHash` पढ़ें, उस `expectedExecutionHash` के साथ `approve-definition` चलाएँ और सटीक परिभाषा ID तथा संस्करण के साथ `apply` करें। संपादन के लिए `designId`, `fileId` और वर्तमान `expectedVersionHash` आवश्यक हैं। हर लेखन के बाद हैश दोबारा पढ़ें। CPU स्कीमा सत्यापन GPU कोड को कंपाइल नहीं करता, इसलिए Design प्रीव्यू जाँचें। पहले से सहेजे गए GLSL इफ़ेक्ट अब भी रेंडर किए और हटाए जा सकते हैं।
 
 ### क्वालिटी {#quality}
 
@@ -200,16 +200,16 @@ TypeScript फ़ाइल है, जो अपने आप `POST /_agent-nati
 
 | Action                         | यह क्या करता है                                                                         |
 | ------------------------------ | --------------------------------------------------------------------------------------- |
-| `create-fusion-app`            | एक Builder Fusion branch प्रोविज़न करें और किसी प्रॉम्प्ट से एक असली ऐप स्कैफ़ोल्ड करें |
-| `sync-fusion-app`              | किसी fusion branch के कंटेनर को उसके प्रीव्यू URL के लिए पोल करें                       |
-| `add-fusion-screens`           | किसी fusion-बैक्ड डिज़ाइन में स्क्रीन जोड़ें                                            |
-| `queue-fusion-edit`            | ऐप के अपने कोडिंग एजेंट के लिए एक एडिट को queue करें                                    |
-| `list-fusion-edits`            | queued और लागू किए गए fusion edits लिस्ट करें                                           |
-| `apply-fusion-edits`           | queued edits को ऐप के कोडिंग एजेंट को डिस्पैच करें                                      |
-| `send-fusion-message`          | fusion ऐप के कोडिंग एजेंट को एक मैसेज भेजें                                             |
-| `push-fusion-app`              | एक fusion branch पुश करें                                                               |
-| `deploy-fusion-app`            | किसी fusion branch को एक असली URL पर डिप्लॉय करें                                       |
-| `get-fusion-deploy-status`     | किसी डिप्लॉय की स्टेटस चेक करें                                                         |
+| `create-builder-app`           | एक Builder Fusion branch प्रोविज़न करें और किसी प्रॉम्प्ट से एक असली ऐप स्कैफ़ोल्ड करें |
+| `sync-builder-app`             | किसी fusion branch के कंटेनर को उसके प्रीव्यू URL के लिए पोल करें                       |
+| `add-builder-screens`          | किसी fusion-बैक्ड डिज़ाइन में स्क्रीन जोड़ें                                            |
+| `queue-builder-edit`           | ऐप के अपने कोडिंग एजेंट के लिए एक एडिट को queue करें                                    |
+| `list-builder-edits`           | queued और लागू किए गए fusion edits लिस्ट करें                                           |
+| `apply-builder-edits`          | queued edits को ऐप के कोडिंग एजेंट को डिस्पैच करें                                      |
+| `send-builder-message`         | fusion ऐप के कोडिंग एजेंट को एक मैसेज भेजें                                             |
+| `push-builder-app`             | एक fusion branch पुश करें                                                               |
+| `deploy-builder-app`           | किसी fusion branch को एक असली URL पर डिप्लॉय करें                                       |
+| `get-builder-deploy-status`    | किसी डिप्लॉय की स्टेटस चेक करें                                                         |
 | `create-design-branch`         | किसी fusion-बैक्ड डिज़ाइन के लिए एक नई branch बनाएं                                     |
 | `get-design-branch-diff`       | किसी fusion branch को पहले के वर्शन के ख़िलाफ़ डिफ़ करें                                |
 | `deploy-design-preview`        | किसी fusion-बैक्ड डिज़ाइन का एक प्रीव्यू डिप्लॉय करें                                   |

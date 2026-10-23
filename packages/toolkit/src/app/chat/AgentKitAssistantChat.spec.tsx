@@ -10,6 +10,7 @@ import {
 } from "@agent-native/agentkit/protocol";
 import type {
   AgentInteraction,
+  AgentToolCall,
   FilePart,
   AgentMessage,
   AgentTransport,
@@ -24,6 +25,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
 import { AgentInteractionItem } from "../agentkit/react/components.js";
 import { AgentKitProvider } from "../agentkit/react/context.js";
+import {
+  clearToolRenderersForTests,
+  registerToolRenderer,
+} from "./chat/tool-render-registry.js";
 
 function largePngBytes(
   width = 2560,
@@ -106,6 +111,7 @@ const chatMocks = vi.hoisted(() => ({
   runtimeOptions: null as any,
   inBuilder: false,
   useRealRoot: false,
+  renderRealToolCalls: false,
   realComposerController: null as AgentKitClient | null,
   useRealChat: false,
   routeControllerPersistenceThroughTransport: false,
@@ -675,29 +681,33 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   };
 });
 
-vi.mock("./chat/run-recovery.js", async (importOriginal) => ({
-  isMissingLlmProviderRunError: (
-    await importOriginal<typeof import("./chat/run-recovery.js")>()
-  ).isMissingLlmProviderRunError,
-  RunErrorRecoveryCard: (props: unknown) => {
-    chatMocks.failureProps = props;
-    chatMocks.failurePropsHistory.push(props);
-    return React.createElement("div", {
-      "data-testid": "run-error-recovery-card",
-    });
-  },
-  BuilderSetupCard: (props: unknown) => {
-    chatMocks.setupCardProps = props;
-    chatMocks.setupCardPropsHistory.push(props);
-    return React.createElement("div", { "data-testid": "builder-setup-card" });
-  },
-  LoopLimitContinueCard: (props: unknown) => {
-    chatMocks.loopLimitProps = props;
-    return null;
-  },
-  PlanModeCallout: () => null,
-  getRequestModeMetadata: () => undefined,
-}));
+vi.mock("./chat/run-recovery.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./chat/run-recovery.js")>();
+  return {
+    ...actual,
+    RunErrorRecoveryCard: (props: unknown) => {
+      chatMocks.failureProps = props;
+      chatMocks.failurePropsHistory.push(props);
+      return React.createElement("div", {
+        "data-testid": "run-error-recovery-card",
+      });
+    },
+    BuilderSetupCard: (props: unknown) => {
+      chatMocks.setupCardProps = props;
+      chatMocks.setupCardPropsHistory.push(props);
+      return React.createElement("div", {
+        "data-testid": "builder-setup-card",
+      });
+    },
+    LoopLimitContinueCard: (props: unknown) => {
+      chatMocks.loopLimitProps = props;
+      return null;
+    },
+    PlanModeCallout: () => null,
+    getRequestModeMetadata: () => undefined,
+  };
+});
 
 vi.mock("./FileStorageSetupPopover.js", async () => {
   const React = await import("react");
@@ -771,12 +781,17 @@ vi.mock("@agent-native/core/client/use-session", () => ({
   useSession: () => ({ session: chatMocks.session, status: "authenticated" }),
 }));
 
-vi.mock("./chat/tool-call-display.js", async () => {
+vi.mock("./chat/tool-call-display.js", async (importOriginal) => {
   const React = await import("react");
+  const actual =
+    await importOriginal<typeof import("./chat/tool-call-display.js")>();
   return {
-    ChatRunningContext: React.createContext(false),
-    SuppressInlineOpenAppContext: React.createContext(false),
-    ToolCallDisplay: () => null,
+    ChatRunningContext: actual.ChatRunningContext,
+    SuppressInlineOpenAppContext: actual.SuppressInlineOpenAppContext,
+    ToolCallDisplay: (props: any) =>
+      chatMocks.renderRealToolCalls
+        ? React.createElement(actual.ToolCallDisplay, props)
+        : null,
     AgentApprovalCard: (props: any) => {
       chatMocks.approvalCardProps = props;
       return React.createElement(
@@ -1000,6 +1015,7 @@ beforeEach(() => {
   chatMocks.transportOptions = null;
   chatMocks.inBuilder = false;
   chatMocks.useRealRoot = false;
+  chatMocks.renderRealToolCalls = false;
   chatMocks.realComposerController = null;
   chatMocks.useRealChat = false;
   chatMocks.routeControllerPersistenceThroughTransport = false;
@@ -1035,6 +1051,7 @@ afterEach(async () => {
   await unmount();
   chatMocks.realComposerController?.dispose();
   window.sessionStorage.clear();
+  clearToolRenderersForTests();
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
@@ -1052,6 +1069,27 @@ describe("AgentKitAssistantChat host behavior", () => {
       root.render(<AgentKitAssistantChat {...props} isReferenceTarget />);
     });
     expect(chatMocks.composerProps.isReferenceTarget).toBe(true);
+  });
+
+  it("passes the worked-for row layout into the shared AgentKit root", async () => {
+    const layout = {
+      chevronSize: 12,
+      iconGap: 8,
+      fontSize: 13,
+      lineHeight: 16,
+      paddingBlock: 2,
+      paddingInline: 4,
+    };
+    const formatWorkedForDuration = (durationMs: number) =>
+      `${Math.round(durationMs / 1000)} seconds`;
+    await mount(
+      baseProps({ workedForRowLayout: layout, formatWorkedForDuration }),
+    );
+
+    expect(chatMocks.rootProps.workedForRowLayout).toEqual(layout);
+    expect(chatMocks.rootProps.formatWorkedForDuration).toBe(
+      formatWorkedForDuration,
+    );
   });
 
   it("reports whether a composer can hold a prefill with its current context", async () => {
@@ -1309,6 +1347,161 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(chatMocks.rootProps.slots.widget).toBe(AgentKitActionWidget);
   });
+
+  it("shows failed tools through the shared fallback without an app renderer", async () => {
+    const at = "2026-09-28T00:00:00.000Z";
+    const failedTool: AgentToolCall = {
+      id: "query-1",
+      name: "query-analytics",
+      input: {},
+      output: "Query execution failed.",
+      error: { code: "query_failed", message: "Query execution failed." },
+      status: "failed",
+      runId: "run-1",
+      messageId: "assistant-1",
+      metadata: { chatUI: { renderer: "analytics.query-result.v1" } },
+    };
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    chatMocks.renderRealToolCalls = true;
+    chatMocks.thread.messages = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        status: "complete",
+        parts: [{ type: "text", text: "The query could not be completed." }],
+      },
+    ];
+    chatMocks.thread.tools = { [failedTool.id]: failedTool };
+    chatMocks.thread.runs = {
+      "run-1": { id: "run-1", status: "failed", lastSequence: 3 },
+    };
+    chatMocks.thread.events = [
+      {
+        id: "tool-started",
+        threadId: chatMocks.threadId,
+        runId: "run-1",
+        sequence: 1,
+        occurredAt: at,
+        type: "tool.started",
+        toolCall: { ...failedTool, status: "running" },
+      },
+      {
+        id: "tool-failed",
+        threadId: chatMocks.threadId,
+        runId: "run-1",
+        sequence: 2,
+        occurredAt: at,
+        type: "tool.updated",
+        toolCall: failedTool,
+      },
+      {
+        id: "run-failed",
+        threadId: chatMocks.threadId,
+        runId: "run-1",
+        sequence: 3,
+        occurredAt: at,
+        type: "run.failed",
+        error: { code: "query_failed", message: "Query execution failed." },
+      },
+    ];
+
+    await useRealComposer();
+    await mount(baseProps({ isNewThread: false }));
+
+    const toolRow = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(toolRow?.textContent).toContain("query analytics");
+    expect(toolRow?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Query execution failed.");
+
+    await act(async () => {
+      toolRow?.click();
+    });
+
+    expect(toolRow?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Query execution failed.");
+  });
+
+  it.each(["completed", "cancelled"] as const)(
+    "passes %s status to custom renderers in the regular transcript",
+    async (status) => {
+      const at = "2026-09-28T00:00:00.000Z";
+      const tool: AgentToolCall = {
+        id: "status-tool-1",
+        name: "example-status-tool",
+        input: {},
+        output: "Finished.",
+        status,
+        runId: "status-run-1",
+        messageId: "status-assistant-1",
+      };
+      registerToolRenderer({
+        id: "example-status-renderer",
+        match: "example-status-tool",
+        Component: ({ context }) => (
+          <div data-testid="custom-tool-status" data-status={context.status} />
+        ),
+      });
+      chatMocks.useRealChat = true;
+      chatMocks.useRealRoot = true;
+      chatMocks.renderRealToolCalls = true;
+      chatMocks.thread.messages = [
+        {
+          id: "status-assistant-1",
+          role: "assistant",
+          status: "complete",
+          parts: [{ type: "text", text: "The tool finished." }],
+        },
+      ];
+      chatMocks.thread.tools = { [tool.id]: tool };
+      chatMocks.thread.runs = {
+        "status-run-1": {
+          id: "status-run-1",
+          status,
+          lastSequence: 3,
+        },
+      };
+      chatMocks.thread.events = [
+        {
+          id: "status-tool-started",
+          threadId: chatMocks.threadId,
+          runId: "status-run-1",
+          sequence: 1,
+          occurredAt: at,
+          type: "tool.started",
+          toolCall: { ...tool, status: "running" },
+        },
+        {
+          id: "status-tool-updated",
+          threadId: chatMocks.threadId,
+          runId: "status-run-1",
+          sequence: 2,
+          occurredAt: at,
+          type: "tool.updated",
+          toolCall: tool,
+        },
+        {
+          id: "status-run-ended",
+          threadId: chatMocks.threadId,
+          runId: "status-run-1",
+          sequence: 3,
+          occurredAt: at,
+          type: status === "completed" ? "run.completed" : "run.cancelled",
+        },
+      ];
+
+      await useRealComposer();
+      await mount(baseProps({ isNewThread: false }));
+
+      expect(
+        container
+          .querySelector('[data-testid="custom-tool-status"]')
+          ?.getAttribute("data-status"),
+      ).toBe(status);
+    },
+  );
 
   it("checks readiness on the configured chat API server", async () => {
     await mount(
@@ -1842,12 +2035,14 @@ describe("AgentKitAssistantChat host behavior", () => {
           createdAt: at,
           updatedAt: at,
           messages: chatMocks.thread.messages,
+          events: chatMocks.thread.events,
           runs: Object.values(chatMocks.thread.runs).map((run) => ({
             ...run,
             threadId,
             startedAt: at,
             completedAt: at,
           })),
+          toolCalls: Object.values(chatMocks.thread.tools),
           suggestions: chatMocks.thread.suggestions,
         }),
         startRun,
@@ -3271,6 +3466,24 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).not.toBeNull();
   });
 
+  it("forwards transcript layout options to the shared chat component", async () => {
+    const transcriptLayout = {
+      topInset: 5,
+      messageLaneWidth: 730,
+      messageLaneOffsetInline: -33,
+      messageGap: 12,
+      messageLineHeight: 20,
+      fontFamily: "IBM Plex Sans",
+      userBubbleLineHeight: 18,
+      userBubbleMaxWidth: 600,
+      userBubbleOffsetInline: 10,
+      userBubblePadding: { block: 8, inline: 13 },
+    };
+    await mount(baseProps({ transcriptLayout }));
+
+    expect(chatMocks.chatProps.transcriptLayout).toBe(transcriptLayout);
+  });
+
   it("anchors the composer at the bottom while restoring a persisted thread", async () => {
     await mount(
       baseProps({
@@ -3346,6 +3559,25 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.chatProps.hasRenderedMessages).toBe(true);
     expect(container.textContent).toContain("Existing conversation content");
     expect(container.querySelector(".agentkit-home-intro")).toBeNull();
+  });
+
+  it("renders the shared context banner slot alongside the existing composer slot", async () => {
+    await mount(
+      baseProps({
+        composerSlot: <div data-testid="legacy-composer-slot">Notice</div>,
+        composerContextBannerSlot: (
+          <div data-testid="composer-context-banner-slot">Add context</div>
+        ),
+      }),
+    );
+
+    const composer = container.querySelector(".agentkit-host-composer")!;
+    expect(
+      composer.querySelector('[data-testid="legacy-composer-slot"]'),
+    ).not.toBeNull();
+    expect(
+      composer.querySelector('[data-testid="composer-context-banner-slot"]'),
+    ).not.toBeNull();
   });
 
   it("puts the beginning revert before messages inside the scrollable transcript", async () => {

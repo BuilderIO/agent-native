@@ -19,12 +19,16 @@ import {
   MOTION_DEFAULT_PLAYBACK_MODE,
   getMotionTrackTiming,
   formatMotionPosition,
+  isAdditiveMotionPositionTrack,
+  isMotionTrackId,
   isMotionPathSegmentV1,
   motionPathCubicPoints,
   motionPathSegmentLength,
   motionTimelineDurationForTracks,
+  MOTION_TIMELINE_MAX_CONTENT_END_MS,
   parseMotionPosition,
   readTimelinePlaybackMode,
+  withMotionTrackIds,
   type MotionPathPoint,
 } from "./motion-timeline";
 
@@ -44,12 +48,46 @@ export interface MotionCompileOptions {
   easingVariables?: readonly MotionEasingVariable[];
 }
 
+/** Position tracks repeated on one node compose only as additive px moves. */
+export function hasIncompatibleRepeatedPositionTracks(
+  tracks: readonly MotionTrack[],
+): boolean {
+  const positionTrackCounts = new Map<string, number>();
+  for (const track of tracks) {
+    if (track.property !== "translate" || !track.keyframes?.length) continue;
+    positionTrackCounts.set(
+      track.targetNodeId,
+      (positionTrackCounts.get(track.targetNodeId) ?? 0) + 1,
+    );
+  }
+  return tracks.some(
+    (track) =>
+      track.property === "translate" &&
+      (positionTrackCounts.get(track.targetNodeId) ?? 0) > 1 &&
+      (!isAdditiveMotionPositionTrack(track) ||
+        track.composition === "replace"),
+  );
+}
+
 export function compile(
   timeline: MotionTimeline,
   options: MotionCompileOptions = {},
 ): CompileResult {
   const { defaultEase } = timeline;
-  const tracks = timeline.tracks.filter((track) => track.enabled !== false);
+  const identifiedTracks = withMotionTrackIds(timeline.tracks);
+  const seenTrackIds = new Set<string>();
+  for (const track of identifiedTracks) {
+    if (!isMotionTrackId(track.id)) {
+      throw new Error(
+        "Invalid track.id: expected a stable CSS-safe identifier.",
+      );
+    }
+    if (seenTrackIds.has(track.id)) {
+      throw new Error(`Duplicate motion track id "${track.id}".`);
+    }
+    seenTrackIds.add(track.id);
+  }
+  const tracks = identifiedTracks.filter((track) => track.enabled !== false);
   const easingVariables = options.easingVariables ?? [];
   assertValidMotionEasingVariables(easingVariables);
   assertSafeMotionCssToken(defaultEase, "defaultEase");
@@ -59,6 +97,11 @@ export function compile(
     timeline.durationMs,
     tracks,
   );
+  if (durationMs > MOTION_TIMELINE_MAX_CONTENT_END_MS) {
+    throw new Error(
+      `Motion content ends at ${durationMs}ms, beyond the ${MOTION_TIMELINE_MAX_CONTENT_END_MS}ms content limit.`,
+    );
+  }
 
   if (!tracks || tracks.length === 0) {
     const css = [easingVariablesCss, reducedMotionBlock([])]
@@ -80,16 +123,34 @@ export function compile(
       durations: string[];
       timings: string[];
       fillModes: string[];
+      compositions: Array<"replace" | "add">;
+      hasComposition: boolean;
       delays: string[];
       hasDelay: boolean;
       pathDeclarations?: string[];
     }
   >();
 
-  const sorted = [...tracks].sort((a, b) => {
-    const cmp = a.targetNodeId.localeCompare(b.targetNodeId);
-    return cmp !== 0 ? cmp : a.property.localeCompare(b.property);
-  });
+  const duplicateCounts = new Map<string, number>();
+  for (const track of identifiedTracks) {
+    if (!track.keyframes || track.keyframes.length === 0) continue;
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    duplicateCounts.set(key, (duplicateCounts.get(key) ?? 0) + 1);
+  }
+  if (hasIncompatibleRepeatedPositionTracks(identifiedTracks)) {
+    throw new Error(
+      "Repeated Position tracks require finite px values or unitless zero and cannot use cubic motion paths.",
+    );
+  }
+  const sorted = tracks
+    .map((track, index) => ({ track, index }))
+    .sort((a, b) => {
+      const target = a.track.targetNodeId.localeCompare(b.track.targetNodeId);
+      if (target !== 0) return target;
+      const property = a.track.property.localeCompare(b.track.property);
+      return property !== 0 ? property : a.index - b.index;
+    })
+    .map(({ track }) => track);
 
   for (const track of sorted) {
     const { targetNodeId, property, keyframes } = track;
@@ -98,7 +159,12 @@ export function compile(
 
     const sortedKeyframes = [...keyframes].sort((a, b) => a.t - b.t);
 
-    const name = animationName(targetNodeId, property);
+    const pairKey = JSON.stringify([targetNodeId, property]);
+    const name = animationName(
+      targetNodeId,
+      property,
+      duplicateCounts.get(pairKey)! > 1 ? track.id : undefined,
+    );
     const spatialPath = compileSpatialPath(property, sortedKeyframes);
     kfBlocks.push(
       property === "path-trim"
@@ -128,6 +194,8 @@ export function compile(
       durations: [],
       timings: [],
       fillModes: [],
+      compositions: [],
+      hasComposition: false,
       delays: [],
       hasDelay: false,
       pathDeclarations: [],
@@ -136,6 +204,26 @@ export function compile(
     targetRule.durations.push(dur);
     targetRule.timings.push(cssEase(ease, easingVariables));
     targetRule.fillModes.push("both");
+    const repeatedPosition =
+      property === "translate" && duplicateCounts.get(pairKey)! > 1;
+    const composition =
+      track.composition ?? (repeatedPosition ? "add" : "replace");
+    if (
+      composition === "add" &&
+      (property !== "translate" || !isAdditiveMotionPositionTrack(track))
+    ) {
+      throw new Error(
+        `Additive motion composition is only supported for finite px Position tracks without cubic motion paths.`,
+      );
+    }
+    if (repeatedPosition && composition !== "add") {
+      throw new Error(
+        "Repeated Position tracks require additive composition and finite px values or unitless zero without cubic motion paths.",
+      );
+    }
+    targetRule.compositions.push(composition);
+    targetRule.hasComposition ||=
+      track.composition !== undefined || repeatedPosition;
     targetRule.delays.push(formatDuration(timing.startMs));
     if (spatialPath) {
       targetRule.pathDeclarations!.push(
@@ -160,6 +248,9 @@ export function compile(
       `  animation-timing-function: ${rule.timings.join(", ")};`,
       `  animation-fill-mode: ${rule.fillModes.join(", ")};`,
     ];
+    if (rule.hasComposition) {
+      lines.push(`  animation-composition: ${rule.compositions.join(", ")};`);
+    }
     if (rule.hasDelay) {
       lines.push(`  animation-delay: ${rule.delays.join(", ")};`);
     }
@@ -222,9 +313,13 @@ export function parse(css: string): MotionTrack[] {
       );
     }
     const track: MotionTrack = {
+      ...(decoded.id ? { id: decoded.id } : {}),
       targetNodeId: info?.targetNodeId ?? decoded.targetNodeId,
       property: decoded.property,
       keyframes,
+      ...(info?.composition !== undefined
+        ? { composition: info.composition }
+        : {}),
     };
     if (info?.delayMs !== undefined && info.delayMs > 0) {
       track.delayMs = info.delayMs;
@@ -237,6 +332,36 @@ export function parse(css: string): MotionTrack[] {
       track.durationMs = info.durationMs;
     }
     tracks.push(track);
+  }
+
+  const tracksByKey = new Map<string, MotionTrack[]>();
+  for (const track of tracks) {
+    const key = JSON.stringify([track.targetNodeId, track.property]);
+    const group = tracksByKey.get(key) ?? [];
+    group.push(track);
+    tracksByKey.set(key, group);
+  }
+  for (const group of tracksByKey.values()) {
+    const repeatedPosition =
+      group.length > 1 && group[0]!.property === "translate";
+    for (const track of group) {
+      const composition = track.composition;
+      if (repeatedPosition) {
+        if (composition !== "add" || !isAdditiveMotionPositionTrack(track)) {
+          throw new MotionCssSourceParseError(
+            "Repeated Position tracks require additive composition and finite px values or unitless zero without cubic motion paths.",
+          );
+        }
+      } else if (
+        composition === "add" &&
+        (track.property !== "translate" ||
+          !isAdditiveMotionPositionTrack(track))
+      ) {
+        throw new MotionCssSourceParseError(
+          `Additive motion composition for "${track.targetNodeId}"/"${track.property}" cannot be represented losslessly.`,
+        );
+      }
+    }
   }
 
   if (
@@ -340,23 +465,43 @@ export function assertSafeMotionCssProperty(
 const CSS_TOKEN_BREAKOUT_RE = /[;{}<>]|\/\*|\*\/|\burl\s*\(/i;
 const CSS_TOKEN_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-function animationName(nodeId: string, property: string): string {
+function animationName(
+  nodeId: string,
+  property: string,
+  trackId?: string,
+): string {
   const safe = (s: string) => s.replace(/[^a-zA-Z0-9-]/g, "_");
   const safeNode = safe(nodeId);
   const suffix =
     safeNode === nodeId ? "" : `_${djb2Num(nodeId).toString(36).slice(-4)}`;
-  return `an-motion-${safeNode}${suffix}--${safe(property)}`;
+  return (
+    `an-motion-${safeNode}${suffix}--${safe(property)}` +
+    (trackId ? `--track-${trackId}` : "")
+  );
 }
 
 function decodeAnimationName(
   name: string,
-): { targetNodeId: string; property: string } | null {
+): { targetNodeId: string; property: string; id?: string } | null {
   const prefix = "an-motion-";
   if (!name.startsWith(prefix)) return null;
-  const rest = name.slice(prefix.length);
-  const sep = rest.indexOf("--");
+  let rest = name.slice(prefix.length);
+  let id: string | undefined;
+  const idSeparator = rest.lastIndexOf("--track-");
+  if (idSeparator !== -1) {
+    const candidate = rest.slice(idSeparator + "--track-".length);
+    if (/^[A-Za-z0-9_-]{1,128}$/.test(candidate)) {
+      id = candidate;
+      rest = rest.slice(0, idSeparator);
+    }
+  }
+  const sep = rest.lastIndexOf("--");
   if (sep === -1) return null;
-  return { targetNodeId: rest.slice(0, sep), property: rest.slice(sep + 2) };
+  return {
+    targetNodeId: rest.slice(0, sep),
+    property: rest.slice(sep + 2),
+    ...(id ? { id } : {}),
+  };
 }
 
 function keyframesBlock(
@@ -549,6 +694,7 @@ interface ParsedAnimationRuleEntry {
   durationMs?: number;
   offsetPath?: string;
   translate?: string;
+  composition?: "replace" | "add";
 }
 
 interface ParsedAnimationRules {
@@ -602,6 +748,7 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
     if (names.length === 0) continue;
     const durations = listOf(body, "animation-duration");
     const delays = listOf(body, "animation-delay");
+    const compositions = listOf(body, "animation-composition");
     const iterations = listOf(body, "animation-iteration-count");
     const directions = listOf(body, "animation-direction");
 
@@ -614,6 +761,15 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
     names.forEach((name, index) => {
       if (!name) return;
       const entry: ParsedAnimationRuleEntry = { targetNodeId };
+      const composition = compositions[index] ?? compositions[0];
+      if (composition !== undefined) {
+        if (composition !== "replace" && composition !== "add") {
+          throw new MotionCssSourceParseError(
+            `Motion CSS composition "${composition}" is not supported.`,
+          );
+        }
+        entry.composition = composition;
+      }
       const offsetPath = declarationOf(body, "offset-path");
       const translate = declarationOf(body, "translate");
       if (offsetPath) entry.offsetPath = offsetPath;
@@ -622,6 +778,11 @@ function parseAnimationRules(css: string): ParsedAnimationRules {
       if (duration !== null) entry.durationMs = duration;
       const delay = parseCssTimeMs(delays[index] ?? delays[0] ?? "");
       if (delay !== null) entry.delayMs = delay;
+      if (byName.has(name)) {
+        throw new MotionCssSourceParseError(
+          `Motion CSS reuses the animation name "${name}" for multiple tracks.`,
+        );
+      }
       byName.set(name, entry);
     });
   }

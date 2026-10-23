@@ -2,6 +2,7 @@ import { resolveBuilderCredential } from "@agent-native/core/server";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { documents } from "../server/db/schema.js";
+import { documentRevisionToken } from "../server/lib/document-revision.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   BUILDER_DOCS_MDX_SOURCE_MODE,
@@ -14,6 +15,13 @@ import {
   stableHash,
   type BuilderContentEntry,
 } from "../shared/builder-mdx.js";
+import {
+  DOCUMENT_FLUSH_PROTOCOL,
+  flushAckKey,
+  isDocumentFlushRequest,
+  type DocumentFlushAck,
+  type DocumentFlushRequest,
+} from "../shared/document-flush-protocol.js";
 
 const requestContextMock = vi.hoisted(() => ({
   orgId: null as string | null,
@@ -33,9 +41,16 @@ const collabStateMock = vi.hoisted(() => ({
 }));
 
 const appStateMock = vi.hoisted(() => ({
-  appStateCompareAndSet: vi.fn(async () => true),
+  appStateCompareAndSet: vi.fn(
+    async (_email: string, _key: string, _expected: unknown, _next: unknown) =>
+      true,
+  ),
   appStateDelete: vi.fn(async () => {}),
-  appStateGet: vi.fn(async () => null as unknown),
+  appStateGet: vi.fn(async (_email: string, _key: string) => null as unknown),
+  appStateGetManyEntries: vi.fn(
+    async (_email: string, _keys: string[]) =>
+      [] as Array<{ key: string; value: unknown }>,
+  ),
   appStatePut: vi.fn(async () => {}),
   writeAppState: vi.fn(async () => {}),
 }));
@@ -61,21 +76,24 @@ let sidecarRows: Array<{
 const fakeDb = {
   select: () => ({
     from: (table: unknown) => ({
-      where: () => ({
-        // The body-write lock reads the page's body once it has locked it.
-        then: (...args: Parameters<Promise<unknown>["then"]>) =>
+      where: () =>
+        Object.assign(
+          // The body-write lock reads the page's body once it has locked it.
           Promise.resolve(
             table === documents
               ? documentResource
                 ? [documentResource]
                 : []
               : sidecarRows,
-          ).then(...args),
-        // Only the body-write lock orders its read, and it reads the page.
-        orderBy: () => ({
-          for: async () => (documentResource ? [documentResource] : []),
-        }),
-      }),
+          ),
+          {
+            limit: async () => (documentResource ? [documentResource] : []),
+            // Only the body-write lock orders its read, and it reads the page.
+            orderBy: () => ({
+              for: async () => (documentResource ? [documentResource] : []),
+            }),
+          },
+        ),
     }),
   }),
   update: () => ({
@@ -155,6 +173,7 @@ vi.mock("@agent-native/core/application-state", () => ({
   appStateCompareAndSet: appStateMock.appStateCompareAndSet,
   appStateDelete: appStateMock.appStateDelete,
   appStateGet: appStateMock.appStateGet,
+  appStateGetManyEntries: appStateMock.appStateGetManyEntries,
   appStatePut: appStateMock.appStatePut,
   writeAppState: appStateMock.writeAppState,
 }));
@@ -247,6 +266,8 @@ beforeEach(() => {
   collabStateMock.hasCollabState.mockResolvedValue(false);
   collabStateMock.loadAwarenessRowsStrict.mockResolvedValue([]);
   appStateMock.appStateGet.mockResolvedValue(null);
+  appStateMock.appStateGetManyEntries.mockResolvedValue([]);
+  appStateMock.appStateCompareAndSet.mockResolvedValue(true);
   builderWriteMock.executeBuilderCmsWrite.mockResolvedValue({
     ok: true,
     status: 200,
@@ -494,6 +515,8 @@ describe("Builder docs DB-backed source", () => {
       ownerEmail: "owner@example.com",
       title: bundle.mdx.title,
       content: bundle.mdx.body,
+      bodyRevision: 1,
+      updatedAt: "2026-10-22T00:00:00.000Z",
       sourceMode: BUILDER_DOCS_MDX_SOURCE_MODE,
       sourceKind: builderSourceKindForModel(entry.model),
       sourcePath: bundle.mdx.path,
@@ -510,20 +533,108 @@ describe("Builder docs DB-backed source", () => {
         clientId: 123,
         state: JSON.stringify({
           canFlushDocument: true,
+          documentFlushProtocol: DOCUMENT_FLUSH_PROTOCOL,
+          editorSessionId: "builder-editor-session",
           visible: true,
           user: { email: "owner@example.com" },
         }),
         lastSeen: Date.now(),
       },
     ]);
-    appStateMock.appStateGet.mockImplementation(async () => ({
-      id: bundle.mdx.documentId,
-      requestId:
-        appStateMock.appStateCompareAndSet.mock.calls[0]?.[3]?.requestId,
-      status: "success",
-    }));
+    const stored = new Map<string, unknown>();
+    const requests: DocumentFlushRequest[] = [];
+    const verification = Promise.withResolvers<DocumentFlushRequest>();
+    const savedBody = bundle.mdx.body.replace(
+      "DB backed text.",
+      "Fresh local text.",
+    );
+    expect(savedBody).not.toBe(bundle.mdx.body);
+    appStateMock.appStateGet.mockImplementation(
+      async (_email, key) => stored.get(key) ?? null,
+    );
+    appStateMock.appStateGetManyEntries.mockImplementation(
+      async (_email, keys) =>
+        keys.map((key) => ({ key, value: stored.get(key) ?? null })),
+    );
+    appStateMock.appStateCompareAndSet.mockImplementation(
+      async (_email, key, expected, next) => {
+        if ((stored.get(key) ?? null) !== expected) return false;
+        if (next === null) stored.delete(key);
+        else stored.set(key, next);
+        if (isDocumentFlushRequest(next)) {
+          requests.push(next);
+          if (next.phase === "prepare") {
+            documentResource = {
+              ...documentResource,
+              content: savedBody,
+              bodyRevision: 2,
+            };
+            const ack: DocumentFlushAck = {
+              protocol: DOCUMENT_FLUSH_PROTOCOL,
+              id: next.id,
+              requestId: next.requestId,
+              phase: next.phase,
+              phaseToken: next.phaseToken,
+              clientId: 123,
+              editorSessionId: "builder-editor-session",
+              status: "prepared",
+              stabilityToken: "saved-builder-draft",
+              claim: {
+                kind: "document",
+                save: {
+                  revision: documentRevisionToken(2, savedBody),
+                  title: bundle.mdx.title,
+                  titleUpdatedAt: "2026-10-22T00:00:00.000Z",
+                },
+              },
+            };
+            stored.set(flushAckKey(next, 123), ack);
+          } else verification.resolve(next);
+        }
+        return true;
+      },
+    );
 
-    await resolveBuilderDocsSource({ documentId: bundle.mdx.documentId });
+    let settled = false;
+    const reading = resolveBuilderDocsSource({
+      documentId: bundle.mdx.documentId,
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+    const verify = await Promise.race([
+      verification.promise,
+      reading.then(() => {
+        throw new Error(
+          "MDX reconstruction completed before editor verification.",
+        );
+      }),
+    ]);
+    expect(settled).toBe(false);
+    expect(requests.map((request) => request.phase)).toEqual([
+      "prepare",
+      "verify",
+    ]);
+    expect(verify.phaseToken).not.toBe(verify.prepareToken);
+    expect(verify.prepareToken).toBe(requests[0]!.phaseToken);
+    expect(verify.targets).toEqual([
+      { clientId: 123, editorSessionId: "builder-editor-session" },
+    ]);
+    stored.set(flushAckKey(verify, 123), {
+      protocol: DOCUMENT_FLUSH_PROTOCOL,
+      id: verify.id,
+      requestId: verify.requestId,
+      phase: verify.phase,
+      phaseToken: verify.phaseToken,
+      clientId: 123,
+      editorSessionId: "builder-editor-session",
+      status: "verified",
+      stabilityToken: "saved-builder-draft",
+    } satisfies DocumentFlushAck);
+    const resolved = await reading;
+    expect(resolved.mdx.body).toBe(savedBody);
+    expect(resolved.mdx.source).toContain(savedBody);
+    expect(stored.size).toBe(0);
 
     expect(appStateMock.appStateCompareAndSet).toHaveBeenCalledWith(
       "owner@example.com",
@@ -576,6 +687,7 @@ describe("Builder docs DB-backed source", () => {
     expect(result.executed).toBe(true);
     expect(builderWriteMock.executeBuilderCmsWrite).toHaveBeenCalledWith(
       expect.objectContaining({
+        legacyOnly: true,
         request: expect.objectContaining({
           method: "PATCH",
           body: {

@@ -1,4 +1,3 @@
-
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -60,8 +59,34 @@ struct DetectorInner {
     mic: Option<SourceState>,
     system: Option<SourceState>,
     auto_stop_fired: bool,
+    pending_auto_stop: Option<PendingAutoStop>,
     scheduled_end_ms: Option<u64>,
     call_app_bundle_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutoStopKind {
+    Calendar,
+    Silence,
+    Sleep,
+    CallEnded,
+}
+
+impl AutoStopKind {
+    fn event(self) -> &'static str {
+        match self {
+            AutoStopKind::Calendar | AutoStopKind::CallEnded => "meetings:call-ended",
+            AutoStopKind::Silence => "meetings:silence-stop",
+            AutoStopKind::Sleep => "meetings:sleep-stop",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PendingAutoStop {
+    kind: AutoStopKind,
+    next_attempt_at: Instant,
+    attempts: u32,
 }
 
 pub struct DetectorState {
@@ -137,6 +162,7 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
         g.generation = g.generation.wrapping_add(1);
         g.active = true;
         g.auto_stop_fired = false;
+        g.pending_auto_stop = None;
         g.config = Some(cfg.clone());
         g.scheduled_end_ms = cfg.scheduled_end_ms;
         g.call_app_bundle_ids = cfg
@@ -198,15 +224,18 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
             }
         };
         if let Some(reason) = stop_reason {
-            if claim_auto_stop(&inner_for_supervisor, generation_at_start) {
-                let event = if reason == "calendar" {
-                    "meetings:call-ended"
-                } else {
-                    "meetings:silence-stop"
-                };
-                let _ = app_for_supervisor.emit(event, ());
-            }
+            let kind = if reason == "calendar" {
+                AutoStopKind::Calendar
+            } else {
+                AutoStopKind::Silence
+            };
+            request_auto_stop(&inner_for_supervisor, generation_at_start, kind);
         }
+        emit_pending_auto_stop(
+            &app_for_supervisor,
+            &inner_for_supervisor,
+            generation_at_start,
+        );
     });
 
     if cfg.watch_sleep {
@@ -229,13 +258,13 @@ pub fn silence_detector_stop(app: AppHandle) -> Result<(), String> {
     g.generation = g.generation.wrapping_add(1);
     g.active = false;
     g.auto_stop_fired = false;
+    g.pending_auto_stop = None;
     g.mic = None;
     g.system = None;
     g.scheduled_end_ms = None;
     g.call_app_bundle_ids.clear();
     Ok(())
 }
-
 
 #[cfg(target_os = "macos")]
 fn install_sleep_watcher(app: &AppHandle) {
@@ -265,8 +294,8 @@ fn install_sleep_watcher(app: &AppHandle) {
                             )
                         })
                         .unwrap_or((false, 0, false));
-                    if active && watch_sleep && claim_auto_stop(&state.inner, generation) {
-                        let _ = app.emit("meetings:sleep-stop", ());
+                    if active && watch_sleep {
+                        request_auto_stop(&state.inner, generation, AutoStopKind::Sleep);
                     }
                 }
             }
@@ -277,10 +306,11 @@ fn install_sleep_watcher(app: &AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn install_sleep_watcher(_app: &AppHandle) {}
 
-
 const CALL_MIC_RELEASE_CONFIRM: Duration = Duration::from_secs(15);
 #[cfg(target_os = "macos")]
 const CALL_END_POLL: Duration = Duration::from_secs(2);
+const AUTO_STOP_RETRY_BASE: Duration = Duration::from_secs(2);
+const AUTO_STOP_RETRY_MAX: Duration = Duration::from_secs(15);
 
 #[derive(Default)]
 struct CallEndTracker {
@@ -392,9 +422,9 @@ fn install_call_ended_watcher(app: &AppHandle) {
                     );
                 }
 
-                if release_confirmed && claim_auto_stop(&state.inner, active_generation) {
-                    eprintln!("[call-ended] release confirmed, firing meetings:call-ended");
-                    let _ = app.emit("meetings:call-ended", ());
+                if release_confirmed {
+                    eprintln!("[call-ended] release confirmed, requesting meetings:call-ended");
+                    request_auto_stop(&state.inner, active_generation, AutoStopKind::CallEnded);
                 }
             }
         });
@@ -420,7 +450,11 @@ fn source_quiet_for(source: Option<&SourceState>, now: Instant, window: Duration
         .unwrap_or(false)
 }
 
-fn claim_auto_stop(inner: &Arc<Mutex<DetectorInner>>, generation: u64) -> bool {
+fn request_auto_stop(
+    inner: &Arc<Mutex<DetectorInner>>,
+    generation: u64,
+    kind: AutoStopKind,
+) -> bool {
     let Ok(mut g) = inner.lock() else {
         return false;
     };
@@ -428,7 +462,44 @@ fn claim_auto_stop(inner: &Arc<Mutex<DetectorInner>>, generation: u64) -> bool {
         return false;
     }
     g.auto_stop_fired = true;
+    g.pending_auto_stop = Some(PendingAutoStop {
+        kind,
+        next_attempt_at: Instant::now(),
+        attempts: 0,
+    });
     true
+}
+
+fn take_due_auto_stop(
+    inner: &Arc<Mutex<DetectorInner>>,
+    generation: u64,
+    now: Instant,
+) -> Option<AutoStopKind> {
+    let mut g = inner.lock().ok()?;
+    if g.generation != generation || !g.active {
+        return None;
+    }
+    let pending = g.pending_auto_stop.as_mut()?;
+    if now < pending.next_attempt_at {
+        return None;
+    }
+    pending.attempts = pending.attempts.saturating_add(1);
+    let multiplier = 1u32 << pending.attempts.saturating_sub(1).min(3);
+    let delay = AUTO_STOP_RETRY_BASE
+        .checked_mul(multiplier)
+        .unwrap_or(AUTO_STOP_RETRY_MAX)
+        .min(AUTO_STOP_RETRY_MAX);
+    pending.next_attempt_at = now + delay;
+    Some(pending.kind)
+}
+
+fn emit_pending_auto_stop(app: &AppHandle, inner: &Arc<Mutex<DetectorInner>>, generation: u64) {
+    let Some(kind) = take_due_auto_stop(inner, generation, Instant::now()) else {
+        return;
+    };
+    if let Err(error) = app.emit(kind.event(), ()) {
+        eprintln!("[clips-tray] auto-stop event emit failed; retrying: {error}");
+    }
 }
 
 fn unix_now_ms() -> u64 {
@@ -443,8 +514,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        calendar_end_stop_ready, call_end_step, claim_auto_stop, scheduled_end_reached,
-        source_quiet_for, CallEndTracker, DetectorInner, SourceState,
+        calendar_end_stop_ready, call_end_step, request_auto_stop, scheduled_end_reached,
+        source_quiet_for, take_due_auto_stop, AutoStopKind, CallEndTracker, DetectorInner,
+        SourceState,
     };
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
@@ -675,14 +747,40 @@ mod tests {
     }
 
     #[test]
-    fn auto_stop_claim_is_one_shot_for_the_active_generation() {
+    fn auto_stop_signal_retries_until_the_detector_is_stopped() {
         let inner = Arc::new(Mutex::new(DetectorInner {
             active: true,
             ..DetectorInner::default()
         }));
 
-        assert!(claim_auto_stop(&inner, 0));
-        assert!(!claim_auto_stop(&inner, 0));
-        assert!(!claim_auto_stop(&inner, 1));
+        assert!(request_auto_stop(&inner, 0, AutoStopKind::Silence));
+        assert!(!request_auto_stop(&inner, 0, AutoStopKind::Sleep));
+
+        let first_attempt = Instant::now();
+        assert_eq!(
+            take_due_auto_stop(&inner, 0, first_attempt),
+            Some(AutoStopKind::Silence)
+        );
+        assert_eq!(
+            take_due_auto_stop(&inner, 0, first_attempt + Duration::from_secs(1)),
+            None,
+            "the retry backoff prevents event spam"
+        );
+        assert_eq!(
+            take_due_auto_stop(&inner, 0, first_attempt + Duration::from_secs(2)),
+            Some(AutoStopKind::Silence)
+        );
+
+        {
+            let mut g = inner.lock().unwrap();
+            g.generation += 1;
+            g.active = false;
+            g.pending_auto_stop = None;
+        }
+        assert_eq!(
+            take_due_auto_stop(&inner, 0, first_attempt + Duration::from_secs(30)),
+            None,
+            "silence_detector_stop acknowledges and cancels pending retries"
+        );
     }
 }

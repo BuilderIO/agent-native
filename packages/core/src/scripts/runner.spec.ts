@@ -180,6 +180,32 @@ describe("runScript package actions", () => {
     expect(result.stdout).toContain("package-action");
   }, 40_000);
 
+  it("exits non-zero when a local script rejects during dispatch", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "actions", "failing-script.ts"),
+      `export default async function () { throw new Error("No image variations were generated successfully."); }`,
+    );
+
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "failing-script"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'Action "failing-script" failed: No image variations were generated successfully.',
+    );
+  }, 40_000);
+
   it("short-circuits named action help before dev dispatch or imports", () => {
     const databaseUrl = `pglite:${path.join(tmpDir, "session-db")}`;
     const marker = (name: string) => path.join(tmpDir, name);

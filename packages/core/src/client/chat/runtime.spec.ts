@@ -260,6 +260,27 @@ describe("createHttpAgentChatRuntime", () => {
     expect(fetchMock.mock.calls[1][0]).toBe("/agent/runs/run-runtime/cancel");
   });
 
+  it("closes an unconsumed response stream without cancelling its run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([]));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: "/agent/cancel",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Close the discarded stream",
+    });
+    await turn.closeEvents?.();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal).aborted).toBe(
+      true,
+    );
+  });
+
   it("accepts JSON response text as a simple assistant turn", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ text: "Done" }), {
@@ -288,6 +309,150 @@ describe("createHttpAgentChatRuntime", () => {
       (events[1] as Extract<AgentChatRuntimeEvent, { type: "message-delta" }>)
         .delta,
     ).toEqual({ type: "text", text: "Done" });
+  });
+
+  it("returns a durable queued receipt from an accepted HTTP 202 response", async () => {
+    const queuedSubmission = {
+      state: "queued" as const,
+      message: {
+        id: "message-queued",
+        threadId: "thread-1",
+        text: "Follow up after the current turn",
+        createdAt: "2026-10-21T00:00:00.000Z",
+      },
+      activeRunId: "run-active",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(queuedSubmission), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession({ id: "thread-1", threadId: "thread-1" })
+    ).startTurn({
+      prompt: queuedSubmission.message.text,
+      submissionPayload: {
+        threadId: "thread-1",
+        id: queuedSubmission.message.id,
+        text: queuedSubmission.message.text,
+      },
+    });
+
+    expect(turn.queuedSubmission).toEqual(queuedSubmission);
+    expect(turn.runId).toBeUndefined();
+    await expect(drain(turn.events)).resolves.toEqual([]);
+  });
+
+  it.each([
+    ["another thread", { threadId: "thread-other", id: "message-1" }],
+    ["another submission", { threadId: "thread-1", id: "message-other" }],
+  ])(
+    "rejects a 202 receipt for %s and keeps the failure retryable",
+    async (_, receiptIdentity) => {
+      const submissionPayload = {
+        threadId: "thread-1",
+        id: "message-1",
+        text: "Follow up",
+      };
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            state: "queued",
+            message: {
+              ...receiptIdentity,
+              text: submissionPayload.text,
+              createdAt: "2026-10-21T00:00:00.000Z",
+            },
+          }),
+          { status: 202, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const runtime = createHttpAgentChatRuntime({
+        endpoint: "/agent/chat",
+        fetch: fetchMock as typeof fetch,
+      });
+      const session = await runtime.createSession({
+        id: "thread-1",
+        threadId: "thread-1",
+      });
+
+      await expect(
+        session.startTurn({ submissionPayload }),
+      ).rejects.toMatchObject({
+        code: "invalid_queued_submission_response",
+        status: 202,
+        retryable: true,
+      });
+    },
+  );
+
+  it("retains the same submission context after an unreadable 202 receipt", async () => {
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "message-retry-after-202",
+      text: "Retry this accepted submission",
+    };
+    const queuedSubmission = {
+      state: "queued" as const,
+      message: {
+        id: submissionPayload.id,
+        threadId: submissionPayload.threadId,
+        text: submissionPayload.text,
+        createdAt: "2026-10-21T00:00:00.000Z",
+      },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("truncated", {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(queuedSubmission), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      continueTurn: ({ previousTurn, startTurn }) =>
+        startTurn(previousTurn ?? { submissionPayload }),
+    });
+    const session = await runtime.createSession({
+      id: "thread-1",
+      threadId: "thread-1",
+    });
+    let turnId: string | undefined;
+
+    try {
+      await session.startTurn({
+        prompt: submissionPayload.text,
+        submissionPayload,
+      });
+    } catch (error) {
+      turnId = (error as { turnId?: string }).turnId;
+      expect(error).toMatchObject({ retryable: true, status: 202 });
+    }
+    expect(turnId).toBeDefined();
+
+    const retried = await session.continueTurn?.({ turnId });
+
+    expect(retried?.queuedSubmission).toEqual(queuedSubmission);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string),
+    ).toMatchObject({
+      submissionPayload,
+    });
   });
 
   it("explains oversized requests and marks them non-retryable", async () => {
@@ -393,6 +558,7 @@ describe("createHttpAgentChatRuntime", () => {
               data: {
                 code: "run_slot_busy",
                 activeRunId: "run-active",
+                submittedRunId: "run-submitted",
                 retryable: true,
               },
             }),
@@ -415,6 +581,7 @@ describe("createHttpAgentChatRuntime", () => {
     expect(error).toMatchObject({
       code: "run_slot_busy",
       activeRunId: "run-active",
+      submittedRunId: "run-submitted",
       status: 409,
       retryable: true,
     });
@@ -431,6 +598,7 @@ describe("createHttpAgentChatRuntime", () => {
               code: "run_slot_busy",
               retryable: true,
               activeRunId: "run-active",
+              submittedRunId: "run-submitted",
             }),
             { status: 409, headers: { "Content-Type": "application/json" } },
           ),
@@ -451,6 +619,66 @@ describe("createHttpAgentChatRuntime", () => {
       status: 409,
       retryable: true,
       activeRunId: "run-active",
+      submittedRunId: "run-submitted",
+    });
+  });
+
+  it("maps an accepted queue submission receipt to an AgentKit busy error", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: {
+                code: "queued_message_already_submitted",
+                submittedRunId: "run-submitted",
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      (await runtime.createSession({ id: "thread-1" })).startTurn({
+        prompt: "Reconnect to the accepted queue submission",
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      submittedRunId: "run-submitted",
+      status: 409,
+      retryable: true,
+    });
+  });
+
+  it("maps a nested error submitted-run receipt to an AgentKit busy error", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "run_slot_busy",
+                submittedRunId: "run-submitted",
+                retryable: true,
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      (await runtime.createSession({ id: "thread-1" })).startTurn({
+        prompt: "Reconnect to the accepted turn",
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      submittedRunId: "run-submitted",
+      status: 409,
+      retryable: true,
     });
   });
 
@@ -865,6 +1093,11 @@ describe("createAgentNativeChatRuntime", () => {
     });
     const first = await session.startTurn({
       prompt: "Review this image before publishing.",
+      submissionPayload: {
+        id: "submission-image-approval",
+        threadId: "thread-approval-image-history",
+        text: "Review this image before publishing.",
+      },
       attachments: [requestAttachment],
       messages: [
         {
@@ -906,9 +1139,16 @@ describe("createAgentNativeChatRuntime", () => {
     const continuationBody = JSON.parse(
       String(fetchMock.mock.calls[1]?.[1]?.body),
     );
+    const initialBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(initialBody.submissionPayload).toEqual({
+      id: "submission-image-approval",
+      threadId: "thread-approval-image-history",
+      text: "Review this image before publishing.",
+    });
     expect(continuationBody.message).toBe(
       "Approved. Go ahead and run the requested action.",
     );
+    expect(continuationBody).not.toHaveProperty("submissionPayload");
     expect(continuationBody.approvedToolCalls).toEqual([approvalKey]);
   });
 
@@ -4425,8 +4665,8 @@ describe("createAgentNativeChatRuntime", () => {
       "activity",
       "interaction",
       "activity",
+      // No "completed" interaction: the activity row already reports the end.
       "participant",
-      "interaction",
       "task",
       "task",
       "task",
@@ -4479,7 +4719,7 @@ describe("createAgentNativeChatRuntime", () => {
           ? [event.activity.label]
           : [],
     );
-    expect(rowLabels).toHaveLength(5);
+    expect(rowLabels).toHaveLength(4);
     expect(rowLabels).not.toContain("Planck");
     expect(rowLabels).not.toContain("working");
     expect(events[5]).not.toHaveProperty("interaction.label");

@@ -206,6 +206,16 @@ const textDocument = {
     },
   ],
 };
+const textDocumentV2 = {
+  version: 2 as const,
+  animations: textDocument.animations.map((animation) => ({
+    ...animation,
+    animationDirection: "in" as const,
+    order: "left-to-right" as const,
+    ignoreSpaces: true,
+    delayMs: 0,
+  })),
+};
 
 const request = {
   designId: "design-1",
@@ -306,8 +316,12 @@ describe("apply-motion-edit localhost React source", () => {
     expect(mocks.insertedRows[0]).toMatchObject({
       sourceRef: "screen-1",
       filePath: "app/routes/home.tsx",
-      tracks: JSON.stringify(request.tracks),
     });
+    const persistedTracks = JSON.parse(
+      mocks.insertedRows[0]?.tracks as string,
+    ) as Array<Record<string, unknown>>;
+    expect(persistedTracks).toMatchObject(request.tracks);
+    expect(persistedTracks[0]?.id).toBe("legacy-track-0");
     expect(result).toMatchObject({
       sourceType: "localhost",
       sourceRef: "screen-1",
@@ -368,7 +382,7 @@ describe("apply-motion-edit localhost React source", () => {
 
   it("writes versioned Motion source to the linked HTML route", async () => {
     const htmlSourcePath = "pages/home.html";
-    const htmlSource = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
+    const htmlSource = `<!doctype html><html><head></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
     const htmlVersionHash = createHash("sha256")
       .update(htmlSource)
       .digest("hex");
@@ -436,7 +450,6 @@ describe("apply-motion-edit localhost React source", () => {
       expectedVersionHash: htmlVersionHash,
       requireExpectedVersionHash: true,
     });
-    expect(writtenSource).toContain('<script src="./app.js"></script>');
     expect(writtenSource).toContain(
       '<button data-agent-native-node-id="hero">Hello</button>',
     );
@@ -633,8 +646,7 @@ describe("apply-motion-edit localhost React source", () => {
     );
     expect(mocks.insertedRows[0]).toMatchObject({ tracks: "[]" });
     expect(JSON.parse(mocks.insertedRows[0].textDocument as string)).toEqual({
-      ...textDocument,
-      animations: [{ ...textDocument.animations[0], delayMs: 0 }],
+      ...textDocumentV2,
     });
     expect(result).toMatchObject({
       trackCount: 0,

@@ -58,6 +58,7 @@ import type {
   ValidateBuilderSourceExecutionRequest,
   DocumentPropertyRelationTarget,
 } from "@shared/api";
+import { contentDatabaseViewsShowPageText } from "@shared/database-item-layout";
 import type { Query, QueryClient } from "@tanstack/react-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -249,6 +250,29 @@ export function contentDatabaseItemsContainingDocumentFilter(
           "document" in item
             ? item.document.id === documentId
             : item.documentId === documentId,
+        ) === true
+      );
+    },
+  };
+}
+
+/**
+ * Collection reads whose row for a page shows its page text. The server skips
+ * a first paragraph that repeats the title, so a rename can change that text.
+ */
+export function contentDatabaseExcerptContainingDocumentFilter(
+  documentId: string,
+) {
+  return {
+    queryKey: ["action", "get-content-database"],
+    predicate: (query: Query) => {
+      const data = query.state.data as
+        | Partial<ContentDatabaseResponse>
+        | undefined;
+      return (
+        data?.items?.some(
+          (item) =>
+            item.document.id === documentId && item.excerpt !== undefined,
         ) === true
       );
     },
@@ -504,6 +528,20 @@ export function isContentDatabaseUnavailable(
   );
 }
 
+/**
+ * Unpaged reads (row menus, pickers) leave out page text, so one can't stand
+ * in for the List's read of a collection whose List view shows it.
+ */
+function canSeedContentDatabaseRead(
+  data: ContentDatabaseResponse | undefined,
+): data is ContentDatabaseResponse {
+  if (!data || isContentDatabaseUnavailable(data)) return false;
+  return (
+    !contentDatabaseViewsShowPageText(data.database?.viewConfig?.views ?? []) ||
+    data.items.every((item) => item.excerpt !== undefined)
+  );
+}
+
 export function readCachedContentDatabaseResponse(
   queryClient: Pick<QueryClient, "getQueryData" | "getQueriesData">,
   documentId: string,
@@ -511,13 +549,13 @@ export function readCachedContentDatabaseResponse(
   const exact = queryClient.getQueryData<ContentDatabaseResponse>(
     contentDatabaseQueryKey(documentId),
   );
-  if (exact && !isContentDatabaseUnavailable(exact)) return exact;
+  if (canSeedContentDatabaseRead(exact)) return exact;
 
   const cached = queryClient
     .getQueriesData<ContentDatabaseResponse>(
       contentDatabaseQueryFilter(documentId),
     )
-    .find(([, data]) => data && !isContentDatabaseUnavailable(data));
+    .find(([, data]) => canSeedContentDatabaseRead(data));
   return cached?.[1];
 }
 
@@ -1837,7 +1875,9 @@ export function useRefreshContentDatabaseSource(documentId: string) {
     RefreshContentDatabaseSourceRequest
   >("refresh-content-database-source", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => {
+    // A GitHub refresh that fails stores the problem on the source first, so
+    // the status line rereads after a failure too.
+    onSettled: () => {
       invalidateContentDatabaseSourceRefreshQueries(queryClient, documentId);
     },
   });

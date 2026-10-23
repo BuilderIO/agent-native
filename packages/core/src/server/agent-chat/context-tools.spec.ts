@@ -22,7 +22,10 @@ describe("peer-app delegation guidance", () => {
       "The requested outcome depends on data or a capability only another deployed app can provide",
     );
     expect(FRAMEWORK_CONTEXT_SECTIONS["call-agent"]).toContain(
-      "unless the current app has its own generation action that already delegates there",
+      "only when the user asks for its brand library or an asset/capability only Assets can provide",
+    );
+    expect(FRAMEWORK_CONTEXT_SECTIONS["call-agent"]).toContain(
+      "Ordinary image generation stays in the current app.",
     );
     expect(skill).toContain(
       "requested outcome depends on peer-exclusive data or capability",

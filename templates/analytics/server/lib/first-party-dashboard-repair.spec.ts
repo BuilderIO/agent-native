@@ -64,6 +64,7 @@ import {
   FIRST_PARTY_BIGQUERY_WAU_SQL,
   FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
   FIRST_PARTY_BIGQUERY_DASHBOARD_IDS,
+  PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
   PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
@@ -147,11 +148,13 @@ const ORIGIN_MAIN_PANEL_SQL_PATCHES = {
   },
   activationFunnel: {
     prefixLength: 5,
-    suffixLength: 22996,
+    suffixLength: 22877,
     length: 25336,
     sha256: "ba2e861c2044e2fec669bcb15a878a675eaf426f51bcfe4db32ebd228d2050f0",
     middle:
       "signup_identity AS (\n  SELECT NULLIF(anonymous_id, '') AS anonymous_id,\n    MIN(NULLIF(user_id, '')) AS signup_user_id\n  FROM analytics_events\n  WHERE event_name = 'signup'\n    AND (event_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND event_date >= '{{timeRangeStart}}' AND event_date <= '{{timeRangeEnd}}')))\n    AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))\n    AND ('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) = lower('{{appFilter}}'))\n    AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')\n    AND NULLIF(anonymous_id, '') IS NOT NULL\n    AND NULLIF(user_id, '') IS NOT NULL\n  GROUP BY NULLIF(anonymous_id, '')\n), raw_funnel_events AS (\n  SELECT e.*,\n    COALESCE(si.signup_user_id, NULLIF(e.user_id, ''), NULLIF(e.anonymous_id, '')) AS funnel_user_key,\n    COALESCE(si.signup_user_id, NULLIF(e.user_id, '')",
+    middleTail:
+      ") AS funnel_user_email\n  FROM analytics_events e\n  LEFT JOIN signup_identity si ON si.anonymous_id = NULLIF(e.anonymous",
   },
   retentionOverTimeSeed: {
     prefixLength: 5,
@@ -330,6 +333,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
         { id: "emailFilter", default: "only_builder" },
         { id: "appFilter", default: "all" },
       ],
+      introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
       panels: [],
     };
 
@@ -340,6 +344,173 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
 
     expect(repaired.changed).toBe(false);
     expect(repaired.config.filters).toEqual(config.filters);
+  });
+
+  describe("Onboarding Setup A/B panels on saved BigQuery dashboards", () => {
+    const AB_IDS = [...PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS];
+    const savedConfig = () => ({
+      name: "Saved BigQuery dashboard",
+      filters: [{ id: "timeRange", default: "90d" }],
+      panels: [
+        { id: "dau-over-time", source: "bigquery", sql: "SELECT 1 AS dau" },
+        { id: "onboarding-setup-choice", source: "bigquery", sql: "SELECT 2" },
+        { id: "custom-last", source: "bigquery", sql: "SELECT 3" },
+      ],
+    });
+    const panelIds = (config: Record<string, unknown>) =>
+      (config.panels as Array<{ id: string }>).map((panel) => panel.id);
+
+    it("adds the panels once to the saved canonical first-party dashboard", () => {
+      const first = repairKnownFirstPartyDashboardQueries(
+        FIRST_PARTY_DASHBOARD_ID,
+        savedConfig(),
+      );
+
+      expect(first.changed).toBe(true);
+      expect(panelIds(first.config)).toEqual([
+        "dau-over-time",
+        "onboarding-setup-choice",
+        ...AB_IDS,
+        "custom-last",
+      ]);
+      expect(first.config.introducedPanels).toEqual(AB_IDS);
+
+      const second = repairKnownFirstPartyDashboardQueries(
+        FIRST_PARTY_DASHBOARD_ID,
+        first.config,
+      );
+      expect(second.changed).toBe(false);
+      expect(panelIds(second.config)).toEqual(panelIds(first.config));
+    });
+
+    it.each(FIRST_PARTY_BIGQUERY_DASHBOARD_IDS)(
+      "adds the panels once after the onboarding panels on %s",
+      (dashboardId) => {
+        const first = repairKnownFirstPartyDashboardQueries(
+          dashboardId,
+          savedConfig(),
+        );
+
+        expect(first.changed).toBe(true);
+        expect(panelIds(first.config)).toEqual([
+          "dau-over-time",
+          "onboarding-setup-choice",
+          ...AB_IDS,
+          "custom-last",
+        ]);
+        expect(first.config.introducedPanels).toEqual(AB_IDS);
+        const panels = first.config.panels as Array<Record<string, unknown>>;
+        expect(panels[2]).toMatchObject({ chartType: "section" });
+        expect(panels[3]).toMatchObject({
+          source: "first-party",
+          sql: requiredFirstPartyPanel("onboarding-ab-comparison").sql,
+        });
+        expect(panels[4]).toMatchObject({
+          source: "first-party",
+          sql: requiredFirstPartyPanel("onboarding-ab-connected-trend").sql,
+        });
+
+        const second = repairKnownFirstPartyDashboardQueries(
+          dashboardId,
+          first.config,
+        );
+        expect(second.changed).toBe(false);
+        expect(second.config).toBe(first.config);
+      },
+    );
+
+    it("appends when no onboarding panel exists and leaves other fields alone", () => {
+      const config = { ...savedConfig(), panels: [savedConfig().panels[0]] };
+      const repaired = repairKnownFirstPartyDashboardQueries(
+        FIRST_PARTY_BIGQUERY_DASHBOARD_IDS[1]!,
+        config,
+      );
+
+      expect(panelIds(repaired.config)).toEqual(["dau-over-time", ...AB_IDS]);
+      expect(repaired.config.name).toBe(config.name);
+      expect(repaired.config.filters).toEqual(config.filters);
+      expect((repaired.config.panels as unknown[])[0]).toEqual(
+        config.panels[0],
+      );
+    });
+
+    it("does not bring back a panel the owner deleted after receiving it", () => {
+      const added = repairKnownFirstPartyDashboardQueries(
+        FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+        savedConfig(),
+      ).config;
+      const afterDelete = {
+        ...added,
+        panels: (added.panels as Array<{ id: string }>).filter(
+          (panel) => panel.id !== "onboarding-ab-comparison",
+        ),
+      };
+
+      const repaired = repairKnownFirstPartyDashboardQueries(
+        FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+        afterDelete,
+      );
+
+      expect(repaired.changed).toBe(false);
+      expect(panelIds(repaired.config)).not.toContain(
+        "onboarding-ab-comparison",
+      );
+    });
+
+    it("records panels the dashboard already has without duplicating them", () => {
+      const config = savedConfig();
+      config.panels.push({
+        id: "onboarding-ab-comparison",
+        source: "bigquery",
+        sql: "SELECT custom",
+      });
+
+      const repaired = repairKnownFirstPartyDashboardQueries(
+        FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+        config,
+      );
+
+      expect(
+        panelIds(repaired.config).filter(
+          (id) => id === "onboarding-ab-comparison",
+        ),
+      ).toHaveLength(1);
+      expect(
+        (repaired.config.panels as Array<{ id: string; sql: string }>).find(
+          (panel) => panel.id === "onboarding-ab-comparison",
+        )?.sql,
+      ).toBe("SELECT custom");
+      expect(repaired.config.introducedPanels).toEqual(AB_IDS);
+    });
+
+    it("persists the addition once through the startup repair", async () => {
+      const row = legacyRow({
+        id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+        config: JSON.stringify(savedConfig()),
+      });
+      const mocks = createDb(row);
+      dbMocks.getDb.mockReturnValue(mocks.db);
+
+      await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+        true,
+      );
+
+      const written = JSON.parse(
+        (mocks.updateSet.mock.calls[0] as unknown as [{ config: string }])[0]
+          .config,
+      );
+      expect(written.introducedPanels).toEqual(AB_IDS);
+      expect(panelIds(written)).toEqual(
+        expect.arrayContaining(["onboarding-ab-connected-trend"]),
+      );
+
+      const noOpMocks = createDb({ ...row, config: JSON.stringify(written) });
+      dbMocks.getDb.mockReturnValue(noOpMocks.db);
+      await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+        false,
+      );
+      expect(noOpMocks.update).not.toHaveBeenCalled();
+    });
   });
 
   beforeEach(() => {
@@ -960,6 +1131,39 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(repaired.mocks.update).toHaveBeenCalledOnce();
   });
 
+  it("repairs the activation-funnel panel saved before the session bridge", async () => {
+    const panel = requiredFirstPartyPanel("activation-funnel");
+    const bridge = panel.sql.slice(
+      panel.sql.indexOf("), signup_session_identity AS ("),
+      panel.sql.indexOf("), raw_funnel_events AS ("),
+    );
+    const previousSql = panel.sql
+      .replace(bridge, "")
+      .replace(
+        "      ss.signup_auth_user_id,\n      ss.signup_user_email,\n",
+        "",
+      )
+      .replace(",\n      ss.signup_user_email\n", "\n")
+      .replace(
+        "\n  LEFT JOIN signup_session_identity ss\n    ON NULLIF(e.anonymous_id, '') IS NULL\n    AND NULLIF(e.user_id, '') IS NULL\n    AND NULLIF(e.properties::jsonb ->> 'auth_user_id', '') IS NULL\n    AND ss.session_id = NULLIF(e.session_id, '')",
+        "",
+      );
+    expect(previousSql).not.toContain("signup_session_identity");
+    expect(
+      createHash("sha256")
+        .update(previousSql.replace(/\s+/g, " ").trim())
+        .digest("hex"),
+    ).toBe("21df6cc1f26862531504c21fb5a558c87b58615118fcd0ad1913a971fa8387a6");
+    const row = legacyRow({
+      config: JSON.stringify({ panels: [{ ...panel, sql: previousSql }] }),
+    });
+
+    const repaired = await repairPersistedPanel(row);
+
+    expect(repaired.changed).toBe(true);
+    expect(repaired.panel?.sql).toBe(panel.sql);
+  });
+
   it("repairs the origin/main BigQuery retention panel", async () => {
     const retention = requiredFirstPartyPanel("retention-over-time");
     const row = legacyRow({
@@ -1305,6 +1509,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     const row = legacyRow({
       id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
       config: JSON.stringify({
+        introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
         panels: [
           {
             ...weekly,
@@ -1333,6 +1538,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     const row = legacyRow({
       id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
       config: JSON.stringify({
+        introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
         panels: [
           {
             ...weekly,
@@ -1603,6 +1809,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     [
       "a custom config",
       JSON.stringify({
+        introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
         panels: [
           {
             id: "recurring-users-by-template",
@@ -1614,6 +1821,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     [
       "a changed custom new-vs-recurring query",
       JSON.stringify({
+        introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
         panels: [
           {
             id: "new-vs-recurring-users",
@@ -1625,6 +1833,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     [
       "a changed custom signups date-fill query",
       JSON.stringify({
+        introducedPanels: PANELS_INTRODUCED_TO_BIGQUERY_DASHBOARDS,
         panels: [
           {
             id: "signups-over-time",

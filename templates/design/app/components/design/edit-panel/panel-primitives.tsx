@@ -28,7 +28,7 @@ import {
 } from "../inspector/color-picker-tokens";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import { readFillField } from "../inspector/fill-field-reading";
-import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
+import type { ShaderEditorContext } from "../shader-source-coordination";
 import { useDesignColorTokenSource } from "./design-color-tokens";
 import {
   buildGradientLayer,
@@ -200,8 +200,7 @@ export function ColorInput({
   documentColors,
   supportedPaintTypes,
   pickerKey,
-  glslShaderContext,
-  fillShader,
+  shaderContext,
   authoredValue,
   bindTokens = false,
   boundToken,
@@ -251,10 +250,8 @@ export function ColorInput({
   documentColors?: string[];
   supportedPaintTypes?: DesignPaintType[];
   pickerKey?: string;
+  shaderContext?: ShaderEditorContext;
   disabled?: boolean;
-  glslShaderContext?: GlslShaderPanelContext;
-  /** The shader painted as this fill: the picker opens on its controls. */
-  fillShader?: { name: string } | null;
   /** The color as written in the design, for the field to read as written. */
   authoredValue?: string;
   /** Offers the design's color tokens in the picker's Libraries pane; picking one writes `var(--token)`. */
@@ -470,11 +467,9 @@ export function ColorInput({
       ? selectedGradient
         ? selectedGradient.type
         : "image"
-      : fillShader
-        ? "shader"
-        : colorHasVisibleAlpha(draft || value)
-          ? "solid"
-          : "none";
+      : colorHasVisibleAlpha(draft || value)
+        ? "solid"
+        : "none";
   const pickerValue = singlePaint
     ? singlePaintGradient
       ? value
@@ -672,9 +667,8 @@ export function ColorInput({
       onGradientTypeChange={handleGradientTypeChange}
       documentColors={documentColors}
       supportedPaintTypes={supportedPaintTypes}
-      glslShaderContext={glslShaderContext}
+      shaderContext={shaderContext}
       authoredValue={authoredValue}
-      paintLabel={fillShader?.name}
       tokens={bindTokens ? tokenSource?.tokens : undefined}
       onRequestTokens={bindTokens ? tokenSource?.request : undefined}
       onPickToken={bindTokens && tokenSource ? bindToken : undefined}

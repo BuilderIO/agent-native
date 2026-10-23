@@ -4,10 +4,19 @@ const dbMocks = vi.hoisted(() => ({
   execute: vi.fn(),
 }));
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: dbMocks.execute }),
-  retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
-}));
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  const exec = {
+    execute: async (input: string | { sql: string }) =>
+      storeLedgerResult(typeof input === "string" ? input : input.sql) ??
+      dbMocks.execute(input),
+  };
+  return {
+    getDbExec: () => exec,
+    retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
+  };
+});
 
 const ddlMocks = vi.hoisted(() => ({
   ensureColumnExists: vi.fn(),

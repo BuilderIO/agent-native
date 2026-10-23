@@ -36,6 +36,11 @@ import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  useActionQuery: () => ({ data: undefined, error: null, isLoading: false }),
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
@@ -309,6 +314,68 @@ describe("FillProperties — existing layer fill popover", () => {
       }),
       undefined,
     );
+  });
+
+  function convertSolidToGradientBeforeTheSaveLands() {
+    const onStylesChange = vi.fn();
+    const renderFill = (computedStyles: ElementInfo) =>
+      root.render(
+        <FillProperties
+          element={computedStyles}
+          onStyleChange={vi.fn()}
+          onStylesChange={onStylesChange}
+        />,
+      );
+    const solid = element({
+      computedStyles: {
+        backgroundColor: "rgb(255, 0, 0)",
+        backgroundImage: "none",
+        backgroundSize: "",
+        backgroundRepeat: "",
+        backgroundPosition: "",
+      },
+    });
+    act(() => renderFill(solid));
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open color picker"]',
+        )!
+        .click();
+    });
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Gradient"]')!
+        .click();
+    });
+    expect(gradientStopsBar()).not.toBeNull();
+    const landSave = () =>
+      act(() =>
+        renderFill(
+          gradientLayerElement(onStylesChange.mock.calls[0][0].backgroundImage),
+        ),
+      );
+    return { landSave };
+  }
+
+  it("hands the open picker to the converted gradient layer once its row exists", () => {
+    const { landSave } = convertSolidToGradientBeforeTheSaveLands();
+    landSave();
+    expect(layerFieldTrigger(container, 0, "Linear")).not.toBeNull();
+    expect(gradientStopsBar()).not.toBeNull();
+  });
+
+  it("does not reopen the picker for the converted layer after Escape closed it before the save landed", () => {
+    const { landSave } = convertSolidToGradientBeforeTheSaveLands();
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(gradientStopsBar()).toBeNull();
+    landSave();
+    expect(layerFieldTrigger(container, 0, "Linear")).not.toBeNull();
+    expect(gradientStopsBar()).toBeNull();
   });
 
   it("converts the base solid below image and gradient siblings", () => {

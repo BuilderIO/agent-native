@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { isActionExposedToExternalAgents } from "../../action.js";
+
 const listOrgServiceTokensMock = vi.fn();
 const revokeByNameMock = vi.fn();
 const ensureConnectTablesMock = vi.fn();
@@ -152,9 +154,14 @@ beforeEach(() => {
 });
 
 describe("governance actions are admin-only and out of the agent tool loop", () => {
-  it("is not tool-callable", () => {
-    expect(policyAction.toolCallable).toBe(false);
-    expect(lifecycleAction.toolCallable).toBe(false);
+  it.each([
+    ["policy", () => policyAction],
+    ["lifecycle", () => lifecycleAction],
+  ])("keeps %s off the agent, MCP, and extension tool surfaces", (_, get) => {
+    const action = get();
+    expect(action.agentTool).toBe(false);
+    expect(isActionExposedToExternalAgents(action)).toBe(false);
+    expect(action.toolCallable).toBe(false);
   });
 
   it.each([

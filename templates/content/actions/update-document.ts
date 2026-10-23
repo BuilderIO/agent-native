@@ -44,10 +44,7 @@ import {
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
-import {
-  lockDocumentMetadataDatabase,
-  nextDocumentMetadataUpdatedAt,
-} from "../server/lib/document-metadata-updated-at.js";
+import { nextDocumentMetadataUpdatedAt } from "../server/lib/document-metadata-updated-at.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
@@ -101,6 +98,7 @@ import {
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
 import {
+  assertEditableDocument,
   documentContentHash,
   documentRevisionToken,
   parseDocumentRevisionToken,
@@ -109,7 +107,11 @@ import {
   assertDocumentMutationAccess,
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
-import { serializeDocumentSource } from "./_document-source.js";
+import { lockDocumentForSave } from "./_document-save-locks.js";
+import {
+  assertSourceAllowsPageEdit,
+  serializeDocumentSource,
+} from "./_document-source.js";
 import {
   lockPreviewDocumentDraftSettlement,
   readDiscardedPreviewDraftGeneration,
@@ -634,6 +636,13 @@ const updateDocumentAction = defineAction({
         "Browser-local edit generation acknowledged by this save; paired with editorSessionId",
       ),
     editorSnapshotTitle: z.string().max(10_000).optional(),
+    editorSnapshotTitleBase: z
+      .string()
+      .max(10_000)
+      .optional()
+      .describe(
+        "The saved title the editor's snapshot title started from; when they match, the editor never edited the title",
+      ),
     editorSnapshotContent: z.string().max(500_000).optional(),
     browserSaveAttemptId: z
       .string()
@@ -714,6 +723,15 @@ const updateDocumentAction = defineAction({
       ) {
         throw new ActionContractError(
           "editorSnapshotTitle and editorSnapshotContent must be provided together.",
+          { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
+        );
+      }
+      if (
+        args.editorSnapshotTitleBase !== undefined &&
+        args.editorSnapshotTitle === undefined
+      ) {
+        throw new ActionContractError(
+          "editorSnapshotTitleBase requires editorSnapshotTitle.",
           { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
         );
       }
@@ -953,6 +971,7 @@ const updateDocumentAction = defineAction({
           );
         }
       }
+      if (!favoriteOnly) assertEditableDocument(existing);
 
       const normalizeAuthoredContent = (value: string) => {
         if (args.preserveLeadingTitleHeading) return value;
@@ -1067,6 +1086,9 @@ const updateDocumentAction = defineAction({
       const descriptionChanged =
         args.description !== undefined &&
         args.description.trim() !== existing.description;
+      if (titleChanged || contentChanged || descriptionChanged) {
+        assertSourceAllowsPageEdit(existing);
+      }
       const anyChange =
         titleChanged ||
         contentChanged ||
@@ -1129,16 +1151,16 @@ const updateDocumentAction = defineAction({
         const mutate = async (tx: any) => {
           measurement.outcome = "unchanged";
           measurement.history_effect = "none";
-          const lockedDatabaseId = await lockDocumentMetadataDatabase({
-            db: tx as unknown as ReturnType<typeof getDb>,
-            documentId: id,
-            ownerEmail,
-          });
-          await tx
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(eq(schema.documents.id, id))
-            .for("update");
+          const mayWriteBody =
+            content !== undefined || authoredCandidateContent !== undefined;
+          const {
+            databaseId: lockedDatabaseId,
+            lockedDatabaseIds,
+            lockedMembershipIds,
+          } = await lockDocumentForSave(
+            tx as unknown as ReturnType<typeof getDb>,
+            { documentId: id, ownerEmail, body: mayWriteBody },
+          );
           access = favoriteOnly
             ? await resolveDocumentAccessForMutation(id, "id")
             : await assertDocumentMutationAccess(id, "editor", "id");
@@ -1176,6 +1198,9 @@ const updateDocumentAction = defineAction({
               return;
             }
           }
+          // After the replay check, so a retried save that already landed
+          // still gets its receipt. The page lock above makes this see Trash.
+          if (!favoriteOnly) assertEditableDocument(existing);
           if (settlesPreviewDraft) {
             await lockPreviewDocumentDraftSettlement({
               db: tx,
@@ -1249,7 +1274,16 @@ const updateDocumentAction = defineAction({
               // body part of its save is not written here. Comparing it with
               // the stored body would read every peer's live-copy commit as
               // an unmerged edit and divert this save to History.
-              const matchesLiveCopy = content === historyBefore.content;
+              const saveBodies = new Set(
+                [
+                  args.content,
+                  args.authoredCandidateContent,
+                  args.editorSnapshotContent,
+                ].filter((body): body is string => body !== undefined),
+              );
+              const matchesLiveCopy = [...saveBodies].every(
+                (body) => body === historyBefore.content,
+              );
               liveCopyBodySave = {
                 status: "live_copy",
                 matchesLiveCopy,
@@ -1260,20 +1294,24 @@ const updateDocumentAction = defineAction({
               // most saves from two open tabs match no stored body. Old
               // editors read an unsettled save as unsaved and send its text
               // to History when the tab reopens.
-              // The live copy keeps a title heading that SQL writes strip, so
-              // compare the editor's own bodies, not the stripped ones.
-              const hold =
-                matchesLiveCopy ||
-                !authoredBase ||
-                args.authoredCandidateContent === undefined
-                  ? undefined
-                  : await liveCopyHoldsSave({
+              // A receipt acknowledges the submitted body, authored candidate
+              // and recovery snapshot. SQL strips title headings they retain.
+              settlesLiveCopyBody = true;
+              for (const body of saveBodies) {
+                if (body === historyBefore.content) continue;
+                const hold = authoredBase
+                  ? await liveCopyHoldsSave({
                       base: args.authoredBaseContent as string,
                       stored: historyBefore.content,
-                      candidate: args.authoredCandidateContent,
-                    });
-              settlesLiveCopyBody = matchesLiveCopy || hold === "held";
-              if (hold) measurement.reason_code = `live_copy_save_${hold}`;
+                      candidate: body,
+                    })
+                  : undefined;
+                if (hold) measurement.reason_code = `live_copy_save_${hold}`;
+                if (hold !== "held") {
+                  settlesLiveCopyBody = false;
+                  break;
+                }
+              }
               if (settlesLiveCopyBody) {
                 bodyIntentOutcome = { status: "applied" };
               }
@@ -1296,7 +1334,11 @@ const updateDocumentAction = defineAction({
               settlesPreviewDraft &&
               args.editorSnapshotTitle !== undefined &&
               args.editorSnapshotContent !== undefined &&
-              snapshot.title === args.editorSnapshotTitle &&
+              // A title the editor never edited is not lost when a peer's
+              // rename replaced it.
+              (snapshot.title === args.editorSnapshotTitle ||
+                (args.title === undefined &&
+                  args.editorSnapshotTitleBase === args.editorSnapshotTitle)) &&
               (snapshot.content === args.editorSnapshotContent ||
                 bodyIntentOutcome?.status === "applied" ||
                 bodyIntentOutcome?.status === "displaced-preserved")
@@ -1569,6 +1611,7 @@ const updateDocumentAction = defineAction({
             ? await lockPrimaryBlocksFields(
                 tx as unknown as ReturnType<typeof getDb>,
                 id,
+                { heldMembershipIds: lockedMembershipIds },
               )
             : [];
           const applied = await commitCanonicalDocumentBodyMutation({
@@ -1576,7 +1619,10 @@ const updateDocumentAction = defineAction({
               if (
                 intentMerge ||
                 (useBodyRevisionCas && lockedContentChanged) ||
-                (useDocumentCas && !liveCopyBodySave)
+                // Peers' live-copy commits move updatedAt, so on a live-copy
+                // save the snapshot guards only the fields it still writes.
+                (useDocumentCas &&
+                  (!liveCopyBodySave || lockedDocumentFieldsChanged))
               ) {
                 const rows = await tx
                   .update(schema.documents)
@@ -1783,6 +1829,7 @@ const updateDocumentAction = defineAction({
                 content,
                 ownerEmail,
                 now: updatedAt,
+                lockedDatabaseIds,
               });
           }
           if (

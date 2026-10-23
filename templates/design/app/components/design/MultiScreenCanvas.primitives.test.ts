@@ -308,7 +308,32 @@ describe("board surface pointer capture", () => {
     expect(content).toContain('data-agent-native-node-id="right"');
     expect(content).not.toMatch(/<script|onload=|<iframe|<object|<embed/i);
     expect(content).not.toMatch(/<audio|<video|autoplay|http-equiv="refresh"/i);
-    expect(content).not.toMatch(/<link|<meta|<base|@import/i);
+    expect(content).not.toMatch(/<link|<base|@import/i);
+    const previewDocument = new DOMParser().parseFromString(
+      content,
+      "text/html",
+    );
+    expect(previewDocument.querySelectorAll("meta")).toHaveLength(2);
+    const nonce = previewDocument
+      .querySelector('meta[name="an-native-static-script-nonce"]')
+      ?.getAttribute("content");
+    expect(nonce).toBeTruthy();
+    expect(
+      previewDocument
+        .querySelector('meta[http-equiv="Content-Security-Policy"]')
+        ?.getAttribute("content")
+        ?.split("; "),
+    ).toEqual([
+      "default-src 'none'",
+      `script-src 'nonce-${nonce}'`,
+      "style-src 'unsafe-inline'",
+      "img-src https: data: blob:",
+      "font-src https: data:",
+      "connect-src 'none'",
+      "frame-src 'none'",
+      "object-src 'none'",
+      "base-uri 'none'",
+    ]);
     expect(content).not.toMatch(/url\(\s*["']?data:/i);
     expect(content).not.toMatch(/url\(\s*["']?blob:/i);
     expect(content).toContain("url(https://example.test/bg.png)");

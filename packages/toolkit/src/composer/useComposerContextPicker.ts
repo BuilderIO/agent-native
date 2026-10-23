@@ -79,7 +79,14 @@ export type ComposerContextPickerConfig = {
 ) &
   (
     | {
-        presentation?: "submenu" | { type: "dialog"; mode: "single" | "url" };
+        presentation?:
+          | "submenu"
+          | { type: "dialog"; mode: "url" }
+          | {
+              type: "dialog";
+              mode: "single";
+              layout?: "list" | "gallery";
+            };
         onSelect: (
           item: ComposerContextPickerItem,
           request: ComposerContextPickerRequest,

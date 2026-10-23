@@ -35,6 +35,7 @@ const {
   ensureSuggestionTables,
   insertSuggestion,
   getSuggestion,
+  getSuggestions,
   listSuggestions,
   getSuggestionByCreationKey,
   recordSuggestionCreation,
@@ -43,8 +44,12 @@ const {
   __resetSuggestionTablesForTests,
 } = await import("./store.js");
 
+const { __resetStoreLedgerSnapshotForTests } =
+  await import("../../db/store-registry.js");
+
 beforeEach(async () => {
   pglite = await createTestPglite();
+  __resetStoreLedgerSnapshotForTests();
   __resetSuggestionTablesForTests();
   await ensureSuggestionTables();
 });
@@ -259,5 +264,33 @@ describe("suggestion store", () => {
       suggestions.map((suggestion) => suggestion.operations[0]?.after),
     ).toEqual(["new", "newer"]);
     expect(rawClient.execute).toHaveBeenCalledOnce();
+  });
+
+  it("loads several suggestions by id in two queries, in the order asked", async () => {
+    const first = await insertSuggestion(input);
+    const second = await insertSuggestion({
+      ...input,
+      threadId: "thread-2",
+      summary: "Second suggestion",
+      operations: [
+        { ...input.operations[0], ordinal: 1, after: "newest" },
+        { ...input.operations[0], ordinal: 0, after: "newer" },
+      ],
+    });
+    const expected = [
+      await getSuggestion(second.id),
+      null,
+      await getSuggestion(first.id),
+    ];
+    rawClient.execute.mockClear();
+
+    const loaded = await getSuggestions([second.id, "missing", first.id]);
+
+    expect(loaded).toEqual(expected);
+    expect(loaded[0]?.operations.map((operation) => operation.after)).toEqual([
+      "newer",
+      "newest",
+    ]);
+    expect(rawClient.execute).toHaveBeenCalledTimes(2);
   });
 });
