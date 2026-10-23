@@ -100,6 +100,7 @@ let deleteDocumentProperty: typeof import("./delete-document-property.js").defau
 let replaceHistoricalIconIfUnchanged: typeof import("../scripts/historical-icon-apply.js").replaceHistoricalIconIfUnchanged;
 let syncLocalFolder: typeof import("./sync-local-folder-source.js").default;
 let disconnectLocalFolder: typeof import("./disconnect-local-folder-source.js").default;
+let resolveLocalFolderConflict: typeof import("./resolve-local-folder-conflict.js").default;
 let contentFilesItemId: typeof import("./_content-files.js").contentFilesItemId;
 let processBuilderBodyHydrationQueue: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
 
@@ -164,6 +165,9 @@ beforeAll(async () => {
   syncLocalFolder = (await import("./sync-local-folder-source.js")).default;
   disconnectLocalFolder = (await import("./disconnect-local-folder-source.js"))
     .default;
+  resolveLocalFolderConflict = (
+    await import("./resolve-local-folder-conflict.js")
+  ).default;
   ({ contentFilesItemId } = await import("./_content-files.js"));
   ({ processBuilderBodyHydrationQueue } =
     await import("./_database-source-utils.js"));
@@ -2746,6 +2750,123 @@ describe.skipIf(!POSTGRES_URL)(
             first: (tx) => lockDatabaseMemberships(tx, [seed.ids.filesItem]),
             second: (tx) => touchPage(tx, seed.ids.page),
             run: seed.sync,
+          };
+        });
+      }, 120_000);
+
+      it("disconnecting a folder against a sync of it that adds a page", async () => {
+        await runCycle(async () => {
+          const seed = await seedFolderDisconnect();
+          const added = `${seed.key}_p3`;
+          const folder = seed.ids.disconnected;
+          return {
+            // sync-local-folder-source: the folder's source, then its pages,
+            // a new file's page, and each file's source row.
+            first: (tx) =>
+              tx
+                .update(schema.contentDatabaseSources)
+                .set({ updatedAt: STAMP })
+                .where(eq(schema.contentDatabaseSources.id, folder)),
+            second: async (tx) => {
+              await lockDocumentRows(tx, [seed.ids.relinked, seed.ids.cleared]);
+              await tx.insert(schema.documents).values(
+                pageValues(added, null, "Added page", {
+                  spaceId: seed.ids.space,
+                  sourceMode: "local-files",
+                  sourceKind: "file",
+                  sourcePath: "added.md",
+                  sourceRootPath: `${seed.key}_folder_a`,
+                }),
+              );
+              await tx
+                .update(schema.contentDatabaseSourceRows)
+                .set({ updatedAt: STAMP })
+                .where(
+                  eq(
+                    schema.contentDatabaseSourceRows.id,
+                    `${folder}_${seed.ids.relinked}`,
+                  ),
+                );
+              await tx.insert(schema.contentDatabaseSourceRows).values({
+                id: `${folder}_${added}`,
+                ownerEmail: OWNER,
+                sourceId: folder,
+                databaseItemId: `${added}_item`,
+                documentId: added,
+                sourceRowId: "added.md",
+                sourceQualifiedId: `${folder}:added.md`,
+                sourceDisplayKey: "added.md",
+                sourceValuesJson: JSON.stringify({ relativePath: "added.md" }),
+                createdAt: STAMP,
+                updatedAt: STAMP,
+              });
+            },
+            run: async () => {
+              await seed.disconnect();
+              expect(await readPage(added)).toMatchObject({
+                sourceMode: "database",
+                sourcePath: null,
+                sourceRootPath: null,
+              });
+              expect(
+                await getDb()
+                  .select({ id: schema.contentDatabaseSourceRows.id })
+                  .from(schema.contentDatabaseSourceRows)
+                  .where(eq(schema.contentDatabaseSourceRows.sourceId, folder)),
+              ).toEqual([]);
+            },
+          };
+        });
+      }, 120_000);
+
+      it("resolving a folder conflict against a disconnect of the folder", async () => {
+        await runCycle(async () => {
+          const seed = await seedFolderDisconnect();
+          const folder = seed.ids.disconnected;
+          const changeSetId = `${seed.key}_conflict`;
+          await getDb()
+            .insert(schema.contentDatabaseSourceChangeSets)
+            .values({
+              id: changeSetId,
+              ownerEmail: OWNER,
+              sourceId: folder,
+              documentId: seed.ids.cleared,
+              summary: "Folder edit",
+              bodyChangeJson: JSON.stringify({ proposedHash: "folder-edit" }),
+              createdAt: STAMP,
+              updatedAt: STAMP,
+            });
+          return {
+            // disconnect-local-folder-source: the folder's source, then its
+            // change sets, source rows and the source itself.
+            first: (tx) =>
+              tx.execute(
+                sql`SELECT id FROM content_database_sources WHERE id = ${folder} FOR UPDATE`,
+              ),
+            second: async (tx) => {
+              await tx
+                .delete(schema.contentDatabaseSourceChangeSets)
+                .where(
+                  eq(schema.contentDatabaseSourceChangeSets.sourceId, folder),
+                );
+              await tx
+                .delete(schema.contentDatabaseSourceRows)
+                .where(eq(schema.contentDatabaseSourceRows.sourceId, folder));
+              await tx
+                .delete(schema.contentDatabaseSources)
+                .where(eq(schema.contentDatabaseSources.id, folder));
+            },
+            run: () =>
+              expect(
+                asOwner(() =>
+                  resolveLocalFolderConflict.run({
+                    changeSetId,
+                    decision: "keep_content",
+                  }),
+                ),
+              ).rejects.toMatchObject({
+                errorCode: "LOCAL_FOLDER_SOURCE_DISCONNECTED",
+              }),
           };
         });
       }, 120_000);

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -49,6 +49,27 @@ export default defineAction({
     const deletedBlobReferences = new Set<string>();
 
     await db.transaction(async (tx: any) => {
+      // The folder's source first, as its sync and conflict resolution claim
+      // it: a sync that holds it may still add rows this has to read.
+      const [locked] = await tx
+        .select({ id: schema.contentDatabaseSources.id })
+        .from(schema.contentDatabaseSources)
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, sourceId),
+            eq(
+              schema.contentDatabaseSources.sourceType,
+              LOCAL_FOLDER_SOURCE_TYPE,
+            ),
+          ),
+        )
+        .for("update");
+      if (!locked) {
+        throw new ActionContractError(
+          `Local folder source "${sourceId}" was disconnected while this disconnect waited for it.`,
+          { errorCode: "LOCAL_FOLDER_SOURCE_DISCONNECTED", statusCode: 409 },
+        );
+      }
       const rows = await tx
         .select({ documentId: schema.contentDatabaseSourceRows.documentId })
         .from(schema.contentDatabaseSourceRows)
@@ -103,8 +124,8 @@ export default defineAction({
       await tx
         .delete(schema.contentDatabaseSources)
         .where(eq(schema.contentDatabaseSources.id, sourceId));
-      // The pages after the source a sync claims first, and in id order, as
-      // the sync takes them: the updates below would lock them in scan order.
+      // The pages in id order, as a sync takes them: the updates below would
+      // lock them in scan order.
       await lockDocumentRows(tx, documentIds);
       type RemainingLocalRow = {
         documentId: string;

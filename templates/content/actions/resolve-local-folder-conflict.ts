@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -178,6 +178,28 @@ export default defineAction({
 
     const now = new Date().toISOString();
     await db.transaction(async (tx: any) => {
+      // The folder's source before its change set, as a sync and a
+      // disconnect take them: a disconnect deletes the folder's change sets.
+      const claimedSources = await tx
+        .update(schema.contentDatabaseSources)
+        .set({ updatedAt: now })
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, target.source.id),
+            eq(schema.contentDatabaseSources.databaseId, target.database.id),
+            eq(
+              schema.contentDatabaseSources.sourceType,
+              LOCAL_FOLDER_SOURCE_TYPE,
+            ),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSources.id });
+      if (claimedSources.length !== 1) {
+        throw new ActionContractError(
+          `Local folder source "${target.source.id}" was disconnected before resolution.`,
+          { errorCode: "LOCAL_FOLDER_SOURCE_DISCONNECTED", statusCode: 409 },
+        );
+      }
       const claimedChangeSets = await tx
         .update(schema.contentDatabaseSourceChangeSets)
         .set({
@@ -198,25 +220,6 @@ export default defineAction({
       if (claimedChangeSets.length !== 1) {
         throw new Error(
           `Open local-folder conflict "${changeSetId}" changed before resolution`,
-        );
-      }
-      const claimedSources = await tx
-        .update(schema.contentDatabaseSources)
-        .set({ updatedAt: now })
-        .where(
-          and(
-            eq(schema.contentDatabaseSources.id, target.source.id),
-            eq(schema.contentDatabaseSources.databaseId, target.database.id),
-            eq(
-              schema.contentDatabaseSources.sourceType,
-              LOCAL_FOLDER_SOURCE_TYPE,
-            ),
-          ),
-        )
-        .returning({ id: schema.contentDatabaseSources.id });
-      if (claimedSources.length !== 1) {
-        throw new Error(
-          `Local folder source "${target.source.id}" was disconnected before resolution`,
         );
       }
       if (decision === "accept_source" && sourceDeletion) {
