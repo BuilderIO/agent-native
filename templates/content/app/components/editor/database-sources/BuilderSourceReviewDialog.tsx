@@ -56,16 +56,36 @@ export type BuilderReviewSelection = {
   transitions: BuilderReviewPublicationTransitions;
 };
 
+// Keys under `database.`.
 const EFFECT_LABELS: Record<
   BuilderCmsWriteEffect,
-  { tag: string; sentence: string }
+  { tagKey: string; sentenceKey: string }
 > = {
-  create_draft: { tag: "New", sentence: "Creates a new draft entry" },
-  update_in_place: { tag: "Edit", sentence: "Updates the live entry" },
-  autosave: { tag: "Draft", sentence: "Saves a draft revision" },
-  save_draft: { tag: "Draft", sentence: "Saves the draft" },
-  publish: { tag: "Publish", sentence: "Publishes this entry" },
-  unpublish: { tag: "Unpublish", sentence: "Unpublishes the live entry" },
+  create_draft: {
+    tagKey: "builderEffectNewTag",
+    sentenceKey: "builderEffectNewSentence",
+  },
+  update_in_place: {
+    tagKey: "builderEffectEditTag",
+    sentenceKey: "builderEffectEditSentence",
+  },
+  // An autosave lands on a published entry; it stays as Builder shows it.
+  autosave: {
+    tagKey: "builderEffectSaveTag",
+    sentenceKey: "builderEffectAutosaveSentence",
+  },
+  save_draft: {
+    tagKey: "builderEffectSaveTag",
+    sentenceKey: "builderEffectSaveDraftSentence",
+  },
+  publish: {
+    tagKey: "builderEffectPublishTag",
+    sentenceKey: "builderEffectPublishSentence",
+  },
+  unpublish: {
+    tagKey: "builderEffectUnpublishTag",
+    sentenceKey: "builderEffectUnpublishSentence",
+  },
 };
 
 export function builderReviewRowEffectLabel(effect: BuilderCmsWriteEffect) {
@@ -656,7 +676,7 @@ export function BuilderSourceReviewDialog({
                       row.effect,
                       selection,
                     );
-                    const { tag, sentence } =
+                    const { tagKey, sentenceKey } =
                       builderReviewRowEffectLabel(effect);
                     const showConflict =
                       effect !== "create_draft" &&
@@ -686,7 +706,7 @@ export function BuilderSourceReviewDialog({
                               </div>
                             ) : null}
                             <div className="mt-1 text-xs text-muted-foreground">
-                              {sentence}
+                              {t(`database.${sentenceKey}`)}
                             </div>
                           </div>
                           <span
@@ -695,7 +715,7 @@ export function BuilderSourceReviewDialog({
                               rowEffectTagClass(effect)
                             }
                           >
-                            {tag}
+                            {t(`database.${tagKey}`)}
                           </span>
                         </div>
                         <div className="mt-3 grid gap-2">

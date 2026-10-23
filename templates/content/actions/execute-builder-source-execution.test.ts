@@ -2770,6 +2770,84 @@ describe("Builder unpublished saves", () => {
     );
   });
 
+  it("stores the entry's publication state once the write lands", () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      rows: [publishedRow()],
+      changeSets: [approvedChangeSet],
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      pushModeConfirmation: "draft",
+    });
+    const publishedAfter = (args: {
+      effect: (typeof plan)["payload"]["effect"];
+      existing: string;
+      livePublished?: string;
+      responseBody?: unknown;
+    }) =>
+      JSON.parse(
+        builderCmsReconciledSourceValuesJson({
+          existingSourceValuesJson: JSON.stringify({
+            published: args.existing,
+          }),
+          snapshotSourceValues: undefined,
+          changeSet: approvedChangeSet,
+          plan: {
+            ...plan,
+            payload: {
+              ...plan.payload,
+              effect: args.effect,
+              ...(args.livePublished
+                ? {
+                    livePreflight: {
+                      checkedAt: NOW,
+                      exists: true,
+                      id: "builder-entry-1",
+                      published: args.livePublished,
+                      lastUpdated: BUILDER_LAST_UPDATED_MS,
+                      blocksHash: null,
+                      hasAutosaves: null,
+                      values: {},
+                    },
+                  }
+                : {}),
+            },
+          },
+          responseBody: args.responseBody,
+        }),
+      ).published;
+
+    expect(publishedAfter({ effect: "publish", existing: "draft" })).toBe(
+      "published",
+    );
+    expect(publishedAfter({ effect: "unpublish", existing: "published" })).toBe(
+      "draft",
+    );
+    // A draft save can land on an entry someone published since the refresh.
+    expect(
+      publishedAfter({
+        effect: "save_draft",
+        existing: "draft",
+        livePublished: "draft",
+        responseBody: { published: "published" },
+      }),
+    ).toBe("published");
+    // Builder's reply to an autosave describes the autosave, not the entry.
+    expect(
+      publishedAfter({
+        effect: "autosave",
+        existing: "draft",
+        livePublished: "published",
+        responseBody: { published: "draft" },
+      }),
+    ).toBe("published");
+    expect(publishedAfter({ effect: "save_draft", existing: "draft" })).toBe(
+      "draft",
+    );
+  });
+
   it("takes a live write's fields out of the record, even from a response stored without live values", () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
     const builderSource = source({

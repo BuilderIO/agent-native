@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { messagesByLocale } from "../../../i18n-data";
 import {
   builderReviewDestinationLine,
   builderReviewEffectiveRowEffect,
@@ -14,11 +15,26 @@ import {
 describe("BuilderSourceReviewDialog publication intent helpers", () => {
   it("labels each write effect in plain language", () => {
     expect(builderReviewRowEffectLabel("create_draft")).toEqual({
-      tag: "New",
-      sentence: "Creates a new draft entry",
+      tagKey: "builderEffectNewTag",
+      sentenceKey: "builderEffectNewSentence",
     });
-    expect(builderReviewRowEffectLabel("update_in_place").tag).toBe("Edit");
-    expect(builderReviewRowEffectLabel("unpublish").tag).toBe("Unpublish");
+    expect(builderReviewRowEffectLabel("update_in_place").tagKey).toBe(
+      "builderEffectEditTag",
+    );
+    expect(builderReviewRowEffectLabel("unpublish").tagKey).toBe(
+      "builderEffectUnpublishTag",
+    );
+    // Saving to a published entry doesn't make it a draft in Builder.
+    expect(builderReviewRowEffectLabel("autosave")).toEqual({
+      tagKey: "builderEffectSaveTag",
+      sentenceKey: "builderEffectAutosaveSentence",
+    });
+    expect(
+      messagesByLocale["en-US"].database.builderEffectAutosaveSentence,
+    ).toBe("Saved, not live until you publish in Builder");
+    expect(
+      messagesByLocale["en-US"].database.builderEffectSaveDraftSentence,
+    ).toBe("Saves the draft");
   });
 
   it("lets a chosen transition override the base effect", () => {

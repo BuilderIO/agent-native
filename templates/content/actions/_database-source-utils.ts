@@ -116,6 +116,10 @@ import {
 } from "./_builder-cms-unpublished-changes.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
 import { assertNoActiveBuilderSourceExecutions } from "./_builder-source-execution-guard.js";
+import {
+  clearBuilderStatusValues,
+  writeBuilderStatusValues,
+} from "./_builder-status-property.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import {
@@ -2355,6 +2359,16 @@ async function processBuilderBodyHydrationJob(
               ),
             ),
           );
+        await writeBuilderStatusValues(tx, {
+          sourceId: row.sourceId,
+          rows: [
+            {
+              documentId: row.documentId,
+              sourceValues: writtenEntry.sourceValues,
+            },
+          ],
+          now,
+        });
         await tx
           .update(schema.contentDatabaseItems)
           .set({
@@ -2614,6 +2628,13 @@ async function processBuilderBodyHydrationJob(
       }
       return;
     }
+    await writeBuilderStatusValues(tx, {
+      sourceId: row.sourceId,
+      rows: [
+        { documentId: row.documentId, sourceValues: writtenEntry.sourceValues },
+      ],
+      now,
+    });
     await tx
       .update(schema.contentDatabaseItems)
       .set({
@@ -2643,6 +2664,7 @@ type PreparedPristineBuilderBodyHydration = {
   sourceRow: ContentDatabaseSourceRecordRowDb;
   documentContent: string;
   content: string;
+  sourceValues: Record<string, DocumentPropertyValue>;
   sourceValuesJson: string;
   lastSourceUpdatedAt: string;
   bodyHydrationVersion: string;
@@ -2736,6 +2758,7 @@ async function preparePristineBuilderBodyHydration(args: {
     sourceRow,
     documentContent: documentContent ?? "",
     content,
+    sourceValues: nextValues,
     sourceValuesJson: JSON.stringify(nextValues),
     lastSourceUpdatedAt: entryWithBody.updatedAt ?? new Date().toISOString(),
     bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
@@ -2901,6 +2924,18 @@ async function persistPristineBuilderBodyHydrationsInBulk(
           throw new PristineBuilderBodyHydrationCasMiss(
             "Builder body hydration item changed.",
           );
+        }
+        for (const sourceId of new Set(batch.map((row) => row.job.sourceId))) {
+          await writeBuilderStatusValues(tx, {
+            sourceId,
+            rows: batch
+              .filter((row) => row.job.sourceId === sourceId)
+              .map((row) => ({
+                documentId: row.job.documentId,
+                sourceValues: row.sourceValues,
+              })),
+            now,
+          });
         }
       });
       for (const row of batch) persistedJobIds.add(row.job.id);
@@ -5628,6 +5663,11 @@ export async function seedMockSourceFields(args: {
 }) {
   const db = getDb();
   const isBuilder = args.sourceType === "builder-cms";
+  // Content keeps the Builder status itself; mapped to a field, a refresh
+  // would overwrite it and a save would send it to Builder.
+  const mappableProperties = args.properties.filter(
+    (property) => property.definition.systemRole !== "builder_status",
+  );
   const builderModelFieldBySourceKey = new Map(
     (args.builderModelFields ?? []).map((field) => [
       `data.${field.name.trim()}`,
@@ -5713,10 +5753,10 @@ export async function seedMockSourceFields(args: {
     },
     ...(isBuilder
       ? builderSourcePropertyAssignments({
-          properties: args.properties,
+          properties: mappableProperties,
           existingFields: args.existingFields,
         })
-      : args.properties.map((property) => ({
+      : mappableProperties.map((property) => ({
           property,
           sourceFieldKey: `fields.${slugifySourceField(property.definition.name)}`,
         }))
@@ -5902,6 +5942,25 @@ export async function seedMockSourceRows(args: {
     );
     await insertMockSourceRows(tx, rows, args.now);
   });
+  if (args.sourceType === "builder-cms") {
+    await writeBuilderStatusValues(db, {
+      sourceId: args.sourceId,
+      rows: builderStatusRows(rows),
+      now: args.now,
+      createProperty: true,
+    });
+  }
+}
+
+function builderStatusRows(
+  rows: Array<{ documentId: string; sourceValuesJson: string }>,
+) {
+  return rows.map((row) => ({
+    documentId: row.documentId,
+    sourceValues: parseObject<Record<string, DocumentPropertyValue>>(
+      row.sourceValuesJson,
+    ),
+  }));
 }
 
 function mockSourceRowsForSeed(args: {
@@ -6035,6 +6094,7 @@ export async function replaceMockSourceRows(args: {
     const oldRows = await tx
       .select({
         databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+        documentId: schema.contentDatabaseSourceRows.documentId,
       })
       .from(schema.contentDatabaseSourceRows)
       .where(scope);
@@ -6044,7 +6104,33 @@ export async function replaceMockSourceRows(args: {
     ]);
     await tx.delete(schema.contentDatabaseSourceRows).where(scope);
     await insertMockSourceRows(tx, rows, args.now);
+    if (args.sourceType === "builder-cms") {
+      const keptDocumentIds = new Set(rows.map((row) => row.documentId));
+      const [source] = await tx
+        .select({ databaseId: schema.contentDatabaseSources.databaseId })
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+      if (source) {
+        await clearBuilderStatusValues(tx, {
+          databaseId: source.databaseId,
+          documentIds: oldRows
+            .map((row) => row.documentId)
+            .filter(
+              (documentId): documentId is string =>
+                !!documentId && !keptDocumentIds.has(documentId),
+            ),
+        });
+      }
+    }
   });
+  if (args.sourceType === "builder-cms") {
+    await writeBuilderStatusValues(db, {
+      sourceId: args.sourceId,
+      rows: builderStatusRows(rows),
+      now: args.now,
+      createProperty: true,
+    });
+  }
 }
 
 export function sourceValuesForSeededSourceRow(args: {
@@ -7402,6 +7488,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
             id: schema.contentDatabaseSourceRows.id,
             sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
             databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+            documentId: schema.contentDatabaseSourceRows.documentId,
           })
           .from(schema.contentDatabaseSourceRows)
           .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
@@ -7419,6 +7506,12 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
             .delete(schema.contentDatabaseSourceRows)
             .where(inArray(schema.contentDatabaseSourceRows.id, idChunk));
         }
+        await clearBuilderStatusValues(tx, {
+          databaseId: args.database.id,
+          documentIds: staleRows
+            .map((row) => row.documentId)
+            .filter((documentId): documentId is string => !!documentId),
+        });
       });
     }
 

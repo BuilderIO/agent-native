@@ -277,6 +277,18 @@ const database = {
   noBuilderWrites: "Sin escrituras en Builder.",
   stageOnly: "Solo preparar",
   savesDraftsNeverPublishes: "Guarda borradores en Builder — nunca publica.",
+  builderEffectNewTag: "Nuevo",
+  builderEffectNewSentence: "Crea una nueva entrada en borrador",
+  builderEffectEditTag: "Editar",
+  builderEffectEditSentence: "Actualiza la entrada publicada",
+  builderEffectSaveTag: "Guardar",
+  builderEffectAutosaveSentence:
+    "Guardado, no se publica hasta que publiques en Builder",
+  builderEffectSaveDraftSentence: "Guarda el borrador",
+  builderEffectPublishTag: "Publicar",
+  builderEffectPublishSentence: "Publica esta entrada",
+  builderEffectUnpublishTag: "Despublicar",
+  builderEffectUnpublishSentence: "Despublica la entrada publicada",
   publishUpdates: "Publicar actualizaciones",
   writesUpdatesToLiveEntries:
     "Escribe actualizaciones en las entradas en vivo.",

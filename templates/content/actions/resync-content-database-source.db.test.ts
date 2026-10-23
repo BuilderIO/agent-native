@@ -5539,8 +5539,40 @@ it("lets an empty body Builder published replace a saved body through hydration"
     createdAt: now,
     updatedAt: now,
   });
+  const { builderStatusPropertyId, writeBuilderStatusValues } =
+    await import("./_builder-status-property.js");
+  const builderStatus = async () => {
+    const [value] = await db
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(
+            schema.documentPropertyValues.propertyId,
+            builderStatusPropertyId(databaseId),
+          ),
+          eq(schema.documentPropertyValues.documentId, documentId),
+        ),
+      );
+    return value ? JSON.parse(value.valueJson) : null;
+  };
+  const [savedRow] = await db
+    .select({
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.id, "row_published_empty_body"));
+  await writeBuilderStatusValues(db, {
+    sourceId,
+    rows: [{ documentId, sourceValues: JSON.parse(savedRow.sourceValuesJson) }],
+    now,
+    createProperty: true,
+  });
+  expect(await builderStatus()).toBe("unpublished_changes");
 
   await hydrateQueuedBodies({ sourceId, limit: 1 });
+  // Builder's publish replaced Content's saved changes.
+  expect(await builderStatus()).toBe("published");
 
   const [after] = await db
     .select({

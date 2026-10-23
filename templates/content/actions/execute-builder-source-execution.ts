@@ -73,6 +73,7 @@ import {
   executeBuilderCmsWrite,
 } from "./_builder-cms-write-client.js";
 import { createBuilderSourceTiming } from "./_builder-source-timings.js";
+import { writeBuilderStatusValues } from "./_builder-status-property.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -438,17 +439,46 @@ function parseSourceValues(
   }
 }
 
+/**
+ * The entry's publication state once the write landed. An autosave leaves the
+ * entry as the live check found it; Builder's reply describes the autosave.
+ * Otherwise Builder's reply wins: a draft save can land on an entry published
+ * since the check.
+ */
+function builderCmsPublishedAfterWrite(args: {
+  effect: BuilderCmsExecutionPayload["effect"];
+  livePublished: string | null | undefined;
+  responseBody: unknown;
+}) {
+  if (args.effect === "publish") return "published";
+  if (args.effect === "unpublish" || args.effect === "create_draft") {
+    return "draft";
+  }
+  if (args.effect !== "autosave") {
+    const replied = builderCmsResponseValue(args.responseBody, ["published"]);
+    if (typeof replied === "string") return replied;
+  }
+  return args.livePublished ?? null;
+}
+
 export function builderCmsReconciledSourceValuesJson(args: {
   existingSourceValuesJson: string | null | undefined;
   snapshotSourceValues: Record<string, DocumentPropertyValue> | undefined;
   changeSet: ContentDatabaseSourceChangeSet;
   plan: BuilderCmsExecutionPlan;
+  responseBody?: unknown;
 }) {
   const existing = {
     ...(args.snapshotSourceValues ?? {}),
     ...parseSourceValues(args.existingSourceValuesJson),
   };
   const next = { ...existing };
+  const published = builderCmsPublishedAfterWrite({
+    effect: args.plan.payload.effect,
+    livePublished: args.plan.payload.livePreflight?.published,
+    responseBody: args.responseBody,
+  });
+  if (published) next.published = published;
   for (const field of args.changeSet.fieldChanges) {
     next[field.sourceFieldKey] = field.proposedValue;
   }
@@ -869,6 +899,7 @@ async function reconcileBuilderCmsWrite(args: {
       snapshotSourceValues: snapshotRow?.sourceValues,
       changeSet: args.changeSet,
       plan: args.plan,
+      responseBody: args.writeResult.responseBody,
     });
     const patchWithValues = {
       ...patch,
@@ -894,6 +925,16 @@ async function reconcileBuilderCmsWrite(args: {
         "Builder write succeeded, but the local source row was missing.",
       );
     }
+    await writeBuilderStatusValues(tx, {
+      sourceId: args.source.id,
+      rows: [
+        {
+          documentId: row?.documentId ?? args.changeSet.documentId,
+          sourceValues: parseSourceValues(sourceValuesJson),
+        },
+      ],
+      now: args.now,
+    });
 
     await tx
       .update(schema.contentDatabaseSourceFields)

@@ -280,6 +280,18 @@ const database = {
   stageOnly: "Nur bereitstellen",
   savesDraftsNeverPublishes:
     "Speichert Entwürfe in Builder — veröffentlicht nie.",
+  builderEffectNewTag: "Neu",
+  builderEffectNewSentence: "Erstellt einen neuen Entwurfseintrag",
+  builderEffectEditTag: "Bearbeiten",
+  builderEffectEditSentence: "Aktualisiert den Live-Eintrag",
+  builderEffectSaveTag: "Speichern",
+  builderEffectAutosaveSentence:
+    "Gespeichert, aber erst live, wenn Sie in Builder veröffentlichen",
+  builderEffectSaveDraftSentence: "Speichert den Entwurf",
+  builderEffectPublishTag: "Veröffentlichen",
+  builderEffectPublishSentence: "Veröffentlicht diesen Eintrag",
+  builderEffectUnpublishTag: "Zurückziehen",
+  builderEffectUnpublishSentence: "Zieht den Live-Eintrag zurück",
   publishUpdates: "Updates veröffentlichen",
   writesUpdatesToLiveEntries: "Schreibt Updates in Live-Einträge.",
   sourcesFeedingThisColumn: "Quellen, die diese Spalte speisen",

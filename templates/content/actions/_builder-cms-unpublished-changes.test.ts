@@ -776,6 +776,12 @@ describe("Builder unpublished changes", () => {
         ),
       ),
     ).toBe("unpublished_changes");
+    expect(
+      builderCmsEntryStatus({
+        published: "published",
+        [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: "{not json",
+      }),
+    ).toBe("unpublished_changes");
     expect(builderCmsEntryStatus({ published: "archived" })).toBeNull();
     expect(builderCmsEntryStatus(undefined)).toBeNull();
   });

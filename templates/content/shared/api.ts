@@ -292,7 +292,8 @@ export interface DocumentPropertyDefinition {
 export type DocumentPropertySystemRole =
   | "files_kind"
   | "files_parent"
-  | "files_source";
+  | "files_source"
+  | "builder_status";
 
 /** A linked row of a relation property, resolved for the current viewer. */
 export interface DocumentPropertyRelationTarget {

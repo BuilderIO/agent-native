@@ -192,7 +192,8 @@ export function withBuilderCmsUnpublishedChanges(
 
 /**
  * Builder's own status words for an entry, as its content list shows them.
- * Unpublished changes are Content's saves or Builder's own autosaves.
+ * Unpublished changes are Content's saves or Builder's own autosaves. An
+ * unreadable record still means Content saved some, so it counts too.
  */
 export function builderCmsEntryStatus(
   sourceValues: Record<string, DocumentPropertyValue> | null | undefined,
@@ -200,7 +201,7 @@ export function builderCmsEntryStatus(
   const published = sourceValues?.published;
   if (published === "draft") return "draft";
   if (published !== "published") return null;
-  return readBuilderCmsUnpublishedChanges(sourceValues).state === "pending" ||
+  return readBuilderCmsUnpublishedChanges(sourceValues).state !== "none" ||
     sourceValues?.[BUILDER_CMS_HAS_AUTOSAVES_KEY] === true
     ? "unpublished_changes"
     : "published";
