@@ -231,32 +231,21 @@ describe("summarizeMcpApproval", () => {
   });
 
   it("leaves out a field the summary already shows, and keeps one that says more", () => {
-    const summary = summarizeMcpApproval({
-      entry: undefined,
-      actionName: "send-email",
-      argumentsJson: JSON.stringify({
-        to: "ana@example.com, Bo <bo@example.com>",
-        cc: ["cy@example.com", { email: "dee@example.com" }],
-        attendees: [{ email: "eve@example.com", optional: true }],
-        start: "2026-10-22T14:00:00",
-        startTimeZone: "America/Los_Angeles",
-        timeZone: "America/New_York",
-      }),
-      labels,
+    const summarize = (args: Record<string, unknown>) =>
+      summarizeMcpApproval({
+        entry: undefined,
+        actionName: "send-email",
+        argumentsJson: JSON.stringify(args),
+        labels,
+      });
+    const summary = summarize({
+      cc: ["cy@example.com", { email: "dee@example.com" }],
+      start: "2026-10-22T14:00:00",
+      startTimeZone: "America/Los_Angeles",
+      timeZone: "America/New_York",
     });
-    expect(summary.recipients).toEqual([
-      "ana@example.com",
-      "bo@example.com",
-      "cy@example.com",
-      "dee@example.com",
-      "eve@example.com",
-    ]);
+    expect(summary.recipients).toEqual(["cy@example.com", "dee@example.com"]);
     expect(summary.fields).toEqual([
-      { label: "To", value: "ana@example.com, Bo <bo@example.com>" },
-      {
-        label: "Attendees",
-        value: '{"email":"eve@example.com","optional":true}',
-      },
       {
         label: "Start",
         value: "2026-10-22T14:00:00",
@@ -270,6 +259,48 @@ describe("summarizeMcpApproval", () => {
     ]);
     expect(summary.details).toContain('"cc"');
     expect(summary.details).toContain('"startTimeZone"');
+
+    expect(
+      summarize({ to: "ana@example.com, Bo <bo@example.com>" }).fields,
+    ).toEqual([{ label: "To", value: "ana@example.com, Bo <bo@example.com>" }]);
+    expect(
+      summarize({
+        attendees: [{ email: "eve@example.com", optional: true }],
+      }).fields,
+    ).toEqual([
+      {
+        label: "Attendees",
+        value: '{"email":"eve@example.com","optional":true}',
+      },
+    ]);
+  });
+
+  it("keeps every recipient argument when a call names people under several", () => {
+    const summarize = (args: Record<string, unknown>) =>
+      summarizeMcpApproval({
+        entry: undefined,
+        actionName: "send-email",
+        argumentsJson: JSON.stringify(args),
+        labels,
+      });
+    const summary = summarize({
+      to: "ana@example.com",
+      cc: ["cy@example.com"],
+      bcc: [{ email: "dee@example.com" }],
+    });
+    expect(summary.recipients).toEqual([
+      "ana@example.com",
+      "cy@example.com",
+      "dee@example.com",
+    ]);
+    expect(summary.fields).toEqual([
+      { label: "To", value: "ana@example.com" },
+      { label: "Cc", value: "cy@example.com" },
+      { label: "Bcc", value: '{"email":"dee@example.com"}' },
+    ]);
+
+    // An argument that names no one doesn't count as another.
+    expect(summarize({ to: "ana@example.com", cc: [] }).fields).toEqual([]);
   });
 
   it("says a choice in words, with the schema's own title for it when there is one", () => {
@@ -301,6 +332,10 @@ describe("summarizeMcpApproval", () => {
                 items: { type: "string", enum: ["monday", "friday"] },
               },
               currency: { type: "string", enum: ["USD", "EUR"] },
+              timeZone: {
+                type: "string",
+                enum: ["America/New_York", "Europe/London"],
+              },
               shared: {
                 type: "boolean",
                 oneOf: [
@@ -321,6 +356,7 @@ describe("summarizeMcpApproval", () => {
         currency: "USD",
         shared: false,
         note: "all",
+        timeZone: "America/New_York",
       }),
       labels,
     });
@@ -332,7 +368,14 @@ describe("summarizeMcpApproval", () => {
       undefined,
       "Only me",
       undefined,
+      undefined,
     ]);
+    // A zone the schema lists isn't split into words; it reads by its name.
+    expect(summary.fields.at(-1)).toEqual({
+      label: "Time zone",
+      value: "America/New_York",
+      timeZone: "America/New_York",
+    });
   });
 
   it("reads a field's choice or zone in words, and any other value as written", () => {

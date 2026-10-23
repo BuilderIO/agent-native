@@ -43,8 +43,8 @@ export interface McpApprovalSummary {
   recipients: string[];
   /**
    * Every argument, each value whole, except one the summary already shows:
-   * a list of addresses `recipients` holds, or a zone a time below shows.
-   * `details` keeps them.
+   * the call's one recipient argument when it holds nothing but addresses,
+   * or a zone a time below shows. `details` keeps them.
    */
   fields: McpApprovalField[];
   /** The stored arguments, indented; undefined unless `stored`. */
@@ -65,6 +65,9 @@ const EMAIL = /^[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[^\s@<>(),;:]+$/;
 const ADDRESS_SEPARATOR = /[,;\n]/;
 const NAMED_ADDRESS = /^[^<>]*<([^<>]+)>$/;
 const TIME_ZONE_KEY = /time_?zone$|^tz$/i;
+// A choice written as an identifier (`externalOnly`, `high_priority`) reads
+// better split into words; `America/New_York` or `New York` doesn't.
+const IDENTIFIER = /^[A-Za-z][\w.-]*$/;
 // Stored arguments are no deeper (`audit/redact.ts`).
 const MAX_DEPTH = 6;
 // The in-client prompt is a short text; it says what it leaves out.
@@ -165,7 +168,8 @@ interface ChoiceSchema {
 /**
  * `value` in words when the argument's schema lists it as a choice: the
  * choice's own title or description, or else the value itself split into
- * words. A value with no lowercase letter (`USD`) stays as written.
+ * words. A value with no lowercase letter (`USD`), or one that isn't an
+ * identifier (`America/New_York`), stays as written.
  */
 function choiceText(
   value: unknown,
@@ -191,6 +195,7 @@ function choiceText(
   }
   return schema.enum?.includes(value) &&
     typeof value === "string" &&
+    IDENTIFIER.test(value) &&
     /[a-z]/.test(value)
     ? humanizeIdentifier(value)
     : undefined;
@@ -214,16 +219,31 @@ function collectEmails(value: unknown, into: Set<string>, depth: number) {
   }
 }
 
-function findRecipients(value: unknown, into: Set<string>, depth: number) {
-  if (depth > MAX_DEPTH || !value || typeof value !== "object") return;
+/** Adds every address the call names, and returns how many arguments name any. */
+function findRecipients(
+  value: unknown,
+  into: Set<string>,
+  depth: number,
+): number {
+  if (depth > MAX_DEPTH || !value || typeof value !== "object") return 0;
   if (Array.isArray(value)) {
-    for (const item of value) findRecipients(item, into, depth + 1);
-    return;
+    return value.reduce<number>(
+      (count, item) => count + findRecipients(item, into, depth + 1),
+      0,
+    );
   }
+  let count = 0;
   for (const [key, item] of Object.entries(value)) {
-    if (RECIPIENT_KEY.test(key)) collectEmails(item, into, depth + 1);
-    else findRecipients(item, into, depth + 1);
+    if (!RECIPIENT_KEY.test(key)) {
+      count += findRecipients(item, into, depth + 1);
+      continue;
+    }
+    const named = new Set<string>();
+    collectEmails(item, named, depth + 1);
+    for (const address of named) into.add(address);
+    if (named.size > 0) count++;
   }
+  return count;
 }
 
 // Where a call gives the zone for a time argument: beside it
@@ -330,7 +350,7 @@ export function summarizeMcpApproval(input: {
   }
   const cut = redactedArgsWereCut(args);
   const recipients = new Set<string>();
-  findRecipients(args, recipients, 0);
+  const recipientArguments = findRecipients(args, recipients, 0);
   const properties = entry?.tool.parameters?.properties ?? {};
   const fields: McpApprovalField[] = [];
   if (args && typeof args === "object" && !Array.isArray(args)) {
@@ -347,7 +367,15 @@ export function summarizeMcpApproval(input: {
     }
     for (const [key, value] of Object.entries(record)) {
       if (zonesShown.has(key)) continue;
-      if (RECIPIENT_KEY.test(key) && isOnlyAddresses(value)) continue;
+      // Reaches lists every address together, so beside another recipient
+      // argument (`to` and `bcc`) each row still says who is copied how.
+      if (
+        recipientArguments === 1 &&
+        RECIPIENT_KEY.test(key) &&
+        isOnlyAddresses(value)
+      ) {
+        continue;
+      }
       const readable = readableValue(value, labels);
       if (readable === undefined || readable === "") continue;
       const schema = properties[key] as
