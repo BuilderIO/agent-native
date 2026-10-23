@@ -68,13 +68,6 @@ function xmlText(value: string): string {
   );
 }
 
-function jsonForXml(value: unknown): string {
-  return JSON.stringify(value, null, 2)
-    .replace(/&/g, "\\u0026")
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e");
-}
-
 export function buildClipsCallEvidenceRecipe(input: {
   recordId: string;
   recordLabel?: string;
@@ -84,11 +77,6 @@ export function buildClipsCallEvidenceRecipe(input: {
     input.recordLabel?.trim() || "the selected CRM record",
   );
   const recordId = xmlText(input.recordId);
-  const automationBody = `Setting up CRM-to-Clips call automations isn't available yet. Do not define or enable a call automation for CRM record ${JSON.stringify(input.recordId)}.`;
-  const activationCall = {
-    agent: "clips",
-    message: `The ${automationName} setup request is unavailable. ${automationBody}`,
-  };
   return {
     id: CLIPS_CALL_EVIDENCE_RECIPE_ID,
     title: "Review new Clips calls",
