@@ -5812,18 +5812,36 @@ async function finalizeStaleRun(
   }
 }
 
+async function bumpRunThreadProjectionRetryOrder(runId: string): Promise<void> {
+  await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET thread_projection_retry_order = nextval('agent_run_projection_retry_order_seq')
+          WHERE id = ? AND thread_projection_pending IS TRUE`,
+    args: [runId],
+  });
+}
+
 async function projectRunThread(
   runId: string,
 ): Promise<"projected" | "deferred"> {
   const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
-  const disposition = await foldReapedRunIntoThread(runId);
+  let disposition: "projected" | "superseded" | "retry";
+  try {
+    disposition = await foldReapedRunIntoThread(runId);
+  } catch (error) {
+    try {
+      await bumpRunThreadProjectionRetryOrder(runId);
+    } catch (retryOrderError) {
+      throw new AggregateError(
+        [error, retryOrderError],
+        `Run ${runId} projection failed and its retry order could not be advanced`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
   if (disposition === "retry") {
-    await getDbExec().execute({
-      sql: `UPDATE agent_runs
-            SET thread_projection_retry_order = nextval('agent_run_projection_retry_order_seq')
-            WHERE id = ? AND thread_projection_pending IS TRUE`,
-      args: [runId],
-    });
+    await bumpRunThreadProjectionRetryOrder(runId);
     return "deferred";
   }
   await getDbExec().execute({

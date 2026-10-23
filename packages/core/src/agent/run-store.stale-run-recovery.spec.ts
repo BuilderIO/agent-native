@@ -769,6 +769,28 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect((await readRow(runId))?.thread_projection_pending).toBe(true);
   });
 
+  it("preserves thrown projection failures while keeping their markers", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn);
+    await pglite
+      .prepare(
+        "UPDATE agent_runs SET thread_projection_pending = TRUE WHERE id = ?",
+      )
+      .run(runId);
+    const foldError = new Error("projection fold failed");
+    foldReapedRunIntoThreadMock.mockRejectedValueOnce(foldError);
+
+    await expect(retryRunThreadProjection(runId)).rejects.toBe(foldError);
+    expect((await readRow(runId))?.thread_projection_pending).toBe(true);
+    const retryOrder = (await pglite
+      .prepare(
+        "SELECT thread_projection_retry_order FROM agent_runs WHERE id = ?",
+      )
+      .get(runId)) as { thread_projection_retry_order: number | null };
+    expect(retryOrder.thread_projection_retry_order).not.toBeNull();
+  });
+
   it("keeps a legacy-order recovery successor unclaimable and unreapable until predecessor projection finishes", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
@@ -1682,6 +1704,65 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
     );
     expect(
       (await readRow(`${deferredRunPrefix}1`))?.thread_projection_pending,
+    ).toBe(true);
+  });
+
+  it("does not let throwing projection folds starve later projections", async () => {
+    currentClient = makeRawClient(true);
+    const failedRunCount = 200;
+    const { runId, thread, turn } = ids();
+    const failedRunPrefix = `${runId}-failed-`;
+    const completedAt = 1_000;
+    await pglite
+      .prepare(
+        `INSERT INTO agent_runs (
+           id, thread_id, status, started_at, turn_id, continuation_order,
+           completed_at, thread_projection_pending
+         )
+         SELECT ? || order_number, ? || order_number, 'completed', 1,
+                ? || order_number, 0,
+                CAST(? AS BIGINT) + order_number, TRUE
+         FROM generate_series(1, ?) AS generated(order_number)`,
+      )
+      .run(
+        failedRunPrefix,
+        `${thread}-failed-`,
+        `${turn}-failed-`,
+        completedAt,
+        failedRunCount,
+      );
+    const eligible = ids();
+    await insertRun(eligible.runId, eligible.thread, eligible.turn);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+      )
+      .run(completedAt + failedRunCount + 1, eligible.runId);
+    foldReapedRunIntoThreadMock.mockImplementation(async (foldedRunId) => {
+      if (foldedRunId.startsWith(failedRunPrefix)) {
+        throw new Error("projection fold failed");
+      }
+      return "projected";
+    });
+
+    const firstSweep = await reapAllStaleRuns();
+
+    expect(firstSweep).toEqual({ reaped: 0, failed: 200, truncated: true });
+    expect(foldReapedRunIntoThreadMock).not.toHaveBeenCalledWith(
+      eligible.runId,
+    );
+    expect(
+      (await readRow(`${failedRunPrefix}1`))?.thread_projection_pending,
+    ).toBe(true);
+    await reapAllStaleRuns();
+    expect(foldReapedRunIntoThreadMock).toHaveBeenCalledWith(eligible.runId);
+    expect((await readRow(eligible.runId))?.thread_projection_pending).toBe(
+      false,
+    );
+    expect(
+      (await readRow(`${failedRunPrefix}1`))?.thread_projection_pending,
     ).toBe(true);
   });
 
