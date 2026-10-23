@@ -833,7 +833,8 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     );
     assert.match(source, /github\.rest\.git\.createRef/);
     assert.match(source, /refs\/tags\/\$\{tagPrefix\}\$\{version\}/);
-    assert.match(source, /error\.status !== 422/);
+    assert.match(source, /if \(error\.status === 422\)/);
+    assert.match(source, /const tagSha = await getRemoteTagSha\(tag\)/);
     assert.match(source, /const reservedTags = new Map\(\)/);
     assert.match(
       source,
@@ -892,6 +893,222 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /endsWith\("\.agent-native\.com"\)/);
     assert.match(source, /Promise\.allSettled/);
+  });
+
+  it("reconciles ambiguous stable tag reservations before cleanup", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const functionSource = (signature: string, nextSignature: string) => {
+      const start = source.indexOf(signature);
+      const end = source.indexOf(`\n\n${nextSignature}`, start);
+      assert(start >= 0 && end > start);
+      return source.slice(start, end);
+    };
+    const helpersSource = [
+      functionSource(
+        "async function getRemoteTagSha(tag)",
+        "async function getReleaseByTag(tag)",
+      ),
+      functionSource(
+        "async function getReleaseByTag(tag)",
+        "function parseStableVersion(value, label)",
+      ),
+      functionSource(
+        "async function reserveStableVersion(tagPrefix, baseVersion, sourceSha)",
+        "async function cleanupReservedTags(tags = [...reservedTags.keys()])",
+      ),
+      functionSource(
+        "async function cleanupReservedTags(tags = [...reservedTags.keys()])",
+        "async function getFirstParentSha(ref)",
+      ),
+    ].join("\n\n");
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    type TagObject = { type: string; sha: string };
+    type Helpers = {
+      reserveStableVersion: (
+        tagPrefix: string,
+        baseVersion: string,
+        sourceSha: string,
+      ) => Promise<string>;
+      cleanupReservedTags: () => Promise<void>;
+    };
+    type HarnessOptions = {
+      createRef: (
+        request: { ref: string; sha: string },
+        remoteTags: Map<string, TagObject>,
+      ) => Promise<void>;
+      versions?: string[];
+      getRefError?: Error & { status?: number };
+    };
+
+    const createHelpers = new AsyncFunction(
+      "github",
+      "owner",
+      "repo",
+      "core",
+      "reservedTags",
+      "nextStableVersion",
+      `${helpersSource}\nreturn { reserveStableVersion, cleanupReservedTags };`,
+    ) as (
+      github: unknown,
+      owner: string,
+      repo: string,
+      core: {
+        warning: (message: string) => void;
+        info: (message: string) => void;
+      },
+      reservedTags: Map<string, string>,
+      nextStableVersion: () => Promise<string>,
+    ) => Promise<Helpers>;
+
+    const makeHarness = async ({
+      createRef,
+      versions = ["1.2.4"],
+      getRefError,
+    }: HarnessOptions) => {
+      const remoteTags = new Map<string, TagObject>();
+      const reservedTags = new Map<string, string>();
+      const deletedRefs: string[] = [];
+      const warnings: string[] = [];
+      let versionIndex = 0;
+      const notFound = () =>
+        Object.assign(new Error("Not found"), { status: 404 });
+      const github = {
+        rest: {
+          git: {
+            createRef: async (request: { ref: string; sha: string }) =>
+              createRef(request, remoteTags),
+            getRef: async ({ ref }: { ref: string }) => {
+              if (getRefError) throw getRefError;
+              const object = remoteTags.get(ref);
+              if (!object) throw notFound();
+              return { data: { object } };
+            },
+            getTag: async ({ tag_sha }: { tag_sha: string }) => ({
+              data: { object: { sha: tag_sha } },
+            }),
+            deleteRef: async ({ ref }: { ref: string }) => {
+              deletedRefs.push(ref);
+              if (!remoteTags.delete(ref)) throw notFound();
+            },
+          },
+          repos: {
+            getReleaseByTag: async () => {
+              throw notFound();
+            },
+            deleteRelease: async () => {},
+          },
+        },
+      };
+      const helpers = await createHelpers(
+        github,
+        "BuilderIO",
+        "agent-native",
+        {
+          warning: (message) => warnings.push(message),
+          info: () => {},
+        },
+        reservedTags,
+        async () => versions[versionIndex++],
+      );
+      return { ...helpers, deletedRefs, remoteTags, reservedTags, warnings };
+    };
+    const sourceSha = "release-source-sha";
+    const acceptedThenFailed = Object.assign(
+      new Error("GitHub returned HTTP 502 after accepting createRef"),
+      { status: 502 },
+    );
+    const acceptedHarness = await makeHarness({
+      createRef: async ({ ref, sha }, remoteTags) => {
+        remoteTags.set(ref.replace(/^refs\//, ""), { type: "commit", sha });
+        throw acceptedThenFailed;
+      },
+    });
+    await assert.rejects(
+      acceptedHarness.reserveStableVersion("v", "1.2.3", sourceSha),
+      (error) => error === acceptedThenFailed,
+    );
+    assert.deepEqual(
+      [...acceptedHarness.reservedTags],
+      [["v1.2.4", sourceSha]],
+    );
+    await acceptedHarness.cleanupReservedTags();
+    assert.deepEqual(acceptedHarness.deletedRefs, ["tags/v1.2.4"]);
+    assert.equal(acceptedHarness.remoteTags.has("tags/v1.2.4"), false);
+
+    for (const remoteSha of [null, "another-source-sha"]) {
+      const failed = Object.assign(new Error("GitHub returned HTTP 502"), {
+        status: 502,
+      });
+      const harness = await makeHarness({
+        createRef: async ({ ref }, remoteTags) => {
+          if (remoteSha) {
+            remoteTags.set(ref.replace(/^refs\//, ""), {
+              type: "commit",
+              sha: remoteSha,
+            });
+          }
+          throw failed;
+        },
+      });
+      await assert.rejects(
+        harness.reserveStableVersion("v", "1.2.3", sourceSha),
+        (error) => error === failed,
+      );
+      assert.equal(harness.reservedTags.size, 0);
+      await harness.cleanupReservedTags();
+      assert.deepEqual(harness.deletedRefs, []);
+    }
+
+    const readbackFailure = Object.assign(
+      new Error("GitHub tag lookup failed"),
+      { status: 503 },
+    );
+    const originalFailure = Object.assign(
+      new Error("GitHub createRef timed out"),
+      { status: 502 },
+    );
+    const unreadableHarness = await makeHarness({
+      createRef: async () => {
+        throw originalFailure;
+      },
+      getRefError: readbackFailure,
+    });
+    await assert.rejects(
+      unreadableHarness.reserveStableVersion("v", "1.2.3", sourceSha),
+      (error) => error === originalFailure,
+    );
+    assert.equal(unreadableHarness.reservedTags.size, 0);
+    assert.match(unreadableHarness.warnings[0], /GitHub tag lookup failed/);
+
+    const collision = Object.assign(new Error("Reference already exists"), {
+      status: 422,
+    });
+    const collisionHarness = await makeHarness({
+      versions: ["1.2.4", "1.2.5"],
+      createRef: async ({ ref, sha }, remoteTags) => {
+        if (ref.endsWith("v1.2.4")) {
+          remoteTags.set(ref.replace(/^refs\//, ""), {
+            type: "commit",
+            sha: "another-source-sha",
+          });
+          throw collision;
+        }
+        remoteTags.set(ref.replace(/^refs\//, ""), { type: "commit", sha });
+      },
+    });
+    assert.equal(
+      await collisionHarness.reserveStableVersion("v", "1.2.3", sourceSha),
+      "1.2.5",
+    );
+    assert.deepEqual(
+      [...collisionHarness.reservedTags],
+      [["v1.2.5", sourceSha]],
+    );
+    await collisionHarness.cleanupReservedTags();
+    assert.deepEqual(collisionHarness.deletedRefs, ["tags/v1.2.5"]);
+    assert.equal(collisionHarness.remoteTags.has("tags/v1.2.4"), true);
   });
 
   it("uses the docs publisher for www instead of the app-site fleet", () => {

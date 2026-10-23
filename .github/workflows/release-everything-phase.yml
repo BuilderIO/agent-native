@@ -413,8 +413,26 @@ jobs:
                   reservedTags.set(`${tagPrefix}${version}`, sourceSha);
                   return version;
                 } catch (error) {
-                  if (error.status !== 422) throw error;
-                  core.warning(`Stable tag ${tagPrefix}${version} was reserved concurrently; retrying.`);
+                  if (error.status === 422) {
+                    core.warning(`Stable tag ${tagPrefix}${version} was reserved concurrently; retrying.`);
+                    continue;
+                  }
+
+                  const tag = `${tagPrefix}${version}`;
+                  try {
+                    const tagSha = await getRemoteTagSha(tag);
+                    if (tagSha === sourceSha) {
+                      reservedTags.set(tag, sourceSha);
+                    } else if (tagSha) {
+                      core.warning(`Could not claim stable tag ${tag} after createRef failed; it points to another commit.`);
+                    }
+                  } catch (reconciliationError) {
+                    const message = reconciliationError instanceof Error
+                      ? reconciliationError.message
+                      : String(reconciliationError);
+                    core.warning(`Could not reconcile stable tag ${tag} after createRef failed: ${message}`);
+                  }
+                  throw error;
                 }
               }
               throw new Error(`Could not reserve a stable ${tagPrefix} version after 20 attempts.`);

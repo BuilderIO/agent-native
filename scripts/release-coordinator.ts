@@ -41,13 +41,6 @@ function isReleasePhaseJob(job: WorkflowJob, phase: "prepare" | "post-merge") {
   );
 }
 
-function phaseJobIsQueuedOrRunning(job: WorkflowJob): boolean {
-  return (
-    job.conclusion == null &&
-    ["queued", "pending", "waiting", "in_progress"].includes(String(job.status))
-  );
-}
-
 function phaseJobIsInProgress(job: WorkflowJob): boolean {
   return job.conclusion == null && job.status === "in_progress";
 }
@@ -131,7 +124,7 @@ export function selectActiveReleaseCoordinator(
   return run.id as number;
 }
 
-export function assertReleaseCoordinatorStepActive(
+export function assertReleaseCoordinatorPrepareStepActive(
   pages: unknown,
   runId: number,
 ): void {
@@ -155,58 +148,44 @@ export function assertReleaseCoordinatorStepActive(
     }
   }
 
-  const activeReleaseSteps = releaseSteps.filter(
+  const prepareJobs = jobs.filter((job) =>
+    isReleasePhaseJob(job as WorkflowJob, "prepare"),
+  ) as WorkflowJob[];
+  const prepareReleaseSteps = releaseSteps.filter(({ job }) =>
+    isReleasePhaseJob(job, "prepare"),
+  );
+  const activePrepareReleaseSteps = prepareReleaseSteps.filter(
     ({ job, step }) =>
       job.status === "in_progress" &&
       step.status === "in_progress" &&
       step.conclusion == null,
   );
-  if (activeReleaseSteps.length === 1) return;
-  if (activeReleaseSteps.length > 1) {
+  if (activePrepareReleaseSteps.length === 1) return;
+  if (activePrepareReleaseSteps.length > 1) {
     throw new Error(
-      `Expected one active release step in coordinator run ${runId}; GitHub returned ${activeReleaseSteps.length}.`,
+      `Expected one active prepare release step in coordinator run ${runId}; GitHub returned ${activePrepareReleaseSteps.length}.`,
     );
   }
 
-  const prepareJobs = jobs.filter((job) =>
-    isReleasePhaseJob(job as WorkflowJob, "prepare"),
-  ) as WorkflowJob[];
-  const postMergeJobs = jobs.filter((job) =>
-    isReleasePhaseJob(job as WorkflowJob, "post-merge"),
-  ) as WorkflowJob[];
-  if (releaseSteps.length === 0 && prepareJobs.some(phaseJobIsInProgress))
-    return;
-  const prepareSucceeded = prepareJobs.some(
-    (job) => job.status === "completed" && job.conclusion === "success",
-  );
-  const postMergeCoordinatorSteps = releaseSteps.filter(({ job }) =>
-    isReleasePhaseJob(job, "post-merge"),
-  );
-  const postMergeCoordinatorHasNotStarted = postMergeCoordinatorSteps.every(
-    ({ job, step }) =>
-      phaseJobIsQueuedOrRunning(job) &&
-      step.conclusion == null &&
-      ["queued", "pending", "waiting"].includes(String(step.status)),
-  );
   if (
-    prepareSucceeded &&
-    (postMergeJobs.length === 0 ||
-      (postMergeJobs.some(phaseJobIsQueuedOrRunning) &&
-        postMergeCoordinatorHasNotStarted))
-  ) {
+    prepareReleaseSteps.length === 0 &&
+    prepareJobs.some(phaseJobIsInProgress)
+  )
     return;
-  }
 
-  if (activeReleaseSteps.length === 0 && releaseSteps.length > 0) {
+  if (prepareReleaseSteps.length > 0) {
     throw new Error(
-      `Release everything coordinator run ${runId} is no longer performing the release step.`,
+      `Release everything coordinator run ${runId} is no longer performing the prepare release step.`,
     );
   }
-  if (activeReleaseSteps.length !== 1) {
+  if (releaseSteps.length > 0) {
     throw new Error(
-      `Expected one active release step in coordinator run ${runId}; GitHub returned ${activeReleaseSteps.length}.`,
+      `Release everything coordinator run ${runId} is not in the prepare release phase.`,
     );
   }
+  throw new Error(
+    `Expected one active prepare release step in coordinator run ${runId}; GitHub returned 0.`,
+  );
 }
 
 function ghJson<T>(args: string[], token?: string): T {
@@ -246,6 +225,6 @@ export function verifyActiveReleaseCoordinator(
     ],
     process.env.GH_ACTIONS_TOKEN ?? process.env.GH_TOKEN,
   );
-  assertReleaseCoordinatorStepActive(jobs, runId);
+  assertReleaseCoordinatorPrepareStepActive(jobs, runId);
   return runId;
 }
