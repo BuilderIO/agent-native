@@ -1912,6 +1912,15 @@ function replyExplicitlyOwnsRecordedAction(
           const continuationNegatesAction = continuationParts.some(
             (part, partIndex) => {
               if (partIndex % 2 !== 0 || !part.trim()) return false;
+              const connector = continuationParts[partIndex - 1]
+                ?.trim()
+                .toLowerCase();
+              if (
+                connector !== undefined &&
+                conditionalConnectors.has(connector)
+              ) {
+                return true;
+              }
               const clauseReferences = explicitActionReferenceKeys(part);
               if (
                 actionReferences.size > 0 &&
@@ -1923,12 +1932,7 @@ function replyExplicitlyOwnsRecordedAction(
                 return false;
               }
 
-              const connector = continuationParts[partIndex - 1]
-                ?.trim()
-                .toLowerCase();
               return (
-                (connector !== undefined &&
-                  conditionalConnectors.has(connector)) ||
                 /\b(?:i|we)\s+(?:won't|will not|can't|cannot|am not going to|are not going to|don't|do not|refuse to)\s+(?:take|track|follow up|handle|own|work on|review|investigate|fix|check|monitor|test|build|implement|confirm|ship)\b/i.test(
                   part,
                 ) ||
@@ -16293,6 +16297,17 @@ if (args[0] === "--self-test" && args.length === 1) {
         "self-test did not scope ownership negation to the full hyphenated issue reference",
       );
     }
+    if (
+      replyExplicitlyOwnsRecordedAction(
+        "I will review PR #8008 if PR #9000 is merged first.",
+        "review PR #8008",
+        "PR #8008",
+      )
+    ) {
+      throw new Error(
+        "self-test accepted ownership conditional on a different PR",
+      );
+    }
     const foreignSelfOwnedAction = structuredClone(
       completedSelfOwnedActionInventory,
     );
@@ -21118,7 +21133,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 54} negative cases; 39 positive inventory cases plus 6 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 55} negative cases; 39 positive inventory cases plus 6 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
