@@ -138,7 +138,7 @@ const database = {
   githubPicturesWaiting:
     "Einige Bilder werden erst angezeigt, wenn ein Admin des Arbeitsbereichs den Dateispeicher einrichtet.",
   githubPicturesNotSaved:
-    "Einige Bilder konnten nicht im Dateispeicher gespeichert werden. Sie erscheinen von selbst, sobald er wieder funktioniert.",
+    "Einige Bilder konnten nicht im Dateispeicher gespeichert werden. Jede Synchronisierung versucht es erneut.",
   githubReconnect: "GitHub erneut verbinden",
   githubProblemConnection:
     "Aktualisierung gestoppt: Du musst dich erneut bei GitHub anmelden.",

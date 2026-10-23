@@ -392,7 +392,7 @@ function GitHubStatusLineContent({
     !!problem &&
     !stops &&
     problem.code !== "storage_unavailable" &&
-    !storageFailed;
+    problem.code !== "storage_failed";
   const openUnlink = () => {
     onDetailsOpenChange(false);
     onUnlinkOpenChange(true);

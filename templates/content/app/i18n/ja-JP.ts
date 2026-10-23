@@ -139,7 +139,7 @@ const database = {
   githubPicturesWaiting:
     "一部の画像は、ワークスペースの管理者がファイルストレージを設定するまで表示されません。",
   githubPicturesNotSaved:
-    "一部の画像をファイルストレージに保存できませんでした。ストレージが復旧すると自動的に表示されます。",
+    "一部の画像をファイルストレージに保存できませんでした。同期のたびに再試行します。",
   githubReconnect: "GitHub を再接続",
   githubProblemConnection:
     "更新が止まっています：GitHub にもう一度サインインする必要があります。",

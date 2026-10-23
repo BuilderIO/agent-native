@@ -1301,7 +1301,7 @@ const overrides = {
     githubPicturesWaiting:
       "在工作區管理員設定好檔案儲存空間之前，部分圖片不會顯示。",
     githubPicturesNotSaved:
-      "部分圖片未能儲存到檔案儲存空間。檔案儲存空間恢復正常後，這些圖片會自動顯示。",
+      "部分圖片未能儲存到檔案儲存空間。每次同步都會重試。",
     githubReconnect: "重新連接 GitHub",
     githubProblemConnection: "已停止更新：GitHub 需要你重新登入。",
     githubProblemForbidden:

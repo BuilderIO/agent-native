@@ -135,7 +135,7 @@ const database = {
   githubPicturesWaiting:
     "Algumas imagens só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
   githubPicturesNotSaved:
-    "Algumas imagens não puderam ser salvas no armazenamento de arquivos. Elas vão aparecer sozinhas quando ele voltar a funcionar.",
+    "Algumas imagens não puderam ser salvas no armazenamento de arquivos. Cada sincronização tenta de novo.",
   githubReconnect: "Reconectar GitHub",
   githubProblemConnection:
     "Atualizações interrompidas: o GitHub precisa que você faça login de novo.",

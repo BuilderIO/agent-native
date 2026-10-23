@@ -123,8 +123,7 @@ const database = {
   githubShowingAsOf: "当前显示的是{{time}}的页面。",
   githubSyncingProgress: "正在获取更改：{{done}}/{{total}} 个文件",
   githubPicturesWaiting: "在工作区管理员设置好文件存储之前，部分图片不会显示。",
-  githubPicturesNotSaved:
-    "部分图片未能保存到文件存储。文件存储恢复正常后，这些图片会自动显示。",
+  githubPicturesNotSaved: "部分图片未能保存到文件存储。每次同步都会重试。",
   githubReconnect: "重新连接 GitHub",
   githubProblemConnection: "已停止更新：GitHub 需要你重新登录。",
   githubProblemForbidden:

@@ -2161,6 +2161,46 @@ describe("GitHub folder source", () => {
     }
   });
 
+  it("says storage isn't set up when it goes away after an upload failed", async () => {
+    const { database } = await linkBaseFolder();
+    github.state.rejectFilename = "poster.png";
+    github.commit({
+      ...BASE_FILES,
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+      "docs/b-chart.md": "# Chart\n\n![Chart](images/chart.png)\n",
+      "docs/images/chart.png": "PNGCHART",
+    });
+    // Storage rejects the poster, then goes away before the chart.
+    const dropStorage = async () => {
+      if (github.state.uploadFailures > 0) {
+        github.state.noStorage = true;
+        return;
+      }
+      github.state.duringBlobRead = dropStorage;
+    };
+    github.state.duringBlobRead = dropStorage;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const id = await sourceId(database.id);
+      const synced = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(synced).toMatchObject({
+        state: "synced",
+        imagesWaiting: 2,
+        problem: { code: "storage_unavailable" },
+      });
+      const status = await as(() => getSource.run({ databaseId: database.id }));
+      expect(status.source?.metadata.github).toMatchObject({
+        imagesFailed: false,
+        problem: { code: "storage_unavailable" },
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("goes back for a rejected image when a later read in the same sync fails", async () => {
     const { database } = await linkBaseFolder();
     github.state.rejectFilename = "poster.png";

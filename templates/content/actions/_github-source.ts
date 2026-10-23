@@ -2064,9 +2064,11 @@ export async function syncGitHubSource(
     // time ran out before a run got back to them.
     const imagesOfRun = () => {
       const images = waitingImages(planned);
+      // Storage that went missing during the run isn't set up any more,
+      // whatever failed before it went.
       const storageFailed =
-        run.storageFailed ||
-        (retryImages && !run.storageMissing && images.failed);
+        !run.storageMissing &&
+        (run.storageFailed || (retryImages && images.failed));
       return {
         waiting: images.waiting,
         failed: images.waiting > 0 && storageFailed,

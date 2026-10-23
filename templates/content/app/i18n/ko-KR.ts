@@ -135,7 +135,7 @@ const database = {
   githubPicturesWaiting:
     "일부 이미지는 워크스페이스 관리자가 파일 저장소를 설정해야 표시됩니다.",
   githubPicturesNotSaved:
-    "일부 이미지를 파일 저장소에 저장하지 못했습니다. 저장소가 다시 작동하면 자동으로 표시됩니다.",
+    "일부 이미지를 파일 저장소에 저장하지 못했습니다. 동기화할 때마다 다시 시도합니다.",
   githubReconnect: "GitHub 다시 연동",
   githubProblemConnection: "업데이트 중지됨: GitHub에 다시 로그인해야 합니다.",
   githubProblemForbidden:

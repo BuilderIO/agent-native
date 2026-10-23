@@ -308,7 +308,7 @@ describe("GitHub source status line", () => {
     );
     expect(document.querySelector('[role="alert"]')).toBe(null);
     expect(statusLine().textContent).toContain(
-      "Some pictures couldn’t be saved to file storage. They’ll show up on their own once it works again.",
+      "Some pictures couldn’t be saved to file storage. Each sync tries them again.",
     );
     expect(statusLine().textContent).not.toContain("sets up file storage");
     expect(statusLine().textContent).not.toContain("Updates are paused");
@@ -326,6 +326,10 @@ describe("GitHub source status line", () => {
       "Some pictures couldn’t be saved to file storage.",
     );
     expect(statusLine().textContent).not.toContain("sets up file storage");
+    // The problem that stopped the sync still shows too.
+    expect(statusLine().textContent).toContain(
+      "Updates are paused for a moment.",
+    );
   });
 
   it("asks for file storage once it's gone, even after it failed", () => {
