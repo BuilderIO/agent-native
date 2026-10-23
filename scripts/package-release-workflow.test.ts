@@ -476,6 +476,32 @@ describe("npm package release workflow", () => {
         ),
       /no longer performing the release step/,
     );
+    for (const conclusion of ["failure", "cancelled"]) {
+      assert.throws(
+        () =>
+          assertReleaseCoordinatorStepActive(
+            [
+              {
+                jobs: [
+                  {
+                    name: "Run the prepare release phase",
+                    status: "in_progress",
+                    steps: [
+                      {
+                        name: RELEASE_COORDINATOR_STEP_NAME,
+                        status: "completed",
+                        conclusion,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            123,
+          ),
+        /no longer performing the release step/,
+      );
+    }
     assert.throws(
       () => assertReleaseCoordinatorStepActive([{ jobs: [] }], 123),
       /Expected one active release step/,

@@ -174,7 +174,8 @@ export function assertReleaseCoordinatorStepActive(
   const postMergeJobs = jobs.filter((job) =>
     isReleasePhaseJob(job as WorkflowJob, "post-merge"),
   ) as WorkflowJob[];
-  if (prepareJobs.some(phaseJobIsInProgress)) return;
+  if (releaseSteps.length === 0 && prepareJobs.some(phaseJobIsInProgress))
+    return;
   const prepareSucceeded = prepareJobs.some(
     (job) => job.status === "completed" && job.conclusion === "success",
   );
