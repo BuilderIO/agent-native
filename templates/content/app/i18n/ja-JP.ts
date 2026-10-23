@@ -138,6 +138,8 @@ const database = {
     "変更を取り込んでいます：{{total}} 個中 {{done}} 個のファイル",
   githubPicturesWaiting:
     "一部の画像は、ワークスペースの管理者がファイルストレージを設定するまで表示されません。",
+  githubPicturesNotSaved:
+    "一部の画像をファイルストレージに保存できませんでした。同期のたびに再試行します。",
   githubReconnect: "GitHub を再接続",
   githubProblemConnection:
     "更新が止まっています：GitHub にもう一度サインインする必要があります。",

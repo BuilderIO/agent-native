@@ -104,10 +104,11 @@ test("Shift+A wraps four selected nav links into a horizontal auto-layout frame 
   app,
 }) => {
   const id = await openLandingPage(app);
-  await clickDesign(app, 640, 40);
-  await clickDesign(app, 760, 40, ["Shift"]);
-  await clickDesign(app, 880, 40, ["Shift"]);
-  await clickDesign(app, 1000, 40, ["Shift"]);
+  // Cmd+click reaches the links inside Navbar; a plain click takes Navbar.
+  await clickDesign(app, 640, 40, [MOD]);
+  await clickDesign(app, 760, 40, [MOD, "Shift"]);
+  await clickDesign(app, 880, 40, [MOD, "Shift"]);
+  await clickDesign(app, 1000, 40, [MOD, "Shift"]);
   await expect
     .poll(async () => (await app.selectedLayers()).sort())
     .toEqual(["About link", "Contact link", "Home link", "Services link"]);
@@ -335,7 +336,7 @@ test("typed Gap values on three nested auto-layout frames each persist when the 
   await expect(
     gap,
     "Hero is still selected and its Gap field reads 64px",
-  ).toHaveValue("64px");
+  ).toHaveValue("64");
   expect(
     await gap.evaluate(
       (input: HTMLInputElement) => input.scrollWidth <= input.clientWidth,

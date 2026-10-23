@@ -430,6 +430,40 @@ describe("CanvasContextMenu single layer layout", () => {
     }
     await view.cleanup();
   });
+
+  it("lists the four Arrange commands in standard order and runs each one", async () => {
+    const handlers = {
+      onBringToFront: vi.fn(),
+      onBringForward: vi.fn(),
+      onSendBackward: vi.fn(),
+      onSendToBack: vi.fn(),
+    };
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      canReorder: true,
+      ...handlers,
+    });
+    const text = view.container.textContent ?? "";
+    const order = [
+      "Bring to front",
+      "Bring forward",
+      "Send backward",
+      "Send to back",
+    ].map((label) => text.indexOf(label));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+
+    for (const [label, handler] of [
+      ["Bring forward", handlers.onBringForward],
+      ["Send backward", handlers.onSendBackward],
+    ] as const) {
+      const button = view.findButton(label);
+      expect(button?.disabled).toBe(false);
+      await act(async () => button?.click());
+      expect(handler).toHaveBeenCalledTimes(1);
+    }
+    await view.cleanup();
+  });
 });
 
 describe("CanvasContextMenu rotation", () => {

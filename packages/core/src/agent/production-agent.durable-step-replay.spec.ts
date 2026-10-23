@@ -2373,4 +2373,270 @@ describe("durable execution step replay", () => {
       }),
     );
   });
+
+  const crashedWriteBeforeRetry: AgentChatEvent = {
+    type: "tool_start",
+    id: "call-before-crash",
+    executionStepId: "model-step:crashed-attempt",
+    tool: "create-deck",
+    input: { title: "Q3 plan" },
+  };
+  // A crash leaves no arguments identity, so every later write of the tool is
+  // held. A timed-out call records one, which lets a retry-safe correction
+  // through.
+  const unknownOutcomeWithIdentity: AgentChatEvent = {
+    type: "tool_done",
+    id: "call-before-crash",
+    tool: "create-deck",
+    result: "The call timed out.",
+    isError: true,
+    outcomeUnknown: true,
+    argumentsHash: "arguments-of-the-earlier-call",
+  };
+  const neverReplayDeckAction = (run: () => Promise<string>) => ({
+    tool: {
+      description: "Create a deck",
+      parameters: {
+        type: "object" as const,
+        properties: { title: { type: "string" } },
+        required: ["title"],
+      },
+    },
+    readOnly: false,
+    run,
+  });
+
+  it("holds back a reworded write on a recovered retry after a crashed dispatch", async () => {
+    durableStep.priorEvents = [crashedWriteBeforeRetry];
+    const actionRun = vi.fn(async () => "Deck saved");
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("call-after-retry", { title: "Q3 planning deck" })],
+            [text("Stopped.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": neverReplayDeckAction(actionRun) },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "call-after-retry",
+        isError: true,
+        result: expect.stringContaining("interrupted 1 time(s)"),
+      }),
+    );
+  });
+
+  it("lets a recovered retry correct and re-run a retry-safe write", async () => {
+    durableStep.priorEvents = [
+      crashedWriteBeforeRetry,
+      unknownOutcomeWithIdentity,
+    ];
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("call-corrected", { title: "Q3 planning deck" })],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: {
+          "create-deck": {
+            ...neverReplayDeckAction(actionRun),
+            retrySafe: true,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+  });
+
+  const modeSafeDeckAction = (run: () => Promise<string>) => ({
+    tool: {
+      description: "Write a deck",
+      parameters: {
+        type: "object" as const,
+        properties: { title: { type: "string" }, mode: { type: "string" } },
+        required: ["title", "mode"],
+      },
+    },
+    readOnly: false,
+    retrySafe: (input: { mode?: string }) => input.mode === "replace",
+    run,
+  });
+  const recoveredRetryWithCrashedMode = async (
+    crashedMode: string,
+    retryMode: string,
+    actionRun: () => Promise<string>,
+  ) => {
+    durableStep.priorEvents = [
+      {
+        ...crashedWriteBeforeRetry,
+        input: { title: "Q3 plan", mode: crashedMode },
+      },
+      unknownOutcomeWithIdentity,
+    ];
+    const events: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [
+              toolCall("call-after-retry", {
+                title: "Q3 planning deck",
+                mode: retryMode,
+              }),
+            ],
+            [text("Done.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Write a deck." }] },
+        ],
+        actions: { "create-deck": modeSafeDeckAction(actionRun) },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    return events;
+  };
+
+  it("runs a corrected call that is retry-safe for its own arguments", async () => {
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    await recoveredRetryWithCrashedMode("append", "replace", actionRun);
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds a corrected call that is not retry-safe for its own arguments", async () => {
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    const events = await recoveredRetryWithCrashedMode(
+      "replace",
+      "append",
+      actionRun,
+    );
+
+    expect(actionRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "call-after-retry",
+        isError: true,
+        result: expect.stringContaining("Not run: an earlier create-deck call"),
+      }),
+    );
+  });
+
+  it("lets an internal continuation correct and re-run a retry-safe write", async () => {
+    durableStep.priorEvents = [
+      crashedWriteBeforeRetry,
+      unknownOutcomeWithIdentity,
+    ];
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("call-corrected", { title: "Q3 planning deck" })],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: {
+          "create-deck": {
+            ...neverReplayDeckAction(actionRun),
+            retrySafe: true,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        internalContinuation: true,
+        recoverCompletedExecutionSteps: true,
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs the write on a turn that is not a recovered retry", async () => {
+    durableStep.priorEvents = [crashedWriteBeforeRetry];
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("call-on-fresh-turn", { title: "Q3 planning deck" })],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": neverReplayDeckAction(actionRun) },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+  });
 });

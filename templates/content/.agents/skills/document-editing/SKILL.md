@@ -155,6 +155,18 @@ literally empty, pass non-whitespace `initializeContent` instead of `find` or `e
 Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 
+Some pages take body writes through their live copy, the copy open tabs edit.
+`edit-document` writes those bodies, except on a page linked to a local file.
+That edit and other writers, such as `update-document --content`, a property or
+collection block stored in the body, row migrations, and local-folder, Notion,
+or Builder syncs, refuse with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change
+nothing in Content. Retrying that writer won't help: make the body change with
+`edit-document` where it can, or tell the user which action refused and on which
+page. When the refusal's `details` name a Notion page (`remotePageId`) or a local
+file (`sourcePath`), that copy already changed; say so.
+`LIVE_BODY_WRITE_PATH_CHANGED` means the page switched while the write was in
+flight; read the page again and retry.
+
 A page in Trash refuses edits with `DOCUMENT_NOT_FOUND`, the same way
 `get-document` refuses to read it, including a page moved to Trash while the
 edit commits. Restore it before editing. A local-folder sync

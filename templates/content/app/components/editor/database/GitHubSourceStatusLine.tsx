@@ -178,6 +178,11 @@ function gotFurther(
   );
 }
 
+/** A problem that only says pictures are missing: the pages still update. */
+function picturesOnly(code: string) {
+  return code === "storage_unavailable" || code === "storage_failed";
+}
+
 /**
  * Keeps a folder filling while its collection is open: each sync starts as
  * soon as the last returns, not at the next background sweep. It waits while
@@ -237,9 +242,9 @@ function useKeepFilling(
         stopped = true;
       } else if (
         further &&
-        // Pictures waiting on storage don't stop the pages filling.
-        (result?.problem?.code ?? "storage_unavailable") ===
-          "storage_unavailable"
+        // Pictures waiting on storage, or that it couldn't save, don't stop
+        // the pages filling.
+        (!result?.problem || picturesOnly(result.problem.code))
       ) {
         stalls = 0;
         void step();
@@ -499,9 +504,20 @@ function GitHubStatusLineContent({
   const actions = problem && stops ? problemActions(problem.code) : null;
   const syncing = !!status.pendingCommitSha && !!status.progress;
   // Pictures waiting on storage are a note, not a stop: the pages still update.
+  // Storage that failed still says so when another problem stopped the
+  // sync, unless storage has since gone missing, and missing storage still
+  // says so unless that sync found it set up. With no problem at all,
+  // storage is set up and the sync is still adding the pictures.
+  const storageFailed =
+    problem?.code === "storage_failed" ||
+    (problem?.code !== "storage_unavailable" &&
+      status.imagesFailed &&
+      status.imagesWaiting > 0);
   const picturesWaiting =
-    problem?.code === "storage_unavailable" || status.imagesWaiting > 0;
-  const paused = !!problem && !stops && problem.code !== "storage_unavailable";
+    problem?.code === "storage_unavailable" ||
+    storageFailed ||
+    (!!problem && status.imagesWaiting > 0 && !status.storageReady);
+  const paused = !!problem && !stops && !picturesOnly(problem.code);
   useKeepFilling(
     source.databaseId,
     syncing && !stops,
@@ -671,7 +687,9 @@ function GitHubStatusLineContent({
 
       {picturesWaiting ? (
         <div className="break-words text-muted-foreground">
-          {dbText("githubPicturesWaiting")}
+          {dbText(
+            storageFailed ? "githubPicturesNotSaved" : "githubPicturesWaiting",
+          )}
         </div>
       ) : null}
 

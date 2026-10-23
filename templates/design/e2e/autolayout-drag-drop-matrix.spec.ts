@@ -2012,7 +2012,6 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(attrsBesidesStyle(copied)).toEqual({
       "data-agent-native-node-id": copy,
       "data-agent-native-layer-name": "H Middle",
-      "data-agent-native-clone-root": "true",
     });
   });
 
@@ -2254,7 +2253,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     for (const instance of duplicated.instances)
       expect(instance.sourceNodeIds).toEqual(reorderedSourceNodeIds);
     const duplicatedClone = duplicated.instances.find(
-      (instance) => instance.cloneRoot === "true",
+      (instance) => instance.nodeId !== "play-instance",
     );
     if (!duplicatedClone?.nodeId)
       throw new Error("linked component clone has no node id");
@@ -2820,7 +2819,6 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(attrsBesidesStyle(dropped)).toEqual({
       "data-agent-native-node-id": "oversized-source",
       "data-agent-native-layer-name": "Oversized Source",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
     const style = styleOf(dropped);
@@ -2868,10 +2866,13 @@ test.describe("auto-layout drag/drop matrix", () => {
       x: grid.x + (grid.width * 3) / 8,
       y: grid.y + grid.height / 2,
     };
+    // Cmd+click reaches the grid item; a plain click takes its grid.
+    await page.keyboard.down(COMMAND);
     await page.mouse.click(
       source.x + source.width / 2,
       source.y + source.height / 2,
     );
+    await page.keyboard.up(COMMAND);
     await expect.poll(() => selectionSourceId(request)).toBe("grid-source");
     const sourceBefore = await fileHtml(request, design.id, design.primaryId);
     const destinationBefore = await fileHtml(
@@ -3075,7 +3076,6 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(attrsBesidesStyle(dropped)).toEqual({
       "data-agent-native-node-id": "meta-source",
       "data-agent-native-layer-name": "Meta Source",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
   });
@@ -3326,7 +3326,6 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(attrsBesidesStyle(dropped)).toEqual({
       "data-agent-native-node-id": "freeform-source",
       "data-agent-native-layer-name": "Freeform Source",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
   });
@@ -3342,7 +3341,7 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(shape).toEqual({ x: 120, y: 100, width: 80, height: 50 });
     const grab = await app.pagePoint(160, 125);
     await page.mouse.click(grab.x, grab.y);
-    expect(await app.selectedLayers()).toEqual(["Lone shape"]);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Lone shape"]);
     const before = await app.savedNodes(design.id);
     const drop = await app.pagePoint(160 + 137, 125 + 91);
 
@@ -3639,7 +3638,6 @@ test.describe("auto-layout drag/drop matrix", () => {
     expect(attrsBesidesStyle(dropped)).toEqual({
       "data-agent-native-node-id": "meta-source",
       "data-agent-native-layer-name": "Meta Source",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
     expect(

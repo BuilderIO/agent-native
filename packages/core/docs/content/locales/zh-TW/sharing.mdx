@@ -173,6 +173,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 請求失敗會設定 `error`，並保留已載入的列。它不會看起來像空清單。`<ShareButton>` 和 `<ShareDialog>` 會在儲存後重新整理已掛載的聊天清單。如果你以其他方式變更了聊天的共用，請呼叫 `notifyChatThreadsUpdated()`，讓已掛載的清單重新擷取。
 
+釘選狀態依使用者分別儲存：共用聊天的 `pinnedAt` 也代表呼叫者自己的釘選，清單與搜尋依此值排序。`useChatThreads().pinThread(id, pinned)` 維持不變。兩個勾子均提供共用聊天的 `hideThread(id, hidden)`。隱藏聊天預設不出現在清單或搜尋，設定 `includeHidden: true` 可傳回；清單與單筆讀取包含呼叫者的 `hiddenAt`。仍可透過 ID 或連結開啟。擁有者不能隱藏自己的聊天，應使用封存；重新命名與封存仍限擁有者。隱藏遭拒時擲出 `ChatThreadMutationError`（`status`：擁有者403，無權限404），成功傳回 `true`。HTTP：`POST /_agent-native/agent-chat/threads/:id/hide`，內容為 `{ hidden: boolean }`；清單與搜尋用 `includeHidden=1`。`chat-history` 支援 `pin`、`unpin`、`hide`、`unhide` 與帶 `includeHidden: true` 的搜尋。撤銷權限後，保留的個人狀態不會顯示；刪除聊天會刪除該狀態。
+
 ## 與 UI 相同型號、代理 {#agent-and-ui}
 
 框架在每個範本中自動安裝這些 actions - 代理將它們稱為工具，UI 透過 `useActionQuery` / `useActionMutation` 呼叫它們：

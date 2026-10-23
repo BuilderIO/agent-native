@@ -949,7 +949,10 @@ test("duplicates a URL-backed React component through undo and redo", async ({
       ),
     );
   const box = (await original.boundingBox())!;
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await page.keyboard.down("ControlOrMeta");
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.up("ControlOrMeta");
   await expect
     .poll(() => app.selectedLayers())
     .toEqual(["React Primary Button"]);

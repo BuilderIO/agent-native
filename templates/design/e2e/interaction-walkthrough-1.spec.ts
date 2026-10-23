@@ -428,7 +428,6 @@ function attrsBesidesStyle(node: SavedNode | undefined) {
 const CROSSED_CHIP_ATTRS = {
   "data-agent-native-node-id": "chip",
   "data-agent-native-layer-name": "Chip",
-  "data-agent-native-clone-root": "true",
   "data-agent-native-preserve-styles": "true",
 };
 

@@ -4,9 +4,10 @@ import { e2eBaseURL } from "./base-url";
 import { designFrame, gotoEditor } from "./helpers";
 import { INTERACT_FRAME } from "./interact-helpers";
 
-// Interact runs markup screens with the theme and links bridges; the shared
-// preview surface may also add the native shader runtime. URL screens get no
-// editor bridges.
+// Interact runs the page as authored: a markup screen carries the theme bridge,
+// the links bridge and the native effect runtime every canvas preview loads,
+// and nothing else the editor owns. A screen served from a URL is a plain
+// frame the editor puts nothing into.
 
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Plain</title></head><body style="margin:0;font:20px system-ui"><h1 id="title">Plain page</h1></body></html>`;
 
