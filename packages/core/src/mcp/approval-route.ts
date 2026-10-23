@@ -449,6 +449,7 @@ function renderPage(input: {
       expired: messages.expired,
       saving: messages.saving,
       saveFailed: messages.saveFailed,
+      decisionUnconfirmed: messages.decisionUnconfirmed,
       signInToReview: messages.signInToReview,
       pageOutOfDate: messages.pageOutOfDate,
     },
@@ -456,6 +457,8 @@ function renderPage(input: {
   return `${pageHead(locale, messages.documentTitle.replace("{action}", summary.title))}<body><main><h1>${escapeHtml(summary.title)}</h1>${prior}${cut}${recipients}${fields}${details}${decision}<p id="result" role="status">${stateMessage(view, messages)}</p></main><script type="application/json" id="approval-data">${data}</script><script nonce="${scriptNonce}">${PAGE_SCRIPT}</script></body></html>`;
 }
 
+// A decision whose response is lost or unreadable may still have been saved,
+// so the page asks for the grant's state before saying it wasn't.
 const PAGE_SCRIPT = `(function(){
 var data=JSON.parse(document.getElementById("approval-data").textContent);
 var readerZone=data.timeZone||Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -480,13 +483,19 @@ if(parts.length>1){var t=document.createElement("time");t.setAttribute("data-ts"
 return true;
 }
 function setBusy(busy){if(!actions)return;actions.querySelectorAll("button").forEach(function(b){b.disabled=busy;});}
+function settle(message){result.textContent=message;setBusy(false);}
+function recheck(){
+fetch(location.pathname,{credentials:"same-origin",headers:{accept:"application/json"}})
+.then(function(r){return r.ok?r.json():null;})
+.then(function(view){if(view&&show(view.state,view.expiresAt))return;settle(view&&view.state==="pending"?data.messages.saveFailed:data.messages.decisionUnconfirmed);})
+.catch(function(){settle(data.messages.decisionUnconfirmed);});
+}
 function decide(decision){
 setBusy(true);
 result.textContent=data.messages.saving;
 fetch(location.pathname,{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({decision:decision,csrfToken:data.csrfToken})})
 .then(function(r){return r.json().then(function(body){return {status:r.status,body:body};});})
-.then(function(res){if(res.body&&show(res.body.state,res.body.expiresAt))return;result.textContent=res.status===401?data.messages.signInToReview:res.status===403?data.messages.pageOutOfDate:data.messages.saveFailed;setBusy(false);})
-.catch(function(){result.textContent=data.messages.saveFailed;setBusy(false);});
+.then(function(res){if(res.body&&show(res.body.state,res.body.expiresAt))return;if(res.status===401||res.status===403)return settle(res.status===401?data.messages.signInToReview:data.messages.pageOutOfDate);recheck();},recheck);
 }
 var approve=document.getElementById("approve");
 var deny=document.getElementById("deny");

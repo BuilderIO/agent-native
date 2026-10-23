@@ -61,12 +61,15 @@ const EMBEDDED_BEARER = new RegExp(
 );
 // A line that opens another field, such as `Body: visible`.
 const FIELD_LINE = String.raw`[ \t]*["']?[\w-]+["']?[ \t]*:(?:\s|$)`;
-// A word alone on its line (`Bearer`, `Api-Key`) takes the credential on the
-// next one. It can be a scheme no list names, and stopping at the newline
-// would leave the credential bare. A next line that opens another field is
-// content a reviewer must still see.
+// What can follow a scheme as its credentials (RFC 7235): one token alone on
+// its line, or `name=value` parameters.
+const CREDENTIAL_LINE = String.raw`[ \t]*(?:[^\s"']+[ \t]*(?:\r?\n|$)|[\w!#$%&*+.^|~-]+[ \t]*=)`;
+// A word alone on its line (`Bearer`, `"Api-Key"`) takes the credential on
+// the next one. It can be a scheme no list names, and stopping at the newline
+// would leave the credential bare. A next line of prose, or one that opens
+// another field, is content a reviewer must still see.
 const EMBEDDED_AUTHORIZATION = new RegExp(
-  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(${QUOTED_CREDENTIAL}|(?:[^\s"']+[ \t]*\r?\n\s*(?!${FIELD_LINE}))?[^\r\n]+)`,
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)((?:["']?[^\s"']+["']?[ \t]*\r?\n\s*(?!${FIELD_LINE})(?=${CREDENTIAL_LINE}))?(?:${QUOTED_CREDENTIAL}|[^\r\n]+))`,
   "gi",
 );
 const EMBEDDED_CREDENTIAL_FIELD = new RegExp(

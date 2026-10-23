@@ -274,6 +274,48 @@ async function pageToken(id: string): Promise<string> {
   return body.csrfToken;
 }
 
+/**
+ * The plain page's own script, run over its HTML with `fetch` standing in for
+ * the browser's. Returns its status line and a way to press its buttons.
+ */
+function pageScript(
+  html: string,
+  fetch: (path: string, init?: { method?: string; body?: string }) => unknown,
+) {
+  const data =
+    /<script type="application\/json" id="approval-data">([\s\S]*?)<\/script>/.exec(
+      html,
+    )?.[1];
+  const script = /<script nonce="[^"]+">([\s\S]*?)<\/script>/.exec(html)?.[1];
+  if (data === undefined || script === undefined) {
+    throw new Error("The page has no script");
+  }
+  const result = { textContent: "" };
+  const buttons = [{ disabled: false }, { disabled: false }];
+  const listeners = new Map<string, () => void>();
+  const button = (id: string) => ({
+    addEventListener: (_type: string, listener: () => void) =>
+      listeners.set(id, listener),
+  });
+  const elements: Record<string, unknown> = {
+    "approval-data": { textContent: data },
+    result,
+    actions: { remove() {}, querySelectorAll: () => buttons },
+    deadline: { remove() {} },
+    approve: button("approve"),
+    deny: button("deny"),
+  };
+  new Function("document", "fetch", "location", script)(
+    {
+      getElementById: (id: string) => elements[id] ?? null,
+      querySelectorAll: () => [],
+    },
+    fetch,
+    { pathname: "/" },
+  );
+  return { result, buttons, press: (id: string) => listeners.get(id)?.() };
+}
+
 describe("signed out", () => {
   it("serves the configured sign-in page at the review URL", async () => {
     const grant = await createdGrant();
@@ -682,6 +724,64 @@ describe("deciding", () => {
       consumeReviewedMcpApprovalGrant(callOf(grant)),
     ).resolves.toBeNull();
     expect((await getJson(grant.nonce)).body.state).toBe("used");
+  });
+});
+
+describe("a decision whose response never arrives", () => {
+  const lost = () => Promise.reject(new TypeError("Failed to fetch"));
+  const read = async (id: string) => {
+    const { status, body } = await getJson(id);
+    return { ok: status === 200, status, json: async () => body };
+  };
+
+  it("shows the decision the server saved", async () => {
+    const grant = await createdGrant();
+    const page = pageScript((await getHtml(grant.nonce)).body, (_path, init) =>
+      init?.method === "POST"
+        ? post(grant.nonce, init.body).then(lost)
+        : read(grant.nonce),
+    );
+
+    page.press("deny");
+
+    await vi.waitFor(() =>
+      expect(page.result.textContent).toBe("Denied. Nothing ran."),
+    );
+    expect((await storedRow(grant.nonce)).status).toBe("denied");
+  });
+
+  it("says it wasn't saved only when the grant is still pending", async () => {
+    const grant = await createdGrant();
+    const page = pageScript((await getHtml(grant.nonce)).body, (_path, init) =>
+      init?.method === "POST" ? lost() : read(grant.nonce),
+    );
+
+    page.press("approve");
+
+    await vi.waitFor(() =>
+      expect(page.result.textContent).toBe(
+        "Your decision wasn't saved. Try again.",
+      ),
+    );
+    expect(page.buttons.every((button) => !button.disabled)).toBe(true);
+  });
+
+  it("says it can't confirm the decision when the grant can't be read either", async () => {
+    const grant = await createdGrant();
+    const page = pageScript((await getHtml(grant.nonce)).body, (_path, init) =>
+      init?.method === "POST"
+        ? post(grant.nonce, init.body).then(lost)
+        : lost(),
+    );
+
+    page.press("approve");
+
+    await vi.waitFor(() =>
+      expect(page.result.textContent).toBe(
+        "Your decision couldn't be confirmed. Reload this page to see whether it was saved.",
+      ),
+    );
+    expect((await storedRow(grant.nonce)).status).toBe("approved");
   });
 });
 

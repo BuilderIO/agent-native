@@ -88,6 +88,18 @@ describe("redactArgsToJson", () => {
       "Authorization: [redacted]\nBody: visible",
     ],
     [
+      'Authorization: "Api-Key"\nfake-secret-value\nBody: visible',
+      'Authorization: "[redacted]"\nBody: visible',
+    ],
+    [
+      'Authorization: Digest\nusername="fake", response="fake"\nBody: visible',
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
+      "Authorization: fake-token\nThis is ordinary text",
+      "Authorization: [redacted]\nThis is ordinary text",
+    ],
+    [
       'Authorization: fake-token\n  "body": "visible"',
       'Authorization: [redacted]\n  "body": "visible"',
     ],

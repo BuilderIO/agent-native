@@ -30,6 +30,7 @@ export interface McpApprovalMessages {
   otherOrganization: string;
   saving: string;
   saveFailed: string;
+  decisionUnconfirmed: string;
   signInToReview: string;
   signInUnavailable: string;
   pageOutOfDate: string;
@@ -86,6 +87,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "This request belongs to {email} in another organization. Switch to the organization this request came from, then open the link again.",
     saving: "Saving…",
     saveFailed: "Your decision wasn't saved. Try again.",
+    decisionUnconfirmed:
+      "Your decision couldn't be confirmed. Reload this page to see whether it was saved.",
     signInToReview: "Sign in to review this request.",
     signInUnavailable:
       "This app can't confirm your sign-in on this page. Ask whoever runs it to set up browser sign-in for approvals.",
@@ -138,6 +141,7 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "此请求属于另一个组织中的 {email}。请切换到发起此请求的组织，然后再次打开链接。",
     saving: "正在保存…",
     saveFailed: "你的决定未能保存。请重试。",
+    decisionUnconfirmed: "无法确认你的决定是否已保存。请重新加载此页面查看。",
     signInToReview: "请登录以审核此请求。",
     signInUnavailable:
       "此应用无法在此页面确认你的登录状态。请让应用的管理者为批准设置浏览器登录。",
@@ -189,6 +193,7 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "此請求屬於另一個組織中的 {email}。請切換到發出此請求的組織，然後再次開啟連結。",
     saving: "正在儲存…",
     saveFailed: "你的決定未能儲存。請再試一次。",
+    decisionUnconfirmed: "無法確認你的決定是否已儲存。請重新載入此頁面查看。",
     signInToReview: "請登入以審核此請求。",
     signInUnavailable:
       "此應用程式無法在此頁面確認你的登入狀態。請讓應用程式的管理者為核准設定瀏覽器登入。",
@@ -245,6 +250,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Esta solicitud pertenece a {email} en otra organización. Cambia a la organización de la que procede esta solicitud y vuelve a abrir el enlace.",
     saving: "Guardando…",
     saveFailed: "No se guardó tu decisión. Inténtalo de nuevo.",
+    decisionUnconfirmed:
+      "No se pudo confirmar si se guardó tu decisión. Vuelve a cargar esta página para comprobarlo.",
     signInToReview: "Inicia sesión para revisar esta solicitud.",
     signInUnavailable:
       "Esta aplicación no puede confirmar tu inicio de sesión en esta página. Pide a quien la administra que configure el inicio de sesión en el navegador para las aprobaciones.",
@@ -304,6 +311,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Cette demande appartient à {email} dans une autre organisation. Basculez vers l’organisation d’où vient cette demande, puis rouvrez le lien.",
     saving: "Enregistrement…",
     saveFailed: "Votre décision n’a pas été enregistrée. Réessayez.",
+    decisionUnconfirmed:
+      "Impossible de confirmer que votre décision a été enregistrée. Rechargez cette page pour vérifier.",
     signInToReview: "Connectez-vous pour examiner cette demande.",
     signInUnavailable:
       "Cette application ne peut pas confirmer votre connexion sur cette page. Demandez à la personne qui la gère de configurer la connexion du navigateur pour les approbations.",
@@ -365,6 +374,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
     saving: "Wird gespeichert…",
     saveFailed:
       "Deine Entscheidung wurde nicht gespeichert. Versuche es erneut.",
+    decisionUnconfirmed:
+      "Es ließ sich nicht bestätigen, ob deine Entscheidung gespeichert wurde. Lade diese Seite neu, um es zu prüfen.",
     signInToReview: "Melde dich an, um diese Anfrage zu prüfen.",
     signInUnavailable:
       "Diese App kann deine Anmeldung auf dieser Seite nicht bestätigen. Wende dich an die Person, die sie betreibt, damit sie die Browser-Anmeldung für Genehmigungen einrichtet.",
@@ -423,6 +434,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "このリクエストは、別の組織の {email} のものです。このリクエストの送信元の組織に切り替えてから、リンクを開き直してください。",
     saving: "保存しています…",
     saveFailed: "決定を保存できませんでした。もう一度お試しください。",
+    decisionUnconfirmed:
+      "決定が保存されたかどうかを確認できませんでした。このページを再読み込みして確認してください。",
     signInToReview: "このリクエストを確認するにはサインインしてください。",
     signInUnavailable:
       "このアプリは、このページでサインインを確認できません。アプリの管理者に、承認用のブラウザーサインインを設定するよう依頼してください。",
@@ -480,6 +493,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "이 요청은 다른 조직의 {email} 요청입니다. 이 요청을 보낸 조직으로 전환한 후 링크를 다시 여세요.",
     saving: "저장 중…",
     saveFailed: "결정이 저장되지 않았습니다. 다시 시도하세요.",
+    decisionUnconfirmed:
+      "결정이 저장되었는지 확인할 수 없습니다. 이 페이지를 새로고침하여 확인하세요.",
     signInToReview: "이 요청을 검토하려면 로그인하세요.",
     signInUnavailable:
       "이 앱은 이 페이지에서 로그인 상태를 확인할 수 없습니다. 앱 관리자에게 승인용 브라우저 로그인을 설정해 달라고 요청하세요.",
@@ -538,6 +553,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "Esta solicitação pertence a {email} em outra organização. Mude para a organização de onde veio esta solicitação e abra o link novamente.",
     saving: "Salvando…",
     saveFailed: "Sua decisão não foi salva. Tente novamente.",
+    decisionUnconfirmed:
+      "Não foi possível confirmar se sua decisão foi salva. Recarregue esta página para verificar.",
     signInToReview: "Entre para revisar esta solicitação.",
     signInUnavailable:
       "Este app não consegue confirmar seu login nesta página. Peça a quem administra o app para configurar o login pelo navegador para aprovações.",
@@ -596,6 +613,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "यह अनुरोध किसी दूसरे संगठन में {email} का है। जिस संगठन से यह अनुरोध आया है, उस पर स्विच करें और लिंक फिर से खोलें।",
     saving: "सहेजा जा रहा है…",
     saveFailed: "आपका फ़ैसला सहेजा नहीं गया। फिर से कोशिश करें।",
+    decisionUnconfirmed:
+      "आपका फ़ैसला सहेजा गया या नहीं, इसकी पुष्टि नहीं हो सकी। जाँचने के लिए यह पेज फिर से लोड करें।",
     signInToReview: "इस अनुरोध की समीक्षा करने के लिए साइन इन करें।",
     signInUnavailable:
       "यह ऐप इस पेज पर आपके साइन इन की पुष्टि नहीं कर सकता। ऐप चलाने वाले व्यक्ति से मंज़ूरी के लिए ब्राउज़र साइन इन सेट करने को कहें।",
@@ -652,6 +671,8 @@ export const MCP_APPROVAL_MESSAGES: Record<
       "ينتمي هذا الطلب إلى {email} في مؤسسة أخرى. انتقل إلى المؤسسة التي جاء منها هذا الطلب، ثم افتح الرابط مرة أخرى.",
     saving: "جارٍ الحفظ…",
     saveFailed: "لم يتم حفظ قرارك. حاول مرة أخرى.",
+    decisionUnconfirmed:
+      "تعذّر التأكد من حفظ قرارك. أعد تحميل هذه الصفحة للتحقق.",
     signInToReview: "سجّل الدخول لمراجعة هذا الطلب.",
     signInUnavailable:
       "لا يستطيع هذا التطبيق تأكيد تسجيل دخولك في هذه الصفحة. اطلب من مسؤول التطبيق إعداد تسجيل الدخول عبر المتصفح للموافقات.",
