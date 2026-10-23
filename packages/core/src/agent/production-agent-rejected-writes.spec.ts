@@ -700,6 +700,75 @@ describe("a write whose outcome is really unknown", () => {
     });
   });
 
+  it("names no recorded cause when a history-only call beside a journal rejection recorded none", async () => {
+    currentTurnEvents.mockResolvedValue([
+      { type: "tool_start", id: "journaled", tool: "send", input: {} },
+      {
+        type: "tool_done",
+        id: "journaled",
+        tool: "send",
+        input: {},
+        result: "Error running send: rejected.",
+        isError: true,
+        outcomeUnknown: true,
+        unknownCause: "rejection",
+        argumentsHash: actionArgumentsHash({ stamp: 1 }),
+      },
+    ]);
+    const run = vi.fn(async () => "sent");
+    const action = defineAction({
+      description: "Send.",
+      schema: z.object({ stamp: z.number().default(3) }),
+      run,
+    }) as unknown as ActionEntry;
+    const events = await runCalls(
+      { send: action },
+      [{ name: "send", input: {} }],
+      {
+        threadId: "thread-cross-source",
+        history: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "history-only",
+                name: "send",
+                input: {},
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "history-only",
+                toolName: "send",
+                content: "Interrupted before this tool returned a result.",
+                isError: true,
+                outcome: "unknown",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+          },
+        ],
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "interruption",
+      }),
+    );
+  });
+
   it("keeps a rejection recorded only in the resumed history", async () => {
     const input = { body: "Refund sent" };
     const run = vi.fn(async () => "sent");

@@ -5193,9 +5193,9 @@ interface UnknownOutcomes {
    */
   causes: Map<string, UnknownOutcomeCause | null>;
   /**
-   * Keys this set noted a call under with no cause. A call with one beside
-   * it makes the key ambiguous. Not merged: another source recording the
-   * same call without a cause says nothing about the cause it recorded.
+   * Keys a call was noted under with no cause, where no other source
+   * describes that call. A call with a cause beside it makes the key
+   * ambiguous.
    */
   uncaused: Set<string>;
 }
@@ -5232,6 +5232,11 @@ function noteUnknownOutcome(
   /** `undefined` when nothing recorded why. */
   cause: UnknownOutcomeCause | undefined,
   input?: unknown,
+  /**
+   * Another source describes the same call, as the history does a call the
+   * journal recorded: a cause missing here says nothing about its cause.
+   */
+  describedElsewhere = false,
 ): void {
   outcomes.tools.set(tool, (outcomes.tools.get(tool) ?? 0) + 1);
   const keys = unknownOutcomeKeys(tool, argumentsHash, input);
@@ -5244,14 +5249,25 @@ function noteUnknownOutcome(
     if (key === undefined) continue;
     map.set(key, (map.get(key) ?? 0) + 1);
     const causeKey = `${kind}:${key}`;
-    if (!cause) {
-      if (outcomes.causes.has(causeKey)) outcomes.causes.set(causeKey, null);
-      else outcomes.uncaused.add(causeKey);
-    } else if (outcomes.uncaused.has(causeKey)) {
-      outcomes.causes.set(causeKey, null);
-    } else {
-      recordUnknownCause(outcomes.causes, causeKey, cause);
-    }
+    if (cause) recordUnknownCauseBeside(outcomes, causeKey, cause);
+    else if (!describedElsewhere) markUncaused(outcomes, causeKey);
+  }
+}
+
+function markUncaused(outcomes: UnknownOutcomes, causeKey: string): void {
+  outcomes.uncaused.add(causeKey);
+  if (outcomes.causes.has(causeKey)) outcomes.causes.set(causeKey, null);
+}
+
+function recordUnknownCauseBeside(
+  outcomes: UnknownOutcomes,
+  causeKey: string,
+  cause: UnknownOutcomeCause | null,
+): void {
+  if (cause === null || outcomes.uncaused.has(causeKey)) {
+    outcomes.causes.set(causeKey, null);
+  } else {
+    recordUnknownCause(outcomes.causes, causeKey, cause);
   }
 }
 
@@ -5300,9 +5316,9 @@ function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
     }
   }
   for (const [key, cause] of from.causes) {
-    if (cause === null) into.causes.set(key, null);
-    else recordUnknownCause(into.causes, key, cause);
+    recordUnknownCauseBeside(into, key, cause);
   }
+  for (const key of from.uncaused) markUncaused(into, key);
 }
 
 /**
@@ -5376,6 +5392,7 @@ function seedUnknownOutcomes(
         effect ? priorCallIdentities.get(call.identityKey ?? "") : undefined,
         part.unknownCause,
         call.input,
+        effect !== undefined,
       );
     }
   }
@@ -7671,7 +7688,7 @@ export async function runAgentLoop(opts: {
   // hold back every write of the tool.
   for (const tool of opts.unknownWriteToolNames ?? []) {
     const seeded = noUnknownOutcomes();
-    noteUnknownOutcome(seeded, tool, undefined, undefined);
+    noteUnknownOutcome(seeded, tool, undefined, undefined, undefined, true);
     mergeUnknownOutcomes(unknownOutcomes, seeded);
   }
   const {
@@ -9649,8 +9666,14 @@ export async function runAgentLoop(opts: {
       }
       if (executionStepAdmission?.status === "unknown") {
         // The step records no cause; the journal may, for this exact call.
+        // Under its sent arguments when nothing was recorded under its
+        // prepared ones; a key with no single cause stops the search.
+        const recordedCauses = [
+          `call:${preparedCallKey}`,
+          `input:${toolCallCacheKey(toolCall.name, toolCall.input)}`,
+        ].map((key) => unknownOutcomes.causes.get(key));
         unknownOutcomeCause =
-          unknownOutcomes.causes.get(`call:${preparedCallKey}`) ?? undefined;
+          recordedCauses.find((cause) => cause !== undefined) ?? undefined;
         const result = unknownRepeatResult(
           toolCall.name,
           unknownOutcomeCause ?? "interruption",

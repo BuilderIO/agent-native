@@ -218,6 +218,73 @@ describe("durable execution step replay", () => {
     );
   });
 
+  it("reports a cause the history recorded only under the step's sent arguments", async () => {
+    const input = { id: "deck-3" };
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", input)], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [text("Create the deck.")] },
+          { role: "assistant", content: [toolCall("earlier", input)] },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "earlier",
+                toolName: "create-deck",
+                toolInput: JSON.stringify(input),
+                content: "Error running create-deck: upstream rejected it.",
+                isError: true,
+                outcome: "unknown",
+                unknownCause: "rejection",
+              },
+            ],
+          },
+          { role: "user", content: [text(AGENT_INTERNAL_CONTINUE_PROMPT)] },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Deck deck-3"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "rejection",
+      }),
+    );
+  });
+
   it("records no cause for a step stored as unknown that nothing explains", async () => {
     const { beginAgentExecutionStep } = await import("./run-store.js");
     vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
