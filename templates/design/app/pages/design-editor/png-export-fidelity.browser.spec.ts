@@ -141,6 +141,17 @@ it.each([
     redHeight: 50,
   },
   {
+    name: "responsive inline SVG data URL with whitespace",
+    width: 400,
+    height: 400,
+    frameHeight: 400,
+    runtime: true,
+    content:
+      "<style>html,body{margin:0}</style><img id=\"probe\" width=\"100\" height=\"50\" src=\"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'><rect width='200' height='100' fill='red'/></svg>\" srcset=\"\">",
+    redWidth: 100,
+    redHeight: 50,
+  },
+  {
     name: "the browser-selected picture source",
     width: 400,
     height: 400,
@@ -273,6 +284,19 @@ it.each([
       original.replaceWith(replacement);
       await ready;
     }, fixture.exportWidth);
+  }
+  if (fixture.name === "responsive inline SVG data URL with whitespace") {
+    expect(
+      await page
+        .frames()[1]!
+        .locator("#probe")
+        .evaluate(async (element) => {
+          const image = new Image();
+          image.srcset = (element as HTMLImageElement).srcset;
+          await image.decode();
+          return image.naturalWidth;
+        }),
+    ).toBe(200);
   }
   const result = await page.evaluate(async (fixture) => {
     const iframe = document.querySelector("iframe")!;

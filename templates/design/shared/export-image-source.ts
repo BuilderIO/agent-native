@@ -59,5 +59,9 @@ export async function resolveExportImageSource(
     throw new Error("Responsive export image dimensions are unavailable.");
   }
   image.removeAttribute("src");
-  image.setAttribute("srcset", `${source} ${density}x`);
+  const srcsetSource = source.replace(
+    /[ \t\n\f\r]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
+  );
+  image.setAttribute("srcset", `${srcsetSource} ${density}x`);
 }
