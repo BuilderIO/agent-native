@@ -29,7 +29,7 @@ export type FrameMeasurement =
   | {
       status: "unmeasurable";
       nodeId: string;
-      reason: "no-preview" | "not-found" | "not-rendered";
+      reason: "no-preview" | "not-found" | "not-rendered" | "transformed";
     };
 
 const NON_RENDERED_TAGS = new Set(["script", "style", "template", "link"]);
@@ -37,9 +37,23 @@ const NON_RENDERED_TAGS = new Set(["script", "style", "template", "link"]);
 /** Measures a rendered frame and its direct children in one coordinate space. */
 export function measureFrameElement(
   container: Element,
-): MeasuredFrame | { status: "unmeasurable"; reason: "not-rendered" } {
+):
+  | MeasuredFrame
+  | { status: "unmeasurable"; reason: "not-rendered" | "transformed" } {
   const view = container.ownerDocument.defaultView;
   if (!view) return { status: "unmeasurable", reason: "not-rendered" };
+  // Client rects come back scaled or rotated by any transform on the way up,
+  // while the frame's width, height and padding box do not, so the two would
+  // describe different spaces. A translation moves both alike.
+  for (
+    let current: Element | null = container;
+    current;
+    current = current.parentElement
+  ) {
+    if (!isTranslationOnly(view.getComputedStyle(current))) {
+      return { status: "unmeasurable", reason: "transformed" };
+    }
+  }
   const styles = view.getComputedStyle(container);
   const width = Number.parseFloat(styles.width);
   const height = Number.parseFloat(styles.height);
@@ -91,6 +105,29 @@ export function measureFrameElement(
     children,
     unidentifiedChildren,
   };
+}
+
+function isTranslationOnly(styles: CSSStyleDeclaration): boolean {
+  const idle = (value: string | undefined, ...identity: string[]) => {
+    const trimmed = (value ?? "").trim().toLowerCase();
+    return !trimmed || trimmed === "none" || identity.includes(trimmed);
+  };
+  if (!idle(styles.rotate, "0deg", "0")) return false;
+  if (!idle(styles.scale, "1", "1 1")) return false;
+  if (!idle(styles.zoom, "1", "normal")) return false;
+  const transform = (styles.transform ?? "").trim().toLowerCase();
+  if (!transform || transform === "none") return true;
+  const matrix = /^matrix\(([^)]*)\)$/.exec(transform);
+  if (matrix) {
+    const [a, b, c, d] = matrix[1]!.split(",").map((part) => Number(part));
+    return (
+      Math.abs(a! - 1) < 1e-6 &&
+      Math.abs(b!) < 1e-6 &&
+      Math.abs(c!) < 1e-6 &&
+      Math.abs(d! - 1) < 1e-6
+    );
+  }
+  return /^(?:translate(?:x|y|3d)?\([^)]*\)\s*)+$/.test(transform);
 }
 
 function edgeWidth(value: string | undefined): number {

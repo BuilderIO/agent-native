@@ -1247,13 +1247,13 @@ describe("Hug needs content laid out in flow", () => {
     expect(hugFor(element, "horizontal")).toBe(true);
   });
 
-  it("does not trust a truncated child list to prove every child is out of flow", () => {
+  it("withholds Hug while the child list is truncated, since an unseen child may fill", () => {
     const element = makeElement({
       tagName: "div",
       childElementCount: 400,
       childLayouts: childLayouts([absoluteChild("a")], { complete: false }),
     });
-    expect(hugFor(element, "horizontal")).toBe(true);
+    expect(hugFor(element, "horizontal")).toBe(false);
   });
 });
 

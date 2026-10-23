@@ -264,6 +264,14 @@ const INSET_PROPERTIES = [
   "inset",
 ];
 
+const MARGIN_PROPERTIES = [
+  "margin",
+  "marginTop",
+  "marginRight",
+  "marginBottom",
+  "marginLeft",
+];
+
 const lower = (value: string | undefined) => value?.trim().toLowerCase() ?? "";
 const sizeProperty = (axis: LayoutAxis) =>
   axis === "horizontal" ? "width" : "height";
@@ -595,6 +603,12 @@ function circularFillChildren(
   );
 }
 
+// A child list the reader cut short may hide a child that fills, which Hug
+// would have to freeze; unreadable children are a separate, older state.
+function childListComplete(model: LayoutModel): boolean {
+  return model.children.status !== "read" || model.children.complete;
+}
+
 export function availableSizing(
   model: LayoutModel,
 ): Record<LayoutAxis, LayoutSizing[]> {
@@ -607,6 +621,7 @@ export function availableSizing(
     // size, so Hug is only offered while each of them can be frozen.
     if (
       canHug &&
+      childListComplete(model) &&
       circularFillChildren(model, axis).every(
         (child) => child.id !== null && renderedSize(child.node, axis) !== null,
       )
@@ -687,12 +702,27 @@ export function sizingStylePatch(
  * rendered size is written first so joining the flow changes nothing visible.
  */
 export function joinFlowPatch(child: LayoutNodeInput): LayoutStylePatch {
+  // An in-flow child is already where flow puts it; a relative offset is
+  // part of how it looks, so it stays.
+  if (!isOutOfFlow(child)) return {};
   const patch: LayoutStylePatch = {};
   for (const property of INSET_PROPERTIES) patch[property] = null;
-  if (!isOutOfFlow(child) || !child.rect) return patch;
   const styles = child.styles;
   const set = (value: string | undefined) =>
     value !== undefined && value.trim() !== "" && lower(value) !== "auto";
+  // The measured box an absolute child brings already includes its margin,
+  // and padding and gap are inferred from that box; in flow the margin would
+  // apply a second time.
+  if (
+    MARGIN_PROPERTIES.some(
+      (property) =>
+        set(styles[property]) && !/^0[a-z%]*$/i.test(styles[property]!.trim()),
+    )
+  ) {
+    for (const property of MARGIN_PROPERTIES) patch[property] = null;
+    patch.margin = "0";
+  }
+  if (!child.rect) return patch;
   const unsized = (value: string | undefined) =>
     !set(value) || lower(value) === "fit-content";
   const hasInset = set(styles.inset);
@@ -759,6 +789,10 @@ function writeSizing(
       sizingStylePatch(model.node, model.parent, axis, sizing, px ?? 0),
     );
     if (sizing !== "hug") continue;
+    if (!childListComplete(model)) {
+      unmeasured.push(model.node.id ?? "");
+      continue;
+    }
     for (const child of circularFillChildren(model, axis)) {
       const childPx = renderedSize(child.node, axis);
       if (child.id === null || childPx === null) {

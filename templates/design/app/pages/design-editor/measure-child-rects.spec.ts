@@ -81,3 +81,27 @@ describe("measureFrameElement", () => {
     expect(measureFrameElement(container).status).toBe("unmeasurable");
   });
 });
+
+describe("measureFrameElement under a transform", () => {
+  it("refuses a frame whose own transform scales or rotates its children", () => {
+    const { container } = mountPreview("transform: scale(2)");
+    expect(measureFrameElement(container)).toEqual({
+      status: "unmeasurable",
+      reason: "transformed",
+    });
+  });
+
+  it("refuses a frame inside a rotated ancestor", () => {
+    const { container } = mountPreview("");
+    (container.parentElement as HTMLElement).style.transform = "rotate(45deg)";
+    expect(measureFrameElement(container)).toMatchObject({
+      status: "unmeasurable",
+      reason: "transformed",
+    });
+  });
+
+  it("still measures a frame that is only translated", () => {
+    const { container } = mountPreview("transform: translate(12px, 4px)");
+    expect(kidRect(container)).toMatchObject({ x: 10, y: 20 });
+  });
+});

@@ -290,6 +290,22 @@ describe("availability", () => {
     expect(availableSizing(unmeasured).horizontal).not.toContain("hug");
     expect(availableSizing(unmeasured).vertical).toContain("hug");
   });
+
+  it("withholds Hug while the child list was cut short, since a missing child may fill", () => {
+    const truncated = model(
+      ROW,
+      read([child("a", { x: 0, y: 0, width: 80, height: 20 })], {
+        complete: false,
+      }),
+    );
+    expect(availableSizing(truncated).horizontal).not.toContain("hug");
+    expect(
+      writeLayoutChange(truncated, {
+        kind: "sizing",
+        sizing: { horizontal: "hug" },
+      }).status,
+    ).toBe("unreadable");
+  });
 });
 
 describe("writeLayoutChange — sizing", () => {
@@ -711,6 +727,39 @@ describe("joinFlowPatch", () => {
         ),
       ),
     ).not.toHaveProperty("width");
+  });
+
+  it("keeps an in-flow relative child's visible offset", () => {
+    expect(
+      joinFlowPatch(
+        child(
+          "nudged",
+          { x: 12, y: 6, width: 50, height: 20 },
+          { styles: { position: "relative", left: "12px", top: "6px" } },
+        ),
+      ),
+    ).toEqual({});
+  });
+
+  it("zeroes an absolute child's margins, which its measured box already includes", () => {
+    expect(
+      joinFlowPatch(
+        child(
+          "badge",
+          { x: 30, y: 30, width: 40, height: 20 },
+          {
+            styles: {
+              position: "absolute",
+              left: "20px",
+              top: "20px",
+              margin: "10px",
+              width: "40px",
+              height: "20px",
+            },
+          },
+        ),
+      ),
+    ).toMatchObject({ position: null, left: null, top: null, margin: "0" });
   });
 });
 
