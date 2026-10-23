@@ -790,24 +790,24 @@ describe("joinFlowPatch", () => {
     });
   });
 
-  it("leaves box sizing alone when the other axis has a relative size", () => {
-    const patch = joinFlowPatch(
-      child(
-        "bar",
-        { x: 0, y: 180, width: 320, height: 52 },
-        {
-          styles: {
-            position: "absolute",
-            left: "0",
-            right: "0",
-            height: "10%",
+  it("refuses when the other axis has a relative size, since neither box sizing keeps both axes", () => {
+    expect(
+      joinFlowPatch(
+        child(
+          "bar",
+          { x: 0, y: 180, width: 320, height: 52 },
+          {
+            styles: {
+              position: "absolute",
+              left: "0",
+              right: "0",
+              height: "10%",
+              padding: "16px",
+            },
           },
-        },
+        ),
       ),
-    );
-    expect(patch).not.toHaveProperty("boxSizing");
-    expect(patch).toMatchObject({ width: "320px" });
-    expect(patch).not.toHaveProperty("height");
+    ).toBeNull();
   });
 
   it("refuses to join flow when an inset-sized child was never measured", () => {

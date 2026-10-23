@@ -744,8 +744,10 @@ export function joinFlowPatch(child: LayoutNodeInput): LayoutStylePatch | null {
   }
   // The measured rect is a border box, so the written size only holds under
   // border-box sizing. That switch also reinterprets the other axis: an
-  // explicit px size there is rewritten to its rendered border box, auto
-  // sizes are unaffected, and any other declared size keeps content-box.
+  // explicit px size there is rewritten to its rendered border box and auto
+  // sizes are unaffected. A relative size (%, vw, calc) cannot be rewritten
+  // without losing what it means, and keeping content-box would grow a
+  // padded child, so that case is refused rather than guessed.
   const other =
     insetWidth && !insetHeight ? "height" : !insetWidth ? "width" : null;
   if (other) {
@@ -753,7 +755,7 @@ export function joinFlowPatch(child: LayoutNodeInput): LayoutStylePatch | null {
     if (/^-?(?:\d+\.?\d*|\.\d+)px$/.test(declared)) {
       patch[other] = wholePx(child.rect[other]);
     } else if (declared && !HUG_SIZES.has(declared)) {
-      return patch;
+      return null;
     }
   }
   patch.boxSizing = "border-box";
