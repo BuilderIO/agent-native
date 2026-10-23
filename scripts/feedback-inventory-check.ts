@@ -3927,16 +3927,25 @@ function validateUnreconciledTicketMark(
     );
   }
   const status = parent.statusReply;
-  const statusTs = slackTimestamp(status.ts, `${parentName}.statusReply.ts`);
+  const statusTs = slackTimestamp(status.ts, parentName + ".statusReply.ts");
+  const statusAction = classifyHumanTicketAction(status.text);
+  const evidenceAction = classifyHumanTicketAction(status.evidence);
+  if (statusAction === "ambiguous" || evidenceAction === "ambiguous") {
+    throw new Error(
+      parentName +
+        ": a named actor is ambiguous; identify it as a human or correct the no-action claim before preserving an unreconciled 🎫",
+    );
+  }
   if (
     !/ticket/i.test(status.text) ||
     !explicitlyIdentifiesMissingHumanTicketAction(status.text) ||
     !explicitlyIdentifiesMissingHumanTicketAction(status.evidence) ||
-    claimsHumanTicketAction(status.text) ||
-    claimsHumanTicketAction(status.evidence)
+    statusAction === "present" ||
+    evidenceAction === "present"
   ) {
     throw new Error(
-      `${parentName}: current status and its evidence must identify the missing separate human action for the retained 🎫`,
+      parentName +
+        ": current status and its evidence must identify the missing separate human action for the retained 🎫",
     );
   }
   const seen = new Set<string>();
@@ -3946,6 +3955,15 @@ function validateUnreconciledTicketMark(
     const reply = threadSnapshot.replies.find(
       (candidate) => candidate.ts === replyTs,
     );
+    const replyAction = reply
+      ? classifyHumanTicketAction(reply.text)
+      : "absent";
+    if (replyAction === "ambiguous") {
+      throw new Error(
+        label +
+          ": a named actor is ambiguous; identify it as a human or correct the no-action claim",
+      );
+    }
     if (
       seen.has(replyTs) ||
       timestamp >= statusTs ||
@@ -3953,10 +3971,11 @@ function validateUnreconciledTicketMark(
       reply.kind !== "sweep" ||
       !/ticket/i.test(reply.text) ||
       !explicitlyIdentifiesMissingHumanTicketAction(reply.text) ||
-      claimsHumanTicketAction(reply.text)
+      replyAction === "present"
     ) {
       throw new Error(
-        `${label}: evidence must be a unique earlier captured sweep reply that identifies the missing separate human action`,
+        label +
+          ": evidence must be a unique earlier captured sweep reply that identifies the missing separate human action",
       );
     }
     seen.add(replyTs);
@@ -4033,68 +4052,63 @@ function explicitlyIdentifiesMissingHumanTicketAction(text: string): boolean {
   );
 }
 
-function claimsHumanTicketAction(text: string): boolean {
+function classifyHumanTicketAction(
+  text: string,
+): "present" | "absent" | "ambiguous" {
   const humanActor =
     "(?:i|we|they|owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|someone|anyone)";
-  const systemActorPattern = [
-    "Jira",
-    "Slack",
-    "GitHub",
-    "Linear",
-    "Salesforce",
-    "HubSpot",
-    "Notion",
-    "Builder",
-  ]
-    .map((name) =>
-      name.replace(/[A-Za-z]/g, (letter) => {
-        return `[${letter.toLowerCase()}${letter.toUpperCase()}]`;
-      }),
-    )
-    .join("|");
-  const namedActor = `(?!(?:the|a|an|this|that|it|ticket|issue|action|task|work|request|handoff|bug|repro|pr|scope|fix|behavior|disposition|thread|root|mark|status|report|evidence|comment|message|system|bot|team|app|run|file|page|channel|calendar|database|service|agent|assistant|server|model|tool|api|${systemActorPattern})\\b)\\p{Lu}[\\p{L}'-]*`;
-  const actionTarget =
-    "(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)";
+  const namedActor = String.raw`\p{Lu}[\p{L}'-]*`;
+  const actionStatements = [
+    String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:open(?:s|ed|ing)?|creat(?:e|es|ed|ing)|fil(?:e|es|ed|ing))\b.{0,50}\b(?:ticket|issue|action)\b`,
+    String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:accept(?:s|ed|ing)?|own(?:s|ed|ing)?|handle(?:s|d|ing)?|take|takes|took|taken|taking\s+on|pick(?:s|ed|ing)\s+up|work(?:s|ed|ing)\s+on|track(?:s|ed|ing)|follow(?:s|ed)?\s+up)\b.{0,50}\b(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)\b`,
+    String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:assign(?:s|ed|ing)?|delegate(?:s|d|ing)?)\b.{0,50}\b(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)\b`,
+    String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:on the hook for|responsible for|accountable for|in charge of)\b.{0,50}\b(?:it|this|that|work|task|issue|ticket|request|handoff|bug|repro|pr)\b`,
+    String.raw`(?:has|have|got|gets)\s+(?:it|this|that|(?:the\s+)?(?:work|task|issue|ticket|request|handoff|bug|repro|pr))\b`,
+  ];
+  const humanPassiveAssignment = new RegExp(
+    String.raw`\b(?:ticket|issue|action)\b.{0,40}\b(?:is|was|has been|had been)\s+assigned\s+to\s+(?!(?:[Nn]o one|[Nn]obody|[Aa]nyone|[Aa]nybody|[Tt]he (?:bot|system|automation|app|agent|assistant|server|model|tool|api))\b)(?:me|us|you|someone|somebody|the (?:owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|team))\b`,
+    "u",
+  );
+  const ambiguousPassiveAssignment = new RegExp(
+    String.raw`\b(?:ticket|issue|action)\b.{0,40}\b(?:is|was|has been|had been)\s+assigned\s+to\s+\p{Lu}[\p{L}'-]*\b`,
+    "u",
+  );
+  const actorStatementMatches = (
+    actor: string,
+    statement: string,
+    input: string,
+    flags: string,
+  ) => new RegExp("\\b" + actor + "\\s+" + statement, flags).test(input);
+  let hasAmbiguousActor = false;
 
-  return splitEvidenceClauses(text).some((clause) => {
+  for (const clause of splitEvidenceClauses(text)) {
     const normalized = normalizeReplyPhrase(clause);
     if (
       /\b(?:automatically|automated|automation|auto[- ]?(?:created|opened|filed)|bot|system)\b/i.test(
         normalized,
       )
     ) {
-      return false;
+      continue;
     }
-    const hasHumanActorStatement = (statement: string) =>
-      new RegExp(`\\b${humanActor}\\s+${statement}`, "i").test(normalized) ||
-      new RegExp(`\\b${namedActor}\\s+${statement}`, "u").test(
-        clause.normalize("NFKC"),
+    const sourceText = clause.normalize("NFKC");
+    const hasHumanAction =
+      humanPassiveAssignment.test(sourceText) ||
+      actionStatements.some((statement) =>
+        actorStatementMatches(humanActor, statement, sourceText, "iu"),
       );
-    const hasHumanPassiveAssignment = new RegExp(
-      String.raw`\b(?:ticket|issue|action)\b.{0,40}\b(?:is|was|has been|had been)\s+assigned\s+to\s+(?!(?:[Nn]o one|[Nn]obody|[Aa]nyone|[Aa]nybody|[Tt]he (?:bot|system|automation|app|agent|assistant|server|model|tool|api)|${systemActorPattern})\b)(?:\p{Lu}[\p{L}'-]*|me|us|you|someone|somebody|the (?:owner|reporter|user|customer|assignee|teammate|reviewer|maintainer|manager|engineer|team))\b`,
-      "u",
-    ).test(clause.normalize("NFKC"));
-    return (
-      hasHumanActorStatement(
-        String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:open(?:s|ed|ing)?|creat(?:e|es|ed|ing)|fil(?:e|es|ed|ing))\b.{0,50}\b(?:ticket|issue|action)\b`,
-      ) ||
-      hasHumanPassiveAssignment ||
-      hasHumanActorStatement(
-        String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:accept(?:s|ed|ing)?|own(?:s|ed|ing)?|handle(?:s|d|ing)?|take|takes|took|taken|taking\s+on|pick(?:s|ed|ing)\s+up|work(?:s|ed|ing)\s+on|track(?:s|ed|ing)|follow(?:s|ed)?\s+up)\b.{0,50}\b${actionTarget}\b`,
-      ) ||
-      hasHumanActorStatement(
-        String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:assign(?:s|ed|ing)?|delegate(?:s|d|ing)?)\b.{0,50}\b${actionTarget}\b`,
-      ) ||
-      hasHumanActorStatement(
-        String.raw`(?:(?:will|would|have|has|had|am|is|are)\s+)?(?:on the hook for|responsible for|accountable for|in charge of)\b.{0,50}\b${actionTarget}\b`,
-      ) ||
-      hasHumanActorStatement(
-        String.raw`(?:has|have|got|gets)\s+(?:it|this|that|(?:the\s+)?(?:work|task|issue|ticket|request|handoff|bug|repro|pr))\b`,
-      )
-    );
-  });
-}
+    if (hasHumanAction) return "present";
 
+    // A bare proper noun is ambiguous with a product or service name.
+    const hasAmbiguousAction =
+      ambiguousPassiveAssignment.test(sourceText) ||
+      actionStatements.some((statement) =>
+        actorStatementMatches(namedActor, statement, sourceText, "u"),
+      );
+    if (hasAmbiguousAction) hasAmbiguousActor = true;
+  }
+
+  return hasAmbiguousActor ? "ambiguous" : "absent";
+}
 function explicitlyIdentifiesUnverifiedScope(text: string): boolean {
   const normalized = normalizeReplyPhrase(text);
   return (
@@ -9330,6 +9344,26 @@ if (args[0] === "--self-test" && args.length === 1) {
     "must identify the missing separate human action",
   );
   expectFocusedFailure(
+    "unreconciled ticket status with an ambiguous service actor",
+    () =>
+      validateUnreconciledTicketMark(
+        "self-test root 10.000000",
+        {
+          ...unreconciledTicketParent,
+          statusReply: {
+            ...unreconciledTicketStatus,
+            text: "In progress — no separate owner or reporter action is attached to the :ticket:, but ServiceNow created a ticket.",
+          },
+        },
+        true,
+        false,
+        0,
+        unreconciledTicketSnapshot,
+        "USWEEPER",
+      ),
+    "a named actor is ambiguous",
+  );
+  expectFocusedFailure(
     "unreconciled ticket status with a human assignment",
     () =>
       validateUnreconciledTicketMark(
@@ -9359,7 +9393,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           statusReply: {
             ...unreconciledTicketStatus,
             evidence:
-              "No separate owner or reporter action is attached to the ticket; Sam is on the hook for it.",
+              "No separate owner or reporter action is attached to the ticket; the owner is on the hook for it.",
           },
         },
         true,
@@ -9384,7 +9418,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           replies: [
             {
               ...unreconciledTicketSnapshot.replies[0]!,
-              text: "The :ticket: has no separate owner or reporter action, but Alex has it.",
+              text: "The :ticket: has no separate owner or reporter action, but the reporter has it.",
             },
             ...unreconciledTicketSnapshot.replies.slice(1),
           ],
@@ -9393,6 +9427,22 @@ if (args[0] === "--self-test" && args.length === 1) {
       ),
     "identifies the missing separate human action",
   );
+  for (const ambiguousAction of [
+    "JIRA created a ticket.",
+    "SLACK opened an issue.",
+    "ServiceNow created a ticket.",
+    "Asana opened an issue.",
+    "The ticket was assigned to ServiceNow.",
+    "The issue was assigned to Asana.",
+    "The ticket was assigned to Alex.",
+  ]) {
+    if (classifyHumanTicketAction(ambiguousAction) !== "ambiguous") {
+      throw new Error(
+        "Feedback inventory checker self-test did not preserve an ambiguous actor: " +
+          ambiguousAction,
+      );
+    }
+  }
   for (const negatedAssignment of [
     "I am not assigning it to Sam.",
     "Sam is not on the hook for it.",
@@ -9401,24 +9451,23 @@ if (args[0] === "--self-test" && args.length === 1) {
     "The ticket was not assigned to Alex.",
     "The ticket was created automatically by the system.",
     "Jira automatically created the ticket.",
-    "JIRA created a ticket.",
-    "SLACK opened an issue.",
     "A bot opened a ticket.",
     "Bot opened a ticket.",
   ]) {
-    if (claimsHumanTicketAction(negatedAssignment)) {
+    if (classifyHumanTicketAction(negatedAssignment) !== "absent") {
       throw new Error(
         `Feedback inventory checker self-test treated a negated human action as active: ${negatedAssignment}`,
       );
     }
   }
   for (const positiveAction of [
-    "The ticket was assigned to Alex.",
+    "The ticket was assigned to the owner.",
     "I opened a ticket.",
     "I created the ticket.",
     "I assigned it to Sam.",
+    "The reviewer is taking on the issue.",
   ]) {
-    if (!claimsHumanTicketAction(positiveAction)) {
+    if (classifyHumanTicketAction(positiveAction) !== "present") {
       throw new Error(
         `Feedback inventory checker self-test missed a positive human action: ${positiveAction}`,
       );
@@ -9453,7 +9502,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         unreconciledTicketSnapshot,
         "USWEEPER",
       ),
-    "must identify the missing separate human action",
+    "a named actor is ambiguous",
   );
   expectFocusedFailure(
     "unreconciled ticket status with only a mark mention",
