@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
+import { verifyActiveReleaseCoordinator } from "./release-coordinator.ts";
+
 export type RequiredCheckStatus = {
   name: string;
   bucket: string;
@@ -19,6 +21,8 @@ type WaitForRequiredChecksOptions = {
   timeoutMs?: number;
   intervalMs?: number;
   readRetryDelaysMs?: number[];
+  verifyCoordinator?: (expectedRunId?: number) => Promise<number | undefined>;
+  coordinatorCheckIntervalMs?: number;
 };
 
 const DEFAULT_READ_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000];
@@ -165,8 +169,31 @@ export async function waitForRequiredChecks({
   timeoutMs = 240 * 60_000,
   intervalMs = 15_000,
   readRetryDelaysMs = DEFAULT_READ_RETRY_DELAYS_MS,
-}: WaitForRequiredChecksOptions): Promise<void> {
+  verifyCoordinator,
+  coordinatorCheckIntervalMs = 60_000,
+}: WaitForRequiredChecksOptions): Promise<number | undefined> {
   const deadline = now() + timeoutMs;
+  let coordinatorRunId: number | undefined;
+  let nextCoordinatorCheckAt = Number.NEGATIVE_INFINITY;
+  const checkCoordinator = async (force = false) => {
+    if (!verifyCoordinator || (!force && now() < nextCoordinatorCheckAt))
+      return;
+    const verifiedRunId = await retryGitHubRead(
+      "Verifying the active Release everything coordinator",
+      () => verifyCoordinator(coordinatorRunId),
+      sleep,
+      readRetryDelaysMs,
+    );
+    if (coordinatorRunId !== undefined && verifiedRunId !== coordinatorRunId) {
+      throw new Error(
+        "The active Release everything coordinator changed during the wait.",
+      );
+    }
+    coordinatorRunId ??= verifiedRunId;
+    nextCoordinatorCheckAt = now() + coordinatorCheckIntervalMs;
+  };
+
+  await checkCoordinator(true);
   const requiredContexts = await retryGitHubRead(
     "Reading required status checks for main",
     readRequiredContexts,
@@ -186,6 +213,7 @@ export async function waitForRequiredChecks({
   };
 
   while (true) {
+    await checkCoordinator();
     const statuses = await retryGitHubRead(
       "Reading required release PR check results",
       readStatuses,
@@ -193,7 +221,7 @@ export async function waitForRequiredChecks({
       readRetryDelaysMs,
     );
     lastState = evaluateRequiredChecks(requiredContexts, statuses);
-    if (lastState.status === "passed") return;
+    if (lastState.status === "passed") return coordinatorRunId;
     if (lastState.status === "failed") throw new Error(lastState.reason);
 
     const remaining = deadline - now();
@@ -277,13 +305,67 @@ async function main(): Promise<void> {
 
   const readCurrentContexts = async () => readRequiredContexts(repo);
   const readCurrentStatuses = async () => readStatuses(prNumber, repo);
+  const eventName = process.env.RELEASE_EVENT_NAME;
+  if (
+    eventName !== undefined &&
+    eventName !== "pull_request" &&
+    eventName !== "workflow_dispatch"
+  ) {
+    throw new Error(`Unsupported release auto-merge event: ${eventName}.`);
+  }
+
+  let coordinatorUpdatedAt: string | undefined;
+  if (eventName === "pull_request") {
+    coordinatorUpdatedAt = process.env.PR_UPDATED_AT;
+    if (!coordinatorUpdatedAt) {
+      throw new Error(
+        "The release PR update time is required to verify its coordinator.",
+      );
+    }
+  }
+  const expectedCoordinatorRunId = process.env.EXPECTED_COORDINATOR_RUN_ID
+    ? Number(process.env.EXPECTED_COORDINATOR_RUN_ID)
+    : undefined;
+  if (
+    process.env.EXPECTED_COORDINATOR_RUN_ID &&
+    !Number.isSafeInteger(expectedCoordinatorRunId)
+  ) {
+    throw new Error("The expected Release everything run ID is invalid.");
+  }
+  const verifyCoordinator = coordinatorUpdatedAt
+    ? (expectedRunId?: number) =>
+        Promise.resolve(
+          verifyActiveReleaseCoordinator(
+            repo,
+            coordinatorUpdatedAt as string,
+            expectedRunId,
+          ),
+        )
+    : undefined;
 
   if (mode === "wait") {
-    await waitForRequiredChecks({
+    const coordinatorRunId = await waitForRequiredChecks({
       readRequiredContexts: readCurrentContexts,
       readStatuses: readCurrentStatuses,
+      verifyCoordinator,
     });
+    if (coordinatorRunId !== undefined)
+      process.stdout.write(`${coordinatorRunId}\n`);
     return;
+  }
+
+  if (verifyCoordinator) {
+    if (expectedCoordinatorRunId === undefined) {
+      throw new Error(
+        "The expected Release everything run ID is required before verification.",
+      );
+    }
+    await retryGitHubRead(
+      "Verifying the active Release everything coordinator",
+      () => verifyCoordinator(expectedCoordinatorRunId),
+      (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+      DEFAULT_READ_RETRY_DELAYS_MS,
+    );
   }
 
   const sleep = (ms: number): Promise<void> =>

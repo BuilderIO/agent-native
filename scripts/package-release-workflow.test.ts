@@ -25,6 +25,11 @@ import {
 import { packagesCoveredBy } from "./check-changeset.mjs";
 import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
+  RELEASE_COORDINATOR_STEP_NAME,
+  assertReleaseCoordinatorStepActive,
+  selectActiveReleaseCoordinator,
+} from "./release-coordinator.ts";
+import {
   isMajorVersionPromotion,
   packageManifestVersion,
   packageManifestVersionChange,
@@ -207,6 +212,129 @@ describe("npm package release workflow", () => {
     assert.equal(now, 240 * 60_000);
   });
 
+  it("stops polling when the matching release coordinator ends", async () => {
+    let now = 0;
+    let coordinatorReads = 0;
+    let statusReads = 0;
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => ["Build"],
+        readStatuses: async () => {
+          statusReads += 1;
+          return [];
+        },
+        verifyCoordinator: async (expectedRunId) => {
+          coordinatorReads += 1;
+          if (coordinatorReads === 1) {
+            assert.equal(expectedRunId, undefined);
+            return 123;
+          }
+          assert.equal(expectedRunId, 123);
+          throw new Error("Release everything coordinator run 123 ended.");
+        },
+        coordinatorCheckIntervalMs: 30_000,
+        intervalMs: 15_000,
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+      }),
+      /Release everything coordinator run 123 ended/,
+    );
+    assert.equal(coordinatorReads, 2);
+    assert.equal(statusReads, 2);
+  });
+
+  it("matches one in-progress coordinator to the release PR update", () => {
+    const run = {
+      id: 123,
+      event: "schedule",
+      head_branch: "main",
+      run_started_at: "2026-10-23T10:00:00Z",
+      status: "in_progress",
+    };
+    const pages = [{ workflow_runs: [run] }];
+    assert.equal(
+      selectActiveReleaseCoordinator(pages, "2026-10-23T10:01:00Z"),
+      123,
+    );
+    assert.equal(
+      selectActiveReleaseCoordinator(pages, "2026-10-23T10:01:00Z", 123),
+      123,
+    );
+    assert.throws(
+      () => selectActiveReleaseCoordinator(pages, "2026-10-23T09:58:00Z"),
+      /does not match the release PR update/,
+    );
+    assert.throws(
+      () =>
+        selectActiveReleaseCoordinator(
+          [{ workflow_runs: [run] }, { workflow_runs: [{ ...run, id: 124 }] }],
+          "2026-10-23T10:01:00Z",
+        ),
+      /Expected one active Release everything coordinator/,
+    );
+    assert.throws(
+      () =>
+        selectActiveReleaseCoordinator(
+          [{ workflow_runs: [] }],
+          "2026-10-23T10:01:00Z",
+        ),
+      /returned 0/,
+    );
+  });
+
+  it("requires the coordinator release step to remain active", () => {
+    const activePages = [
+      {
+        jobs: [
+          {
+            name: "Release packages, desktop apps, and production sites",
+            status: "in_progress",
+            steps: [
+              {
+                name: RELEASE_COORDINATOR_STEP_NAME,
+                status: "in_progress",
+                conclusion: null,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorStepActive(activePages, 123),
+    );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorStepActive(
+          [
+            {
+              jobs: [
+                {
+                  name: "Release packages, desktop apps, and production sites",
+                  status: "in_progress",
+                  steps: [
+                    {
+                      name: RELEASE_COORDINATOR_STEP_NAME,
+                      status: "completed",
+                      conclusion: "failure",
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          123,
+        ),
+      /no longer performing the release step/,
+    );
+    assert.throws(
+      () => assertReleaseCoordinatorStepActive([{ jobs: [] }], 123),
+      /Expected one active release step/,
+    );
+  });
+
   it("does not miss a required check on a later main rules page", () => {
     const tempRoot = mkdtempSync(path.join(tmpdir(), "release-checks-"));
     const binDirectory = path.join(tempRoot, "bin");
@@ -265,6 +393,108 @@ esac
           return true;
         },
       );
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("waits only while the matching coordinator release step is active", () => {
+    const tempRoot = mkdtempSync(
+      path.join(tmpdir(), "release-coordinator-wait-"),
+    );
+    const binDirectory = path.join(tempRoot, "bin");
+    const callsPath = path.join(tempRoot, "gh-calls.txt");
+    const ghPath = path.join(binDirectory, "gh");
+    mkdirSync(binDirectory);
+    writeFileSync(
+      ghPath,
+      `#!/bin/sh
+printf '%s|%s\\n' "$GH_TOKEN" "$*" >> "$GH_CALLS_FILE"
+case " $* " in
+  *" repos/BuilderIO/agent-native/actions/workflows/release-everything.yml/runs?branch=main&status=in_progress&per_page=100 "*) printf '%s' "$GH_RUN_PAGES" ;;
+  *" repos/BuilderIO/agent-native/actions/runs/123/jobs?per_page=100 "*) printf '%s' "$GH_JOB_PAGES" ;;
+  *" repos/BuilderIO/agent-native/rules/branches/main "*) printf '%s' "$GH_RULE_PAGES" ;;
+  *" pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket "*) printf '%s' '[{"name":"Build","bucket":"pass"}]' ;;
+  *) printf '%s\\n' 'unexpected gh arguments' >&2; exit 1 ;;
+esac
+`,
+    );
+    chmodSync(ghPath, 0o755);
+
+    const run = {
+      id: 123,
+      event: "schedule",
+      head_branch: "main",
+      run_started_at: "2026-10-23T10:00:00Z",
+      status: "in_progress",
+    };
+    const jobs = [
+      {
+        name: "Release packages, desktop apps, and production sites",
+        status: "in_progress",
+        steps: [
+          {
+            name: RELEASE_COORDINATOR_STEP_NAME,
+            status: "in_progress",
+            conclusion: null,
+          },
+        ],
+      },
+    ];
+    const env = {
+      ...process.env,
+      PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "workflow-token",
+      GH_ACTIONS_TOKEN: "actions-read-token",
+      GH_CALLS_FILE: callsPath,
+      GH_RUN_PAGES: JSON.stringify([{ workflow_runs: [run] }]),
+      GH_JOB_PAGES: JSON.stringify([{ jobs }]),
+      GH_RULE_PAGES: JSON.stringify([
+        [
+          {
+            type: "required_status_checks",
+            parameters: {
+              required_status_checks: [{ context: "Build" }],
+            },
+          },
+        ],
+      ]),
+      PR_NUMBER: "8102",
+      REPO: "BuilderIO/agent-native",
+      RELEASE_EVENT_NAME: "pull_request",
+      PR_UPDATED_AT: "2026-10-23T10:01:00Z",
+      EXPECTED_COORDINATOR_RUN_ID: "",
+    };
+    const runWait = () =>
+      execFileSync(
+        process.execPath,
+        [
+          "--experimental-strip-types",
+          path.resolve("scripts/release-required-checks.ts"),
+          "wait",
+          "8102",
+          "BuilderIO/agent-native",
+        ],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    try {
+      assert.equal(runWait(), "123\n");
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/workflows/release-everything.yml/runs?branch=main&status=in_progress&per_page=100",
+        "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/runs/123/jobs?per_page=100",
+        "workflow-token|api --paginate --slurp repos/BuilderIO/agent-native/rules/branches/main",
+        "workflow-token|pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket",
+      ]);
+
+      writeFileSync(callsPath, "");
+      env.RELEASE_EVENT_NAME = "workflow_dispatch";
+      delete (env as { PR_UPDATED_AT?: string }).PR_UPDATED_AT;
+      assert.equal(runWait(), "");
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "workflow-token|api --paginate --slurp repos/BuilderIO/agent-native/rules/branches/main",
+        "workflow-token|pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket",
+      ]);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -1375,6 +1605,7 @@ fi
       assert.equal((workflowDispatchInputs[input] as Workflow).required, true);
     }
     assert.deepEqual(autoMergeWorkflow.permissions, {
+      actions: "read",
       checks: "read",
       contents: "read",
       "pull-requests": "read",
@@ -1434,6 +1665,7 @@ fi
     assert.match(String(releasePrContext.run), /\.head\.sha == \$head/);
     assert.match(String(releasePrContext.run), /\.base\.sha == \$base/);
     assert(requiredChecks);
+    assert.equal(requiredChecks.id, "required-checks");
     assert.match(
       String(requiredChecks.run),
       /release-required-checks\.ts wait "\$PR_NUMBER" "\$REPO"/,
@@ -1441,6 +1673,22 @@ fi
     assert.equal(
       (requiredChecks.env as Workflow).GH_TOKEN,
       "${{ github.token }}",
+    );
+    assert.equal(
+      (requiredChecks.env as Workflow).GH_ACTIONS_TOKEN,
+      "${{ github.token }}",
+    );
+    assert.equal(
+      (requiredChecks.env as Workflow).RELEASE_EVENT_NAME,
+      "${{ github.event_name }}",
+    );
+    assert.match(
+      String((requiredChecks.env as Workflow).PR_UPDATED_AT),
+      /pull_request\.updated_at/,
+    );
+    assert.match(
+      String(requiredChecks.run),
+      /coordinator_run_id=.*GITHUB_OUTPUT/,
     );
     assert.doesNotMatch(String(requiredChecks.run), /gh pr checks/);
     assert(mergeToken);
@@ -1509,6 +1757,10 @@ fi
       String(releasePrRecheck.run),
       /release-required-checks\.ts verify "\$PR_NUMBER" "\$REPO"/,
     );
+    assert.match(
+      String((releasePrRecheck.env as Workflow).EXPECTED_COORDINATOR_RUN_ID),
+      /required-checks\.outputs\.coordinator_run_id/,
+    );
     assert(forceMerge);
     assert.equal(
       (forceMerge.env as Workflow).GH_TOKEN,
@@ -1520,6 +1772,14 @@ fi
     assert.match(
       String(forceMerge.run),
       /release-required-checks\.ts verify "\$PR_NUMBER" "\$REPO"/,
+    );
+    assert.match(
+      String((forceMerge.env as Workflow).EXPECTED_COORDINATOR_RUN_ID),
+      /required-checks\.outputs\.coordinator_run_id/,
+    );
+    assert(
+      String(forceMerge.run).indexOf("release-required-checks.ts verify") <
+        String(forceMerge.run).indexOf("gh pr merge"),
     );
   });
 

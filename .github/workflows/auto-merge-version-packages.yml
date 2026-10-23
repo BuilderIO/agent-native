@@ -20,6 +20,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   checks: read
   contents: read
   pull-requests: read
@@ -101,11 +102,18 @@ jobs:
           fi
 
       - name: Wait for required release PR checks
+        id: required-checks
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_ACTIONS_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: node --experimental-strip-types scripts/release-required-checks.ts wait "$PR_NUMBER" "$REPO"
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at || '' }}
+        run: |
+          set -euo pipefail
+          coordinator_run_id=$(node --experimental-strip-types scripts/release-required-checks.ts wait "$PR_NUMBER" "$REPO")
+          echo "coordinator_run_id=$coordinator_run_id" >> "$GITHUB_OUTPUT"
 
       - name: Generate fresh merge token
         id: merge-token
@@ -237,6 +245,10 @@ jobs:
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at || '' }}
+          EXPECTED_COORDINATOR_RUN_ID: ${{ steps.required-checks.outputs.coordinator_run_id }}
+          GH_ACTIONS_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if ! gh api "repos/$REPO/pulls/$PR_NUMBER" | jq -e \
@@ -262,6 +274,10 @@ jobs:
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at || '' }}
+          EXPECTED_COORDINATOR_RUN_ID: ${{ steps.required-checks.outputs.coordinator_run_id }}
+          GH_ACTIONS_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           pull_request=$(gh api "repos/$REPO/pulls/$PR_NUMBER")

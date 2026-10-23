@@ -4,6 +4,8 @@ import { describe, it } from "node:test";
 
 import { parse } from "yaml";
 
+import { RELEASE_COORDINATOR_STEP_NAME } from "./release-coordinator.ts";
+
 type Workflow = Record<string, unknown>;
 
 const workflow = parse(
@@ -37,8 +39,7 @@ const inputs = dispatch.inputs as Workflow;
 const job = (workflow.jobs as Workflow)["release-everything"] as Workflow;
 const steps = job.steps as Workflow[];
 const coordinator = steps.find(
-  (step) =>
-    step.name === "Release packages, then desktop apps and production sites",
+  (step) => step.name === RELEASE_COORDINATOR_STEP_NAME,
 ) as Workflow;
 
 describe("release everything workflow", () => {
