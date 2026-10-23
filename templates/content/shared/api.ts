@@ -1031,6 +1031,8 @@ export interface ContentGitHubSourceStatus {
   skippedCount: number;
   /** Images not shown yet because file storage isn't set up or failed. */
   imagesWaiting: number;
+  /** Whether file storage is set up but couldn't save some of those images. */
+  imagesFailed: boolean;
   problem: {
     code: GitHubSourceProblemCode;
     message: string;

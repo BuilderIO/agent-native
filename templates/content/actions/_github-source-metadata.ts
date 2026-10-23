@@ -62,6 +62,11 @@ export interface GitHubSourceState extends GitHubFolderLocation {
   readSkips: GitHubReadSkip[];
   /** Images rows couldn't store yet because file storage isn't set up or failed. */
   imagesWaiting: number;
+  /**
+   * Whether storage is set up but failed to save some of those images, so
+   * the status line says so even when another problem stopped the sync.
+   */
+  imagesFailed: boolean;
   problem: {
     code: GitHubSourceProblemCode;
     message: string;
@@ -198,6 +203,7 @@ export function readGitHubSourceState(
     readSkips,
     imagesWaiting:
       typeof github.imagesWaiting === "number" ? github.imagesWaiting : 0,
+    imagesFailed: github.imagesFailed === true,
     problem:
       problem &&
       typeof problem.code === "string" &&
@@ -247,6 +253,7 @@ export function githubSourceStatus(
     skipped: state.skipped.map(({ path, reason }) => ({ path, reason })),
     skippedCount: state.skippedCount,
     imagesWaiting: state.imagesWaiting,
+    imagesFailed: state.imagesFailed,
     problem: state.problem,
   };
 }

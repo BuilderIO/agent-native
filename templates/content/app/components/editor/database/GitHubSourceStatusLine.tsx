@@ -377,7 +377,13 @@ function GitHubStatusLineContent({
   const actions = problem && stops ? problemActions(problem.code) : null;
   const syncing = !!status.pendingCommitSha && !!status.progress;
   // Pictures waiting on storage are a note, not a stop: the pages still update.
-  const storageFailed = problem?.code === "storage_failed";
+  // Storage that failed still says so when another problem stopped the
+  // sync, unless storage has since gone missing.
+  const storageFailed =
+    problem?.code === "storage_failed" ||
+    (problem?.code !== "storage_unavailable" &&
+      status.imagesFailed &&
+      status.imagesWaiting > 0);
   const picturesWaiting =
     problem?.code === "storage_unavailable" ||
     storageFailed ||

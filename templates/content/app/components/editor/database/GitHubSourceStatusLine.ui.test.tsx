@@ -69,6 +69,7 @@ function githubSource(
         skipped: [],
         skippedCount: status.skipped?.length ?? 0,
         imagesWaiting: 0,
+        imagesFailed: false,
         problem: null,
         ...status,
       },
@@ -311,6 +312,34 @@ describe("GitHub source status line", () => {
     );
     expect(statusLine().textContent).not.toContain("sets up file storage");
     expect(statusLine().textContent).not.toContain("Updates are paused");
+  });
+
+  it("still says storage couldn't save pictures when another problem stopped the sync", () => {
+    renderLine(
+      githubSource({
+        problem: problem("unavailable"),
+        imagesWaiting: 1,
+        imagesFailed: true,
+      }),
+    );
+    expect(statusLine().textContent).toContain(
+      "Some pictures couldn’t be saved to file storage.",
+    );
+    expect(statusLine().textContent).not.toContain("sets up file storage");
+  });
+
+  it("asks for file storage once it's gone, even after it failed", () => {
+    renderLine(
+      githubSource({
+        problem: problem("storage_unavailable"),
+        imagesWaiting: 1,
+        imagesFailed: true,
+      }),
+    );
+    expect(statusLine().textContent).toContain(
+      "Some pictures won’t show until a workspace admin sets up file storage.",
+    );
+    expect(statusLine().textContent).not.toContain("couldn’t be saved");
   });
 
   it("shows how far an update has got", () => {

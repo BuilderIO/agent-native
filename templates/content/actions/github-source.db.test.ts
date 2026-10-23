@@ -43,6 +43,8 @@ const github = vi.hoisted(() => {
     uploadAttempts: [] as string[],
     /** Runs once, during the next blob read, to race something against a sync. */
     duringBlobRead: null as null | (() => Promise<void>),
+    /** Runs once, right after the next upload succeeds. */
+    afterUpload: null as null | (() => void),
     /** Blob reads after this many wait until the sync's time runs out. */
     hangAfterBlobReads: null as number | null,
     /** Reads of these files' contents wait until the sync's time runs out. */
@@ -69,6 +71,7 @@ const github = vi.hoisted(() => {
       state.uploadFailures = 0;
       state.uploadAttempts = [];
       state.duringBlobRead = null;
+      state.afterUpload = null;
       state.hangAfterBlobReads = null;
       state.slowContents.clear();
       state.hangHead = false;
@@ -241,6 +244,9 @@ vi.mock("@agent-native/core/file-upload", () => ({
       throw new Error("S3 PutObject failed (400): EntityTooLarge");
     }
     github.state.uploads += 1;
+    const after = github.state.afterUpload;
+    github.state.afterUpload = null;
+    after?.();
     return {
       url: `https://files.example.test/${github.state.uploads}/${input.filename}`,
       provider: "test",
@@ -2036,6 +2042,125 @@ describe("GitHub folder source", () => {
     expect(github.state.uploadAttempts).toEqual(["y.png", "x.png"]);
   });
 
+  it("keeps counting an image whose page failed to save after it uploaded", async () => {
+    github.state.storageDown = true;
+    github.commit({
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let failWrite: { mockRestore(): void } | null = null;
+    try {
+      const linked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      expect(linked.sync).toMatchObject({ imagesWaiting: 1 });
+
+      // Storage works again and the poster uploads, but saving its page fails.
+      github.state.storageDown = false;
+      github.state.afterUpload = () => {
+        failWrite = vi
+          .spyOn(getDb(), "transaction")
+          .mockRejectedValueOnce(new Error("database is locked"));
+      };
+      const id = await sourceId(database.id);
+      const failed = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(failed).toMatchObject({
+        state: "error",
+        updated: 0,
+        imagesWaiting: 1,
+      });
+      const status = await as(() => getSource.run({ databaseId: database.id }));
+      expect(status.source?.metadata.github?.imagesWaiting).toBe(1);
+
+      const filled = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(filled).toMatchObject({
+        state: "synced",
+        updated: 1,
+        imagesWaiting: 0,
+      });
+    } finally {
+      (failWrite as { mockRestore(): void } | null)?.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("reports the images still waiting when a sync fails before reading the folder", async () => {
+    github.state.storageDown = true;
+    github.commit({
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+    });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const linked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      expect(linked.sync).toMatchObject({ imagesWaiting: 1 });
+
+      github.state.storageDown = false;
+      github.state.failure = new Error("socket hang up");
+      const id = await sourceId(database.id);
+      const failed = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(failed).toMatchObject({ state: "error", imagesWaiting: 1 });
+      const status = await as(() => getSource.run({ databaseId: database.id }));
+      expect(status.source?.metadata.github?.imagesWaiting).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("puts pages whose images failed after the files a sync ran out of time on", async () => {
+    github.state.rejectFilename = "poster.png";
+    const poster = {
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+    };
+    github.commit({ ...poster, "docs/b.md": "# B\n" });
+    const database = await newCollection();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const linked = await as(() =>
+        linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+      );
+      expect(linked.sync).toMatchObject({ imagesWaiting: 1 });
+
+      // The time runs out on the edited b.md, so it goes after the rest next.
+      github.commit({ ...poster, "docs/b.md": "# B, edited\n" });
+      github.state.slowContents.add("# B, edited\n");
+      const id = await sourceId(database.id);
+      const cut = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
+      );
+      expect(cut).toMatchObject({ state: "partial" });
+      github.state.slowContents.clear();
+
+      // The poster's page, whose image storage keeps rejecting, still goes
+      // after b.md.
+      github.commit({
+        ...poster,
+        "docs/b.md": "# B, edited\n\n![Y](images/y.png)\n",
+        "docs/images/y.png": "PNGY",
+      });
+      github.state.uploadAttempts = [];
+      const synced = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(synced).toMatchObject({ state: "synced", updated: 1 });
+      expect(github.state.uploadAttempts).toEqual(["y.png", "poster.png"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("goes back for a rejected image when a later read in the same sync fails", async () => {
     const { database } = await linkBaseFolder();
     github.state.rejectFilename = "poster.png";
@@ -2063,6 +2188,16 @@ describe("GitHub folder source", () => {
         imagesWaiting: 1,
       });
       expect(github.state.uploadFailures).toBe(1);
+      // The read error is the problem, but the status still says storage
+      // couldn't save the poster, not that storage isn't set up.
+      const status = await as(() => getSource.run({ databaseId: database.id }));
+      expect(status.source?.metadata.github).toMatchObject({
+        imagesWaiting: 1,
+        imagesFailed: true,
+      });
+      expect(status.source?.metadata.github?.problem?.code).not.toBe(
+        "storage_failed",
+      );
 
       github.state.rejectFilename = null;
       const filled = await as(() =>
@@ -2075,6 +2210,8 @@ describe("GitHub folder source", () => {
         imagesWaiting: 0,
         problem: null,
       });
+      const after = await as(() => getSource.run({ databaseId: database.id }));
+      expect(after.source?.metadata.github?.imagesFailed).toBe(false);
       const poster = (await liveRows(database.id)).find(
         (row) => row.sourcePath === "docs/a-poster.md",
       )!;
