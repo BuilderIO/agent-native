@@ -85,6 +85,9 @@ function resizeNotificationWindow(expanded: boolean, recovery = false) {
 // back without screen capture.
 function writeDebugSnapshot(reason: string, data: NotificationData) {
   const el = document.querySelector<HTMLElement>(".meeting-notification");
+  // The DOM is read when the timer fires, so skip rather than pair this
+  // meeting's id with another card's rendered state.
+  if (el && el.dataset.meetingId !== data.meetingId) return;
   const rect = el?.getBoundingClientRect() ?? null;
   const style = el ? getComputedStyle(el) : null;
   const hit = rect
@@ -294,8 +297,8 @@ export function MeetingNotification() {
     const win = getCurrentWindow();
     if (data) {
       win.show().catch(() => {});
-      // Cleanup cancels the timer when the card changes, so a snapshot can
-      // only describe the card it was scheduled for.
+      // Cleanup cancels the timer when the card changes, but a commit can land
+      // before that cleanup runs; writeDebugSnapshot checks the rendered card.
       const timer = window.setTimeout(() => {
         if (data.debugSnapshots) writeDebugSnapshot("shown", data);
       }, 250);
@@ -628,6 +631,7 @@ export function MeetingNotification() {
     <div className="meeting-notification-root">
       <div
         className="meeting-notification"
+        data-meeting-id={data.meetingId}
         onMouseEnter={() => setDomHovered(true)}
         onMouseLeave={() => setDomHovered(false)}
       >
