@@ -391,6 +391,54 @@ describe("processWebContent", () => {
     expect(rawOnly.matches ?? []).toHaveLength(0);
   });
 
+  it("uses the same extracted markdown corpus for raw+search and matches", async () => {
+    const { processWebContent } = await import("./web-content.js");
+    // Markdown keeps the link target and escapes underscores; plain text does
+    // not. Searching either token must agree across responseMode raw + search
+    // and responseMode matches when source is extracted (or omitted).
+    const body = `<!doctype html><html><head><title>Parity</title></head><body>
+<article><p>See <a href="https://example.com/target-unique">click here</a> and file_name_with_underscores.</p></article>
+</body></html>`;
+    const markdown = await processWebContent({
+      url: "https://example.com/parity",
+      body,
+      contentType: "text/html",
+      responseMode: "markdown",
+    });
+    const plain = await processWebContent({
+      url: "https://example.com/parity",
+      body,
+      contentType: "text/html",
+      responseMode: "text",
+    });
+    expect(markdown.content).toContain("target-unique");
+    expect(markdown.content).toContain("file\\_name");
+    expect(plain.content).not.toContain("target-unique");
+    expect(plain.content).not.toContain("file\\_name");
+
+    for (const query of ["target-unique", "file\\_name"] as const) {
+      const viaRaw = await processWebContent({
+        url: "https://example.com/parity",
+        body,
+        contentType: "text/html",
+        responseMode: "raw",
+        search: { query },
+      });
+      const viaMatches = await processWebContent({
+        url: "https://example.com/parity",
+        body,
+        contentType: "text/html",
+        responseMode: "matches",
+        search: { query, source: "extracted" },
+      });
+      expect(viaRaw.searchSource).toBe("extracted");
+      expect(viaMatches.searchSource).toBe("extracted");
+      expect(viaRaw.totalMatches).toBe(viaMatches.totalMatches);
+      expect(viaRaw.totalMatches).toBeGreaterThan(0);
+      expect(viaRaw.matches).toEqual(viaMatches.matches);
+    }
+  });
+
   it("labels searchSource raw when extraction yields no text and the search falls back to raw markup", async () => {
     const { processWebContent } = await import("./web-content.js");
     const body =

@@ -191,15 +191,17 @@ export async function processWebContent(
     (mode !== "raw" ||
       hasWebContentSearch(search) ||
       options.saveContentFormat);
+  // Searches with source "extracted" (including the default) must use the
+  // same corpus as responseMode "matches": prefer markdown when extraction
+  // runs for a search, so raw+search and matches do not diverge on link
+  // targets or escaped underscores.
+  const includeMarkdown =
+    mode === "markdown" ||
+    mode === "matches" ||
+    hasWebContentSearch(search) ||
+    options.saveContentFormat === "markdown";
   const extracted = shouldExtract
-    ? await safeExtractHtml(
-        options.body,
-        options.url,
-        extract,
-        mode === "markdown" ||
-          mode === "matches" ||
-          options.saveContentFormat === "markdown",
-      )
+    ? await safeExtractHtml(options.body, options.url, extract, includeMarkdown)
     : null;
   const realExtractedText = extracted?.markdown || extracted?.text || "";
   const hasRealExtractedContent = realExtractedText.length > 0;
