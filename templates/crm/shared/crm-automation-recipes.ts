@@ -111,10 +111,6 @@ The user selected ${recordLabel} (CRM record ID: ${recordId}) for a Clips call-e
 Setting up CRM-to-Clips call automations isn't available yet. Tell the user this and stop setup.
 
 Do not delegate setup through call-agent, define or enable an automation, or direct the user to set it up manually. This remains unavailable if the user approves or asks again.
-
-Unavailable setup context only. Do not send this request:
-
-${jsonForXml(activationCall)}
 </crm-automation-recipe>`,
   };
 }

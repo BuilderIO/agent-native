@@ -33,6 +33,9 @@ describe("Clips CRM automation recipe", () => {
     expect(recipe.agentContext).not.toContain(
       "If the user explicitly approves activation",
     );
+    expect(recipe.agentContext).not.toContain("Unavailable setup context");
+    expect(recipe.agentContext).not.toContain('"agent":');
+    expect(recipe.agentContext).not.toContain('"message":');
     expect(recipe.agentContext).toContain("Northstar renewal");
   });
 
