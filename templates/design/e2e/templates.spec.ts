@@ -98,6 +98,14 @@ async function getAction(
   return response.json();
 }
 
+// A template card opens a read-only preview; its Use template button copies it.
+async function useTemplateFromPreview(page: Page) {
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Use template", exact: true })
+    .click({ timeout: 30_000 });
+}
+
 function watchBrowserErrors(page: Page) {
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
@@ -155,6 +163,7 @@ test("built-in template preserves its dimensions and locks and can be saved agai
         response.request().method() === "POST",
     );
     await templateButton.click();
+    await useTemplateFromPreview(page);
     const createResponseResult = await createResponse;
     expect(createResponseResult.ok()).toBe(true);
     expect(createResponseResult.request().postDataJSON()).toMatchObject({
@@ -335,6 +344,7 @@ test("the Home Templates tab opens a fresh copy of a built-in template in the ed
   await page
     .getByRole("button", { name: "Event story — vertical", exact: true })
     .click();
+  await useTemplateFromPreview(page);
   const response = await createResponse;
   expect(response.ok()).toBe(true);
   expect(response.request().postDataJSON()).toMatchObject({
