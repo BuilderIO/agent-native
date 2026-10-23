@@ -954,8 +954,12 @@ function isOtherProductMergeGate(sentence, gate) {
 
 const PR_REVIEW_LINKED_COMMENT_URL = String.raw`(?:\[\s*)?(?:https?:\/\/)?github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+(?:#(?:issuecomment-\d+|discussion_r\d+|pullrequestreview-\d+)|\/comments\/\d+)`;
 const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+(?:they\s+)?should\s+do|what\s+happens\s+next)`;
+const PR_REVIEW_NO_FEEDBACK_ACTION = String.raw`(?:say|saying|write|writing|use|using|tell|telling|reply|replying|post|posting|send|sending)`;
+const PR_REVIEW_NO_FEEDBACK_BRIDGE = String.raw`(?:\s+(?:with|that|to|as|me|them|someone|anyone|the\s+author|the\s+contributor|saying))?`;
+const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PR|pull\s+request)(?:\s+(?:comment|reply|response|review|thread))?\b`;
+const PR_REVIEW_NO_FEEDBACK_TEXT = String.raw`(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback`;
 const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
-  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b(?:say|write|use)\b\s+['"“‘]?(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback\b(?:[^.!?\n]{0,80}\b(?:in|on)\s+(?:(?:the|a)\s+)?(?:PR|pull\s+request)(?:\s+(?:comment|reply|response|review|thread))?\b|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b(?:say|write|use)\b[^.!?\n]{0,15}\b(?:in|on)\s+(?:(?:the|a)\s+)?(?:PR|pull\s+request)(?:\s+(?:comment|reply|response|review|thread))?\b[^.!?\n]{0,50}\b(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback\b)`,
+  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_BRIDGE}\s+['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b(?:[^.!?\n]{0,80}${PR_REVIEW_PR_CONTEXT}|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b[^.!?\n]{0,20}${PR_REVIEW_PR_CONTEXT}[^.!?\n]{0,50}\b${PR_REVIEW_NO_FEEDBACK_TEXT}\b)`,
   "i",
 );
 const PR_REVIEW_AMBIGUOUS_COMMENT_RE = new RegExp(
@@ -1070,7 +1074,6 @@ const PR_REVIEW_HANDOFF_MATCHER = {
   test(text) {
     return (
       PR_REVIEW_HANDOFF_RE.test(text) ||
-      PR_REVIEW_VAGUE_CLOSURE_RE.test(text) ||
       [...text.matchAll(PR_REVIEW_DIRECT_READY_MERGE_RE)].some((match) =>
         isUnblockedPrReviewReadyCorrection(text, match),
       ) ||
@@ -1081,7 +1084,13 @@ const PR_REVIEW_HANDOFF_MATCHER = {
   },
 };
 
-const PR_REVIEW_HANDOFF_REGEX_CASES = [
+const PR_REVIEW_DISPOSITION_MATCHER = {
+  test(text) {
+    return PR_REVIEW_VAGUE_CLOSURE_RE.test(text);
+  },
+};
+
+const PR_REVIEW_DISPOSITION_REGEX_CASES = [
   [
     true,
     "Don't ever say 'I have no further feedback' in a PR comment; state what they should do next.",
@@ -1128,6 +1137,12 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     true,
     "I should never leave it ambiguous like this https://github.com/BuilderIO/agent-native/pull/7629#pullrequestreview-123.",
   ],
+  [true, "Don't tell the author 'I have no further feedback' on your PR."],
+  [true, "Don't reply with 'I have no further feedback' on your PR."],
+  [true, "Never post 'I have no further feedback' in your PR."],
+  [true, "Don't send 'I have no further feedback' in your PR comment."],
+  [true, "Avoid saying 'I have no further feedback' on your PR."],
+  [true, "Don't reply that I have no further feedback in the pull request."],
   [
     false,
     "I should never leave the customer report ambiguous about the next action.",
@@ -1153,6 +1168,17 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "Don't modify the test because the PR is unclear."],
   [false, "We should never merge an ambiguous PR."],
   [false, "I have no further feedback on this check."],
+  [
+    false,
+    "If there are no changes needed, merge it instead of waiting for another reviewer to approve.",
+  ],
+];
+
+const PR_REVIEW_HANDOFF_REGEX_CASES = [
+  [
+    false,
+    "Don't ever say 'I have no further feedback' in a PR comment; state what they should do next.",
+  ],
   [
     true,
     "If there are no changes needed, merge it instead of waiting for another reviewer to approve.",
@@ -3827,6 +3853,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...PR_REVIEW_DISPOSITION_REGEX_CASES.filter(
+      ([expected, message]) =>
+        PR_REVIEW_DISPOSITION_MATCHER.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...WORKTREE_BRANCH_PERMISSION_REGEX_CASES.filter(
       ([expected, message]) =>
         WORKTREE_BRANCH_PERMISSION_RE.test(message) !== expected,
@@ -3856,7 +3888,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + MOUNTED_NAVIGATION_PATH_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + PR_REVIEW_DISPOSITION_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + FEEDBACK_OPEN_WITHOUT_QUESTION_REGEX_CASES.length + FEEDBACK_CHANNEL_COVERAGE_REGEX_CASES.length + FEEDBACK_SWEEP_LIFETIME_REGEX_CASES.length + A2A_OVERDELEGATION_REGEX_CASES.length + COMMUNITY_PR_HANDLING_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -4135,11 +4167,17 @@ const PATTERNS = [
   },
   {
     key: "pr-review-handoff",
-    label:
-      "Had to correct vague PR dispositions or repeated external follow-ups",
+    label: "Had to correct PR merge handoffs or repeated external follow-ups",
     fixedBy:
-      ".agents/skills/review-prs + ship (clear reply disposition and next action)",
+      ".agents/skills/review-prs (ready-PR merge action and external reply gate)",
     re: PR_REVIEW_HANDOFF_MATCHER,
+  },
+  {
+    key: "pr-review-reply-disposition",
+    label: "Had to correct vague PR reply dispositions",
+    fixedBy:
+      ".agents/skills/review-prs + ship (no vague closing; next action and owner)",
+    re: PR_REVIEW_DISPOSITION_MATCHER,
   },
   {
     key: "feedback-eyes-missed",

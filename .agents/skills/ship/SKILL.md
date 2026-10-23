@@ -56,8 +56,11 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   feedback after it has a completed fix or terminal disposition, and add a
   concise top-level recap when feedback appears only in a review body. If that
   disposition depends on an unresolved decision, keep the thread silent until
-  the decision is made. Never comment that a product owner needs to review a
-  PR.
+  the decision is made. For a contributor thread silenced by that gate, an
+  internal decision does not count as an author update or trigger a reply; wait
+  for the contributor's next substantive update, then state the resolved
+  disposition, exact next action, and owner after thanking them. Never comment
+  that a product owner needs to review a PR.
 - Before asking for any approval during a resumed shipment, inspect the
   current task transcript for the user's authorization. Record its exact PR,
   repository, branch, and allowed endpoint there once; reuse it across replies,
