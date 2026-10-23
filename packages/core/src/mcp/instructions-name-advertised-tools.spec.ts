@@ -146,16 +146,6 @@ const ADVERTISED_ONLY_CONDITIONALLY: Record<string, Record<string, string>> = {
       "queue-builder-edit",
     ),
   },
-  forms: prose(
-    "Forms declares no connector tier, so its default catalog is builtins only; owners to advertise or reword",
-    "patch-form-fields",
-    "update-form",
-    "get-form",
-    "list-forms",
-    "response-insights",
-    "list-responses",
-    "export-responses",
-  ),
 };
 
 function rulesFor(app: AppCatalog): ReferenceRules {

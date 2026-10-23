@@ -22,7 +22,6 @@ import {
   describeErrorWithCauses,
   isProviderConnectionError,
 } from "./engine/error-detail.js";
-import { runErrorTelemetryProperties } from "./engine/error-telemetry.js";
 import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
@@ -65,6 +64,7 @@ import {
   resolveErroredRunTerminalEvent,
   setRunError,
   setRunTerminalReason,
+  setRunTerminalReasonIfStatus,
   persistRunCheckpointEvent,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
@@ -78,6 +78,7 @@ import {
   RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT,
   UNKNOWN_RUN_STATUS_ERROR_EVENT,
 } from "./run-store.js";
+import { trackRunTerminal } from "./run-terminal-tracking.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 
@@ -736,42 +737,26 @@ function emitRunTerminalTrackingEvent(args: {
   } catch {
     // Metrics must never affect the agent run or its persisted status.
   }
-  const properties: Record<string, unknown> = {
-    source: "agent_run_manager",
-    run_id: args.runId,
-    thread_id: args.threadId,
-    turn_id: args.turnId,
-    status: args.status,
-    terminal_reason: args.terminalReason,
-    error_code: args.errorCode,
-    ...(args.errorCode ? runErrorTelemetryProperties(args.errorCode) : {}),
-    dispatch_mode: args.dispatchMode,
-    abort_reason: args.abortReason,
-    duration_ms: args.durationMs,
-    model: args.model,
-    engine: args.engineName,
-    attempt_count: args.attemptCount,
-  };
-  for (const key of Object.keys(properties)) {
-    if (properties[key] === undefined) delete properties[key];
-  }
-
-  try {
-    void Promise.all([
-      import("../tracking/registry.js"),
-      import("../observability/tracking-identity.js"),
-    ])
-      .then(([{ track }, { trackingIdentityProperties }]) => {
-        track(
-          "agent_run_terminal",
-          { ...properties, ...trackingIdentityProperties() },
-          { userId: args.userId },
-        );
-      })
-      .catch(() => {});
-  } catch {
-    // Tracking must never affect the agent run or its persisted status.
-  }
+  // An abort is reported by the SQL write that ended the row, which may be
+  // another process's stop; reporting it here too would double-count it.
+  if (args.status === "aborted") return;
+  void trackRunTerminal(
+    {
+      runId: args.runId,
+      threadId: args.threadId,
+      turnId: args.turnId,
+      status: args.status,
+      terminalReason: args.terminalReason,
+      errorCode: args.errorCode,
+      dispatchMode: args.dispatchMode,
+      abortReason: args.abortReason,
+      durationMs: args.durationMs,
+      model: args.model,
+      engineName: args.engineName,
+      attemptCount: args.attemptCount,
+    },
+    { userId: args.userId },
+  );
 }
 
 function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
@@ -1653,6 +1638,10 @@ export function startRun(
 
   let lastAbortCheck = Date.now() - 3000;
   let consecutiveAbortCheckFailures = 0;
+  let completionInProgress = false;
+  let ownTerminalStatusEstablished = false;
+  let terminalStatusWrite: Promise<boolean> | null = null;
+  let terminalStatusWriteOutcomeUnknown = false;
   const checkSqlAbort = () => {
     const now = Date.now();
     if (now - lastAbortCheck < 3000) return;
@@ -1663,9 +1652,25 @@ export function startRun(
           abortInMemoryRun(run, state.reason ?? "user");
           return;
         }
-        if (!abort.signal.aborted) {
+        if (!abort.signal.aborted && !ownTerminalStatusEstablished) {
           const status = await getRunStatus(runId);
           if (status !== null && status !== "running") {
+            const pendingStatusWrite = terminalStatusWrite;
+            if (pendingStatusWrite) {
+              try {
+                await pendingStatusWrite;
+              } catch (error) {
+                if (!terminalStatusWriteOutcomeUnknown) throw error;
+                return;
+              }
+            }
+            if (terminalStatusWriteOutcomeUnknown) return;
+          }
+          if (
+            status !== null &&
+            status !== "running" &&
+            !ownTerminalStatusEstablished
+          ) {
             abortInMemoryRun(run, "displaced");
           }
         }
@@ -1699,7 +1704,6 @@ export function startRun(
 
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
-  let completionInProgress = false;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight) {
       heartbeatInFlight = true;
@@ -2255,12 +2259,74 @@ export function startRun(
               persistedStatus,
               terminalStatusOptions,
             );
-      const reconcileTerminalRun = () =>
-        threadProjectionPending
-          ? reconcileTerminalRunFromEvents(runId, {
-              threadProjectionPending: true,
-            })
-          : reconcileTerminalRunFromEvents(runId);
+      const persistOwnTerminalState = async (
+        persist: () => Promise<boolean>,
+      ) => {
+        let writeStarted = false;
+        const write = withWorkerFence(() => {
+          writeStarted = true;
+          return persist();
+        }).catch((error) => {
+          if (writeStarted) terminalStatusWriteOutcomeUnknown = true;
+          throw error;
+        });
+        terminalStatusWrite = write;
+        try {
+          const established = await write;
+          if (established && !terminalStatusWriteOutcomeUnknown) {
+            ownTerminalStatusEstablished = true;
+          }
+          return established;
+        } finally {
+          if (terminalStatusWrite === write) terminalStatusWrite = null;
+        }
+      };
+      const persistOwnTerminalStatus = () =>
+        persistOwnTerminalState(persistTerminalStatus);
+      const confirmAmbiguousTerminalStatus = async () => {
+        const persistedRun = await getRunById(runId);
+        if (persistedRun?.status !== persistedStatus) return false;
+
+        const expectedTerminalReason = terminalReason.slice(0, 200);
+        if (persistedRun.terminalReason === expectedTerminalReason) {
+          return true;
+        }
+        if (persistedRun.terminalReason) return false;
+
+        return withWorkerFence(() =>
+          setRunTerminalReasonIfStatus(
+            runId,
+            persistedStatus,
+            expectedTerminalReason,
+          ),
+        );
+      };
+      const reconcileTerminalRun = async () => {
+        let reconciled = false;
+        try {
+          reconciled = await persistOwnTerminalState(() =>
+            threadProjectionPending
+              ? reconcileTerminalRunFromEvents(runId, {
+                  threadProjectionPending: true,
+                })
+              : reconcileTerminalRunFromEvents(runId),
+          );
+        } catch (error) {
+          if (!terminalStatusWriteOutcomeUnknown) throw error;
+        }
+        if (reconciled) {
+          terminalStatusWriteOutcomeUnknown = false;
+          ownTerminalStatusEstablished = true;
+          return true;
+        }
+        if (!terminalStatusWriteOutcomeUnknown) {
+          return reconciled;
+        }
+        const confirmed = await confirmAmbiguousTerminalStatus();
+        terminalStatusWriteOutcomeUnknown = false;
+        if (confirmed) ownTerminalStatusEstablished = true;
+        return confirmed;
+      };
       const reportTerminalStatusPersistenceError = (error: unknown) => {
         captureError(error, {
           route: "/_agent-native/agent-chat",
@@ -2306,11 +2372,10 @@ export function startRun(
           } else {
             try {
               await insertRunPromise;
-              continuationStatusPersistedBeforeEvent = await withWorkerFence(
-                persistTerminalStatus,
-              );
+              continuationStatusPersistedBeforeEvent =
+                await persistOwnTerminalStatus();
               if (!continuationStatusPersistedBeforeEvent) {
-                await withWorkerFence(reconcileTerminalRun);
+                await reconcileTerminalRun();
                 const persistedRun = await getRunById(runId);
                 continuationStatusPersistedBeforeEvent =
                   persistedRun?.status === "truncated" &&
@@ -2400,7 +2465,7 @@ export function startRun(
               : await withWorkerFence(persistAtomicAbort);
             terminalPersistenceEstablished = aborted
               ? true
-              : await withWorkerFence(reconcileTerminalRun);
+              : await reconcileTerminalRun();
           } catch (error) {
             terminalPersistenceEstablished = false;
             reportTerminalStatusPersistenceError(error);
@@ -2418,7 +2483,7 @@ export function startRun(
           ) {
             let statusUpdated = false;
             try {
-              statusUpdated = await withWorkerFence(persistTerminalStatus);
+              statusUpdated = await persistOwnTerminalStatus();
             } catch (error) {
               reportTerminalStatusPersistenceError(error);
             }
@@ -2430,8 +2495,7 @@ export function startRun(
               }
               terminalPersistenceEstablished = !terminalPersistenceError;
             } else {
-              terminalPersistenceEstablished =
-                await withWorkerFence(reconcileTerminalRun);
+              terminalPersistenceEstablished = await reconcileTerminalRun();
             }
           }
         } catch (error) {
@@ -2490,7 +2554,7 @@ export function startRun(
       if (terminalPersistenceError) {
         const reconciled = eventPersistenceError
           ? false
-          : await withWorkerFence(reconcileTerminalRun);
+          : await reconcileTerminalRun();
         if (!reconciled) throw terminalPersistenceError;
         terminalPersistenceEstablished = true;
       }

@@ -26,8 +26,10 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
     const registry = {};
     const mounts = [];
     let rafId = null;
+    let lastFrameTs = null;
     let needsRender = false;
     let scanTimer = null;
+    let viewScale = 1;
     function nowMs() {
       return W.performance && W.performance.now ? W.performance.now() : Date.now();
     }
@@ -285,9 +287,10 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
       const rect = el.getBoundingClientRect();
       const wCss = Math.max(1, Math.round(rect.width));
       const hCss = Math.max(1, Math.round(rect.height));
-      const dpr = Math.min(2, W.devicePixelRatio || 1);
-      const wPx = Math.max(1, Math.round(wCss * dpr));
-      const hPx = Math.max(1, Math.round(hCss * dpr));
+      const deviceRatio = Math.min(2, W.devicePixelRatio || 1);
+      const ratio = Math.max(Math.min(1, deviceRatio), deviceRatio * viewScale);
+      const wPx = Math.max(1, Math.round(wCss * ratio));
+      const hPx = Math.max(1, Math.round(hCss * ratio));
       if (canvas.width !== wPx || canvas.height !== hPx) {
         canvas.width = wPx;
         canvas.height = hPx;
@@ -319,8 +322,15 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
-    function frame() {
+    function frame(ts) {
       rafId = null;
+      if (typeof ts === "number") {
+        if (ts === lastFrameTs) {
+          startLoop();
+          return;
+        }
+        lastFrameTs = ts;
+      }
       const t = (nowMs() - t0) / 1e3;
       const animate = !reducedMotion && !document.hidden;
       for (let i = mounts.length - 1; i >= 0; i--) {
@@ -413,6 +423,17 @@ export const shaderRuntimeBridgeScript: string = `"use strict";
     }
     document.addEventListener("visibilitychange", function() {
       if (!document.hidden) requestRender();
+    });
+    W.addEventListener("message", function(event) {
+      if (W.parent === W || event.source !== W.parent) return;
+      const data = event.data;
+      if (!data || data.type !== "set-editor-chrome-scale") return;
+      const scale = Math.max(Number(data.scaleX) || 0, Number(data.scaleY) || 0);
+      if (!(scale > 0)) return;
+      const next = Math.min(1, Math.ceil(scale * 8) / 8);
+      if (next === viewScale) return;
+      viewScale = next;
+      requestRender();
     });
     try {
       new MutationObserver(function() {

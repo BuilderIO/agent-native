@@ -10,6 +10,7 @@ import {
 } from "./native-capture-roi";
 import { emptyNativeSourceReadSceneMetrics } from "./native-mounted-benchmark";
 import {
+  NativeSourceCapabilityError,
   assertDomSiblingOrder,
   applyNativeCaptureOverflowClip,
   CachedLeaf,
@@ -2903,6 +2904,61 @@ describe("native cached source captures", () => {
       provider!.dispose();
     }
   });
+  it("ignores editor transitions and media while retaining authored and unreadable dynamic sources", () => {
+    const target = document.createElement("div");
+    const selection = document.createElement("div");
+    selection.setAttribute("data-agent-native-edit-overlay", "selection");
+    const handle = document.createElement("div");
+    selection.append(handle);
+    target.append(selection);
+    document.body.append(target);
+    const animations = vi.spyOn(target, "getAnimations").mockReturnValue([]);
+    const provider = createNativeSceneProvider(target, "layer")!;
+    try {
+      for (const animated of [selection, handle]) {
+        animations.mockReturnValue([
+          {
+            playState: "running",
+            effect: { target: animated },
+          } as unknown as Animation,
+        ]);
+        expect(provider.needsContinuousFrames()).toBe(false);
+        selection.removeAttribute("data-agent-native-edit-overlay");
+        expect(provider.needsContinuousFrames()).toBe(true);
+        selection.setAttribute("data-agent-native-edit-overlay", "selection");
+      }
+      animations.mockReturnValue([]);
+      for (const tag of ["canvas", "video"] as const) {
+        const media = document.createElement(tag);
+        if (tag === "video") {
+          Object.defineProperty(media, "paused", { value: false });
+          Object.defineProperty(media, "ended", { value: false });
+        }
+        handle.append(media);
+        expect(provider.needsContinuousFrames()).toBe(false);
+        selection.removeAttribute("data-agent-native-edit-overlay");
+        expect(provider.needsContinuousFrames()).toBe(true);
+        selection.setAttribute("data-agent-native-edit-overlay", "selection");
+        media.remove();
+      }
+      for (const effect of [
+        null,
+        {},
+        {
+          get target() {
+            throw new Error("unreadable animation target");
+          },
+        },
+      ]) {
+        animations.mockReturnValue([
+          { playState: "running", effect } as unknown as Animation,
+        ]);
+        expect(provider.needsContinuousFrames()).toBe(true);
+      }
+    } finally {
+      provider.dispose();
+    }
+  });
   it("keeps a canvas or playing video capture target live", () => {
     const canvas = document.createElement("canvas");
     document.body.append(canvas);
@@ -3296,6 +3352,148 @@ describe("processed native layer source geometry", () => {
     }
   });
 
+  it("keeps unsupported text decorations as a typed capture capability", async () => {
+    const text = document.createElement("div");
+    text.textContent = "Shader frame";
+    text.style.textTransform = "uppercase";
+    document.body.append(text);
+    const computed = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+      const style = computed(element);
+      return element === text
+        ? ({
+            ...style,
+            writingMode: "horizontal-tb",
+            direction: "ltr",
+            textTransform: "uppercase",
+            textDecorationLine: "underline",
+            textShadow: "none",
+            fontVariantCaps: "normal",
+          } as CSSStyleDeclaration)
+        : style;
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      save: vi.fn(),
+      scale: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    const capture = paintNativeTextFlow(
+      text,
+      document.createElement("canvas"),
+      false,
+    );
+    await expect(capture).rejects.toMatchObject({
+      code: "source-webfont-style",
+    });
+    await expect(capture).rejects.toBeInstanceOf(NativeSourceCapabilityError);
+  });
+  it.each([
+    { value: "Straße", language: "de", rendered: "STRASSE" },
+    { value: "istanbul", language: "tr", rendered: "İSTANBUL" },
+  ])(
+    "paints browser-resolved $language uppercase glyphs and checks their actual font subset",
+    async ({ value, language, rendered }) => {
+      const parent = document.createElement("div");
+      parent.lang = language;
+      const text = document.createElement("div");
+      text.textContent = value;
+      text.style.cssText =
+        "font-family:RegressionFont;font-style:normal;font-weight:400;font-size:16px;text-transform:uppercase;writing-mode:horizontal-tb;direction:ltr;text-decoration-line:none;text-shadow:none;font-variant-caps:normal";
+      parent.append(text);
+      document.body.append(parent);
+      Object.defineProperties(text, {
+        offsetWidth: { value: 100 },
+        offsetHeight: { value: 20 },
+        getBoundingClientRect: { value: () => new DOMRect(0, 0, 100, 20) },
+      });
+      let wrappingMismatch = false;
+      const nativeInnerText = Object.getOwnPropertyDescriptor(
+        HTMLElement.prototype,
+        "innerText",
+      )!.get!;
+      vi.spyOn(HTMLElement.prototype, "innerText", "get").mockImplementation(
+        function (this: HTMLElement) {
+          const probe = this.closest(
+            "[data-an-native-presentation]",
+          ) as HTMLElement | null;
+          if (probe) {
+            expect(probe.lang).toBe(language);
+            return wrappingMismatch && probe.querySelector("span")
+              ? "context changed"
+              : rendered;
+          }
+          return this === text ? rendered : nativeInnerText.call(this);
+        },
+      );
+      vi.spyOn(Range.prototype, "getBoundingClientRect").mockImplementation(
+        function (this: Range) {
+          return new DOMRect(this.startOffset * 10, 0, 10, 20);
+        },
+      );
+      const context = {
+        save: vi.fn(),
+        restore: vi.fn(),
+        scale: vi.fn(),
+        measureText: vi.fn(() => ({
+          actualBoundingBoxAscent: 8,
+          actualBoundingBoxDescent: 2,
+        })),
+        fillText: vi.fn(),
+      };
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+        context as unknown as CanvasRenderingContext2D,
+      );
+      const check = vi.fn().mockReturnValue(true);
+      const fonts = Object.assign(
+        [
+          { family: "RegressionFont", status: "unloaded" },
+          { family: "RegressionFont", status: "loaded" },
+        ],
+        { ready: Promise.resolve(), check },
+      );
+      const descriptor = Object.getOwnPropertyDescriptor(document, "fonts");
+      Object.defineProperty(document, "fonts", {
+        configurable: true,
+        value: fonts,
+      });
+      const before = text.outerHTML;
+      try {
+        await paintNativeTextFlow(
+          text,
+          document.createElement("canvas"),
+          false,
+        );
+        expect(context.fillText).toHaveBeenCalledWith(rendered, 0, 13);
+        expect(check).toHaveBeenCalledWith(
+          expect.stringContaining("RegressionFont"),
+          rendered,
+        );
+        expect(text.outerHTML).toBe(before);
+        expect(
+          document.querySelector("[data-an-native-presentation]"),
+        ).toBeNull();
+        check.mockReturnValue(false);
+        await expect(
+          paintNativeTextFlow(text, document.createElement("canvas"), false),
+        ).rejects.toMatchObject({ code: "source-webfont-pending" });
+        expect(
+          document.querySelector("[data-an-native-presentation]"),
+        ).toBeNull();
+        check.mockReturnValue(true);
+        wrappingMismatch = true;
+        await expect(
+          paintNativeTextFlow(text, document.createElement("canvas"), false),
+        ).rejects.toBeInstanceOf(NativeSourceCapabilityError);
+        expect(context.fillText).toHaveBeenCalledOnce();
+        expect(
+          document.querySelector("[data-an-native-presentation]"),
+        ).toBeNull();
+      } finally {
+        if (descriptor) Object.defineProperty(document, "fonts", descriptor);
+        else Reflect.deleteProperty(document, "fonts");
+      }
+    },
+  );
   it("rejects transformed webfont Range capture before painting local text", async () => {
     const text = document.createElement("div");
     text.textContent = "Sample";

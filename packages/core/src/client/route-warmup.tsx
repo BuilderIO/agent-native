@@ -50,8 +50,31 @@ declare global {
 }
 
 const PREFETCH_ATTR = "data-an-prefetch";
+// WebKit checks once, 3 seconds after the window's load event, for link
+// preloads nothing has used yet, and logs "was preloaded using link preload but
+// not used within a few seconds" for each one. Warmed route modules are for
+// later navigations, so their modulepreload links wait until that check has
+// run. Until then the module files are fetched into the HTTP cache instead:
+// built assets are immutable, so an early click still skips the network, and
+// WebKit only reports link preloads. Data warmup is a plain fetch and starts
+// right away.
+// A third-party script that never finishes can hold the load event back
+// indefinitely. The hold lasts as long, since preloads added before a late load
+// event would still be reported; the HTTP cache and intent preloads cover clicks
+// meanwhile.
+const MODULE_WARMUP_DELAY_AFTER_LOAD_MS = 4_000;
 const warmedDataRoutes = new Set<string>();
 const warmedRouteAssets = new Set<string>();
+const fetchedRouteAssets = new Set<string>();
+// A later scan retries a failed fetch, at most twice and no sooner than 5
+// seconds after the last failure, so page updates during an outage don't set
+// the request rate.
+const ROUTE_ASSET_FETCH_ATTEMPTS = 3;
+const ROUTE_ASSET_RETRY_DELAY_MS = 5_000;
+const failedRouteAssetFetches = new Map<
+  string,
+  { attempts: number; retryAt: number }
+>();
 
 let cachedManifest: ReactRouterManifest | undefined;
 let cachedManifestRoutesSignature = "";
@@ -401,6 +424,67 @@ function warmRouteAssetsForHref(href: string) {
   }
 }
 
+function fetchRouteAssetsForHref(href: string) {
+  for (const assetUrl of routeAssetUrlsForHref(href)) {
+    if (warmedRouteAssets.has(assetUrl) || fetchedRouteAssets.has(assetUrl)) {
+      continue;
+    }
+    const failed = failedRouteAssetFetches.get(assetUrl);
+    if (
+      failed &&
+      (failed.attempts >= ROUTE_ASSET_FETCH_ATTEMPTS ||
+        Date.now() < failed.retryAt)
+    ) {
+      continue;
+    }
+    fetchedRouteAssets.add(assetUrl);
+    const onFailure = () => {
+      fetchedRouteAssets.delete(assetUrl);
+      failedRouteAssetFetches.set(assetUrl, {
+        attempts: (failed?.attempts ?? 0) + 1,
+        retryAt: Date.now() + ROUTE_ASSET_RETRY_DELAY_MS,
+      });
+    };
+    window
+      .fetch(assetUrl, { credentials: "same-origin", priority: "low" })
+      .then((response) => {
+        if (response.ok) {
+          failedRouteAssetFetches.delete(assetUrl);
+          return response.arrayBuffer();
+        }
+        onFailure();
+      })
+      .catch(onFailure);
+  }
+}
+
+function msSinceLoadEventEnd(): number {
+  const [entry] = performance.getEntriesByType?.("navigation") ?? [];
+  const loadEventEnd = (entry as PerformanceNavigationTiming | undefined)
+    ?.loadEventEnd;
+  return loadEventEnd ? Math.max(0, performance.now() - loadEventEnd) : 0;
+}
+
+function afterUnusedPreloadCheck(callback: () => void): () => void {
+  let timer: number | undefined;
+  const startTimer = () => {
+    if (timer !== undefined) window.clearTimeout(timer);
+    timer = window.setTimeout(
+      callback,
+      Math.max(0, MODULE_WARMUP_DELAY_AFTER_LOAD_MS - msSinceLoadEventEnd()),
+    );
+  };
+  if (document.readyState === "complete") {
+    startTimer();
+  } else {
+    window.addEventListener("load", startTimer, { once: true });
+  }
+  return () => {
+    window.removeEventListener("load", startTimer);
+    if (timer !== undefined) window.clearTimeout(timer);
+  };
+}
+
 function linkWarmupMode(
   link: HTMLAnchorElement,
   strategy: AgentNativeRouteWarmupStrategy,
@@ -456,6 +540,8 @@ function resetRouteWarmupCachesForTests() {
   cachedManifestRouteTree = [];
   warmedDataRoutes.clear();
   warmedRouteAssets.clear();
+  fetchedRouteAssets.clear();
+  failedRouteAssetFetches.clear();
 }
 
 export function AgentNativeRouteWarmup({
@@ -484,6 +570,8 @@ export function AgentNativeRouteWarmup({
     const dataRetryAttempts = new Map<string, number>();
     const retryTimers = new Set<number>();
     const observedLinks = new WeakSet<HTMLAnchorElement>();
+    const heldModuleHrefs = new Set<string>();
+    let modulesHeld = warmModules;
     let active = 0;
     let stopped = false;
     let scheduleTimer: number | undefined;
@@ -544,8 +632,13 @@ export function AgentNativeRouteWarmup({
       }
     };
 
-    function warmHref(href: string) {
-      if (warmModules) warmRouteAssetsForHref(href);
+    function warmHref(href: string, fromIntent = false) {
+      if (modulesHeld && !fromIntent) {
+        heldModuleHrefs.add(href);
+        fetchRouteAssetsForHref(href);
+      } else if (warmModules) {
+        warmRouteAssetsForHref(href);
+      }
       if (!warmData) return;
       for (const dataUrl of dataRouteUrlsForHref(href)) {
         if (warmedDataRoutes.has(dataUrl)) continue;
@@ -615,8 +708,20 @@ export function AgentNativeRouteWarmup({
       if (!link || !isWarmableAnchor(link)) return;
       const mode = linkWarmupMode(link, resolved.strategy);
       if (mode === "none") return;
-      warmHref(link.href);
+      // Hover, touch and focus usually come just before a click, so they
+      // preload right away even during the hold: the click uses the preload
+      // before WebKit's check, and an early click doesn't wait for the module
+      // to compile.
+      warmHref(link.href, true);
     };
+
+    const cancelModuleHold = warmModules
+      ? afterUnusedPreloadCheck(() => {
+          modulesHeld = false;
+          for (const href of heldModuleHrefs) warmRouteAssetsForHref(href);
+          heldModuleHrefs.clear();
+        })
+      : undefined;
 
     schedule();
     const observer = new MutationObserver(schedule);
@@ -639,6 +744,7 @@ export function AgentNativeRouteWarmup({
 
     return () => {
       stopped = true;
+      cancelModuleHold?.();
       if (scheduleTimer !== undefined) window.clearTimeout(scheduleTimer);
       for (const timer of retryTimers) window.clearTimeout(timer);
       retryTimers.clear();

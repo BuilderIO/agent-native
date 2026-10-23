@@ -23,7 +23,9 @@ const tauriEvents = vi.hoisted(() => {
     ),
   };
 });
-const tauriCore = vi.hoisted(() => ({ invoke: vi.fn(async () => null) }));
+const tauriCore = vi.hoisted(() => ({
+  invoke: vi.fn(async (_command: string, _args?: unknown) => null),
+}));
 const tauriWindow = vi.hoisted(() => ({
   hide: vi.fn(async () => undefined),
   setSize: vi.fn(async () => undefined),
@@ -129,5 +131,74 @@ describe("meeting notification recovery", () => {
     expect(host.querySelector('[role="alert"]')?.textContent).toBe(
       "meetingReplacement.actionFailed",
     );
+  });
+
+  function calendarCard(meetingId: string, debugSnapshots: boolean) {
+    return {
+      type: "calendar",
+      title: meetingId,
+      subtitle: "11:00 AM",
+      meetingId,
+      scheduledStart: new Date(Date.now() + 60_000).toISOString(),
+      debugSnapshots,
+    };
+  }
+
+  function snapshotCalls() {
+    return tauriCore.invoke.mock.calls.filter(
+      ([command]) => command === "debug_write_snapshot",
+    );
+  }
+
+  it("writes no debug snapshot and makes no snapshot call when the card is not a debug card", async () => {
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        await tauriEvents.emit(
+          "meetings:show-notification",
+          calendarCard("meeting-a", false),
+        );
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(snapshotCalls()).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("snapshots only the card that is still showing when the delay ends", async () => {
+    vi.useFakeTimers();
+    // jsdom has no hit testing; the snapshot only needs a null result here.
+    Object.assign(document, { elementFromPoint: () => null });
+    try {
+      await act(async () => {
+        await tauriEvents.emit(
+          "meetings:show-notification",
+          calendarCard("meeting-a", true),
+        );
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(100);
+        await tauriEvents.emit(
+          "meetings:show-notification",
+          calendarCard("meeting-b", true),
+        );
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+      const calls = snapshotCalls();
+      expect(calls).toHaveLength(1);
+      expect(calls[0][1]).toMatchObject({
+        name: "meeting-notif-dom",
+        payload: { meetingId: "meeting-b", reason: "shown" },
+      });
+    } finally {
+      // jsdom has no elementFromPoint, so removing the stub restores it.
+      Reflect.deleteProperty(document, "elementFromPoint");
+      vi.useRealTimers();
+    }
   });
 });

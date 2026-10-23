@@ -1585,7 +1585,7 @@ describe("verifyA2AToken (exported)", () => {
     secret: string,
     claims: Record<string, unknown>,
     exp: string | number = "15m",
-    alg: "HS256" | "HS512" = "HS256",
+    alg: "HS256" | "HS384" | "HS512" = "HS256",
   ): Promise<string> {
     return new jose.SignJWT(claims)
       .setProtectedHeader({ alg })
@@ -1594,17 +1594,57 @@ describe("verifyA2AToken (exported)", () => {
       .sign(new TextEncoder().encode(secret));
   }
 
-  it("verifies a token signed with the shared A2A_SECRET", async () => {
-    process.env.A2A_SECRET = "shared-global-secret";
-    const { verifyA2AToken } = await import("./server.js");
-    const token = await signToken("shared-global-secret", {
-      sub: "alice@builder.io",
-    });
+  it.each([
+    ["HS256", true],
+    ["HS384", false],
+    ["HS512", false],
+  ] as const)(
+    "verifies shared-secret tokens only with HS256 (%s)",
+    async (alg, accepted) => {
+      process.env.A2A_SECRET = "shared-global-secret";
+      const { verifyA2AToken } = await import("./server.js");
+      const token = await signToken(
+        "shared-global-secret",
+        { sub: "alice@example.test" },
+        "15m",
+        alg,
+      );
 
-    const result = await verifyA2AToken(token);
+      const result = await verifyA2AToken(token);
 
-    expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
-  });
+      expect(result).toEqual({
+        email: accepted ? "alice@example.test" : null,
+        orgDomain: null,
+      });
+    },
+  );
+
+  it.each([
+    ["HS256", true],
+    ["HS384", false],
+    ["HS512", false],
+  ] as const)(
+    "verifies explicit-secret tokens only with HS256 (%s)",
+    async (alg, accepted) => {
+      process.env.A2A_SECRET = "unused-deployment-test-secret";
+      const { verifyA2AToken } = await import("./server.js");
+      const token = await signToken(
+        "explicit-test-secret",
+        { sub: "alice@example.test" },
+        "15m",
+        alg,
+      );
+
+      await expect(
+        verifyA2AToken(token, undefined, {
+          verificationSecret: "explicit-test-secret",
+        }),
+      ).resolves.toEqual({
+        email: accepted ? "alice@example.test" : null,
+        orgDomain: null,
+      });
+    },
+  );
 
   it("requires the route-specific audience when a scoped route opts in", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
@@ -1678,32 +1718,45 @@ describe("verifyA2AToken (exported)", () => {
     });
   });
 
-  it("falls back to the org-level secret via org_domain (shared secret absent)", async () => {
-    delete process.env.A2A_SECRET;
-    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
-      orgId: "org-builder",
-      orgDomain: "builder.io",
-      secret: "org-a2a-secret",
-    });
-    const { verifyA2AToken } = await import("./server.js");
-    const token = await signToken("org-a2a-secret", {
-      sub: "bob@builder.io",
-      org_domain: "builder.io",
-    });
+  it.each([
+    ["HS256", true],
+    ["HS384", false],
+    ["HS512", false],
+  ] as const)(
+    "verifies org-secret tokens only with HS256 (%s)",
+    async (alg, accepted) => {
+      delete process.env.A2A_SECRET;
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+        orgId: "org-builder",
+        orgDomain: "builder.io",
+        secret: "org-a2a-secret",
+      });
+      const { verifyA2AToken } = await import("./server.js");
+      const token = await signToken(
+        "org-a2a-secret",
+        { sub: "bob@builder.io", org_domain: "builder.io" },
+        "15m",
+        alg,
+      );
 
-    const result = await verifyA2AToken(token);
+      const result = await verifyA2AToken(token);
 
-    expect(resolveA2AOrganizationCredentialsByDomainMock).toHaveBeenCalledWith(
-      "builder.io",
-    );
-    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      email: null,
-      orgDomain: "builder.io",
-      orgId: "org-builder",
-      identityAssurance: "organization",
-    });
-  });
+      expect(
+        resolveA2AOrganizationCredentialsByDomainMock,
+      ).toHaveBeenCalledWith("builder.io");
+      expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+      expect(result).toEqual(
+        accepted
+          ? {
+              email: null,
+              orgDomain: "builder.io",
+              orgId: "org-builder",
+              identityAssurance: "organization",
+            }
+          : { email: null, orgDomain: null },
+      );
+    },
+  );
 
   it("accepts opted-in member delegation only for a current organization member", async () => {
     process.env.A2A_SECRET = "deployment-secret";
