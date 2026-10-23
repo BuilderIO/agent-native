@@ -305,6 +305,13 @@ function expectRecipeAccordion(
   return section;
 }
 
+// The route also serves new-style (template v2) pages; these tests cover the original ones.
+function originalUseCase(data: ReturnType<typeof useCaseLoader>) {
+  if (data.version !== "v1")
+    throw new Error("Expected an original use-case page");
+  return data;
+}
+
 describe("public campaign frontend", () => {
   const stack = {
     heading: "Test tools you use today",
@@ -446,10 +453,11 @@ describe("public campaign frontend", () => {
     };
     expect(publicUseCase(contaminated).todays_stack).toEqual(stack);
     vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [],
       useCases: [contaminated],
       articles: [],
     });
-    const data = useCaseLoader(args({ slug: useCase.slug }));
+    const data = originalUseCase(useCaseLoader(args({ slug: useCase.slug })));
     expect(data.item.todays_stack).toEqual(stack);
     expect(JSON.stringify(data)).not.toContain("PRIVATE");
     expect(publicUseCase(useCase).todays_stack).toBeUndefined();
@@ -591,6 +599,7 @@ describe("public campaign frontend", () => {
     expect(newestArticles(fixtures).map((item) => item.slug)).toEqual(expected);
     expect(fixtures.map((item) => item.slug)).toEqual(sourceOrder);
     vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [],
       useCases: [useCase],
       articles: fixtures,
     });
@@ -620,7 +629,7 @@ describe("public campaign frontend", () => {
       }
     }
     expect(
-      useCaseLoader(args({ slug: useCase.slug })).articles.map(
+      originalUseCase(useCaseLoader(args({ slug: useCase.slug }))).articles.map(
         (item) => item.slug,
       ),
     ).toEqual(expected);
@@ -737,6 +746,7 @@ describe("public campaign frontend", () => {
       published: `2026-01-${String(index + 1).padStart(2, "0")}`,
     }));
     vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [],
       useCases: [{ ...useCase, app: "clips" }],
       articles,
     });
@@ -813,6 +823,7 @@ describe("public campaign frontend", () => {
       },
     ];
     vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [],
       useCases: [],
       articles: fixtures,
     });
@@ -848,6 +859,7 @@ describe("public campaign frontend", () => {
     "uses configured topic metadata and canonical for %s",
     (locale) => {
       vi.mocked(loadCampaignContent).mockReturnValue({
+        useCasePages: [],
         useCases: [],
         articles: [article],
       });
@@ -884,7 +896,11 @@ describe("public campaign frontend", () => {
       topic: "metrics",
       published: "2025-01-01",
     });
-    vi.mocked(loadCampaignContent).mockReturnValue({ useCases: [], articles });
+    vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [],
+      useCases: [],
+      articles,
+    });
     const expected = getArticleTopics(articles);
     expect(expected.map(({ count }) => count)).toEqual([13, 1]);
     for (const data of [articlesLoader(), pageLoader(args({ page: "2" }))]) {
@@ -901,6 +917,7 @@ describe("public campaign frontend", () => {
     ) as (keyof typeof ARTICLE_TOPICS)[]) {
       const item = { ...article, topic };
       vi.mocked(loadCampaignContent).mockReturnValue({
+        useCasePages: [],
         useCases: [],
         articles: [item],
       });
@@ -936,6 +953,7 @@ describe("public campaign frontend", () => {
       published: "2026-01-02",
     };
     vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [],
       useCases: [privateCase],
       articles: [privateArticle, other],
     });
@@ -1232,6 +1250,7 @@ describe("public campaign frontend", () => {
 
   it("does not list configured topics that have no articles or create routes for them", () => {
     vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [],
       useCases: [],
       articles: [],
     });
@@ -1638,10 +1657,11 @@ describe("public campaign frontend", () => {
       "PRIVATE",
     );
     vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [],
       useCases: [contaminated, next, { ...useCase, slug: "unrelated" }],
       articles: [],
     });
-    const data = useCaseLoader(args({ slug: useCase.slug }));
+    const data = originalUseCase(useCaseLoader(args({ slug: useCase.slug })));
     expect(data.item).toEqual(publicUseCase(contaminated));
     expect(data.useCases).toEqual([publicUseCase(next)]);
     expect(JSON.stringify(data)).not.toContain("PRIVATE");
@@ -1659,14 +1679,17 @@ describe("public campaign frontend", () => {
     ({ query, expected }) => {
       const item = { ...useCase, angles: [angle] };
       vi.mocked(loadCampaignContent).mockReturnValue({
+        useCasePages: [],
         useCases: [item],
         articles: [],
       });
       const entry = `/use-cases/${item.slug}?utm_source=router&utm_source=second&utm_content=visitor&gclid=click&internal=PRIVATE${query ? `&angle=${query}` : ""}`;
-      const data = useCaseLoader({
-        ...args({ slug: item.slug }),
-        request: new Request(`https://example.com${entry}`),
-      });
+      const data = originalUseCase(
+        useCaseLoader({
+          ...args({ slug: item.slug }),
+          request: new Request(`https://example.com${entry}`),
+        }),
+      );
       window.history.replaceState(null, "", "/?utm_source=window&angle=window");
       const document = dom(markup(<UseCasePage {...data} />, entry));
       expect(document.querySelector("h1")?.textContent).toBe(
@@ -2389,7 +2412,9 @@ describe("public campaign frontend", () => {
         const articleData = articleLoader(args({ ...params, slug }));
         expect(articleData.article.title).toBe(title);
         expect(articleData.useCase?.slug).toBe(useCaseSlug);
-        const data = useCaseLoader(args({ ...params, slug: useCaseSlug }));
+        const data = originalUseCase(
+          useCaseLoader(args({ ...params, slug: useCaseSlug })),
+        );
         expect(data.articles.map((item) => item.slug)).toEqual([slug]);
         const document = dom(markup(<UseCasePage {...data} />));
         const section = [...document.querySelectorAll("section")].find(
@@ -2414,7 +2439,9 @@ describe("public campaign frontend", () => {
     >("../../../lib/campaign-content.server");
     const content = actual.loadCampaignContent();
     vi.mocked(loadCampaignContent).mockReturnValue(content);
-    const data = useCaseLoader(args({ slug: "ai-meeting-notes" }));
+    const data = originalUseCase(
+      useCaseLoader(args({ slug: "ai-meeting-notes" })),
+    );
     const expected = ["crm-and-call-questions", "dictate-instead-of-typing"];
     expect(data.item.next_jobs).toEqual(expected);
     expect(data.useCases.map((item) => item.slug).sort()).toEqual(
@@ -2456,7 +2483,9 @@ describe("public campaign frontend", () => {
         (slug) => content.useCases.find((item) => item.slug === slug)!.title,
       ),
     );
-    const crm = useCaseLoader(args({ slug: "crm-and-call-questions" }));
+    const crm = originalUseCase(
+      useCaseLoader(args({ slug: "crm-and-call-questions" })),
+    );
     expect(crm.item.slug).toBe("crm-and-call-questions");
     expect(
       dom(markup(<UseCasePage {...crm} />)).querySelector("h1")?.textContent,
@@ -2616,6 +2645,7 @@ describe("public campaign frontend", () => {
       slug: `test-article-${index}`,
     }));
     vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [],
       useCases: [useCase],
       articles,
     });
@@ -2677,6 +2707,7 @@ describe("public campaign frontend", () => {
 
   it("returns 404 for invalid localized campaign routes or locale tags", () => {
     vi.mocked(loadCampaignContent).mockReturnValue({
+      useCasePages: [],
       useCases: [useCase],
       articles: [article],
     });
@@ -2727,7 +2758,12 @@ describe("public campaign frontend", () => {
       [
         campaignRoute1.meta({
           params,
-          loaderData: { item: useCase, articles: [], useCases: [] },
+          loaderData: {
+            version: "v1" as const,
+            item: useCase,
+            articles: [],
+            useCases: [],
+          },
         }),
         `${USE_CASES_BASE}/${useCase.slug}/`,
       ],

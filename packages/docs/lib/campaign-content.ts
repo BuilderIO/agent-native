@@ -170,10 +170,70 @@ const articleSchema = z.object({
   related: z.array(slug).optional(),
   body: text,
 });
+const themedImage = z.object({ dark: safeUrl, light: safeUrl, alt: text });
+// Pages written by Content Factory. A use-case file opts in with
+// `template: v2`; files without it keep the original schema and template.
+const useCasePageSchema = z.object({
+  template: z.literal("v2"),
+  slug,
+  app,
+  title: text,
+  seo_title: text,
+  meta_description: text,
+  updated: date,
+  hero: z.object({
+    body: text,
+    button: z.object({ label: text, url: appUrl }),
+    image: themedImage,
+  }),
+  how_to: z.object({
+    heading: text,
+    steps: z
+      .array(z.object({ title: text, body: text, image: themedImage }))
+      .min(3)
+      .max(4),
+  }),
+  features: z.object({
+    heading: text,
+    items: z.array(z.object({ title: text, body: text })).length(6),
+  }),
+  integrations: z.object({
+    heading: text,
+    cards: z
+      .array(
+        z.object({
+          title: text,
+          logos: z.array(text).min(2).max(6),
+          // The MCP card: its logos are examples, and the page adds a "+".
+          more: z.boolean().optional(),
+          body: text,
+        }),
+      )
+      .length(3),
+  }),
+  other_uses: z
+    .object({
+      heading: text,
+      cards: z
+        .array(z.object({ title: text, url: safeUrl, body: text }))
+        .min(1)
+        .max(3),
+    })
+    .optional(),
+  faqs: z.object({
+    heading: text,
+    items: z
+      .array(z.object({ q: text, a: text }))
+      .min(3)
+      .max(6),
+  }),
+});
 export type PublicUseCase = z.infer<typeof useCaseSchema>;
+export type UseCasePageV2 = z.infer<typeof useCasePageSchema>;
 export type PublicArticle = z.infer<typeof articleSchema>;
 export type CampaignContent = {
   useCases: PublicUseCase[];
+  useCasePages: UseCasePageV2[];
   articles: PublicArticle[];
 };
 export type CampaignSources = {
@@ -221,7 +281,13 @@ function parseFiles<T extends { slug: string }>(
 export function parseCampaignContent(
   sources: CampaignSources,
 ): CampaignContent {
-  const useCases = parseFiles(sources.useCases, useCaseSchema, false);
+  const isV2 = (raw: string) => /^template:\s*["']?v2["']?\s*$/m.test(raw);
+  const pick = (v2: boolean) =>
+    Object.fromEntries(
+      Object.entries(sources.useCases).filter(([, raw]) => isV2(raw) === v2),
+    );
+  const useCases = parseFiles(pick(false), useCaseSchema, false);
+  const useCasePages = parseFiles(pick(true), useCasePageSchema, false);
   const bySlug = new Map(useCases.map((item) => [item.slug, item]));
   const articles = parseFiles(sources.articles, articleSchema, true)
     .map((article) => {
@@ -238,7 +304,7 @@ export function parseCampaignContent(
       (a, b) =>
         b.published.localeCompare(a.published) || a.slug.localeCompare(b.slug),
     );
-  return { useCases, articles };
+  return { useCases, useCasePages, articles };
 }
 
 export function articleMarkdown(article: PublicArticle): string {

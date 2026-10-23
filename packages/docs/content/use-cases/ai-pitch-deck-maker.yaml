@@ -1,0 +1,98 @@
+template: v2
+slug: ai-pitch-deck-maker
+app: slides
+title: "AI pitch deck maker"
+seo_title: "AI pitch deck maker that starts from your notes"
+meta_description: "Agent-Native Slides is a free AI pitch deck maker for founders. It turns your notes, docs or website into a deck you edit by hand or with the agent."
+updated: 2026-10-23
+
+hero:
+  body: "Agent-Native Slides is a free AI pitch deck maker for startup founders. Give it your notes, a doc, a PDF or your website, and its agent builds the deck. Then edit any slide by hand or by asking."
+  button:
+    label: "Build your deck"
+    url: "https://slides.agent-native.com"
+  image:
+    dark: /use-cases-preview/ai-pitch-deck-maker/hero-dark.png
+    light: /use-cases-preview/ai-pitch-deck-maker/hero-light.png
+    alt: "A pitch deck halfway built in the Slides editor. The agent panel shows the outline it planned from the founder's meeting notes, and new slides are filling in one by one."
+
+how_to:
+  heading: "How to make a pitch deck with AI"
+  steps:
+    - title: "Start from your own material"
+      body: "On the Slides home screen, describe the deck you want: your company, who it's for and how long it should be. Attach any notes, docs or reference material you have, then create the deck."
+      image:
+        dark: /use-cases-preview/ai-pitch-deck-maker/step-1-dark.png
+        light: /use-cases-preview/ai-pitch-deck-maker/step-1-light.png
+        alt: "Close-up of the Slides prompt box: a founder's pitch description typed in, a notes file attached, and the suggestion chips below."
+    - title: "Watch the agent build each slide"
+      body: "The Slides agent plans an outline for your pitch deck first. It then builds each slide in the editor while you watch. If it can't read a PDF or a website, it says so."
+      image:
+        dark: /use-cases-preview/ai-pitch-deck-maker/step-2-dark.png
+        light: /use-cases-preview/ai-pitch-deck-maker/step-2-light.png
+        alt: "The Slides editor with slides 1 and 2 done and slide 3, the solution, being generated on the canvas. The agent chat shows the outline and \"Adding slide 3 · The solution\"."
+    - title: "Present or export the finished deck"
+      body: "Present your pitch deck full screen from Slides, or export it. You can export an editable PowerPoint file, a file to import into Google Slides, or one HTML file."
+      image:
+        dark: /use-cases-preview/ai-pitch-deck-maker/step-3-dark.png
+        light: /use-cases-preview/ai-pitch-deck-maker/step-3-light.png
+        alt: "Close-up of the Slides Export menu open over the finished title slide, with HTML, PDF, PowerPoint and Google Slides options."
+
+features:
+  heading: "Everything you need to build and pitch your deck"
+  items:
+    - title: "Pitch decks from your notes"
+      body: "Start from a prompt, your notes, a doc or your last deck. Tell the agent about your company and your round, and it builds the deck."
+    - title: "AI and visual editing"
+      body: "Edit text and layout on the slide yourself, or select a line and ask the agent. Only what you asked about changes."
+    - title: "Your brand on every slide"
+      body: "Save your colors, fonts and logo as a design system, and every deck you make looks like your company."
+    - title: "Images and logos"
+      body: "Ask the agent to generate images, find stock photos or pull in customer and partner logos for your traction slides."
+    - title: "Co-founder collaboration"
+      body: "Edit the same deck with your co-founder and the agent, comment on any slide, and restore any earlier version."
+    - title: "Pitch, share and export"
+      body: "Present with speaker notes, share a view-only link with investors, or export an editable PowerPoint file."
+
+integrations:
+  heading: "Connect Slides to the tools you already use"
+  cards:
+    - title: "Bring your notes and docs"
+      logos: [Google Docs, Google Drive, Word]
+      body: "Start the deck from the notes and docs you already have, and the agent turns them into editable slides."
+    - title: "Send it how investors want it"
+      logos: [PowerPoint, Google Slides, PDF]
+      body: "Export an editable PowerPoint file, open it in Google Slides, or send a PDF."
+    - title: "Connect anything through MCP"
+      logos: [Notion, Granola, Stripe, Amplitude]
+      more: true
+      body: "Connect the tools your team uses through MCP, or add any MCP server by its URL."
+
+other_uses:
+  heading: "Other decks you can make in Slides"
+  cards:
+    - title: "AI board deck maker"
+      url: "https://www.agent-native.com/use-cases/ai-board-deck-maker/"
+      body: "Turn your metrics and notes into a board deck you can refresh every quarter."
+    - title: "AI sales deck maker"
+      url: "https://www.agent-native.com/use-cases/ai-sales-deck-maker/"
+      body: "Build a sales deck from your product notes and website, in your brand."
+    - title: "AI investor update maker"
+      url: "https://www.agent-native.com/use-cases/ai-investor-update-maker/"
+      body: "Turn this month's numbers and wins into a short update for your investors."
+
+faqs:
+  heading: "Questions? We have answers"
+  items:
+    - q: "Is Slides free?"
+      a: "Yes, Agent-Native Slides is free and open source. Building a deck needs an AI connection, either through Builder.io or your own AI key, and making images needs your own Gemini or OpenAI key. Slides is in alpha, so expect changes as it grows."
+    - q: "Can I export my pitch deck to PowerPoint or Google Slides?"
+      a: "Slides exports an editable PowerPoint (PPTX) file. For Google Slides, it gives you a PPTX file with an import link, which you open in Google Slides yourself. You can also export the deck as one HTML file."
+    - q: "Can Slides start from my notes, doc or website?"
+      a: "Describe your pitch on the Slides home screen and attach your notes or a doc, or add your website's link. You can also import a Google Doc, a Word file or a PowerPoint. If the agent can't read a PDF or a website, it tells you instead of guessing."
+    - q: "How is Slides different from asking a chatbot to write my slides?"
+      a: "A chatbot gives you text to copy into slides yourself. In Slides, the agent builds the real deck in an editor you can see. You can change any slide by hand or ask the agent, on the same deck, and every change can be undone. That's what makes Slides an [agentic app](https://www.agent-native.com/articles/what-is-an-agent-native-app/): the brains of an agent, the intuitiveness of an app."
+    - q: "Can my co-founder edit the pitch deck with me?"
+      a: "You, your co-founder and the agent can edit the same deck at the same time. You can comment on a slide or on one part of it. Slides saves a version before each meaningful change, so you can restore an earlier version at any time."
+    - q: "How many slides should a pitch deck have?"
+      a: "Around ten is a good length for a first pitch ([what goes in a pitch deck](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), and Slides suggests \"Build a 10-slide pitch from this doc\". Tell the agent a different length if you want one, and it plans the outline to fit."

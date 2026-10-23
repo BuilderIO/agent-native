@@ -5,7 +5,12 @@ import { loadCampaignContent } from "../../lib/campaign-content.server";
 import { redirectLocalizedCampaign } from "./localized-campaign-redirect";
 
 export function loader({ params, request }: LoaderFunctionArgs) {
-  if (!loadCampaignContent().useCases.some((item) => item.slug === params.slug))
+  const content = loadCampaignContent();
+  if (
+    ![...content.useCases, ...content.useCasePages].some(
+      (item) => item.slug === params.slug,
+    )
+  )
     throw new Response(null, { status: 404 });
   return redirectLocalizedCampaign(
     request,

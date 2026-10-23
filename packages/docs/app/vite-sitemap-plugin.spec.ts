@@ -184,7 +184,11 @@ describe("docs agent web generation", () => {
   });
 
   it("omits configured topic pages when no articles are present", () => {
-    const pages = buildCampaignPages({ useCases: [], articles: [] });
+    const pages = buildCampaignPages({
+      useCases: [],
+      useCasePages: [],
+      articles: [],
+    });
     expect(pages.some((page) => /\/(topic|category)\//.test(page.path))).toBe(
       false,
     );
@@ -208,7 +212,11 @@ describe("docs agent web generation", () => {
         updated: undefined,
       },
     ];
-    const pages = buildCampaignPages({ useCases: [], articles });
+    const pages = buildCampaignPages({
+      useCases: [],
+      useCasePages: [],
+      articles,
+    });
     const topic = pages.find(
       (page) => page.path === `${ARTICLES_BASE}/topic/${original.topic}/`,
     )!;
