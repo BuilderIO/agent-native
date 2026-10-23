@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -46,6 +47,7 @@ const inactiveHomeQueries = vi.hoisted(() => ({
   workspaceDefaultsEnabled: true,
   templateLibraryEnabled: true,
 }));
+const realPromptDialog = vi.hoisted(() => ({ value: false }));
 const defaultDesignSystems = vi.hoisted(() => ({
   systems: [] as Array<{ id: string; title: string }>,
   personal: null as { id: string } | null,
@@ -53,6 +55,16 @@ const defaultDesignSystems = vi.hoisted(() => ({
 }));
 const toastError = vi.hoisted(() => vi.fn());
 const homeImport = vi.hoisted(() => ({ current: null as unknown }));
+const sidebarAgentChatState = vi.hoisted(() => ({
+  context: { items: [] as unknown[] },
+  models: {
+    selectedEngine: "builder",
+    selectedModel: "gpt-5.6-terra",
+    availableModels: [] as unknown[],
+    isLoading: false,
+  },
+  devMode: { isDevMode: false },
+}));
 const promptUploads = vi.hoisted(() => ({
   uploadPromptFiles: vi.fn(),
   cleanupUploadedPromptFiles: vi.fn(),
@@ -93,7 +105,10 @@ vi.mock("@/hooks/use-design-system-workflows", () => ({
     enabled: systemFlag.enabled,
   }),
 }));
-vi.mock("@/lib/prompt-file-uploads", () => promptUploads);
+vi.mock("@/lib/prompt-file-uploads", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/prompt-file-uploads")>()),
+  ...promptUploads,
+}));
 vi.mock("sonner", () => ({ toast: { error: toastError } }));
 
 const {
@@ -115,6 +130,7 @@ const {
   pageTitle,
   submitDraft,
   getDraftSnapshot,
+  chatThreads,
 } = vi.hoisted(() => ({
   submitDraft: vi.fn(async () => true),
   getDraftSnapshot: vi.fn(),
@@ -150,6 +166,41 @@ const {
   refetchSystems: vi.fn(),
   headerActions: { current: null as ReactNode | null },
   pageTitle: { current: null as ReactNode | null },
+  chatThreads: {
+    threads: [
+      {
+        id: "thread-1",
+        title: "Launch brief",
+        preview: "Create a launch brief",
+        messageCount: 2,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ],
+    activeThreadId: "thread-1",
+    isLoading: false,
+    evictedThreadIds: [],
+    createThread: vi.fn(async (id?: string) => id ?? "thread-2"),
+    openThread: vi.fn(async () => "opened" as const),
+    switchThread: vi.fn(),
+    detachThread: vi.fn(),
+    forkThread: vi.fn(),
+    saveThreadData: vi.fn(async () => true),
+    generateTitle: vi.fn(async () => null),
+    searchThreads: vi.fn(async () => []),
+    refreshThreads: vi.fn(async () => undefined),
+    loadMoreThreads: vi.fn(async () => undefined),
+    hasMoreThreads: false,
+    isLoadingMoreThreads: false,
+    threadsLoadError: false,
+    restoredThreadIdOnListFailure: null,
+    isNewThread: vi.fn(() => false),
+    isThreadPersisted: vi.fn(() => true),
+    confirmThreadSnapshotPersisted: vi.fn(),
+    pinThread: vi.fn(async () => true),
+    renameThread: vi.fn(async () => true),
+  },
 }));
 const translate = (key: string) =>
   ({
@@ -178,7 +229,13 @@ vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent: vi.fn() }));
 vi.mock("@agent-native/toolkit/app/notifications", () => ({
   NotificationsBell: () => null,
 }));
-vi.mock("@agent-native/toolkit/app/progress", () => ({ RunsTray: () => null }));
+vi.mock("@agent-native/toolkit/app/progress", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/progress")
+  >()),
+  RunsTray: () => null,
+  RunsTrayMenuItem: () => null,
+}));
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -187,17 +244,15 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   return {
     ...actual,
     sendToAgentChat: vi.fn(),
+    useAgentChatContext: () => sidebarAgentChatState.context,
+    useAgentChatHomeHandoff: () => false,
     useAgentEngineConfigured: () => agentEngine,
-    useChatModels: () => ({
-      selectedEngine: "builder",
-      selectedModel: "gpt-5.6-terra",
-      availableModels: [],
-      isLoading: false,
-    }),
+    useChatThreads: () => chatThreads,
+    useDevMode: () => sidebarAgentChatState.devMode,
+    useChatModels: () => sidebarAgentChatState.models,
   };
 });
-vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentToggleButton: () => null,
 }));
 vi.mock(
@@ -224,45 +279,63 @@ vi.mock(
     BuilderSetupContent: () => null,
   }),
 );
-vi.mock("@agent-native/core/client/hooks", () => ({
-  callAction,
-  actionErrorMessage: (error: Error) => error.message,
-  useActionQuery: (name: string, _params?: unknown, options?: unknown) => {
-    actionQueries.names.push(name);
-    if (name === "get-home-suggestions") {
-      actionQueries.homeSuggestionOptions = options;
-      return {
-        data: actionQueries.homeSuggestionData,
-        isLoading: false,
-        isError: actionQueries.homeSuggestionError,
-      };
-    }
-    return { data: undefined, isLoading: false, isError: false };
-  },
-  getBrowserTabId: () => "home-test",
-  deleteClientAppState: vi.fn().mockResolvedValue(undefined),
-  useSession: () => ({
-    session: signedIn.value
-      ? {
-          authUserId: "viewer-a",
-          userId: "viewer-a",
-          email: "home@example.test",
-          orgId: "org-a",
-          user: { email: "home@example.test" },
-        }
-      : null,
-    status: signedIn.unreachable
-      ? "unavailable"
-      : signedIn.value
-        ? "authenticated"
-        : "unauthenticated",
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client/hooks")>();
+  return {
+    ...actual,
+    callAction,
+    actionErrorMessage: (error: Error) => error.message,
+    useActionQuery: (name: string, _params?: unknown, options?: unknown) => {
+      actionQueries.names.push(name);
+      if (name === "get-home-suggestions") {
+        actionQueries.homeSuggestionOptions = options;
+        return {
+          data: actionQueries.homeSuggestionData,
+          isLoading: false,
+          isError: actionQueries.homeSuggestionError,
+        };
+      }
+      return { data: undefined, isLoading: false, isError: false };
+    },
+    isPerAppChatStorageKey: (storageKey?: string) =>
+      storageKey === "desktop-app-chat" || storageKey === "dispatch-app-chat",
+    usePerAppChatState: () => ({ open: false, hosted: false }),
+    getBrowserTabId: () => "home-test",
+    deleteClientAppState: vi.fn().mockResolvedValue(undefined),
+    useSession: () => ({
+      session: signedIn.value
+        ? {
+            authUserId: "viewer-a",
+            userId: "viewer-a",
+            email: "home@example.test",
+            orgId: "org-a",
+            user: { email: "home@example.test" },
+          }
+        : null,
+      status: signedIn.unreachable
+        ? "unavailable"
+        : signedIn.value
+          ? "authenticated"
+          : "unauthenticated",
+    }),
+  };
+});
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => translate,
+  useFormatters: () => ({
+    formatDate: (value: Date) => value.toISOString(),
+    formatNumber: (value: number) => `${value}`,
   }),
 }));
-vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => translate }));
-vi.mock("@agent-native/core/client/onboarding", () => ({
+vi.mock("@agent-native/core/client/onboarding", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/onboarding")
+  >()),
   FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT: "onboarding-status",
   fetchFirstRunOnboardingStatus: vi.fn().mockResolvedValue({ firstRun: false }),
   isFirstRunOnboardingEnabled: () => false,
+  useOnboardingPreviewMode: () => false,
 }));
 vi.mock("@agent-native/core/client/sign-in-return", () => ({
   buildSignInReturnHref: () => "/sign-in",
@@ -392,11 +465,11 @@ vi.mock("@/components/editor/NewDeckReferenceStep", () => ({
     return null;
   },
 }));
-vi.mock("@/components/editor/PromptDialog", () => ({
-  default: function PromptDialogMock(
-    props: ComponentProps<typeof PromptPopover>,
-  ) {
-    promptProps(props);
+vi.mock("@/components/editor/PromptDialog", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/components/editor/PromptDialog")>();
+
+  function PromptDialogTestDouble(props: ComponentProps<typeof PromptPopover>) {
     useImperativeHandle(props.controllerRef, () => ({
       submitSource: vi.fn(async () => true),
       submitDraft,
@@ -404,17 +477,29 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     }));
     if (!props.open) return null;
     return (
-      <>
-        <textarea
-          aria-label="Presentation prompt"
-          value={props.initialText ?? ""}
-          readOnly
-          disabled={props.disabled}
-        />
-      </>
+      <textarea
+        aria-label="Presentation prompt"
+        value={props.initialText ?? ""}
+        readOnly
+        disabled={props.disabled}
+      />
     );
-  },
-}));
+  }
+
+  return {
+    ...actual,
+    default: function PromptDialogMock(
+      props: ComponentProps<typeof PromptPopover>,
+    ) {
+      promptProps(props);
+      if (realPromptDialog.value) {
+        const RealPromptDialog = actual.default;
+        return <RealPromptDialog {...props} />;
+      }
+      return <PromptDialogTestDouble {...props} />;
+    },
+  };
+});
 
 import { Header } from "@/components/layout/Header";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -462,6 +547,7 @@ function renderHome(
   overrides: Record<string, unknown> = {},
   state?: unknown,
   pathname = "/home",
+  queryClient?: QueryClient,
 ) {
   const initialUrl = new URL(pathname, "http://slides.local");
   useDecks.mockReturnValue({
@@ -491,9 +577,17 @@ function renderHome(
         <Link to="/home">Back home</Link>
       </nav>
       <HistoryControls />
-      <TooltipProvider>
-        <ActiveIndex />
-      </TooltipProvider>
+      {queryClient ? (
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <ActiveIndex />
+          </TooltipProvider>
+        </QueryClientProvider>
+      ) : (
+        <TooltipProvider>
+          <ActiveIndex />
+        </TooltipProvider>
+      )}
     </MemoryRouter>
   );
   const result = render(home());
@@ -502,6 +596,37 @@ function renderHome(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  realPromptDialog.value = false;
+  chatThreads.threads.splice(0, chatThreads.threads.length, {
+    id: "thread-1",
+    title: "Launch brief",
+    preview: "Create a launch brief",
+    messageCount: 2,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    scope: null,
+  });
+  chatThreads.activeThreadId = "thread-1";
+  chatThreads.createThread.mockReset().mockImplementation(async (id) => {
+    const threadId = id ?? "thread-2";
+    if (!chatThreads.threads.some((thread) => thread.id === threadId)) {
+      const now = Date.now();
+      chatThreads.threads.push({
+        id: threadId,
+        title: "",
+        preview: "",
+        messageCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        scope: null,
+      });
+    }
+    chatThreads.activeThreadId = threadId;
+    return threadId;
+  });
+  chatThreads.switchThread.mockReset().mockImplementation((id) => {
+    chatThreads.activeThreadId = id;
+  });
   vi.mocked(deckIdFromPathname).mockReset();
   agentSubmit.mockReset().mockResolvedValue({ delivered: true });
   callAction.mockReset().mockImplementation(async (action: string) => {
@@ -572,6 +697,74 @@ describe("Slides prompt-led home", () => {
     expect(
       document.querySelector('[aria-busy="true"].skeleton-shimmer'),
     ).toBeNull();
+  });
+
+  it("mounts the shared composer frame and editor in the home prompt", async () => {
+    realPromptDialog.value = true;
+    renderHome({}, undefined, "/home", new QueryClient());
+
+    const editor = await waitFor(() => {
+      const input = document.querySelector(
+        '[data-slides-home-composer] [data-agent-composer-slot="editor-input"]',
+      );
+      expect(input).not.toBeNull();
+      return input;
+    });
+
+    expect(editor?.getAttribute("role")).toBe("textbox");
+    expect(
+      document.querySelector(
+        '[data-slides-home-composer] [data-agent-composer-slot="area"][data-agent-composer-variant="hero"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      document.querySelector(
+        '[data-slides-home-composer] [data-agent-composer-slot="root"]',
+      ),
+    ).not.toBeNull();
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("hands home generation through the shared agent submission", async () => {
+    realPromptDialog.value = true;
+    createDeck.mockReturnValue({ id: "new-deck" });
+    renderHome(
+      {
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+      },
+      undefined,
+      "/home",
+      new QueryClient(),
+    );
+
+    await waitFor(() =>
+      expect(
+        document.querySelector(
+          '[data-slides-home-composer] [data-agent-composer-slot="editor-input"]',
+        ),
+      ).not.toBeNull(),
+    );
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "Create a launch brief",
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    expect(agentSubmit).toHaveBeenCalledWith(
+      expect.stringContaining("Create a launch brief"),
+      expect.any(String),
+      expect.objectContaining({ newTab: true, openSidebar: true }),
+    );
+    expect(
+      document.querySelector(
+        '[data-slides-home-composer] [data-agent-composer-slot="editor-input"]',
+      ),
+    ).not.toBeNull();
   });
 
   it("does not restore home header state while the mounted page is away from home", () => {
@@ -753,6 +946,31 @@ describe("Slides prompt-led home", () => {
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
+  });
+
+  it("keeps deck authoring in Slides 2 when submitting a home prompt", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "Create a product overview",
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+
+    const context = agentSubmit.mock.calls[0]![1] as string;
+    expect(context).toContain("Slides 2 owns authoring this deck.");
+    expect(context).toContain("Use Slides 2 actions for slide content");
+    expect(context).toContain(
+      "Use Design only for a user-requested Design-owned input",
+    );
   });
 
   it("coalesces duplicate Home submissions into one deck generation", async () => {

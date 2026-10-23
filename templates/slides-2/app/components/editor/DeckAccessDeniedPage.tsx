@@ -158,13 +158,14 @@ export function DeckAccessDeniedPage({
             {t("deckAccessPage.signedInAs")}{" "}
             <span className="text-foreground">{viewerEmail}</span>
             {" | "}
-            <button
+            <Button
               type="button"
+              variant="ghost"
               onClick={onSwitchAccount}
-              className="text-foreground underline underline-offset-2 hover:text-foreground/80"
+              className="h-auto w-auto rounded-none px-0 py-0 font-normal text-foreground underline underline-offset-2 hover:bg-transparent hover:text-foreground/80 active:scale-100"
             >
               {t("deckAccessPage.switchAccount")}
-            </button>
+            </Button>
           </p>
         </footer>
       ) : null}

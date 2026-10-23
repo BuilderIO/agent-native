@@ -114,13 +114,10 @@ export async function readLocalImportedAsset(args: {
 }): Promise<{ data: Uint8Array; mimeType: string } | null> {
   if (!isLocalImportAssetFallbackAvailable()) return null;
 
-  let descriptor: LocalImportedAssetDescriptor;
-  try {
-    descriptor = decodeLocalImportedAssetToken(decodeURIComponent(args.token));
-  } catch {
-    // coercion-ok: malformed tokens represent an absent local asset, not a successful read.
-    return null;
-  }
+  if (/%(?![a-f\d]{2})/i.test(args.token)) return null;
+  const token = decodeURIComponent(args.token);
+  if (!token.startsWith(IMPORT_ASSET_PREFIX)) return null;
+  const descriptor = decodeLocalImportedAssetToken(token);
   if (descriptor.ownerKey !== tenantFileKey(args.email)) return null;
 
   const directory = path.resolve(
@@ -140,30 +137,25 @@ export async function readLocalImportedAsset(args: {
       data: await readFile(filepath),
       mimeType: descriptor.mimeType,
     };
-  } catch {
-    // coercion-ok: a missing local asset is an absent export image and is skipped by the caller.
-    return null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return null;
+    throw error;
   }
 }
 
 function descriptorFromLocalImportedAssetUrl(
   url: string,
 ): LocalImportedAssetDescriptor | null {
-  let pathname: string;
-  try {
-    pathname = new URL(url, "http://localhost").pathname;
-  } catch {
-    // coercion-ok: invalid URLs cannot identify a local imported asset.
-    return null;
+  if (!URL.canParse(url, "http://localhost")) {
+    throw new TypeError("Invalid imported asset URL.");
   }
+  const pathname = new URL(url, "http://localhost").pathname;
   const match = pathname.match(/\/api\/import-assets\/([^/]+)$/);
   if (!match?.[1]) return null;
-  try {
-    return decodeLocalImportedAssetToken(decodeURIComponent(match[1]));
-  } catch {
-    // coercion-ok: malformed tokens cannot identify a local imported asset.
-    return null;
-  }
+  if (/%(?![a-f\d]{2})/i.test(match[1])) return null;
+  const token = decodeURIComponent(match[1]);
+  if (!token.startsWith(IMPORT_ASSET_PREFIX)) return null;
+  return decodeLocalImportedAssetToken(token);
 }
 
 export function localImportedAssetIdentity(url: string): {

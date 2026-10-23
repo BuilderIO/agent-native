@@ -220,6 +220,10 @@ describe("startDeckGeneration", () => {
     // reaches the count
     ["Create 10 slides", 10],
     ["Create exactly 8 slides", 8],
+    [
+      "Create exactly 2 slides introducing TrailSip, a fictional reusable hydration bottle for hikers. Slide 1: a bold title cover with a trail landscape. Slide 2: three product benefits and a simple comparison chart. Use deep forest green, warm cream, and one bright orange accent.",
+      2,
+    ],
     ["Make it ten slides", 10],
     ["Create a deck of 12 slides", 12],
     ["Create a deck with 8 slides", 8],
@@ -351,6 +355,8 @@ describe("startDeckGeneration", () => {
     "Create a deck of 8 slides, but add more if needed",
     "Create 8 slides, 2 for intro and 6 for the body",
     "Create a deck with 10 slides and an appendix",
+    "Create exactly 2 slides introducing TrailSip, plus an appendix",
+    "Create exactly 2 slides introducing TrailSip. Actually, make it 3.",
     "Create a deck with 5 slides on pricing, 3 on roadmap",
     "Create a 10-slide deck and add 3 more slides about pricing",
     "Create 3 more slides",
@@ -610,6 +616,14 @@ describe("startDeckGeneration", () => {
       generationOutputId: deck.id,
       submitMessageId: routeSubmitId,
     });
+    expect(agentSubmit).toHaveBeenCalledTimes(1);
+    expect(agentSubmit.mock.calls[0]?.[0]).toBe("Create a deck");
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "Import only React or the named @agent-native/slides-core primitives",
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "Keep object literals in sourceTsx, including inline style objects, to plain objects with explicit static `key: value` properties only. Do not use object spreads, shorthand properties, or computed object keys.",
+    );
     expect(agentSubmit.mock.calls[0]?.[1]).toContain(
       "For a requested slide count, compare the realSlideCount returned by every add-slide result (slideCount only if realSlideCount is absent)",
     );
@@ -620,7 +634,13 @@ describe("startDeckGeneration", () => {
       "Assign each planned page a distinct stable slideId before the first write",
     );
     expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      `using the add-slide action with --deckId=${deck.id}`,
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
       "treat it as saved only when sourceTsx and notes match",
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).not.toContain(
+      "A static Page[] module may be submitted to create-deck for bulk generation",
     );
     expect(agentSubmit.mock.calls[0]?.[1]).toContain(
       "Do NOT use create-deck (the deck already exists)",

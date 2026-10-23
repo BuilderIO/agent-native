@@ -471,6 +471,8 @@ const CLEAN_TAIL = /^[ ,;:).!?]*(?:please)?[ ,;:).!?]*$/i;
 // The app's own pt-BR chip: "Crie um pitch de 10 slides a partir deste doc".
 const SOURCE_TAIL =
   /^ (?:from|a partir) (?:this|these|deste|desta|este|esta) (?:doc|document|file|pdf|report|notes)$/i;
+const DESCRIPTIVE_TAIL =
+  /^ (?:about|on|for|introducing|featuring|showcasing|covering|describing|explaining)\b/i;
 // "a 10-slide deck": up to two modifiers, then the noun, which must end the
 // phrase: "a 10-slide deck review" reviews a deck. A preposition or a
 // conjunction is never a modifier, before the count or after it.
@@ -544,6 +546,8 @@ export function requestedSlideCount(prompt: string): number | undefined {
   const before = sentence.slice(0, m.index);
   const window = before.slice(verb.index + verb[0].length);
   const rest = sentence.slice(countEnd);
+  // A direct count can still be followed by numbered content; slide counts and revisions are checked separately.
+  const directCount = m[3] !== "" && DIRECT.test(window);
   const later = text
     .slice(countEnd)
     .replace(SLIDE_REF, (_, a, b, c) =>
@@ -558,18 +562,20 @@ export function requestedSlideCount(prompt: string): number | undefined {
     BEFORE.test(before) ||
     REVISED.test(later) ||
     INSTRUCTION_WORDS.test(later) ||
-    OTHER_NUMBER.test(later)
+    (!directCount && OTHER_NUMBER.test(later))
   ) {
     return undefined;
   }
   const object = DECK_OBJECT.exec(window);
   const sizesDeck =
     m[3] !== ""
-      ? (DIRECT.test(window) ||
+      ? (directCount ||
           (object !== null &&
             CONNECTOR.test(window) &&
             !DOCUMENT.test(window.slice(object[0].length)))) &&
-        (CLEAN_TAIL.test(rest) || SOURCE_TAIL.test(rest))
+        (CLEAN_TAIL.test(rest) ||
+          SOURCE_TAIL.test(rest) ||
+          (directCount && DESCRIPTIVE_TAIL.test(rest) && !AFTER.test(rest)))
       : COMPOUND.test(rest) &&
         COMPOUND_WINDOW.test(window) &&
         PLAIN_LAST_WORD.test(window) &&
@@ -863,7 +869,8 @@ export async function startDeckGeneration({
     "Do not report completion until the persisted generationContext targetSlideCount is reached, or, when sourceCoverage is present for source-preserving mode, get-deck compact=true reports it complete for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
     "Every slide is rendered into a fixed 1920×1080 canvas. Keep all content within those bounds; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 32px at native canvas size.",
     visualStylePrecedence,
-    "Each generated slide must use one default-export React page component in sourceTsx. The bounded React Worker runs inside an opaque-origin sandbox and derives rendered HTML from SQL source. Import only React or the named @open-slide/core primitives; static design, meta, and transition exports are allowed. Steps/Step, useSlidePageNumber(), and useIsActivePage() provide static page context and reveal state. React effects and event handlers do not run, and module transition metadata does not animate between pages. Use inline style objects or static CSS strings in local const names containing style, css, or keyframe; CSS is sanitized and scoped. Tailwind utility classes have no stylesheet in the frame. Do not use arbitrary imports, browser globals, CSS imports, remote fonts, network URLs, or scripts. Use uploaded asset:// handles for images. A static Page[] module may be submitted to create-deck for bulk generation; it is split into ordered SQL slides, with an index-aligned static notes[] export copied to presenter notes. Read the create-deck skill for exact source, CSS, size, and runtime limits.",
+    "Each generated slide must use one default-export React page component in sourceTsx. The bounded React Worker derives static preview and export HTML from SQL source. Import only React or the named @agent-native/slides-core primitives; static design, meta, and transition exports are allowed. Steps/Step, useSlidePageNumber(), and useIsActivePage() provide static page context and reveal state. Static renders do not run React effects or event handlers; the live editor and presenter support React effects and allowlisted event handlers in an opaque-origin sandboxed iframe. Live code may use only the safe window facade for reduced-motion queries, bounded timers, animation frames, and performance.now(). Static transition metadata controls slide-to-slide presentation transitions. Use inline style objects or static CSS strings in local const names containing style, css, or keyframe; CSS is sanitized and scoped. Tailwind utility classes have no stylesheet in the frame. Do not use arbitrary imports, other browser globals, CSS imports, remote fonts, network URLs, or scripts. Use uploaded asset:// handles for images. Read the create-deck skill for exact source, CSS, size, and runtime limits.",
+    "Keep object literals in sourceTsx, including inline style objects, to plain objects with explicit static `key: value` properties only. Do not use object spreads, shorthand properties, or computed object keys.",
     "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
   ].join("\n");
 

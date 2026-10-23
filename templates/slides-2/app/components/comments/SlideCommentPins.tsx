@@ -20,6 +20,7 @@ import {
 } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -265,13 +266,14 @@ function CommentThreadPopover({
                   </div>
                 )}
                 {canComment && !thread.resolved && !replyOpen && (
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
                     onClick={() => setReplyOpen(true)}
-                    className="text-[11px] text-muted-foreground hover:text-foreground"
+                    className="h-auto rounded-none px-0 py-0 text-[11px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground active:scale-100"
                   >
                     {t("comments.reply")}
-                  </button>
+                  </Button>
                 )}
                 {replyOpen && canComment && deckId && (
                   <ReplyInput
@@ -285,15 +287,17 @@ function CommentThreadPopover({
                 )}
                 <div className="flex items-center justify-between border-t border-border/70 pt-2">
                   {canComment && (
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="xs"
                       aria-label={
                         thread.resolved
                           ? t("comments.reopenThread")
                           : t("comments.resolveThread")
                       }
                       onClick={handleResolve}
-                      className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                      className="h-auto gap-1 rounded px-1.5 py-1 text-[11px] font-normal text-muted-foreground hover:bg-accent hover:text-foreground active:scale-100 [&_svg]:size-3"
                     >
                       {thread.resolved ? (
                         <IconRefresh className="size-3" />
@@ -303,7 +307,7 @@ function CommentThreadPopover({
                       {thread.resolved
                         ? t("comments.reopenThread")
                         : t("comments.resolveThread")}
-                    </button>
+                    </Button>
                   )}
                   {error && (
                     <span role="alert" className="text-[10px] text-destructive">
@@ -703,17 +707,19 @@ export function SlideCommentPins({
                     <span className="text-xs font-medium">
                       {t("comments.addComment")}
                     </span>
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon-xs"
                       aria-label={t("comments.cancel")}
-                      className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      className="size-6 rounded p-0 text-muted-foreground hover:bg-accent hover:text-foreground active:scale-100 [&_svg]:size-3.5"
                       onClick={() => {
                         setPending(null);
                         focusCanvas();
                       }}
                     >
                       <IconX className="size-3.5" />
-                    </button>
+                    </Button>
                   </div>
                   <Textarea
                     autoFocus
@@ -749,26 +755,29 @@ export function SlideCommentPins({
                     <p className="text-[11px] text-destructive">{error}</p>
                   )}
                   <div className="flex justify-end gap-1.5">
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="xs"
                       onClick={() => {
                         setPending(null);
                         focusCanvas();
                       }}
-                      className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                      className="h-auto rounded px-2 py-1 text-[11px] font-normal text-muted-foreground hover:bg-accent hover:text-foreground active:scale-100"
                     >
                       {t("comments.cancel")}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      size="xs"
                       onClick={() => void submit()}
                       disabled={!text.trim() || createComment.isPending}
-                      className="rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
+                      className="h-auto rounded px-2.5 py-1 text-[11px] font-medium active:scale-100"
                     >
                       {createComment.isPending
                         ? t("comments.saving")
                         : t("comments.comment")}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </PopoverContent>

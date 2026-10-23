@@ -179,9 +179,10 @@ When a user asks to browse or use a bundled visual direction, call
 is an authoring guide, separate from Home's deck templates and SQL design
 systems. Apply its direction in Agent chat using the supported source contract;
 the guide is visual reference, not executable demo code. Keep static source
-type sizes at or below 320px. Do not copy its remote font URLs, DOM insertion,
-browser globals, or effect-driven animation; use system font stacks, static
-scoped CSS, and the supported Worker hooks.
+type sizes at or below 320px. Do not copy its remote font URLs or DOM insertion.
+Use system font stacks and static scoped CSS; add live behavior only with the
+supported React hooks, allowlisted event handlers, and bounded `window` facade
+documented in the `create-deck` skill.
 
 Bundled theme guide values and Slides 2 SQL deck tokens have different shapes:
 

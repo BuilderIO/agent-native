@@ -283,10 +283,10 @@ describe("EditorSidebar AI-active slide", () => {
     });
     await waitFor(() => screen.getByText("upload-file"));
 
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByText("Connect storage to upload files")).toBeNull();
     fireEvent.click(screen.getByText("upload-file"));
-    expect(screen.getByRole("dialog").textContent).toBe(
-      "Connect storage to upload files",
-    );
+    expect(
+      screen.getByText("Connect storage to upload files").textContent,
+    ).toBe("Connect storage to upload files");
   });
 });

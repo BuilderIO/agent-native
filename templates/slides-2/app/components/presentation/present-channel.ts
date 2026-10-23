@@ -1,4 +1,6 @@
 export type PresentMessage =
+  | { type: "blackout"; mode: PresentBlackout }
+  | { type: "goto"; index: number }
   | {
       type: "state";
       index: number;
@@ -12,6 +14,8 @@ export type PresentMessage =
    * until a state message arrives again.
    */
   | { type: "bye" };
+
+export type PresentBlackout = "black" | "white" | null;
 
 export function advancePresentIndex(
   index: number,

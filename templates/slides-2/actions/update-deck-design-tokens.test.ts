@@ -78,6 +78,7 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/action", () => ({
+  defineAction: (definition: unknown) => definition,
   isActionContractError: (error: unknown) =>
     Boolean(
       error &&

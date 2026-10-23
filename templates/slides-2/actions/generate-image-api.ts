@@ -437,7 +437,7 @@ export default defineAction({
   description:
     "Generate a slide image through the Assets agent or import a previously generated preview. For insertion, register it as a deck asset and update source-backed slides with revision-checked source edits. Show the returned `url` to the user as an inline markdown image (![alt](url)) so it renders in chat, never as a bare link.",
   schema: z.object({
-    prompt: z.string().optional().describe("Image description (required)"),
+    prompt: z.string().trim().min(1).describe("Image description"),
     model: z
       .string()
       .optional()
@@ -477,8 +477,8 @@ export default defineAction({
     openWorldHint: true,
   },
   run: async (args) => {
-    const prompt = args.prompt;
-    if (!prompt?.trim()) {
+    const prompt = args.prompt.trim();
+    if (!prompt) {
       fail("Prompt is required", {
         errorCode: "image_prompt_required",
         statusCode: 400,

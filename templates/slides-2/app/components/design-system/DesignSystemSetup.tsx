@@ -1061,13 +1061,14 @@ function DesignSystemSetupContent({
                   >
                     {!builderIndexResult ? (
                       <>
-                        <button
+                        <Button
                           type="button"
+                          variant="ghost"
                           onClick={() => figInputRef.current?.click()}
                           onDragOver={(event) => event.preventDefault()}
                           onDrop={handleBuilderIndexDrop}
                           disabled={builderIndexing}
-                          className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer disabled:cursor-wait"
+                          className="h-auto w-full cursor-pointer rounded-lg border border-dashed border-border bg-transparent p-4 text-center font-normal hover:border-foreground/20 hover:bg-transparent active:scale-100 disabled:cursor-wait"
                         >
                           {builderIndexing ? (
                             <span className="inline-flex items-center gap-2 text-xs text-foreground/80">
@@ -1079,7 +1080,7 @@ function DesignSystemSetupContent({
                               {t("designSystemSetup.uploadFigDescription")}
                             </span>
                           )}
-                        </button>
+                        </Button>
                         {builderUploadProgress !== null && (
                           <Progress
                             aria-label={t("designSystemSetup.parsingFigmaFile")}
@@ -1302,7 +1303,9 @@ function DesignSystemSetupContent({
                                 <IconFolder className="w-3.5 h-3.5" />
                                 {t("designSystemSetup.codeFiles")}
                               </Label>
-                              <button
+                              <Button
+                                type="button"
+                                variant="ghost"
                                 onClick={() => codeInputRef.current?.click()}
                                 onDrop={(e) => {
                                   e.preventDefault();
@@ -1313,12 +1316,12 @@ function DesignSystemSetupContent({
                                     );
                                 }}
                                 onDragOver={(e) => e.preventDefault()}
-                                className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
+                                className="h-auto w-full cursor-pointer rounded-lg border border-dashed border-border bg-transparent p-4 text-center font-normal hover:border-foreground/20 hover:bg-transparent active:scale-100"
                               >
                                 <p className="text-xs text-foreground/80">
                                   {t("designSystemSetup.codeFilesDrop")}
                                 </p>
-                              </button>
+                              </Button>
                               <input
                                 ref={codeInputRef}
                                 type="file"
@@ -1363,7 +1366,9 @@ function DesignSystemSetupContent({
                                 <IconFileDescription className="w-3.5 h-3.5" />
                                 {t("designSystemSetup.documents")}
                               </Label>
-                              <button
+                              <Button
+                                type="button"
+                                variant="ghost"
                                 onClick={() => docInputRef.current?.click()}
                                 onDrop={(e) => {
                                   e.preventDefault();
@@ -1374,12 +1379,12 @@ function DesignSystemSetupContent({
                                     );
                                 }}
                                 onDragOver={(e) => e.preventDefault()}
-                                className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
+                                className="h-auto w-full cursor-pointer rounded-lg border border-dashed border-border bg-transparent p-4 text-center font-normal hover:border-foreground/20 hover:bg-transparent active:scale-100"
                               >
                                 <p className="text-xs text-foreground/80">
                                   {t("designSystemSetup.documentsDrop")}
                                 </p>
-                              </button>
+                              </Button>
                               <input
                                 ref={docInputRef}
                                 type="file"
@@ -1412,7 +1417,9 @@ function DesignSystemSetupContent({
                                 <IconPhoto className="w-3.5 h-3.5" />
                                 {t("designSystemSetup.visualReferences")}
                               </Label>
-                              <button
+                              <Button
+                                type="button"
+                                variant="ghost"
                                 onClick={() => imageInputRef.current?.click()}
                                 onDragOver={(event) => event.preventDefault()}
                                 onDrop={(event) => {
@@ -1420,12 +1427,12 @@ function DesignSystemSetupContent({
                                   event.stopPropagation();
                                   addImageFiles(event.dataTransfer.files);
                                 }}
-                                className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
+                                className="h-auto w-full cursor-pointer rounded-lg border border-dashed border-border bg-transparent p-4 text-center font-normal hover:border-foreground/20 hover:bg-transparent active:scale-100"
                               >
                                 <p className="text-xs text-foreground/80">
                                   {t("designSystemSetup.visualReferencesDrop")}
                                 </p>
-                              </button>
+                              </Button>
                               <input
                                 ref={imageInputRef}
                                 type="file"
@@ -1473,14 +1480,16 @@ function DesignSystemSetupContent({
                                   {existingSystems
                                     .filter((s) => s.id !== editingId)
                                     .map((ds) => (
-                                      <button
+                                      <Button
                                         key={ds.id}
+                                        type="button"
+                                        variant="ghost"
                                         onClick={() =>
                                           setSelectedSystemId((prev) =>
                                             prev === ds.id ? "" : ds.id,
                                           )
                                         }
-                                        className={`text-left p-3 rounded-lg border cursor-pointer ${
+                                        className={`h-auto w-full cursor-pointer rounded-lg border p-3 text-left font-normal active:scale-100 ${
                                           selectedSystemId === ds.id
                                             ? "border-primary/40 bg-primary/5"
                                             : "border-border bg-accent hover:border-foreground/20"
@@ -1492,7 +1501,7 @@ function DesignSystemSetupContent({
                                             {ds.title}
                                           </span>
                                         </div>
-                                      </button>
+                                      </Button>
                                     ))}
                                 </div>
                               </div>
@@ -1641,15 +1650,16 @@ function SourceAccordionRow({
   const secondaryText = locked ? lockedMessage : description;
 
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       aria-controls={panelId}
       aria-expanded={expanded}
       aria-disabled={locked}
       title={locked ? lockedMessage : undefined}
       onClick={locked ? undefined : onClick}
       className={cn(
-        "flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left transition-[background-color,border-color] duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "h-auto w-full items-center gap-3 rounded-lg border border-border bg-transparent px-4 py-3 text-left font-normal whitespace-normal transition-[background-color,border-color] duration-150 hover:bg-accent/50 active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         expanded && "bg-accent/40",
         locked && "opacity-60 cursor-not-allowed hover:bg-transparent",
         className,
@@ -1676,7 +1686,7 @@ function SourceAccordionRow({
           )}
         />
       )}
-    </button>
+    </Button>
   );
 }
 
@@ -1861,13 +1871,16 @@ function TagList({
         >
           <IconCheck className="w-3.5 h-3.5 text-primary shrink-0" />
           <span className="truncate flex-1">{item}</span>
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={() => onRemove(i)}
             aria-label={t("designSystemSetup.removeItem", { item })}
-            className="text-muted-foreground hover:text-foreground/70 shrink-0 cursor-pointer"
+            className="shrink-0 cursor-pointer p-0 text-muted-foreground hover:bg-transparent hover:text-foreground/70 active:scale-100 [&_svg]:size-3.5"
           >
             <IconX className="w-3.5 h-3.5" />
-          </button>
+          </Button>
         </div>
       ))}
     </div>
@@ -2001,13 +2014,16 @@ function FileList({
           <span className="text-[10px] text-muted-foreground shrink-0">
             {formatSize(f.size)}
           </span>
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={() => onRemove(f.id)}
             aria-label={t("designSystemSetup.removeItem", { item: f.name })}
-            className="text-muted-foreground hover:text-foreground/70 shrink-0 cursor-pointer"
+            className="shrink-0 cursor-pointer p-0 text-muted-foreground hover:bg-transparent hover:text-foreground/70 active:scale-100 [&_svg]:size-3.5"
           >
             <IconX className="w-3.5 h-3.5" />
-          </button>
+          </Button>
         </div>
       ))}
     </div>

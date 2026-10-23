@@ -317,7 +317,7 @@ export default defineAction({
         // Only a row whose own projection fails pays for a full body read.
         rows = await Promise.all(
           metaRows.map(async (meta) => {
-            const rowWhere = eq(schema.decks.id, meta.id);
+            const rowWhere = and(pagedWhere, eq(schema.decks.id, meta.id));
             try {
               const [preview] = await db
                 .select(previewProjection)

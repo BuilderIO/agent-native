@@ -3,7 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
@@ -11,7 +11,10 @@ import type { AspectRatio } from "@/lib/aspect-ratios";
 
 import type { DesignSystemData } from "../../../shared/api";
 import type { SlidePosition } from "../../../shared/slide-number";
-import type { SlideRenderArtifact } from "./protocol";
+import type {
+  SlideFrameNavigationInput,
+  SlideRenderArtifact,
+} from "./protocol";
 import { SandboxedSlide, type FramePointer } from "./SandboxedSlide";
 import { Slides2Canvas } from "./Slides2Canvas";
 
@@ -21,6 +24,7 @@ interface SlideContentRendererProps {
   sourceDeckId?: string;
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
+  initialRevealedSteps?: number | null;
 }
 
 function requiresSourceRuntime(slide: Slide): boolean {
@@ -38,6 +42,7 @@ export default function SlideContentRenderer({
   sourceDeckId,
   aspectRatio,
   designSystem,
+  initialRevealedSteps = null,
 }: SlideContentRendererProps) {
   if (requiresSourceRuntime(slide)) {
     return (
@@ -45,6 +50,7 @@ export default function SlideContentRenderer({
         slide={slide}
         slidePosition={slidePosition}
         sourceDeckId={sourceDeckId}
+        initialRevealedSteps={initialRevealedSteps}
       />
     );
   }
@@ -64,9 +70,10 @@ function SourceSlideRuntime({
   slide,
   slidePosition,
   sourceDeckId,
+  initialRevealedSteps,
 }: Pick<
   SlideContentRendererProps,
-  "slide" | "slidePosition" | "sourceDeckId"
+  "slide" | "slidePosition" | "sourceDeckId" | "initialRevealedSteps"
 >) {
   const t = useT();
   const render = useActionQuery(
@@ -82,10 +89,25 @@ function SourceSlideRuntime({
     key: string;
     message: string;
   } | null>(null);
+  const navigationHostRef = useRef<HTMLDivElement>(null);
   const onSandboxError = useCallback(
     (message: string) => setSandboxError({ key: artifactKey, message }),
     [artifactKey],
   );
+  const onNavigationInput = useCallback((input: SlideFrameNavigationInput) => {
+    if (
+      input.type !== "click" ||
+      input.button !== 0 ||
+      input.defaultPrevented ||
+      input.interactive ||
+      input.hasSelection
+    ) {
+      return;
+    }
+    navigationHostRef.current?.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+  }, []);
 
   const unavailable = !sourceDeckId;
   const error =
@@ -122,16 +144,20 @@ function SourceSlideRuntime({
   const onPointer = (_pointer: FramePointer) => {};
 
   return (
-    <Slides2Canvas className="h-full w-full" flat>
-      <SandboxedSlide
-        artifact={artifact}
-        title={t("slides2Presenter.slideLabel", {
-          index: slidePosition?.number ?? 1,
-        })}
-        onNodes={() => {}}
-        onPointer={onPointer}
-        onError={onSandboxError}
-      />
-    </Slides2Canvas>
+    <div ref={navigationHostRef} className="h-full w-full">
+      <Slides2Canvas className="h-full w-full" flat>
+        <SandboxedSlide
+          artifact={artifact}
+          title={t("slides2Presenter.slideLabel", {
+            index: slidePosition?.number ?? 1,
+          })}
+          onNodes={() => {}}
+          onPointer={onPointer}
+          onNavigationInput={onNavigationInput}
+          initialRevealedSteps={initialRevealedSteps}
+          onError={onSandboxError}
+        />
+      </Slides2Canvas>
+    </div>
   );
 }

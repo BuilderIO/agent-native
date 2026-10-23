@@ -11083,12 +11083,13 @@ export default function SlideEditor({
 
       {pendingUpdateCount > 0 && (
         <div className="absolute top-4 right-4 z-50">
-          <button
+          <Button
+            type="button"
             onClick={handleApplyUpdates}
-            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors shadow-lg"
+            className="h-auto rounded-lg px-4 py-2 text-sm font-semibold shadow-lg transition-colors hover:bg-primary/90 active:scale-100"
           >
             {t("slideEditor.applyUpdates", { count: pendingUpdateCount })}
-          </button>
+          </Button>
         </div>
       )}
 

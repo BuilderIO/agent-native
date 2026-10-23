@@ -1,4 +1,5 @@
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist";
 @import "@fontsource/poppins/300.css";
 @import "@fontsource/poppins/400.css";
 @import "@fontsource/poppins/500.css";
@@ -107,10 +108,6 @@
   --agent-kit-composer-editor-min-height: 5.125rem;
 }
 
-.agent-composer-root [data-agent-composer-slot="editor-input"] {
-  color: hsl(var(--foreground));
-}
-
 .slides-question-flow
   .guided-question-flow-options
   button[aria-pressed="false"] {
@@ -125,11 +122,8 @@
   color: hsl(var(--foreground) / 0.8);
 }
 
-button[title="Open agent sidebar"] {
-  display: none !important;
-}
-
-:root {
+:root,
+.dark {
   --background: 0 0% 13%;
   --foreground: 0 0% 93%;
 
@@ -175,6 +169,12 @@ button[title="Open agent sidebar"] {
   --slides-accent: 215 91% 67%;
   --slides-accent-hover: 212 91% 73%;
   --slides-accent-foreground: 0 0% 10%;
+  --slides-selection-accent: 222 97% 63%;
+  --slides-canvas-background: 0 0% 100%;
+  --slides-canvas-foreground: 0 0% 0%;
+  --slides2-stage-backdrop: 0 0% 6.3%;
+  --slides-stage-control-foreground: 0 0% 100%;
+  --slides2-agent-connected: 151 52% 45%;
   --slides-crop-control: 0 0% 0%;
   --slides-crop-control-contrast: 0 0% 100%;
   --slides-thumbnail-shadow: 0 0% 0%;
@@ -224,6 +224,69 @@ button[title="Open agent sidebar"] {
   --slides-accent: 215 91% 67%;
   --slides-accent-hover: 212 91% 73%;
   --slides-accent-foreground: 0 0% 10%;
+  --slides-selection-accent: 222 97% 63%;
+  --slides-canvas-background: 0 0% 100%;
+  --slides-canvas-foreground: 0 0% 0%;
+  --slides2-stage-backdrop: 0 0% 100%;
+  --slides-stage-control-foreground: 0 0% 100%;
+  --slides2-agent-connected: 151 52% 34%;
+}
+
+:root:not([data-theme-family="agent-native"]) [data-slides2-editor] {
+  font-family:
+    "Geist Variable",
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
+  letter-spacing: -0.005em;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings:
+    "ss01" on,
+    "cv11" on,
+    "calt" on,
+    "tnum" off;
+  --slides2-present: oklch(0.6 0.2 25);
+  --slides2-present-hover: 3 64% 53%;
+}
+
+[data-slides2-editor] {
+  --slides2-present: hsl(var(--destructive));
+  --slides2-present-hover: var(--destructive);
+}
+
+:root[data-theme-family="agent-native"] [data-slides2-editor] {
+  --surface: var(--card);
+  --surface-hover: var(--muted);
+}
+
+:root:not([data-theme-family="agent-native"]).dark [data-slides2-editor] {
+  --background: 0 0% 1%;
+  --surface: 0 0% 1%;
+  --border: 0 0% 14%;
+  --sidebar-border: 0 0% 14%;
+}
+
+[data-slides2-editor] > header,
+[data-slides2-editor] > footer,
+[data-slides2-editor] > div > aside:first-child,
+[data-slides2-editor] > div > aside:last-child {
+  background-color: hsl(var(--surface));
+}
+
+[data-slides2-editor] [data-slides2-present] {
+  background-color: var(--slides2-present);
+  color: hsl(var(--destructive-foreground));
+}
+
+[data-slides2-editor] [data-slides2-present]:hover:not(:disabled) {
+  background-color: hsl(var(--slides2-present-hover));
+}
+
+.slides2-agent-connected-dot {
+  background-color: hsl(var(--slides2-agent-connected));
 }
 
 [data-slides-thumbnail-scroll]::before {
@@ -305,6 +368,13 @@ button[title="Open agent sidebar"] {
   border-radius: 0.25rem;
   background: hsl(var(--background));
   box-shadow: none;
+}
+
+.slides2-canvas-frame {
+  box-shadow:
+    0 0 0 0.5px hsl(var(--slides-canvas-foreground) / 0.08),
+    0 1px 1px hsl(var(--slides-canvas-foreground) / 0.04),
+    0 4px 16px -2px hsl(var(--slides-canvas-foreground) / 0.08);
 }
 
 .slide-style-inspector input:focus {
@@ -1582,6 +1652,19 @@ button[title="Open agent sidebar"] {
 .slide-reference-preview-frame {
   aspect-ratio: var(--reference-ratio);
   width: var(--reference-width);
+}
+
+.slides2-selection-outline {
+  border-color: hsl(var(--slides-selection-accent));
+}
+
+.slides2-selection-handle {
+  border-color: hsl(var(--slides-selection-accent));
+  background-color: hsl(var(--slides-accent-foreground));
+}
+
+.slides2-selection-rotate-stem {
+  background-color: hsl(var(--slides-selection-accent));
 }
 
 @keyframes elem-appear {

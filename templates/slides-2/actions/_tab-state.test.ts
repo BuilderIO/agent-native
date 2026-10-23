@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { readAppState, requestContext } = vi.hoisted(() => ({
-  readAppState: vi.fn(),
-  requestContext: { browserTabId: "tab-1" as string | null },
-}));
+const { compareAndSetAppState, readAppState, requestContext } = vi.hoisted(
+  () => ({
+    compareAndSetAppState: vi.fn(),
+    readAppState: vi.fn(),
+    requestContext: { browserTabId: "tab-1" as string | null },
+  }),
+);
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetAppState: (...args: unknown[]) => compareAndSetAppState(...args),
   readAppState: (...args: unknown[]) => readAppState(...args),
   writeAppState: vi.fn(),
 }));
@@ -14,9 +18,13 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestRunContext: () => requestContext,
 }));
 
-import { readAppStateForCurrentTab } from "./_tab-state.js";
+import {
+  compareAndSetAppStateForCurrentTab,
+  readAppStateForCurrentTab,
+} from "./_tab-state.js";
 
 beforeEach(() => {
+  compareAndSetAppState.mockReset();
   readAppState.mockReset();
   requestContext.browserTabId = "tab-1";
 });
@@ -67,5 +75,25 @@ describe("readAppStateForCurrentTab", () => {
     });
     expect(readAppState).toHaveBeenCalledOnce();
     expect(readAppState).toHaveBeenCalledWith("slides-2:navigation");
+  });
+
+  it("compares editor command state at the current tab's key", async () => {
+    const expected = { commandId: "prior-command" };
+    const next = { commandId: "next-command" };
+    compareAndSetAppState.mockResolvedValueOnce(true);
+
+    await expect(
+      compareAndSetAppStateForCurrentTab(
+        "slides-2:deck-history-command",
+        expected,
+        next,
+      ),
+    ).resolves.toBe(true);
+
+    expect(compareAndSetAppState).toHaveBeenCalledWith(
+      "slides-2:deck-history-command:tab-1",
+      expected,
+      next,
+    );
   });
 });

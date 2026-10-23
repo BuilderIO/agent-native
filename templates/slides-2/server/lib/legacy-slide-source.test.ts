@@ -125,6 +125,7 @@ describe("built-in legacy slide conversion", () => {
     expect(tokens).toEqual({
       background: "#142b36",
       text: "#f5f7ee",
+      muted: "#667085",
       accent: "#d8ed74",
       displayFont: "Georgia",
       bodyFont: "Arial",

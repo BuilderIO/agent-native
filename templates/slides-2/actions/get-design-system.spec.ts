@@ -236,7 +236,7 @@ describe("get-design-system", () => {
     });
   });
 
-  it("serves a deck reader the deck's linked design system without writing to it", async () => {
+  it("serves a deck-scoped rendering projection without hydrating Builder", async () => {
     const deck = {
       designSystemId: "builder-ds-1",
       data: JSON.stringify({ appId: "slides-2" }),
@@ -247,16 +247,23 @@ describe("get-design-system", () => {
     );
     mockReadDeckLinkedDesignSystem.mockResolvedValue({
       resource,
-      viaDeck: true,
+      viaDeck: false,
     });
 
-    const result = await action.run({ id: "builder-ds-1", deckId: "deck-1" });
+    const result = await action.run({
+      id: "builder-ds-1",
+      deckId: "deck-1",
+      compact: "true",
+    });
 
     expect(mockReadDeckLinkedDesignSystem).toHaveBeenCalledWith(
       deck,
       "builder-ds-1",
     );
     expect(Object.keys(result).sort()).toEqual(["data", "id", "title"]);
+    expect(JSON.parse(result.data as string)).toEqual({
+      colors: { primary: "var(--primary)" },
+    });
     expect(mockHydrateBuilderDesignSystemReference).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
   });

@@ -80,7 +80,7 @@ describe("ChatGPT Directory Slides tool discovery", () => {
     );
     expect(
       CHATGPT_DIRECTORY_PROFILE.toolDescriptions["transform-slide-objects"],
-    ).toContain("current view-screen locators");
+    ).toContain("exact current request-tab selection");
     expect(
       CHATGPT_DIRECTORY_PROFILE.toolParameterDescriptions[
         "transform-slide-objects"

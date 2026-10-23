@@ -4,6 +4,7 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client/application-state";
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useSessionPreloading } from "@agent-native/core/client/use-session";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
@@ -33,6 +34,7 @@ export interface NavigationState {
 }
 
 export function useNavigationState() {
+  const preloading = useSessionPreloading();
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -55,6 +57,8 @@ export function useNavigationState() {
   const activeSlideId = deckQuery.data?.slides?.[activeSlideIndex]?.id;
 
   useEffect(() => {
+    if (preloading) return;
+
     const path = location.pathname;
     const state: NavigationState = { app: "slides-2", view: "list" };
 
@@ -138,13 +142,14 @@ export function useNavigationState() {
         void clear(appStateKeyForBrowserTab("slides-selection", TAB_ID));
       }
     }
-  }, [activeSlideId, location.pathname, location.search]);
+  }, [activeSlideId, location.pathname, location.search, preloading]);
 
   const { data: navCommand } = useQuery<{
     key: string;
     command: NavigationState;
   } | null>({
     queryKey: ["navigate-command", TAB_ID],
+    enabled: !preloading,
     queryFn: async () => {
       const key = appStateKeyForBrowserTab("navigate", TAB_ID);
       const command = await readClientAppState<NavigationState>(key);
@@ -155,7 +160,7 @@ export function useNavigationState() {
   const lastProcessedDedupKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!navCommand) return;
+    if (preloading || !navCommand) return;
     const { key, command: cmd } = navCommand;
     const dedupKey =
       cmd._writeId ??
@@ -225,5 +230,5 @@ export function useNavigationState() {
 
     void navigate(path);
     qc.setQueryData(["navigate-command", TAB_ID], null);
-  }, [navCommand, navigate, qc]);
+  }, [navCommand, navigate, preloading, qc]);
 }

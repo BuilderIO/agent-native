@@ -20,12 +20,14 @@ artifact includes a React Worker bundle for the opaque-origin sandbox; the
 editor and presenter render it there, never in the app page's origin. The
 visual editor's PDF and image-based PPTX exports render the artifact in the
 sandbox before capturing it; the image PPTX stores one raster image per slide.
-The server's editable PPTX export attempts bounded static rendering for
-source-backed slides without a saved preview. Sources that require Worker
-rendering return `source_runtime_export_required` before a file is written.
-Server HTML and Google Slides exports still need a saved static `content`
-preview. Legacy and imported HTML slides keep using their script-free HTML
-preview. Uploaded assets resolve through stored asset handles.
+Server HTML and editable PPTX exports attempt bounded static rendering for
+supported source-backed slides without a saved preview. Google Slides export
+uses the same PPTX path. Sources that require Worker rendering return
+`source_runtime_export_required` before a server file is written. In the
+editor, HTML, editable PPTX, and Google Slides catch that typed error and use
+the existing opaque-origin Worker renderer to build the download locally.
+Legacy and imported HTML slides keep using their script-free HTML preview.
+Uploaded assets resolve through stored asset handles.
 See the `create-deck` and `slide-editing` skills for the supported syntax and
 edit workflow.
 

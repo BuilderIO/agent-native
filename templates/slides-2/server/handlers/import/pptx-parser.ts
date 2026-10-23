@@ -3,6 +3,7 @@ import {
   DEFAULT_PPTX_IMAGE_BYTE_LIMITS,
   PptxImageByteLimitError,
   parsePptxPresentation,
+  type PptxImageByteLimits,
 } from "@agent-native/core/ingestion";
 
 import {
@@ -30,6 +31,21 @@ export async function parsePptx(
         },
       );
     }
+    if (isInvalidPptxSourceFailure(error)) {
+      throw new InvalidPptxSourceError(error);
+    }
+    throw error;
+  }
+}
+
+export async function parsePptxWithImageByteLimits(
+  fileBuffer: Parameters<typeof parsePptxPresentation>[0],
+  imageByteLimits: Readonly<PptxImageByteLimits>,
+): ReturnType<typeof parsePptxPresentation> {
+  try {
+    return await parsePptxPresentation(fileBuffer, { imageByteLimits });
+  } catch (error) {
+    if (error instanceof PptxImageByteLimitError) throw error;
     if (isInvalidPptxSourceFailure(error)) {
       throw new InvalidPptxSourceError(error);
     }

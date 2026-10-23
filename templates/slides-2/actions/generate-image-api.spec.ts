@@ -152,7 +152,7 @@ describe("generate-image-api reference image SSRF safety", () => {
 
   it("uses the source revision and hash when inserting a selected preview", async () => {
     const sourceTsx = [
-      'import { ImagePlaceholder } from "@open-slide/core";',
+      'import { ImagePlaceholder } from "@agent-native/slides-core";',
       "export default function Slide() {",
       '  return <div><ImagePlaceholder label="Hero" /></div>;',
       "}",

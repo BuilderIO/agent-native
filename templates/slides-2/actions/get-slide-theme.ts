@@ -5,7 +5,7 @@ import { getBuiltInSlideTheme } from "../server/lib/slide-themes.js";
 
 export default defineAction({
   description:
-    "Read a bundled slide theme's complete authoring guide with Slides 2 compatibility notes. Treat examples as visual references: keep design type sizes at or below 320px, omit remote font loading, DOM/browser globals and effects, map only supported SQL theme tokens, and store the selected ID in every generated slide's static meta.theme.",
+    "Read a bundled slide theme's complete authoring guide with Slides 2 compatibility notes. Treat examples as visual references: keep design type sizes at or below 320px, omit remote font loading and DOM access, use only supported sandbox APIs for live behavior, map supported SQL theme tokens, and store the selected ID in every generated slide's static meta.theme.",
   schema: z.object({
     id: z
       .string()
@@ -31,7 +31,7 @@ export default defineAction({
       "```",
       "`create-deck` preserves module-level `meta` exports when it splits a static page array into separate SQL slides. Repeat the export in each `add-slide` source module.",
       "",
-      "The Worker accepts static `design` values, but `design.typeScale.hero` and `.body` are pixel sizes capped at 320; reduce Aero's 620px hero value before using it. Do not copy Google Fonts URLs or code that inserts `link`/`style` nodes through `document`. Use available system font stacks and static scoped CSS. Do not copy `window`, `document`, `performance`, `requestAnimationFrame`, or effect-driven behavior such as `useEffect`; the Worker renders statically. Use only the supported `Step`, `Steps`, `useSlidePageNumber()`, and `useIsActivePage()` runtime APIs for page/reveal behavior.",
+      "The Worker accepts static `design` values, but `design.typeScale.hero` and `.body` are pixel sizes capped at 320; reduce Aero's 620px hero value before using it. Do not copy Google Fonts URLs or code that inserts `link`/`style` nodes through `document`. Use available system font stacks and static scoped CSS. SQL-derived previews and exports do not run effects or event handlers; the live editor and presenter support React effects and allowlisted handlers in a sandboxed iframe. Use only the bounded `window` facade for reduced-motion queries, timers, animation frames, and `performance.now()`; do not access `document` or other browser APIs. Use the supported `Step`, `Steps`, `useSlidePageNumber()`, and `useIsActivePage()` APIs for page/reveal behavior.",
       "",
       "Theme guide `design` exports and Slides 2 SQL deck tokens are different contracts. Map `design.palette.bg`, `.text`, and `.accent` to token `background`, `text`, and `accent`. Choose token fonts from Arial, Courier New, Georgia, Helvetica, system-ui, Times New Roman, Trebuchet MS, or Verdana; the guide's Barlow, Inter, Newsreader, Gabarito, and DM Mono families cannot be saved as SQL font tokens. `design.typeScale` values are pixels, while SQL `heroScale` and `bodyScale` are multipliers from 0.5 to 2; choose multipliers instead of passing pixel sizes. Map `radius` only when it is within the SQL token range of 0 to 48. Read and write deck tokens through `get-deck-design-tokens` and `update-deck-design-tokens` with the current `updatedAt`.",
       "",

@@ -1,5 +1,5 @@
-import { defineAction } from "@agent-native/core";
 import {
+  defineAction,
   fail,
   isActionContractError,
   type ActionRunContext,

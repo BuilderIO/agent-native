@@ -22,6 +22,9 @@ import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -384,11 +387,12 @@ export function BlockBubbleMenu({
             {COLORS.map((c) => (
               <Tooltip key={c}>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => applyColor(c)}
-                    className="w-7 h-7 rounded-md border border-foreground/25 hover:scale-110 transition-transform"
+                    className="h-7 w-7 shrink-0 rounded-md border border-foreground/25 p-0 transition-transform hover:scale-110 hover:bg-transparent active:scale-100"
                     style={{ background: c }}
                     aria-label={`Set color ${c}`}
                   />
@@ -422,7 +426,7 @@ export function BlockBubbleMenu({
               : aiTargetText}
           </p>
           <div className="flex items-end gap-1">
-            <textarea
+            <Textarea
               value={aiInstruction}
               onChange={(e) => setAiInstruction(e.target.value)}
               onKeyDown={(e) => {
@@ -437,24 +441,25 @@ export function BlockBubbleMenu({
               placeholder={t("raw.tellAgentDo")}
               rows={2}
               disabled={aiSending}
-              className="flex-1 resize-none rounded border border-border bg-muted px-2 py-1.5 text-xs text-foreground outline-none focus:border-ring disabled:opacity-60"
+              className="h-auto min-h-0 w-auto flex-1 resize-none rounded border border-border bg-muted px-2 py-1.5 text-xs text-foreground outline-none focus:border-ring focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-60"
               autoFocus
             />
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
                   onClick={() => void submitAiRevision()}
                   disabled={!aiInstruction.trim() || aiSending}
                   aria-label={t("raw.sendToAgent")}
-                  className={AI_SEND_BUTTON_CLASS}
+                  className={`h-auto w-auto [&_svg]:size-3.5 ${AI_SEND_BUTTON_CLASS}`}
                 >
                   {aiSending ? (
                     <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
                     <IconArrowUp className="w-3.5 h-3.5" />
                   )}
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>{t("raw.sendToAgent")}</TooltipContent>
             </Tooltip>
@@ -463,8 +468,9 @@ export function BlockBubbleMenu({
       )}
       {showLinkInput && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 flex items-center gap-1 p-1 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60">
-          <input
+          <Input
             type="text"
+            size="sm"
             value={linkValue}
             onChange={(e) => setLinkValue(e.target.value)}
             onKeyDown={(e) => {
@@ -477,32 +483,34 @@ export function BlockBubbleMenu({
               }
             }}
             placeholder={t("raw.pasteUrl")}
-            className="px-2 py-1 text-xs bg-muted rounded text-foreground outline-none border border-border focus:border-ring w-40"
+            className="h-auto w-40 rounded border border-border bg-muted px-2 py-1 text-xs text-foreground outline-none focus:border-ring focus-visible:ring-0 focus-visible:ring-offset-0"
             autoFocus
           />
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={applyLink}
-                className="p-1 rounded hover:bg-accent text-[hsl(var(--slides-accent))]"
+                className="h-auto w-auto rounded p-1 text-[hsl(var(--slides-accent))] [&_svg]:size-3.5"
               >
                 <IconCheck className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>{t("slideTextMenu.apply")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={removeLink}
-                className="p-1 rounded hover:bg-accent text-muted-foreground"
+                className="h-auto w-auto rounded p-1 text-muted-foreground [&_svg]:size-3.5"
               >
                 <IconX className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>{t("raw.removeLink")}</TooltipContent>
           </Tooltip>
@@ -528,19 +536,20 @@ function ToolbarButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Button
           type="button"
+          variant="ghost"
           onMouseDown={(e) => e.preventDefault()}
           onClick={onClick}
           aria-label={tooltip}
-          className={`p-1.5 rounded transition-colors ${
+          className={`h-auto w-auto rounded p-1.5 transition-colors [&_svg]:size-3.5 ${
             active
               ? "bg-[hsl(var(--slides-accent)/0.2)] text-[hsl(var(--slides-accent))]"
               : "text-foreground/80 hover:bg-accent hover:text-foreground"
           }`}
         >
           <Icon className="w-3.5 h-3.5" />
-        </button>
+        </Button>
       </TooltipTrigger>
       <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>

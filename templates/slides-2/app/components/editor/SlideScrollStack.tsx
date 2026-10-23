@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
+import { Button } from "@/components/ui/button";
 import type { Slide } from "@/context/DeckContext";
 import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
 import {
@@ -70,13 +71,14 @@ const SlidePreview = memo(function SlidePreview({
   const t = useT();
   const dims = getAspectRatioDims(aspectRatio);
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       aria-label={t("editorSidebar.selectSlide", { number })}
       data-scroll-slide-id={slide.id}
       onClick={() => onSelect(slide.id)}
       style={{ aspectRatio: `${dims.width} / ${dims.height}` }}
-      className="block w-full shrink-0 cursor-pointer rounded-lg bg-muted/40 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="block h-auto w-full shrink-0 cursor-pointer justify-start rounded-lg bg-muted/40 p-0 text-left font-normal hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-100"
     >
       {mounted ? (
         <SlideRenderer
@@ -87,7 +89,7 @@ const SlidePreview = memo(function SlidePreview({
           className="pointer-events-none shadow-2xl shadow-black/40"
         />
       ) : null}
-    </button>
+    </Button>
   );
 });
 

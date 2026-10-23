@@ -258,14 +258,16 @@ function ToolbarMenu({
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="xs"
               className={cn(ICON_MENU_CLASS, triggerClassName)}
               aria-label={label}
             >
               <Icon className="size-4" />
               {caret && <span aria-hidden="true" className={CARET_CLASS} />}
-            </button>
+            </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent>{label}</TooltipContent>
@@ -1087,8 +1089,10 @@ export function SlideContextToolbar({
               {onImageFitChange && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="xs"
                       className={cn(MINI_TRIGGER_CLASS, "w-16 justify-between")}
                       aria-label={t("contextToolbar.fit")}
                     >
@@ -1096,7 +1100,7 @@ export function SlideContextToolbar({
                         ? t("contextToolbar.fitCover")
                         : t("contextToolbar.fitContain")}
                       <IconChevronDown className="size-2.5" />
-                    </button>
+                    </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
                     align="start"
@@ -1117,14 +1121,16 @@ export function SlideContextToolbar({
                 </DropdownMenu>
               )}
               {onReplaceImage && (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   className={cn(MENU_TRIGGER_BASE, "gap-1.5 font-normal")}
                   onClick={onReplaceImage}
                 >
                   <IconPhoto className="size-3.5" />
                   {t("contextToolbar.replaceImage")}
-                </button>
+                </Button>
               )}
             </>
           ) : (
@@ -1375,14 +1381,16 @@ export function SlideContextToolbar({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="xs"
                       className={agentButtonClass}
                       aria-label={t("contextToolbar.editWithAgent")}
                     >
                       <IconRobot className="size-4" />
                       <IconChevronDown className="size-3" />
-                    </button>
+                    </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -1408,14 +1416,16 @@ export function SlideContextToolbar({
           ) : (
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   className={agentButtonClass}
                   aria-label={t("contextToolbar.editWithAgent")}
                   onClick={onOpenAgent}
                 >
                   <IconRobot className="size-4" />
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>
                 {t("contextToolbar.editWithAgent")}
@@ -1439,14 +1449,16 @@ export function SlideContextToolbar({
           {onToggleLayers && <Divider />}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="xs"
                 className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background pl-2.5 pr-2 text-sm text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t("contextToolbar.zoom")}
               >
                 <span className="tabular-nums">{zoomControls.value}%</span>
                 <IconChevronDown className="size-4 text-muted-foreground" />
-              </button>
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"

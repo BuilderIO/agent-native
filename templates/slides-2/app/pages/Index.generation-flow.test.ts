@@ -25,6 +25,22 @@ const generationLibSource = readFileSync(
   ),
   "utf8",
 );
+// source-read-ok: pins the home prompt to the shared Agent-Native composer stack.
+const promptDialogSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../components/editor/PromptDialog.tsx",
+  ),
+  "utf8",
+);
+// source-read-ok: pins the toolkit composer implementation used by home prompts.
+const sharedPromptComposerSource = readFileSync(
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../../packages/toolkit/src/composer/PromptComposer.tsx",
+  ),
+  "utf8",
+);
 const flow = source.slice(
   source.indexOf("const handleCreateDeckWithPrompt"),
   source.indexOf("const handlePromptSubmit"),
@@ -45,6 +61,23 @@ describe("new deck generation flow", () => {
     expect(source).toContain("clearInitialPromptFromUrl();");
     expect(source).toContain("window.location.reload()");
     expect(source).toContain("<LazyChunkErrorBoundary");
+  });
+
+  it("hands the home prompt through the shared composer into AgentSidebar chat", () => {
+    expect(source).toContain('from "@/components/editor/PromptDialog"');
+    expect(source).toContain('presentation="inline"');
+    expect(promptDialogSource).toContain(
+      'from "@agent-native/toolkit/app/chat/composer/index"',
+    );
+    expect(promptDialogSource).toContain("<PromptComposer");
+    expect(sharedPromptComposerSource).toContain(
+      'import { AgentComposerFrame } from "./AgentComposerFrame.js"',
+    );
+    expect(sharedPromptComposerSource).toContain("  TiptapComposer,");
+    expect(sharedPromptComposerSource).toContain("<AgentComposerFrame");
+    expect(sharedPromptComposerSource).toContain("<TiptapComposer");
+    expect(flow).toContain("const submission = await agentSubmit(");
+    expect(flow).toContain("openSidebar: true");
   });
 
   it("finishes home setup before opening the generating editor", () => {

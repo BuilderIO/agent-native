@@ -44,6 +44,8 @@ export type ElementSnapshot = {
   bounds: Rect;
   text: string;
   styles: Record<string, string>;
+  imageSrc?: string;
+  authoredStyles?: { lineHeight?: string };
   ancestorLocators?: string[];
   ancestorLocatorsComplete?: boolean;
   transform?: {

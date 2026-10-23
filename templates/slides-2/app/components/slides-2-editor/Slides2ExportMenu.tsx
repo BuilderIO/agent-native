@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
+import { deckExportFallbackFilename } from "@/lib/deck-export-file-client";
 import { exportDeckAsPdf, type PdfExportSlide } from "@/lib/export-pdf-client";
 import {
   buildDeckPptxBlob,
@@ -34,8 +35,14 @@ import {
   exportDeckAsPptx,
 } from "@/lib/export-pptx-client";
 import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
+import {
+  buildStandaloneHtml,
+  type StandaloneHtmlDesignSystem,
+  type StandaloneHtmlSlide,
+} from "@/lib/standalone-html";
 
 import {
+  isSlideDesignTokens,
   isSlideRenderArtifact,
   type SlideDesignTokens,
   type SlideRenderArtifact,
@@ -64,10 +71,14 @@ type ExportDeckSlide = {
   sourceTsx?: string | null;
   content?: string | null;
   notes?: string | null;
+  background?: string | null;
+  sourceRuntimeRequired?: boolean;
 };
 
 type ExportDeckSnapshot = {
   slides: ExportDeckSlide[];
+  designTokens?: SlideDesignTokens;
+  designSystemId?: string | null;
 };
 
 type Props = {
@@ -159,29 +170,192 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]) {
+  return Object.keys(value).every((key) => keys.includes(key));
+}
+
+function isOptionalStringRecord(
+  value: unknown,
+  keys: readonly string[],
+): value is Record<string, string> {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, keys) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
+
+function isRenderingDesignSystemData(
+  value: unknown,
+): value is StandaloneHtmlDesignSystem {
+  if (!isRecord(value)) return false;
+  if (
+    !hasOnlyKeys(value, [
+      "colors",
+      "typography",
+      "spacing",
+      "borders",
+      "slideDefaults",
+      "logos",
+      "customCSS",
+    ])
+  ) {
+    return false;
+  }
+
+  if (
+    value.colors !== undefined &&
+    !isOptionalStringRecord(value.colors, [
+      "primary",
+      "secondary",
+      "accent",
+      "background",
+      "surface",
+      "text",
+      "textMuted",
+    ])
+  ) {
+    return false;
+  }
+  if (
+    value.typography !== undefined &&
+    (!isRecord(value.typography) ||
+      !hasOnlyKeys(value.typography, [
+        "headingFont",
+        "bodyFont",
+        "headingWeight",
+        "bodyWeight",
+        "headingSizes",
+      ]) ||
+      !Object.entries(value.typography).every(([key, entry]) =>
+        key === "headingSizes"
+          ? isOptionalStringRecord(entry, ["h1", "h2", "h3"])
+          : typeof entry === "string",
+      ))
+  ) {
+    return false;
+  }
+  if (
+    value.spacing !== undefined &&
+    !isOptionalStringRecord(value.spacing, ["slidePadding", "elementGap"])
+  ) {
+    return false;
+  }
+  if (
+    value.borders !== undefined &&
+    !isOptionalStringRecord(value.borders, ["radius", "accentWidth"])
+  ) {
+    return false;
+  }
+  if (
+    value.slideDefaults !== undefined &&
+    (!isRecord(value.slideDefaults) ||
+      !hasOnlyKeys(value.slideDefaults, ["background", "labelStyle"]) ||
+      (value.slideDefaults.background !== undefined &&
+        typeof value.slideDefaults.background !== "string") ||
+      (value.slideDefaults.labelStyle !== undefined &&
+        !["uppercase", "lowercase", "capitalize", "none"].includes(
+          value.slideDefaults.labelStyle as string,
+        )))
+  ) {
+    return false;
+  }
+  if (
+    value.logos !== undefined &&
+    (!Array.isArray(value.logos) ||
+      !value.logos.every(
+        (logo) =>
+          isRecord(logo) &&
+          hasOnlyKeys(logo, ["url", "name", "variant"]) &&
+          typeof logo.url === "string" &&
+          typeof logo.name === "string" &&
+          ["light", "dark", "auto"].includes(logo.variant as string),
+      ))
+  ) {
+    return false;
+  }
+  return value.customCSS === undefined || typeof value.customCSS === "string";
+}
+
+function parseExportDesignSystem(
+  value: unknown,
+  expectedId: string,
+): StandaloneHtmlDesignSystem | undefined {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["id", "title", "data"]) ||
+    value.id !== expectedId ||
+    typeof value.title !== "string" ||
+    (value.data !== null && typeof value.data !== "string")
+  ) {
+    throw new Error("invalid-export-design-system-projection");
+  }
+  if (value.data === null) return undefined;
+
+  let data: unknown;
+  try {
+    data = JSON.parse(value.data);
+  } catch {
+    throw new Error("invalid-export-design-system-projection");
+  }
+  if (!isRenderingDesignSystemData(data)) {
+    throw new Error("invalid-export-design-system-projection");
+  }
+  return data;
+}
+
+async function loadRenderingDesignSystemForExport(
+  deckId: string,
+  designSystemId: string,
+): Promise<StandaloneHtmlDesignSystem | undefined> {
+  const projection = await callAction<unknown>(
+    "get-design-system",
+    { id: designSystemId, deckId, compact: "true" },
+    { method: "GET" },
+  );
+  return parseExportDesignSystem(projection, designSystemId);
+}
+
 function isExportDeckSnapshot(value: unknown): value is ExportDeckSnapshot {
   if (!isRecord(value) || !Array.isArray(value.slides)) return false;
-  return value.slides.every(
-    (slide) =>
-      isRecord(slide) &&
-      typeof slide.id === "string" &&
-      (slide.sourceTsx === undefined ||
-        slide.sourceTsx === null ||
-        typeof slide.sourceTsx === "string") &&
-      (slide.content === undefined ||
-        slide.content === null ||
-        typeof slide.content === "string") &&
-      (slide.notes === undefined ||
-        slide.notes === null ||
-        typeof slide.notes === "string"),
+  return (
+    value.slides.every(
+      (slide) =>
+        isRecord(slide) &&
+        typeof slide.id === "string" &&
+        (slide.sourceTsx === undefined ||
+          slide.sourceTsx === null ||
+          typeof slide.sourceTsx === "string") &&
+        (slide.content === undefined ||
+          slide.content === null ||
+          typeof slide.content === "string") &&
+        (slide.notes === undefined ||
+          slide.notes === null ||
+          typeof slide.notes === "string") &&
+        (slide.background === undefined ||
+          slide.background === null ||
+          typeof slide.background === "string") &&
+        (slide.sourceRuntimeRequired === undefined ||
+          typeof slide.sourceRuntimeRequired === "boolean"),
+    ) &&
+    (value.designSystemId === undefined ||
+      value.designSystemId === null ||
+      (typeof value.designSystemId === "string" &&
+        value.designSystemId.length > 0)) &&
+    (value.designTokens === undefined ||
+      isSlideDesignTokens(value.designTokens))
   );
 }
 
 async function loadDeckSlidesForExport(
   deckId: string,
   slides: SlideSummary[],
-): Promise<Array<{ summary: SlideSummary; stored: ExportDeckSlide }>> {
-  if (slides.length === 0) return [];
+): Promise<{
+  slides: Array<{ summary: SlideSummary; stored: ExportDeckSlide }>;
+  designTokens?: SlideDesignTokens;
+  designSystemId?: string | null;
+}> {
+  if (slides.length === 0) return { slides: [] };
   if (new Set(slides.map((slide) => slide.id)).size !== slides.length) {
     throw new Error("invalid-export-slide-order");
   }
@@ -208,19 +382,30 @@ async function loadDeckSlidesForExport(
     slidesById.set(slide.id, slide);
   }
 
-  return slides.map((summary) => {
-    const stored = slidesById.get(summary.id);
-    if (!stored) throw new Error("missing-export-slide");
-    return { summary, stored };
-  });
+  return {
+    slides: slides.map((summary) => {
+      const stored = slidesById.get(summary.id);
+      if (!stored) throw new Error("missing-export-slide");
+      return { summary, stored };
+    }),
+    ...(snapshot.designSystemId !== undefined
+      ? { designSystemId: snapshot.designSystemId }
+      : {}),
+    ...(snapshot.designTokens ? { designTokens: snapshot.designTokens } : {}),
+  };
 }
 
 async function renderSlidesForExport(
   deckId: string,
   slides: SlideSummary[],
   aspectRatio?: AspectRatio,
-): Promise<{ stage: HTMLDivElement; exportSlides: PdfExportSlide[] }> {
-  const storedSlides = await loadDeckSlidesForExport(deckId, slides);
+): Promise<{
+  stage: HTMLDivElement;
+  exportSlides: PdfExportSlide[];
+  standaloneSlides: StandaloneHtmlSlide[];
+  designSystemId?: string | null;
+}> {
+  const deck = await loadDeckSlidesForExport(deckId, slides);
   const defaultDimensions = getAspectRatioDims(aspectRatio);
   const stage = document.createElement("div");
   stage.dataset.pdfExportStage = "true";
@@ -234,7 +419,8 @@ async function renderSlidesForExport(
   });
 
   const exportSlides: PdfExportSlide[] = [];
-  for (const { summary, stored } of storedSlides) {
+  const standaloneSlides: StandaloneHtmlSlide[] = [];
+  for (const { summary, stored } of deck.slides) {
     const pdfSlideRoot = String(exportSlides.length);
     const sourceTsx = stored.sourceTsx;
     const hasSource =
@@ -243,9 +429,11 @@ async function renderSlidesForExport(
     let styles: string[];
     let design: NonNullable<SlideRenderArtifact["runtime"]>["design"];
     let designTokens: SlideDesignTokens | undefined;
+    let fontAssets: NonNullable<SlideRenderArtifact["fontAssets"]> = [];
     let assetOrigins: string[];
     let width: number;
     let height: number;
+    let standaloneContent: string | null = null;
     if (hasSource) {
       const artifact = await callAction<SlideRenderArtifact>(
         "get-slide-render",
@@ -271,12 +459,14 @@ async function renderSlidesForExport(
             styles: [],
             design: undefined,
             designTokens: artifact.designTokens,
+            fontAssets: artifact.fontAssets ?? [],
             assetOrigins: artifact.assetOrigins ?? [],
           };
       html = rendered.html;
       styles = rendered.styles;
       design = rendered.design;
-      designTokens = rendered.designTokens;
+      designTokens = rendered.designTokens ?? deck.designTokens;
+      fontAssets = rendered.fontAssets ?? [];
       assetOrigins = rendered.assetOrigins;
       width = artifact.width;
       height = artifact.height;
@@ -295,12 +485,13 @@ async function renderSlidesForExport(
       ) {
         throw new Error("invalid-export-slide-content");
       }
-      html = sanitizeSlideHtml(stored.content ?? "", {
+      standaloneContent = stored.content ?? "";
+      html = sanitizeSlideHtml(standaloneContent, {
         scopeSelector: `[data-pdf-slide-root="${pdfSlideRoot}"]`,
       });
       styles = [];
       design = undefined;
-      designTokens = undefined;
+      designTokens = deck.designTokens;
       assetOrigins = [];
       width = defaultDimensions.width;
       height = defaultDimensions.height;
@@ -357,10 +548,27 @@ async function renderSlidesForExport(
       content: html,
       ...(notes ? { notes } : {}),
     });
+    standaloneSlides.push({
+      id: summary.id,
+      content: standaloneContent ?? html,
+      ...(notes ? { notes } : {}),
+      ...(stored.background ? { background: stored.background } : {}),
+      ...(styles.length ? { styles } : {}),
+      ...(designTokens ? { designTokens } : {}),
+      ...(design ? { design } : {}),
+      ...(fontAssets.length ? { fontAssets } : {}),
+    });
   }
 
   document.body.append(stage);
-  return { stage, exportSlides };
+  return {
+    stage,
+    exportSlides,
+    standaloneSlides,
+    ...(deck.designSystemId !== undefined
+      ? { designSystemId: deck.designSystemId }
+      : {}),
+  };
 }
 
 function toPptxExportSlides(
@@ -390,10 +598,11 @@ export const Slides2ExportMenu = forwardRef<Slides2ExportMenuHandle, Props>(
       { deckId: string }
     >("export-google-slides");
     const [status, setStatus] = useState<ExportStatus>(null);
+    const exportIsRunning = status?.state === "exporting";
 
     const run = useCallback(
       async (format: Slides2ExportFormat) => {
-        if (status?.state === "exporting" || slides.length === 0) return;
+        if (exportIsRunning || slides.length === 0) return;
         setStatus({ state: "exporting", format });
         try {
           if (!(await onBeforeExport())) {
@@ -401,11 +610,37 @@ export const Slides2ExportMenu = forwardRef<Slides2ExportMenuHandle, Props>(
             return;
           }
           if (format === "html") {
-            const result = await exportHtml.mutateAsync({ deckId });
-            triggerBlobDownload(
-              new Blob([result.html], { type: "text/html;charset=utf-8" }),
-              result.filename,
-            );
+            try {
+              const result = await exportHtml.mutateAsync({ deckId });
+              triggerBlobDownload(
+                new Blob([result.html], { type: "text/html;charset=utf-8" }),
+                result.filename,
+              );
+            } catch (error) {
+              if (!isSourceRuntimeExportError(error)) throw error;
+              const { stage, standaloneSlides, designSystemId } =
+                await renderSlidesForExport(deckId, slides, aspectRatio);
+              try {
+                const designSystem = designSystemId
+                  ? await loadRenderingDesignSystemForExport(
+                      deckId,
+                      designSystemId,
+                    )
+                  : undefined;
+                const html = buildStandaloneHtml(
+                  title,
+                  standaloneSlides,
+                  aspectRatio,
+                  designSystem,
+                );
+                triggerBlobDownload(
+                  new Blob([html], { type: "text/html;charset=utf-8" }),
+                  deckExportFallbackFilename(title, ".html"),
+                );
+              } finally {
+                stage.remove();
+              }
+            }
             setStatus(null);
             return;
           }
@@ -535,7 +770,7 @@ export const Slides2ExportMenu = forwardRef<Slides2ExportMenuHandle, Props>(
         exportPptx,
         onBeforeExport,
         slides,
-        status?.state,
+        exportIsRunning,
         t,
         title,
       ],
@@ -563,31 +798,47 @@ export const Slides2ExportMenu = forwardRef<Slides2ExportMenuHandle, Props>(
             <Button
               type="button"
               variant="ghost"
-              size="sm"
-              disabled={slides.length === 0 || status?.state === "exporting"}
+              size="icon-sm"
+              disabled={slides.length === 0 || exportIsRunning}
+              aria-label={t("editorExport.export")}
+              title={t("editorExport.export")}
             >
-              <IconDownload className="me-1 size-4" aria-hidden="true" />
-              {t("editorExport.export")}
+              <IconDownload aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuItem onSelect={() => void run("html")}>
+            <DropdownMenuItem
+              disabled={exportIsRunning}
+              onSelect={() => void run("html")}
+            >
               <IconCode className="me-2 size-4" aria-hidden="true" />
               {t("editorExport.downloadHtml")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void run("pdf")}>
+            <DropdownMenuItem
+              disabled={exportIsRunning}
+              onSelect={() => void run("pdf")}
+            >
               <IconFileTypePdf className="me-2 size-4" aria-hidden="true" />
               {t("editorExport.exportPdf")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void run("pptx")}>
+            <DropdownMenuItem
+              disabled={exportIsRunning}
+              onSelect={() => void run("pptx")}
+            >
               <IconDownload className="me-2 size-4" aria-hidden="true" />
               {t("editorExport.exportPptx")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void run("pptx-images")}>
+            <DropdownMenuItem
+              disabled={exportIsRunning}
+              onSelect={() => void run("pptx-images")}
+            >
               <IconPhoto className="me-2 size-4" aria-hidden="true" />
               {t("editorExport.exportPptxAsImages")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void run("google-slides")}>
+            <DropdownMenuItem
+              disabled={exportIsRunning}
+              onSelect={() => void run("google-slides")}
+            >
               <IconBrandGoogle className="me-2 size-4" aria-hidden="true" />
               {t("editorExport.openInGoogleSlides")}
             </DropdownMenuItem>

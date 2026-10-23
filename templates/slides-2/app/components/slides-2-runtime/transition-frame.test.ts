@@ -13,7 +13,7 @@ const assetOrigin = "https://assets.example.test";
 const videoUrl = `${assetOrigin}/decks/clip.mp4`;
 const posterUrl = `${assetOrigin}/decks/poster.webp`;
 const runtime = {
-  kind: "open-slide-react-worker-v1" as const,
+  kind: "agent-native-slides-react-worker-v1" as const,
   workerSource: "self.onmessage = () => {};",
   page: { current: 1, total: 1 },
   assetUrls: { "video-1": videoUrl, "poster-1": posterUrl },
@@ -107,6 +107,66 @@ describe("slide transition frame media policy", () => {
     expect(frame.srcDoc).toContain(`font-src ${assetOrigin}`);
     expect(frame.srcDoc).toContain(`url(\"${fontAsset.url}\")`);
     expect(frame.srcDoc).not.toContain("font-src 'none'");
+  });
+
+  it("unions and deduplicates source-referenced fonts across transition slides", () => {
+    const tokens = {
+      background: "#ffffff",
+      text: "#111827",
+      accent: "#2563eb",
+      displayFont: "Inter",
+      displayFontAssetId: "font-1",
+      bodyFont: "Arial",
+      heroScale: 1,
+      bodyScale: 1,
+      radius: 12,
+    };
+    const sharedFont = {
+      assetId: "font-1",
+      family: "Inter",
+      variant: "400",
+      mimeType: "font/woff2",
+      url: `${assetOrigin}/fonts/inter.woff2`,
+    };
+    const outgoingFont = {
+      assetId: "font-2",
+      family: "Saira Semi Condensed",
+      variant: "400",
+      mimeType: "font/woff2",
+      url: `${assetOrigin}/fonts/saira.woff2`,
+    };
+    const incomingFont = {
+      assetId: "font-3",
+      family: "Share Tech Mono",
+      variant: "400",
+      mimeType: "font/woff2",
+      url: `${assetOrigin}/fonts/share-tech-mono.woff2`,
+    };
+    const outgoing = snapshot("slide-1", "<div>One</div>");
+    const incoming = snapshot("slide-2", "<div>Two</div>");
+    outgoing.designTokens = tokens;
+    outgoing.fontOrigins = [assetOrigin];
+    outgoing.fontAssets = [sharedFont, outgoingFont];
+    outgoing.referencedFontFamilies = ["Inter", "Saira Semi Condensed"];
+    incoming.designTokens = tokens;
+    incoming.fontOrigins = [assetOrigin];
+    incoming.fontAssets = [sharedFont, incomingFont];
+    incoming.referencedFontFamilies = ["Inter", "Share Tech Mono"];
+
+    const frame = buildSlideTransitionSrcDoc(
+      {
+        outgoing,
+        incoming,
+        transition: { duration: 300 },
+        direction: "forward",
+      },
+      appOrigin,
+    );
+
+    expect(frame.srcDoc.match(/@font-face/g)).toHaveLength(3);
+    expect(frame.srcDoc).toContain(`font-src ${assetOrigin}`);
+    expect(frame.srcDoc).toContain(outgoingFont.url);
+    expect(frame.srcDoc).toContain(incomingFont.url);
   });
 
   it.each([

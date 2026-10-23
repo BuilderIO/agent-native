@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { assertSlides2DeckData } from "./_deck-app-scope.js";
 import {
   projectRenderingDesignSystemData,
@@ -331,7 +332,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Deck that links this design system. Lets anyone who can read the deck read only the rendering fields (id, title, data) of its design system.",
+        "When supplied, returns only this deck's linked rendering fields (id, title, data), even when the caller can also read the design system directly.",
       ),
     purpose: z
       .enum(["selected", "reference"])
@@ -343,7 +344,7 @@ export default defineAction({
       .enum(["true", "false"])
       .optional()
       .describe(
-        "'true' returns a bounded, network-free summary: no Builder docs fetch, agentContext capped at 1,500 chars, no data/assets blobs. Omit for the full context you need before authoring.",
+        "'true' returns a bounded, network-free summary when deckId is omitted. With deckId, only the linked rendering projection is returned.",
       ),
   }),
   readOnly: false, // GET refreshes the cached Builder doc count.
@@ -354,13 +355,40 @@ export default defineAction({
     openWorldHint: true,
   },
   run: async ({ id, deckId, compact, purpose = "selected" }, ctx) => {
-    const deckAccess = deckId ? await resolveAccess("deck", deckId) : null;
-    if (deckAccess) assertSlides2DeckData(deckAccess.resource.data);
-    const access = deckAccess
-      ? await readDeckLinkedDesignSystem(deckAccess.resource, id)
-      : await resolveAccess("design-system", id).then(
-          (direct) => direct && { resource: direct.resource, viaDeck: false },
-        );
+    if (deckId) {
+      const deckAccess = await resolveAccess("deck", deckId);
+      if (!deckAccess) {
+        throw Object.assign(new Error("Design system not found"), {
+          statusCode: 404,
+        });
+      }
+      assertSlides2DeckData(deckAccess.resource.data);
+      const deckData = parseJson(deckAccess.resource.data);
+      const linkedDesignSystemId = resolveDeckDesignSystemId(
+        deckAccess.resource,
+        deckData.status === "parsed" ? deckData.value : null,
+      );
+      if (linkedDesignSystemId !== id) {
+        throw Object.assign(new Error("Design system not found"), {
+          statusCode: 404,
+        });
+      }
+      const access = await readDeckLinkedDesignSystem(deckAccess.resource, id);
+      if (!access) {
+        throw Object.assign(new Error("Design system not found"), {
+          statusCode: 404,
+        });
+      }
+      return {
+        id: access.resource.id,
+        title: access.resource.title,
+        data: projectRenderingDesignSystemData(access.resource.data),
+      };
+    }
+
+    const access = await resolveAccess("design-system", id).then(
+      (direct) => direct && { resource: direct.resource },
+    );
     if (!access) {
       throw Object.assign(new Error("Design system not found"), {
         statusCode: 404,
@@ -368,17 +396,6 @@ export default defineAction({
     }
 
     const row = access.resource;
-
-    // Deck readers get only what renders the deck; the rest of the record
-    // (instructions, assets, notes, Builder docs) stays with design-system
-    // readers.
-    if (access.viaDeck) {
-      return {
-        id: row.id,
-        title: row.title,
-        data: projectRenderingDesignSystemData(row.data),
-      };
-    }
 
     const builderReference = parseBuilderDesignSystemProxyReference(row.data);
 

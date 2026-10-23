@@ -118,13 +118,12 @@ opaque-origin sandbox. Never write generated slides via `content`; that field
 is for imported or legacy HTML and the derived static preview only.
 
 The Slides 2 editor's browser PDF export calls `get-slide-render` and captures
-its Worker-rendered sandbox output. The editor's editable PPTX export first
-calls the `export-pptx` action, then uses the browser DOM-to-PPTX builder when
-that action returns `source_runtime_export_required` for a source slide that
-needs Worker rendering. The `export-pptx` action attempts bounded server-side
-static rendering for source-only slides first. `export-html` and
-`export-google-slides` require a saved static `content` preview, as do source
-slides the PPTX evaluator cannot render. The public shared viewer cannot call
+its Worker-rendered sandbox output. The `export-html`, `export-pptx`, and
+delegated `export-google-slides` actions attempt bounded static rendering for
+supported source-only slides. If an action returns
+`source_runtime_export_required`, the editor's HTML export builds standalone
+HTML from its opaque-origin Worker render; its editable PPTX and Google Slides
+exports use the browser DOM-to-PPTX builder. The public shared viewer cannot call
 `get-slide-render` because it has only a share token, not deck viewer access.
 New share snapshots mark source-only slides and show a capability message
 instead of a blank slide; the shared PresentationView PDF path also rejects
@@ -132,10 +131,10 @@ those slides. Recreate older share links created before this marker was added
 to identify source-only pages.
 
 The supported module uses one default component and may import React plus these
-eleven Worker-supported values from `@open-slide/core`: `CANVAS_WIDTH`,
+twelve Worker-supported values from `@agent-native/slides-core`: `CANVAS_WIDTH`,
 `CANVAS_HEIGHT`, `defaultDesign`, `designToCssVars`, `Step`, `Steps`,
-`useSlidePageNumber`, `useIsActivePage`, `ImagePlaceholder`, `MorphElement`, and
-`cssVarsToString`. `cssVarsToString` is a pure, bounded serializer for safe CSS
+`useSlidePageNumber`, `useIsActivePage`, `ImagePlaceholder`, `MorphElement`,
+`NoiseBackground`, and `cssVarsToString`. `cssVarsToString` is a pure, bounded serializer for safe CSS
 custom-property maps; its output is text and does not enable runtime stylesheet
 injection. Use the `ImagePlaceholder` prop `hint` to name the real image the
 user needs, with optional pixel `width` and `height`. Each supplied dimension
@@ -147,18 +146,34 @@ editor's image actions to replace a placeholder. For videos, use a static React
 `<video>` element with an uploaded asset handle; see
 `slide-editing/references/video.md` for the source and editing workflow. Use
 inline style objects or static CSS blocks to style the slide.
-`defaultDesign` is frozen in the Worker, and
-`designToCssVars(defaultDesign)` can be spread into an inline `style` object.
+Use `NoiseBackground` as a child overlay inside a positioned, clipped container
+when a slide needs procedural grain. Its optional `baseFrequency` is from 0.0001
+to 1, `numOctaves` is an integer from 1 to 4, `seed` is within ±10,000,
+`opacity` is from 0 to 1, and `fill` is a hex color. The primitive renders fixed
+inline SVG in both preview paths; never embed its SVG as a CSS data URL.
+`defaultDesign` is frozen in the Worker. In object literals in `sourceTsx`, use
+explicit static `key: value` properties; do not use spread, shorthand, or
+computed keys.
 The module may also export static `design`, `meta`, and `transition` objects.
-Do not add other modules, dynamic imports, browser APIs, top-level effects, or
-event handlers. The source is validated before it is bundled for a bounded
-Worker render; it is not evaluated by the server or same-origin app. A Worker
-timeout, size limit, and output sanitizer fail the render instead of
+Do not add other modules, dynamic imports, direct DOM access, network access, or
+unsupported browser globals. The source is validated before it is bundled for
+a bounded Worker render; it is not evaluated by the server or same-origin app.
+A Worker timeout, size limit, and output sanitizer fail the render instead of
 substituting a blank success.
 
-Slide components render to static markup in a bounded Worker, so React effects
-do not run. For motion, use sanitized CSS `@keyframes` or the existing
-`<Steps>`/`<Step>` reveals. Step fades honor
+SQL-derived previews and exports render static markup in the bounded Worker;
+React effects and event handlers do not run there. The editor and presenter
+also mount source in an opaque-origin sandboxed iframe, where supported React
+effects and allowlisted event handlers run. In that live mount, use only the
+safe `window` facade: reduced-motion queries, bounded timers, animation frames,
+and `performance.now()`. The facade limits each mount to 64 active timers and
+256 schedules, clamps intervals to at least 50 ms, limits callbacks to 256 per
+10 seconds, and caps delays at five minutes. Timers are cleared when the mount
+ends. Other browser APIs, direct DOM access, navigation, storage, and network
+access are unavailable.
+
+For motion that must appear in static previews and exports, use sanitized CSS
+`@keyframes` or the existing `<Steps>`/`<Step>` reveals. Step fades honor
 `prefers-reduced-motion: reduce` and become instant cuts automatically.
 
 The Worker supports `Steps`/`Step`, `useSlidePageNumber()`, and

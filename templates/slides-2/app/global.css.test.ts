@@ -35,6 +35,33 @@ const MARKDOWN_LAYOUT_SLIDE = (inner: string) =>
 const MARKDOWN_SLIDE = (inner: string) =>
   `<div class="slide-content">${inner}</div>`;
 
+const GLOBAL_CSS = readFileSync(
+  path.join(process.cwd(), "app/global.css"),
+  "utf8",
+);
+
+function rulesFor(selector: string): Record<string, string> {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const body = GLOBAL_CSS.match(
+    new RegExp(`(?:^|\\n)${escapedSelector}\\s*\\{([^{}]*)\\}`),
+  )?.[1];
+  if (!body) return {};
+
+  return Object.fromEntries(
+    body
+      .split(";")
+      .map((declaration) => declaration.trim())
+      .filter(Boolean)
+      .map((declaration) => {
+        const separator = declaration.indexOf(":");
+        return [
+          declaration.slice(0, separator).trim(),
+          declaration.slice(separator + 1).trim(),
+        ];
+      }),
+  );
+}
+
 function colorOf(html: string, selector: string): string {
   document.body.innerHTML = html;
   const element = document.querySelector(selector);
@@ -58,11 +85,52 @@ function propertyOf(html: string, selector: string, property: string): string {
 
 beforeAll(() => {
   const style = document.createElement("style");
-  style.textContent = readFileSync(
-    path.join(process.cwd(), "app/global.css"),
-    "utf8",
-  );
+  style.textContent = GLOBAL_CSS;
   document.head.appendChild(style);
+});
+
+describe("Slides 2 editor theme tokens", () => {
+  it("keeps the original near-black palette in dark mode and inherits other themes", () => {
+    expect(
+      rulesFor(
+        ':root:not([data-theme-family="agent-native"]).dark [data-slides2-editor]',
+      ),
+    ).toMatchObject({
+      "--background": "0 0% 1%",
+      "--surface": "0 0% 1%",
+      "--border": "0 0% 14%",
+      "--sidebar-border": "0 0% 14%",
+    });
+
+    expect(rulesFor("[data-slides2-editor]")).toMatchObject({
+      "--slides2-present": "hsl(var(--destructive))",
+      "--slides2-present-hover": "var(--destructive)",
+    });
+    expect(
+      rulesFor(
+        ':root:not([data-theme-family="agent-native"]) [data-slides2-editor]',
+      ),
+    ).toMatchObject({
+      "--slides2-present": "oklch(0.6 0.2 25)",
+      "--slides2-present-hover": "3 64% 53%",
+    });
+
+    expect(
+      rulesFor(':root[data-theme-family="agent-native"] [data-slides2-editor]'),
+    ).toMatchObject({
+      "--surface": "var(--card)",
+      "--surface-hover": "var(--muted)",
+    });
+    expect(GLOBAL_CSS).toContain(".light {");
+    expect(GLOBAL_CSS).toContain("--surface: 0 0% 96%;");
+  });
+
+  it("leaves shared composer and sidebar controls to toolkit styles", () => {
+    expect(GLOBAL_CSS).not.toContain(
+      '.agent-composer-root [data-agent-composer-slot="editor-input"]',
+    );
+    expect(GLOBAL_CSS).not.toContain('button[title="Open agent sidebar"]');
+  });
 });
 
 describe("slide-content text colors", () => {

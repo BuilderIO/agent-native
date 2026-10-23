@@ -95,9 +95,9 @@ MCP clients see no `outputSchema` by default. Set `mcpOutputSchema: true` (requi
 
 `authorize` decides whether the caller may run the action at all. It wraps
 `run`, so it holds at **all six dispatch sites** — agent tool, HTTP, frontend
-hook, MCP, A2A, CLI — unlike `needsApproval`, which is honoured only in the
-agent loop. Use `authorize` for "not everyone may do this"; use `needsApproval`
-to ask a human to bless one call a permitted caller is already allowed to make.
+hook, MCP, A2A, CLI. Use `authorize` for "not everyone may do this"; use
+`needsApproval` to ask a human to bless one call a permitted caller is already
+allowed to make.
 
 ```ts
 import { coachAccess } from "../lib/access.js"; // defineAppRoles(...)

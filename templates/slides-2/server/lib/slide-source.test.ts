@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 
 import { describe, expect, it } from "vitest";
 
+import { sanitizeSlideHtml } from "../../app/lib/sanitize-slide-html";
 import { MAX_SLIDE_SOURCE_BYTES } from "./slide-source-limits.js";
 import {
   collectSlideAssetIds,
@@ -72,6 +73,153 @@ describe("slide source renderer media policy", () => {
       'poster="https://assets.example.invalid/poster.jpg"',
     );
     expect(markup).toContain('playsInline=""');
+  });
+
+  it("renders bounded NoiseBackground as inline SVG without a data URL", () => {
+    const source = `import { NoiseBackground } from "@agent-native/slides-core"; export default function Slide() { return <main><NoiseBackground baseFrequency={0.03} numOctaves={2} seed={8} opacity={0.4} fill="#abc" /></main>; }`;
+    const markup = renderSlideSource(source, new Map());
+
+    expect(markup).toContain("<feTurbulence");
+    expect(markup).toContain("<feColorMatrix");
+    expect(markup).toContain('filter="url(#slides2-noise-1)"');
+    expect(markup).toContain('baseFrequency="0.03"');
+    expect(markup).not.toContain("data:image");
+    const sanitized = sanitizeSlideHtml(markup);
+    expect(sanitized).toContain("<feTurbulence");
+    expect(sanitized).toContain('filter="url(#slides2-noise-1)"');
+  });
+
+  it("keeps supported core imports alongside the NoiseBackground primitive", () => {
+    const source = `import { NoiseBackground, Step as Reveal, Steps as Build, useSlidePageNumber } from "@agent-native/slides-core"; export default function Slide() { const { current, total } = useSlidePageNumber(); return <main><Build><Reveal duration={240}><h1>{current}/{total}</h1></Reveal></Build><NoiseBackground /></main>; }`;
+    const markup = renderSlideSource(source, new Map());
+
+    expect(markup).toContain('data-slides2-step="revealed"');
+    expect(markup).toContain('data-slides2-step-duration="240"');
+    expect(markup).toContain("1/1");
+    expect(markup).toContain("<feTurbulence");
+    expect(markup).not.toContain("<Reveal");
+    expect(markup).not.toContain("<Build");
+  });
+
+  it("statically renders useId and inactive-page context for stored sources", () => {
+    const source = `import { useId } from "react"; import { Step, Steps, useIsActivePage, useSlidePageNumber } from "@agent-native/slides-core"; export default function Slide() { const id = useId(); const active = useIsActivePage(); const { current, total } = useSlidePageNumber(); return <main id={id}><a href={"#" + id}>{current}/{total}</a><Steps><Step>{active ? "active" : "inactive"}</Step></Steps></main>; }`;
+    const markup = renderSlideSource(source, new Map());
+
+    expect(markup).toMatch(/<main[^>]*id="slides2-use-id-1"/);
+    expect(markup).toContain('href="#slides2-use-id-1"');
+    expect(markup).toContain("1/1");
+    expect(markup).toContain(">inactive</div>");
+    expect(markup).toContain('data-slides2-step="revealed"');
+
+    const withArguments = `import { useId } from "react"; export default function Slide() { const id = useId(1); return <main id={id} />; }`;
+    expect(() => renderSlideSource(withArguments, new Map())).toThrow(
+      "useId does not accept arguments.",
+    );
+  });
+
+  it("bounds generated IDs and rejects unsupported React imports", () => {
+    const overLimit = Array.from(
+      { length: 129 },
+      () => "<span id={useId()} />",
+    ).join("");
+    const tooManyIds = `import { useId } from "react"; export default function Slide() { return <main>${overLimit}</main>; }`;
+    expect(() => renderSlideSource(tooManyIds, new Map())).toThrow(
+      "Slide uses too many generated IDs.",
+    );
+
+    const unsupported = `import { useState } from "react"; export default function Slide() { return <main />; }`;
+    expect(() => renderSlideSource(unsupported, new Map())).toThrow(
+      expect.objectContaining({
+        message:
+          "Static slide rendering supports only React useId and built-in components from @agent-native/slides-core.",
+        statusCode: 422,
+        errorCode: "invalid_slide_source",
+      }),
+    );
+  });
+
+  it("evaluates static function and prop defaults in declaration order", () => {
+    const source = `const label = (value, fallback = value) => fallback; const placement = (left, extra = {}) => ({ position: "absolute", left, ...extra }); const Badge = ({ className = "badge" }) => <span class={className} style={placement(12, { top: 4 })}>{label("ready")}</span>; export default function Slide() { return <main><Badge /></main>; }`;
+    const markup = renderSlideSource(source, new Map());
+
+    expect(markup).toMatch(/<span[^>]*class="badge"/);
+    expect(markup).toContain("position:absolute;left:12px;top:4px");
+    expect(markup).toContain(">ready</span>");
+
+    const invalidSpread = `const value = ["unsafe"]; const style = { ...value }; export default function Slide() { return <main style={style} />; }`;
+    expect(() => renderSlideSource(invalidSpread, new Map())).toThrow(
+      "Object spreads must use bounded plain objects.",
+    );
+  });
+
+  it("passes bounded static custom props to local components", () => {
+    const source = `const Sheet = ({ scale = "NTS" }) => <span>{scale}</span>; export default function Slide() { return <main><Sheet scale="1:500" /></main>; }`;
+    const markup = renderSlideSource(source, new Map());
+
+    expect(markup).toContain(">1:500</span>");
+    expect(markup).not.toContain('scale="1:500"');
+
+    const eventProp = `const Badge = () => <span />; export default function Slide() { return <main><Badge onClick="alert" /></main>; }`;
+    expect(() => renderSlideSource(eventProp, new Map())).toThrow(
+      'Attribute "onClick" is not allowed.',
+    );
+  });
+
+  it("evaluates bounded math, comparisons, and string helpers", () => {
+    const source = `const clean = (raw) => raw.replace(/[^a-zA-Z0-9]/g, ""); export default function Slide() { return <main>{clean("A-b")}:{Math.hypot(3, 4).toFixed(1)}:{String(Math.PI).slice(0, 4)}:{String(7).padStart(2, "0")}:{[1, 2].includes(2) && 1 < 2 ? "yes" : "no"}</main>; }`;
+    expect(renderSlideSource(source, new Map())).toContain(
+      ">Ab:5.0:3.14:07:yes</main>",
+    );
+
+    const unsafeRegex = `const clean = (raw) => raw.replace(/(.+)+$/g, ""); export default function Slide() { return <main>{clean("bounded")}</main>; }`;
+    expect(() => renderSlideSource(unsafeRegex, new Map())).toThrow(
+      "Only bounded identifier cleanup is supported.",
+    );
+  });
+
+  it("supports bounded static array spreads and SVG pattern attributes", () => {
+    const source = `const base = [1, 2]; const label = ([x, y]) => x + ":" + y; const Values = ({ values }) => <span>{values.join(",")}</span>; export default function Slide() { return <main>{[0, ...base, 3].join(",")}:{label([4, 5])}<Values values={[6, 7]} /><svg><defs><pattern id="p" width={12} height={12} patternUnits="userSpaceOnUse" patternTransform="rotate(45)" /></defs></svg></main>; }`;
+    const markup = renderSlideSource(source, new Map());
+
+    expect(markup).toContain(">0,1,2,3");
+    expect(markup).toContain(":4:5");
+    expect(markup).toContain(">6,7</span>");
+    expect(markup).toContain('patternUnits="userSpaceOnUse"');
+    expect(markup).toContain('patternTransform="rotate(45)"');
+
+    const invalidSpread = `const value = { length: 2 }; export default function Slide() { return <main>{[...value]}</main>; }`;
+    expect(() => renderSlideSource(invalidSpread, new Map())).toThrow(
+      "Array spreads must use bounded static arrays.",
+    );
+  });
+
+  it("calls static helper functions stored on bounded objects", () => {
+    const source = `const geo = (offset, scale) => ({ X: (value) => offset + value * scale }); const format = (g, value) => g.X(value).toFixed(1); export default function Slide() { return <main>{format(geo(2, 3), 4)}</main>; }`;
+    expect(renderSlideSource(source, new Map())).toContain(">14.0</main>");
+  });
+
+  it("rejects unsupported core imports", () => {
+    const source = `import { UnboundedSvg } from "@agent-native/slides-core"; export default function Slide() { return <UnboundedSvg />; }`;
+
+    expect(() => renderSlideSource(source, new Map())).toThrow(
+      /only built-in components from @agent-native\/slides-core/,
+    );
+  });
+
+  it("bounds NoiseBackground props and render count", () => {
+    const invalid = `import { NoiseBackground } from "@agent-native/slides-core"; export default function Slide() { return <NoiseBackground numOctaves={5} />; }`;
+    expect(() => renderSlideSource(invalid, new Map())).toThrow(
+      /NoiseBackground props must use bounded static values/,
+    );
+
+    const repeated = Array.from(
+      { length: 9 },
+      () => "<NoiseBackground />",
+    ).join("");
+    const overLimit = `import { NoiseBackground } from "@agent-native/slides-core"; export default function Slide() { return <main>${repeated}</main>; }`;
+    expect(() => renderSlideSource(overLimit, new Map())).toThrow(
+      /too many filtered backgrounds/,
+    );
   });
 
   it("rejects a remote video poster that bypasses uploaded asset storage", () => {

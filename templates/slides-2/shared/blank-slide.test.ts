@@ -45,11 +45,33 @@ describe("isRealSlide", () => {
     ).toBe(false);
   });
 
+  it("uses the blank marker on compact slide summaries", () => {
+    expect(isRealSlide({ isBlank: false, textPreview: "" })).toBe(true);
+    expect(isRealSlide({ isBlank: true, textPreview: "" })).toBe(false);
+  });
+
   it("counts a slide whose only content is a background class or an svg", () => {
     expect(isRealSlide({ content: '<div class="bg-slate-900"></div>' })).toBe(
       true,
     );
     expect(isRealSlide({ content: "<svg></svg>" })).toBe(true);
+  });
+
+  it("counts source-backed slides when imports leave their static preview empty", () => {
+    expect(
+      isRealSlide({
+        sourceTsx:
+          'import { Steps } from "@agent-native/slides-core"; export default function Slide() { return <Steps />; }',
+        content: "",
+      }),
+    ).toBe(true);
+    expect(
+      isRealSlide({
+        sourceTsx: "export default function Slide() { return null; }",
+        content: "",
+        isBlank: true,
+      }),
+    ).toBe(false);
   });
 
   // Known limitation: the server's last-slide fallback carries text, so it is

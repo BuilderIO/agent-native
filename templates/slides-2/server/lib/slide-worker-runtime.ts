@@ -14,10 +14,16 @@ import {
   SLIDE_SOURCE_BYTE_LIMIT_MESSAGE,
 } from "./slide-source-limits.js";
 import { findStaticLocalPageArray, SlideSourceError } from "./slide-source.js";
+import {
+  isSafeStaticSvgNoiseBackgroundCssValue,
+  normalizeSvgNoiseBackgroundProps,
+  SVG_NOISE_COLOR_MATRIX_VALUES,
+} from "./static-svg-noise-background.js";
 
 export const MAX_REACT_SLIDE_SOURCE_BYTES = MAX_SLIDE_SOURCE_BYTES;
 export const MAX_REACT_SLIDE_AST_NODES = 50_000;
 export const MAX_REACT_SLIDE_WORKER_SOURCE_LENGTH = 4 * 1024 * 1024;
+export const MAX_REACT_SLIDE_LIVE_SOURCE_LENGTH = 4 * 1024 * 1024;
 export const REACT_SLIDE_WORKER_TIMEOUT_MS = 2_500;
 
 export type Slides2Design = {
@@ -34,8 +40,9 @@ export type Slides2Meta = {
 };
 
 export type SlideWorkerRuntime = {
-  kind: "open-slide-react-worker-v1";
+  kind: "agent-native-slides-react-worker-v1";
   workerSource: string;
+  liveSource?: string;
   page: { current: number; total: number };
   assetUrls: Record<string, string>;
   styles: string[];
@@ -57,6 +64,12 @@ const MAX_STYLE_LENGTH = 64 * 1024;
 const MAX_TOTAL_STYLE_LENGTH = 128 * 1024;
 const MAX_STATIC_VALUE_DEPTH = 16;
 const MAX_STATIC_VALUE_NODES = 5_000;
+const MAX_SAFE_SVG_NOISE_BACKGROUNDS_PER_RENDER = 8;
+const SAFE_STATIC_SVG_NOISE_VALIDATOR =
+  isSafeStaticSvgNoiseBackgroundCssValue.toString();
+const SAFE_SVG_NOISE_PROPS_NORMALIZER =
+  normalizeSvgNoiseBackgroundProps.toString();
+const SVG_NOISE_MATRIX_JSON = JSON.stringify(SVG_NOISE_COLOR_MATRIX_VALUES);
 const REDUCED_MOTION_STEPS_CSS =
   "@media (prefers-reduced-motion: reduce) { [data-slides2-step] { transition-duration: 0ms !important; } }";
 const SAFE_CSS_FUNCTIONS = new Set([
@@ -65,14 +78,18 @@ const SAFE_CSS_FUNCTIONS = new Set([
   "color",
   "color-mix",
   "conic-gradient",
+  "cubic-bezier",
+  "fit-content",
   "hsl",
   "hsla",
   "hwb",
+  "inset",
   "lab",
   "lch",
   "linear-gradient",
   "max",
   "min",
+  "minmax",
   "oklab",
   "oklch",
   "polygon",
@@ -80,6 +97,7 @@ const SAFE_CSS_FUNCTIONS = new Set([
   "repeating-conic-gradient",
   "repeating-linear-gradient",
   "repeating-radial-gradient",
+  "repeat",
   "rgb",
   "rgba",
   "rotate",
@@ -93,6 +111,7 @@ const SAFE_CSS_FUNCTIONS = new Set([
   "skew",
   "skewx",
   "skewy",
+  "steps",
   "translate",
   "translatex",
   "translatey",
@@ -130,6 +149,8 @@ const BLOCKED_GLOBALS = new Set([
   "caches",
   "close",
   "crypto",
+  "clearInterval",
+  "clearTimeout",
   "document",
   "eval",
   "fetch",
@@ -142,6 +163,8 @@ const BLOCKED_GLOBALS = new Set([
   "module",
   "navigator",
   "onmessage",
+  "opener",
+  "parent",
   "postMessage",
   "process",
   "queueMicrotask",
@@ -151,6 +174,10 @@ const BLOCKED_GLOBALS = new Set([
   "setInterval",
   "setTimeout",
   "window",
+  "frames",
+  "frameElement",
+  "top",
+  "content",
   "WebTransport",
   "console",
 ]);
@@ -181,6 +208,15 @@ const BLOCKED_PROPERTIES = new Set([
   "call",
   "apply",
   "bind",
+  "contentDocument",
+  "contentWindow",
+  "defaultView",
+  "frameElement",
+  "frames",
+  "opener",
+  "parent",
+  "postMessage",
+  "top",
 ]);
 const BOUNDED_MEMBER_METHODS = new Set([
   "map",
@@ -214,18 +250,73 @@ const SAFE_REACT_MEMBERS = new Set([
   "cloneElement",
   "createContext",
   "createElement",
-  "forwardRef",
   "isValidElement",
   "memo",
   "useCallback",
   "useContext",
+  "useEffect",
   "useId",
+  "useLayoutEffect",
   "useMemo",
+  "useReducer",
+  "useRef",
   "useState",
 ]);
-const UNSUPPORTED_REACT_EFFECT_HOOKS = new Set([
-  "useEffect",
-  "useLayoutEffect",
+const SAFE_WINDOW_MEMBER_PATHS = new Set([
+  "window.matchMedia",
+  "window.requestAnimationFrame",
+  "window.cancelAnimationFrame",
+  "window.setInterval",
+  "window.clearInterval",
+  "window.setTimeout",
+  "window.clearTimeout",
+  "window.performance",
+  "window.performance.now",
+]);
+const SAFE_MEDIA_QUERY_PROPERTIES = new Set([
+  "matches",
+  "media",
+  "addEventListener",
+  "removeEventListener",
+  "addListener",
+  "removeListener",
+]);
+const SAFE_EVENT_METHODS = new Set(["preventDefault", "stopPropagation"]);
+const SAFE_EVENT_PROPS = new Set([
+  "onAnimationEnd",
+  "onAnimationIteration",
+  "onAnimationStart",
+  "onBlur",
+  "onChange",
+  "onClick",
+  "onDoubleClick",
+  "onFocus",
+  "onInput",
+  "onKeyDown",
+  "onKeyPress",
+  "onKeyUp",
+  "onMouseDown",
+  "onMouseEnter",
+  "onMouseLeave",
+  "onMouseMove",
+  "onMouseOut",
+  "onMouseOver",
+  "onMouseUp",
+  "onPointerCancel",
+  "onPointerDown",
+  "onPointerEnter",
+  "onPointerLeave",
+  "onPointerMove",
+  "onPointerOut",
+  "onPointerOver",
+  "onPointerUp",
+  "onSubmit",
+  "onTouchCancel",
+  "onTouchEnd",
+  "onTouchMove",
+  "onTouchStart",
+  "onTransitionEnd",
+  "onWheel",
 ]);
 const SAFE_HTML_TAGS = new Set([
   "a",
@@ -296,6 +387,9 @@ const SAFE_HTML_TAGS = new Set([
   "text",
   "tspan",
   "defs",
+  "filter",
+  "feturbulence",
+  "fecolormatrix",
   "lineargradient",
   "radialgradient",
   "stop",
@@ -319,6 +413,7 @@ const SAFE_HTML_ATTRIBUTES = new Set([
   "cx",
   "cy",
   "d",
+  "basefrequency",
   "decoding",
   "dir",
   "draggable",
@@ -326,6 +421,8 @@ const SAFE_HTML_ATTRIBUTES = new Set([
   "fill-opacity",
   "fill-rule",
   "focusable",
+  "filter",
+  "in",
   "font-family",
   "font-size",
   "font-weight",
@@ -338,18 +435,24 @@ const SAFE_HTML_ATTRIBUTES = new Set([
   "marker-end",
   "marker-mid",
   "marker-start",
+  "numoctaves",
   "offset",
   "opacity",
   "points",
+  "patterntransform",
+  "patternunits",
   "poster",
+  "pathlength",
   "preload",
   "preserveaspectratio",
+  "result",
   "r",
   "rx",
   "rel",
   "role",
   "rowspan",
   "scope",
+  "seed",
   "shape-rendering",
   "src",
   "loop",
@@ -365,12 +468,14 @@ const SAFE_HTML_ATTRIBUTES = new Set([
   "stroke-linejoin",
   "stroke-opacity",
   "stroke-width",
+  "stitchtiles",
   "style",
   "tabindex",
   "text-anchor",
   "title",
   "transform",
   "vector-effect",
+  "values",
   "viewbox",
   "width",
   "x",
@@ -382,6 +487,7 @@ const SAFE_HTML_ATTRIBUTES = new Set([
   "y2",
   "data-slide-loc",
   "data-slides2-step",
+  "data-slides2-step-duration",
 ]);
 
 const WORKER_ENTRY = String.raw`
@@ -405,6 +511,7 @@ const blockedCssProperties = new Set(${JSON.stringify([...BLOCKED_CSS_PROPERTIES
 const safeTags = new Set(${JSON.stringify([...SAFE_HTML_TAGS])});
 const safeAttributes = new Set(${JSON.stringify([...SAFE_HTML_ATTRIBUTES])});
 const localSvgReferenceProperties = new Set(["fill", "stroke", "marker-end", "marker-mid", "marker-start"]);
+${SAFE_STATIC_SVG_NOISE_VALIDATOR}
 
 function fail(message) { throw new Error(message); }
 function reserve(values, bytes = 0) {
@@ -525,13 +632,15 @@ export function useIsActivePage() {
   return useContext(RenderContext)?.isActivePage ?? false;
 }
 export function Step({ children, duration = 180, _revealed }) {
+  const safeDuration = Number.isFinite(duration) ? Math.max(0, Math.min(5000, duration)) : 180;
   const revealed = _revealed ?? true;
   return React.createElement("div", {
     "data-slides2-step": revealed ? "revealed" : "pending",
+    "data-slides2-step-duration": String(safeDuration),
     style: {
       opacity: revealed ? 1 : 0,
       visibility: revealed ? "visible" : "hidden",
-      transition: "opacity " + duration + "ms cubic-bezier(0, 0, 0.2, 1)",
+      transition: "opacity " + safeDuration + "ms cubic-bezier(0, 0, 0.2, 1)",
     },
   }, children);
 }
@@ -576,10 +685,12 @@ function safeStyle(value) {
     if (child.type !== "decl") { child.remove(); continue; }
     const property = child.prop.toLowerCase();
     const text = child.value;
+    const safeNoiseBackground = (property === "background" || property === "background-image") && isSafeStaticSvgNoiseBackgroundCssValue(text.trim());
+    if (safeNoiseBackground) Slides2Core.__slideRuntimeCountSvgNoiseBackground();
     if (!/^(?:--[a-z0-9_-]+|[a-z][a-z0-9-]*)$/.test(property) || blockedCssProperties.has(property) || /[\\\u0000-\u001f\u007f{}<>@]|\/\*|\*\/|javascript:/i.test(text)) { child.remove(); continue; }
     if (/\b(?:url|expression|image-set|cross-fade|paint|element)\s*\(/i.test(text)) {
       const local = localSvgReferenceProperties.has(property) && /^url\(\s*#[a-z][a-z0-9_.:-]*\s*\)$/i.test(text.trim());
-      if (!local) { child.remove(); continue; }
+      if (!local && !safeNoiseBackground) { child.remove(); continue; }
     }
     const variables = [...text.matchAll(/var\(\s*(--[a-z0-9_-]+)/gi)];
     if (/\bvar\s*\(/i.test(text.replace(/var\(\s*--[a-z0-9_-]+\s*(?:,\s*[^()]*)?\)/gi, ""))) { child.remove(); continue; }
@@ -587,11 +698,72 @@ function safeStyle(value) {
     let unsafeFunction = false;
     for (const match of text.matchAll(/([a-z][a-z0-9-]*)\s*\(/gi)) {
       const name = match[1].toLowerCase();
-      if (blockedCssFunctions.has(name) || !safeCssFunctions.has(name)) unsafeFunction = true;
+      if ((blockedCssFunctions.has(name) || !safeCssFunctions.has(name)) && !(safeNoiseBackground && name === "url")) unsafeFunction = true;
     }
     if (unsafeFunction) child.remove();
   }
   return (rule.nodes || []).map((node) => node.toString()).join(";");
+}
+
+const svgNoiseFilterTags = new Set(["filter", "feturbulence", "fecolormatrix"]);
+const svgNoiseMatrix = ${SVG_NOISE_MATRIX_JSON};
+function elementChildren(node) { return (node.childNodes || []).filter((child) => child.tagName); }
+function elementAttributes(node) { return Object.fromEntries((node.attrs || []).map((attribute) => [attribute.name.toLowerCase(), attribute.value])); }
+function hasExactAttributes(attributes, allowed, required) { const names = Object.keys(attributes); return names.every((name) => allowed.includes(name)) && required.every((name) => Object.prototype.hasOwnProperty.call(attributes, name)); }
+function collectNoiseFilterNodes(node, output = []) { if (node.tagName && svgNoiseFilterTags.has(node.tagName.toLowerCase())) output.push(node); for (const child of node.childNodes || []) collectNoiseFilterNodes(child, output); return output; }
+function validateNoiseSvg(root) {
+  const rootAttributes = elementAttributes(root);
+  if (!hasExactAttributes(rootAttributes, ["xmlns", "aria-hidden", "focusable", "width", "height", "viewbox", "preserveaspectratio", "data-slide-loc", "data-slides2-noise", "style"], ["xmlns", "aria-hidden", "focusable", "width", "height", "viewbox", "preserveaspectratio", "style"]) || rootAttributes.xmlns !== "http://www.w3.org/2000/svg" || rootAttributes["aria-hidden"] !== "true" || rootAttributes.focusable !== "false" || rootAttributes.width !== "100%" || rootAttributes.height !== "100%" || rootAttributes.viewbox !== "0 0 220 220" || rootAttributes.preserveaspectratio !== "none" || rootAttributes.style !== "position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none" || (rootAttributes["data-slide-loc"] !== undefined && !/^\d{1,6}:\d{1,6}$/.test(rootAttributes["data-slide-loc"])) || (rootAttributes["data-slides2-noise"] !== undefined && rootAttributes["data-slides2-noise"] !== "1")) fail("SVG filters must use the bounded NoiseBackground renderer.");
+  const children = elementChildren(root);
+  if (children.length !== 2 || children[0].tagName.toLowerCase() !== "defs" || children[1].tagName.toLowerCase() !== "rect") fail("SVG filters must use the bounded NoiseBackground renderer.");
+  const defs = children[0];
+  const rect = children[1];
+  if ((defs.attrs || []).length !== 0) fail("SVG filter definitions cannot have attributes.");
+  const definitionChildren = elementChildren(defs);
+  if (definitionChildren.length !== 1 || definitionChildren[0].tagName.toLowerCase() !== "filter") fail("SVG filters must use the bounded NoiseBackground renderer.");
+  const filter = definitionChildren[0];
+  const filterAttributes = elementAttributes(filter);
+  const filterId = filterAttributes.id;
+  if (!hasExactAttributes(filterAttributes, ["id", "x", "y", "width", "height"], ["id", "x", "y", "width", "height"]) || !/^slides2-noise-\d{1,2}$/.test(filterId || "") || filterAttributes.x !== "0" || filterAttributes.y !== "0" || filterAttributes.width !== "100%" || filterAttributes.height !== "100%") fail("SVG filter bounds are invalid.");
+  const filterChildren = elementChildren(filter);
+  if (filterChildren.length !== 2 || filterChildren[0].tagName.toLowerCase() !== "feturbulence" || filterChildren[1].tagName.toLowerCase() !== "fecolormatrix") fail("SVG filter primitives are invalid.");
+  const turbulence = elementAttributes(filterChildren[0]);
+  const frequency = turbulence.basefrequency;
+  const frequencyNumber = Number(frequency);
+  const octaves = Number(turbulence.numoctaves);
+  const seed = Number(turbulence.seed);
+  if (!hasExactAttributes(turbulence, ["type", "basefrequency", "numoctaves", "seed", "stitchtiles", "result"], ["type", "basefrequency", "numoctaves", "seed", "stitchtiles", "result"]) || turbulence.type !== "fractalNoise" || !Number.isFinite(frequencyNumber) || frequencyNumber < 0.0001 || frequencyNumber > 1 || !/^\d+$/.test(turbulence.numoctaves || "") || !Number.isInteger(octaves) || octaves < 1 || octaves > 4 || !Number.isFinite(seed) || Math.abs(seed) > 10000 || turbulence.stitchtiles !== "stitch" || turbulence.result !== "noise" || elementChildren(filterChildren[0]).length !== 0) fail("SVG turbulence parameters are out of bounds.");
+  const matrix = elementAttributes(filterChildren[1]);
+  if (!hasExactAttributes(matrix, ["in", "type", "values"], ["in", "type", "values"]) || matrix.in !== "noise" || matrix.type !== "matrix" || matrix.values !== svgNoiseMatrix || elementChildren(filterChildren[1]).length !== 0) fail("SVG color matrix is invalid.");
+  const rectAttributes = elementAttributes(rect);
+  const opacity = Number(rectAttributes.opacity);
+  if (!hasExactAttributes(rectAttributes, ["width", "height", "filter", "opacity", "fill"], ["width", "height", "filter", "opacity", "fill"]) || rectAttributes.width !== "100%" || rectAttributes.height !== "100%" || rectAttributes.filter !== "url(#" + filterId + ")" || !Number.isFinite(opacity) || opacity < 0 || opacity > 1 || !/^(?:white|#[0-9a-f]{3}(?:[0-9a-f]{3})?)$/i.test(rectAttributes.fill || "") || elementChildren(rect).length !== 0) fail("SVG noise texture is invalid.");
+  return collectNoiseFilterNodes(root);
+}
+function validateNoiseSvgTree(fragment) {
+  const svgRoots = [];
+  const filterNodes = [];
+  const stack = [...(fragment.childNodes || [])];
+  while (stack.length) {
+    const node = stack.pop();
+    if (node.tagName?.toLowerCase() === "svg") svgRoots.push(node);
+    if (node.tagName && svgNoiseFilterTags.has(node.tagName.toLowerCase())) filterNodes.push(node);
+    for (const child of node.childNodes || []) stack.push(child);
+  }
+  const validated = new Set();
+  let count = 0;
+  for (const root of svgRoots) {
+    const nestedFilters = collectNoiseFilterNodes(root);
+    if (!nestedFilters.length) continue;
+    for (const node of validateNoiseSvg(root)) validated.add(node);
+    const attributes = elementAttributes(root);
+    const builtIn = attributes["data-slides2-noise"] === "1";
+    if (!builtIn) Slides2Core.__slideRuntimeCountSvgNoiseBackground();
+    if (builtIn) root.attrs = (root.attrs || []).filter((attribute) => attribute.name !== "data-slides2-noise");
+    count++;
+    if (count > ${MAX_SAFE_SVG_NOISE_BACKGROUNDS_PER_RENDER}) fail("Slide uses too many filtered backgrounds.");
+  }
+  if (filterNodes.some((node) => !validated.has(node))) fail("SVG filters must use the bounded NoiseBackground renderer.");
 }
 
 function sanitizeHtml(html) {
@@ -661,6 +833,7 @@ function sanitizeHtml(html) {
     const hasSource = (video.attrs || []).some((attribute) => attribute.name.toLowerCase() === "src") || (video.childNodes || []).some((child) => child.tagName?.toLowerCase() === "source" && (child.attrs || []).some((attribute) => attribute.name.toLowerCase() === "src"));
     if (!hasSource) fail("Video elements need an uploaded asset source.");
   }
+  validateNoiseSvgTree(fragment);
   const safe = serialize(fragment);
   if (safe.length > MAX_HTML) fail("Sanitized slide HTML is too large.");
   return safe;
@@ -671,8 +844,8 @@ function handleMessage(event) {
   const requestId = request && typeof request.requestId === "string" ? request.requestId.slice(0, 80) : "";
   try {
     if (!request || request.type !== "render" || !requestId || !request.page || !Number.isSafeInteger(request.page.current) || !Number.isSafeInteger(request.page.total) || request.page.current < 1 || request.page.total < request.page.current || (request.revealedSteps !== null && (!Number.isInteger(request.revealedSteps) || request.revealedSteps < 0 || request.revealedSteps > 500)) || typeof request.isActivePage !== "boolean") fail("Slide render request is invalid.");
-    Slides2Core.__slideRuntimeReset(request.revealedSteps);
-    const context = { page: request.page, isActivePage: request.isActivePage, revealedSteps: request.revealedSteps };
+    Slides2Core.__slideRuntimeReset(request.revealedSteps, false);
+    const context = { page: request.page, isActivePage: request.isActivePage, revealedSteps: request.revealedSteps, countBuiltinNoiseBackgrounds: false };
     const markup = renderToStaticMarkup(React.createElement(Slides2Core.SlideRuntimeProvider, { value: context }, React.createElement(SlidePage)));
     const html = sanitizeHtml(markup);
     postMessage({ type: "rendered", requestId, html, stepCount: Math.min(500, Slides2Core.__slideRuntimeStepCount()) });
@@ -681,6 +854,356 @@ function handleMessage(event) {
   }
 }
 self.onmessage = handleMessage;
+`;
+
+const LIVE_ENTRY = String.raw`
+import React from "react";
+import { createRoot } from "react-dom/client";
+import SlidePage from "virtual:slide-page";
+import * as Slides2Core from "virtual:slide-page-shim";
+
+function makeWindowApi(onError) {
+  let active = true;
+  const frames = new Map();
+  const mediaQueries = new Map();
+  const timers = new Map();
+  const hostWindow = window;
+  let frameCount = 0;
+  let timerScheduleCount = 0;
+  let timerCallbackWindowStart = hostWindow.performance.now();
+  let timerCallbacksInWindow = 0;
+  let nextTimerId = 0;
+  let mediaQueryListenerCount = 0;
+  const MAX_ACTIVE_TIMERS = 64;
+  const MAX_TIMER_SCHEDULES = 256;
+  const MAX_TIMER_CALLBACKS_PER_WINDOW = 256;
+  const TIMER_CALLBACK_WINDOW_MS = 10000;
+  const MAX_TIMER_DELAY_MS = 300000;
+  const MIN_INTERVAL_DELAY_MS = 50;
+  const MAX_MEDIA_QUERY_LISTENERS = 64;
+  function clearTimer(id) {
+    const timer = timers.get(id);
+    if (!timer) return;
+    timers.delete(id);
+    if (timer.interval) hostWindow.clearInterval(timer.handle);
+    else hostWindow.clearTimeout(timer.handle);
+  }
+  function scheduleTimer(callback, delay, interval) {
+    if (!active) return 0;
+    if (typeof callback !== "function") throw new Error("Slide timers require a function callback.");
+    const delayMs = delay === undefined ? 0 : delay;
+    if (typeof delayMs !== "number" || !Number.isFinite(delayMs) || delayMs < 0 || delayMs > MAX_TIMER_DELAY_MS) {
+      throw new Error("Slide timer delay is out of bounds.");
+    }
+    if (timers.size >= MAX_ACTIVE_TIMERS || timerScheduleCount >= MAX_TIMER_SCHEDULES) {
+      throw new Error("Slide exceeded its timer schedule budget.");
+    }
+    timerScheduleCount++;
+    const id = ++nextTimerId;
+    const tick = () => {
+      if (!active || !timers.has(id)) return;
+      const now = hostWindow.performance.now();
+      if (now - timerCallbackWindowStart >= TIMER_CALLBACK_WINDOW_MS) {
+        timerCallbackWindowStart = now;
+        timerCallbacksInWindow = 0;
+      }
+      timerCallbacksInWindow++;
+      if (timerCallbacksInWindow > MAX_TIMER_CALLBACKS_PER_WINDOW) {
+        clearTimer(id);
+        onError(new Error("Slide exceeded its timer callback budget."));
+        return;
+      }
+      if (!interval) timers.delete(id);
+      try {
+        callback();
+      } catch (error) {
+        if (interval) clearTimer(id);
+        onError(error);
+      }
+    };
+    const handle = interval
+      ? hostWindow.setInterval(tick, Math.max(MIN_INTERVAL_DELAY_MS, delayMs))
+      : hostWindow.setTimeout(tick, delayMs);
+    timers.set(id, { handle, interval });
+    return id;
+  }
+  const api = {
+    matchMedia(query) {
+      if (query !== "(prefers-reduced-motion: reduce)" && query !== "(prefers-reduced-motion: no-preference)") {
+        throw new Error("Only reduced-motion media queries are available to slide source.");
+      }
+      let record = mediaQueries.get(query);
+      if (!record) {
+        const hostQuery = hostWindow.matchMedia(query);
+        const listeners = new Map();
+        const emit = () => {
+          const event = Object.freeze({ type: "change", media: query, matches: Boolean(hostQuery.matches) });
+          for (const listener of listeners.values()) listener(event);
+        };
+        const add = (type, listener) => {
+          if (!active || type !== "change" || typeof listener !== "function" || listeners.has(listener)) return;
+          if (mediaQueryListenerCount >= MAX_MEDIA_QUERY_LISTENERS) {
+            throw new Error("Slide exceeded its media query listener budget.");
+          }
+          const callback = emitFor(listener);
+          listeners.set(listener, callback);
+          mediaQueryListenerCount++;
+          if (typeof hostQuery.addEventListener === "function") hostQuery.addEventListener("change", callback);
+          else hostQuery.addListener?.(callback);
+        };
+        const remove = (type, listener) => {
+          if (type !== "change") return;
+          const callback = listeners.get(listener);
+          if (!callback) return;
+          listeners.delete(listener);
+          mediaQueryListenerCount--;
+          if (typeof hostQuery.removeEventListener === "function") hostQuery.removeEventListener("change", callback);
+          else hostQuery.removeListener?.(callback);
+        };
+        function emitFor(listener) {
+          return () => listener(Object.freeze({ type: "change", media: query, matches: Boolean(hostQuery.matches) }));
+        }
+        record = Object.freeze({
+          get matches() { return Boolean(hostQuery.matches); },
+          media: query,
+          addEventListener: add,
+          removeEventListener: remove,
+          addListener: (listener) => add("change", listener),
+          removeListener: (listener) => remove("change", listener),
+          dispose() {
+            for (const callback of listeners.values()) {
+              if (typeof hostQuery.removeEventListener === "function") hostQuery.removeEventListener("change", callback);
+              else hostQuery.removeListener?.(callback);
+            }
+            mediaQueryListenerCount -= listeners.size;
+            listeners.clear();
+          },
+        });
+        mediaQueries.set(query, record);
+      }
+      return record;
+    },
+    setTimeout(callback, delay) {
+      return scheduleTimer(callback, delay, false);
+    },
+    clearTimeout(id) {
+      clearTimer(id);
+    },
+    setInterval(callback, delay) {
+      return scheduleTimer(callback, delay, true);
+    },
+    clearInterval(id) {
+      clearTimer(id);
+    },
+    requestAnimationFrame(callback) {
+      if (!active || typeof callback !== "function") return 0;
+      if (frames.size >= 120 || frameCount >= 1200) throw new Error("Slide animation exceeded its frame budget.");
+      frameCount++;
+      let id = 0;
+      id = hostWindow.requestAnimationFrame((time) => {
+        frames.delete(id);
+        if (!active) return;
+        try { callback(time); } catch (error) { onError(error); }
+      });
+      frames.set(id, true);
+      return id;
+    },
+    cancelAnimationFrame(id) {
+      if (!frames.has(id)) return;
+      frames.delete(id);
+      hostWindow.cancelAnimationFrame(id);
+    },
+    performance: Object.freeze({ now: () => hostWindow.performance.now() }),
+    dispose() {
+      if (!active) return;
+      active = false;
+      for (const id of frames.keys()) hostWindow.cancelAnimationFrame(id);
+      frames.clear();
+      for (const id of timers.keys()) clearTimer(id);
+      for (const query of mediaQueries.values()) query.dispose();
+      mediaQueries.clear();
+    },
+  };
+  return Object.freeze(api);
+}
+
+function mount(container, context, onCommit, onError) {
+  if (!(container instanceof HTMLElement) || typeof onCommit !== "function") throw new Error("Live slide mount request is invalid.");
+  const windowApi = makeWindowApi(onError);
+  Slides2Core.__slideRuntimeConfigureLive({ window: windowApi, resolveAssetUrl: context.resolveAssetUrl });
+  const root = createRoot(container);
+  let renderContext = { page: context.page, isActivePage: Boolean(context.isActivePage), revealedSteps: null };
+  let renderVersion = 0;
+  let disposed = false;
+  function CommitProbe({ children }) {
+    React.useLayoutEffect(() => {
+      if (!disposed) onCommit(container.querySelectorAll("[data-slides2-step]").length);
+    });
+    return children;
+  }
+  function PageHost() {
+    return React.createElement(Slides2Core.SlideRuntimeProvider, { value: renderContext },
+      React.createElement(CommitProbe, null, React.createElement(SlidePage)));
+  }
+  function render() {
+    renderVersion++;
+    root.render(React.createElement(PageHost, { key: renderVersion }));
+  }
+  render();
+  return Object.freeze({
+    update(next) {
+      if (disposed || !next || !next.page) return;
+      renderContext = { page: next.page, isActivePage: Boolean(next.isActivePage), revealedSteps: null };
+      render();
+    },
+    unmount() {
+      if (disposed) return;
+      disposed = true;
+      windowApi.dispose();
+      root.unmount();
+      Slides2Core.__slideRuntimeConfigureLive(null);
+    },
+  });
+}
+
+Object.defineProperty(window, "__slideRuntimeLive", {
+  configurable: false,
+  enumerable: false,
+  writable: false,
+  value: Object.freeze({ mount }),
+});
+`;
+
+const LIVE_REACT_SHIM = String.raw`
+import * as ReactBase from "react";
+import { jsx as baseJsx, jsxs as baseJsxs, Fragment } from "react/jsx-runtime";
+import { __slideRuntimeCountSvgNoiseBackground, __slideRuntimeResolveAssetUrl } from "virtual:slide-page-shim";
+
+const safeTags = new Set(${JSON.stringify([...SAFE_HTML_TAGS])});
+const safeAttributes = new Set(${JSON.stringify([...SAFE_HTML_ATTRIBUTES])});
+const safeEvents = new Set(${JSON.stringify([...SAFE_EVENT_PROPS])});
+const safeCssFunctions = new Set(${JSON.stringify([...SAFE_CSS_FUNCTIONS])});
+const blockedCssProperties = new Set(${JSON.stringify([...BLOCKED_CSS_PROPERTIES])});
+const aliases = Object.freeze({ className: "class", tabIndex: "tabindex", viewBox: "viewbox", preserveAspectRatio: "preserveaspectratio", patternTransform: "patterntransform", patternUnits: "patternunits", pathLength: "pathlength", strokeWidth: "stroke-width", strokeLinecap: "stroke-linecap", strokeLinejoin: "stroke-linejoin", strokeDasharray: "stroke-dasharray", strokeDashoffset: "stroke-dashoffset", strokeOpacity: "stroke-opacity", fillOpacity: "fill-opacity", fillRule: "fill-rule", stopColor: "stop-color", stopOpacity: "stop-opacity", markerEnd: "marker-end", markerMid: "marker-mid", markerStart: "marker-start", shapeRendering: "shape-rendering", vectorEffect: "vector-effect", colSpan: "colspan", rowSpan: "rowspan", autoPlay: "autoplay", playsInline: "playsinline" });
+${SAFE_STATIC_SVG_NOISE_VALIDATOR}
+
+function fail(message) { throw new Error(message); }
+function cssName(name) { return name.startsWith("--") ? name : name.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase()).toLowerCase(); }
+function safeCssValue(value, property) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || Math.abs(value) > 1000000) fail("Slide style number is out of bounds.");
+    return value;
+  }
+  const safeNoiseBackground = (property === "background" || property === "background-image") && isSafeStaticSvgNoiseBackgroundCssValue(value);
+  if (safeNoiseBackground) __slideRuntimeCountSvgNoiseBackground();
+  if (typeof value !== "string" || value.length > 4096 || /[\\\u0000-\u001f\u007f{}<>@]|\/\*|\*\/|javascript:/i.test(value) || (/url\s*\(/i.test(value) && !safeNoiseBackground)) fail("Slide style value is not allowed.");
+  for (const match of value.matchAll(/([a-z][a-z0-9-]*)\s*\(/gi)) {
+    const name = match[1].toLowerCase();
+    if (!safeCssFunctions.has(name) && !(safeNoiseBackground && name === "url")) fail("Slide style function " + name + " is not allowed.");
+  }
+  return value;
+}
+function sanitizeStyle(style) {
+  if (style == null) return style;
+  if (typeof style !== "object" || Array.isArray(style)) fail("Slide styles must be a static property map.");
+  const keys = Object.keys(style);
+  if (keys.length > 100) fail("Slide style map is too large.");
+  const clean = {};
+  for (const key of keys) {
+    const name = cssName(key);
+    if (!/^(?:--[A-Za-z_][A-Za-z0-9_-]{0,125}|[a-z][a-z0-9-]{0,80})$/.test(name) || blockedCssProperties.has(name)) fail("Slide style property is not allowed.");
+    const value = style[key];
+    if (value == null || typeof value === "boolean") continue;
+    clean[key] = safeCssValue(value, name);
+  }
+  return clean;
+}
+function targetSummary(target) {
+  if (!(target instanceof Element)) return null;
+  const summary = { tagName: target.tagName.toLowerCase(), id: String(target.id || "").slice(0, 200), className: String(target.className?.baseVal ?? target.className ?? "").slice(0, 500) };
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+    summary.value = String(target.value).slice(0, 1000);
+    summary.checked = Boolean(target.checked);
+  }
+  return Object.freeze(summary);
+}
+function eventFacade(event) {
+  const value = { type: String(event.type).slice(0, 40), target: targetSummary(event.target), currentTarget: targetSummary(event.currentTarget), defaultPrevented: Boolean(event.defaultPrevented), timeStamp: Number(event.timeStamp) || 0 };
+  for (const key of ["button", "buttons", "clientX", "clientY", "pointerId", "pointerType", "key", "code", "keyCode", "which", "detail", "deltaX", "deltaY", "deltaMode", "ctrlKey", "shiftKey", "altKey", "metaKey", "repeat", "charCode"]) {
+    const field = event[key];
+    if (["string", "number", "boolean"].includes(typeof field)) value[key] = typeof field === "string" ? field.slice(0, 100) : field;
+  }
+  value.preventDefault = () => event.preventDefault();
+  value.stopPropagation = () => event.stopPropagation();
+  return Object.freeze(value);
+}
+function sanitizeProps(type, props) {
+  const source = props && typeof props === "object" ? props : {};
+  for (const key of Object.keys(source)) if (key === "ref" || key === "dangerouslySetInnerHTML" || key === "innerHTML") fail("Slide DOM property is not allowed.");
+  if (typeof type !== "string") return source;
+  const tag = type.toLowerCase();
+  if (!safeTags.has(tag)) fail("Slide element is not allowed.");
+  const clean = {};
+  let hasInteraction = false;
+  for (const key of Object.keys(source)) {
+    if (key === "children") {
+      clean.children = source.children;
+      continue;
+    }
+    if (key === "key") continue;
+    const value = source[key];
+    if (/^on/i.test(key)) {
+      if (!safeEvents.has(key) || (value != null && typeof value !== "function")) fail("Slide event handler is not allowed.");
+      if (typeof value === "function") clean[key] = (event) => value(eventFacade(event));
+      hasInteraction = true;
+      continue;
+    }
+    if (key === "style") { clean.style = sanitizeStyle(value); continue; }
+    const name = aliases[key] ?? key.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase()).toLowerCase();
+    if (name.startsWith("data-slides2-")) fail("Slide runtime attributes are reserved.");
+    if (!(safeAttributes.has(name) || /^(?:aria|data)-[a-z0-9_.:-]{1,120}$/.test(name))) fail("Slide attribute is not allowed.");
+    if (name === "src" || name === "poster") {
+      if ((name === "poster" && tag !== "video") || (name === "src" && !["img", "video", "source"].includes(tag)) || typeof value !== "string" || !/^asset:\/\/[A-Za-z0-9_-]{1,200}$/.test(value)) fail("Media references must use uploaded asset handles.");
+      clean[key] = __slideRuntimeResolveAssetUrl(value);
+      continue;
+    }
+    if (name === "href" && (typeof value !== "string" || !/^#[A-Za-z_][A-Za-z0-9_.:-]{0,200}$/.test(value))) fail("Links must use local slide anchors.");
+    if (name === "id" && (typeof value !== "string" || !/^[A-Za-z_][A-Za-z0-9_.:-]{0,200}$/.test(value))) fail("Slide ids are invalid.");
+    if (name === "data-slide-loc" && (typeof value !== "string" || !/^\d{1,6}:\d{1,6}$/.test(value))) fail("Slide source locations are invalid.");
+    if (name === "data-slides2-step" && value !== "revealed" && value !== "pending") fail("Slide step markers are invalid.");
+    if (name === "data-slides2-step-duration" && (typeof value !== "string" || !/^\d{1,4}$/.test(value) || Number(value) > 5000)) fail("Slide step duration is invalid.");
+    if (typeof value === "string" && value.length > 4096 || typeof value === "number" && !Number.isFinite(value)) fail("Slide attribute value is out of bounds.");
+    if (value == null || ["string", "number", "boolean"].includes(typeof value)) clean[key] = value;
+    else fail("Slide attribute values must be primitive.");
+  }
+  if (hasInteraction) clean["data-slides2-interactive"] = "";
+  return clean;
+}
+function createElement(type, props, ...children) { return ReactBase.createElement(type, sanitizeProps(type, props), ...children); }
+function cloneElement(element, props, ...children) {
+  if (!ReactBase.isValidElement(element)) fail("Slide element cloning is invalid.");
+  const merged = { ...element.props, ...(props || {}) };
+  const clean = sanitizeProps(element.type, merged);
+  return children.length ? ReactBase.cloneElement(element, clean, ...children) : ReactBase.cloneElement(element, clean);
+}
+function jsx(type, props, key) { return baseJsx(type, sanitizeProps(type, props), key); }
+function jsxs(type, props, key) { return baseJsxs(type, sanitizeProps(type, props), key); }
+const Children = Object.freeze({ count: ReactBase.Children.count, forEach: ReactBase.Children.forEach, map: ReactBase.Children.map, only: ReactBase.Children.only, toArray: ReactBase.Children.toArray });
+const React = Object.freeze({ Children, Fragment, cloneElement, createContext: ReactBase.createContext, createElement, isValidElement: ReactBase.isValidElement, memo: ReactBase.memo, useCallback: ReactBase.useCallback, useContext: ReactBase.useContext, useEffect: ReactBase.useEffect, useId: ReactBase.useId, useLayoutEffect: ReactBase.useLayoutEffect, useMemo: ReactBase.useMemo, useReducer: ReactBase.useReducer, useRef: ReactBase.useRef, useState: ReactBase.useState });
+export { Children, Fragment, cloneElement, createElement, jsx, jsxs };
+export const createContext = ReactBase.createContext;
+export const isValidElement = ReactBase.isValidElement;
+export const memo = ReactBase.memo;
+export const useCallback = ReactBase.useCallback;
+export const useContext = ReactBase.useContext;
+export const useEffect = ReactBase.useEffect;
+export const useId = ReactBase.useId;
+export const useLayoutEffect = ReactBase.useLayoutEffect;
+export const useMemo = ReactBase.useMemo;
+export const useReducer = ReactBase.useReducer;
+export const useRef = ReactBase.useRef;
+export const useState = ReactBase.useState;
+export default React;
 `;
 
 export function prepareReactSlideSource(sourceTsx: string): PreparedModule {
@@ -704,10 +1227,12 @@ export function prepareReactSlideSource(sourceTsx: string): PreparedModule {
   let safeSource = replaceRangesWithSpaces(sourceTsx, guardedRanges);
   const ast = parseModule(safeSource);
   validateReactModule(ast);
-  safeSource = addSourceLocations(safeSource, ast);
+  validateLiveExecution(ast);
+  safeSource = instrumentSourceFunctions(safeSource, ast);
+  safeSource = addSourceLocations(safeSource, parseModule(safeSource));
   const locatedAst = parseModule(safeSource);
   safeSource = instrumentBoundedCollectionCalls(safeSource, locatedAst);
-  safeSource = `import { __slideRuntimeGet, __slideRuntimeJoin, __slideRuntimeMap, __slideRuntimePadStart, __slideRuntimePush, __slideRuntimeReplace } from "@open-slide/core";\n${safeSource}`;
+  safeSource = `import { __slideRuntimeEnter, __slideRuntimeGet, __slideRuntimeJoin, __slideRuntimeLeave, __slideRuntimeMap, __slideRuntimePadStart, __slideRuntimePush, __slideRuntimeReplace, window } from "@agent-native/slides-core";\n${safeSource}`;
   return {
     source: safeSource,
     ...exportValues,
@@ -725,6 +1250,7 @@ export async function buildReactSlideRuntime(
 ): Promise<SlideWorkerRuntime> {
   const prepared = prepareReactSlideSource(sourceTsx);
   let workerSource: string | undefined;
+  let liveSource: string | undefined;
   try {
     const { build } = await import("esbuild");
     const templateRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -765,7 +1291,7 @@ export async function buildReactSlideRuntime(
             builder.onResolve(
               {
                 filter:
-                  /^(?:@open-slide\/core|@Slides 2\/core|virtual:slide-page-shim)$/,
+                  /^(?:@agent-native\/slides-core|@open-slide\/core|@Slides 2\/core|virtual:slide-page-shim)$/,
               },
               () => ({
                 path: "slide-page-shim",
@@ -785,6 +1311,91 @@ export async function buildReactSlideRuntime(
       ],
     });
     workerSource = result.outputFiles[0]?.text;
+    const liveResult = await build({
+      stdin: {
+        contents: LIVE_ENTRY,
+        resolveDir: templateRoot,
+        sourcefile: "slide-live-entry.tsx",
+        loader: "tsx",
+      },
+      absWorkingDir: templateRoot,
+      bundle: true,
+      format: "iife",
+      platform: "browser",
+      target: "es2022",
+      jsx: "automatic",
+      jsxImportSource: "virtual:slides2-live",
+      legalComments: "none",
+      minify: true,
+      sourcemap: false,
+      write: false,
+      treeShaking: true,
+      plugins: [
+        {
+          name: "slides-2-live-source",
+          setup(builder) {
+            builder.onResolve({ filter: /^virtual:slide-page$/ }, () => ({
+              path: "slide-page",
+              namespace: "slides-2-live",
+            }));
+            builder.onLoad(
+              { filter: /^slide-page$/, namespace: "slides-2-live" },
+              () => ({
+                contents: prepared.source,
+                loader: "tsx",
+                resolveDir: templateRoot,
+              }),
+            );
+            builder.onResolve(
+              {
+                filter:
+                  /^(?:@agent-native\/slides-core|@open-slide\/core|@Slides 2\/core|virtual:slide-page-shim)$/,
+              },
+              () => ({ path: "slide-page-shim", namespace: "slides-2-live" }),
+            );
+            builder.onLoad(
+              { filter: /^slide-page-shim$/, namespace: "slides-2-live" },
+              () => ({
+                contents: slidePageShim,
+                loader: "tsx",
+                resolveDir: templateRoot,
+              }),
+            );
+            builder.onResolve(
+              { filter: /^virtual:slides2-live\/jsx-runtime$/ },
+              () => ({
+                path: "slide-live-react-shim",
+                namespace: "slides-2-live",
+              }),
+            );
+            builder.onResolve(
+              { filter: /^react(?:\/jsx-runtime)?$/ },
+              (args) => {
+                if (
+                  args.importer === "slide-live-react-shim" ||
+                  args.importer === "slide-page-shim" ||
+                  args.importer.includes("node_modules/")
+                )
+                  return undefined;
+                return {
+                  path: "slide-live-react-shim",
+                  namespace: "slides-2-live",
+                };
+              },
+            );
+            builder.onLoad(
+              { filter: /^slide-live-react-shim$/, namespace: "slides-2-live" },
+              () => ({
+                contents: LIVE_REACT_SHIM,
+                loader: "tsx",
+                resolveDir: templateRoot,
+              }),
+            );
+          },
+        },
+      ],
+    });
+    liveSource = liveResult.outputFiles[0]?.text;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Compilation failed.";
@@ -800,9 +1411,13 @@ export async function buildReactSlideRuntime(
       "Slide Worker bundle is empty or exceeds 4 MiB.",
     );
   }
+  if (!liveSource || liveSource.length > MAX_REACT_SLIDE_LIVE_SOURCE_LENGTH) {
+    throw new SlideSourceError("Live slide bundle is empty or exceeds 4 MiB.");
+  }
   return {
-    kind: "open-slide-react-worker-v1",
+    kind: "agent-native-slides-react-worker-v1",
     workerSource,
+    liveSource,
     page: {
       current: clampPage(options.current, options.total),
       total: clampPageTotal(options.total),
@@ -1325,36 +1940,26 @@ function validateReactModule(ast: t.File): void {
   }
   const allowedObjectIdentifiers = new WeakSet<t.Identifier>();
   const allowedArrayIdentifiers = new WeakSet<t.Identifier>();
+  const allowedWindowIdentifiers = new WeakSet<t.Identifier>();
+  const allowedWindowPropertyIdentifiers = new WeakSet<t.Identifier>();
   const boundedCallMembers = new WeakSet<t.MemberExpression>();
-  walkAll(ast, (node) => {
-    if (
-      (t.isCallExpression(node) &&
-        t.isIdentifier(node.callee) &&
-        UNSUPPORTED_REACT_EFFECT_HOOKS.has(node.callee.name)) ||
-      (t.isCallExpression(node) &&
-        t.isMemberExpression(node.callee) &&
-        UNSUPPORTED_REACT_EFFECT_HOOKS.has(
-          staticMemberProperty(node.callee) ?? "",
-        )) ||
-      (t.isMemberExpression(node) &&
-        UNSUPPORTED_REACT_EFFECT_HOOKS.has(staticMemberProperty(node) ?? "")) ||
-      (t.isObjectPattern(node) &&
-        node.properties.some(
-          (property) =>
-            t.isObjectProperty(property) &&
-            UNSUPPORTED_REACT_EFFECT_HOOKS.has(
-              t.isIdentifier(property.key)
-                ? property.key.name
-                : t.isStringLiteral(property.key)
-                  ? property.key.value
-                  : "",
-            ),
-        ))
-    ) {
-      throw new SlideSourceError(
-        "React effect hooks do not run during static slide rendering; render visual states directly or use CSS motion.",
-      );
+  const reactBindings = new Set(["React"]);
+  for (const statement of ast.program.body) {
+    if (!t.isImportDeclaration(statement) || statement.source.value !== "react")
+      continue;
+    for (const specifier of statement.specifiers) {
+      if (t.isImportDefaultSpecifier(specifier))
+        reactBindings.add(specifier.local.name);
+      else if (t.isImportSpecifier(specifier)) {
+        const imported = t.isIdentifier(specifier.imported)
+          ? specifier.imported.name
+          : specifier.imported.value;
+        if (SAFE_REACT_MEMBERS.has(imported))
+          reactBindings.add(specifier.local.name);
+      }
     }
+  }
+  walkAll(ast, (node) => {
     if (
       t.isOptionalMemberExpression(node) ||
       t.isOptionalCallExpression(node)
@@ -1374,12 +1979,39 @@ function validateReactModule(ast: t.File): void {
       const root = memberRootIdentifier(callee);
       if (BOUNDED_MEMBER_METHODS.has(method)) {
         boundedCallMembers.add(callee);
+      } else if (
+        root?.name === "window" &&
+        SAFE_WINDOW_MEMBER_PATHS.has(staticMemberPath(callee) ?? "")
+      ) {
+        if (staticMemberPath(callee) === "window.matchMedia") {
+          const query = node.arguments[0];
+          if (
+            !t.isStringLiteral(query) ||
+            ![
+              "(prefers-reduced-motion: reduce)",
+              "(prefers-reduced-motion: no-preference)",
+            ].includes(query.value)
+          ) {
+            throw new SlideSourceError(
+              "Only explicit reduced-motion media queries are supported.",
+            );
+          }
+        }
+        allowedWindowIdentifiers.add(root);
+      } else if (SAFE_MEDIA_QUERY_PROPERTIES.has(method)) {
+        // The live runtime returns a plain, filtered media-query view here.
       } else if (root?.name === "Object" && SAFE_OBJECT_METHODS.has(method)) {
         // Object collection calls below are restricted to this small static allowlist.
       } else if (root?.name === "Array" && SAFE_ARRAY_METHODS.has(method)) {
         // Array.isArray is the only permitted Array constructor access.
-      } else if (root?.name === "React" && SAFE_REACT_MEMBERS.has(method)) {
+      } else if (
+        root &&
+        reactBindings.has(root.name) &&
+        SAFE_REACT_MEMBERS.has(method)
+      ) {
         // React calls are limited to the imported component/hook surface.
+      } else if (SAFE_EVENT_METHODS.has(method)) {
+        // Event handlers receive a filtered facade that exposes only these methods.
       } else if (root?.name === "Math" && SAFE_MATH_METHODS.has(method)) {
         // These scalar math functions do not allocate collections or access browser state.
       } else if (SAFE_VALUE_METHODS.has(method)) {
@@ -1393,6 +2025,18 @@ function validateReactModule(ast: t.File): void {
     if (!t.isMemberExpression(node)) return;
     const property = staticMemberProperty(node);
     const root = memberRootIdentifier(node);
+    if (root?.name === "window") {
+      const path = staticMemberPath(node);
+      if (!path || !SAFE_WINDOW_MEMBER_PATHS.has(path)) {
+        throw new SlideSourceError(
+          "Slide source can only use reduced-motion matching, bounded timers, animation frames, and performance.now().",
+        );
+      }
+      allowedWindowIdentifiers.add(root);
+      if (t.isIdentifier(node.property)) {
+        allowedWindowPropertyIdentifiers.add(node.property);
+      }
+    }
     if (
       property &&
       BOUNDED_MEMBER_METHODS.has(property) &&
@@ -1420,7 +2064,7 @@ function validateReactModule(ast: t.File): void {
         allowedArrayIdentifiers.add(node.object);
       }
     }
-    if (root?.name === "React") {
+    if (root && reactBindings.has(root.name)) {
       if (!property || !SAFE_REACT_MEMBERS.has(property)) {
         throw new SlideSourceError(
           "React access must use an approved static member.",
@@ -1428,8 +2072,25 @@ function validateReactModule(ast: t.File): void {
       }
     }
   });
+  const staticObjectPropertyKeys = new WeakSet<t.Identifier>();
   walkAll(ast, (node) => {
-    if (t.isIdentifier(node) && BLOCKED_GLOBALS.has(node.name)) {
+    if (
+      t.isObjectProperty(node) &&
+      !node.computed &&
+      !node.shorthand &&
+      t.isIdentifier(node.key)
+    ) {
+      staticObjectPropertyKeys.add(node.key);
+    }
+  });
+  walkAll(ast, (node) => {
+    if (
+      t.isIdentifier(node) &&
+      BLOCKED_GLOBALS.has(node.name) &&
+      !staticObjectPropertyKeys.has(node) &&
+      !allowedWindowPropertyIdentifiers.has(node) &&
+      !(node.name === "window" && allowedWindowIdentifiers.has(node))
+    ) {
       throw new SlideSourceError(`Slide source cannot access ${node.name}.`);
     }
     if (
@@ -1496,7 +2157,7 @@ function validateReactModule(ast: t.File): void {
           "Namespaced and member JSX tags are not supported.",
         );
       if (
-        /^(?:script|style|iframe|frame|object|embed|link|meta|base|form|input|audio|portal|canvas|foreignObject)$/i.test(
+        /^(?:script|style|iframe|frame|object|embed|link|meta|base|form|input|audio|portal|canvas|foreignObject|filter|feTurbulence|feColorMatrix)$/i.test(
           name,
         )
       ) {
@@ -1511,9 +2172,25 @@ function validateReactModule(ast: t.File): void {
             "data-slide-loc is reserved for source mapping.",
           );
         }
-        if (/^on/i.test(attributeName)) {
+        if (
+          /^on/i.test(attributeName) &&
+          !SAFE_EVENT_PROPS.has(attributeName)
+        ) {
           throw new SlideSourceError(
-            "Event handlers are not allowed in slide source.",
+            `Event handlers are not allowed unless ${attributeName} is supported by the slide runtime.`,
+          );
+        }
+        if (
+          attributeName === "ref" ||
+          attributeName === "dangerouslySetInnerHTML"
+        ) {
+          throw new SlideSourceError(
+            `JSX attribute ${attributeName} is not allowed in slide source.`,
+          );
+        }
+        if (attributeName.toLowerCase().startsWith("data-slides2-")) {
+          throw new SlideSourceError(
+            "data-slides2 attributes are reserved for the slide runtime.",
           );
         }
       }
@@ -1533,6 +2210,25 @@ function staticMemberProperty(
   return null;
 }
 
+function staticMemberPath(
+  node: t.MemberExpression | t.OptionalMemberExpression,
+): string | null {
+  const properties: string[] = [];
+  let current: t.Expression | t.Super = node;
+  while (
+    t.isMemberExpression(current) ||
+    t.isOptionalMemberExpression(current)
+  ) {
+    const property = staticMemberProperty(current);
+    if (!property) return null;
+    properties.unshift(property);
+    current = current.object;
+  }
+  return t.isIdentifier(current)
+    ? [current.name, ...properties].join(".")
+    : null;
+}
+
 function memberRootIdentifier(
   node: t.MemberExpression | t.OptionalMemberExpression,
 ): t.Identifier | null {
@@ -1548,14 +2244,22 @@ function memberRootIdentifier(
 
 function validateImport(declaration: t.ImportDeclaration): void {
   const moduleName = declaration.source.value;
-  if (moduleName !== "react" && moduleName !== "@open-slide/core") {
+  if (
+    moduleName !== "react" &&
+    moduleName !== "@agent-native/slides-core" &&
+    moduleName !== "@open-slide/core"
+  ) {
     throw new SlideSourceError(
-      `Import from ${moduleName} is not supported; use React and the supported @open-slide/core exports only.`,
+      `Import from ${moduleName} is not supported; use React and the supported @agent-native/slides-core or @open-slide/core exports.`,
     );
   }
   if (declaration.importKind === "type") return;
   const reactImports = new Set([
     "useId",
+    "useEffect",
+    "useLayoutEffect",
+    "useReducer",
+    "useRef",
     "useState",
     "useMemo",
     "useCallback",
@@ -1566,7 +2270,6 @@ function validateImport(declaration: t.ImportDeclaration): void {
     "cloneElement",
     "isValidElement",
     "memo",
-    "forwardRef",
   ]);
   const coreImports = new Set([
     "CANVAS_HEIGHT",
@@ -1580,6 +2283,7 @@ function validateImport(declaration: t.ImportDeclaration): void {
     "useIsActivePage",
     "ImagePlaceholder",
     "MorphElement",
+    "NoiseBackground",
   ]);
   for (const specifier of declaration.specifiers) {
     if (t.isImportNamespaceSpecifier(specifier))
@@ -1595,14 +2299,6 @@ function validateImport(declaration: t.ImportDeclaration): void {
       const imported = t.isIdentifier(specifier.imported)
         ? specifier.imported.name
         : specifier.imported.value;
-      if (
-        moduleName === "react" &&
-        UNSUPPORTED_REACT_EFFECT_HOOKS.has(imported)
-      ) {
-        throw new SlideSourceError(
-          "React effect hooks do not run during static slide rendering; render visual states directly or use CSS motion.",
-        );
-      }
       const allowed = moduleName === "react" ? reactImports : coreImports;
       if (!allowed.has(imported))
         throw new SlideSourceError(
@@ -1610,6 +2306,207 @@ function validateImport(declaration: t.ImportDeclaration): void {
         );
     }
   }
+}
+
+type SourceFunction = {
+  node:
+    | t.FunctionDeclaration
+    | t.FunctionExpression
+    | t.ArrowFunctionExpression;
+  name: string | null;
+  start: number;
+  end: number;
+};
+
+function collectSourceFunctions(ast: t.File): SourceFunction[] {
+  const functions: SourceFunction[] = [];
+  const assignedNames = new Map<t.Node, string>();
+  walkAll(ast, (node) => {
+    if (
+      t.isVariableDeclarator(node) &&
+      t.isIdentifier(node.id) &&
+      node.init &&
+      (t.isFunctionExpression(node.init) ||
+        t.isArrowFunctionExpression(node.init))
+    ) {
+      assignedNames.set(node.init, node.id.name);
+    }
+    if (
+      t.isObjectProperty(node) &&
+      t.isIdentifier(node.key) &&
+      (t.isFunctionExpression(node.value) ||
+        t.isArrowFunctionExpression(node.value))
+    ) {
+      assignedNames.set(node.value, node.key.name);
+    }
+    if (
+      !t.isFunctionDeclaration(node) &&
+      !t.isFunctionExpression(node) &&
+      !t.isArrowFunctionExpression(node)
+    )
+      return;
+    if (node.start == null || node.end == null) return;
+    const name =
+      (t.isFunctionDeclaration(node) || t.isFunctionExpression(node)
+        ? node.id?.name
+        : null) ??
+      assignedNames.get(node) ??
+      null;
+    functions.push({ node, name, start: node.start, end: node.end });
+  });
+  return functions;
+}
+
+function validateLiveExecution(ast: t.File): void {
+  const functions = collectSourceFunctions(ast);
+  const namedFunctions = new Map<string, SourceFunction>();
+  for (const fn of functions) {
+    if (fn.name) namedFunctions.set(fn.name, fn);
+    if (fn.node.async || ("generator" in fn.node && fn.node.generator)) {
+      throw new SlideSourceError(
+        "Async and generator functions are not supported in slide source.",
+      );
+    }
+  }
+  walkAll(ast, (node) => {
+    if (
+      t.isForStatement(node) ||
+      t.isForInStatement(node) ||
+      t.isForOfStatement(node) ||
+      t.isWhileStatement(node) ||
+      t.isDoWhileStatement(node)
+    ) {
+      throw new SlideSourceError(
+        "Loops are not supported in live slide source.",
+      );
+    }
+    if (t.isAwaitExpression(node) || t.isYieldExpression(node)) {
+      throw new SlideSourceError(
+        "Async and generator execution is not supported in slide source.",
+      );
+    }
+  });
+  const edges = new Map<string, Set<string>>();
+  const calls: t.CallExpression[] = [];
+  walkAll(ast, (node) => {
+    if (t.isCallExpression(node)) calls.push(node);
+  });
+  const events = [
+    ...functions.map((fn) => ({ start: fn.start, end: fn.end, fn })),
+    ...calls
+      .filter((call) => call.start != null && call.end != null)
+      .map((call) => ({ start: call.start!, end: call.end!, call })),
+  ].sort((left, right) => left.start - right.start || right.end - left.end);
+  const active: SourceFunction[] = [];
+  for (const event of events) {
+    while (active.length && active[active.length - 1]!.end <= event.start)
+      active.pop();
+    if ("fn" in event) {
+      active.push(event.fn);
+      continue;
+    }
+    if (!t.isIdentifier(event.call.callee)) continue;
+    const target = namedFunctions.get(event.call.callee.name);
+    const caller = active[active.length - 1];
+    if (!target || !caller?.name) continue;
+    let targets = edges.get(caller.name);
+    if (!targets) edges.set(caller.name, (targets = new Set()));
+    targets.add(target.name!);
+  }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (name: string): boolean => {
+    if (visiting.has(name)) return true;
+    if (visited.has(name)) return false;
+    visiting.add(name);
+    for (const child of edges.get(name) ?? []) if (visit(child)) return true;
+    visiting.delete(name);
+    visited.add(name);
+    return false;
+  };
+  for (const name of edges.keys()) {
+    if (visit(name))
+      throw new SlideSourceError(
+        "Recursive slide source functions are not supported.",
+      );
+  }
+}
+
+function instrumentSourceFunctions(source: string, ast: t.File): string {
+  const functions = collectSourceFunctions(ast);
+  const parentByChild = new Map<SourceFunction, SourceFunction>();
+  const orderedFunctions = [...functions].sort(
+    (left, right) => left.start - right.start || right.end - left.end,
+  );
+  const activeFunctions: SourceFunction[] = [];
+  for (const child of orderedFunctions) {
+    while (
+      activeFunctions.length &&
+      activeFunctions[activeFunctions.length - 1]!.end <= child.start
+    )
+      activeFunctions.pop();
+    const parent = activeFunctions[activeFunctions.length - 1];
+    if (parent) parentByChild.set(child, parent);
+    activeFunctions.push(child);
+  }
+  const childrenByParent = new Map<SourceFunction, SourceFunction[]>();
+  for (const [child, parent] of parentByChild) {
+    let children = childrenByParent.get(parent);
+    if (!children) childrenByParent.set(parent, (children = []));
+    children.push(child);
+  }
+  const renderNested = (
+    start: number,
+    end: number,
+    children: SourceFunction[],
+  ): string => {
+    const replacements = children
+      .map((child) => ({
+        start: child.start,
+        end: child.end,
+        text: renderFunction(child),
+      }))
+      .sort((left, right) => right.start - left.start);
+    let result = source.slice(start, end);
+    for (const replacement of replacements) {
+      result =
+        result.slice(0, replacement.start - start) +
+        replacement.text +
+        result.slice(replacement.end - start);
+    }
+    return result;
+  };
+  const renderFunction = (fn: SourceFunction): string => {
+    const body = fn.node.body;
+    const nested = childrenByParent.get(fn) ?? [];
+    if (t.isBlockStatement(body)) {
+      const contents = renderNested(body.start! + 1, body.end! - 1, nested);
+      return (
+        source.slice(fn.start, body.start! + 1) +
+        "__slideRuntimeEnter();try{" +
+        contents +
+        "}finally{__slideRuntimeLeave();}" +
+        source.slice(body.end! - 1, fn.end)
+      );
+    }
+    const parenthesizedStart =
+      body.extra?.parenthesized === true &&
+      typeof body.extra.parenStart === "number"
+        ? body.extra.parenStart
+        : null;
+    const expressionStart = parenthesizedStart ?? body.start!;
+    const expressionEnd = parenthesizedStart == null ? body.end! : fn.end;
+    const expression = renderNested(expressionStart, expressionEnd, nested);
+    return (
+      source.slice(fn.start, expressionStart) +
+      "{__slideRuntimeEnter();try{return (" +
+      expression +
+      ");}finally{__slideRuntimeLeave();}}" +
+      source.slice(expressionEnd, fn.end)
+    );
+  };
+  const roots = functions.filter((fn) => !parentByChild.has(fn));
+  return renderNested(0, source.length, roots);
 }
 
 function findDocumentGuards(
@@ -1826,13 +2723,34 @@ function clampPageTotal(total: number): number {
 const slidePageShim = String.raw`
 import React, { Children, cloneElement, createContext, isValidElement, useContext } from "react";
 const Context = createContext(null);
-const Budget = { values: 0, bytes: 0, stepCount: 0, remainingSteps: Infinity };
+const Budget = { values: 0, bytes: 0, stepCount: 0, remainingSteps: Infinity, svgNoiseBackgrounds: 0, countBuiltinNoiseBackgrounds: true };
 const MAX_VALUES = 50_000;
 const MAX_BYTES = 16 * 1024 * 1024;
+let executionDepth = 0;
+let liveEnvironment = null;
 function fail(message) { throw new Error(message); }
+${SAFE_SVG_NOISE_PROPS_NORMALIZER}
+const SVG_NOISE_COLOR_MATRIX_VALUES = ${SVG_NOISE_MATRIX_JSON};
+export function __slideRuntimeEnter() { if (executionDepth >= 128) fail("Slide source exceeded its call-depth budget."); executionDepth++; }
+export function __slideRuntimeLeave() { if (executionDepth <= 0) fail("Slide runtime call accounting is invalid."); executionDepth--; }
+function inertMatchMedia(query) { if (query !== "(prefers-reduced-motion: reduce)" && query !== "(prefers-reduced-motion: no-preference)") fail("Only reduced-motion media queries are available to slide source."); return Object.freeze({ matches: false, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }); }
+const inertWindow = Object.freeze({ matchMedia: inertMatchMedia, setTimeout() { return 0; }, clearTimeout() {}, setInterval() { return 0; }, clearInterval() {}, requestAnimationFrame() { return 0; }, cancelAnimationFrame() {}, performance: Object.freeze({ now: () => 0 }) });
+export const window = Object.freeze({
+  matchMedia(query) { return (liveEnvironment?.window ?? inertWindow).matchMedia(query); },
+  setTimeout(callback, delay) { return (liveEnvironment?.window ?? inertWindow).setTimeout(callback, delay); },
+  clearTimeout(id) { return (liveEnvironment?.window ?? inertWindow).clearTimeout(id); },
+  setInterval(callback, delay) { return (liveEnvironment?.window ?? inertWindow).setInterval(callback, delay); },
+  clearInterval(id) { return (liveEnvironment?.window ?? inertWindow).clearInterval(id); },
+  requestAnimationFrame(callback) { return (liveEnvironment?.window ?? inertWindow).requestAnimationFrame(callback); },
+  cancelAnimationFrame(id) { return (liveEnvironment?.window ?? inertWindow).cancelAnimationFrame(id); },
+  performance: Object.freeze({ now() { return (liveEnvironment?.window ?? inertWindow).performance.now(); } }),
+});
+export function __slideRuntimeConfigureLive(environment) { liveEnvironment = environment; }
+export function __slideRuntimeResolveAssetUrl(value) { if (!liveEnvironment || typeof liveEnvironment.resolveAssetUrl !== "function") fail("Slide asset resolution is unavailable."); return liveEnvironment.resolveAssetUrl(value); }
 function reserve(values, bytes = 0) { if (!Number.isSafeInteger(values) || values < 0 || Budget.values + values > MAX_VALUES) fail("Slide render exceeded its value budget."); if (!Number.isSafeInteger(bytes) || bytes < 0 || Budget.bytes + bytes > MAX_BYTES) fail("Slide render exceeded its memory estimate."); Budget.values += values; Budget.bytes += bytes; }
 function estimate(value, depth = 0, seen = new Set()) { if (depth > 16) fail("Slide data is nested too deeply."); if (typeof value === "string") { reserve(1, value.length * 2); return; } if (value == null || typeof value === "boolean" || typeof value === "number") { reserve(1, 16); return; } if (typeof value === "function") { reserve(1, 64); return; } if (typeof value !== "object" || seen.has(value)) { reserve(1, 32); return; } seen.add(value); reserve(1, 64); if (Array.isArray(value)) { if (value.length > MAX_VALUES) fail("Slide data array is too large."); for (const child of value) estimate(child, depth + 1, seen); return; } const keys = Object.keys(value); if (keys.length > 256) fail("Slide data object is too large."); for (const key of keys) estimate(value[key], depth + 1, seen); }
-export function __slideRuntimeReset(revealedSteps) { Budget.values = 0; Budget.bytes = 0; Budget.stepCount = 0; Budget.remainingSteps = revealedSteps == null ? Infinity : revealedSteps; }
+export function __slideRuntimeReset(revealedSteps, countBuiltinNoiseBackgrounds = true) { Budget.values = 0; Budget.bytes = 0; Budget.stepCount = 0; Budget.remainingSteps = revealedSteps == null ? Infinity : revealedSteps; Budget.svgNoiseBackgrounds = 0; Budget.countBuiltinNoiseBackgrounds = countBuiltinNoiseBackgrounds; }
+export function __slideRuntimeCountSvgNoiseBackground() { Budget.svgNoiseBackgrounds++; if (Budget.svgNoiseBackgrounds > ${MAX_SAFE_SVG_NOISE_BACKGROUNDS_PER_RENDER}) fail("Slide uses too many filtered backgrounds."); return Budget.svgNoiseBackgrounds; }
 export function __slideRuntimeStepCount() { return Budget.stepCount; }
 export function __slideRuntimeGet(target, key) { if (typeof key === "string" && /^(?:0|[1-9][0-9]{0,5})$/.test(key)) key = Number(key); if (!Number.isSafeInteger(key) || key < 0 || key > MAX_VALUES) fail("Computed slide access must use a bounded array index."); if (Array.isArray(target) && key < target.length) return target[key]; if (typeof target === "string" && key < target.length) return target[key]; return undefined; }
 export function __slideRuntimeMap(array, callback, thisArg) { if (!Array.isArray(array) || typeof callback !== "function") fail("Only static arrays can be mapped in slide source."); if (array.length > MAX_VALUES) fail("Slide render exceeded its map budget."); reserve(array.length, array.length * 8); const result = new Array(array.length); for (let index = 0; index < array.length; index++) { if (!(index in array)) continue; const value = callback.call(thisArg, array[index], index, array); estimate(value); result[index] = value; } return result; }
@@ -1841,6 +2759,108 @@ export function __slideRuntimeJoin(array, separator = ",") { if (!Array.isArray(
 export function __slideRuntimePadStart(value, length, padding) { if (!isPrimitive(value) || (padding !== undefined && !isPrimitive(padding))) fail("Slide padding accepts primitive text only."); const text = String(value); const requested = Number(length); if (!Number.isFinite(requested) || requested > 1024 * 1024 || requested < 0) fail("Slide padding is out of bounds."); const outputLength = Math.max(text.length, Math.trunc(requested)); if (outputLength > 1024 * 1024) fail("Slide padding is out of bounds."); reserve(1, outputLength * 2); return text.padStart(requested, padding === undefined ? " " : String(padding)); }
 export function __slideRuntimeReplace(value, pattern, replacement) { if (!isPrimitive(value) || typeof replacement !== "string" || replacement.includes("$") || (typeof pattern !== "string" && !(pattern instanceof RegExp))) fail("Slide replacement must use primitive text and a literal replacement string."); const text = String(value); const matches = []; if (pattern instanceof RegExp) { const regex = new RegExp(pattern.source, pattern.flags); let match; while ((match = regex.exec(text))) { reserve(1, 24); matches.push({ index: match.index, length: match[0].length }); if (!regex.global) break; if (match[0].length === 0) regex.lastIndex++; if (matches.length > MAX_VALUES) fail("Slide replacement has too many matches."); } } else { const search = String(pattern); let cursor = 0; if (!search) { reserve(1, 24); matches.push({ index: 0, length: 0 }); } else while ((cursor = text.indexOf(search, cursor)) !== -1) { reserve(1, 24); matches.push({ index: cursor, length: search.length }); cursor += search.length; if (matches.length > MAX_VALUES) fail("Slide replacement has too many matches."); } } const outputLength = text.length + matches.length * replacement.length - matches.reduce((size, match) => size + match.length, 0); if (outputLength > 1024 * 1024) fail("Slide render string is too large."); reserve(matches.length * 2 + 1, outputLength * 2); const parts = new Array(matches.length * 2 + 1); let cursor = 0; let part = 0; for (const match of matches) { parts[part++] = text.slice(cursor, match.index); parts[part++] = replacement; cursor = match.index + match.length; } parts[part] = text.slice(cursor); return parts.join(""); }
 function isPrimitive(value) { return value == null || ["string", "number", "boolean"].includes(typeof value); }
+const builtinSafeTags = new Set(${JSON.stringify([...SAFE_HTML_TAGS])});
+const builtinSafeAttributes = new Set(${JSON.stringify([...SAFE_HTML_ATTRIBUTES])});
+const builtinSafeEvents = new Set(${JSON.stringify([...SAFE_EVENT_PROPS])});
+const builtinSafeCssFunctions = new Set(${JSON.stringify([...SAFE_CSS_FUNCTIONS])});
+const builtinBlockedCssProperties = new Set(${JSON.stringify([...BLOCKED_CSS_PROPERTIES])});
+const builtinAliases = Object.freeze({ className: "class", tabIndex: "tabindex", viewBox: "viewbox", preserveAspectRatio: "preserveaspectratio", patternTransform: "patterntransform", patternUnits: "patternunits", pathLength: "pathlength", strokeWidth: "stroke-width", strokeLinecap: "stroke-linecap", strokeLinejoin: "stroke-linejoin", strokeDasharray: "stroke-dasharray", strokeDashoffset: "stroke-dashoffset", strokeOpacity: "stroke-opacity", fillOpacity: "fill-opacity", fillRule: "fill-rule", stopColor: "stop-color", stopOpacity: "stop-opacity", markerEnd: "marker-end", markerMid: "marker-mid", markerStart: "marker-start", shapeRendering: "shape-rendering", vectorEffect: "vector-effect", colSpan: "colspan", rowSpan: "rowspan", autoPlay: "autoplay", playsInline: "playsinline" });
+${SAFE_STATIC_SVG_NOISE_VALIDATOR}
+function builtinCssName(name) { return name.startsWith("--") ? name : name.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase()).toLowerCase(); }
+function sanitizeBuiltinStyle(style, countNoiseBackgrounds = Budget.countBuiltinNoiseBackgrounds) {
+  if (style == null) return style;
+  if (typeof style !== "object" || Array.isArray(style)) fail("Slide styles must be a static property map.");
+  const keys = Object.keys(style);
+  if (keys.length > 100) fail("Slide style map is too large.");
+  const clean = {};
+  for (const key of keys) {
+    const name = builtinCssName(key);
+    if (!/^(?:--[A-Za-z_][A-Za-z0-9_-]{0,125}|[a-z][a-z0-9-]{0,80})$/.test(name) || builtinBlockedCssProperties.has(name)) fail("Slide style property is not allowed.");
+    const value = style[key];
+    if (value == null || typeof value === "boolean") continue;
+    if (typeof value === "number") {
+      if (!Number.isFinite(value) || Math.abs(value) > 1000000) fail("Slide style number is out of bounds.");
+      clean[key] = value;
+      continue;
+    }
+    const safeNoiseBackground = (name === "background" || name === "background-image") && isSafeStaticSvgNoiseBackgroundCssValue(value);
+    if (safeNoiseBackground && countNoiseBackgrounds) __slideRuntimeCountSvgNoiseBackground();
+    if (typeof value !== "string" || value.length > 4096 || /[\\\u0000-\u001f\u007f{}<>@]|\/\*|\*\/|javascript:/i.test(value) || (/url\s*\(/i.test(value) && !safeNoiseBackground)) fail("Slide style value is not allowed.");
+    for (const match of value.matchAll(/([a-z][a-z0-9-]*)\s*\(/gi)) if (!builtinSafeCssFunctions.has(match[1].toLowerCase()) && !(safeNoiseBackground && match[1].toLowerCase() === "url")) fail("Slide style function " + match[1].toLowerCase() + " is not allowed.");
+    clean[key] = value;
+  }
+  return clean;
+}
+function builtinTargetSummary(target) {
+  if (!target || typeof target !== "object" || typeof target.tagName !== "string") return null;
+  const className = target.className;
+  const summary = { tagName: target.tagName.toLowerCase().slice(0, 40), id: typeof target.id === "string" ? target.id.slice(0, 200) : "", className: String(className && typeof className === "object" ? className.baseVal ?? "" : className ?? "").slice(0, 500) };
+  if (summary.tagName === "input" || summary.tagName === "textarea") {
+    if (typeof target.value === "string") summary.value = target.value.slice(0, 1000);
+    summary.checked = Boolean(target.checked);
+  }
+  return Object.freeze(summary);
+}
+function builtinEventFacade(event) {
+  const value = { type: String(event.type ?? "").slice(0, 40), target: builtinTargetSummary(event.target), currentTarget: builtinTargetSummary(event.currentTarget), defaultPrevented: Boolean(event.defaultPrevented), timeStamp: Number(event.timeStamp) || 0 };
+  for (const key of ["button", "buttons", "clientX", "clientY", "pointerId", "pointerType", "key", "code", "keyCode", "which", "detail", "deltaX", "deltaY", "deltaMode", "ctrlKey", "shiftKey", "altKey", "metaKey", "repeat", "charCode"]) {
+    const field = event[key];
+    if (["string", "number", "boolean"].includes(typeof field)) value[key] = typeof field === "string" ? field.slice(0, 100) : field;
+  }
+  value.preventDefault = () => event.preventDefault();
+  value.stopPropagation = () => event.stopPropagation();
+  return Object.freeze(value);
+}
+function sanitizeBuiltinProps(tag, props) {
+  if (typeof tag !== "string" || !builtinSafeTags.has(tag.toLowerCase())) fail("Slide element is not allowed.");
+  const source = props && typeof props === "object" && !Array.isArray(props) ? props : {};
+  if (Object.keys(source).length > 100) fail("Slide element has too many attributes.");
+  const clean = {};
+  let hasInteraction = false;
+  for (const key of Object.keys(source)) {
+    if (key === "children" || key === "key") continue;
+    if (key === "ref" || key === "dangerouslySetInnerHTML" || key === "innerHTML") fail("Slide DOM property is not allowed.");
+    const value = source[key];
+    if (/^on/i.test(key)) {
+      if (!builtinSafeEvents.has(key) || (value != null && typeof value !== "function")) fail("Slide event handler is not allowed.");
+      if (typeof value === "function") clean[key] = (event) => value(builtinEventFacade(event));
+      hasInteraction = true;
+      continue;
+    }
+    if (key === "style") { clean.style = sanitizeBuiltinStyle(value); continue; }
+    const name = builtinAliases[key] ?? key.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase()).toLowerCase();
+    if (name.startsWith("data-slides2-")) fail("Slide runtime attributes are reserved.");
+    if (!(builtinSafeAttributes.has(name) || /^(?:aria|data)-[a-z0-9_.:-]{1,120}$/.test(name))) fail("Slide attribute is not allowed.");
+    if (name === "src" || name === "poster") {
+      if ((name === "poster" && tag !== "video") || (name === "src" && !["img", "video", "source"].includes(tag)) || typeof value !== "string" || !/^asset:\/\/[A-Za-z0-9_-]{1,200}$/.test(value)) fail("Media references must use uploaded asset handles.");
+      clean[key] = liveEnvironment?.resolveAssetUrl ? liveEnvironment.resolveAssetUrl(value) : value;
+      continue;
+    }
+    if (name === "href" && (typeof value !== "string" || !/^#[A-Za-z_][A-Za-z0-9_.:-]{0,200}$/.test(value))) fail("Links must use local slide anchors.");
+    if (name === "id" && (typeof value !== "string" || !/^[A-Za-z_][A-Za-z0-9_.:-]{0,200}$/.test(value))) fail("Slide ids are invalid.");
+    if (name === "data-slide-loc" && (typeof value !== "string" || !/^\d{1,6}:\d{1,6}$/.test(value))) fail("Slide source locations are invalid.");
+    if (typeof value === "string" && value.length > 4096 || typeof value === "number" && !Number.isFinite(value)) fail("Slide attribute value is out of bounds.");
+    if (value == null || ["string", "number", "boolean"].includes(typeof value)) clean[key] = value;
+    else fail("Slide attribute values must be primitive.");
+  }
+  if (hasInteraction) clean["data-slides2-interactive"] = "";
+  return clean;
+}
+function safeBuiltinClassName(value) {
+  if (value == null) return value;
+  if (typeof value !== "string" || value.length > 4096) fail("Slide class names must be short text.");
+  return value;
+}
+function safeBuiltinDimension(value) {
+  if (value == null) return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0 || value > 1000000) fail("Slide dimensions are out of bounds.");
+    return value;
+  }
+  if (typeof value !== "string" || value.length > 4096 || /[\\\u0000-\u001f\u007f{}<>@]|\/\*|\*\/|url\s*\(|javascript:/i.test(value)) fail("Slide dimensions are invalid.");
+  for (const match of value.matchAll(/([a-z][a-z0-9-]*)\s*\(/gi)) if (!builtinSafeCssFunctions.has(match[1].toLowerCase())) fail("Slide dimension function " + match[1].toLowerCase() + " is not allowed.");
+  return value;
+}
 export const CANVAS_WIDTH = 1920;
 export const CANVAS_HEIGHT = 1080;
 export const defaultDesign = Object.freeze({
@@ -1878,19 +2898,48 @@ export function cssVarsToString(vars) {
   }
   return keys.map((key) => "  " + key + ": " + vars[key] + ";").join("\n");
 }
-export function SlideRuntimeProvider({ value, children }) { __slideRuntimeReset(value.revealedSteps); return React.createElement(Context.Provider, { value }, children); }
+export function SlideRuntimeProvider({ value, children }) { __slideRuntimeReset(value.revealedSteps, value.countBuiltinNoiseBackgrounds !== false); return React.createElement(Context.Provider, { value }, children); }
 export function useSlidePageNumber() { const context = useContext(Context); if (!context) fail("useSlidePageNumber must be called from a rendered slide page."); return { current: context.page.current, total: context.page.total }; }
 export function useIsActivePage() { return useContext(Context)?.isActivePage ?? false; }
-export function Step({ children, duration = 180, _revealed }) { const revealed = _revealed ?? true; return React.createElement("div", { "data-slides2-step": revealed ? "revealed" : "pending", style: { opacity: revealed ? 1 : 0, visibility: revealed ? "visible" : "hidden", transition: "opacity " + duration + "ms cubic-bezier(0, 0, 0.2, 1)" } }, children); }
+export function Step({ children, duration = 180, _revealed }) { const safeDuration = Number.isFinite(duration) ? Math.max(0, Math.min(5000, duration)) : 180; const revealed = _revealed ?? true; return React.createElement("div", { "data-slides2-step": revealed ? "revealed" : "pending", "data-slides2-step-duration": String(safeDuration), style: { opacity: revealed ? 1 : 0, visibility: revealed ? "visible" : "hidden", transition: "opacity " + safeDuration + "ms cubic-bezier(0, 0, 0.2, 1)" } }, children); }
+export function NoiseBackground(props) {
+  const options = normalizeSvgNoiseBackgroundProps(props);
+  if (!options) fail("NoiseBackground props must use bounded static values.");
+  const id = "slides2-noise-" + __slideRuntimeCountSvgNoiseBackground();
+  return React.createElement("svg", {
+    xmlns: "http://www.w3.org/2000/svg",
+    "aria-hidden": true,
+    focusable: false,
+    width: "100%",
+    height: "100%",
+    viewBox: "0 0 220 220",
+    preserveAspectRatio: "none",
+    "data-slide-loc": options.dataSlideLoc,
+    "data-slides2-noise": "1",
+    style: { position: "absolute", inset: 0, width: "100%", height: "100%", display: "block", pointerEvents: "none" },
+  },
+    React.createElement("defs", null,
+      React.createElement("filter", { id, x: "0", y: "0", width: "100%", height: "100%" },
+        React.createElement("feTurbulence", { type: "fractalNoise", baseFrequency: String(options.baseFrequency), numOctaves: String(options.numOctaves), seed: String(options.seed), stitchTiles: "stitch", result: "noise" }),
+        React.createElement("feColorMatrix", { in: "noise", type: "matrix", values: SVG_NOISE_COLOR_MATRIX_VALUES }),
+      ),
+    ),
+    React.createElement("rect", { width: "100%", height: "100%", filter: "url(#" + id + ")", opacity: String(options.opacity), fill: options.fill }),
+  );
+}
 export function Steps({ children }) { const childrenArray = Children.toArray(children); let count = 0; for (const child of childrenArray) if (isValidElement(child) && child.type === Step) count++; Budget.stepCount += count; const revealed = Math.min(count, Budget.remainingSteps); Budget.remainingSteps = Math.max(0, Budget.remainingSteps - revealed); let index = 0; return React.createElement(React.Fragment, null, ...childrenArray.map((child, key) => { if (isValidElement(child) && child.type === Step) { const stepIndex = index++; return cloneElement(child, { key: child.key ?? key, _revealed: stepIndex < revealed }); } return child; })); }
 export function ImagePlaceholder({ hint, label, width, height, style, className, ...props }) {
+  const safeProps = sanitizeBuiltinProps("div", props);
+  const safeStyle = sanitizeBuiltinStyle(style);
+  const safeWidth = safeBuiltinDimension(width);
+  const safeHeight = safeBuiltinDimension(height);
   const description =
     typeof hint === "string"
       ? hint
       : typeof label === "string"
         ? label
         : "Image placeholder";
-  const dimensions = width && height ? width + " × " + height : null;
+  const dimensions = safeWidth && safeHeight ? safeWidth + " × " + safeHeight : null;
   const icon = React.createElement("svg", {
     width: 32,
     height: 32,
@@ -1946,18 +2995,18 @@ export function ImagePlaceholder({ hint, label, width, height, style, className,
     }, dimensions),
   );
   return React.createElement("div", {
-    ...props,
-    "data-slide-loc": props["data-slide-loc"],
+    ...safeProps,
+    "data-slide-loc": safeProps["data-slide-loc"],
     "data-slide-placeholder": description,
-    "data-placeholder-w": width,
-    "data-placeholder-h": height,
+    "data-placeholder-w": safeWidth,
+    "data-placeholder-h": safeHeight,
     role: "img",
     "aria-label": description,
-    className,
+    className: safeBuiltinClassName(className),
     style: {
       position: "relative",
-      width: width ?? "100%",
-      height: height ?? "100%",
+      width: safeWidth ?? "100%",
+      height: safeHeight ?? "100%",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
@@ -1976,20 +3025,27 @@ export function ImagePlaceholder({ hint, label, width, height, style, className,
       padding: 24,
       boxSizing: "border-box",
       overflow: "hidden",
-      ...(style && typeof style === "object" ? style : {}),
+      ...(safeStyle && typeof safeStyle === "object" ? safeStyle : {}),
     },
   }, icon, detail);
 }
 export function MorphElement({ id, children, as = "div", className, style, ...props }) {
+  if (typeof id !== "string" || !/^[A-Za-z_][A-Za-z0-9_.:-]{0,200}$/.test(id)) fail("Slide morph ids are invalid.");
+  if (typeof as !== "string" || !builtinSafeTags.has(as.toLowerCase())) fail("Slide element is not allowed.");
+  const safeProps = sanitizeBuiltinProps(as, props);
+  const safeClassName = safeBuiltinClassName(className);
+  const safeStyle = sanitizeBuiltinStyle(style);
   const child = Children.toArray(children)[0] ?? null;
   if (Children.count(children) === 1 && isValidElement(child) && typeof child.type === "string") {
+    if (!builtinSafeTags.has(child.type.toLowerCase())) fail("Slide element is not allowed.");
+    const childClassName = safeBuiltinClassName(child.props.className);
     return cloneElement(child, {
-      ...props,
+      ...safeProps,
       "data-slides2-morph": id,
-      className: [child.props.className, className].filter(Boolean).join(" ") || undefined,
-      style: style ? { ...child.props.style, ...style } : child.props.style,
+      className: [childClassName, safeClassName].filter(Boolean).join(" ") || undefined,
+      style: sanitizeBuiltinStyle({ ...(child.props.style || {}), ...(safeStyle || {}) }, false),
     });
   }
-  return React.createElement(as, { ...props, className, style, "data-slides2-morph": id }, children);
+  return React.createElement(as, { ...safeProps, className: safeClassName, style: safeStyle, "data-slides2-morph": id }, children);
 }
 `;

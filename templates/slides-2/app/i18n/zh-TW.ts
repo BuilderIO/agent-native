@@ -332,6 +332,7 @@ const messages = {
     media: "媒體",
     generateImage: "產生圖片",
     assetLibrary: "素材庫",
+    assets: "資產",
     globalAssetScope: "全域",
     imageOptions: "圖片選項",
     videoPlayback: "影片播放",
@@ -653,6 +654,7 @@ const messages = {
     x: "X",
     y: "Y",
     position: "位置",
+    source: "原始碼",
     selectParent: "選取父層元素",
     horizontal: "水平",
     vertical: "垂直",
@@ -674,6 +676,8 @@ const messages = {
     cornerRadius: "圓角半徑",
     strokeWeight: "描邊粗細",
     typography: "排版",
+    content: "內容",
+    editOnSlide: "在投影片上編輯",
     fontFamily: "字型家族",
     lineHeight: "行高",
     letterSpacing: "字距",
@@ -704,7 +708,7 @@ const messages = {
     secondary: "Secondary",
     accent: "Accent",
     surface: "Surface",
-    background: "Background",
+    background: "背景",
     text: "Text",
     muted: "Muted",
     white: "White",
@@ -792,7 +796,104 @@ const messages = {
     googleSlidesMissingImageData:
       "Google 簡報匯入現在會回報缺少的圖片資料，而不會加入空白圖片。",
     globalMediaPickerScope: "全域媒體選取器現在只顯示目前簡報可解析的素材。",
+    presenterControls: "簡報者控制項使用工作區共用的按鈕和輸入欄位",
+    presenterBuildStepPreview:
+      "簡報者主控台會在切換到下一張投影片前預覽每個剩餘的建立步驟。",
+    presenterBuildStepBounds:
+      "建置步驟控制項會阻止將步驟移至顯示順序起點之前或終點之後。",
+    staleSlidePreviews: "載入其他投影片前會清除過時的投影片預覽",
+    boundedMediaTransfers: "文件和投影片媒體傳輸會在安全的大小和時間限制內停止",
+    editorCanvasAppTheme:
+      "投影片編輯器的畫布和所選物件控制項會依照選取的應用程式主題顯示。",
+    editorInspectorTextControls:
+      "使用排版與色彩控制項設定文字格式，並直接在投影片上編輯選取的文字。",
     savedSlideImages: "已儲存投影片使用的圖片會繼續保留在你的素材庫中。",
+    keyboardObjectTransforms: "使用鍵盤調整和旋轉選取的投影片物件。",
+    editorToolbarInspector:
+      "投影片編輯控制項現在整合到精簡工具列中，讓格式設定和設計面板更容易存取。",
+    commandMenuTheme: "可從命令選單切換淺色與深色主題。",
+    skippedSlidePresentation:
+      "標記為略過的投影片不會出現在簡報中，投影片編號和總數也會正確顯示。",
+    browseDeckVersions: "瀏覽已儲存的簡報版本，並可在編輯器中還原先前的快照。",
+    frameMissObjectSelection:
+      "即使畫框未對準直接目標，點擊投影片物件仍可選取它。",
+    commandMenuShortcut: "按下 Command-K 即可開啟投影片編輯器的命令選單。",
+    crossDeckSlideCopy:
+      "可在簡報之間複製投影片、在編輯器中重新命名簡報，並在離開前提醒你儲存尚未儲存的變更。",
+    completedSlideGeneration:
+      "簡報生成會等到指定數量的投影片完成後才回報成功。",
+    deckTitleAndNotesLabel:
+      "編輯時仍會顯示較長的簡報標題，頁尾則使用較短的「備註」標籤。",
+    deleteFocusedCanvasObject:
+      "畫布取得焦點時，按 Delete 或 Backspace 可刪除選取的畫布物件。",
+    deleteSelectedSlideObject:
+      "按 Delete 或 Backspace 可從畫布刪除選取的投影片物件。",
+    slideOverviewFromRail: "可直接從投影片列開啟投影片總覽。",
+    presenterKeyboardNavigation:
+      "簡報支援使用 Page Up、Page Down、Home 和 End 鍵瀏覽投影片。",
+    sourceBackedPdfExport: "公開簡報頁面可將以原始碼為基礎的投影片匯出為 PDF。",
+    preserveDeckBriefOnRegeneration:
+      "重新生成投影片時會保留原始簡報簡介作為上下文。",
+    jumpToSlideByNumber: "輸入投影片編號即可跳至任意投影片，也支援多位數編號。",
+    mobileNavigationAndSlideChat:
+      "行動版支援收起鍵盤，投影片聊天連結也會跟隨目前投影片的位置。",
+    lightExtraBoldText:
+      "投影片文字現在支援 Light 和 Extra Bold 字重，可更精準調整排版。",
+    thumbnailArrowNavigation: "現在可使用四個方向鍵瀏覽投影片縮圖。",
+    homePromptDeckContinuity:
+      "從首頁提示生成的投影片會保留在你開始建立的簡報中。",
+    slideTransitions:
+      "投影片現在支援整份簡報與單張投影片的轉場、相符物件變形，以及逐步揭露效果。",
+    editorPanelWidthsAndRecovery:
+      "投影片編輯器的標題列和面板現在更接近參考畫面，縮放和動態效果工具可在命令選單中使用，復原的簡報也不再顯示過時錯誤。",
+    editorRailAndInspectorAlignment:
+      "投影片編輯器側欄、畫布背景、工具列和檢查器空狀態現在更符合編輯版面配置。",
+    chatEditPreviewVersion: "投影片編輯預覽現在會顯示該次編輯儲存的確切版本。",
+    objectCommentsStayAttached: "移動投影片物件時，留言仍會附著在該物件上。",
+    agentTextSelectionStability:
+      "編輯尚未完成時，代理程式的文字選取仍會連結至已儲存的投影片內容。",
+    templateDeckChatPreviews:
+      "從範本建立的簡報與已更新的簡報會在聊天中顯示預覽與操作。",
+    consistentSlideTextSpacing: "投影片文字在編輯器中維持一致的行距。",
+    renderFailuresCanvasMessage:
+      "無法轉譯的投影片現在會在畫布上顯示清楚的訊息。",
+    editorPageCountFooter: "編輯器會在頁尾顯示目前頁碼與總頁數。",
+    presentButtonReferenceAccent:
+      "簡報按鈕現在使用與投影片編輯器參考畫面一致的強調色。",
+    positionFieldsPreserveRotatedSize: "位置欄位在旋轉後仍會保留物件的大小。",
+    selectedSlideArrowNavigation:
+      "方向鍵會將選取的投影片物件移動 1 px，按住 Shift 時移動 10 px；未選取物件時，則用來切換投影片。",
+    chatPreviewStaleContent: "聊天預覽不會再顯示結果產生後已變更的投影片內容。",
+    deleteGlobalSlideImages: "可在投影片編輯器中刪除全域資產庫裡未使用的圖片。",
+    presenterSpaceActivation:
+      "聚焦的簡報控制按鈕現在可用空白鍵啟用，不會因此切換到下一張投影片。",
+    presenterPageUpPageDown:
+      "現在可使用 Page Up 和 Page Down 在簡報者視窗中切換投影片。",
+    presenterJumpCancellation:
+      "簡報者導覽會取消待處理的頁碼跳轉，避免它覆蓋之後的選擇。",
+    presenterBlankScreensAndNotes:
+      "簡報者畫面可切換為黑色或白色，也可調整講者備註的大小。",
+    restoreDeckVersionAgainstStaleEdits:
+      "還原舊版簡報後會受到保護，不會被較早的投影片編輯覆蓋。",
+    singleSlideRevealPreview:
+      "單頁預覽連結可將產生的投影片開啟至指定的逐步揭示步驟。",
+    agentConnectionStatus: "投影片編輯器會顯示智慧體是否已連線。",
+    svgPatternScaleRotation: "SVG 圖樣填色會保留其縮放比例與旋轉角度。",
+    sourceBackedClickAndPointer: "現在，原始碼式簡報支援點擊和指標移動。",
+    commandMenuUndoRedoShortcuts:
+      "投影片編輯器的命令選單現在會顯示復原與重做的鍵盤快速鍵。",
+    overlappingTextInlineEdit:
+      "當投影片圖稿與文字重疊時，按兩下文字即可開啟行內編輯。",
+    presenterViewAlignment:
+      "簡報者模式會在同一個檢視中顯示目前投影片、下一張投影片、講者備註和跳轉控制項。",
+    softerSlideFrameShadow: "投影片畫布現在使用更柔和的邊框陰影。",
+    presenterTouchNavigation: "簡報時向左或向右滑動即可切換投影片。",
+    lightCanvasBorderedSurface: "投影片畫布現在與淺色編輯器的外框表面一致。",
+    exactSlideTextFontSize: "編輯投影片文字時，現在可以輸入精確的字型大小。",
+    arrowKeysMoveSelectedObjects: "方向鍵會一起移動所有選取的投影片物件。",
+    redoKeyboardShortcuts: "重做使用 Shift+Command+Z 或 Ctrl+Y。",
+    importImageDataAndPreviewSync:
+      "PowerPoint 與 Google 文件匯入現在能更安全地處理大型圖片資料，並在簡報變更時保持產生的預覽同步。",
   },
   history: {
     unknownTime: "未知時間",
@@ -806,6 +907,8 @@ const messages = {
     versionRestoredDescription: "幻燈片已回滾到所選快照。",
     restoreFailed: "恢復失敗",
     restoreFailedDescription: "無法恢復此幻燈片版本。",
+    restoreRefreshFailed:
+      "版本已恢復，但編輯器無法重新整理。請重試以重新載入。",
     backToSavedVersions: "返回已儲存版本",
     savedVersions: "已儲存版本",
     description: "瀏覽已儲存的幻燈片版本並恢復以前的快照。",
@@ -821,6 +924,7 @@ const messages = {
     snapshotLoadFailed: "無法載入此已儲存版本。",
   },
   editorSidebar: {
+    pages: "頁面",
     selectSlide: "選取幻燈片 {{number}}",
     duplicateSlide: "複製幻燈片",
     moveSlideUp: "上移投影片",
@@ -858,6 +962,39 @@ const messages = {
     applyUpdates: "套用更新（{{count}}）",
   },
   slides2Editor: {
+    motion: "動態",
+    builds: "建構步驟",
+    addBuild: "新增建構步驟",
+    removeBuild: "移除建構步驟",
+    motionScope: "範圍",
+    moduleDefault: "模組預設值",
+    pageOverride: "頁面覆寫",
+    useModuleDefault: "使用模組預設值",
+    transitionDuration: "時長（毫秒）",
+    transitionEasing: "緩動",
+    transitionDelay: "延遲（毫秒）",
+    transitionEnter: "進入",
+    transitionExit: "離開",
+    throughBackground: "經過背景",
+    morph: "變形",
+    morphDescription: "在相鄰投影片上比對具有相同 ID 的物件。",
+    morphDuration: "變形時長（毫秒）",
+    morphDelay: "變形延遲（毫秒）",
+    morphEasing: "變形緩動",
+    morphId: "比對 ID",
+    morphIdPlaceholder: "例如 brand-mark",
+    setMorphId: "設定比對 ID",
+    removeMorph: "移除比對 ID",
+    buildDuration: "顯示時長（毫秒）",
+    moveBuildEarlier: "提前",
+    moveBuildLater: "延後",
+    defaultEasing: "繼承預設值",
+    respectReducedMotion: "轉場會遵循系統的減少動態效果偏好設定。",
+    design: "設計",
+    agentConnected: "智能體已連線",
+    format: "格式",
+    footerNotes: "備註",
+    footerPage: "第 {{current}}/{{total}} 頁",
     now: "現在",
     preview: "預覽",
     edit: "編輯",
@@ -867,7 +1004,8 @@ const messages = {
     fontWeightMedium: "中等",
     fontWeightSemibold: "半粗體",
     fontWeightBold: "粗體",
-    selectElement: "選取元素以編輯其屬性。",
+    selectElement: "選取物件",
+    selectElementHint: "點擊物件設定格式，按兩下文字進行編輯。",
     legacyTitle: "此簡報使用舊版投影片格式",
     legacyDescription: "請先要求 Slides 2 代理轉換簡報，再於此處編輯。",
     commands: "指令",
@@ -944,6 +1082,7 @@ const messages = {
     shuffle: "隨機設計",
   },
   slides2Presenter: {
+    presenterLabel: "簡報者",
     switchDeck: "切換簡報",
     searchDecks: "搜尋可存取的簡報",
     loadingDecks: "正在載入簡報…",
@@ -968,7 +1107,14 @@ const messages = {
     notesTextSize: "講者備註文字大小",
     decreaseNotesTextSize: "縮小備註文字",
     increaseNotesTextSize: "放大備註文字",
+    jumpLabel: "跳轉",
     jumpHint: "輸入投影片編號，然後按 Enter",
+    nowShowing: "正在顯示",
+    previousShort: "上一張",
+    nextShort: "下一張",
+    blackLabel: "黑",
+    whiteLabel: "白",
+    resetShort: "重設",
     slideLabel: "第 {{index}} 張投影片",
     position: "第 {{index}} 張，共 {{total}} 張",
     shortcutFirstLast: "前往第一張或最後一張投影片",
@@ -1238,6 +1384,8 @@ const messages = {
       unsupportedFileType: "不支援此檔案類型。請選擇支援的檔案。",
       uploadLimitExceeded:
         "上傳內容超出允許的限制。請縮小檔案或減少檔案數量後重試。",
+      pptxImageSizeLimit:
+        "此簡報包含超出匯入大小限制的圖片。請刪除或縮小這些圖片，然後再試一次。",
     },
     importDeck: "匯入簡報",
     context: {
@@ -1432,6 +1580,13 @@ const messages = {
     emptyDescription: "使用 AI 產生精美簡報。",
   },
   agentChat: {
+    settingsShell: {
+      account: {
+        themeFamilyAgentNative: "Agent-Native",
+        themeFamilyOriginal: "原始應用程式配色",
+        themeFamilySaveError: "無法更新主題樣式，請再試一次。",
+      },
+    },
     setup: {
       providerStatusUnavailable: "無法確認 AI 是否已就緒。",
     },

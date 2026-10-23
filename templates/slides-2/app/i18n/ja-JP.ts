@@ -354,6 +354,7 @@ const messages = {
     media: "メディア",
     generateImage: "画像を生成",
     assetLibrary: "アセットライブラリ",
+    assets: "アセット",
     globalAssetScope: "グローバル",
     imageOptions: "画像オプション",
     videoPlayback: "動画再生",
@@ -695,6 +696,7 @@ const messages = {
     x: "X",
     y: "Y",
     position: "位置",
+    source: "ソース",
     selectParent: "親要素を選択",
     horizontal: "横方向",
     vertical: "縦方向",
@@ -716,6 +718,8 @@ const messages = {
     cornerRadius: "角の半径",
     strokeWeight: "太さ",
     typography: "文字設定",
+    content: "コンテンツ",
+    editOnSlide: "スライド上で編集",
     fontFamily: "フォントファミリー",
     lineHeight: "行の高さ",
     letterSpacing: "文字間隔",
@@ -746,7 +750,7 @@ const messages = {
     secondary: "Secondary",
     accent: "Accent",
     surface: "Surface",
-    background: "Background",
+    background: "背景",
     text: "Text",
     muted: "Muted",
     white: "White",
@@ -838,8 +842,130 @@ const messages = {
       "Google スライドのインポートで、空の画像を追加する代わりに画像データが欠落していることを通知するようになりました。",
     globalMediaPickerScope:
       "グローバルメディアの選択肢には、現在のプレゼンテーションで解決できるアセットだけが表示されます。",
+    presenterControls:
+      "プレゼンターコントロールにワークスペース共通のボタンと入力欄を使用します",
+    presenterBuildStepPreview:
+      "プレゼンターコンソールでは、次のスライドに進む前に残りの作成ステップを1つずつプレビューできます。",
+    presenterBuildStepBounds:
+      "ビルドステップの操作では、表示順の先頭より前や末尾より後にステップを移動できません。",
+    staleSlidePreviews: "別のスライドを読み込む前に古いプレビューを消去します",
+    boundedMediaTransfers:
+      "ドキュメントとスライドのメディア転送は、安全なサイズと時間の上限内で停止します",
+    editorCanvasAppTheme:
+      "スライドエディターのキャンバスと選択したオブジェクトの操作部は、選択中のアプリテーマに合わせて表示されます。",
+    editorInspectorTextControls:
+      "文字設定と色のコントロールでテキストを整え、スライド上で直接編集できます。",
     savedSlideImages:
       "保存済みスライドで使われている画像は、ライブラリで引き続き利用できます。",
+    keyboardObjectTransforms:
+      "キーボードで選択したスライドオブジェクトのサイズ変更や回転ができます。",
+    editorToolbarInspector:
+      "スライド編集コントロールをコンパクトなツールバーにまとめ、書式設定とデザインのパネルにアクセスしやすくしました。",
+    commandMenuTheme:
+      "コマンドメニューからライトテーマとダークテーマを切り替えられます。",
+    skippedSlidePresentation:
+      "スキップ対象のスライドはプレゼンテーションに表示されず、スライド番号と合計も正しく表示されます。",
+    browseDeckVersions:
+      "保存済みのデッキバージョンを確認し、エディターから以前のスナップショットを復元できます。",
+    frameMissObjectSelection:
+      "フレームが直接の対象を捉えられなくても、スライドオブジェクトをクリックすると選択できます。",
+    commandMenuShortcut:
+      "Command-Kでスライドエディターのコマンドメニューを開きます。",
+    crossDeckSlideCopy:
+      "デッキ間でスライドをコピーし、エディターでデッキ名を変更できます。未保存の変更がある状態で離れる前に警告も表示されます。",
+    completedSlideGeneration:
+      "デッキの生成は、成功を報告する前に指定された枚数のスライドが完成するまで待ちます。",
+    deckTitleAndNotesLabel:
+      "編集中も長いデッキ名が表示され、フッターでは短い「ノート」ラベルを使用します。",
+    deleteFocusedCanvasObject:
+      "キャンバスにフォーカスがあるとき、DeleteとBackspaceで選択中のキャンバスオブジェクトを削除できます。",
+    deleteSelectedSlideObject:
+      "DeleteとBackspaceで選択中のスライドオブジェクトをキャンバスから削除できます。",
+    slideOverviewFromRail: "スライドレールから直接、スライドの概要を開けます。",
+    presenterKeyboardNavigation:
+      "プレゼンテーションのスライド移動にPage Up、Page Down、Home、Endキーを利用できます。",
+    sourceBackedPdfExport:
+      "公開デッキページから、ソースベースのスライドをPDFに書き出せます。",
+    preserveDeckBriefOnRegeneration:
+      "スライドの再生成時も、元のデッキの概要がコンテキストに保持されます。",
+    jumpToSlideByNumber:
+      "複数桁の番号も入力して、任意のスライドに移動できます。",
+    mobileNavigationAndSlideChat:
+      "モバイルではキーボードを閉じられ、スライドチャットのリンクはスライドの現在位置に追従します。",
+    lightExtraBoldText:
+      "スライドのテキストでLightとExtra Boldのウェイトが使えるようになり、文字の印象をより細かく調整できます。",
+    thumbnailArrowNavigation:
+      "スライドのサムネイルは4つの矢印キーすべてで移動できます。",
+    homePromptDeckContinuity:
+      "ホーム画面のプロンプトから生成したスライドは、開始したデッキに保存されます。",
+    slideTransitions:
+      "デッキ全体またはスライドごとの切り替え、対応オブジェクトのモーフ、段階的な表示に対応しました。",
+    editorPanelWidthsAndRecovery:
+      "スライドエディターのヘッダーとパネルが参照画面により近づき、ズームとモーションのツールはコマンドメニューから使えるようになり、復旧したデッキに古いエラーが表示されなくなりました。",
+    editorRailAndInspectorAlignment:
+      "スライドエディターのサイドバー、キャンバスの背景、ツールバー、インスペクターの空状態が、編集画面のレイアウトにより近づきました。",
+    chatEditPreviewVersion:
+      "スライド編集のプレビューに、編集で保存された正確なバージョンが表示されるようになりました。",
+    objectCommentsStayAttached:
+      "スライド上のオブジェクトを移動しても、コメントはそのオブジェクトに付いたままです。",
+    agentTextSelectionStability:
+      "編集が保留中でも、エージェントのテキスト選択は保存済みのスライド内容に紐づきます。",
+    templateDeckChatPreviews:
+      "テンプレートから作成したデッキや更新したデッキのプレビューと操作がチャットに表示されます。",
+    consistentSlideTextSpacing:
+      "スライドのテキストはエディター内で一貫した行間を保ちます。",
+    renderFailuresCanvasMessage:
+      "表示できないスライドに、キャンバス上でわかりやすいメッセージが表示されるようになりました。",
+    editorPageCountFooter:
+      "エディターのフッターに現在のページと総ページ数が表示されます。",
+    presentButtonReferenceAccent:
+      "Present ボタンのアクセントカラーがスライドエディターの参照色に合うようになりました。",
+    positionFieldsPreserveRotatedSize:
+      "位置フィールドは、回転後もオブジェクトのサイズを維持します。",
+    selectedSlideArrowNavigation:
+      "矢印キーを押すと、選択したスライドオブジェクトが1 px、Shiftキーと併用すると10 px移動します。オブジェクトが選択されていない場合は、スライドを移動します。",
+    chatPreviewStaleContent:
+      "チャットのプレビューには、結果が出た後に変更されたスライド内容が表示されなくなりました。",
+    deleteGlobalSlideImages:
+      "スライドエディターで、グローバルアセットコレクションから未使用の画像を削除できます。",
+    presenterSpaceActivation:
+      "選択中のプレゼンターボタンは、スライドを進めずに Space キーで操作できるようになりました。",
+    presenterPageUpPageDown:
+      "Page Up と Page Down でプレゼンターウィンドウを移動できるようになりました。",
+    presenterJumpCancellation:
+      "プレゼンターの移動操作で保留中のスライド番号ジャンプを取り消し、後から選んだ移動が上書きされないようになりました。",
+    presenterBlankScreensAndNotes:
+      "プレゼンター画面を黒または白に切り替えられ、発表者ノートのサイズも変更できます。",
+    restoreDeckVersionAgainstStaleEdits:
+      "以前のデッキバージョンを復元するとき、古いスライド編集で上書きされないように保護されるようになりました。",
+    singleSlideRevealPreview:
+      "単一スライドのプレビューリンクから、生成したスライドを指定の表示ステップで開けます。",
+    agentConnectionStatus:
+      "スライドエディターに、エージェントの接続状態が表示されます。",
+    svgPatternScaleRotation:
+      "SVG パターンの塗りつぶしは、拡大縮小率と回転を維持します。",
+    sourceBackedClickAndPointer:
+      "ソースコードに基づくプレゼンテーションでも、クリックやポインターの移動が機能するようになりました。",
+    commandMenuUndoRedoShortcuts:
+      "スライドエディターのコマンドメニューに、元に戻す／やり直すためのキーボードショートカットが表示されるようになりました。",
+    overlappingTextInlineEdit:
+      "スライドの図版がテキストに重なっている場合でも、テキストをダブルクリックするとインライン編集が開くようになりました。",
+    presenterViewAlignment:
+      "プレゼンターモードでは、現在のスライド、次のスライド、スピーカーノート、ジャンプ操作を1つの画面にまとめて表示します。",
+    softerSlideFrameShadow:
+      "スライドキャンバスのフレームに、より柔らかな影を使うようになりました。",
+    presenterTouchNavigation:
+      "プレゼンテーション中に左右へスワイプすると、スライドを移動できます。",
+    lightCanvasBorderedSurface:
+      "スライドキャンバスがライトエディターの枠線付きの面に揃うようになりました。",
+    exactSlideTextFontSize:
+      "スライドのテキストを編集中に、フォントサイズを正確に入力できます。",
+    arrowKeysMoveSelectedObjects:
+      "矢印キーですべての選択したスライドオブジェクトをまとめて移動できます。",
+    redoKeyboardShortcuts:
+      "やり直しには Shift+Command+Z または Ctrl+Y を使います。",
+    importImageDataAndPreviewSync:
+      "PowerPoint と Google Docs のインポートで大きな画像データをより安全に扱えるようになり、デッキを変更すると生成されたプレビューも同期されるようになりました。",
   },
   history: {
     unknownTime: "未知时间",
@@ -853,6 +979,8 @@ const messages = {
     versionRestoredDescription: "幻灯片已回滚到所选快照。",
     restoreFailed: "恢复失败",
     restoreFailedDescription: "无法恢复此幻灯片版本。",
+    restoreRefreshFailed:
+      "バージョンは復元されましたが、エディターを更新できませんでした。再試行して再読み込みしてください。",
     backToSavedVersions: "返回已保存版本",
     savedVersions: "已保存版本",
     description: "浏览已保存的幻灯片版本并恢复以前的快照。",
@@ -868,6 +996,7 @@ const messages = {
     snapshotLoadFailed: "この保存済みバージョンを読み込めませんでした。",
   },
   editorSidebar: {
+    pages: "ページ",
     selectSlide: "选择幻灯片 {{number}}",
     duplicateSlide: "复制幻灯片",
     moveSlideUp: "スライドを上に移動",
@@ -906,6 +1035,41 @@ const messages = {
     applyUpdates: "更新を適用（{{count}}）",
   },
   slides2Editor: {
+    motion: "モーション",
+    builds: "ビルド",
+    addBuild: "ビルドを追加",
+    removeBuild: "ビルドを削除",
+    motionScope: "適用範囲",
+    moduleDefault: "モジュールの既定値",
+    pageOverride: "スライドの上書き",
+    useModuleDefault: "モジュールの既定値を使用",
+    transitionDuration: "時間（ミリ秒）",
+    transitionEasing: "イージング",
+    transitionDelay: "遅延（ミリ秒）",
+    transitionEnter: "開始",
+    transitionExit: "終了",
+    throughBackground: "背景を経由",
+    morph: "モーフ",
+    morphDescription:
+      "連続するスライドで同じ ID のオブジェクトを対応付けます。",
+    morphDuration: "モーフ時間（ミリ秒）",
+    morphDelay: "モーフ遅延（ミリ秒）",
+    morphEasing: "モーフのイージング",
+    morphId: "対応 ID",
+    morphIdPlaceholder: "例: brand-mark",
+    setMorphId: "対応 ID を設定",
+    removeMorph: "対応 ID を削除",
+    buildDuration: "表示時間（ミリ秒）",
+    moveBuildEarlier: "前へ",
+    moveBuildLater: "後へ",
+    defaultEasing: "既定値を継承",
+    respectReducedMotion:
+      "トランジションはシステムの視差効果を減らす設定に従います。",
+    design: "デザイン",
+    agentConnected: "エージェント接続済み",
+    format: "書式",
+    footerNotes: "ノート",
+    footerPage: "{{current}}/{{total}} ページ",
     now: "現在",
     preview: "プレビュー",
     edit: "編集",
@@ -915,7 +1079,9 @@ const messages = {
     fontWeightMedium: "ミディアム",
     fontWeightSemibold: "セミボールド",
     fontWeightBold: "太字",
-    selectElement: "要素を選択してプロパティを編集します。",
+    selectElement: "オブジェクトを選択",
+    selectElementHint:
+      "オブジェクトをクリックして書式を設定します。テキストをダブルクリックして編集します。",
     legacyTitle: "このデッキは旧スライド形式を使用しています",
     legacyDescription:
       "ここで編集する前に、Slides 2 エージェントにデッキの変換を依頼してください。",
@@ -997,6 +1163,7 @@ const messages = {
     shuffle: "デザインをシャッフル",
   },
   slides2Presenter: {
+    presenterLabel: "発表者",
     switchDeck: "デッキを切り替え",
     searchDecks: "アクセス可能なデッキを検索",
     loadingDecks: "デッキを読み込み中…",
@@ -1022,7 +1189,14 @@ const messages = {
     notesTextSize: "発表者ノートの文字サイズ",
     decreaseNotesTextSize: "ノートの文字を小さくする",
     increaseNotesTextSize: "ノートの文字を大きくする",
+    jumpLabel: "移動",
     jumpHint: "スライド番号を入力して Enter キーを押します",
+    nowShowing: "表示中",
+    previousShort: "前へ",
+    nextShort: "次へ",
+    blackLabel: "黒",
+    whiteLabel: "白",
+    resetShort: "リセット",
     slideLabel: "スライド {{index}}",
     position: "{{total}} 枚中 {{index}} 枚目",
     shortcutFirstLast: "最初または最後のスライドへ移動",
@@ -1321,6 +1495,8 @@ const messages = {
         "このファイル形式はサポートされていません。対応しているファイルを選択してください。",
       uploadLimitExceeded:
         "アップロードが許可された上限を超えています。ファイルを小さくするか、選択するファイルを減らして再試行してください。",
+      pptxImageSizeLimit:
+        "このプレゼンテーションには、インポートサイズの上限を超える画像が含まれています。画像を削除するか縮小して、もう一度お試しください。",
     },
     importDeck: "デッキをインポート",
     context: {
@@ -1525,6 +1701,14 @@ const messages = {
     emptyDescription: "AI 生成で美しいプレゼンテーションを作成できます。",
   },
   agentChat: {
+    settingsShell: {
+      account: {
+        themeFamilyAgentNative: "Agent-Native",
+        themeFamilyOriginal: "アプリのオリジナルカラー",
+        themeFamilySaveError:
+          "テーマを更新できませんでした。もう一度お試しください。",
+      },
+    },
     setup: {
       providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },

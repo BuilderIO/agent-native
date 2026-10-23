@@ -1,5 +1,6 @@
-import { defineAction, embedApp, fail } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
+import { embedApp } from "@agent-native/core/mcp";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {

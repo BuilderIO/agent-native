@@ -5,7 +5,7 @@ import exportPptxAction from "./export-pptx.js";
 
 export default defineAction({
   description:
-    "Export a deck for Google Slides by generating a PPTX (the format Google Slides imports) and returning a download URL plus the Google Slides import dialog URL. Slides with React source but no static HTML preview return source_runtime_export_required from the delegated PPTX export before a file is created. The user can drag the file into Google Slides or use File → Import.",
+    "Export a deck for Google Slides by generating a PPTX (the format Google Slides imports) and returning a download URL plus the Google Slides import dialog URL. The delegated PPTX action attempts bounded static rendering for supported source slides without a saved preview; source that requires browser Worker rendering returns source_runtime_export_required before a file is created. The editor menu can render those slides in its opaque-origin sandbox and build the PPTX locally. The user can drag the file into Google Slides or use File → Import.",
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
     includeNotes: z

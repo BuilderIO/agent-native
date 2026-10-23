@@ -181,7 +181,11 @@ export function InlineTextEditor({
     setDraft(nextDraft);
   };
 
-  const applyInlineStyle = (key: InlineTextStyleKey, value: string | null) => {
+  const applyInlineStyle = (
+    key: InlineTextStyleKey,
+    value: string | null,
+    focusEditor = true,
+  ) => {
     const selection = currentSelection();
     const start = selection?.start ?? 0;
     const end = selection?.end ?? 0;
@@ -205,7 +209,7 @@ export function InlineTextEditor({
       styleOpsRef.current = nextStyleOps;
       setStyleOps(nextStyleOps);
     }
-    editableRef.current?.focus();
+    if (focusEditor) editableRef.current?.focus();
   };
 
   const selectedStyleValue = (key: InlineTextStyleKey) => {
@@ -346,9 +350,18 @@ export function InlineTextEditor({
           >
             <IconPlus className="size-4" aria-hidden="true" />
           </Button>
-          <span className="min-w-8 text-center text-xs tabular-nums text-muted-foreground">
-            {fontSize}
-          </span>
+          <FontSizeInput
+            value={fontSize}
+            disabled={disabled}
+            label={t("styleInspector.size")}
+            onCommit={(value) =>
+              applyInlineStyle(
+                "fontSize",
+                `${Math.min(400, Math.max(4, Math.round(value)))}px`,
+                false,
+              )
+            }
+          />
           <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-border" />
           <Button
             type="button"
@@ -542,6 +555,56 @@ export function InlineTextEditor({
         {draft}
       </div>
     </>
+  );
+}
+
+function FontSizeInput({
+  value,
+  disabled,
+  label,
+  onCommit,
+}: {
+  value: number;
+  disabled: boolean;
+  label: string;
+  onCommit: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commit = () => {
+    const parsed = Number.parseFloat(draft);
+    if (Number.isFinite(parsed)) onCommit(parsed);
+    else setDraft(String(value));
+  };
+
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      value={draft}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      onPointerDown={(event) => event.stopPropagation()}
+      onChange={(event) => setDraft(event.currentTarget.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          onCommit(value + 1);
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          onCommit(value - 1);
+        }
+      }}
+      className="h-7 w-12 min-w-0 border-transparent bg-transparent px-1 text-center font-mono text-xs shadow-none hover:border-border focus-visible:border-ring focus-visible:ring-0"
+    />
   );
 }
 

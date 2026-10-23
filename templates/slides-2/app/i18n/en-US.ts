@@ -346,6 +346,7 @@ const messages = {
     media: "Media",
     generateImage: "Generate Image",
     assetLibrary: "Asset Library",
+    assets: "Assets",
     globalAssetScope: "Global",
     imageOptions: "Image options",
     videoPlayback: "Video playback",
@@ -681,6 +682,7 @@ const messages = {
     x: "X",
     y: "Y",
     position: "Position",
+    source: "Source",
     selectParent: "Select parent element",
     horizontal: "Horizontal",
     vertical: "Vertical",
@@ -702,6 +704,8 @@ const messages = {
     cornerRadius: "Corner radius",
     strokeWeight: "Weight",
     typography: "Typography",
+    content: "Content",
+    editOnSlide: "Edit on slide",
     fontFamily: "Font family",
     lineHeight: "Line height",
     letterSpacing: "Letter spacing",
@@ -825,8 +829,129 @@ const messages = {
       "Google Slides imports now report missing image data instead of adding empty images.",
     globalMediaPickerScope:
       "Scope global media picks to assets the current deck can resolve.",
+    presenterControls:
+      "Presenter controls use shared workspace buttons and inputs",
+    presenterBuildStepPreview:
+      "The presenter console previews each remaining build step before moving to the next slide.",
+    presenterBuildStepBounds:
+      "Build step controls disable moves past the start and end of the reveal order.",
+    staleSlidePreviews:
+      "Stale slide previews clear before a different slide loads",
+    boundedMediaTransfers:
+      "Document and slide media transfers stop within safe size and time limits",
+    editorCanvasAppTheme:
+      "The slide editor follows your selected app theme across the canvas and selected-object controls.",
+    editorInspectorTextControls:
+      "Style text with typography and color controls, then edit it directly on the slide.",
     savedSlideImages:
       "Images used by saved slides stay available in your library.",
+    keyboardObjectTransforms:
+      "Resize and rotate selected slide objects with the keyboard.",
+    editorToolbarInspector:
+      "Slide editing controls are grouped into compact toolbars, with clearer access to formatting and design panels.",
+    commandMenuTheme:
+      "Switch between light and dark themes from the command menu",
+    skippedSlidePresentation:
+      "Slides marked to skip are omitted from presentations, with correct slide numbers and totals",
+    browseDeckVersions:
+      "Browse saved deck versions and restore a previous snapshot from the editor.",
+    frameMissObjectSelection:
+      "Clicking slide objects selects them when the frame misses the direct target.",
+    commandMenuShortcut: "Command-K opens the slide editor's command menu",
+    crossDeckSlideCopy:
+      "Copy slides between decks, rename decks in the editor, and get warned before leaving with unsaved changes.",
+    completedSlideGeneration:
+      "Deck generation waits for the requested number of completed slides before reporting success.",
+    deckTitleAndNotesLabel:
+      "Long deck titles stay visible while editing, and the footer uses a shorter Notes label.",
+    deleteFocusedCanvasObject:
+      "Delete and Backspace remove the selected canvas object when the canvas has focus.",
+    deleteSelectedSlideObject:
+      "Delete and Backspace remove the selected slide object from the canvas",
+    slideOverviewFromRail:
+      "Open the slide overview directly from the slide rail.",
+    presenterKeyboardNavigation:
+      "Presentations support Page Up, Page Down, Home, and End for keyboard slide navigation.",
+    sourceBackedPdfExport:
+      "Public deck pages can export source-backed slides to PDF",
+    preserveDeckBriefOnRegeneration:
+      "Slide regeneration keeps the original deck brief in context",
+    jumpToSlideByNumber:
+      "Jump to any presentation slide by typing its number, including multi-digit slide numbers.",
+    mobileNavigationAndSlideChat:
+      "Mobile navigation supports keyboard dismissal, and slide chat links follow the slide's current position",
+    lightExtraBoldText:
+      "Slide text can now use light and extra-bold weights for more precise typography.",
+    thumbnailArrowNavigation:
+      "Slide thumbnails now navigate with all four arrow keys.",
+    homePromptDeckContinuity:
+      "Slides generated from a home-screen prompt now stay in the deck you started.",
+    slideTransitions:
+      "Slides now support deck-wide and per-slide transitions, matched-object morphs, and step-by-step reveals.",
+    editorPanelWidthsAndRecovery:
+      "The editor header and panels now match the reference more closely, zoom and motion tools are in the command menu, and recovered decks no longer show stale errors.",
+    editorRailAndInspectorAlignment:
+      "The slide editor rail, canvas backdrop, toolbar, and inspector empty state now align more closely with the editing layout.",
+    chatEditPreviewVersion:
+      "Slide edit previews now match the exact version saved by the edit.",
+    objectCommentsStayAttached:
+      "Comments stay attached to slide objects when they move",
+    agentTextSelectionStability:
+      "Agent text selections stay tied to saved slide content while edits are pending.",
+    templateDeckChatPreviews:
+      "Decks created from templates and updated decks show previews and actions in chat.",
+    consistentSlideTextSpacing:
+      "Slide text keeps consistent line spacing in the editor.",
+    renderFailuresCanvasMessage:
+      "Slides that fail to render now show a clear message on the canvas.",
+    editorPageCountFooter:
+      "The editor shows the current page and total in the footer",
+    presentButtonReferenceAccent:
+      "The Present button now matches the slide editor's reference accent color",
+    positionFieldsPreserveRotatedSize:
+      "Position fields preserve an object's size after rotation",
+    selectedSlideArrowNavigation:
+      "Arrow keys move selected slide objects by 1 px, or 10 px with Shift; without a selection, they navigate slides.",
+    chatPreviewStaleContent:
+      "Chat previews no longer show slide content that changed after the result.",
+    deleteGlobalSlideImages:
+      "Delete unused images from the global asset collection in the slide editor.",
+    presenterSpaceActivation:
+      "Focused presenter buttons now use Space to activate the selected control instead of advancing the deck.",
+    presenterPageUpPageDown:
+      "Page Up and Page Down can now navigate the presenter window",
+    presenterJumpCancellation:
+      "Presenter navigation cancels pending slide-number jumps so they cannot override a later choice.",
+    presenterBlankScreensAndNotes:
+      "Presenter screens can be blanked in black or white, and speaker notes can be resized.",
+    restoreDeckVersionAgainstStaleEdits:
+      "Restoring a previous deck version now protects it from older slide edits.",
+    singleSlideRevealPreview:
+      "Single-slide preview links can open a generated slide at a specific reveal step.",
+    agentConnectionStatus:
+      "The slide editor shows when the agent is connected.",
+    svgPatternScaleRotation:
+      "SVG pattern fills preserve their scale and rotation",
+    sourceBackedClickAndPointer:
+      "Clicks and pointer movement now work on source-backed presentations",
+    commandMenuUndoRedoShortcuts:
+      "The slide editor command menu shows the keyboard shortcuts for undo and redo.",
+    overlappingTextInlineEdit:
+      "Double-clicking text now opens inline editing when slide artwork overlaps it.",
+    presenterViewAlignment:
+      "Presenter mode lines up the current slide, next slide, speaker notes, and jump control in one view.",
+    softerSlideFrameShadow: "Slide canvases now use a softer frame shadow",
+    presenterTouchNavigation:
+      "Swipe left or right to move between slides while presenting",
+    lightCanvasBorderedSurface:
+      "The slide canvas now matches the light editor’s bordered surface.",
+    exactSlideTextFontSize:
+      "You can type an exact font size while editing slide text.",
+    arrowKeysMoveSelectedObjects:
+      "Arrow keys move all selected slide objects together",
+    redoKeyboardShortcuts: "Redo uses Shift+Command+Z or Ctrl+Y",
+    importImageDataAndPreviewSync:
+      "PowerPoint and Google Docs imports now handle large image data more safely, and generated previews stay in sync when decks change.",
   },
   history: {
     unknownTime: "Unknown time",
@@ -841,6 +966,8 @@ const messages = {
       "The deck was rolled back to the selected snapshot.",
     restoreFailed: "Restore failed",
     restoreFailedDescription: "Could not restore this deck version.",
+    restoreRefreshFailed:
+      "The version was restored, but the editor could not refresh. Retry to reload it.",
     backToSavedVersions: "Back to history",
     savedVersions: "History",
     description: "Browse deck history and restore a previous snapshot.",
@@ -857,6 +984,7 @@ const messages = {
     snapshotLoadFailed: "Could not load this saved version.",
   },
   editorSidebar: {
+    pages: "Pages",
     selectSlide: "Select slide {{number}}",
     duplicateSlide: "Duplicate slide",
     moveSlideUp: "Move slide up",
@@ -894,6 +1022,40 @@ const messages = {
     applyUpdates: "Apply Updates ({{count}})",
   },
   slides2Editor: {
+    motion: "Motion",
+    builds: "Builds",
+    addBuild: "Add build",
+    removeBuild: "Remove build",
+    motionScope: "Scope",
+    moduleDefault: "Module default",
+    pageOverride: "Page override",
+    useModuleDefault: "Use module default",
+    transitionDuration: "Duration (ms)",
+    transitionEasing: "Easing",
+    transitionDelay: "Delay (ms)",
+    transitionEnter: "Enter",
+    transitionExit: "Exit",
+    throughBackground: "Pass through background",
+    morph: "Morph",
+    morphDescription: "Match objects with the same ID on consecutive slides.",
+    morphDuration: "Morph duration (ms)",
+    morphDelay: "Morph delay (ms)",
+    morphEasing: "Morph easing",
+    morphId: "Match ID",
+    morphIdPlaceholder: "e.g. brand-mark",
+    setMorphId: "Set match ID",
+    removeMorph: "Remove match ID",
+    buildDuration: "Reveal duration (ms)",
+    moveBuildEarlier: "Earlier",
+    moveBuildLater: "Later",
+    defaultEasing: "Inherit default",
+    respectReducedMotion:
+      "Transitions honor the system reduced-motion preference.",
+    design: "Design",
+    agentConnected: "Agent connected",
+    format: "Format",
+    footerNotes: "Notes",
+    footerPage: "page {{current}}/{{total}}",
     now: "NOW",
     preview: "Preview",
     edit: "Edit",
@@ -903,7 +1065,9 @@ const messages = {
     fontWeightMedium: "Medium",
     fontWeightSemibold: "Semibold",
     fontWeightBold: "Bold",
-    selectElement: "Select an element to edit its properties.",
+    selectElement: "Select an object",
+    selectElementHint:
+      "Click an object to format it. Double-click text to edit.",
     legacyTitle: "This deck uses the older slide format",
     legacyDescription:
       "Ask the Slides 2 agent to convert the deck before editing it here.",
@@ -984,6 +1148,7 @@ const messages = {
     shuffle: "Shuffle design",
   },
   slides2Presenter: {
+    presenterLabel: "Presenter",
     switchDeck: "Switch deck",
     searchDecks: "Search accessible decks",
     loadingDecks: "Loading decks…",
@@ -1008,7 +1173,14 @@ const messages = {
     notesTextSize: "Speaker notes text size",
     decreaseNotesTextSize: "Decrease notes text size",
     increaseNotesTextSize: "Increase notes text size",
+    jumpLabel: "Jump",
     jumpHint: "Type a slide number, then press Enter",
+    nowShowing: "Now showing",
+    previousShort: "Prev",
+    nextShort: "Next",
+    blackLabel: "Black",
+    whiteLabel: "White",
+    resetShort: "Reset",
     slideLabel: "Slide {{index}}",
     position: "Slide {{index}} of {{total}}",
     shortcutFirstLast: "Go to the first or last slide",
@@ -1294,6 +1466,8 @@ const messages = {
         "This file type isn't supported. Choose a supported file.",
       uploadLimitExceeded:
         "The upload exceeds a supported limit. Reduce the file size or choose fewer files, then retry.",
+      pptxImageSizeLimit:
+        "This presentation contains images that exceed the import size limit. Remove or resize them, then try again.",
     },
     importDeck: "Import Deck",
     context: {
@@ -1498,6 +1672,13 @@ const messages = {
       "Build beautiful presentations with AI-powered generation.",
   },
   agentChat: {
+    settingsShell: {
+      account: {
+        themeFamilyAgentNative: "Agent-Native",
+        themeFamilyOriginal: "Original app colors",
+        themeFamilySaveError: "Could not update the theme family. Try again.",
+      },
+    },
     setup: {
       providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },

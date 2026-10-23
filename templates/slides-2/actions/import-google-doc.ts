@@ -10,11 +10,46 @@ import {
 
 const DEFAULT_MAX_CHARS = 60_000;
 const MAX_EXPORT_BYTES = 1_000_000;
+const MAX_EXPORT_CHARS = 200_000;
 const EXPORT_TIMEOUT_MS = 20_000;
 
 class GoogleDocAccessError extends Error {}
+class GoogleDocTooLargeError extends Error {}
 
-async function fetchExportText(
+class GoogleDocResponseCleanupError extends Error {
+  readonly errorCode = "google_doc_response_cleanup_failed";
+
+  constructor(
+    readonly primaryError: unknown,
+    readonly cleanupError: unknown,
+  ) {
+    super("Could not stop reading the Google Docs export response.");
+  }
+}
+
+async function cancelGoogleDocResponse(
+  response: Response,
+  primaryError?: unknown,
+) {
+  try {
+    await response.body?.cancel();
+  } catch (cleanupError) {
+    throw new GoogleDocResponseCleanupError(primaryError, cleanupError);
+  }
+}
+
+async function cancelGoogleDocReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  primaryError: unknown,
+) {
+  try {
+    await reader.cancel();
+  } catch (cleanupError) {
+    throw new GoogleDocResponseCleanupError(primaryError, cleanupError);
+  }
+}
+
+async function fetchExportTextWithTimeout(
   url: string,
   init?: RequestInit,
 ): Promise<string> {
@@ -22,9 +57,12 @@ async function fetchExportText(
   const timeout = setTimeout(() => controller.abort(), EXPORT_TIMEOUT_MS);
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
-    return await readExportText(response);
+    return await readExportText(response, controller.signal);
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (
+      controller.signal.aborted &&
+      !(error instanceof GoogleDocResponseCleanupError)
+    ) {
       throw new GoogleDocAccessError("Google Docs export timed out.");
     }
     throw error;
@@ -42,47 +80,93 @@ function isGoogleHtmlAccessPage(text: string, contentType: string | null) {
   );
 }
 
-async function readBoundedExportText(response: Response): Promise<string> {
-  const declaredSize = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredSize) && declaredSize > MAX_EXPORT_BYTES) {
-    await response.body?.cancel();
-    throw new GoogleDocAccessError(
-      "Google returned an export that exceeds the import size limit.",
+function assertExportSize(size: number, total: number, limit: number) {
+  if (size > limit - total) {
+    throw new GoogleDocTooLargeError(
+      "Google Doc export exceeds the supported size limit.",
     );
+  }
+}
+
+async function readResponseText(
+  response: Response,
+  signal: AbortSignal,
+): Promise<string> {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && /^\d+$/.test(contentLength)) {
+    const declaredBytes = Number(contentLength);
+    if (Number.isSafeInteger(declaredBytes)) {
+      try {
+        assertExportSize(declaredBytes, 0, MAX_EXPORT_BYTES);
+      } catch (error) {
+        await cancelGoogleDocResponse(response, error);
+        throw error;
+      }
+    }
   }
 
   const reader = response.body?.getReader();
   if (!reader) return "";
+
+  let rejectOnAbort!: (reason: Error) => void;
+  const aborted = new Promise<never>((_, reject) => {
+    rejectOnAbort = reject;
+  });
+  const onAbort = () =>
+    rejectOnAbort(
+      new GoogleDocAccessError(
+        "Google Docs export timed out while reading document text.",
+      ),
+    );
+  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) onAbort();
+
   const decoder = new TextDecoder();
-  let size = 0;
-  let text = "";
+  const chunks: string[] = [];
+  let bytesRead = 0;
+  let charsRead = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await Promise.race([reader.read(), aborted]);
       if (done) break;
-      size += value.byteLength;
-      if (size > MAX_EXPORT_BYTES) {
-        await reader.cancel();
-        throw new GoogleDocAccessError(
-          "Google returned an export that exceeds the import size limit.",
-        );
-      }
-      text += decoder.decode(value, { stream: true });
+
+      bytesRead += value.byteLength;
+      assertExportSize(
+        value.byteLength,
+        bytesRead - value.byteLength,
+        MAX_EXPORT_BYTES,
+      );
+
+      const chunk = decoder.decode(value, { stream: true });
+      assertExportSize(chunk.length, charsRead, MAX_EXPORT_CHARS);
+      charsRead += chunk.length;
+      chunks.push(chunk);
     }
-    return text + decoder.decode();
+
+    const tail = decoder.decode();
+    assertExportSize(tail.length, charsRead, MAX_EXPORT_CHARS);
+    chunks.push(tail);
+    return chunks.join("");
+  } catch (error) {
+    if (!signal.aborted) await cancelGoogleDocReader(reader, error);
+    throw error;
   } finally {
+    signal.removeEventListener("abort", onAbort);
     reader.releaseLock();
   }
 }
 
-async function readExportText(response: Response): Promise<string> {
+async function readExportText(
+  response: Response,
+  signal: AbortSignal,
+): Promise<string> {
   if (!response.ok) {
-    await response.body?.cancel();
+    await cancelGoogleDocResponse(response);
     throw new GoogleDocAccessError(
       `Google returned HTTP ${response.status} while exporting the document.`,
     );
   }
-  const text = await readBoundedExportText(response);
+  const text = await readResponseText(response, signal);
   if (isGoogleHtmlAccessPage(text, response.headers.get("content-type"))) {
     throw new GoogleDocAccessError(
       "Google returned a sign-in or access page instead of document text.",
@@ -100,14 +184,14 @@ async function exportWithDriveToken(
   token: string,
 ): Promise<string> {
   const params = new URLSearchParams({ mimeType: "text/plain" });
-  return fetchExportText(
+  return fetchExportTextWithTimeout(
     `https://www.googleapis.com/drive/v3/files/${documentId}/export?${params}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
 }
 
 async function exportPublicDocument(documentId: string): Promise<string> {
-  return fetchExportText(
+  return fetchExportTextWithTimeout(
     `https://docs.google.com/document/d/${documentId}/export?format=txt`,
   );
 }
@@ -157,6 +241,7 @@ export default defineAction({
 
     let text: string | null = null;
     let source: "user-oauth" | "public-export" | null = null;
+    let exportTooLarge = false;
 
     if (userConnection) {
       try {
@@ -166,17 +251,44 @@ export default defineAction({
         );
         source = "user-oauth";
       } catch (error) {
-        errors.push(error instanceof Error ? error.message : String(error));
+        if (error instanceof GoogleDocResponseCleanupError) {
+          fail("Could not safely close the Google Docs export response.", {
+            errorCode: "google_doc_response_cleanup_failed",
+            statusCode: 502,
+          });
+        }
+        if (error instanceof GoogleDocTooLargeError) {
+          exportTooLarge = true;
+        } else {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
       }
     }
 
-    if (!text) {
+    if (!text && !exportTooLarge) {
       try {
         text = await exportPublicDocument(documentId);
         source = "public-export";
       } catch (error) {
-        errors.push(error instanceof Error ? error.message : String(error));
+        if (error instanceof GoogleDocResponseCleanupError) {
+          fail("Could not safely close the Google Docs export response.", {
+            errorCode: "google_doc_response_cleanup_failed",
+            statusCode: 502,
+          });
+        }
+        if (error instanceof GoogleDocTooLargeError) {
+          exportTooLarge = true;
+        } else {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
       }
+    }
+
+    if (exportTooLarge) {
+      fail("Google Doc export exceeds the supported size limit.", {
+        errorCode: "google_doc_too_large",
+        statusCode: 413,
+      });
     }
 
     if (!text || !source) {

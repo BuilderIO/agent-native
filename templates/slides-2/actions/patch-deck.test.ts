@@ -59,13 +59,20 @@ const mockValidateGenerationCreativeContext = vi.fn(
   }),
 );
 
+const emptySelectRows = () =>
+  Object.assign(Promise.resolve([]), {
+    for: async (_lock: "share" | "update") => [],
+  });
+
 const mockDb = {
   select: () => ({
     from: () => ({
-      where: () => ({
-        limit: async () => (mockDeckRow ? [mockDeckRow] : []),
-        for: async (_mode: string) => [],
-      }),
+      where: () =>
+        Object.assign(emptySelectRows(), {
+          limit: async () => (mockDeckRow ? [mockDeckRow] : []),
+          for: async (_mode: string) => [],
+          orderBy: () => emptySelectRows(),
+        }),
     }),
   }),
   update: () => ({
@@ -663,6 +670,32 @@ describe("applyOperation — reorder-slides", () => {
       "s2",
     ]);
   });
+
+  it("rejects unknown IDs without changing the slide order", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "reorder-slides",
+        orderedIds: ["missing-slide", "s2"],
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "slide_not_found",
+        statusCode: 404,
+        details: { slideId: "missing-slide" },
+      }),
+    );
+    expect(deck.slides.map((slide: { id: string }) => slide.id)).toEqual([
+      "s1",
+      "s2",
+    ]);
+  });
 });
 
 describe("applyOperation — add-slide", () => {
@@ -703,7 +736,7 @@ describe("applyOperation — add-slide", () => {
   it("rejects data URLs embedded in source before storing the source slide", () => {
     const deck = { slides: [{ id: "s1", content: "1" }] };
     const sourceTsx =
-      'const unused = "data:image/png;base64,aGVsbG8="; export default function Slide() { return <div />; }';
+      'const imageUrl = "data:image/png;base64,aGVsbG8="; export default function Slide() { return <img src={imageUrl} />; }';
     expect(() =>
       applyOperation(
         deck,
@@ -721,7 +754,7 @@ describe("applyOperation — add-slide", () => {
     ).toThrow(
       expect.objectContaining({
         errorCode: "inline_image_data_url_not_persistable",
-        details: expect.objectContaining({ field: "slide s2 sourceTsx" }),
+        details: expect.objectContaining({ field: "slide s2 sourceTsx.src" }),
       }),
     );
   });
@@ -1767,6 +1800,62 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
     expect(mockDeckRow?.designSystemId).toBeNull();
     expect(JSON.parse(String(mockDeckRow?.data)).designSystemId).toBeNull();
+  });
+
+  it("requires viewer access before linking a design system", async () => {
+    const accessError = new Error("forbidden");
+    mockAssertAccess
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(accessError);
+
+    await expect(
+      runPatchDeckAction({
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { designSystemId: "private-design-system" },
+          },
+        ],
+      }),
+    ).rejects.toBe(accessError);
+
+    expect(mockAssertAccess).toHaveBeenNthCalledWith(
+      1,
+      "deck",
+      "deck-1",
+      "editor",
+    );
+    expect(mockAssertAccess).toHaveBeenNthCalledWith(
+      2,
+      "design-system",
+      "private-design-system",
+      "viewer",
+    );
+    expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("links a design system after viewer access is confirmed", async () => {
+    await runPatchDeckAction({
+      deckId: "deck-1",
+      operations: [
+        {
+          op: "patch-deck-fields",
+          fields: { designSystemId: "design-system-1" },
+        },
+      ],
+    });
+
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "design-system",
+      "design-system-1",
+      "viewer",
+    );
+    expect(mockDeckRow?.designSystemId).toBe("design-system-1");
+    expect(JSON.parse(String(mockDeckRow?.data)).designSystemId).toBe(
+      "design-system-1",
+    );
   });
 
   it("rejects a markerless legacy deck before snapshot or write side effects", async () => {

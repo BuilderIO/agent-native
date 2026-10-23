@@ -14,7 +14,16 @@ import {
   type SlideFrameNavigationInput,
   type SlideFramePointerType,
 } from "../slides-2-runtime/protocol";
-import { getPresenterConsoleCommand, hasPresenterModifier } from "./keyboard";
+import type {
+  FrameKeyboard,
+  FramePointer,
+} from "../slides-2-runtime/SandboxedSlide";
+import {
+  getPresenterConsoleCommand,
+  hasPresenterModifier,
+  isPresenterButtonTarget,
+  isPresenterTypingTarget,
+} from "./keyboard";
 import type {
   Slides2PresenterState,
   PresenterBlackout,
@@ -26,15 +35,23 @@ import Slides2JumpInput from "./Slides2JumpInput";
 import Slides2LaserPointer from "./Slides2LaserPointer";
 import Slides2Overview from "./Slides2Overview";
 import Slides2ProgressBar from "./Slides2ProgressBar";
+import { getTouchSwipeDirection } from "./touch-swipe";
 import { useSlides2TouchSwipe } from "./useSlides2TouchSwipe";
 
 type Slides2PlayerContentProps = {
+  onFrameKeyboard: (keyboard: FrameKeyboard) => void;
   onNavigationInput: (input: SlideFrameNavigationInput) => void;
+  onFramePointer: (pointer: FramePointer) => void;
   onFramePointerActivity: (pointerType: SlideFramePointerType) => void;
   onFramePointerMove: (
     position: { x: number; y: number },
     pointerType: SlideFramePointerType,
   ) => void;
+};
+
+type PresenterKeyboardInput = FrameKeyboard & {
+  repeat: boolean;
+  preventDefault: () => void;
 };
 
 export type Slides2PresenterLabels = {
@@ -92,6 +109,7 @@ export type Slides2PlayerProps = {
 };
 
 const IDLE_DELAY_MS = 2000;
+const JUMP_COMMIT_DELAY_MS = 1200;
 const CONTROL_HOTZONE_PX = 160;
 const MAX_JUMP_DIGITS = 4;
 const WHEEL_PAGE_THRESHOLD_PX = 12;
@@ -117,6 +135,35 @@ function isMobileViewport() {
   return window.matchMedia("(max-width: 767.98px)").matches;
 }
 
+function isWindowedPresentationRequest() {
+  return (
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("windowed") === "1"
+  );
+}
+
+function isFullscreenForPlayer(root: HTMLElement | null) {
+  const fullscreenElement = document.fullscreenElement;
+  return Boolean(
+    root &&
+    fullscreenElement &&
+    (fullscreenElement === root || fullscreenElement.contains(root)),
+  );
+}
+
+function framePointerPosition(root: HTMLElement | null, pointer: FramePointer) {
+  const frame = root?.querySelector<HTMLIFrameElement>(
+    "iframe[data-slides2-frame]",
+  );
+  if (!frame?.clientWidth || !frame.clientHeight) return null;
+  const rect = frame.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  return {
+    x: rect.left + (pointer.x / frame.clientWidth) * rect.width,
+    y: rect.top + (pointer.y / frame.clientHeight) * rect.height,
+  };
+}
+
 export default function Slides2Player({
   index,
   total,
@@ -137,9 +184,11 @@ export default function Slides2Player({
   onPresentationStateChange,
   renderOverviewSlide,
 }: Slides2PlayerProps) {
+  const shouldStartFullscreen =
+    initialFullscreen && !isWindowedPresentationRequest();
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
-  const [windowed, setWindowed] = useState(!initialFullscreen);
+  const [windowed, setWindowed] = useState(!shouldStartFullscreen);
   const windowedRef = useRef(windowed);
   windowedRef.current = windowed;
   const exitedRef = useRef(false);
@@ -176,6 +225,26 @@ export default function Slides2Player({
   const accumulatedWheelRef = useRef(0);
   const lastWheelAtRef = useRef(0);
   const lastWheelNavigationAtRef = useRef(0);
+  const activeFrameTouchesRef = useRef(new Set<number>());
+  const frameTouchStartRef = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    time: number;
+  } | null>(null);
+
+  const clearPendingJump = useCallback(() => setJumpNumber(""), []);
+  const runControlAction = useCallback(
+    (action: () => void) => {
+      clearPendingJump();
+      action();
+    },
+    [clearPendingJump],
+  );
+
+  useEffect(() => {
+    clearPendingJump();
+  }, [clearPendingJump, index]);
 
   useEffect(() => {
     onPresentationStateChange?.({
@@ -204,6 +273,7 @@ export default function Slides2Player({
 
   const handlePointerActivity = useCallback(
     (pointerType: SlideFramePointerType, revealMobileChrome = false) => {
+      clearPendingJump();
       setKeyboardDriven(false);
       if (pointerType === "touch" || revealMobileChrome) {
         showMobileChrome();
@@ -211,7 +281,7 @@ export default function Slides2Player({
         markActivity();
       }
     },
-    [markActivity, showMobileChrome],
+    [clearPendingJump, markActivity, showMobileChrome],
   );
 
   const handlePointerPosition = useCallback(
@@ -237,11 +307,33 @@ export default function Slides2Player({
   );
 
   const goTo = useCallback(
-    (next: number) => onIndexChange(clampIndex(next)),
-    [clampIndex, onIndexChange],
+    (next: number) => {
+      clearPendingJump();
+      onIndexChange(clampIndex(next));
+    },
+    [clearPendingJump, clampIndex, onIndexChange],
   );
-  const goPrevious = useCallback(() => onPrevious(), [onPrevious]);
-  const goNext = useCallback(() => onNext(), [onNext]);
+
+  useEffect(() => {
+    if (!controls || !jumpNumber) return;
+    const timeout = window.setTimeout(() => {
+      const slideNumber = Number(jumpNumber);
+      setJumpNumber("");
+      if (slideNumber >= 1 && total > 0) {
+        goTo(Math.min(total, slideNumber) - 1);
+      }
+    }, JUMP_COMMIT_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, [controls, goTo, jumpNumber, total]);
+
+  const goPrevious = useCallback(() => {
+    clearPendingJump();
+    onPrevious();
+  }, [clearPendingJump, onPrevious]);
+  const goNext = useCallback(() => {
+    clearPendingJump();
+    onNext();
+  }, [clearPendingJump, onNext]);
 
   const handleWheelInput = useCallback(
     (
@@ -325,7 +417,7 @@ export default function Slides2Player({
       }
 
       const frame = root?.querySelector<HTMLIFrameElement>(
-        "iframe[data-slides-2-frame]",
+        "iframe[data-slides2-frame]",
       );
       const frameRect = frame?.getBoundingClientRect();
       const rootRect = root?.getBoundingClientRect();
@@ -363,7 +455,7 @@ export default function Slides2Player({
       pointerType: SlideFramePointerType,
     ) => {
       const frame = root?.querySelector<HTMLIFrameElement>(
-        "iframe[data-slides-2-frame]",
+        "iframe[data-slides2-frame]",
       );
       if (!frame?.clientWidth || !frame.clientHeight) return;
       const rect = frame.getBoundingClientRect();
@@ -376,6 +468,63 @@ export default function Slides2Player({
       laserPointerMoveHandlerRef.current?.(viewportPosition);
     },
     [handlePointerPosition, root],
+  );
+
+  const handleFramePointer = useCallback(
+    (pointer: FramePointer) => {
+      if (pointer.pointerType !== "touch") return;
+
+      const activePointers = activeFrameTouchesRef.current;
+      if (pointer.phase === "down") {
+        if (activePointers.size === 0) {
+          const position = framePointerPosition(root, pointer);
+          if (!position) return;
+          frameTouchStartRef.current = {
+            pointerId: pointer.pointerId,
+            ...position,
+            time: performance.now(),
+          };
+        } else {
+          frameTouchStartRef.current = null;
+        }
+        activePointers.add(pointer.pointerId);
+        return;
+      }
+
+      if (pointer.phase === "cancel") {
+        activePointers.delete(pointer.pointerId);
+        frameTouchStartRef.current = null;
+        return;
+      }
+      if (pointer.phase !== "up") return;
+
+      activePointers.delete(pointer.pointerId);
+      const initial = frameTouchStartRef.current;
+      if (activePointers.size > 0) {
+        frameTouchStartRef.current = null;
+        return;
+      }
+      frameTouchStartRef.current = null;
+      if (
+        !controls ||
+        overlayOpen ||
+        !initial ||
+        initial.pointerId !== pointer.pointerId
+      ) {
+        return;
+      }
+
+      const position = framePointerPosition(root, pointer);
+      if (!position) return;
+      const direction = getTouchSwipeDirection(
+        position.x - initial.x,
+        position.y - initial.y,
+        performance.now() - initial.time,
+      );
+      if (direction === "next" && canNext) goNext();
+      else if (direction === "previous" && canPrevious) goPrevious();
+    },
+    [canNext, canPrevious, controls, goNext, goPrevious, overlayOpen, root],
   );
 
   const handleFramePointerActivity = useCallback(
@@ -396,7 +545,7 @@ export default function Slides2Player({
         event.ctrlKey ||
         (event.target instanceof Element &&
           (event.target.closest(WHEEL_PASSTHROUGH) ||
-            event.target.closest("iframe[data-slides-2-frame]")))
+            event.target.closest("iframe[data-slides2-frame]")))
       ) {
         return;
       }
@@ -447,15 +596,6 @@ export default function Slides2Player({
     return () => root.removeEventListener("click", onClick);
   }, [handleViewportClick, root]);
 
-  const content =
-    typeof children === "function"
-      ? children({
-          onNavigationInput: handleFrameNavigationInput,
-          onFramePointerActivity: handleFramePointerActivity,
-          onFramePointerMove: handleFramePointerMove,
-        })
-      : children;
-
   useSlides2TouchSwipe({
     target: root,
     enabled: controls && !overlayOpen,
@@ -468,11 +608,15 @@ export default function Slides2Player({
     onExit();
   }, [allowExit, onExit]);
 
+  const showFullscreenPrompt = useCallback(() => {
+    windowedRef.current = true;
+    setWindowed(true);
+    setFullscreenPrompt(true);
+  }, []);
+
   const requestFullscreen = useCallback(async () => {
     if (!root?.requestFullscreen) {
-      setFullscreenPrompt(true);
-      windowedRef.current = true;
-      setWindowed(true);
+      showFullscreenPrompt();
       return;
     }
     try {
@@ -481,20 +625,32 @@ export default function Slides2Player({
       setWindowed(false);
       setFullscreenPrompt(false);
     } catch {
-      windowedRef.current = true;
-      setWindowed(true);
-      setFullscreenPrompt(true);
+      showFullscreenPrompt();
     }
-  }, [root]);
+  }, [root, showFullscreenPrompt]);
 
   useEffect(() => {
-    if (!root || !initialFullscreen) return;
+    if (!root || !shouldStartFullscreen) return;
+    if (isFullscreenForPlayer(root)) {
+      setFullscreenPrompt(false);
+      windowedRef.current = false;
+      setWindowed(false);
+      return () => {
+        if (isFullscreenForPlayer(root)) {
+          void document.exitFullscreen().catch(() => undefined);
+        }
+      };
+    }
     let cancelled = false;
-    const request = root.requestFullscreen?.();
+    let request: Promise<void> | undefined;
+    try {
+      request = root.requestFullscreen?.();
+    } catch {
+      showFullscreenPrompt();
+      return;
+    }
     if (!request) {
-      setFullscreenPrompt(true);
-      windowedRef.current = true;
-      setWindowed(true);
+      showFullscreenPrompt();
       return;
     }
     request.then(
@@ -506,26 +662,22 @@ export default function Slides2Player({
         }
       },
       () => {
-        if (!cancelled) {
-          setFullscreenPrompt(true);
-          windowedRef.current = true;
-          setWindowed(true);
-        }
+        if (!cancelled) showFullscreenPrompt();
       },
     );
     return () => {
       cancelled = true;
-      if (document.fullscreenElement === root) {
+      if (isFullscreenForPlayer(root)) {
         void document.exitFullscreen().catch(() => undefined);
       }
     };
-  }, [initialFullscreen, root]);
+  }, [root, shouldStartFullscreen, showFullscreenPrompt]);
 
   useEffect(() => {
     if (!root) return;
-    let wasFullscreen = document.fullscreenElement === root;
+    let wasFullscreen = isFullscreenForPlayer(root);
     const handleFullscreenChange = () => {
-      const isFullscreen = document.fullscreenElement === root;
+      const isFullscreen = isFullscreenForPlayer(root);
       setFullscreen(isFullscreen);
       if (wasFullscreen && !isFullscreen && !windowedRef.current) exitOnce();
       wasFullscreen = isFullscreen;
@@ -537,7 +689,7 @@ export default function Slides2Player({
   }, [exitOnce, root]);
 
   const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement === root && root) {
+    if (isFullscreenForPlayer(root)) {
       windowedRef.current = true;
       setWindowed(true);
       setFullscreenPrompt(false);
@@ -584,17 +736,16 @@ export default function Slides2Player({
     [handlePointerPosition],
   );
 
-  useEffect(() => {
-    const isTypingTarget = (target: EventTarget | null) => {
-      if (!(target instanceof HTMLElement)) return false;
-      return Boolean(
-        target.closest(
-          'input, textarea, select, [contenteditable="true"], [role="textbox"]',
-        ),
-      );
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isTypingTarget(event.target)) return;
+  const handleKeyboardInput = useCallback(
+    (event: PresenterKeyboardInput) => {
+      if (
+        event.isTypingTarget ||
+        event.isControlTarget ||
+        event.isComposing ||
+        event.keyCode === 229
+      ) {
+        return;
+      }
       if (overlayOpen) {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -629,7 +780,9 @@ export default function Slides2Player({
         event.preventDefault();
         const slideNumber = Number(jumpNumber);
         setJumpNumber("");
-        if (slideNumber >= 1 && slideNumber <= total) goTo(slideNumber - 1);
+        if (slideNumber >= 1 && total > 0) {
+          goTo(Math.min(total, slideNumber) - 1);
+        }
         markActivity();
         return;
       }
@@ -640,17 +793,8 @@ export default function Slides2Player({
         /^[0-9]$/.test(event.key)
       ) {
         event.preventDefault();
-        const next = `${jumpNumber}${event.key}`;
-        const slideNumber = Number(next);
-        if (
-          next.length > MAX_JUMP_DIGITS || // i18n-ignore: numeric jump bound, not UI copy
-          slideNumber < 1 ||
-          slideNumber > total
-        ) {
-          setJumpNumber("");
-        } else {
-          setJumpNumber(next);
-        }
+        const next = `${jumpNumber}${event.key}`.slice(0, MAX_JUMP_DIGITS);
+        setJumpNumber(next);
         setKeyboardDriven(true);
         markActivity();
         return;
@@ -662,7 +806,7 @@ export default function Slides2Player({
         return;
       }
 
-      if (jumpNumber) setJumpNumber("");
+      if (jumpNumber) clearPendingJump();
 
       const command = getPresenterConsoleCommand(event);
       if (command === "next") {
@@ -715,23 +859,69 @@ export default function Slides2Player({
         event.preventDefault();
         onPresenter();
       }
-    };
+    },
+    [
+      activeBlackout,
+      controls,
+      exitOnce,
+      goNext,
+      goPrevious,
+      goTo,
+      clearPendingJump,
+      helpOpen,
+      jumpNumber,
+      markActivity,
+      onPresenter,
+      overlayOpen,
+      total,
+    ],
+  );
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent) =>
+      handleKeyboardInput({
+        key: event.key,
+        keyCode: event.keyCode,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        isTypingTarget: isPresenterTypingTarget(event.target),
+        isControlTarget:
+          (event.key === " " || event.key === "Enter") &&
+          isPresenterButtonTarget(event.target),
+        isComposing: event.isComposing,
+        repeat: event.repeat,
+        preventDefault: () => event.preventDefault(),
+      }),
+    [handleKeyboardInput],
+  );
+
+  const handleFrameKeyboard = useCallback(
+    (keyboard: FrameKeyboard) =>
+      handleKeyboardInput({
+        ...keyboard,
+        repeat: false,
+        preventDefault: () => {},
+      }),
+    [handleKeyboardInput],
+  );
+
+  useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    activeBlackout,
-    controls,
-    exitOnce,
-    goNext,
-    goPrevious,
-    goTo,
-    helpOpen,
-    jumpNumber,
-    markActivity,
-    onPresenter,
-    overlayOpen,
-    total,
-  ]);
+  }, [handleKeyDown]);
+
+  const content =
+    typeof children === "function"
+      ? children({
+          onFrameKeyboard: handleFrameKeyboard,
+          onNavigationInput: handleFrameNavigationInput,
+          onFramePointer: handleFramePointer,
+          onFramePointerActivity: handleFramePointerActivity,
+          onFramePointerMove: handleFramePointerMove,
+        })
+      : children;
 
   const chromeVisible = overlayOpen || pointerNearBottom || mobileChromeVisible;
   const hideCursor =
@@ -790,21 +980,25 @@ export default function Slides2Player({
             labels={labels}
             onPrevious={goPrevious}
             onNext={goNext}
-            onOverview={() => setOverviewOpen(true)}
+            onOverview={() => runControlAction(() => setOverviewOpen(true))}
             onBlackout={(mode) =>
-              setBlackout((current) => (current === mode ? null : mode))
+              runControlAction(() =>
+                setBlackout((current) => (current === mode ? null : mode)),
+              )
             }
-            onLaser={() => setLaser((current) => !current)}
-            onPresenter={() => onPresenter?.()}
-            onFullscreen={toggleFullscreen}
-            onHelp={() => setHelpOpen(true)}
-            onExit={exitOnce}
+            onLaser={() =>
+              runControlAction(() => setLaser((current) => !current))
+            }
+            onPresenter={() => runControlAction(() => onPresenter?.())}
+            onFullscreen={() => runControlAction(toggleFullscreen)}
+            onHelp={() => runControlAction(() => setHelpOpen(true))}
+            onExit={() => runControlAction(exitOnce)}
             onMobileInteraction={showMobileChrome}
           />
           {fullscreenPrompt && (
             <Button
               type="button"
-              onClick={() => void requestFullscreen()}
+              onClick={() => runControlAction(() => void requestFullscreen())}
               variant="ghost"
               size="default"
               className="absolute right-4 top-4 z-50 h-auto rounded-md border border-border bg-background/90 px-3 py-2 text-sm text-foreground shadow-lg backdrop-blur transition-none hover:bg-background/90 hover:text-foreground active:scale-100"

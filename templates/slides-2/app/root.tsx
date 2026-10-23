@@ -231,12 +231,112 @@ function AppContent() {
       "slidesChangelog.googleSlidesMissingImageData",
     ),
     globalMediaPickerScope: t("slidesChangelog.globalMediaPickerScope"),
+    presenterControls: t("slidesChangelog.presenterControls"),
+    presenterBuildStepPreview: t("slidesChangelog.presenterBuildStepPreview"),
+    presenterBuildStepBounds: t("slidesChangelog.presenterBuildStepBounds"),
+    staleSlidePreviews: t("slidesChangelog.staleSlidePreviews"),
+    boundedMediaTransfers: t("slidesChangelog.boundedMediaTransfers"),
+    editorCanvasAppTheme: t("slidesChangelog.editorCanvasAppTheme"),
+    editorInspectorTextControls: t(
+      "slidesChangelog.editorInspectorTextControls",
+    ),
     savedSlideImages: t("slidesChangelog.savedSlideImages"),
+    keyboardObjectTransforms: t("slidesChangelog.keyboardObjectTransforms"),
+    editorToolbarInspector: t("slidesChangelog.editorToolbarInspector"),
+    commandMenuTheme: t("slidesChangelog.commandMenuTheme"),
+    skippedSlidePresentation: t("slidesChangelog.skippedSlidePresentation"),
+    browseDeckVersions: t("slidesChangelog.browseDeckVersions"),
+    frameMissObjectSelection: t("slidesChangelog.frameMissObjectSelection"),
+    commandMenuShortcut: t("slidesChangelog.commandMenuShortcut"),
+    crossDeckSlideCopy: t("slidesChangelog.crossDeckSlideCopy"),
+    completedSlideGeneration: t("slidesChangelog.completedSlideGeneration"),
+    deckTitleAndNotesLabel: t("slidesChangelog.deckTitleAndNotesLabel"),
+    deleteFocusedCanvasObject: t("slidesChangelog.deleteFocusedCanvasObject"),
+    deleteSelectedSlideObject: t("slidesChangelog.deleteSelectedSlideObject"),
+    slideOverviewFromRail: t("slidesChangelog.slideOverviewFromRail"),
+    presenterKeyboardNavigation: t(
+      "slidesChangelog.presenterKeyboardNavigation",
+    ),
+    sourceBackedPdfExport: t("slidesChangelog.sourceBackedPdfExport"),
+    preserveDeckBriefOnRegeneration: t(
+      "slidesChangelog.preserveDeckBriefOnRegeneration",
+    ),
+    jumpToSlideByNumber: t("slidesChangelog.jumpToSlideByNumber"),
+    mobileNavigationAndSlideChat: t(
+      "slidesChangelog.mobileNavigationAndSlideChat",
+    ),
+    lightExtraBoldText: t("slidesChangelog.lightExtraBoldText"),
+    thumbnailArrowNavigation: t("slidesChangelog.thumbnailArrowNavigation"),
+    homePromptDeckContinuity: t("slidesChangelog.homePromptDeckContinuity"),
+    slideTransitions: t("slidesChangelog.slideTransitions"),
+    editorPanelWidthsAndRecovery: t(
+      "slidesChangelog.editorPanelWidthsAndRecovery",
+    ),
+    editorRailAndInspectorAlignment: t(
+      "slidesChangelog.editorRailAndInspectorAlignment",
+    ),
+    chatEditPreviewVersion: t("slidesChangelog.chatEditPreviewVersion"),
+    objectCommentsStayAttached: t("slidesChangelog.objectCommentsStayAttached"),
+    agentTextSelectionStability: t(
+      "slidesChangelog.agentTextSelectionStability",
+    ),
+    templateDeckChatPreviews: t("slidesChangelog.templateDeckChatPreviews"),
+    consistentSlideTextSpacing: t("slidesChangelog.consistentSlideTextSpacing"),
+    renderFailuresCanvasMessage: t(
+      "slidesChangelog.renderFailuresCanvasMessage",
+    ),
+    editorPageCountFooter: t("slidesChangelog.editorPageCountFooter"),
+    presentButtonReferenceAccent: t(
+      "slidesChangelog.presentButtonReferenceAccent",
+    ),
+    positionFieldsPreserveRotatedSize: t(
+      "slidesChangelog.positionFieldsPreserveRotatedSize",
+    ),
+    selectedSlideArrowNavigation: t(
+      "slidesChangelog.selectedSlideArrowNavigation",
+    ),
+    chatPreviewStaleContent: t("slidesChangelog.chatPreviewStaleContent"),
+    deleteGlobalSlideImages: t("slidesChangelog.deleteGlobalSlideImages"),
+    presenterSpaceActivation: t("slidesChangelog.presenterSpaceActivation"),
+    presenterPageUpPageDown: t("slidesChangelog.presenterPageUpPageDown"),
+    presenterJumpCancellation: t("slidesChangelog.presenterJumpCancellation"),
+    presenterBlankScreensAndNotes: t(
+      "slidesChangelog.presenterBlankScreensAndNotes",
+    ),
+    restoreDeckVersionAgainstStaleEdits: t(
+      "slidesChangelog.restoreDeckVersionAgainstStaleEdits",
+    ),
+    singleSlideRevealPreview: t("slidesChangelog.singleSlideRevealPreview"),
+    agentConnectionStatus: t("slidesChangelog.agentConnectionStatus"),
+    svgPatternScaleRotation: t("slidesChangelog.svgPatternScaleRotation"),
+    sourceBackedClickAndPointer: t(
+      "slidesChangelog.sourceBackedClickAndPointer",
+    ),
+    commandMenuUndoRedoShortcuts: t(
+      "slidesChangelog.commandMenuUndoRedoShortcuts",
+    ),
+    overlappingTextInlineEdit: t("slidesChangelog.overlappingTextInlineEdit"),
+    presenterViewAlignment: t("slidesChangelog.presenterViewAlignment"),
+    softerSlideFrameShadow: t("slidesChangelog.softerSlideFrameShadow"),
+    presenterTouchNavigation: t("slidesChangelog.presenterTouchNavigation"),
+    lightCanvasBorderedSurface: t("slidesChangelog.lightCanvasBorderedSurface"),
+    exactSlideTextFontSize: t("slidesChangelog.exactSlideTextFontSize"),
+    arrowKeysMoveSelectedObjects: t(
+      "slidesChangelog.arrowKeysMoveSelectedObjects",
+    ),
+    redoKeyboardShortcuts: t("slidesChangelog.redoKeyboardShortcuts"),
+    importImageDataAndPreviewSync: t(
+      "slidesChangelog.importImageDataAndPreviewSync",
+    ),
   });
   const navigate = useNavigate();
   const handleCommandMenuShortcut = useCallback(() => {
     setCmdkOpen(true);
   }, []);
+  const shouldHandleGlobalCommandMenuShortcut = useCallback(
+    () => !isDeckEditorPath(location.pathname),
+    [location.pathname],
+  );
   const shouldHandleContentEditableCommandMenuShortcut = useCallback(
     (event: KeyboardEvent) =>
       location.pathname !== "/home" &&
@@ -249,6 +349,7 @@ function AppContent() {
   useCommandMenuShortcut(handleCommandMenuShortcut, {
     allowContentEditable: true,
     shouldHandleContentEditable: shouldHandleContentEditableCommandMenuShortcut,
+    shouldHandleShortcut: shouldHandleGlobalCommandMenuShortcut,
   });
   const isDeckEditor = isDeckEditorPath(location.pathname);
   const editorCommands = getEditorCommands();

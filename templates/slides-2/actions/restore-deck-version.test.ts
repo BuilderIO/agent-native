@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { hashSlideSource } from "../server/lib/slide-source.js";
+
 const { ForbiddenError } = vi.hoisted(() => ({
   ForbiddenError: class ForbiddenError extends Error {},
 }));
@@ -72,7 +74,10 @@ const txUpdate = vi.fn(() => ({ set: updateSet }));
 const readbackLimit = vi.fn(async () => readbackRows ?? [current]);
 const readbackWhere = vi.fn((condition: unknown) => {
   readbackWhereConditions.push(condition);
-  return { limit: readbackLimit };
+  return {
+    limit: readbackLimit,
+    for: async (_lock: "share" | "update") => [],
+  };
 });
 const readbackFrom = vi.fn(() => ({ where: readbackWhere }));
 const lockWhere = vi.fn(() => ({ for: vi.fn(async (_mode: string) => []) }));
@@ -308,6 +313,93 @@ describe("restore-deck-version action", () => {
     expect(mockWriteAppState).toHaveBeenCalledWith(
       "refresh-signal",
       expect.objectContaining({ source: "restore-deck-version" }),
+    );
+  });
+
+  it("advances source revisions when restoring an older source snapshot", async () => {
+    const currentSource =
+      "export default function Slide() { return <main>Current</main>; }";
+    const restoredSource =
+      "export default function Slide() { return <main>Restored</main>; }";
+    current.data = JSON.stringify({
+      appId: "slides-2",
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: "system-1",
+      slides: [
+        {
+          id: "slide-1",
+          sourceTsx: currentSource,
+          sourceHash: hashSlideSource(currentSource),
+          revision: 9,
+          content: "current preview",
+        },
+      ],
+      updatedAt: current.updatedAt,
+    });
+    version.data = JSON.stringify({
+      appId: "slides-2",
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: "system-1",
+      slides: [
+        {
+          id: "slide-1",
+          sourceTsx: restoredSource,
+          sourceHash: hashSlideSource(restoredSource),
+          revision: 4,
+          content: "restored preview",
+        },
+      ],
+      updatedAt: "2026-09-02T00:00:01.000Z",
+    });
+
+    await action.run({ deckId: "deck-1", versionId: "version-1" });
+
+    const restoredSlide = JSON.parse(current.data).slides[0];
+    expect(restoredSlide).toMatchObject({
+      id: "slide-1",
+      sourceTsx: restoredSource,
+      sourceHash: hashSlideSource(restoredSource),
+    });
+    expect(restoredSlide.revision).toBeGreaterThan(9);
+    expect(restoredSlide.revision).toBeGreaterThan(4);
+  });
+
+  it("assigns a fresh revision when restoring a deleted source slide", async () => {
+    const restoredSource =
+      "export default function Slide() { return <main>Restored</main>; }";
+    current.data = JSON.stringify({
+      appId: "slides-2",
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: "system-1",
+      slides: [],
+      updatedAt: current.updatedAt,
+    });
+    version.data = JSON.stringify({
+      appId: "slides-2",
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: "system-1",
+      slides: [
+        {
+          id: "slide-1",
+          sourceTsx: restoredSource,
+          sourceHash: hashSlideSource(restoredSource),
+          revision: 2,
+          content: "restored preview",
+        },
+      ],
+      updatedAt: "2026-09-02T00:00:01.000Z",
+    });
+
+    await action.run({ deckId: "deck-1", versionId: "version-1" });
+
+    const restoredSlide = JSON.parse(current.data).slides[0];
+    expect(restoredSlide.revision).toBeGreaterThan(2);
+    expect(restoredSlide.revision).toBeGreaterThan(
+      Date.parse(current.updatedAt),
     );
   });
 

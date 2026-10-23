@@ -21,7 +21,130 @@ import {
   nextDeckRevision,
 } from "./_deck-write.js";
 import { assertDeckInlineImagesPersistable } from "./_render-artifacts.js";
+import { readStoredSlideSource } from "./_slide-source.js";
 import { isAgentPatchCaller } from "./patch-deck.js";
+
+function rethrowSlideSourceFailure(error: unknown): never {
+  if (!(error instanceof Error)) throw error;
+  const failure = error as Error & {
+    statusCode?: unknown;
+    errorCode?: unknown;
+    details?: unknown;
+  };
+  if (
+    typeof failure.statusCode !== "number" ||
+    typeof failure.errorCode !== "string"
+  ) {
+    throw error;
+  }
+  const details =
+    failure.details &&
+    typeof failure.details === "object" &&
+    !Array.isArray(failure.details)
+      ? (failure.details as Record<string, unknown>)
+      : undefined;
+  fail(error.message, {
+    statusCode: failure.statusCode,
+    errorCode: failure.errorCode,
+    ...(details ? { details } : {}),
+  });
+}
+
+function reconcileRestoredSourceRevisions(
+  currentDataJson: string,
+  restoredData: Record<string, unknown>,
+  restoredUpdatedAt: string,
+): void {
+  if (!Array.isArray(restoredData.slides)) return;
+
+  let currentData: Record<string, unknown>;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(currentDataJson);
+  } catch {
+    fail("Current deck data could not be read for source revision checks.", {
+      statusCode: 500,
+      errorCode: "invalid_deck_data",
+    });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    fail("Current deck data could not be read for source revision checks.", {
+      statusCode: 500,
+      errorCode: "invalid_deck_data",
+    });
+  }
+  currentData = parsed as Record<string, unknown>;
+
+  const currentSlides = Array.isArray(currentData.slides)
+    ? currentData.slides
+    : [];
+  const restoredDataJson = JSON.stringify(restoredData);
+  const timestampRevision = Date.parse(restoredUpdatedAt);
+  if (!Number.isSafeInteger(timestampRevision)) {
+    fail("Slide source revision cannot be advanced safely.", {
+      statusCode: 409,
+      errorCode: "slide_source_revision_exhausted",
+    });
+  }
+
+  for (const candidate of restoredData.slides) {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      continue;
+    }
+    const slide = candidate as Record<string, unknown>;
+    if (typeof slide.id !== "string" || typeof slide.sourceTsx !== "string") {
+      continue;
+    }
+
+    let restoredSource: ReturnType<typeof readStoredSlideSource>;
+    try {
+      restoredSource = readStoredSlideSource(restoredDataJson, slide.id);
+    } catch (error) {
+      rethrowSlideSourceFailure(error);
+    }
+
+    const currentHasSource = currentSlides.some(
+      (currentSlide) =>
+        currentSlide &&
+        typeof currentSlide === "object" &&
+        !Array.isArray(currentSlide) &&
+        (currentSlide as Record<string, unknown>).id === slide.id &&
+        typeof (currentSlide as Record<string, unknown>).sourceTsx === "string",
+    );
+    let currentSource: ReturnType<typeof readStoredSlideSource> | null = null;
+    if (currentHasSource) {
+      try {
+        currentSource = readStoredSlideSource(currentDataJson, slide.id);
+      } catch (error) {
+        rethrowSlideSourceFailure(error);
+      }
+    }
+
+    if (currentSource?.slide.sourceTsx === restoredSource.slide.sourceTsx) {
+      slide.revision = currentSource.revision;
+      slide.sourceHash = currentSource.sourceHash;
+      continue;
+    }
+
+    const nextRevision = Math.max(
+      timestampRevision + 1,
+      (currentSource?.revision ?? 0) + 1,
+      restoredSource.revision + 1,
+    );
+    if (!Number.isSafeInteger(nextRevision)) {
+      fail("Slide source revision cannot be advanced safely.", {
+        statusCode: 409,
+        errorCode: "slide_source_revision_exhausted",
+      });
+    }
+    slide.revision = nextRevision;
+    slide.sourceHash = restoredSource.sourceHash;
+  }
+}
 
 export default defineAction({
   description:
@@ -76,7 +199,7 @@ export default defineAction({
     }
 
     assertSlides2DeckData(version.data);
-    const data = JSON.parse(version.data);
+    const data = JSON.parse(version.data) as Record<string, unknown>;
     const now = nextDeckRevision(current.updatedAt);
     const title = version.title || data?.title || current.title || "Untitled";
     data.title = title;
@@ -85,6 +208,7 @@ export default defineAction({
       typeof data.designSystemId === "string" && data.designSystemId
         ? data.designSystemId
         : null;
+    reconcileRestoredSourceRevisions(current.data, data, now);
     if (
       current.title === title &&
       current.designSystemId === designSystemId &&

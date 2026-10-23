@@ -1616,12 +1616,17 @@ export async function applyDeckIdentity(
 
 const MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_REMOTE_IMAGE_TOTAL_BYTES = 50 * 1024 * 1024;
+const MAX_PPTX_EXPORT_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_PPTX_EXPORT_IMAGES_TOTAL_BYTES = 40 * 1024 * 1024;
 
 export interface RemoteImageByteBudget {
   maxImageBytes: number;
   maxTotalBytes: number;
   totalBytes: number;
 }
+
+type PptxImageExportBudget = { totalBytes: number };
+type ImageExportBudget = RemoteImageByteBudget | PptxImageExportBudget;
 
 export function createRemoteImageByteBudget(
   limits: { maxImageBytes?: number; maxTotalBytes?: number } = {},
@@ -1633,52 +1638,145 @@ export function createRemoteImageByteBudget(
   };
 }
 
-async function cancelImageResponse(response: Response): Promise<void> {
-  try {
-    await response.body?.cancel();
-  } catch {
-    // coercion-ok: cancellation is cleanup; the caller still reports the failed export.
+class PptxImageSizeLimitError extends Error {
+  readonly errorCode = "pptx_image_size_limit";
+
+  constructor() {
+    super("PPTX export image bytes exceed the supported size limit.");
   }
 }
 
-async function readRemoteImageBody(
-  response: Response,
-  budget: RemoteImageByteBudget,
-): Promise<Buffer | null> {
-  const declaredSize = Number(response.headers.get("content-length"));
-  if (
-    Number.isFinite(declaredSize) &&
-    (declaredSize > budget.maxImageBytes ||
-      budget.totalBytes + declaredSize > budget.maxTotalBytes)
+class PptxImageResponseCleanupError extends Error {
+  readonly errorCode = "pptx_image_response_cleanup_failed";
+
+  constructor(
+    readonly primaryError: unknown,
+    readonly cleanupError: unknown,
   ) {
-    await cancelImageResponse(response);
-    return null;
+    super("Could not stop reading the PPTX image response.");
+  }
+}
+
+class PptxImageFetchError extends Error {
+  readonly errorCode = "pptx_image_fetch_failed";
+
+  constructor(readonly fetchError: unknown) {
+    super("Could not fetch the PPTX image.");
+  }
+}
+
+function isRemoteImageBudget(
+  budget: ImageExportBudget,
+): budget is RemoteImageByteBudget {
+  return "maxImageBytes" in budget && "maxTotalBytes" in budget;
+}
+
+function assertPptxImageExportSize(
+  bytes: number,
+  budget: PptxImageExportBudget,
+) {
+  if (
+    bytes > MAX_PPTX_EXPORT_IMAGE_BYTES ||
+    bytes > MAX_PPTX_EXPORT_IMAGES_TOTAL_BYTES - budget.totalBytes
+  ) {
+    throw new PptxImageSizeLimitError();
+  }
+}
+
+async function cancelImageResponse(
+  response: Response,
+  primaryError?: unknown,
+): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch (cleanupError) {
+    throw new PptxImageResponseCleanupError(primaryError, cleanupError);
+  }
+}
+
+async function cancelImageReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  primaryError: unknown,
+): Promise<void> {
+  try {
+    await reader.cancel();
+  } catch (cleanupError) {
+    throw new PptxImageResponseCleanupError(primaryError, cleanupError);
+  }
+}
+
+async function readImageResponse(
+  response: Response,
+  budget: ImageExportBudget,
+): Promise<Buffer | null> {
+  const remoteBudget = isRemoteImageBudget(budget) ? budget : null;
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && /^\d+$/.test(contentLength)) {
+    const declaredBytes = Number(contentLength);
+    if (Number.isSafeInteger(declaredBytes)) {
+      const exceedsBudget = remoteBudget
+        ? declaredBytes > remoteBudget.maxImageBytes ||
+          declaredBytes > remoteBudget.maxTotalBytes - remoteBudget.totalBytes
+        : declaredBytes > MAX_PPTX_EXPORT_IMAGE_BYTES ||
+          declaredBytes >
+            MAX_PPTX_EXPORT_IMAGES_TOTAL_BYTES - budget.totalBytes;
+      if (exceedsBudget) {
+        if (remoteBudget) {
+          await cancelImageResponse(response);
+          return null;
+        }
+        const error = new PptxImageSizeLimitError();
+        await cancelImageResponse(response, error);
+        throw error;
+      }
+    }
   }
 
   const reader = response.body?.getReader();
   if (!reader) return null;
+
   const chunks: Uint8Array[] = [];
   let imageBytes = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+
       const nextImageBytes = imageBytes + value.byteLength;
-      if (
-        nextImageBytes > budget.maxImageBytes ||
-        budget.totalBytes + nextImageBytes > budget.maxTotalBytes
-      ) {
-        await reader.cancel();
-        return null;
+      const exceedsBudget = remoteBudget
+        ? nextImageBytes > remoteBudget.maxImageBytes ||
+          nextImageBytes > remoteBudget.maxTotalBytes - remoteBudget.totalBytes
+        : nextImageBytes > MAX_PPTX_EXPORT_IMAGE_BYTES ||
+          nextImageBytes >
+            MAX_PPTX_EXPORT_IMAGES_TOTAL_BYTES - budget.totalBytes;
+      if (exceedsBudget) {
+        if (remoteBudget) {
+          await cancelImageReader(reader, undefined);
+          return null;
+        }
+        const error = new PptxImageSizeLimitError();
+        await cancelImageReader(reader, error);
+        throw error;
       }
+
       imageBytes = nextImageBytes;
       chunks.push(value);
     }
+
+    if (imageBytes === 0) return null;
     budget.totalBytes += imageBytes;
     return Buffer.concat(chunks, imageBytes);
-  } catch {
-    await cancelImageResponse(response);
-    return null;
+  } catch (error) {
+    if (
+      error instanceof PptxImageSizeLimitError ||
+      error instanceof PptxImageResponseCleanupError
+    ) {
+      throw error;
+    }
+    await cancelImageReader(reader, error);
+    if (remoteBudget) return null;
+    if (error instanceof PptxImageFetchError) throw error;
+    throw new PptxImageFetchError(error);
   } finally {
     reader.releaseLock();
   }
@@ -1687,43 +1785,54 @@ async function readRemoteImageBody(
 export async function fetchImageAsBase64(
   url: string,
   ownerEmail?: string,
-  budget = createRemoteImageByteBudget(),
+  budget?: ImageExportBudget,
 ): Promise<string | null> {
-  try {
-    const parsedUrl = new URL(url, "http://slides.local");
-    if (parsedUrl.pathname.startsWith("/api/import-assets/") && ownerEmail) {
-      const token = parsedUrl.pathname.slice("/api/import-assets/".length);
-      const localAsset = await readLocalImportedAsset({
-        token,
-        email: ownerEmail,
-      });
-      if (localAsset) {
-        return `data:${localAsset.mimeType};base64,${Buffer.from(localAsset.data).toString("base64")}`;
-      }
-      return null;
+  const imageBudget = budget ?? { totalBytes: 0 };
+  const remoteBudget = isRemoteImageBudget(imageBudget) ? imageBudget : null;
+  const baseUrl = "http://slides.local";
+  if (!url || !URL.canParse(url, baseUrl)) return null;
+  const parsedUrl = new URL(url, baseUrl);
+
+  if (parsedUrl.pathname.startsWith("/api/import-assets/") && ownerEmail) {
+    const token = parsedUrl.pathname.slice("/api/import-assets/".length);
+    let localAsset: Awaited<ReturnType<typeof readLocalImportedAsset>>;
+    try {
+      localAsset = await readLocalImportedAsset({ token, email: ownerEmail });
+    } catch (error) {
+      if (remoteBudget) return null;
+      throw new PptxImageFetchError(error);
     }
-    const response = await ssrfSafeFetch(
+    if (!localAsset) return null;
+
+    const localBudget = remoteBudget ? { totalBytes: 0 } : imageBudget;
+    assertPptxImageExportSize(localAsset.data.byteLength, localBudget);
+    if (!remoteBudget) imageBudget.totalBytes += localAsset.data.byteLength;
+    return `data:${localAsset.mimeType};base64,${Buffer.from(localAsset.data).toString("base64")}`;
+  }
+
+  let response: Response;
+  try {
+    response = await ssrfSafeFetch(
       url,
       { signal: AbortSignal.timeout(10_000) },
       { maxRedirects: 3 },
     );
-    if (!response.ok) {
-      await cancelImageResponse(response);
-      return null;
-    }
-    const contentType = response.headers.get("content-type") || "";
-    if (!contentType.toLowerCase().startsWith("image/")) {
-      await cancelImageResponse(response);
-      return null;
-    }
-    const buffer = await readRemoteImageBody(response, budget);
-    if (!buffer) return null;
-    const base64 = buffer.toString("base64");
-    return `data:${contentType};base64,${base64}`;
-  } catch {
-    // coercion-ok: the caller treats null as an image export failure before creating the file.
+  } catch (error) {
+    if (remoteBudget) return null;
+    throw new PptxImageFetchError(error);
+  }
+  if (!response.ok) {
+    await cancelImageResponse(response);
     return null;
   }
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().startsWith("image/")) {
+    await cancelImageResponse(response);
+    return null;
+  }
+  const buffer = await readImageResponse(response, imageBudget);
+  if (!buffer) return null;
+  return `data:${contentType};base64,${buffer.toString("base64")}`;
 }
 
 const trackPptxExportFailures = withExportFailureTracking<{
@@ -1891,7 +2000,6 @@ export default defineAction({
 
     const PptxGenJS = (await import("pptxgenjs")).default;
     const pptx = new PptxGenJS();
-    const remoteImageBudget = createRemoteImageByteBudget();
 
     if (
       Math.abs(dims.pptxInches.w - 13.33) < 0.01 &&
@@ -1914,6 +2022,7 @@ export default defineAction({
     const slideGradients = new Map<number, string>();
     let backgroundGradientsFlattened = 0;
 
+    const imageBudget: PptxImageExportBudget = { totalBytes: 0 };
     for (const [slideIndex, slide] of slides.entries()) {
       const pptxSlide = pptx.addSlide();
       const slideContent = slideContents[slideIndex];
@@ -2029,11 +2138,40 @@ export default defineAction({
           }
         } else if (object.kind === "image") {
           const img = object.value;
-          const dataUri = await fetchImageAsBase64(
-            img.src,
-            userEmail,
-            remoteImageBudget,
-          );
+          let dataUri: string | null;
+          try {
+            dataUri = await fetchImageAsBase64(img.src, userEmail, imageBudget);
+          } catch (error) {
+            if (error instanceof PptxImageResponseCleanupError) {
+              fail(
+                `Cannot export PowerPoint: an image response on slide ${slideIndex + 1} could not be closed safely. No file was created.`,
+                {
+                  errorCode: "pptx_image_response_cleanup_failed",
+                  statusCode: 502,
+                  details: { slideNumber: slideIndex + 1 },
+                },
+              );
+            }
+            if (error instanceof PptxImageFetchError) {
+              fail(
+                `Cannot export PowerPoint: an image on slide ${slideIndex + 1} could not be loaded. No file was created.`,
+                {
+                  errorCode: "pptx_image_unavailable",
+                  statusCode: 422,
+                  details: { slideNumber: slideIndex + 1 },
+                },
+              );
+            }
+            if (!(error instanceof PptxImageSizeLimitError)) throw error;
+            fail(
+              `Cannot export PowerPoint: an image on slide ${slideIndex + 1} exceeds the supported image size limit. No file was created.`,
+              {
+                errorCode: "pptx_image_size_limit",
+                statusCode: 413,
+                details: { slideNumber: slideIndex + 1 },
+              },
+            );
+          }
           if (!dataUri) {
             fail(
               `Cannot export PowerPoint: an image on slide ${slideIndex + 1} could not be loaded. No file was created.`,

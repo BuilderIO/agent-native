@@ -6,6 +6,7 @@ import { useParams, Navigate, useSearchParams } from "react-router";
 
 import PresentationView from "@/components/presentation/PresentationView";
 import PresenterView from "@/components/presentation/PresenterView";
+import { Button } from "@/components/ui/button";
 import { useDecks } from "@/context/DeckContext";
 import type { Deck } from "@/context/DeckContext";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
@@ -69,12 +70,13 @@ export default function Presentation() {
     const viewport =
       "flex h-screen flex-col items-center justify-center gap-4 bg-black text-white"; // guard:allow-raw-color — deliberate presentation surface
     const retry =
-      "cursor-pointer rounded-md border border-white/30 px-4 py-2 text-sm hover:bg-white/10"; // guard:allow-raw-color — reads on that surface
+      "cursor-pointer rounded-md border border-white/30 px-4 py-2 text-sm text-white hover:bg-white/10 hover:text-white"; // guard:allow-raw-color — reads on that surface
     return (
       <div className={viewport}>
         <p className="text-sm opacity-80">{t("presentation.loadFailed")}</p>
-        <button
+        <Button
           type="button"
+          variant="ghost"
           className={retry}
           onClick={() => {
             setFallbackState("loading");
@@ -82,7 +84,7 @@ export default function Presentation() {
           }}
         >
           {t("presentation.tryAgain")}
-        </button>
+        </Button>
       </div>
     );
   }

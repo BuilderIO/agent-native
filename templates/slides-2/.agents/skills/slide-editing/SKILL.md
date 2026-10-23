@@ -37,17 +37,19 @@ The source renderer bundles bounded React source into a Worker and renders it
 inside the opaque-origin sandbox. Keep source within the `create-deck` skill's
 import, CSS, and asset limits. `Steps`/`Step`, `MorphElement`,
 `useSlidePageNumber()`, `useIsActivePage()`, `cssVarsToString`, and static
-`design`, `meta`, and transition exports are supported; effects and event
-handlers do not provide client-side behavior. `cssVarsToString` returns bounded
-text and does not enable runtime CSS injection. The `create-deck` skill
+`design`, `meta`, and transition exports are supported. SQL-derived static
+previews and exports do not run effects or event handlers; the live editor and
+presenter mount supports React effects and allowlisted handlers inside a
+sandboxed iframe with the bounded `window` facade. `cssVarsToString` returns
+bounded text and does not enable runtime CSS injection. The `create-deck` skill
 documents the exact source contract and static Page[]/notes/transition mapping.
 
-The Slides 2 editor PDF and editable PPTX exports can render the Worker
-artifact in the sandbox. The PPTX menu first calls the `export-pptx` action;
-when a source-only slide returns `source_runtime_export_required`, it renders
-the slides with `get-slide-render` and uses the browser DOM-to-PPTX builder.
-HTML and Google Slides exports still require a static HTML preview and return
-`source_runtime_export_required` when a source slide has none. The public
+The Slides 2 editor PDF, HTML, editable PPTX, and Google Slides exports can
+render the Worker artifact in the sandbox. The HTML, PPTX, and Google Slides
+menus first call their server actions, which attempt bounded static rendering
+for supported source-only slides. When an action returns
+`source_runtime_export_required`, HTML builds a standalone file from its
+Worker render and PPTX/Google Slides use the browser DOM-to-PPTX builder. The public
 shared viewer shows an explicit capability state for source-only slides; it
 does not have viewer authorization to request the Worker artifact by share
 token.
@@ -81,10 +83,21 @@ the source back after a successful operation.
 
 ## Slides 2 visual controls
 
-For source-backed visual edits, use `view-screen` to confirm the active slide and
-selection, then read with `get-slide-source` and save through
-`update-slide-source` using its returned revision and source hash. Keep React
-source out of the legacy HTML fields on `update-slide` and `patch-deck`.
+For source-backed canvas object insertion, deletion, duplication, and geometry
+or arrangement, use `transform-slide-objects` as described above. It requires
+the exact selected targets, active request tab, deck and slide IDs, source
+revision and hash, and validated single-instance metadata. If it returns
+`slide_transform_selection_required`, refresh the selection or report that the
+rendered copy cannot be targeted safely; do not emulate a rejected canvas
+transform with `update-slide-source`. A source edit at a shared JSX callsite
+changes every rendered copy, so make it only when the user explicitly wants all
+of those copies changed.
+
+For source-backed text, content, style, or explicit source edits, use
+`view-screen` to confirm the active slide and selection, then read with
+`get-slide-source` and save through `update-slide-source` using its returned
+revision and source hash. Keep React source out of the legacy HTML fields on
+`update-slide` and `patch-deck`.
 When `view-screen` reports a current `selectedTextRange`, pass its source
 line/column, UTF-16 start/end offsets, and `expectedText` as `prevText` to
 `update-slide-source` with a `set-text-range-style` edit. If the range is absent
@@ -106,6 +119,32 @@ the requested direction is available before using the same local operation
 stack as the UI; it confirms the deck save has drained before reporting the
 command as applied.
 
+## Copy a slide between decks
+
+In the Slides 2 editor, Copy stores `{ sourceDeckId, sourceSlideId,
+operation: "copy" }` in SQL `application_state` under
+`slides-2:slide-transfer-clipboard`, so the copied slide reference survives
+navigation to another deck. Paste in the target editor calls
+`copy-slide-to-deck` and inserts after the selected slide. The action checks
+viewer access to the source and editor access to the target.
+
+Cut stores the same reference with `operation: "cut"`; it leaves the source in
+place until Paste succeeds. Pasting into another deck first verifies the new
+slide in the target, then removes the source with `patch-deck`. If the source
+delete fails, the target copy is kept and the pending cut is cleared so it
+cannot be replayed accidentally. Pasting a cut slide back into its own deck
+moves it after the selected slide and then clears the clipboard. Cut is
+available only when the source deck has more than one slide.
+
+For an agent-driven transfer, read the copied reference with
+`readAppState("slides-2:slide-transfer-clipboard")` or identify the source with
+`view-screen`, then read the target deck with `get-deck` to choose an optional
+`afterSlideId`. Call `copy-slide-to-deck` with `sourceDeckId`, `sourceSlideId`,
+`targetDeckId`, optional `afterSlideId`, and a new unique `slideId`. Read the
+target deck again and confirm the returned `slideId` appears at the intended
+position before reporting the copy complete. Agents can use the action directly
+without setting the UI clipboard.
+
 | Control | Behavior |
 | --- | --- |
 | Preview / Edit | Preview hides the slide rail and editing overlays, closes the inspector, and restarts the active source slide at its first build step. Click, Space, Right/Down, or PageDown advances builds before moving to the next slide; click, Left/Up, or PageUp moves backward through builds before moving to the previous slide. Escape returns to Edit. Edit restores the inspector state from before Preview unless the inspector was toggled with `i` while previewing. |
@@ -113,7 +152,7 @@ command as applied.
 | Canvas selection | Click an object to select it; Shift-click toggles its membership. Drag empty canvas to replace the selection with intersecting objects, or click empty canvas to clear it. |
 | Cmd/Ctrl+A | Select all objects on the active slide. It is ignored while commenting, typing, or composing; while overview, command menu, asset browser, or image crop is open; and when focus is on editor controls, menus, or dialogs. |
 | Cmd/Ctrl+S | Save pending source edits. Shift or Alt disables this shortcut. |
-| Arrow-key editing and navigation | With the canvas focused, arrows nudge selected editable objects by 1 px, or 10 px with Shift. Otherwise, Left/Up moves to the previous slide and Right/Down to the next; PageUp/PageDown move previous/next, Space moves next, and Home/End jump to the first/last slide. |
+| Arrow-key editing and navigation | With the canvas focused, arrows nudge selected editable objects by 1 px, or 10 px with Shift. With a resize handle focused, its axis arrows resize by 1 px, or 10 px with Shift; Shift also preserves aspect ratio. With the rotate handle focused, arrows rotate by 1° and Shift moves to the next 15° increment. Otherwise, Left/Up moves to the previous slide and Right/Down to the next; PageUp/PageDown move previous/next, Space moves next, and Home/End jump to the first/last slide. |
 | Shift and Alt while dragging | Shift constrains a move to its dominant axis, preserves the aspect ratio while resizing, and snaps rotation to 15-degree increments. Alt temporarily bypasses Smart Guides during a move. |
 | Align and Smart Guides | For multiple objects, align to either the selection bounds or slide; one object aligns to the slide. Smart Guides starts on and snaps object edges and centerlines to other objects and the slide within a scale-adjusted 6 CSS px threshold. Toggle it in Arrange; Alt bypasses it for one move. |
 

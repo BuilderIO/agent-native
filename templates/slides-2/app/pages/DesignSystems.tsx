@@ -222,12 +222,14 @@ export default function DesignSystems() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,320px))] gap-4">
               {/* New design system card */}
               {systemsEnabled && (
-                <button
+                <Button
+                  type="button"
+                  variant="ghost"
                   onClick={() => {
                     setEditingId(null);
                     setShowSetup(true);
                   }}
-                  className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-left cursor-pointer"
+                  className="group relative h-auto w-full flex-col items-stretch justify-start gap-0 rounded-xl border border-dashed border-border bg-card p-0 text-left font-normal whitespace-normal hover:border-foreground/15 hover:bg-card hover:text-foreground overflow-hidden cursor-pointer active:scale-100"
                 >
                   <div className="aspect-video flex items-center justify-center bg-muted/30">
                     <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
@@ -242,7 +244,7 @@ export default function DesignSystems() {
                       {t("designSystems.setupBrand")}
                     </div>
                   </div>
-                </button>
+                </Button>
               )}
 
               {/* Design system cards */}

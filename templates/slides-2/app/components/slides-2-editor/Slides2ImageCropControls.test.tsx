@@ -104,7 +104,6 @@ describe("Slides2ImageCropControls", () => {
     expect(percent("top") + percent("height")).toBeLessThanOrEqual(100);
     fireEvent.pointerUp(region, { pointerId: 2 });
 
-    region.focus();
     fireEvent.pointerDown(region, {
       button: 0,
       clientX: 0,
@@ -112,6 +111,7 @@ describe("Slides2ImageCropControls", () => {
       isPrimary: true,
       pointerId: 3,
     });
+    expect(document.activeElement).toBe(region);
     fireEvent.pointerMove(region, {
       clientX: 5000,
       clientY: 5000,
@@ -121,8 +121,46 @@ describe("Slides2ImageCropControls", () => {
     expect(percent("left") + percent("width")).toBeCloseTo(100, 5);
     expect(percent("top") + percent("height")).toBeLessThanOrEqual(100);
 
+    const leftBeforeNudge = percent("left");
     fireEvent.keyDown(region, { key: "ArrowLeft" });
-    expect(percent("left")).toBeCloseTo(100 - percent("width") - 1, 5);
+    expect(percent("left")).toBeCloseTo(leftBeforeNudge - 100 / 1200, 5);
+  });
+
+  it("moves by visible-pixel steps and lets keyboard users resize crop handles", () => {
+    renderCropControls({ targetWidth: 1, targetHeight: 1 });
+
+    const image = document.querySelector("img")!;
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: 1200 },
+      naturalHeight: { configurable: true, value: 800 },
+    });
+    image.getBoundingClientRect = () => new DOMRect(0, 0, 1200, 800);
+    fireEvent.load(image);
+
+    const region = screen.getByRole("group", { name: "Crop region" });
+    const percent = (property: "left" | "top" | "width" | "height") =>
+      Number.parseFloat((region as HTMLElement).style[property]);
+    const initialLeft = percent("left");
+
+    fireEvent.keyDown(region, { key: "ArrowRight", shiftKey: true });
+    expect(percent("left")).toBeCloseTo(initialLeft + (10 / 1200) * 100, 5);
+    fireEvent.keyDown(region, { key: "ArrowRight", ctrlKey: true });
+    expect(percent("left")).toBeCloseTo(initialLeft + (110 / 1200) * 100, 5);
+
+    const eastHandle = region.querySelector(
+      '[data-crop-handle="e"]',
+    ) as HTMLButtonElement;
+    expect(eastHandle.tabIndex).toBe(0);
+    expect(eastHandle.getAttribute("aria-label")).toBe("Crop region");
+    const leftBeforeResize = percent("left");
+    const widthBeforeResize = percent("width");
+    fireEvent.keyDown(eastHandle, { key: "ArrowLeft", shiftKey: true });
+
+    expect(percent("left")).toBeCloseTo(leftBeforeResize, 5);
+    expect(percent("width")).toBeCloseTo(
+      widthBeforeResize - (10 / 1200) * 100,
+      5,
+    );
   });
 
   it("applies the crop rectangle as an object view box with centered position", () => {
@@ -203,15 +241,19 @@ describe("image crop styles", () => {
 function renderCropControls({
   onClose = vi.fn(),
   onApply = vi.fn(),
+  targetWidth = 4,
+  targetHeight = 3,
 }: {
   onClose?: () => void;
   onApply?: (result: Slides2ImageCropResult) => void;
+  targetWidth?: number;
+  targetHeight?: number;
 } = {}) {
   render(
     <Slides2ImageCropControls
       src="crop-test.png"
-      targetWidth={4}
-      targetHeight={3}
+      targetWidth={targetWidth}
+      targetHeight={targetHeight}
       initialFit="cover"
       initialPosition={{ x: 50, y: 50 }}
       initialRect={null}

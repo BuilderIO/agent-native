@@ -11,7 +11,7 @@ const assetOrigin = "https://assets.example.test";
 const videoUrl = `${assetOrigin}/decks/clip.mp4`;
 const posterUrl = `${assetOrigin}/decks/poster.webp`;
 const runtime = {
-  kind: "open-slide-react-worker-v1" as const,
+  kind: "agent-native-slides-react-worker-v1" as const,
   workerSource: "self.onmessage = () => {};",
   page: { current: 1, total: 1 },
   assetUrls: { "video-1": videoUrl, "poster-1": posterUrl },

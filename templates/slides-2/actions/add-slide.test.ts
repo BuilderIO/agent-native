@@ -47,11 +47,12 @@ const setFn = vi.fn((fields: Record<string, unknown>) => {
 });
 const updateFn = vi.fn(() => ({ set: setFn }));
 const transactionSelectForFn = vi.fn(async (_mode: string) => []);
-const transactionSelectFn = vi.fn(() => ({
-  from: () => ({
-    where: () => ({ for: transactionSelectForFn }),
-  }),
+const transactionWhereFn = vi.fn(() => ({
+  for: transactionSelectForFn,
+  orderBy: () => ({ for: transactionSelectForFn }),
 }));
+const transactionFromFn = vi.fn(() => ({ where: transactionWhereFn }));
+const transactionSelectFn = vi.fn(() => ({ from: transactionFromFn }));
 const transactionFn = vi.fn(
   async (
     callback: (tx: {
@@ -249,9 +250,116 @@ beforeEach(() => {
 });
 
 describe("add-slide", () => {
+  it("documents the supported generated source syntax", () => {
+    expect(action.tool.parameters).toMatchObject({
+      properties: {
+        sourceTsx: {
+          description: expect.stringContaining(
+            "Keep object literals, including inline style objects, to explicit static `property: value` entries only; do not use spreads, shorthand properties, or computed keys.",
+          ),
+        },
+      },
+    });
+    expect(action.tool.parameters).toMatchObject({
+      properties: {
+        sourceTsx: {
+          description: expect.stringContaining(
+            "Do not put a JSX `key` attribute on an element.",
+          ),
+        },
+      },
+    });
+  });
+
   it("does not advertise parallel execution for deck writes", () => {
     expect(action.parallelSafe).toBeUndefined();
     expect(action.retrySafe).toBeUndefined();
+  });
+
+  it("does not read or write a deck when editor access is denied", async () => {
+    const denied = new Error("No deck access");
+    mockAssertAccess.mockRejectedValueOnce(denied);
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: "<div>New</div>",
+      }),
+    ).rejects.toBe(denied);
+
+    expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
+    expect(selectFn).not.toHaveBeenCalled();
+    expect(transactionFn).not.toHaveBeenCalled();
+    expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
+    expect(updateFn).not.toHaveBeenCalled();
+  });
+
+  it("projects added-slide results for the inline chat renderer", () => {
+    const result = {
+      deckId: "deck-1",
+      deckTitle: "Quarterly readout",
+      slideId: "slide-new",
+      revision: 1,
+      sourceHash: "a".repeat(64),
+      slideNumber: 3,
+      slideCount: 3,
+      _receipt: { changed: true, verified: true },
+    };
+    const chatUI = action.chatUI;
+
+    expect(chatUI?.renderer).toBe("slides.added-slide-result");
+    expect(chatUI?.when?.({}, result)).toBe(true);
+    expect(chatUI?.projectResult?.({}, result)).toEqual({
+      deckId: "deck-1",
+      deckTitle: "Quarterly readout",
+      slideId: "slide-new",
+      revision: 1,
+      sourceHash: "a".repeat(64),
+      slideNumber: 3,
+      slideCount: 3,
+    });
+    expect(
+      chatUI?.projectResult?.(
+        {},
+        {
+          deckId: "deck-1",
+          deckTitle: "Quarterly readout",
+          slideId: "slide-new",
+          slideNumber: 3,
+          slideCount: 3,
+          revision: 1,
+        },
+      ),
+    ).toEqual({
+      deckId: "deck-1",
+      deckTitle: "Quarterly readout",
+      slideId: "slide-new",
+      slideNumber: 3,
+      slideCount: 3,
+    });
+    expect(
+      chatUI?.projectResult?.(
+        {},
+        {
+          deckId: "deck-1",
+          deckTitle: "Quarterly readout",
+          slideId: "slide-new",
+          slideNumber: 3,
+          slideCount: 3,
+        },
+      ),
+    ).toEqual({
+      deckId: "deck-1",
+      deckTitle: "Quarterly readout",
+      slideId: "slide-new",
+      slideNumber: 3,
+      slideCount: 3,
+    });
+    expect(chatUI?.when?.({}, { error: "Add failed" })).toBe(false);
+    expect(
+      chatUI?.projectResult?.({}, { ...result, slideNumber: 0 }),
+    ).toBeNull();
   });
 
   it("rejects an empty caller-provided slide ID", () => {
@@ -285,12 +393,21 @@ describe("add-slide", () => {
     expect(result).toMatchObject({
       deckTitle: "Test deck",
       slideId: "slide-new",
+      revision: 1,
       _receipt: {
         changed: true,
         verified: true,
         subject: "deck-1:slide-new",
         checks: [{ id: "slide-addition", ok: true }],
       },
+    });
+    expect(result.sourceHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(
+      JSON.parse(updatedFields!.data as string).slides.at(-1),
+    ).toMatchObject({
+      id: "slide-new",
+      revision: result.revision,
+      sourceHash: result.sourceHash,
     });
     expect(updateReturningFn).toHaveBeenCalledOnce();
   });
@@ -1268,6 +1385,33 @@ describe("add-slide", () => {
         },
       );
       expect(updateFn).not.toHaveBeenCalled();
+    });
+
+    it("counts an imported source slide with no static preview toward the target", async () => {
+      deckData.slides = [];
+      deckData.generationContext = {
+        targetSlideCount: 1,
+        generationAttemptId: "attempt-1",
+        generationMode: "action",
+      };
+
+      const result = await action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-source",
+          sourceTsx: `import { Steps } from "@agent-native/slides-core";
+export default function Slide() { return <Steps />; }`,
+          generationComplete: true,
+        },
+        { caller: "tool" },
+      );
+
+      expect(result).toMatchObject({ slideCount: 1, realSlideCount: 1 });
+      expect(
+        JSON.parse(updatedFields!.data as string).generationContext,
+      ).toMatchObject({
+        generationComplete: true,
+      });
     });
 
     it("does not complete generation while real slides are short of the target", async () => {

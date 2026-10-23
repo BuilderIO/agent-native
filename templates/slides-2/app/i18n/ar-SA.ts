@@ -344,6 +344,7 @@ const messages = {
     media: "الوسائط",
     generateImage: "إنشاء صورة",
     assetLibrary: "مكتبة الأصول",
+    assets: "الأصول",
     globalAssetScope: "عالمي",
     imageOptions: "خيارات الصورة",
     videoPlayback: "تشغيل الفيديو",
@@ -681,6 +682,7 @@ const messages = {
     x: "X",
     y: "Y",
     position: "الموضع",
+    source: "المصدر",
     selectParent: "تحديد العنصر الأصل",
     horizontal: "أفقي",
     vertical: "عمودي",
@@ -702,6 +704,8 @@ const messages = {
     cornerRadius: "نصف قطر الزاوية",
     strokeWeight: "السُمك",
     typography: "الطباعة",
+    content: "المحتوى",
+    editOnSlide: "تحرير على الشريحة",
     fontFamily: "عائلة الخط",
     lineHeight: "ارتفاع السطر",
     letterSpacing: "تباعد الأحرف",
@@ -732,7 +736,7 @@ const messages = {
     secondary: "Secondary",
     accent: "Accent",
     surface: "Surface",
-    background: "Background",
+    background: "الخلفية",
     text: "Text",
     muted: "Muted",
     white: "White",
@@ -831,8 +835,124 @@ const messages = {
       "تُبلغ عمليات استيراد Google Slides الآن عن بيانات الصور المفقودة بدلاً من إضافة صور فارغة.",
     globalMediaPickerScope:
       "تعرض مجموعة الوسائط العامة الآن الأصول التي يمكن للعرض الحالي حلّها فقط.",
+    presenterControls:
+      "تستخدم عناصر التحكم في العرض الأزرار وحقول الإدخال المشتركة في مساحة العمل",
+    presenterBuildStepPreview:
+      "تعرض وحدة تحكم مقدم العرض معاينة لكل خطوة إنشاء متبقية قبل الانتقال إلى الشريحة التالية.",
+    presenterBuildStepBounds:
+      "تمنع عناصر التحكم في خطوات الظهور نقل الخطوة إلى ما قبل بداية الترتيب أو ما بعد نهايته.",
+    staleSlidePreviews: "تُمسح معاينات الشرائح القديمة قبل تحميل شريحة أخرى",
+    boundedMediaTransfers:
+      "تتوقف عمليات نقل المستندات ووسائط الشرائح ضمن حدود آمنة للحجم والوقت",
+    editorCanvasAppTheme:
+      "يتبع محرر الشرائح سمة التطبيق التي اخترتها في مساحة العمل وعناصر التحكم بالكائنات المحددة.",
+    editorInspectorTextControls:
+      "نسّق النص باستخدام خيارات الطباعة والألوان، ثم حرّر النص المحدد مباشرةً على الشريحة.",
     savedSlideImages:
       "تظل الصور المستخدمة في الشرائح المحفوظة متاحة في مكتبتك.",
+    keyboardObjectTransforms:
+      "غيّر حجم عناصر الشرائح المحددة ودوّرها باستخدام لوحة المفاتيح.",
+    editorToolbarInspector:
+      "تُجمع عناصر التحكم في تحرير الشرائح ضمن أشرطة أدوات مدمجة، مع وصول أوضح إلى لوحات التنسيق والتصميم.",
+    commandMenuTheme: "بدّل بين السمات الفاتحة والداكنة من قائمة الأوامر.",
+    skippedSlidePresentation:
+      "تُستبعد الشرائح المحددة للتخطي من العروض التقديمية، مع عرض أرقام الشرائح والإجمالي بشكل صحيح.",
+    browseDeckVersions:
+      "استعرض إصدارات العرض المحفوظة واستعد لقطة سابقة من المحرر.",
+    frameMissObjectSelection:
+      "يؤدي النقر على عناصر الشريحة إلى تحديدها عندما لا يلتقط الإطار الهدف مباشرةً.",
+    commandMenuShortcut: "يفتح الاختصار Command-K قائمة أوامر محرر الشرائح",
+    crossDeckSlideCopy:
+      "انسخ الشرائح بين العروض، وأعد تسمية العروض في المحرر، واحصل على تنبيه قبل المغادرة مع تغييرات غير محفوظة.",
+    completedSlideGeneration:
+      "ينتظر إنشاء العرض اكتمال العدد المطلوب من الشرائح قبل الإبلاغ عن النجاح.",
+    deckTitleAndNotesLabel:
+      "تظل عناوين العروض الطويلة ظاهرة أثناء التحرير، ويستخدم التذييل تسمية «ملاحظات» الأقصر.",
+    deleteFocusedCanvasObject:
+      "يحذف مفتاحا Delete وBackspace عنصر اللوحة المحدد عندما تكون اللوحة في حالة تركيز.",
+    deleteSelectedSlideObject:
+      "يحذف مفتاحا Delete وBackspace عنصر الشريحة المحدد من اللوحة",
+    slideOverviewFromRail: "افتح نظرة عامة على الشرائح مباشرةً من شريط الشرائح.",
+    presenterKeyboardNavigation:
+      "تدعم العروض التقديمية مفاتيح Page Up وPage Down وHome وEnd للتنقل بين الشرائح بلوحة المفاتيح.",
+    sourceBackedPdfExport:
+      "يمكن لصفحات العروض العامة تصدير الشرائح المستندة إلى المصدر بصيغة PDF",
+    preserveDeckBriefOnRegeneration:
+      "يحافظ تجديد الشرائح على موجز العرض الأصلي ضمن السياق",
+    jumpToSlideByNumber:
+      "انتقل إلى أي شريحة في العرض بكتابة رقمها، بما في ذلك الأرقام المكونة من عدة خانات.",
+    mobileNavigationAndSlideChat:
+      "يدعم التنقل على الأجهزة المحمولة إخفاء لوحة المفاتيح، وتتبع روابط دردشة الشريحة موضعها الحالي",
+    lightExtraBoldText:
+      "يمكن الآن استخدام وزني الخط الفاتح والفائق السماكة لنص الشرائح لضبط الطباعة بدقة أكبر.",
+    thumbnailArrowNavigation:
+      "يمكن الآن التنقل بين الصور المصغرة للشرائح باستخدام مفاتيح الأسهم الأربعة.",
+    homePromptDeckContinuity:
+      "تبقى الشرائح التي أُنشئت من مطالبة الشاشة الرئيسية ضمن العرض الذي بدأت به.",
+    slideTransitions:
+      "تدعم الشرائح الآن انتقالات على مستوى العرض ولكل شريحة، وتأثيرات التحول بين الكائنات المتطابقة، والكشف التدريجي خطوة بخطوة.",
+    editorPanelWidthsAndRecovery:
+      "أصبح رأس محرر الشرائح ولوحاته أقرب إلى العرض المرجعي، وتتوفر أدوات التكبير والحركة في قائمة الأوامر، ولم تعد العروض المستردة تعرض أخطاء قديمة.",
+    editorRailAndInspectorAlignment:
+      "أصبح شريط محرر الشرائح وخلفية اللوحة وشريط الأدوات والحالة الفارغة للمفتش أكثر توافقًا مع تخطيط التحرير.",
+    chatEditPreviewVersion:
+      "تعرض معاينات تحرير الشرائح الآن الإصدار المطابق تمامًا لما حفظه التعديل.",
+    objectCommentsStayAttached:
+      "تظل التعليقات مرتبطة بعناصر الشريحة عند تحريكها.",
+    agentTextSelectionStability:
+      "تظل تحديدات النص بواسطة الوكيل مرتبطة بمحتوى الشريحة المحفوظ أثناء انتظار التعديلات.",
+    templateDeckChatPreviews:
+      "تعرض الدردشات معاينات وإجراءات للعروض المُنشأة من القوالب والعروض المحدّثة.",
+    consistentSlideTextSpacing:
+      "يحافظ نص الشرائح على تباعد أسطر متناسق في المحرر.",
+    renderFailuresCanvasMessage:
+      "تعرض الشرائح التي يفشل عرضها الآن رسالة واضحة على اللوحة.",
+    editorPageCountFooter:
+      "يعرض المحرر الصفحة الحالية وإجمالي الصفحات في التذييل.",
+    presentButtonReferenceAccent:
+      "يتطابق لون التمييز في زر التقديم الآن مع مرجع محرر الشرائح.",
+    positionFieldsPreserveRotatedSize:
+      "تحافظ حقول الموضع على حجم العنصر بعد تدويره.",
+    selectedSlideArrowNavigation:
+      "تحرّك مفاتيح الأسهم عناصر الشرائح المحددة بمقدار 1 بكسل، أو 10 بكسل مع Shift؛ وعند عدم تحديد عنصر، تتنقل بين الشرائح.",
+    chatPreviewStaleContent:
+      "لم تعد معاينات الدردشة تعرض محتوى الشريحة الذي تغيّر بعد ظهور النتيجة.",
+    deleteGlobalSlideImages:
+      "احذف الصور غير المستخدمة من مجموعة الأصول العامة في محرر الشرائح.",
+    presenterSpaceActivation:
+      "تُفعَّل أزرار العرض التي عليها التركيز الآن بمفتاح المسافة بدلًا من الانتقال إلى الشريحة التالية.",
+    presenterPageUpPageDown:
+      "يمكن الآن التنقل في نافذة مقدّم العرض باستخدام مفتاحي Page Up وPage Down.",
+    presenterJumpCancellation:
+      "يلغي تنقّل مقدّم العرض عمليات الانتقال المعلّقة إلى أرقام الشرائح حتى لا تستبدل اختيارًا لاحقًا.",
+    presenterBlankScreensAndNotes:
+      "يمكن جعل شاشة مقدّم العرض سوداء أو بيضاء، كما يمكن تغيير حجم ملاحظات المتحدث.",
+    restoreDeckVersionAgainstStaleEdits:
+      "تحمي استعادة إصدار سابق من العرض التقديمي الآن من تعديلات الشرائح الأقدم.",
+    singleSlideRevealPreview:
+      "يمكن لروابط معاينة الشريحة الواحدة فتح شريحة مُنشأة عند خطوة كشف محددة.",
+    agentConnectionStatus: "يعرض محرر الشرائح حالة اتصال الوكيل.",
+    svgPatternScaleRotation:
+      "تحافظ تعبئات الأنماط بصيغة SVG على مقياسها ودورانها.",
+    sourceBackedClickAndPointer:
+      "أصبحت النقرات وحركة المؤشر تعمل الآن في العروض التقديمية المستندة إلى المصدر.",
+    commandMenuUndoRedoShortcuts:
+      "تعرض قائمة أوامر محرر الشرائح الآن اختصاري لوحة المفاتيح للتراجع والإعادة.",
+    overlappingTextInlineEdit:
+      "يؤدي النقر المزدوج على النص الآن إلى فتح التحرير المباشر عندما تتداخل معه رسومات الشريحة.",
+    presenterViewAlignment:
+      "يعرض وضع مقدّم العرض الشريحة الحالية والتالية وملاحظات المتحدث وعناصر الانتقال في واجهة واحدة.",
+    softerSlideFrameShadow: "تستخدم لوحات الشرائح الآن ظلًا أكثر نعومة للإطار.",
+    presenterTouchNavigation:
+      "اسحب لليسار أو اليمين للانتقال بين الشرائح أثناء العرض.",
+    lightCanvasBorderedSurface:
+      "تتطابق لوحة الشريحة الآن مع السطح ذي الحدود في المحرر الفاتح.",
+    exactSlideTextFontSize: "يمكنك إدخال حجم خط محدد أثناء تحرير نص الشريحة.",
+    arrowKeysMoveSelectedObjects:
+      "تنقل مفاتيح الأسهم جميع عناصر الشريحة المحددة معًا.",
+    redoKeyboardShortcuts: "تستخدم الإعادة الاختصار Shift+Command+Z أو Ctrl+Y.",
+    importImageDataAndPreviewSync:
+      "تتعامل عمليات استيراد PowerPoint وGoogle Docs الآن مع بيانات الصور الكبيرة بأمان أكبر، وتبقى المعاينات المُنشأة متزامنة عند تغيير العروض التقديمية.",
   },
   history: {
     unknownTime: "Hora desconocida",
@@ -850,6 +970,8 @@ const messages = {
     versionRestoredDescription: "El deck volvió a la instantánea seleccionada.",
     restoreFailed: "Error al restaurar",
     restoreFailedDescription: "No se pudo restaurar esta versión del deck.",
+    restoreRefreshFailed:
+      "تمت استعادة الإصدار، لكن تعذّر تحديث المحرر. أعد المحاولة لإعادة تحميله.",
     backToSavedVersions: "Volver a versiones guardadas",
     savedVersions: "Versiones guardadas",
     description:
@@ -867,6 +989,7 @@ const messages = {
     snapshotLoadFailed: "تعذر تحميل هذا الإصدار المحفوظ.",
   },
   editorSidebar: {
+    pages: "الصفحات",
     selectSlide: "Seleccionar diapositiva {{number}}",
     duplicateSlide: "Duplicar diapositiva",
     moveSlideUp: "نقل الشريحة إلى أعلى",
@@ -904,6 +1027,39 @@ const messages = {
     applyUpdates: "تطبيق التحديثات ({{count}})",
   },
   slides2Editor: {
+    motion: "الحركة",
+    builds: "خطوات الظهور",
+    addBuild: "إضافة خطوة ظهور",
+    removeBuild: "إزالة خطوة ظهور",
+    motionScope: "النطاق",
+    moduleDefault: "إعداد الوحدة الافتراضي",
+    pageOverride: "تجاوز الشريحة",
+    useModuleDefault: "استخدام إعداد الوحدة الافتراضي",
+    transitionDuration: "المدة (مللي ثانية)",
+    transitionEasing: "التدرج",
+    transitionDelay: "التأخير (مللي ثانية)",
+    transitionEnter: "دخول",
+    transitionExit: "خروج",
+    throughBackground: "المرور عبر الخلفية",
+    morph: "التحول",
+    morphDescription: "طابق العناصر ذات المعرّف نفسه في الشرائح المتتالية.",
+    morphDuration: "مدة التحول (مللي ثانية)",
+    morphDelay: "تأخير التحول (مللي ثانية)",
+    morphEasing: "تدرج التحول",
+    morphId: "معرّف المطابقة",
+    morphIdPlaceholder: "مثال: brand-mark",
+    setMorphId: "تعيين معرّف المطابقة",
+    removeMorph: "إزالة معرّف المطابقة",
+    buildDuration: "مدة الظهور (مللي ثانية)",
+    moveBuildEarlier: "السابق",
+    moveBuildLater: "التالي",
+    defaultEasing: "وراثة الإعداد الافتراضي",
+    respectReducedMotion: "تحترم الانتقالات إعداد تقليل الحركة في النظام.",
+    design: "التصميم",
+    agentConnected: "الوكيل متصل",
+    format: "التنسيق",
+    footerNotes: "ملاحظات",
+    footerPage: "الصفحة {{current}}/{{total}}",
     now: "الآن",
     preview: "معاينة",
     edit: "تحرير",
@@ -913,7 +1069,9 @@ const messages = {
     fontWeightMedium: "متوسط",
     fontWeightSemibold: "شبه عريض",
     fontWeightBold: "عريض",
-    selectElement: "حدّد عنصرًا لتعديل خصائصه.",
+    selectElement: "حدّد كائنًا",
+    selectElementHint:
+      "انقر على كائن لتنسيقه. انقر نقرًا مزدوجًا على النص لتحرير محتواه.",
     legacyTitle: "يستخدم هذا العرض تنسيق الشرائح القديم",
     legacyDescription: "اطلب من وكيل Slides 2 تحويل العرض قبل تعديله هنا.",
     commands: "الأوامر",
@@ -991,6 +1149,7 @@ const messages = {
     shuffle: "تبديل التصميم",
   },
   slides2Presenter: {
+    presenterLabel: "مقدم العرض",
     switchDeck: "تبديل المجموعة",
     searchDecks: "البحث في المجموعات المتاحة",
     loadingDecks: "جارٍ تحميل المجموعات…",
@@ -1015,7 +1174,14 @@ const messages = {
     notesTextSize: "حجم نص ملاحظات مقدم العرض",
     decreaseNotesTextSize: "تصغير نص الملاحظات",
     increaseNotesTextSize: "تكبير نص الملاحظات",
+    jumpLabel: "انتقال",
     jumpHint: "اكتب رقم الشريحة ثم اضغط على Enter",
+    nowShowing: "يُعرض الآن",
+    previousShort: "السابق",
+    nextShort: "التالي",
+    blackLabel: "أسود",
+    whiteLabel: "أبيض",
+    resetShort: "إعادة ضبط",
     slideLabel: "الشريحة {{index}}",
     position: "الشريحة {{index}} من {{total}}",
     shortcutFirstLast: "الانتقال إلى الشريحة الأولى أو الأخيرة",
@@ -1302,6 +1468,8 @@ const messages = {
       unsupportedFileType: "نوع الملف هذا غير مدعوم. اختر ملفًا مدعومًا.",
       uploadLimitExceeded:
         "يتجاوز التحميل أحد الحدود المسموح بها. قلّل حجم الملف أو اختر ملفات أقل، ثم حاول مرة أخرى.",
+      pptxImageSizeLimit:
+        "يحتوي هذا العرض التقديمي على صور تتجاوز حد حجم الاستيراد. أزل الصور أو غيّر حجمها ثم حاول مرة أخرى.",
     },
     importDeck: "استيراد عرض",
     context: {
@@ -1503,6 +1671,13 @@ const messages = {
       "أنشئ عروضًا تقديمية جميلة باستخدام الإنشاء المدعوم بالذكاء الاصطناعي.",
   },
   agentChat: {
+    settingsShell: {
+      account: {
+        themeFamilyAgentNative: "Agent-Native",
+        themeFamilyOriginal: "الألوان الأصلية للتطبيق",
+        themeFamilySaveError: "تعذّر تحديث نمط السمة. حاول مرة أخرى.",
+      },
+    },
     setup: {
       providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },

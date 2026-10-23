@@ -7,6 +7,9 @@ import { describe, expect, it } from "vitest";
 
 import { sanitizeSlideHtml } from "./sanitize-slide-html";
 
+const noiseSvg = (id = 1) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="100%" height="100%" viewBox="0 0 220 220" preserveAspectRatio="none" data-slide-loc="2:4" style="position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none"><defs><filter id="slides2-noise-${id}" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="3" seed="4" stitchTiles="stitch" result="noise"></feTurbulence><feColorMatrix in="noise" type="matrix" values="0 0 0 0 0.85 0 0 0 0 0.93 0 0 0 0 1 1 0 0 0 0"></feColorMatrix></filter></defs><rect width="100%" height="100%" filter="url(#slides2-noise-${id})" opacity="0.2" fill="#fff"></rect></svg>`;
+
 describe("sanitizeSlideHtml without DOMParser (SSR)", () => {
   it("takes the regex path", () => {
     expect(typeof DOMParser).toBe("undefined");
@@ -51,6 +54,30 @@ describe("sanitizeSlideHtml without DOMParser (SSR)", () => {
 });
 
 describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () => {
+  it("preserves the bounded NoiseBackground SVG and removes other SVG", () => {
+    const html = sanitizeSlideHtml(
+      `<div>${noiseSvg(3)}<svg><script>alert(1)</script><path d="M0 0" /></svg></div>`,
+    );
+
+    expect(html).toContain("<svg");
+    expect(html).toContain("<feTurbulence");
+    expect(html).toContain('id="slides2-noise-1"');
+    expect(html).toContain('data-slide-loc="2:4"');
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<path");
+    expect(html.match(/<svg\b/gi) ?? []).toHaveLength(1);
+  });
+
+  it("drops an unclosed SVG and its remaining source", () => {
+    const html = sanitizeSlideHtml(
+      "<p>Keep</p><svg><text>secret</text><p>swallowed</p>",
+    );
+
+    expect(html).toContain("Keep");
+    expect(html).not.toContain("secret");
+    expect(html).not.toContain("swallowed");
+  });
+
   it("keeps a slide's <style> block and everything after it", () => {
     const html = sanitizeSlideHtml(
       '<div class="fmd-slide"><style>.a{color:red}</style><h1>Title</h1><p>Body</p></div>',

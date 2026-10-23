@@ -19,6 +19,31 @@ const BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
   "image/svg+xml",
   "image/bmp",
 ]);
+export const MAX_PPTX_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_PPTX_IMAGES_TOTAL_BYTES = 40 * 1024 * 1024;
+
+function assertPptxImageBytesWithinLimits(slides: readonly ParsedSlide[]) {
+  let totalBytes = 0;
+  for (const slide of slides) {
+    for (const element of slide.elements ?? []) {
+      if (element.kind !== "image" || !element.image) continue;
+      const bytes = element.image.data.byteLength;
+      if (bytes > MAX_PPTX_IMAGE_BYTES) {
+        fail(
+          `Source-faithful PPTX import cannot preserve an image above the ${MAX_PPTX_IMAGE_BYTES / 1024 / 1024} MB limit. No images were uploaded.`,
+          { errorCode: "pptx_image_size_limit", statusCode: 413 },
+        );
+      }
+      if (bytes > MAX_PPTX_IMAGES_TOTAL_BYTES - totalBytes) {
+        fail(
+          `Source-faithful PPTX import cannot preserve images above the ${MAX_PPTX_IMAGES_TOTAL_BYTES / 1024 / 1024} MB total limit. No images were uploaded.`,
+          { errorCode: "pptx_image_size_limit", statusCode: 413 },
+        );
+      }
+      totalBytes += bytes;
+    }
+  }
+}
 
 export function assertPptxImagesRenderable(
   slides: readonly ParsedSlide[],
@@ -38,6 +63,7 @@ export function assertPptxImagesRenderable(
       { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
     );
   }
+  assertPptxImageBytesWithinLimits(slides);
 }
 
 export function assertPptxImageByteLimits(
@@ -84,6 +110,7 @@ export async function uploadPptxSlideImages(args: {
       image: NonNullable<ParsedElement["image"]>;
     } => element.kind === "image" && Boolean(element.image),
   );
+  assertPptxImageBytesWithinLimits([args.slide]);
   const urls: Record<string, string> = {};
   const assets: Record<string, ImportedAssetUpload> = {};
 

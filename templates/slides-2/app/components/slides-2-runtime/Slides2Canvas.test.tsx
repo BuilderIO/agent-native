@@ -81,6 +81,7 @@ describe("Slides2Canvas", () => {
     expect(canvas.style.height).toBe("810px");
     expect(canvas.classList.contains("absolute")).toBe(true);
     expect(canvas.style.transform).toBe("translate(-50%, -50%)");
+    expect(canvas.classList.contains("slides2-canvas-frame")).toBe(true);
     expect(stage.style.width).toBe("1920px");
     expect(stage.style.height).toBe("1080px");
     expect(stage.style.transform).toBe("scale(0.75)");
@@ -126,7 +127,7 @@ describe("Slides2Canvas", () => {
     expect(wrapper.classList.contains("overflow-hidden")).toBe(true);
     expect(canvas.classList.contains("absolute")).toBe(false);
     expect(canvas.classList.contains("rounded-md")).toBe(false);
-    expect(canvas.classList.contains("shadow-2xl")).toBe(false);
+    expect(canvas.classList.contains("slides2-canvas-frame")).toBe(false);
     expect(canvas.style.width).toBe("480px");
     expect(canvas.style.height).toBe("270px");
     expect(stage.style.transform).toBe("scale(0.25)");

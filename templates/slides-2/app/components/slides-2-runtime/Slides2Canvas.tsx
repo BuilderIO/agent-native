@@ -65,7 +65,7 @@ export function Slides2Canvas({
     >
       <div
         className={
-          /* guard:allow-raw-color — the Slides 2 canvas is a fixed white presentation surface. */ `${center ? "absolute left-1/2 top-1/2" : ""} overflow-hidden bg-white text-black ${flat ? "" : "rounded-md shadow-2xl"}`
+          /* guard:allow-raw-color — the Slides 2 canvas is a fixed white presentation surface. */ `${center ? "absolute left-1/2 top-1/2" : ""} overflow-hidden bg-white text-black ${flat ? "" : "slides2-canvas-frame rounded-md"}`
         }
         style={{
           width: scaledWidth,

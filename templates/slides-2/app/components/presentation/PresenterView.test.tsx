@@ -56,6 +56,18 @@ const transcriptionMock = vi.hoisted(() => ({
   locale: "en-US",
 }));
 
+const localStorageState = new Map<string, string>();
+const localStorageStub: Storage = {
+  get length() {
+    return localStorageState.size;
+  },
+  clear: () => localStorageState.clear(),
+  getItem: (key) => localStorageState.get(key) ?? null,
+  key: (index) => [...localStorageState.keys()][index] ?? null,
+  removeItem: (key) => localStorageState.delete(key),
+  setItem: (key, value) => localStorageState.set(key, String(value)),
+};
+
 vi.mock(
   "@agent-native/core/client/transcription/use-live-transcription",
   async () => {
@@ -137,6 +149,7 @@ import PresentationView from "./PresentationView";
 import PresenterView from "./PresenterView";
 
 const revealSlide = `<div class="fmd-slide"><div class="text-box"><p>One</p><p>Two</p><p>Three</p></div></div>`;
+const NOTES_TEXT_SIZE_STORAGE_KEY = "slides-2:presenter-notes-text-size";
 
 const slides = [
   { id: "plain", content: "", layout: "content" },
@@ -183,6 +196,11 @@ function commandsPosted(channel: { posted: { type: string }[] }) {
 
 beforeEach(() => {
   bus.peers.splice(0);
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: localStorageStub,
+  });
+  window.localStorage.clear();
   transcriptionMock.start.mockClear();
   transcriptionMock.stop.mockClear();
   transcriptionMock.getIncompleteReason.mockReturnValue(null);
@@ -221,8 +239,9 @@ describe("PresenterView with an audience", () => {
     const [audienceChannel, presenterChannel] = bus.peers;
 
     // The presenter opened, said hello, and heard the audience's state back.
-    expect(presenterChannel?.posted.map((message) => message.type)).toEqual([
-      "hello",
+    expect(presenterChannel?.posted).toEqual([
+      { type: "hello" },
+      { type: "blackout", mode: null },
     ]);
     expect(commandsPosted(audienceChannel!)).toEqual([]);
     expect(within(audience.container).getByText("1 / 3")).toBeTruthy();
@@ -592,5 +611,207 @@ describe("PresenterView without an audience", () => {
     );
 
     expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
+  });
+});
+
+describe("PresenterView keyboard navigation", () => {
+  it("supports page navigation and leaves modified navigation keys to the browser", () => {
+    const plainSlides = [
+      { id: "one", content: "", layout: "content" },
+      { id: "two", content: "", layout: "content" },
+      { id: "three", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    const presenter = render(
+      <PresenterView slides={plainSlides} deckId="deck-1" />,
+    );
+    const [presenterChannel] = bus.peers;
+
+    const pageDown = new KeyboardEvent("keydown", {
+      key: "PageDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, pageDown);
+    expect(pageDown.defaultPrevented).toBe(true);
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+
+    const shiftedPageDown = new KeyboardEvent("keydown", {
+      key: "PageDown",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, shiftedPageDown);
+    expect(shiftedPageDown.defaultPrevented).toBe(true);
+    expect(within(presenter.container).getByText("3 / 3")).toBeTruthy();
+
+    const pageUp = new KeyboardEvent("keydown", {
+      key: "PageUp",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, pageUp);
+    expect(pageUp.defaultPrevented).toBe(true);
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+
+    for (const modifier of ["altKey", "ctrlKey", "metaKey"] as const) {
+      for (const key of ["ArrowRight", "ArrowLeft", "PageDown", "PageUp"]) {
+        const event = new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+          [modifier]: true,
+        });
+        fireEvent(window, event);
+
+        expect(event.defaultPrevented, `${modifier}+${key}`).toBe(false);
+        expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+      }
+    }
+
+    expect(commandsPosted(presenterChannel!)).toEqual([
+      { type: "command", command: "next" },
+      { type: "command", command: "next" },
+      { type: "command", command: "prev" },
+    ]);
+  });
+});
+
+describe("PresenterView projection controls", () => {
+  it("toggles black and white projection modes from buttons and shortcuts", () => {
+    const audience = render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    const blackButton = within(presenter.container).getByRole("button", {
+      name: "slides2Presenter.blackout",
+    });
+    const whiteButton = within(presenter.container).getByRole("button", {
+      name: "slides2Presenter.whiteout",
+    });
+
+    fireEvent.click(blackButton);
+    expect(blackButton.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      presenter.container.querySelector('[data-presenter-blackout="black"]'),
+    ).toBeTruthy();
+    expect(
+      audience.container.querySelector('[data-presentation-blackout="black"]'),
+    ).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "b" });
+    expect(blackButton.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      audience.container.querySelector("[data-presentation-blackout]"),
+    ).toBeNull();
+
+    fireEvent.keyDown(window, { key: "W" });
+    expect(whiteButton.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      audience.container.querySelector('[data-presentation-blackout="white"]'),
+    ).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(whiteButton.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      audience.container.querySelector("[data-presentation-blackout]"),
+    ).toBeNull();
+
+    fireEvent.click(whiteButton);
+    expect(whiteButton.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(whiteButton);
+    expect(whiteButton.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("jumps to an in-range slide and ignores values outside the deck", () => {
+    const manySlides = Array.from({ length: 12 }, (_, index) => ({
+      id: `slide-${index + 1}`,
+      content: "",
+      layout: "content",
+    })) as unknown as Slide[];
+    const audience = render(
+      <MemoryRouter>
+        <PresentationView slides={manySlides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+    const presenter = render(
+      <PresenterView slides={manySlides} deckId="deck-1" />,
+    );
+    const input = within(presenter.container).getByRole("spinbutton", {
+      name: "slides2Presenter.shortcutJump",
+    });
+    const jumpButton = within(presenter.container).getByRole("button", {
+      name: "slides2Presenter.shortcutJump",
+    }) as HTMLButtonElement;
+    const [, presenterChannel] = bus.peers;
+
+    fireEvent.change(input, { target: { value: "0" } });
+    expect(jumpButton.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "13" } });
+    expect(jumpButton.disabled).toBe(true);
+    expect(
+      presenterChannel?.posted.some((message) => message.type === "goto"),
+    ).toBe(false);
+
+    fireEvent.change(input, { target: { value: "12" } });
+    expect(jumpButton.disabled).toBe(false);
+    fireEvent.click(jumpButton);
+
+    expect(within(presenter.container).getByText("12 / 12")).toBeTruthy();
+    expect(within(audience.container).getByText("12 / 12")).toBeTruthy();
+    expect(
+      audience.container.querySelector('[data-testid="rendered-slide-12"]'),
+    ).toBeTruthy();
+    expect(presenterChannel?.posted).toContainEqual({
+      type: "goto",
+      index: 11,
+    });
+  });
+
+  it("resizes speaker notes, stops at both bounds, and restores the saved size", () => {
+    const noteSlides = [
+      {
+        id: "notes",
+        content: "",
+        layout: "content",
+        notes: "Speaker note copy",
+      },
+    ] as unknown as Slide[];
+    const renderPresenter = () =>
+      render(<PresenterView slides={noteSlides} deckId="deck-1" />);
+    const presenter = renderPresenter();
+    const notes = within(presenter.container).getByText("Speaker note copy");
+    const controls = within(presenter.container).getByRole("group", {
+      name: "slides2Presenter.notesTextSize",
+    });
+    const decrease = within(controls).getByRole("button", {
+      name: "slides2Presenter.decreaseNotesTextSize",
+    }) as HTMLButtonElement;
+    const increase = within(controls).getByRole("button", {
+      name: "slides2Presenter.increaseNotesTextSize",
+    }) as HTMLButtonElement;
+
+    expect(notes.classList.contains("text-lg")).toBe(true);
+    fireEvent.click(increase);
+    expect(notes.classList.contains("text-xl")).toBe(true);
+    expect(window.localStorage.getItem(NOTES_TEXT_SIZE_STORAGE_KEY)).toBe("4");
+    expect(increase.disabled).toBe(true);
+
+    fireEvent.click(decrease);
+    fireEvent.click(decrease);
+    fireEvent.click(decrease);
+    fireEvent.click(decrease);
+    expect(notes.classList.contains("text-xs")).toBe(true);
+    expect(decrease.disabled).toBe(true);
+
+    presenter.unmount();
+    const restored = renderPresenter();
+    expect(
+      within(restored.container)
+        .getByText("Speaker note copy")
+        .classList.contains("text-xs"),
+    ).toBe(true);
   });
 });

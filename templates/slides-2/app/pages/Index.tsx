@@ -1742,6 +1742,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       referenceDocumentContext,
       referenceDeckContext,
       designSystemContext,
+      "Slides 2 owns authoring this deck. Use Slides 2 actions for slide content, layout, styling, and review, guided by the design system and reference context already loaded here. Keep deck generation and editing in Slides 2; a design-heavy request or linked design system is not a reason to hand off slide work. Use Design only for a user-requested Design-owned input or a capability only Design provides, then return to Slides 2 for all deck authoring.",
       visualStyleContext,
       referenceSourceContext,
       WEBSITE_STYLE_REFERENCE_DIRECTIVE,
@@ -2522,11 +2523,15 @@ export default function Index({ active = true }: { active?: boolean }) {
                   ? t("home.importMenu.uploadLimitExceeded")
                   : uploadModule.isPromptUploadStorageStatusError(error)
                     ? t("editorToolbar.importFailedDescription")
-                    : isStorageUnavailable && error instanceof Error
-                      ? error.message
-                      : error instanceof Error
+                    : error instanceof Error &&
+                        "errorCode" in error &&
+                        error.errorCode === "pptx_image_size_limit"
+                      ? t("home.importMenu.pptxImageSizeLimit")
+                      : isStorageUnavailable && error instanceof Error
                         ? error.message
-                        : t("editorToolbar.importFailedDescription"),
+                        : error instanceof Error
+                          ? error.message
+                          : t("editorToolbar.importFailedDescription"),
           ),
         });
         return null;

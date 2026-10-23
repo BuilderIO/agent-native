@@ -27,6 +27,7 @@ import {
   type DeckPayload,
 } from "./_deck-write.js";
 import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
+import { compileSlideSource } from "./_slide-source.js";
 
 export default defineAction({
   description:
@@ -70,12 +71,30 @@ export default defineAction({
       throw deckHttpError(400, "Deck must have an id");
     }
     assertValidAspectRatio(deck);
-    assertNoDeckRenderArtifacts(null, deck);
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
       throw deckHttpError(403, "Sign in to create a deck");
     }
+    const orgId = getRequestOrgId() ?? null;
+
+    if (Array.isArray(deck.slides)) {
+      for (const slide of deck.slides as Array<Record<string, unknown>>) {
+        if (!Object.hasOwn(slide, "sourceTsx")) continue;
+        if (typeof slide.sourceTsx !== "string") {
+          throw deckHttpError(400, "Slide source must be a string");
+        }
+        const compiled = await compileSlideSource(slide.sourceTsx, {
+          ownerEmail,
+          orgId,
+        });
+        slide.content = compiled.content;
+        slide.revision = 1;
+        slide.sourceHash = compiled.sourceHash;
+      }
+    }
+
+    assertNoDeckRenderArtifacts(null, deck);
 
     const now = new Date().toISOString();
     deck.createdAt = deck.createdAt || now;
@@ -85,7 +104,6 @@ export default defineAction({
     const designSystemId = deckDesignSystemId(deck);
     await assertDesignSystemReadable(designSystemId);
 
-    const orgId = getRequestOrgId() ?? null;
     await withSlideAssetReferencesLocked(
       getDb(),
       deck,

@@ -40,7 +40,10 @@ vi.mock("@agent-native/core/client/analytics", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string) =>
+    key === "presentation.reactSlideUnavailable"
+      ? "This slide needs the React renderer and cannot be shown from this share link."
+      : key,
 }));
 
 vi.mock("@/hooks/use-deck-design-system", () => ({
@@ -246,6 +249,33 @@ describe("SharedPresentation deep link", () => {
       enabled: true,
     });
     expect(screen.getByTestId("sandboxed-source-slide")).toBeTruthy();
+  });
+
+  it("explains when a source-only slide cannot render from a token share", () => {
+    const sourceDeck = {
+      title: "Source deck",
+      slides: [
+        {
+          id: "source-slide",
+          content: "",
+          sourceRuntimeRequired: true,
+          notes: "",
+          layout: "content",
+        },
+      ],
+    } as SharedDeckResponse;
+
+    render(snapshotTree("/share/snapshot-token", sourceDeck));
+
+    expect(screen.getByRole("status").textContent).toBe(
+      "This slide needs the React renderer and cannot be shown from this share link.",
+    );
+    expect(mocks.renderQueries).toContainEqual(
+      expect.objectContaining({ action: "get-slide-render", enabled: false }),
+    );
+    expect(screen.queryByTestId("slides-2-canvas")).toBeNull();
+    expect(screen.queryByTestId("sandboxed-source-slide")).toBeNull();
+    expect(screen.queryByTestId("rendered-source-slide")).toBeNull();
   });
 
   it("offers PDF export for live public decks and token snapshots", () => {

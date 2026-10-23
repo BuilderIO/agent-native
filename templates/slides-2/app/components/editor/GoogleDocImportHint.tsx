@@ -15,6 +15,7 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   getGoogleDocsStatus,
   getGooglePickerToken,
@@ -338,8 +339,10 @@ export function GoogleDocImportHint({
       {(needsConnect || canPick || importedDoc) && (
         <div className="mt-2 flex flex-wrap items-center gap-2 pl-8">
           {needsConnect && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="xs"
               onClick={connect}
               disabled={connecting || !configured}
               className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-foreground hover:bg-accent disabled:cursor-default disabled:opacity-60"
@@ -352,11 +355,13 @@ export function GoogleDocImportHint({
               {connecting
                 ? t("home.googleDocImport.connecting")
                 : t("home.googleDocImport.connect")}
-            </button>
+            </Button>
           )}
           {canPick && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="xs"
               onClick={chooseDocument}
               disabled={choosing}
               className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-foreground hover:bg-accent disabled:cursor-default disabled:opacity-60"
@@ -369,7 +374,7 @@ export function GoogleDocImportHint({
               {importedDoc
                 ? t("home.googleDocImport.chooseDifferent")
                 : t("home.googleDocImport.choose")}
-            </button>
+            </Button>
           )}
         </div>
       )}

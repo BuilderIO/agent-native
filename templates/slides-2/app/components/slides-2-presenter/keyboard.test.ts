@@ -29,10 +29,16 @@ describe("presenter keyboard commands", () => {
     );
   });
 
-  it("ignores commands with system modifiers", () => {
+  it("keeps navigation active with system modifiers but suppresses letter shortcuts", () => {
     expect(
       getPresenterConsoleCommand(keyEvent("ArrowRight", { metaKey: true })),
-    ).toBe(null);
+    ).toBe("next");
+    expect(
+      getPresenterConsoleCommand(keyEvent("Home", { ctrlKey: true })),
+    ).toBe("first");
+    expect(getPresenterConsoleCommand(keyEvent("End", { altKey: true }))).toBe(
+      "last",
+    );
     expect(getPresenterConsoleCommand(keyEvent("b", { ctrlKey: true }))).toBe(
       null,
     );

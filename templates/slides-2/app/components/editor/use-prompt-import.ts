@@ -105,6 +105,13 @@ export function usePromptImport({
         if (isPromptUploadLimitError(cause)) {
           return fail(t("home.importMenu.uploadLimitExceeded"), cause);
         }
+        if (
+          cause instanceof Error &&
+          "errorCode" in cause &&
+          cause.errorCode === "pptx_image_size_limit"
+        ) {
+          return fail(t("home.importMenu.pptxImageSizeLimit"), cause);
+        }
         const actionMessage = actionErrorMessage(cause);
         if (actionMessage) return fail(actionMessage, cause);
         if (

@@ -2,7 +2,10 @@ import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
+
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 interface LogoResult {
   name: string;
@@ -29,7 +32,6 @@ export default function LogoSearchPanel({
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [brandfetchId, setBrandfetchId] = useState<string | null>(null);
   const [logoDevToken, setLogoDevToken] = useState<string | null>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: logoConfigData } = useActionQuery("logo-config");
@@ -41,35 +43,12 @@ export default function LogoSearchPanel({
   }, [logoConfigData]);
 
   useEffect(() => {
-    if (!open) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (selectedDomain) {
-          setSelectedDomain(null);
-        } else {
-          onOpenChange(false);
-        }
-      }
-    };
-    const handleClick = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onOpenChange(false);
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    document.addEventListener("mousedown", handleClick);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-      document.removeEventListener("mousedown", handleClick);
-    };
-  }, [open, onOpenChange, selectedDomain]);
-
-  useEffect(() => {
     if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
+      const timeout = window.setTimeout(() => inputRef.current?.focus(), 50);
       setResults([]);
       setError(null);
       setSelectedDomain(null);
+      return () => window.clearTimeout(timeout);
     }
   }, [open]);
 
@@ -99,172 +78,185 @@ export default function LogoSearchPanel({
     onOpenChange(false);
   };
 
-  if (!open) return null;
-
   const variations = selectedDomain
     ? buildVariations(selectedDomain, brandfetchId, logoDevToken, t)
     : [];
 
-  return createPortal(
-    <div
-      ref={panelRef}
-      style={{
-        position: "fixed",
-        top: "50%",
-        left: "50%",
-        transform: "translate(-50%, -50%)",
-        zIndex: 9999,
-      }}
-      className="w-[min(460px,calc(100vw-24px))] max-h-[560px] bg-popover border border-border rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
-    >
-      <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-sm font-semibold text-foreground">
-          {selectedDomain ? (
-            <button
-              onClick={() => setSelectedDomain(null)}
-              className="flex items-center gap-1.5 hover:text-foreground transition-colors"
-            >
-              <span className="text-muted-foreground">&larr;</span>
-              {selectedDomain}
-            </button>
-          ) : (
-            t("raw.logoSearchTitle")
-          )}
-        </h3>
-        <button
-          onClick={() => onOpenChange(false)}
-          className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-          aria-label={t("comments.close")}
-        >
-          <IconX className="w-4 h-4" />
-        </button>
-      </div>
-
-      {!selectedDomain && (
-        <div className="px-4 pb-3 flex-shrink-0">
-          <div className="flex gap-2">
-            <div className="flex-1 relative">
-              <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleSearch();
-                }}
-                placeholder={t("raw.searchCompanyPlaceholder")}
-                className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[hsl(var(--slides-accent)/0.5)]"
-              />
-            </div>
-            <button
-              onClick={handleSearch}
-              disabled={loading || !query.trim()}
-              className="px-3 py-1.5 rounded-lg bg-[hsl(var(--slides-accent))] hover:bg-[hsl(var(--slides-accent-hover))] disabled:opacity-50 text-[hsl(var(--slides-accent-foreground))] text-xs font-medium transition-colors"
-            >
-              {loading ? (
-                <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                t("raw.search")
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="px-4 pb-4 overflow-y-auto flex-1">
-        {error && (
-          <div className="text-center py-4 text-destructive/70 text-xs">
-            {error}
-          </div>
-        )}
-
-        {/* IconSearch results */}
-        {!selectedDomain && !loading && results.length === 0 && !error && (
-          <div className="text-center py-6 text-muted-foreground text-xs">
-            {t("raw.searchCompanyLogo")}
-          </div>
-        )}
-
-        {!selectedDomain && loading && (
-          <div className="flex items-center justify-center py-8">
-            <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-          </div>
-        )}
-
-        {!selectedDomain && results.length > 0 && (
-          <div className="space-y-1.5">
-            {results.map((r) => (
-              <button
-                key={r.domain}
-                onClick={() => setSelectedDomain(r.domain)}
-                className="w-full flex items-center gap-3 p-2.5 rounded-lg border border-border bg-muted hover:ring-2 hover:ring-[hsl(var(--slides-accent)/0.5)] transition-all text-left"
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        hideClose
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (selectedDomain) {
+            event.preventDefault();
+            setSelectedDomain(null);
+          }
+        }}
+        className="flex max-h-[min(560px,calc(100dvh-32px))] w-[min(460px,calc(100vw-24px))] max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0 shadow-2xl shadow-black/60"
+      >
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
+          <DialogTitle className="text-sm font-semibold leading-normal tracking-normal text-foreground">
+            {selectedDomain ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedDomain(null)}
+                className="h-auto justify-start gap-1.5 p-0 text-sm font-semibold hover:bg-transparent hover:text-foreground active:scale-100"
               >
-                <LogoPreview
-                  src={`https://cdn.brandfetch.io/${r.domain}/icon.png`}
-                  alt={r.name}
-                  className="w-10 h-10"
+                <span className="text-muted-foreground">&larr;</span>
+                {selectedDomain}
+              </Button>
+            ) : (
+              t("raw.logoSearchTitle")
+            )}
+          </DialogTitle>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onOpenChange(false)}
+            className="size-6 p-0 text-muted-foreground/70 transition-colors hover:text-muted-foreground active:scale-100 [&_svg]:size-4"
+            aria-label={t("comments.close")}
+          >
+            <IconX className="size-4" />
+          </Button>
+        </div>
+
+        {!selectedDomain && (
+          <div className="px-4 pb-3 flex-shrink-0">
+            <div className="flex gap-2">
+              <div className="flex-1 relative">
+                <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
+                <Input
+                  ref={inputRef}
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleSearch();
+                  }}
+                  placeholder={t("raw.searchCompanyPlaceholder")}
+                  size="sm"
+                  className="rounded-lg bg-muted py-1.5 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground/70 focus-visible:ring-[hsl(var(--slides-accent)/0.5)]"
                 />
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs text-foreground/90 font-medium">
-                    {r.name}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    {r.domain}
-                  </div>
-                </div>
-                <span className="text-[10px] text-muted-foreground/70">
-                  &rsaquo;
-                </span>
-              </button>
-            ))}
+              </div>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                onClick={handleSearch}
+                disabled={loading || !query.trim()}
+                className="rounded-lg bg-[hsl(var(--slides-accent))] px-3 text-xs text-[hsl(var(--slides-accent-foreground))] hover:bg-[hsl(var(--slides-accent-hover))]"
+              >
+                {loading ? (
+                  <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  t("raw.search")
+                )}
+              </Button>
+            </div>
           </div>
         )}
 
-        {/* Logo variations grid */}
-        {selectedDomain && variations.length > 0 && (
-          <div className="space-y-3">
-            {variations.map((group) => (
-              <div key={group.label}>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 px-0.5">
-                  {group.label}
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {group.items.map((v) => (
-                    <button
-                      key={v.label}
-                      onClick={() => handleSelect(v.url)}
-                      className="flex flex-col items-center gap-1.5 p-2 rounded-lg border border-border hover:ring-2 hover:ring-[hsl(var(--slides-accent)/0.5)] transition-all"
-                      style={{ backgroundColor: v.bg }}
-                    >
-                      <div
-                        className="w-full aspect-[3/2] rounded flex items-center justify-center overflow-hidden"
+        <div className="px-4 pb-4 overflow-y-auto flex-1">
+          {error && (
+            <div className="text-center py-4 text-destructive/70 text-xs">
+              {error}
+            </div>
+          )}
+
+          {/* IconSearch results */}
+          {!selectedDomain && !loading && results.length === 0 && !error && (
+            <div className="text-center py-6 text-muted-foreground text-xs">
+              {t("raw.searchCompanyLogo")}
+            </div>
+          )}
+
+          {!selectedDomain && loading && (
+            <div className="flex items-center justify-center py-8">
+              <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+            </div>
+          )}
+
+          {!selectedDomain && results.length > 0 && (
+            <div className="space-y-1.5">
+              {results.map((r) => (
+                <Button
+                  key={r.domain}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setSelectedDomain(r.domain)}
+                  className="h-auto w-full justify-start gap-3 rounded-lg border border-border bg-muted p-2.5 text-left font-normal transition-colors hover:ring-2 hover:ring-[hsl(var(--slides-accent)/0.5)] active:scale-100"
+                >
+                  <LogoPreview
+                    src={`https://cdn.brandfetch.io/${r.domain}/icon.png`}
+                    alt={r.name}
+                    className="w-10 h-10"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-foreground/90 font-medium">
+                      {r.name}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {r.domain}
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground/70">
+                    &rsaquo;
+                  </span>
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {/* Logo variations grid */}
+          {selectedDomain && variations.length > 0 && (
+            <div className="space-y-3">
+              {variations.map((group) => (
+                <div key={group.label}>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 px-0.5">
+                    {group.label}
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {group.items.map((v) => (
+                      <Button
+                        key={v.label}
+                        type="button"
+                        variant="ghost"
+                        onClick={() => handleSelect(v.url)}
+                        className="h-auto w-full flex-col items-center gap-1.5 rounded-lg border border-border p-2 font-normal transition-colors hover:ring-2 hover:ring-[hsl(var(--slides-accent)/0.5)] active:scale-100"
                         style={{ backgroundColor: v.bg }}
                       >
-                        <img
-                          src={v.url}
-                          alt={v.label}
-                          className="max-w-[90%] max-h-[90%] object-contain"
-                          loading="lazy"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.opacity =
-                              "0.15";
-                          }}
-                        />
-                      </div>
-                      <span className="text-[9px] text-muted-foreground leading-tight text-center">
-                        {v.label}
-                      </span>
-                    </button>
-                  ))}
+                        <div
+                          className="w-full aspect-[3/2] rounded flex items-center justify-center overflow-hidden"
+                          style={{ backgroundColor: v.bg }}
+                        >
+                          <img
+                            src={v.url}
+                            alt={v.label}
+                            className="max-w-[90%] max-h-[90%] object-contain"
+                            loading="lazy"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.opacity =
+                                "0.15";
+                            }}
+                          />
+                        </div>
+                        <span className="text-[9px] text-muted-foreground leading-tight text-center">
+                          {v.label}
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body,
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

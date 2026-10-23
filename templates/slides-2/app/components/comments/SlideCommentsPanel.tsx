@@ -26,12 +26,14 @@ import {
   AvatarFallback as UserAvatarFallback,
   AvatarImage as UserAvatarImage,
 } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -181,8 +183,10 @@ export function CommentItem({
               <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon-xs"
                       aria-label={t("comments.editComment")}
                       onClick={() => {
                         setDraft(comment.content);
@@ -192,20 +196,22 @@ export function CommentItem({
                       className="rounded p-0.5 text-muted-foreground hover:text-foreground"
                     >
                       <IconPencil size={11} />
-                    </button>
+                    </Button>
                   </TooltipTrigger>
                   <TooltipContent>{t("comments.editComment")}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon-xs"
                       aria-label={t("comments.deleteComment")}
                       onClick={onDelete}
                       className="rounded p-0.5 text-muted-foreground hover:text-destructive"
                     >
                       <IconTrash size={11} />
-                    </button>
+                    </Button>
                   </TooltipTrigger>
                   <TooltipContent>{t("comments.deleteComment")}</TooltipContent>
                 </Tooltip>
@@ -215,7 +221,7 @@ export function CommentItem({
         </div>
         {editing ? (
           <div className="mt-1 space-y-1.5">
-            <textarea
+            <Textarea
               aria-label={t("comments.editComment")}
               value={draft}
               onChange={(event) => {
@@ -236,19 +242,22 @@ export function CommentItem({
                 if (event.key === "Escape") setEditing(false);
               }}
               rows={3}
-              className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="min-h-0 w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
             {error && <p className="text-[11px] text-destructive">{error}</p>}
             <div className="flex justify-end gap-1.5">
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="xs"
                 onClick={() => setEditing(false)}
                 className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 {t("comments.cancel")}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                size="xs"
                 onClick={() => void save()}
                 disabled={!draft.trim() || updateComment.isPending}
                 className="rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
@@ -256,7 +265,7 @@ export function CommentItem({
                 {updateComment.isPending
                   ? t("comments.saving")
                   : t("comments.save")}
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -268,9 +277,11 @@ export function CommentItem({
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
           {reactions.map((reaction) =>
             canReact ? (
-              <button
+              <Button
                 key={reaction.emoji}
                 type="button"
+                variant="ghost"
+                size="xs"
                 aria-label={t("comments.toggleReaction", {
                   emoji: reaction.emoji,
                 })}
@@ -280,7 +291,7 @@ export function CommentItem({
               >
                 <span aria-hidden="true">{reaction.emoji}</span>
                 <span>{reaction.count}</span>
-              </button>
+              </Button>
             ) : (
               <span
                 key={reaction.emoji}
@@ -295,13 +306,15 @@ export function CommentItem({
           {canReact && (
             <Popover open={reactionOpen} onOpenChange={setReactionOpen}>
               <PopoverTrigger asChild>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-xs"
                   aria-label={t("comments.addReaction")}
                   className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   <IconMoodSmile className="size-3" />
-                </button>
+                </Button>
               </PopoverTrigger>
               <PopoverContent
                 side="bottom"
@@ -310,15 +323,17 @@ export function CommentItem({
               >
                 <div className="flex gap-0.5">
                   {COMMENT_REACTION_EMOJIS.map((emoji) => (
-                    <button
+                    <Button
                       key={emoji}
                       type="button"
+                      variant="ghost"
+                      size="xs"
                       aria-label={t("comments.reactWith", { emoji })}
                       onClick={() => toggleEmoji(emoji)}
                       className="rounded p-1.5 text-base leading-none hover:bg-accent"
                     >
                       {emoji}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </PopoverContent>
@@ -389,7 +404,7 @@ function PendingCommentInput({
           "{quotedText}"
         </div>
       )}
-      <textarea
+      <Textarea
         ref={textareaRef}
         value={text}
         onChange={(e) => {
@@ -404,21 +419,24 @@ function PendingCommentInput({
         }}
         placeholder={t("comments.addCommentPlaceholder")}
         rows={3}
-        className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
+        className="min-h-0 w-full resize-none rounded-none border-0 bg-transparent px-3 py-2 text-[12px] text-foreground/90 outline-none placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
       />
       {error && (
         <div className="px-3 pb-1 text-[11px] text-destructive">{error}</div>
       )}
       <div className="flex justify-end gap-1.5 px-3 pb-2">
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="xs"
           onClick={onCancel}
           className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
         >
           {t("comments.cancel")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          size="xs"
           onClick={submit}
           disabled={!text.trim() || createComment.isPending}
           className="text-[11px] bg-primary text-primary-foreground font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-primary/90"
@@ -426,7 +444,7 @@ function PendingCommentInput({
           {createComment.isPending
             ? t("comments.saving")
             : t("comments.comment")}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -479,7 +497,7 @@ export function ReplyInput({
 
   return (
     <div className="mt-2 border border-border rounded-lg overflow-hidden bg-accent">
-      <textarea
+      <Textarea
         ref={textareaRef}
         value={text}
         onChange={(e) => {
@@ -494,27 +512,30 @@ export function ReplyInput({
         }}
         placeholder={t("comments.replyPlaceholder")}
         rows={2}
-        className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
+        className="min-h-0 w-full resize-none rounded-none border-0 bg-transparent px-3 py-2 text-[12px] text-foreground/90 outline-none placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
       />
       {error && (
         <div className="px-3 pb-1 text-[11px] text-destructive">{error}</div>
       )}
       <div className="flex justify-end gap-1.5 px-3 pb-2">
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="xs"
           onClick={onDone}
           className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
         >
           {t("comments.cancel")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          size="xs"
           onClick={submit}
           disabled={!text.trim() || createComment.isPending}
           className="text-[11px] bg-primary text-primary-foreground font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-primary/90"
         >
           {t("comments.reply")}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -611,14 +632,16 @@ function ThreadCard({
         </div>
       )}
       {onSelectSlide && thread.slideId && thread.slideId !== currentSlideId && (
-        <button
+        <Button
           type="button"
+          variant="link"
+          size="xs"
           data-slide-comment-slide-jump
           onClick={() => onSelectSlide(thread.slideId!)}
           className="mb-2 text-[10px] text-primary hover:underline"
         >
           {t("comments.goToSlide")}
-        </button>
+        </Button>
       )}
 
       <CommentItem
@@ -635,8 +658,10 @@ function ThreadCard({
 
       {/* Replies toggle */}
       {replies.length > 0 && (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="xs"
           aria-expanded={showReplies}
           onClick={() => setShowReplies(!showReplies)}
           className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground/80 ml-7"
@@ -648,7 +673,7 @@ function ThreadCard({
           {showReplies
             ? t("comments.hideReplies")
             : t("comments.replyCount", { count: replies.length })}
-        </button>
+        </Button>
       )}
 
       {/* Expanded replies */}
@@ -675,18 +700,23 @@ function ThreadCard({
       {canComment && (
         <div className="mt-2 ml-7 flex items-center gap-3">
           {!thread.resolved && !replyOpen && (
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
               onClick={() => setReplyOpen(true)}
               className="text-[11px] text-muted-foreground hover:text-foreground/80"
             >
               {t("comments.reply")}
-            </button>
+            </Button>
           )}
           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-xs"
                   aria-label={
                     thread.resolved
                       ? t("comments.reopenThread")
@@ -700,7 +730,7 @@ function ThreadCard({
                   ) : (
                     <IconCheck size={12} />
                   )}
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>
                 {thread.resolved
@@ -852,8 +882,10 @@ export function SlideCommentsPanel({
           {canComment && deckId && slideId && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-xs"
                   aria-label={t("comments.addComment")}
                   aria-expanded={showInput}
                   disabled={showInput}
@@ -861,15 +893,17 @@ export function SlideCommentsPanel({
                   className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground/80 disabled:opacity-50"
                 >
                   <IconMessageCircle size={14} />
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>{t("comments.addComment")}</TooltipContent>
             </Tooltip>
           )}
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 aria-label={t("comments.filters")}
                 aria-expanded={filtersExpanded}
                 onClick={toggleFilters}
@@ -879,18 +913,22 @@ export function SlideCommentsPanel({
                   size={14}
                   className={`transition-transform ${filtersExpanded ? "rotate-180" : ""}`}
                 />
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>{t("comments.filters")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={t("comments.close")}
                 onClick={onClose}
                 className="p-1 rounded text-muted-foreground hover:text-foreground/80 hover:bg-accent"
               >
                 <IconX size={14} />
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>{t("comments.close")}</TooltipContent>
           </Tooltip>
@@ -906,9 +944,11 @@ export function SlideCommentsPanel({
               aria-label={t("comments.scope")}
             >
               {(["slide", "deck"] as const).map((value) => (
-                <button
+                <Button
                   key={value}
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   aria-pressed={scope === value}
                   onClick={() => setScope(value)}
                   className={`rounded px-2 py-1 text-[10px] ${scope === value ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
@@ -916,7 +956,7 @@ export function SlideCommentsPanel({
                   {value === "slide"
                     ? t("comments.thisSlide")
                     : t("comments.allComments")}
-                </button>
+                </Button>
               ))}
             </div>
             <div
@@ -925,15 +965,17 @@ export function SlideCommentsPanel({
               aria-label={t("comments.audience")}
             >
               {(["all", "for-you"] as const).map((value) => (
-                <button
+                <Button
                   key={value}
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   aria-pressed={audience === value}
                   onClick={() => setAudience(value)}
                   className={`rounded px-2 py-1 text-[10px] ${audience === value ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                 >
                   {value === "all" ? t("comments.all") : t("comments.forYou")}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -979,14 +1021,16 @@ export function SlideCommentsPanel({
             <p className="text-xs text-muted-foreground">
               {t("comments.loadFailed")}
             </p>
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="xs"
               onClick={() => void commentsQuery.refetch()}
               className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
             >
               <IconRefresh className="size-3.5" />
               {t("comments.retry")}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -1012,7 +1056,10 @@ export function SlideCommentsPanel({
 
         {/* Resolved toggle */}
         {visibleResolvedThreads.length > 0 && (
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
             onClick={() => setShowResolved(!showResolved)}
             className="w-full text-[11px] text-muted-foreground hover:text-foreground/70 py-1"
           >
@@ -1021,7 +1068,7 @@ export function SlideCommentsPanel({
               : t("comments.showResolved", {
                   count: visibleResolvedThreads.length,
                 })}
-          </button>
+          </Button>
         )}
 
         {/* Empty state */}
@@ -1029,10 +1076,12 @@ export function SlideCommentsPanel({
           !showInput &&
           threadCards.length === 0 &&
           (deckId && slideId && canComment ? (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="default"
               onClick={() => setAddingComment(true)}
-              className="w-full text-center py-10 rounded-lg border border-dashed border-border/70 hover:border-primary/50 hover:bg-accent transition-colors"
+              className="h-auto w-full flex-col gap-0 rounded-lg border border-dashed border-border/70 py-10 text-center transition-colors hover:border-primary/50 hover:bg-accent"
             >
               <IconMessageCircle
                 size={28}
@@ -1044,7 +1093,7 @@ export function SlideCommentsPanel({
               <p className="text-[11px] text-muted-foreground/70 mt-1">
                 {t("comments.clickToAddComment")}
               </p>
-            </button>
+            </Button>
           ) : deckId && slideId ? (
             <div className="text-center py-10">
               <IconMessageCircle

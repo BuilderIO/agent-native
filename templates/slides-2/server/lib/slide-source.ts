@@ -9,8 +9,13 @@ import { getDb, schema } from "../db/index.js";
 import { parseSource, walkAll } from "./slide-source-editing/babel-walk.js";
 import {
   isSlideSourceWithinByteLimit,
+  MAX_SLIDE_SOURCE_BYTES,
   SLIDE_SOURCE_BYTE_LIMIT_MESSAGE,
 } from "./slide-source-limits.js";
+import {
+  normalizeSvgNoiseBackgroundProps,
+  SVG_NOISE_COLOR_MATRIX_VALUES,
+} from "./static-svg-noise-background.js";
 
 const MAX_RENDERED_LENGTH = 1024 * 1024;
 const MAX_AST_NODES = 8_000;
@@ -20,6 +25,14 @@ const MAX_SOURCE_PAGES = 40;
 const MAX_RENDER_DEPTH = 48;
 const MAX_ASSET_COUNT = 64;
 const ASSET_ID = /^[A-Za-z0-9_-]{1,200}$/;
+const STATIC_CORE_IMPORTS = new Set([
+  "NoiseBackground",
+  "Step",
+  "Steps",
+  "useIsActivePage",
+  "useSlidePageNumber",
+]);
+const MAX_STATIC_IDS = 128;
 
 const HTML_TAGS = new Set([
   "a",
@@ -111,6 +124,7 @@ const SAFE_ATTRS = new Set([
   "aria-hidden",
   "aria-roledescription",
   "autoPlay",
+  "className",
   "colSpan",
   "controls",
   "cx",
@@ -140,6 +154,8 @@ const SAFE_ATTRS = new Set([
   "markerMid",
   "offset",
   "opacity",
+  "patternTransform",
+  "patternUnits",
   "points",
   "preserveAspectRatio",
   "playsInline",
@@ -863,8 +879,16 @@ class StaticFunction {
 class StaticSlideRenderer {
   private readonly components = new Map<string, StaticFunction>();
   private readonly variables = new Map<string, unknown>();
+  private readonly noiseBackgroundComponents = new Set<string>();
+  private readonly stepComponents = new Set<string>();
+  private readonly stepsComponents = new Set<string>();
+  private readonly pageNumberHooks = new Set<string>();
+  private readonly activePageHooks = new Set<string>();
+  private readonly idHooks = new Set<string>();
   private renderedNodeCount = 0;
   private evaluatedValueCount = 0;
+  private noiseBackgroundCount = 0;
+  private staticIdCount = 0;
 
   constructor(
     private readonly ast: t.File,
@@ -887,6 +911,10 @@ class StaticSlideRenderer {
   private prepareProgram(): void {
     let defaultCount = 0;
     for (const statement of this.ast.program.body) {
+      if (t.isImportDeclaration(statement)) {
+        this.prepareImport(statement);
+        continue;
+      }
       if (t.isExportDefaultDeclaration(statement)) {
         defaultCount += 1;
         continue;
@@ -933,6 +961,72 @@ class StaticSlideRenderer {
       throw new SlideSourceError(
         "Slide source must have exactly one default export.",
       );
+  }
+
+  private prepareImport(statement: t.ImportDeclaration): void {
+    if (statement.importKind === "type") return;
+
+    if (statement.source.value === "react") {
+      for (const specifier of statement.specifiers) {
+        if (t.isImportSpecifier(specifier) && specifier.importKind === "type")
+          continue;
+        if (t.isImportDefaultSpecifier(specifier)) continue;
+        if (
+          t.isImportSpecifier(specifier) &&
+          t.isIdentifier(specifier.imported) &&
+          specifier.imported.name === "useId"
+        ) {
+          this.idHooks.add(specifier.local.name);
+          continue;
+        }
+        throw new SlideSourceError(
+          "Static slide rendering supports only React useId and built-in components from @agent-native/slides-core.",
+        );
+      }
+      return;
+    }
+
+    if (statement.source.value !== "@agent-native/slides-core") {
+      throw new SlideSourceError(
+        "Static slide rendering supports only built-in components from @agent-native/slides-core.",
+      );
+    }
+
+    if (statement.specifiers.length === 0) {
+      throw new SlideSourceError(
+        "Static slide rendering supports only named built-ins from @agent-native/slides-core.",
+      );
+    }
+
+    for (const specifier of statement.specifiers) {
+      if (
+        !t.isImportSpecifier(specifier) ||
+        specifier.importKind === "type" ||
+        !t.isIdentifier(specifier.imported) ||
+        !STATIC_CORE_IMPORTS.has(specifier.imported.name)
+      ) {
+        throw new SlideSourceError(
+          "Static slide rendering supports only built-in components from @agent-native/slides-core.",
+        );
+      }
+      switch (specifier.imported.name) {
+        case "NoiseBackground":
+          this.noiseBackgroundComponents.add(specifier.local.name);
+          break;
+        case "Step":
+          this.stepComponents.add(specifier.local.name);
+          break;
+        case "Steps":
+          this.stepsComponents.add(specifier.local.name);
+          break;
+        case "useIsActivePage":
+          this.activePageHooks.add(specifier.local.name);
+          break;
+        case "useSlidePageNumber":
+          this.pageNumberHooks.add(specifier.local.name);
+          break;
+      }
+    }
   }
 
   private defaultExport(): t.Node {
@@ -998,23 +1092,49 @@ class StaticSlideRenderer {
     }
     if (t.isArrayExpression(node)) {
       this.reserveEvaluatedValues(node.elements.length);
-      return node.elements.map((entry) => {
-        if (!entry) return null;
-        if (t.isSpreadElement(entry))
-          throw new SlideSourceError("Spread expressions are not supported.");
-        return this.evaluate(entry, scope, depth + 1);
-      });
+      const values: unknown[] = [];
+      for (const entry of node.elements) {
+        if (!entry) {
+          values.push(null);
+        } else if (t.isSpreadElement(entry)) {
+          const spread = this.evaluate(entry.argument, scope, depth + 1);
+          if (!Array.isArray(spread)) {
+            throw new SlideSourceError(
+              "Array spreads must use bounded static arrays.",
+            );
+          }
+          this.reserveEvaluatedValues(spread.length);
+          values.push(...spread);
+        } else {
+          values.push(this.evaluate(entry, scope, depth + 1));
+        }
+      }
+      return values;
     }
     if (t.isObjectExpression(node)) {
       const result: Record<string, unknown> = Object.create(null);
       for (const property of node.properties) {
-        if (
-          !t.isObjectProperty(property) ||
-          property.computed ||
-          property.shorthand
-        ) {
+        if (t.isSpreadElement(property)) {
+          const spread = this.evaluate(property.argument, scope, depth + 1);
+          if (spread === null || spread === undefined) continue;
+          if (!isPlainObject(spread)) {
+            throw new SlideSourceError(
+              "Object spreads must use bounded plain objects.",
+            );
+          }
+          const entries = Object.entries(spread);
+          this.reserveEvaluatedValues(entries.length);
+          for (const [key, value] of entries) {
+            if (isBlockedProperty(key)) {
+              throw new SlideSourceError("Object key is not allowed.");
+            }
+            result[key] = value;
+          }
+          continue;
+        }
+        if (!t.isObjectProperty(property) || property.computed) {
           throw new SlideSourceError(
-            "Object values must use explicit static properties.",
+            "Object values must use static properties.",
           );
         }
         const key = t.isIdentifier(property.key)
@@ -1062,6 +1182,25 @@ class StaticSlideRenderer {
         if (node.operator === "/") return right === 0 ? null : left / right;
         if (node.operator === "%") return right === 0 ? null : left % right;
       }
+      if (node.operator === "===") return left === right;
+      if (node.operator === "!==") return left !== right;
+      if (
+        typeof left === "number" &&
+        typeof right === "number" &&
+        Number.isFinite(left) &&
+        Number.isFinite(right)
+      ) {
+        if (node.operator === ">") return left > right;
+        if (node.operator === ">=") return left >= right;
+        if (node.operator === "<") return left < right;
+        if (node.operator === "<=") return left <= right;
+      }
+      if (typeof left === "string" && typeof right === "string") {
+        if (node.operator === ">") return left > right;
+        if (node.operator === ">=") return left >= right;
+        if (node.operator === "<") return left < right;
+        if (node.operator === "<=") return left <= right;
+      }
       throw new SlideSourceError(
         "Only static addition and numeric arithmetic are supported.",
       );
@@ -1086,6 +1225,15 @@ class StaticSlideRenderer {
           : left;
     }
     if (t.isMemberExpression(node)) {
+      if (
+        !node.computed &&
+        !scope.has("Math") &&
+        t.isIdentifier(node.object, { name: "Math" }) &&
+        t.isIdentifier(node.property)
+      ) {
+        if (node.property.name === "PI") return Math.PI;
+        if (node.property.name === "E") return Math.E;
+      }
       const object = this.evaluate(node.object, scope, depth + 1);
       const property = node.computed
         ? this.evaluate(node.property, scope, depth + 1)
@@ -1140,6 +1288,73 @@ class StaticSlideRenderer {
     scope: Map<string, unknown>,
     depth: number,
   ): unknown {
+    if (
+      t.isMemberExpression(node.callee) &&
+      !node.callee.computed &&
+      !scope.has("Math") &&
+      t.isIdentifier(node.callee.object, { name: "Math" }) &&
+      t.isIdentifier(node.callee.property)
+    ) {
+      const method = node.callee.property.name;
+      const args = node.arguments.map((argument) => {
+        if (t.isSpreadElement(argument) || t.isJSXNamespacedName(argument)) {
+          throw new SlideSourceError("Spread arguments are not supported.");
+        }
+        const value = this.evaluate(argument, scope, depth + 1);
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          throw new SlideSourceError(
+            "Math calls require static finite numbers.",
+          );
+        }
+        return value;
+      });
+      if (args.length > 64) {
+        throw new SlideSourceError("Math calls accept at most 64 arguments.");
+      }
+      let result: number | undefined;
+      switch (method) {
+        case "cos":
+          if (args.length === 1) result = Math.cos(args[0]);
+          break;
+        case "sin":
+          if (args.length === 1) result = Math.sin(args[0]);
+          break;
+        case "min":
+          if (args.length > 0) result = Math.min(...args);
+          break;
+        case "max":
+          if (args.length > 0) result = Math.max(...args);
+          break;
+        case "hypot":
+          if (args.length > 0) result = Math.hypot(...args);
+          break;
+      }
+      if (result !== undefined && Number.isFinite(result)) return result;
+      throw new SlideSourceError("Unsupported or invalid static Math call.");
+    }
+    if (
+      t.isMemberExpression(node.callee) &&
+      !node.callee.computed &&
+      t.isIdentifier(node.callee.property, { name: "replace" }) &&
+      node.arguments.length === 2 &&
+      t.isRegExpLiteral(node.arguments[0])
+    ) {
+      const input = this.evaluate(node.callee.object, scope, depth + 1);
+      const pattern = node.arguments[0];
+      const replacement = this.evaluate(node.arguments[1], scope, depth + 1);
+      if (
+        typeof input === "string" &&
+        input.length <= MAX_SLIDE_SOURCE_BYTES &&
+        pattern.pattern === "[^a-zA-Z0-9]" &&
+        pattern.flags === "g" &&
+        typeof replacement === "string"
+      ) {
+        return input.replace(/[^a-zA-Z0-9]/g, replacement);
+      }
+      throw new SlideSourceError(
+        "Only bounded identifier cleanup is supported.",
+      );
+    }
     const args = node.arguments.map((argument) => {
       if (t.isSpreadElement(argument) || t.isJSXNamespacedName(argument)) {
         throw new SlideSourceError("Spread arguments are not supported.");
@@ -1147,6 +1362,51 @@ class StaticSlideRenderer {
       return this.evaluate(argument, scope, depth + 1);
     });
     if (t.isIdentifier(node.callee)) {
+      if (node.callee.name === "String" && !scope.has("String")) {
+        if (args.length !== 1) {
+          throw new SlideSourceError(
+            "Static String conversion takes one value.",
+          );
+        }
+        if (args[0] === null || args[0] === undefined || isPrimitive(args[0])) {
+          return String(args[0]);
+        }
+        throw new SlideSourceError(
+          "Static String conversion requires a primitive.",
+        );
+      }
+      if (this.idHooks.has(node.callee.name) && !scope.has(node.callee.name)) {
+        if (args.length > 0) {
+          throw new SlideSourceError("useId does not accept arguments.");
+        }
+        this.staticIdCount += 1;
+        if (this.staticIdCount > MAX_STATIC_IDS) {
+          throw new SlideSourceError("Slide uses too many generated IDs.");
+        }
+        return `slides2-use-id-${this.staticIdCount}`;
+      }
+      if (
+        this.activePageHooks.has(node.callee.name) &&
+        !scope.has(node.callee.name)
+      ) {
+        if (args.length > 0) {
+          throw new SlideSourceError(
+            "useIsActivePage does not accept arguments.",
+          );
+        }
+        return false;
+      }
+      if (
+        this.pageNumberHooks.has(node.callee.name) &&
+        !scope.has(node.callee.name)
+      ) {
+        if (args.length > 0) {
+          throw new SlideSourceError(
+            "useSlidePageNumber does not accept arguments.",
+          );
+        }
+        return { current: 1, total: 1 };
+      }
       const fn =
         scope.get(node.callee.name) ?? this.components.get(node.callee.name);
       if (isStaticFunction(fn)) return this.invoke(fn, args, depth + 1);
@@ -1158,6 +1418,12 @@ class StaticSlideRenderer {
     ) {
       const object = this.evaluate(node.callee.object, scope, depth + 1);
       const method = node.callee.property.name;
+      if (isPlainObject(object) && Object.hasOwn(object, method)) {
+        const member = object[method];
+        if (isStaticFunction(member)) {
+          return this.invoke(member, args, depth + 1);
+        }
+      }
       if (
         Array.isArray(object) &&
         method === "map" &&
@@ -1174,12 +1440,51 @@ class StaticSlideRenderer {
         if (method === "toUpperCase") return object.toUpperCase();
         if (method === "toLowerCase") return object.toLowerCase();
         if (method === "trim") return object.trim();
+        if (method === "padStart") {
+          const targetLength = Number(args[0] ?? 0);
+          const fill = args[1] === undefined ? " " : String(args[1]);
+          if (
+            Number.isInteger(targetLength) &&
+            targetLength >= 0 &&
+            targetLength <= 4096 &&
+            fill.length <= 64
+          ) {
+            return object.padStart(targetLength, fill);
+          }
+          throw new SlideSourceError("String padding exceeds static bounds.");
+        }
+        if (method === "includes") {
+          if (typeof args[0] !== "string") {
+            throw new SlideSourceError("String includes requires a string.");
+          }
+          const position = Number(args[1] ?? 0);
+          if (!Number.isFinite(position)) {
+            throw new SlideSourceError(
+              "String includes requires a static position.",
+            );
+          }
+          return object.includes(args[0], position);
+        }
         if (method === "slice")
           return object.slice(
             Number(args[0] ?? 0),
             args[1] === undefined ? undefined : Number(args[1]),
           );
       }
+      if (typeof object === "number" && method === "toFixed") {
+        const digits = Number(args[0] ?? 0);
+        if (
+          Number.isFinite(object) &&
+          Number.isInteger(digits) &&
+          digits >= 0 &&
+          digits <= 20
+        ) {
+          return object.toFixed(digits);
+        }
+        throw new SlideSourceError("Number formatting exceeds static bounds.");
+      }
+      if (Array.isArray(object) && method === "includes")
+        return object.includes(args[0]);
     }
     throw new SlideSourceError(
       "Only local pure helpers and static array/string methods may be called.",
@@ -1192,7 +1497,9 @@ class StaticSlideRenderer {
     this.reserveEvaluatedValues(1);
     const scope = new Map(fn.closure);
     fn.node.params.forEach((parameter, index) =>
-      bindParameter(parameter, args[index], scope),
+      bindParameter(parameter, args[index], scope, (expression) =>
+        this.evaluate(expression, scope, depth + 1),
+      ),
     );
     if (
       t.isArrowFunctionExpression(fn.node) &&
@@ -1206,14 +1513,16 @@ class StaticSlideRenderer {
     for (const statement of body.body) {
       if (t.isVariableDeclaration(statement) && statement.kind === "const") {
         for (const declaration of statement.declarations) {
-          if (!t.isIdentifier(declaration.id) || !declaration.init) {
+          if (!declaration.init) {
             throw new SlideSourceError(
               "Component locals must be initialized const values.",
             );
           }
-          scope.set(
-            declaration.id.name,
+          bindParameter(
+            declaration.id,
             this.evaluate(declaration.init, scope, depth + 1),
+            scope,
+            (expression) => this.evaluate(expression, scope, depth + 1),
           );
         }
         continue;
@@ -1244,8 +1553,23 @@ class StaticSlideRenderer {
       throw new SlideSourceError(
         "Namespaced and member JSX tags are not supported.",
       );
+    if (this.noiseBackgroundComponents.has(name)) {
+      return this.renderNoiseBackground(node, scope, depth);
+    }
+    if (this.stepComponents.has(name)) {
+      return this.renderStep(node, scope, depth);
+    }
+    if (this.stepsComponents.has(name)) {
+      this.assertOnlyKeyAttribute(node);
+      return createElement(
+        Fragment,
+        null,
+        ...this.renderChildren(node.children, scope, depth + 1),
+      );
+    }
+    const isLocalComponent = isComponentName(name);
     const sourceLoc = node.loc?.start;
-    const props: Record<string, unknown> = {};
+    const props: Record<string, unknown> = Object.create(null);
     if (sourceLoc)
       props["data-slide-loc"] = `${sourceLoc.line}:${sourceLoc.column}`;
 
@@ -1268,16 +1592,24 @@ class StaticSlideRenderer {
       if (
         propName !== "style" &&
         propName !== "src" &&
-        !isSafeAttribute(propName)
+        !isSafeAttribute(propName) &&
+        (!isLocalComponent ||
+          isBlockedProperty(propName) ||
+          !/^[A-Za-z_$][A-Za-z0-9_$-]{0,127}$/.test(propName))
       ) {
         throw new SlideSourceError(`Attribute "${rawName}" is not allowed.`);
       }
-      if (propName === "src" && name !== "img" && name !== "video") {
+      if (
+        !isLocalComponent &&
+        propName === "src" &&
+        name !== "img" &&
+        name !== "video"
+      ) {
         throw new SlideSourceError(
           "Only <img> and <video> elements may load uploaded assets.",
         );
       }
-      if (propName === "poster" && name !== "video") {
+      if (!isLocalComponent && propName === "poster" && name !== "video") {
         throw new SlideSourceError("Only <video> elements may use a poster.");
       }
       let value: unknown;
@@ -1291,9 +1623,9 @@ class StaticSlideRenderer {
           `Attribute "${rawName}" has an unsupported value.`,
         );
       }
-      if (propName === "src" || propName === "poster")
+      if (!isLocalComponent && (propName === "src" || propName === "poster"))
         value = this.resolveAsset(value);
-      if (propName === "href") {
+      if (!isLocalComponent && propName === "href") {
         value = safeHref(value);
         if (
           name !== "a" &&
@@ -1304,10 +1636,15 @@ class StaticSlideRenderer {
           );
         }
       }
-      if (SVG_LOCAL_REFERENCE_ATTRS.has(propName)) value = safeSvgPaint(value);
-      if (propName === "style") value = safeStyle(value);
+      if (!isLocalComponent && SVG_LOCAL_REFERENCE_ATTRS.has(propName))
+        value = safeSvgPaint(value);
+      if (!isLocalComponent && propName === "style") value = safeStyle(value);
       if (value !== null && value !== undefined) {
-        if (!isPrimitive(value) && propName !== "style") {
+        if (
+          !isPrimitive(value) &&
+          propName !== "style" &&
+          !(isLocalComponent && (isPlainObject(value) || Array.isArray(value)))
+        ) {
           throw new SlideSourceError(
             `Attribute "${rawName}" must have a static primitive value.`,
           );
@@ -1317,7 +1654,7 @@ class StaticSlideRenderer {
     }
 
     const children = this.renderChildren(node.children, scope, depth + 1);
-    if (isComponentName(name)) {
+    if (isLocalComponent) {
       const component = this.components.get(name);
       if (!component)
         throw new SlideSourceError(`Unknown local component "${name}".`);
@@ -1341,6 +1678,204 @@ class StaticSlideRenderer {
     }
     if (children.length === 0) return createElement(name, props);
     return createElement(name, props, ...children);
+  }
+
+  private renderNoiseBackground(
+    node: t.JSXElement,
+    scope: Map<string, unknown>,
+    depth: number,
+  ): ReactNode {
+    if (
+      node.children.some(
+        (child) => !t.isJSXText(child) || child.value.trim().length > 0,
+      )
+    ) {
+      throw new SlideSourceError("NoiseBackground cannot contain children.");
+    }
+
+    const props: Record<string, unknown> = {};
+    for (const attribute of node.openingElement.attributes) {
+      if (t.isJSXSpreadAttribute(attribute)) {
+        throw new SlideSourceError(
+          "NoiseBackground does not support spread attributes.",
+        );
+      }
+      if (!t.isJSXIdentifier(attribute.name)) {
+        throw new SlideSourceError(
+          "NoiseBackground attributes must use static names.",
+        );
+      }
+      const name = attribute.name.name;
+      if (name === "key") {
+        if (
+          attribute.value &&
+          !t.isStringLiteral(attribute.value) &&
+          !(
+            t.isJSXExpressionContainer(attribute.value) &&
+            (t.isStringLiteral(attribute.value.expression) ||
+              t.isNumericLiteral(attribute.value.expression))
+          )
+        ) {
+          throw new SlideSourceError(
+            "NoiseBackground keys must be static strings or numbers.",
+          );
+        }
+        continue;
+      }
+      if (name === "data-slide-loc") {
+        throw new SlideSourceError(
+          "data-slide-loc is reserved for source mapping.",
+        );
+      }
+      if (!attribute.value) {
+        props[name] = true;
+      } else if (t.isStringLiteral(attribute.value)) {
+        props[name] = attribute.value.value;
+      } else if (t.isJSXExpressionContainer(attribute.value)) {
+        props[name] = this.evaluate(
+          attribute.value.expression,
+          scope,
+          depth + 1,
+        );
+      } else {
+        throw new SlideSourceError(
+          `NoiseBackground prop "${name}" has an unsupported value.`,
+        );
+      }
+    }
+
+    const sourceLoc = node.loc?.start;
+    const options = normalizeSvgNoiseBackgroundProps({
+      ...props,
+      ...(sourceLoc
+        ? { "data-slide-loc": `${sourceLoc.line}:${sourceLoc.column}` }
+        : {}),
+    });
+    if (!options) {
+      throw new SlideSourceError(
+        "NoiseBackground props must use bounded static values for baseFrequency, numOctaves, seed, opacity, and fill.",
+      );
+    }
+
+    this.noiseBackgroundCount += 1;
+    if (this.noiseBackgroundCount > 8) {
+      throw new SlideSourceError("Slide uses too many filtered backgrounds.");
+    }
+    this.renderedNodeCount += 5;
+    if (depth > MAX_RENDER_DEPTH || this.renderedNodeCount > MAX_AST_NODES) {
+      throw new SlideSourceError("Slide output is too complex.");
+    }
+
+    const id = `slides2-noise-${this.noiseBackgroundCount}`;
+    return createElement(
+      "svg",
+      {
+        xmlns: "http://www.w3.org/2000/svg",
+        "aria-hidden": true,
+        focusable: false,
+        width: "100%",
+        height: "100%",
+        viewBox: "0 0 220 220",
+        preserveAspectRatio: "none",
+        ...(options.dataSlideLoc
+          ? { "data-slide-loc": options.dataSlideLoc }
+          : {}),
+        style: {
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          display: "block",
+          pointerEvents: "none",
+        },
+      },
+      createElement(
+        "defs",
+        null,
+        createElement(
+          "filter",
+          { id, x: "0", y: "0", width: "100%", height: "100%" },
+          createElement("feTurbulence", {
+            type: "fractalNoise",
+            baseFrequency: String(options.baseFrequency),
+            numOctaves: String(options.numOctaves),
+            seed: String(options.seed),
+            stitchTiles: "stitch",
+            result: "noise",
+          }),
+          createElement("feColorMatrix", {
+            in: "noise",
+            type: "matrix",
+            values: SVG_NOISE_COLOR_MATRIX_VALUES,
+          }),
+        ),
+      ),
+      createElement("rect", {
+        width: "100%",
+        height: "100%",
+        filter: `url(#${id})`,
+        opacity: String(options.opacity),
+        fill: options.fill,
+      }),
+    );
+  }
+
+  private assertOnlyKeyAttribute(node: t.JSXElement): void {
+    for (const attribute of node.openingElement.attributes) {
+      if (
+        !t.isJSXAttribute(attribute) ||
+        !t.isJSXIdentifier(attribute.name) ||
+        attribute.name.name !== "key"
+      ) {
+        throw new SlideSourceError(
+          "Steps supports only a static React key attribute.",
+        );
+      }
+    }
+  }
+
+  private renderStep(
+    node: t.JSXElement,
+    scope: Map<string, unknown>,
+    depth: number,
+  ): ReactNode {
+    let duration: unknown = 180;
+    for (const attribute of node.openingElement.attributes) {
+      if (!t.isJSXAttribute(attribute) || !t.isJSXIdentifier(attribute.name)) {
+        throw new SlideSourceError("Step attributes must be static.");
+      }
+      const name = attribute.name.name;
+      if (name === "key") continue;
+      if (name !== "duration" || !attribute.value) {
+        throw new SlideSourceError(
+          "Step supports only a bounded duration and a static React key.",
+        );
+      }
+      if (t.isStringLiteral(attribute.value)) {
+        duration = attribute.value.value;
+      } else if (t.isJSXExpressionContainer(attribute.value)) {
+        duration = this.evaluate(attribute.value.expression, scope, depth + 1);
+      } else {
+        throw new SlideSourceError("Step duration must be a static number.");
+      }
+    }
+    if (typeof duration !== "number" || !Number.isFinite(duration)) {
+      throw new SlideSourceError("Step duration must be a static number.");
+    }
+    const safeDuration = Math.max(0, Math.min(5000, duration));
+    return createElement(
+      "div",
+      {
+        "data-slides2-step": "revealed",
+        "data-slides2-step-duration": String(safeDuration),
+        style: {
+          opacity: 1,
+          visibility: "visible",
+          transition: `opacity ${safeDuration}ms cubic-bezier(0, 0, 0.2, 1)`,
+        },
+      },
+      ...this.renderChildren(node.children, scope, depth + 1),
+    );
   }
 
   private renderChildren(
@@ -1418,18 +1953,32 @@ function bindParameter(
   parameter: t.Node,
   value: unknown,
   scope: Map<string, unknown>,
+  evaluateDefault: (expression: t.Expression) => unknown,
 ): void {
+  if (t.isAssignmentPattern(parameter)) {
+    bindParameter(
+      parameter.left,
+      value === undefined ? evaluateDefault(parameter.right) : value,
+      scope,
+      evaluateDefault,
+    );
+    return;
+  }
   if (t.isIdentifier(parameter)) {
     scope.set(parameter.name, value);
     return;
   }
+  if (t.isArrayPattern(parameter) && Array.isArray(value)) {
+    parameter.elements.forEach((element, index) => {
+      if (element) {
+        bindParameter(element, value[index], scope, evaluateDefault);
+      }
+    });
+    return;
+  }
   if (t.isObjectPattern(parameter) && isPlainObject(value)) {
     for (const property of parameter.properties) {
-      if (
-        !t.isObjectProperty(property) ||
-        property.computed ||
-        property.shorthand
-      ) {
+      if (!t.isObjectProperty(property) || property.computed) {
         throw new SlideSourceError(
           "Component props must use simple property destructuring.",
         );
@@ -1441,22 +1990,27 @@ function bindParameter(
           : null;
       if (!key || isBlockedProperty(key))
         throw new SlideSourceError("Invalid component prop.");
-      const target = property.value;
+      let target = property.value;
+      let propertyValue = value[key];
+      if (t.isAssignmentPattern(target)) {
+        if (propertyValue === undefined) {
+          propertyValue = evaluateDefault(target.right);
+        }
+        target = target.left;
+      }
       if (!t.isIdentifier(target))
         throw new SlideSourceError(
           "Nested prop destructuring is not supported.",
         );
-      scope.set(target.name, value[key]);
+      scope.set(target.name, propertyValue);
     }
     return;
   }
-  if (t.isRestElement(parameter) || t.isAssignmentPattern(parameter)) {
-    throw new SlideSourceError(
-      "Rest and default component parameters are not supported.",
-    );
+  if (t.isRestElement(parameter)) {
+    throw new SlideSourceError("Rest component parameters are not supported.");
   }
   throw new SlideSourceError(
-    "Component parameters must be props or simple prop destructuring.",
+    "Component parameters must be props or static array/object destructuring.",
   );
 }
 

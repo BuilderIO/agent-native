@@ -318,6 +318,30 @@ describe("slide inline image storage boundary", () => {
     }
   });
 
+  it("keeps encoded SVG data URLs out of persisted source while allowing NoiseBackground", () => {
+    const encodedNoise = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"/>')}")`;
+    const unsafeSource = `export default function Slide() { return <div style={{ backgroundImage: ${JSON.stringify(encodedNoise)} }} />; }`;
+
+    expect(() =>
+      assertSlideInlineImagesPersistable(
+        {},
+        { sourceTsx: unsafeSource },
+        "slide-noise-url",
+      ),
+    ).toThrow(
+      expect.objectContaining({ errorCode: "invalid_inline_image_data_url" }),
+    );
+
+    const safeSource = `import { NoiseBackground } from "@agent-native/slides-core"; export default function Slide() { return <div><NoiseBackground /></div>; }`;
+    expect(() =>
+      assertSlideInlineImagesPersistable(
+        {},
+        { sourceTsx: safeSource },
+        "slide-noise-component",
+      ),
+    ).not.toThrow();
+  });
+
   it("checks data URLs in CSS at-rules and inline style objects", () => {
     const sourceVariants = [
       [

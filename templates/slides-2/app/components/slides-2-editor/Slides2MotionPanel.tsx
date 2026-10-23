@@ -26,6 +26,7 @@ import type {
   SlideTransitionPhase,
 } from "../../../shared/slides-2-transition";
 import {
+  canMoveSourceBuildStep,
   canSetPageTransition,
   effectiveSourceTransition,
   getBuildSelectionAction,
@@ -637,7 +638,10 @@ export function Slides2MotionPanel({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={disabled}
+                disabled={
+                  disabled ||
+                  !canMoveSourceBuildStep(sourceTsx, selection, "earlier")
+                }
                 onClick={() => moveBuild("earlier")}
               >
                 <IconArrowUp className="me-2 size-4" aria-hidden="true" />
@@ -647,7 +651,10 @@ export function Slides2MotionPanel({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={disabled}
+                disabled={
+                  disabled ||
+                  !canMoveSourceBuildStep(sourceTsx, selection, "later")
+                }
                 onClick={() => moveBuild("later")}
               >
                 <IconArrowDown className="me-2 size-4" aria-hidden="true" />

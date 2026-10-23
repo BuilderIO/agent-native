@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+export const MAX_SLIDE_RENDER_FONT_ASSETS = 64;
+export const MAX_SLIDE_RENDER_FONT_FAMILIES = 32;
+export const MAX_SLIDE_RENDER_FONT_ORIGINS = 20;
+
 export const BUILTIN_SLIDE_DESIGN_FONTS = [
   "Arial",
   "Courier New",
@@ -28,9 +32,15 @@ export function isBuiltinSlideDesignFont(
   return (BUILTIN_SLIDE_DESIGN_FONTS as readonly string[]).includes(value);
 }
 
+export const DEFAULT_SLIDE_MUTED_COLOR = "#667085"; // guard:allow-raw-color - Default slide-content color, independent of app chrome theme.
+
 export const slideDesignTokensSchema = z.object({
   background: z.string().regex(/^#[0-9a-f]{6}$/i),
   text: z.string().regex(/^#[0-9a-f]{6}$/i),
+  muted: z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/i)
+    .optional(),
   accent: z.string().regex(/^#[0-9a-f]{6}$/i),
   displayFont: z
     .string()
@@ -64,9 +74,10 @@ export type SlideFontAsset = {
 };
 
 export const DEFAULT_SLIDE_DESIGN_TOKENS: SlideDesignTokens = {
-  background: "#ffffff", // guard:allow-raw-color — default slide-content token, not app chrome.
-  text: "#111827", // guard:allow-raw-color — default slide-content token, not app chrome.
-  accent: "#2563eb", // guard:allow-raw-color — default slide-content token, not app chrome.
+  background: "#ffffff", // guard:allow-raw-color - Default slide-content token, independent of app chrome theme.
+  text: "#111827", // guard:allow-raw-color - Default slide-content token, independent of app chrome theme.
+  muted: DEFAULT_SLIDE_MUTED_COLOR, // guard:allow-raw-color - Default slide-content token, independent of app chrome theme.
+  accent: "#2563eb", // guard:allow-raw-color - Default slide-content token, independent of app chrome theme.
   displayFont: "Arial",
   bodyFont: "Arial",
   heroScale: 1,
@@ -88,5 +99,5 @@ export function readSlideDesignTokens(
       details: parsed.error.flatten(),
     });
   }
-  return parsed.data;
+  return { ...DEFAULT_SLIDE_DESIGN_TOKENS, ...parsed.data };
 }

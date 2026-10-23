@@ -123,8 +123,10 @@ export function EditorActionCluster({
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   data-toolbar-textbox-button
                   aria-label={t("contextToolbar.insert")}
                   aria-pressed={textBoxMode}
@@ -136,7 +138,7 @@ export function EditorActionCluster({
                 >
                   <IconTextSize className="size-4" />
                   <IconChevronDown className="size-3" />
-                </button>
+                </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>{t("contextToolbar.insert")}</TooltipContent>
@@ -160,8 +162,10 @@ export function EditorActionCluster({
       {onToggleTextBoxMode && !onInsertMedia && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="xs"
               onClick={onToggleTextBoxMode}
               data-toolbar-textbox-button
               aria-label={t("editorToolbar.addTextBox")}
@@ -173,7 +177,7 @@ export function EditorActionCluster({
               )}
             >
               <IconTextSize className="size-4" />
-            </button>
+            </Button>
           </TooltipTrigger>
           <TooltipContent>{t("editorToolbar.addTextBox")} (T)</TooltipContent>
         </Tooltip>
@@ -183,8 +187,10 @@ export function EditorActionCluster({
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   aria-label={t("editorToolbar.shapes")}
                   className={cn(
                     BUTTON_CLASS,
@@ -193,7 +199,7 @@ export function EditorActionCluster({
                 >
                   <IconShape className="size-4" />
                   <IconChevronDown className="size-3" />
-                </button>
+                </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent>{t("editorToolbar.shapes")}</TooltipContent>

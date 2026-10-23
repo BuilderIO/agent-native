@@ -10,8 +10,11 @@
  * Agent actions (update-slide, add-slide, etc.) continue to use their own
  * dedicated actions which also use the same per-deck lock.
  */
-import { ActionContractError } from "@agent-native/core";
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  defineAction,
+  fail,
+} from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -315,7 +318,7 @@ const ReorderSlidesOp = z
     orderedIds: z
       .array(z.string())
       .describe(
-        "Desired slide ID order; concurrent additions remain appended.",
+        "Desired slide ID order; every supplied ID must exist when this operation runs, and concurrent additions omitted from this list remain appended.",
       ),
   })
   .superRefine(({ orderedIds }, context) => {
@@ -705,6 +708,7 @@ interface ProjectedSlide {
   id: unknown;
   content?: unknown;
   excalidrawData?: unknown;
+  sourceTsx?: unknown;
   real: boolean;
 }
 
@@ -713,10 +717,15 @@ function projectedRealSlideCount(
   operations: Operation[],
 ): { initial: number; count: number; added: boolean } {
   const projected = slides.map((slide): ProjectedSlide => {
-    const { id, content, excalidrawData } = (
+    const { id, content, excalidrawData, sourceTsx } = (
       slide && typeof slide === "object" && !Array.isArray(slide) ? slide : {}
-    ) as { id?: unknown; content?: unknown; excalidrawData?: unknown };
-    return { id, content, excalidrawData, real: isRealSlide(slide) };
+    ) as {
+      id?: unknown;
+      content?: unknown;
+      excalidrawData?: unknown;
+      sourceTsx?: unknown;
+    };
+    return { id, content, excalidrawData, sourceTsx, real: isRealSlide(slide) };
   });
   const initial = projected.filter(({ real }) => real).length;
   let added = false;
@@ -724,11 +733,12 @@ function projectedRealSlideCount(
   for (const operation of operations) {
     if (operation.op === "add-slide") {
       if (projected.some(({ id }) => id === operation.slideId)) continue;
-      const { content, excalidrawData } = operation.fields;
+      const { content, excalidrawData, sourceTsx } = operation.fields;
       projected.push({
         id: operation.slideId,
         content,
         excalidrawData,
+        sourceTsx,
         real: isRealSlide(operation.fields),
       });
       added = true;
@@ -1188,6 +1198,17 @@ export function applyOperation(
         });
       }
       const byId = new Map(slides.map((s: { id: string }) => [s.id, s]));
+      const unknownId = orderedIds.find((id) => !byId.has(id));
+      if (unknownId !== undefined) {
+        fail(
+          `Cannot reorder slides because slide "${unknownId}" is not in the current deck.`,
+          {
+            errorCode: "slide_not_found",
+            statusCode: 404,
+            details: { slideId: unknownId },
+          },
+        );
+      }
       // Build the new order from the client's desired order, keeping only
       // slides that actually exist in the server copy.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1611,6 +1632,22 @@ export default defineAction({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);
       assertSlides2DeckData(deck);
+      const designSystemLink = requestedOperations
+        .filter(
+          (
+            operation,
+          ): operation is Extract<Operation, { op: "patch-deck-fields" }> =>
+            operation.op === "patch-deck-fields" &&
+            "designSystemId" in operation.fields,
+        )
+        .at(-1);
+      if (typeof designSystemLink?.fields.designSystemId === "string") {
+        await assertAccess(
+          "design-system",
+          designSystemLink.fields.designSystemId,
+          "viewer",
+        );
+      }
       const tweakDefinitions = getPreset(
         typeof deck.designSystemId === "string"
           ? deck.designSystemId

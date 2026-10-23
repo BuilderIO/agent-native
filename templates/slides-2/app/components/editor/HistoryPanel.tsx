@@ -147,14 +147,15 @@ export default function HistoryPanel({
         <SheetHeader className="px-4 pt-4 pb-0">
           <SheetTitle className="flex items-center gap-2 text-sm font-medium">
             {selectedVersionId ? (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 onClick={() => setSelectedSnapshot(null)}
-                className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                className="h-auto min-w-0 justify-start gap-1.5 rounded-md px-1.5 py-0 text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground active:scale-100"
               >
                 <IconArrowLeft size={15} />
                 <span>{t("history.backToSavedVersions")}</span>
-              </button>
+              </Button>
             ) : (
               <>
                 <IconHistory size={16} className="text-primary" />
@@ -298,13 +299,14 @@ export default function HistoryPanel({
                 {versions.map((version) => {
                   const preview = normalizeSlides(version.slidePreviews);
                   return (
-                    <button
+                    <Button
                       key={version.id}
                       type="button"
+                      variant="ghost"
                       onClick={() =>
                         setSelectedSnapshot({ deckId, versionId: version.id })
                       }
-                      className="w-full rounded-md px-3 py-2.5 text-left transition-colors hover:bg-accent"
+                      className="h-auto w-full justify-start rounded-md px-3 py-2.5 text-left font-normal whitespace-normal transition-colors hover:bg-accent hover:text-foreground active:scale-100"
                     >
                       <div className="flex min-w-0 items-start gap-3">
                         <div className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-primary" />
@@ -328,7 +330,7 @@ export default function HistoryPanel({
                           ) : null}
                         </div>
                       </div>
-                    </button>
+                    </Button>
                   );
                 })}
               </div>

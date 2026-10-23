@@ -333,6 +333,7 @@ const messages = {
     media: "媒体",
     generateImage: "生成图片",
     assetLibrary: "素材库",
+    assets: "资源",
     globalAssetScope: "全局",
     imageOptions: "图片选项",
     videoPlayback: "视频播放",
@@ -654,6 +655,7 @@ const messages = {
     x: "X",
     y: "Y",
     position: "位置",
+    source: "源代码",
     selectParent: "选择父级元素",
     horizontal: "水平",
     vertical: "垂直",
@@ -675,6 +677,8 @@ const messages = {
     cornerRadius: "圆角半径",
     strokeWeight: "描边粗细",
     typography: "排版",
+    content: "内容",
+    editOnSlide: "在幻灯片上编辑",
     fontFamily: "字体系列",
     lineHeight: "行高",
     letterSpacing: "字间距",
@@ -705,7 +709,7 @@ const messages = {
     secondary: "Secondary",
     accent: "Accent",
     surface: "Surface",
-    background: "Background",
+    background: "背景",
     text: "Text",
     muted: "Muted",
     white: "White",
@@ -794,7 +798,107 @@ const messages = {
       "Google 幻灯片导入现在会报告缺失的图像数据，而不会添加空白图像。",
     globalMediaPickerScope:
       "全局媒体选择器现在只显示当前演示文稿可解析的资源。",
+    presenterControls: "演示者控件使用工作区共享的按钮和输入框",
+    presenterBuildStepPreview:
+      "演示者控制台会在切换到下一张幻灯片前预览每个剩余的构建步骤。",
+    presenterBuildStepBounds:
+      "构建步骤控件会阻止将步骤移到显示顺序的起点之前或终点之后。",
+    staleSlidePreviews: "加载其他幻灯片前会清除过时的幻灯片预览",
+    boundedMediaTransfers: "文档和幻灯片媒体传输会在安全的大小和时间限制内停止",
+    editorCanvasAppTheme:
+      "幻灯片编辑器的画布和所选对象控件会跟随已选择的应用主题。",
+    editorInspectorTextControls:
+      "使用排版和颜色控件设置文本格式，并直接在幻灯片上编辑所选文本。",
     savedSlideImages: "已保存幻灯片使用的图像会继续保留在你的素材库中。",
+    keyboardObjectTransforms: "使用键盘调整和旋转所选幻灯片对象。",
+    editorToolbarInspector:
+      "幻灯片编辑控件现在归入紧凑工具栏，让格式和设计面板更容易访问。",
+    commandMenuTheme: "可在命令菜单中切换浅色和深色主题。",
+    skippedSlidePresentation:
+      "标记为跳过的幻灯片不会出现在演示中，幻灯片编号和总数也会正确显示。",
+    browseDeckVersions:
+      "浏览已保存的演示文稿版本，并在编辑器中恢复先前的快照。",
+    frameMissObjectSelection:
+      "即使画框未命中直接目标，点击幻灯片对象也能选中它。",
+    commandMenuShortcut: "按 Command-K 可打开幻灯片编辑器的命令菜单。",
+    crossDeckSlideCopy:
+      "可在演示文稿之间复制幻灯片、在编辑器中重命名演示文稿，并在离开前提醒你保存未保存的更改。",
+    completedSlideGeneration:
+      "演示文稿生成会等待指定数量的幻灯片完成后再报告成功。",
+    deckTitleAndNotesLabel:
+      "编辑时仍会显示较长的演示文稿标题，页脚则使用更短的“备注”标签。",
+    deleteFocusedCanvasObject:
+      "画布获得焦点时，按 Delete 或 Backspace 可删除选中的画布对象。",
+    deleteSelectedSlideObject:
+      "按 Delete 或 Backspace 可从画布中删除选中的幻灯片对象。",
+    slideOverviewFromRail: "可直接从幻灯片栏打开幻灯片概览。",
+    presenterKeyboardNavigation:
+      "演示文稿支持使用 Page Up、Page Down、Home 和 End 键浏览幻灯片。",
+    sourceBackedPdfExport: "公开演示文稿页面可将基于源代码的幻灯片导出为 PDF。",
+    preserveDeckBriefOnRegeneration:
+      "重新生成幻灯片时会保留原始演示文稿简介作为上下文。",
+    jumpToSlideByNumber:
+      "输入幻灯片编号即可跳转到任意幻灯片，也支持多位数编号。",
+    mobileNavigationAndSlideChat:
+      "移动端支持收起键盘，幻灯片聊天链接会跟随当前幻灯片的位置。",
+    lightExtraBoldText:
+      "幻灯片文本现在支持 Light 和 Extra Bold 字重，可更精细地调整排版。",
+    thumbnailArrowNavigation: "现在可以使用四个方向键浏览幻灯片缩略图。",
+    homePromptDeckContinuity:
+      "从主页提示生成的幻灯片会保留在你开始创建的演示文稿中。",
+    slideTransitions:
+      "幻灯片现在支持整套演示文稿和单页转场、匹配对象的变形以及逐步揭示效果。",
+    editorPanelWidthsAndRecovery:
+      "幻灯片编辑器的标题栏和面板现在更接近参考界面，缩放和动态效果工具可在命令菜单中使用，恢复的演示文稿也不再显示过时错误。",
+    editorRailAndInspectorAlignment:
+      "幻灯片编辑器侧栏、画布背景、工具栏和检查器空状态现在与编辑布局更一致。",
+    chatEditPreviewVersion: "幻灯片编辑预览现在显示该次编辑保存的确切版本。",
+    objectCommentsStayAttached: "移动幻灯片对象时，评论仍会附着在对象上。",
+    agentTextSelectionStability:
+      "编辑尚未完成时，智能体的文本选择仍与已保存的幻灯片内容保持关联。",
+    templateDeckChatPreviews:
+      "从模板创建的演示文稿和已更新的演示文稿会在聊天中显示预览和操作。",
+    consistentSlideTextSpacing: "幻灯片文本在编辑器中保持一致的行距。",
+    renderFailuresCanvasMessage:
+      "无法渲染的幻灯片现在会在画布上显示清晰的提示。",
+    editorPageCountFooter: "编辑器会在页脚显示当前页码和总页数。",
+    presentButtonReferenceAccent:
+      "演示按钮现在使用与幻灯片编辑器参考界面一致的强调色。",
+    positionFieldsPreserveRotatedSize: "位置字段在旋转后仍会保留对象的大小。",
+    selectedSlideArrowNavigation:
+      "方向键将选中的幻灯片对象移动 1 像素，按住 Shift 时移动 10 像素；未选中对象时，方向键用于切换幻灯片。",
+    chatPreviewStaleContent: "聊天预览不会再显示结果生成后已变更的幻灯片内容。",
+    deleteGlobalSlideImages: "可在幻灯片编辑器中删除全局资源库里未使用的图片。",
+    presenterSpaceActivation:
+      "聚焦的演示控制按钮现在可用空格键激活，不会因此切换到下一张幻灯片。",
+    presenterPageUpPageDown:
+      "现在可使用 Page Up 和 Page Down 在演示者窗口中切换幻灯片。",
+    presenterJumpCancellation:
+      "演示者导航会取消待处理的页码跳转，避免它覆盖之后的选择。",
+    presenterBlankScreensAndNotes:
+      "演示者屏幕可切换为黑色或白色，也可调整演讲者备注的大小。",
+    restoreDeckVersionAgainstStaleEdits:
+      "恢复旧版演示文稿后会受到保护，不会被较早的幻灯片编辑覆盖。",
+    singleSlideRevealPreview:
+      "单页预览链接可将生成的幻灯片打开到指定的逐步展示步骤。",
+    agentConnectionStatus: "幻灯片编辑器会显示智能体是否已连接。",
+    svgPatternScaleRotation: "SVG 图案填充会保留其缩放比例和旋转角度。",
+    sourceBackedClickAndPointer: "现在，基于源码的演示文稿支持点击和指针移动。",
+    commandMenuUndoRedoShortcuts:
+      "幻灯片编辑器的命令菜单现在会显示撤销和重做的键盘快捷键。",
+    overlappingTextInlineEdit:
+      "当幻灯片图稿与文字重叠时，双击文字即可打开行内编辑。",
+    presenterViewAlignment:
+      "演示者模式会在同一视图中显示当前幻灯片、下一张幻灯片、演讲者备注和跳转控件。",
+    softerSlideFrameShadow: "幻灯片画布现在使用更柔和的边框阴影。",
+    presenterTouchNavigation: "演示时向左或向右滑动即可切换幻灯片。",
+    lightCanvasBorderedSurface:
+      "幻灯片画布现在与浅色编辑器的带边框表面保持一致。",
+    exactSlideTextFontSize: "编辑幻灯片文字时，现在可以输入精确的字号。",
+    arrowKeysMoveSelectedObjects: "方向键会一起移动所有选中的幻灯片对象。",
+    redoKeyboardShortcuts: "重做使用 Shift+Command+Z 或 Ctrl+Y。",
+    importImageDataAndPreviewSync:
+      "PowerPoint 和 Google 文档导入现在能更安全地处理大型图像数据，并在演示文稿更改时保持生成的预览同步。",
   },
   history: {
     unknownTime: "未知时间",
@@ -808,6 +912,7 @@ const messages = {
     versionRestoredDescription: "幻灯片已回滚到所选快照。",
     restoreFailed: "恢复失败",
     restoreFailedDescription: "无法恢复此幻灯片版本。",
+    restoreRefreshFailed: "版本已恢复，但编辑器无法刷新。请重试以重新加载。",
     backToSavedVersions: "返回已保存版本",
     savedVersions: "已保存版本",
     description: "浏览已保存的幻灯片版本并恢复以前的快照。",
@@ -823,6 +928,7 @@ const messages = {
     snapshotLoadFailed: "无法加载此已保存版本。",
   },
   editorSidebar: {
+    pages: "页面",
     selectSlide: "选择幻灯片 {{number}}",
     duplicateSlide: "复制幻灯片",
     moveSlideUp: "上移幻灯片",
@@ -860,6 +966,39 @@ const messages = {
     applyUpdates: "应用更新（{{count}}）",
   },
   slides2Editor: {
+    motion: "动画",
+    builds: "构建步骤",
+    addBuild: "添加构建步骤",
+    removeBuild: "移除构建步骤",
+    motionScope: "范围",
+    moduleDefault: "模块默认值",
+    pageOverride: "页面覆盖",
+    useModuleDefault: "使用模块默认值",
+    transitionDuration: "时长（毫秒）",
+    transitionEasing: "缓动",
+    transitionDelay: "延迟（毫秒）",
+    transitionEnter: "进入",
+    transitionExit: "退出",
+    throughBackground: "经过背景",
+    morph: "变形",
+    morphDescription: "在相邻幻灯片上匹配具有相同 ID 的对象。",
+    morphDuration: "变形时长（毫秒）",
+    morphDelay: "变形延迟（毫秒）",
+    morphEasing: "变形缓动",
+    morphId: "匹配 ID",
+    morphIdPlaceholder: "例如 brand-mark",
+    setMorphId: "设置匹配 ID",
+    removeMorph: "移除匹配 ID",
+    buildDuration: "显示时长（毫秒）",
+    moveBuildEarlier: "提前",
+    moveBuildLater: "延后",
+    defaultEasing: "继承默认值",
+    respectReducedMotion: "过渡效果会遵循系统的减少动态效果偏好。",
+    design: "设计",
+    agentConnected: "智能体已连接",
+    format: "格式",
+    footerNotes: "备注",
+    footerPage: "第 {{current}}/{{total}} 页",
     now: "现在",
     preview: "预览",
     edit: "编辑",
@@ -869,7 +1008,8 @@ const messages = {
     fontWeightMedium: "中等",
     fontWeightSemibold: "半粗体",
     fontWeightBold: "粗体",
-    selectElement: "选择一个元素以编辑其属性。",
+    selectElement: "选择一个对象",
+    selectElementHint: "点击对象设置格式。双击文字进行编辑。",
     legacyTitle: "此演示文稿使用旧版幻灯片格式",
     legacyDescription: "请先让 Slides 2 智能体转换演示文稿，再在此处编辑。",
     commands: "命令",
@@ -946,6 +1086,7 @@ const messages = {
     shuffle: "随机设计",
   },
   slides2Presenter: {
+    presenterLabel: "演示者",
     switchDeck: "切换演示文稿",
     searchDecks: "搜索可访问的演示文稿",
     loadingDecks: "正在加载演示文稿…",
@@ -970,7 +1111,14 @@ const messages = {
     notesTextSize: "演讲者备注文字大小",
     decreaseNotesTextSize: "缩小备注文字",
     increaseNotesTextSize: "放大备注文字",
+    jumpLabel: "跳转",
     jumpHint: "输入幻灯片编号，然后按 Enter",
+    nowShowing: "正在显示",
+    previousShort: "上一张",
+    nextShort: "下一张",
+    blackLabel: "黑",
+    whiteLabel: "白",
+    resetShort: "重置",
     slideLabel: "第 {{index}} 张幻灯片",
     position: "第 {{index}} 张，共 {{total}} 张",
     shortcutFirstLast: "跳到第一张或最后一张",
@@ -1237,6 +1385,8 @@ const messages = {
       unsupportedFileType: "不支持此文件类型。请选择受支持的文件。",
       uploadLimitExceeded:
         "上传内容超出允许的限制。请缩小文件或减少文件数量后重试。",
+      pptxImageSizeLimit:
+        "此演示文稿包含超出导入大小限制的图像。请删除或缩小这些图像，然后重试。",
     },
     importDeck: "导入演示文稿",
     context: {
@@ -1431,6 +1581,13 @@ const messages = {
     emptyDescription: "使用 AI 生成精美演示文稿。",
   },
   agentChat: {
+    settingsShell: {
+      account: {
+        themeFamilyAgentNative: "Agent-Native",
+        themeFamilyOriginal: "原应用配色",
+        themeFamilySaveError: "无法更新主题样式。请重试。",
+      },
+    },
     setup: {
       providerStatusUnavailable: "无法确认 AI 是否已就绪。",
     },

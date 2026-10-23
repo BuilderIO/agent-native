@@ -1,7 +1,7 @@
 import fs from "fs";
 
-import { parseArgs } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
+import { parseArgs } from "@agent-native/core/scripts";
 import { z } from "zod";
 
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";

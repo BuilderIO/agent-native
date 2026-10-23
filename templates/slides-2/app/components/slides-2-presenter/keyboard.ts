@@ -17,11 +17,24 @@ export function hasPresenterModifier(
   return event.metaKey || event.ctrlKey || event.altKey;
 }
 
+export function isPresenterTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    Boolean(target.closest('input, textarea, select, [role="textbox"]'))
+  );
+}
+
+export function isPresenterButtonTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(target.closest('button, [role="button"]'))
+  );
+}
+
 export function getPresenterConsoleCommand(
   event: PresenterKeyboardEvent,
 ): PresenterConsoleCommand | null {
-  if (hasPresenterModifier(event)) return null;
-
   if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(event.key)) {
     return "next";
   }
@@ -30,6 +43,7 @@ export function getPresenterConsoleCommand(
   }
   if (event.key === "Home") return "first";
   if (event.key === "End") return "last";
+  if (hasPresenterModifier(event)) return null;
   if (event.key.toLowerCase() === "b") return "blackout";
   if (event.key.toLowerCase() === "w") return "whiteout";
   return null;

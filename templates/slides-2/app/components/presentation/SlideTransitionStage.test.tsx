@@ -92,6 +92,9 @@ describe("SlideTransitionPreview", () => {
     fireEvent.click(screen.getByRole("button", { name: "comments.close" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("button", { name: "comments.close" }).className,
+    ).toContain("hover:text-[hsl(var(--slides-stage-control-foreground))]");
   });
 
   it("hides the outgoing layer from assistive technology and focus, so the slide is read once and its controls cannot take focus", () => {

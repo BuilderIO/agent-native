@@ -16,6 +16,9 @@ import type {
 import {
   isBuiltinSlideDesignFont,
   isSafeSlideFontFamily,
+  MAX_SLIDE_RENDER_FONT_ASSETS,
+  MAX_SLIDE_RENDER_FONT_FAMILIES,
+  MAX_SLIDE_RENDER_FONT_ORIGINS,
   SLIDE_FONT_VARIANT_PATTERN,
 } from "../../shared/slide-design-tokens.js";
 import { getDb, schema } from "../db/index.js";
@@ -626,13 +629,31 @@ function isRegisteredFontRow(row: {
 
 export async function resolveSlideDesignFontAssets(
   tokens: SlideDesignTokens,
-  scope: { deckId: string; ownerEmail: string; orgId?: string | null },
+  scope: {
+    deckId: string;
+    ownerEmail: string;
+    orgId?: string | null;
+    referencedFontFamilies?: readonly string[];
+  },
 ): Promise<RegisteredSlideFont[]> {
   const selected = assertFontSelectionShape(tokens);
   const ids = [...selected.keys()];
-  if (ids.length === 0) return [];
+  const referencedFamilies = [
+    ...new Set(scope.referencedFontFamilies ?? []),
+  ].sort();
+  if (
+    referencedFamilies.length > MAX_SLIDE_RENDER_FONT_FAMILIES ||
+    referencedFamilies.some((family) => !isSafeSlideFontFamily(family))
+  ) {
+    throw fontFailure(
+      "The slide references too many or invalid font families.",
+      "slide_font_reference_invalid",
+      422,
+    );
+  }
+  if (ids.length === 0 && referencedFamilies.length === 0) return [];
 
-  let rows: Array<{
+  type FontAssetRow = {
     id: string;
     deckId: string | null;
     filename: string;
@@ -640,26 +661,45 @@ export async function resolveSlideDesignFontAssets(
     type: string;
     fontFamily: string | null;
     fontVariant: string | null;
-  }>;
+  };
+  let selectedRows: FontAssetRow[] = [];
+  let referencedRows: FontAssetRow[] = [];
   try {
-    rows = await getDb()
-      .select({
-        id: schema.uploadedAssets.id,
-        deckId: schema.uploadedAssets.deckId,
-        filename: schema.uploadedAssets.filename,
-        url: schema.uploadedAssets.url,
-        type: schema.uploadedAssets.type,
-        fontFamily: schema.uploadedAssets.fontFamily,
-        fontVariant: schema.uploadedAssets.fontVariant,
-      })
-      .from(schema.uploadedAssets)
-      .where(
-        and(
-          inArray(schema.uploadedAssets.id, ids),
-          eq(schema.uploadedAssets.deckId, scope.deckId),
-          slideFontAssetScope(scope.ownerEmail, scope.orgId),
-        ),
-      );
+    const db = getDb();
+    const columns = {
+      id: schema.uploadedAssets.id,
+      deckId: schema.uploadedAssets.deckId,
+      filename: schema.uploadedAssets.filename,
+      url: schema.uploadedAssets.url,
+      type: schema.uploadedAssets.type,
+      fontFamily: schema.uploadedAssets.fontFamily,
+      fontVariant: schema.uploadedAssets.fontVariant,
+    };
+    if (ids.length > 0) {
+      selectedRows = await db
+        .select(columns)
+        .from(schema.uploadedAssets)
+        .where(
+          and(
+            inArray(schema.uploadedAssets.id, ids),
+            eq(schema.uploadedAssets.deckId, scope.deckId),
+            slideFontAssetScope(scope.ownerEmail, scope.orgId),
+          ),
+        );
+    }
+    if (referencedFamilies.length > 0) {
+      referencedRows = await db
+        .select(columns)
+        .from(schema.uploadedAssets)
+        .where(
+          and(
+            inArray(schema.uploadedAssets.fontFamily, referencedFamilies),
+            eq(schema.uploadedAssets.deckId, scope.deckId),
+            slideFontAssetScope(scope.ownerEmail, scope.orgId),
+          ),
+        )
+        .limit(MAX_SLIDE_RENDER_FONT_ASSETS + 1);
+    }
   } catch {
     throw fontFailure(
       "Could not load the selected font assets.",
@@ -668,7 +708,16 @@ export async function resolveSlideDesignFontAssets(
     );
   }
 
-  const byId = new Map(rows.map((row) => [row.id, row]));
+  if (referencedRows.length > MAX_SLIDE_RENDER_FONT_ASSETS) {
+    throw fontFailure(
+      "The slide references more imported font files than can be rendered safely.",
+      "slide_font_asset_limit_exceeded",
+      422,
+    );
+  }
+  const byId = new Map(
+    [...selectedRows, ...referencedRows].map((row) => [row.id, row]),
+  );
   const result: RegisteredSlideFont[] = [];
   for (const [assetId, family] of selected) {
     const row = byId.get(assetId);
@@ -692,5 +741,48 @@ export async function resolveSlideDesignFontAssets(
       url: assertFontUrl(row.url),
     });
   }
-  return result;
+  const selectedIds = new Set(ids);
+  const referenced = new Map<string, RegisteredSlideFont>();
+  for (const row of referencedRows) {
+    if (
+      selectedIds.has(row.id) ||
+      row.deckId !== scope.deckId ||
+      !isRegisteredFontRow(row) ||
+      !referencedFamilies.includes(row.fontFamily)
+    ) {
+      continue;
+    }
+    referenced.set(row.id, {
+      assetId: row.id,
+      family: row.fontFamily,
+      variant: row.fontVariant,
+      mimeType: row.type,
+      url: assertFontUrl(row.url),
+    });
+  }
+  const additionalFonts = [...referenced.values()].sort(
+    (left, right) =>
+      left.family.localeCompare(right.family) ||
+      left.variant.localeCompare(right.variant) ||
+      left.assetId.localeCompare(right.assetId),
+  );
+  const assets = [...result, ...additionalFonts];
+  if (assets.length > MAX_SLIDE_RENDER_FONT_ASSETS) {
+    throw fontFailure(
+      "The slide references more imported font files than can be rendered safely.",
+      "slide_font_asset_limit_exceeded",
+      422,
+    );
+  }
+  if (
+    new Set(assets.map(({ url }) => new URL(url).origin)).size >
+    MAX_SLIDE_RENDER_FONT_ORIGINS
+  ) {
+    throw fontFailure(
+      "The slide references fonts from too many storage origins.",
+      "slide_font_origin_limit_exceeded",
+      422,
+    );
+  }
+  return assets;
 }

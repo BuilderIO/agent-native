@@ -3,6 +3,7 @@ import { IconX } from "@tabler/icons-react";
 import { useLayoutEffect, useRef } from "react";
 
 import SlideContentRenderer from "@/components/slides-2-runtime/SlideContentRenderer";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogClose,
@@ -283,13 +284,15 @@ export function SlideTransitionPreview({
           )}
         </div>
         <DialogClose asChild>
-          <button
+          <Button
             type="button"
-            className={PREVIEW_CLOSE_CLASS}
+            variant="ghost"
+            size="icon"
+            className={`${PREVIEW_CLOSE_CLASS} h-11 w-11 p-3 hover:text-[hsl(var(--slides-stage-control-foreground))] sm:h-8 sm:w-8 sm:p-2 [&>svg]:!size-5 sm:[&>svg]:!size-4`}
             aria-label={t("comments.close")}
           >
             <IconX className="h-5 w-5" />
-          </button>
+          </Button>
         </DialogClose>
       </DialogContent>
     </Dialog>

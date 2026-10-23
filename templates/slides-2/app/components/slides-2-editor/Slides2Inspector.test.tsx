@@ -11,6 +11,17 @@ import type { ElementSnapshot } from "./types";
 
 afterEach(cleanup);
 
+function disclosure(name: string): HTMLElement {
+  const button = screen.queryByRole("button", { name });
+  if (button) return button;
+
+  const summary = Array.from(
+    document.querySelectorAll<HTMLElement>("summary,button"),
+  ).find((element) => element.textContent?.trim().startsWith(name));
+  if (!summary) throw new Error(`Missing ${name} disclosure`);
+  return summary;
+}
+
 const t = ((key: string) => key.split(".").at(-1) ?? key) as ReturnType<
   typeof useT
 >;
@@ -21,6 +32,10 @@ function renderInspector(
   selectionCount = 1,
   rangeStyleSnapshot?: SlideFrameTextRangeStyle | null,
   onInspectTextRange = vi.fn(),
+  onEditOnSlide = vi.fn(),
+  onGroup = vi.fn(),
+  onUngroup = vi.fn(),
+  canUngroup = false,
 ) {
   const onEdit = vi.fn();
   const selected: ElementSnapshot = {
@@ -33,7 +48,7 @@ function renderInspector(
     styles,
   };
 
-  const renderSelected = (nextSelected: ElementSnapshot = selected) => (
+  const renderSelected = (nextSelected: ElementSnapshot | null = selected) => (
     <TooltipProvider>
       <Slides2Inspector
         selected={nextSelected}
@@ -42,6 +57,7 @@ function renderInspector(
         t={t}
         rangeStyleSnapshot={rangeStyleSnapshot}
         onInspectTextRange={onInspectTextRange}
+        onEditOnSlide={onEditOnSlide}
         onEdit={onEdit}
         onAlign={vi.fn()}
         alignToSlide={false}
@@ -50,6 +66,9 @@ function renderInspector(
         onSmartGuidesChange={vi.fn()}
         onDistribute={vi.fn()}
         onArrange={vi.fn()}
+        onGroup={onGroup}
+        onUngroup={onUngroup}
+        canUngroup={canUngroup}
         onDuplicateObject={vi.fn()}
         onDeleteObject={vi.fn()}
         canSelectParent={false}
@@ -61,13 +80,76 @@ function renderInspector(
 
   return {
     onEdit,
+    onEditOnSlide,
+    onGroup,
+    onUngroup,
     selected,
-    rerenderSelected: (nextSelected: ElementSnapshot) =>
+    rerenderSelected: (nextSelected: ElementSnapshot | null) =>
       view.rerender(renderSelected(nextSelected)),
   };
 }
 
+function selectArrangeTab() {
+  fireEvent.click(screen.getByLabelText("arrange"));
+}
+
 describe("Slides2Inspector", () => {
+  it("explains how to select an object when nothing is selected", () => {
+    const { rerenderSelected } = renderInspector();
+    rerenderSelected(null);
+
+    expect(screen.getByRole("heading", { name: "selectElement" })).toBeTruthy();
+    expect(screen.getByText("selectElementHint")).toBeTruthy();
+  });
+
+  it("opens inline editing from the content section", () => {
+    const { onEditOnSlide } = renderInspector();
+
+    expect(screen.getByRole("heading", { name: "content" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "editOnSlide" }));
+
+    expect(onEditOnSlide).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the selected element tab controls above inspector sections", () => {
+    renderInspector();
+
+    expect(
+      screen.getByRole("radio", { name: "text" }).closest(".order-first"),
+    ).not.toBeNull();
+  });
+
+  it("shows Group for a multi-selection and invokes the group action", () => {
+    const onGroup = vi.fn();
+    renderInspector({}, "Hello", 2, undefined, undefined, undefined, onGroup);
+
+    fireEvent.click(screen.getByRole("button", { name: "group" }));
+
+    expect(onGroup).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "ungroup" })).toBeNull();
+  });
+
+  it("shows Ungroup only for a selected group", () => {
+    const onUngroup = vi.fn();
+    renderInspector(
+      {},
+      "Group",
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onUngroup,
+      true,
+    );
+    selectArrangeTab();
+
+    fireEvent.click(screen.getByRole("button", { name: "ungroup" }));
+
+    expect(onUngroup).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "group" })).toBeNull();
+  });
+
   it("offers justified text alignment", () => {
     const { onEdit } = renderInspector();
 
@@ -99,6 +181,9 @@ describe("Slides2Inspector", () => {
     expect(center.getAttribute("aria-checked")).toBe("true");
     expect(bold.getAttribute("aria-pressed")).toBe("true");
     expect(italic.getAttribute("aria-pressed")).toBe("true");
+    expect(bold.classList.contains("size-7")).toBe(true);
+    expect(italic.classList.contains("size-7")).toBe(true);
+    expect(center.classList.contains("size-7")).toBe(true);
   });
 
   it("applies bold to the selected text range", () => {
@@ -202,6 +287,35 @@ describe("Slides2Inspector", () => {
     ]);
   });
 
+  it("does not report text ranges while IME text is composing", () => {
+    const onInspectTextRange = vi.fn();
+    renderInspector({}, "Hello", 1, null, onInspectTextRange);
+    const textArea = screen.getByDisplayValue("Hello") as HTMLTextAreaElement;
+
+    textArea.setSelectionRange(0, 5);
+    fireEvent.select(textArea);
+    expect(onInspectTextRange).toHaveBeenLastCalledWith({
+      start: 0,
+      end: 5,
+      expectedText: "Hello",
+    });
+
+    fireEvent.compositionStart(textArea);
+    expect(onInspectTextRange).toHaveBeenLastCalledWith(null);
+
+    fireEvent.change(textArea, { target: { value: "こんにちは" } });
+    textArea.setSelectionRange(0, 5);
+    fireEvent.select(textArea);
+    expect(onInspectTextRange).toHaveBeenLastCalledWith(null);
+
+    fireEvent.compositionEnd(textArea);
+    expect(onInspectTextRange).toHaveBeenLastCalledWith({
+      start: 0,
+      end: 5,
+      expectedText: "こんにちは",
+    });
+  });
+
   it("toggles selected-range bold from the pending range value", () => {
     const { onEdit } = renderInspector();
     const textArea = screen.getByDisplayValue("Hello") as HTMLTextAreaElement;
@@ -247,6 +361,34 @@ describe("Slides2Inspector", () => {
     ]);
   });
 
+  it("keeps typography fields compact and accessibly labeled", () => {
+    renderInspector();
+
+    const weight = screen.getByRole("combobox", { name: "weight" });
+    expect(weight.classList.contains("h-7")).toBe(true);
+    expect(
+      weight
+        .closest("label")
+        ?.parentElement?.classList.contains("grid-cols-[2fr_1fr]"),
+    ).toBe(true);
+    expect(
+      weight.closest("label")?.firstElementChild?.classList.contains("sr-only"),
+    ).toBe(true);
+
+    for (const label of ["size", "lineHeight", "letterSpacing"]) {
+      const field = screen.getByRole("spinbutton", { name: `${label} px` });
+      expect(field.classList.contains("h-7")).toBe(true);
+      expect(
+        field
+          .closest("label")
+          ?.firstElementChild?.classList.contains("sr-only"),
+      ).toBe(true);
+      expect(
+        field.parentElement?.querySelector('svg[aria-hidden="true"]'),
+      ).not.toBeNull();
+    }
+  });
+
   it("initializes range controls from the selected rendered text styles", () => {
     const onInspectTextRange = vi.fn();
     renderInspector(
@@ -286,14 +428,14 @@ describe("Slides2Inspector", () => {
     expect(
       screen.getByRole("combobox", { name: "weight" }).textContent,
     ).toContain("fontWeightBold");
-    expect(screen.getByLabelText("fontFamily")).toHaveProperty(
+    fireEvent.click(disclosure("fontFamily"));
+    expect(screen.getByRole("textbox", { name: "fontFamily" })).toHaveProperty(
       "value",
       "Georgia",
     );
-    expect(screen.getByLabelText("textColor")).toHaveProperty(
-      "value",
-      "#123456",
-    );
+    expect(
+      screen.getByLabelText("textColor", { selector: 'input[type="text"]' }),
+    ).toHaveProperty("value", "#123456");
     expect(onInspectTextRange).toHaveBeenCalledWith({
       start: 1,
       end: 4,
@@ -321,7 +463,8 @@ describe("Slides2Inspector", () => {
     textArea.setSelectionRange(1, 4);
     fireEvent.select(textArea);
 
-    const fontFamily = screen.getByLabelText("fontFamily");
+    fireEvent.click(disclosure("fontFamily"));
+    const fontFamily = screen.getByRole("textbox", { name: "fontFamily" });
     fireEvent.change(fontFamily, { target: { value: "" } });
     fireEvent.blur(fontFamily);
 
@@ -351,6 +494,152 @@ describe("Slides2Inspector", () => {
         kind: "set-style",
         key: "fontWeight",
         value: "600",
+        prevText: "Hello",
+      },
+    ]);
+  });
+
+  it.each(["300", "800"])("supports CSS font weight %s", (weight) => {
+    const { onEdit } = renderInspector();
+    fireEvent.click(screen.getByRole("combobox", { name: "weight" }));
+    fireEvent.click(screen.getByRole("option", { name: weight }));
+
+    expect(onEdit).toHaveBeenCalledWith([
+      {
+        kind: "set-style",
+        key: "fontWeight",
+        value: weight,
+        prevText: "Hello",
+      },
+    ]);
+  });
+
+  it("keeps font family available from the compact Typography header", () => {
+    renderInspector();
+
+    const trigger = disclosure("fontFamily");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    const typography = screen.getByRole("heading", { name: "typography" });
+    expect(typography.parentElement?.contains(trigger)).toBe(true);
+    expect(trigger.querySelector("svg")).not.toBeNull();
+    fireEvent.click(trigger);
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("textbox", { name: "fontFamily" })).toBeTruthy();
+  });
+
+  it("keeps Position controls available in a collapsed section", () => {
+    renderInspector();
+    expect(screen.queryByRole("spinbutton", { name: "x px" })).toBeNull();
+    selectArrangeTab();
+
+    const summary = disclosure("position");
+    expect((summary.closest("details") as HTMLDetailsElement).open).toBe(false);
+    fireEvent.click(summary);
+
+    expect((summary.closest("details") as HTMLDetailsElement).open).toBe(true);
+    expect(screen.getByRole("spinbutton", { name: "x px" })).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { name: "width px" })).toBeTruthy();
+  });
+
+  it("uses unrotated dimensions for Position after the object is rotated", () => {
+    const { onEdit, selected, rerenderSelected } = renderInspector();
+    selectArrangeTab();
+    rerenderSelected({
+      ...selected,
+      bounds: { ...selected.bounds, width: 80, height: 200 },
+      transform: {
+        basis: { a: 0, b: 1, c: -1, d: 0 },
+        translate: { x: 0, y: 0 },
+        width: 200,
+        height: 80,
+        rotation: 90,
+      },
+    });
+    fireEvent.click(disclosure("position"));
+
+    const width = screen.getByRole("spinbutton", { name: "width px" });
+    const height = screen.getByRole("spinbutton", { name: "height px" });
+    expect(width).toHaveProperty("value", "200");
+    expect(height).toHaveProperty("value", "80");
+
+    fireEvent.focus(width);
+    fireEvent.change(width, { target: { value: "240" } });
+    fireEvent.blur(width);
+
+    expect(onEdit).toHaveBeenCalledWith([
+      {
+        kind: "set-style",
+        key: "width",
+        value: "240px",
+        prevText: "Hello",
+      },
+    ]);
+  });
+
+  it("shows the selected element source location in a collapsed section", () => {
+    renderInspector();
+
+    const summary = disclosure("source");
+    expect((summary.closest("details") as HTMLDetailsElement).open).toBe(false);
+    fireEvent.click(summary);
+
+    expect(screen.getByText("<div> · 1:1")).toBeTruthy();
+  });
+
+  it("displays and saves unitless line-height ratios when source metadata says they are unitless", () => {
+    const { onEdit, selected, rerenderSelected } = renderInspector({
+      fontSize: "58px",
+      lineHeight: "59.16px",
+    });
+    rerenderSelected({
+      ...selected,
+      authoredStyles: { lineHeight: "1.02" },
+    });
+
+    const lineHeight = screen.getByRole("spinbutton", { name: "lineHeight" });
+    expect(lineHeight).toHaveProperty("value", "1.02");
+    fireEvent.focus(lineHeight);
+    fireEvent.change(lineHeight, { target: { value: "1.25" } });
+    fireEvent.blur(lineHeight);
+
+    expect(onEdit).toHaveBeenCalledWith([
+      {
+        kind: "set-style",
+        key: "lineHeight",
+        value: "1.25",
+        prevText: "Hello",
+      },
+    ]);
+  });
+
+  it("keeps computed and explicitly authored pixel line heights in px", () => {
+    const { onEdit, selected, rerenderSelected } = renderInspector({
+      fontSize: "58px",
+      lineHeight: "59.16px",
+    });
+    const computedLineHeight = screen.getByRole("spinbutton", {
+      name: "lineHeight px",
+    });
+    expect(computedLineHeight).toHaveProperty("value", "59.16");
+
+    rerenderSelected({
+      ...selected,
+      authoredStyles: { lineHeight: "28px" },
+    });
+    const authoredLineHeight = screen.getByRole("spinbutton", {
+      name: "lineHeight px",
+    });
+    expect(authoredLineHeight).toHaveProperty("value", "28");
+    fireEvent.focus(authoredLineHeight);
+    fireEvent.change(authoredLineHeight, { target: { value: "32" } });
+    fireEvent.blur(authoredLineHeight);
+
+    expect(onEdit).toHaveBeenCalledWith([
+      {
+        kind: "set-style",
+        key: "lineHeight",
+        value: "32px",
         prevText: "Hello",
       },
     ]);
@@ -397,12 +686,44 @@ describe("Slides2Inspector", () => {
   it("shows transparent fills with a light color swatch and disables clearing", () => {
     renderInspector({ backgroundColor: "rgba(255, 0, 0, 0)" });
 
-    expect(screen.getByLabelText("fill")).toHaveProperty("value", "#ffffff");
+    expect(
+      screen.getByLabelText("background", { selector: 'input[type="text"]' }),
+    ).toHaveProperty("value", "#ffffff");
+    expect(
+      screen.getByLabelText("background", { selector: 'input[type="color"]' }),
+    ).toHaveProperty("value", "#ffffff");
     expect(
       screen
         .getByRole("button", { name: "transparent" })
         .hasAttribute("disabled"),
     ).toBe(true);
+  });
+
+  it("edits colors through the compact hex field while retaining the picker", () => {
+    const { onEdit } = renderInspector({
+      color: "#123456",
+      backgroundColor: "#ffffff",
+    });
+    const textColor = screen.getByLabelText("textColor", {
+      selector: 'input[type="text"]',
+    });
+
+    expect(
+      screen.getByLabelText("textColor", { selector: 'input[type="color"]' }),
+    ).toBeTruthy();
+    expect(textColor.className).toContain("h-7");
+    expect(textColor.parentElement?.parentElement?.className).toContain("flex");
+    fireEvent.change(textColor, { target: { value: "#abcdef" } });
+    fireEvent.blur(textColor);
+
+    expect(onEdit).toHaveBeenCalledWith([
+      {
+        kind: "set-style",
+        key: "color",
+        value: "#abcdef",
+        prevText: "Hello",
+      },
+    ]);
   });
 
   it("shows arrange controls without editing only the first item in a multi-selection", () => {
@@ -415,6 +736,7 @@ describe("Slides2Inspector", () => {
 
   it("does not commit an empty numeric field as zero", () => {
     const { onEdit } = renderInspector();
+    selectArrangeTab();
     const x = screen.getByRole("spinbutton", { name: "x px" });
 
     fireEvent.change(x, { target: { value: "" } });
@@ -426,6 +748,7 @@ describe("Slides2Inspector", () => {
 
   it("does not commit an unchanged numeric field on blur", () => {
     const { onEdit } = renderInspector();
+    selectArrangeTab();
     const x = screen.getByRole("spinbutton", { name: "x px" });
 
     fireEvent.focus(x);
@@ -436,6 +759,7 @@ describe("Slides2Inspector", () => {
 
   it("preserves a focused numeric draft when selected geometry refreshes", () => {
     const { onEdit, selected, rerenderSelected } = renderInspector();
+    selectArrangeTab();
     const x = screen.getByRole("spinbutton", { name: "x px" });
 
     fireEvent.focus(x);
@@ -454,6 +778,7 @@ describe("Slides2Inspector", () => {
 
   it("cancels a numeric field edit on Escape", () => {
     const { onEdit } = renderInspector();
+    selectArrangeTab();
     const x = screen.getByRole("spinbutton", { name: "x px" });
 
     fireEvent.focus(x);

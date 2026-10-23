@@ -437,7 +437,15 @@ describe("view-screen", () => {
         title: "Source deck",
         data: JSON.stringify({
           appId: "slides-2",
-          slides: [{ id: "slide-a", sourceTsx, content: "<h1>Draft</h1>" }],
+          slides: [
+            {
+              id: "slide-a",
+              sourceTsx,
+              content: "<h1>Draft</h1>",
+              revision: 1,
+              sourceHash,
+            },
+          ],
         }),
       },
     ];
@@ -477,6 +485,9 @@ describe("view-screen", () => {
     const result = await action.run({});
 
     expect(result).toContain("### Visual editor draft");
+    expect(result).toContain("currentSlideSourceRevision: 1");
+    expect(result).toContain(`currentSlideSourceHash: ${sourceHash}`);
+    expect(result).toContain("## Current Screen");
     expect(result).toContain("editorSessionId: editor_session_1");
     expect(result).toContain("editorHistoryVersion: 4");
     expect(result).toContain("editorDraft: pending edits; canSave=true");
@@ -591,12 +602,12 @@ describe("view-screen", () => {
     expect(result).toContain("selected 1: source element <h1> at 1:48");
     expect(result).toContain("renderedInstance: 2 of 2");
     expect(result).toContain(
-      "sourceCallsiteStatus: shared across 2 visible instances; duplicate/delete cannot target one rendered copy safely and will be rejected",
+      "sourceCallsiteStatus: shared across 2 visible instances; canvas transforms cannot target one rendered copy safely, and source edits at this locator change every copy",
     );
     expect(result).toContain('sourceTextPreview: "Opening"');
     expect(result).toContain("sourceSelectionStatus: current");
     expect(result).toContain(
-      "sourceTargetStatus: use get-slide-source, then update-slide-source with line=1, column=48",
+      "sourceTargetStatus: current; canvas transforms use transform-slide-objects with this locator and the exact selection; source text, content, or style edits use get-slide-source and update-slide-source with line=1, column=48",
     );
     expect(result).toContain(
       'selectedTextRange: source element at 1:48; UTF-16 offsets [0, 4); expectedText="Opening"',

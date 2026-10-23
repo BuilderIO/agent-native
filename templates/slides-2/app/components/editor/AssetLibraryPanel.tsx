@@ -12,8 +12,7 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
@@ -26,6 +25,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import {
   assetErrorTranslationKey,
@@ -67,6 +71,33 @@ export default function AssetLibraryPanel({
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const virtualAnchor = useMemo(
+    () => ({
+      current: {
+        get contextElement() {
+          return anchorRef?.current ?? document.body;
+        },
+        getBoundingClientRect: () => {
+          const anchor = anchorRef?.current;
+          if (!anchor) {
+            const height =
+              panelRef.current?.getBoundingClientRect().height ?? 0;
+            return new DOMRect(
+              window.innerWidth / 2,
+              (window.innerHeight - height) / 2,
+              0,
+              0,
+            );
+          }
+          const rect = anchor.getBoundingClientRect();
+          return window.innerWidth < 640
+            ? new DOMRect(12, rect.bottom, 0, 0)
+            : rect;
+        },
+      },
+    }),
+    [anchorRef],
+  );
   const assetsQuery = useActionQuery<Asset[]>("list-assets", undefined, {
     enabled: open,
   });
@@ -78,37 +109,6 @@ export default function AssetLibraryPanel({
     { id: string; filename?: string; replacementId?: string }
   >("update-asset");
   const assets = assetsQuery.data ?? [];
-
-  useEffect(() => {
-    if (!open) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !renameTarget && !storagePromptOpen) {
-        onOpenChange(false);
-      }
-    };
-    const handleClick = (e: MouseEvent) => {
-      if (
-        e.target instanceof Element &&
-        e.target.closest("[data-asset-library-dialog]")
-      ) {
-        return;
-      }
-      if (
-        !renameTarget &&
-        !storagePromptOpen &&
-        panelRef.current &&
-        !panelRef.current.contains(e.target as Node)
-      ) {
-        onOpenChange(false);
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    document.addEventListener("mousedown", handleClick);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-      document.removeEventListener("mousedown", handleClick);
-    };
-  }, [open, onOpenChange, renameTarget, storagePromptOpen]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -296,213 +296,226 @@ export default function AssetLibraryPanel({
     onOpenChange(false);
   };
 
-  if (!open) return null;
+  const hasAnchor = Boolean(anchorRef?.current);
+  const narrowViewport =
+    typeof window !== "undefined" && window.innerWidth < 640;
 
-  let style: React.CSSProperties = {
-    position: "fixed",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    zIndex: 9999,
-  };
-
-  if (anchorRef?.current) {
-    const rect = anchorRef.current.getBoundingClientRect();
-    const vw = window.innerWidth;
-    if (vw < 640) {
-      style = {
-        position: "fixed",
-        top: rect.bottom + 8,
-        left: 12,
-        right: 12,
-        zIndex: 9999,
-      };
-    } else {
-      style = {
-        position: "fixed",
-        top: rect.bottom + 8,
-        right: Math.max(8, vw - rect.right),
-        zIndex: 9999,
-      };
-    }
-  }
-
-  return createPortal(
-    <div
-      ref={panelRef}
-      style={style}
-      className="w-[min(20rem,calc(100vw-24px))] max-h-[420px] bg-popover border border-border rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && (renameTarget || storagePromptOpen)) return;
+        onOpenChange(nextOpen);
+      }}
     >
-      <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-sm font-semibold text-foreground">
-          {t("editorToolbar.assetLibrary")}
-        </h3>
-        <button
-          onClick={() => onOpenChange(false)}
-          className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-          aria-label={t("comments.close")}
-        >
-          <IconX className="w-4 h-4" />
-        </button>
-      </div>
-
-      <div className="px-4 pb-4 space-y-3 overflow-y-auto flex-1">
-        {/* Upload */}
-        <button
-          type="button"
-          onClick={requestUpload}
-          disabled={uploading}
-          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 transition-colors hover:border-primary/40 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {uploading ? (
-            <IconLoader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
-          ) : (
-            <IconUpload className="w-3.5 h-3.5 text-muted-foreground" />
-          )}
-          <span className="text-xs text-muted-foreground">
-            {uploading ? t("raw.uploading") : t("slides2Editor.uploadImage")}
-          </span>
-        </button>
-        <input
-          ref={uploadInputRef}
-          type="file"
-          accept="image/*,.svg"
-          multiple
-          onChange={handleUpload}
-          className="hidden"
-          disabled={uploading || !fileStorageConfigured}
-        />
-        <input
-          ref={replaceInputRef}
-          type="file"
-          accept="image/*,.svg"
-          onChange={handleReplaceUpload}
-          className="hidden"
-          disabled={replacingId !== null || !fileStorageConfigured}
-        />
-        <UploadStorageGate
-          configured={fileStorageConfigured}
-          unavailable={!storageQuery.isSuccess}
-          open={storagePromptOpen}
-          onOpenChange={setStoragePromptOpen}
-          onRetry={() => void storageQuery.refetch()}
-        />
-
-        {/* Grid */}
-        {assetsQuery.isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-          </div>
-        ) : assets.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground text-xs">
-            {t("raw.noAssetsYet")}
-          </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-2">
-            {assets.map((asset) => (
-              <div
-                key={asset.id}
-                className="group relative aspect-square rounded-md overflow-hidden border border-border bg-muted"
-              >
-                <button
-                  onClick={
-                    onSelectAsset ? () => handleSelect(asset.url) : undefined
-                  }
-                  className={`w-full h-full ${onSelectAsset ? "cursor-pointer hover:ring-2 hover:ring-primary/50" : "cursor-default"}`}
-                >
-                  <img
-                    src={asset.url}
-                    alt={asset.filename}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openRename(asset);
-                  }}
-                  className="absolute top-0.5 left-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-foreground/70 text-background/80 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-background"
-                  aria-label={t("deckCard.rename")}
-                  title={t("deckCard.rename")}
-                >
-                  <IconPencil className="h-2.5 w-2.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    requestReplace(asset);
-                  }}
-                  disabled={replacingId !== null}
-                  className="absolute top-0.5 left-6 flex h-5 w-5 items-center justify-center rounded-full bg-foreground/70 text-background/80 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-background disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label={t("contextToolbar.replaceImage")}
-                  title={t("contextToolbar.replaceImage")}
-                >
-                  {replacingId === asset.id ? (
-                    <IconLoader2 className="h-2.5 w-2.5 animate-spin" />
-                  ) : (
-                    <IconRefresh className="h-2.5 w-2.5" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleDelete(asset.id);
-                  }}
-                  className="absolute top-0.5 right-0.5 w-5 h-5 bg-foreground/70 text-background/70 hover:text-destructive flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                  aria-label={t("raw.deleteAsset", {
-                    filename: asset.filename,
-                  })}
-                >
-                  <IconTrash className="w-2.5 h-2.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <Dialog
-        open={renameTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && !renaming) setRenameTarget(null);
+      <PopoverAnchor virtualRef={virtualAnchor} />
+      <PopoverContent
+        ref={panelRef}
+        align={hasAnchor ? (narrowViewport ? "start" : "end") : "center"}
+        side="bottom"
+        sideOffset={hasAnchor ? 8 : 0}
+        collisionPadding={12}
+        aria-label={t("editorToolbar.assetLibrary")}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onInteractOutside={(event) => {
+          const target = event.target;
+          if (
+            renameTarget ||
+            storagePromptOpen ||
+            (target instanceof Element &&
+              target.closest("[data-asset-library-dialog]"))
+          ) {
+            event.preventDefault();
+          }
         }}
+        onEscapeKeyDown={(event) => {
+          if (renameTarget || storagePromptOpen) event.preventDefault();
+        }}
+        className="flex max-h-[min(420px,calc(100dvh-24px))] w-[min(20rem,calc(100vw-24px))] flex-col overflow-hidden rounded-xl p-0 shadow-2xl shadow-black/60"
       >
-        <DialogContent data-asset-library-dialog>
-          <DialogHeader>
-            <DialogTitle>{t("deckCard.rename")}</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={(e) => void handleRename(e)} className="space-y-4">
-            <Input
-              autoFocus
-              required
-              maxLength={255}
-              value={renameFilename}
-              onChange={(e) => setRenameFilename(e.target.value)}
-              aria-label={t("deckCard.rename")}
-            />
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setRenameTarget(null)}
-                disabled={renaming}
-              >
-                {t("comments.cancel")}
-              </Button>
-              <Button
-                type="submit"
-                disabled={renaming || !renameFilename.trim()}
-              >
-                {renaming ? t("raw.uploading") : t("deckCard.rename")}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>,
-    document.body,
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
+          <h3 className="text-sm font-semibold text-foreground">
+            {t("editorToolbar.assetLibrary")}
+          </h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onOpenChange(false)}
+            className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+            aria-label={t("comments.close")}
+          >
+            <IconX className="w-4 h-4" />
+          </Button>
+        </div>
+
+        <div className="px-4 pb-4 space-y-3 overflow-y-auto flex-1">
+          {/* Upload */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={requestUpload}
+            disabled={uploading}
+            className="h-auto w-full justify-center rounded-lg border border-dashed border-border px-3 py-2 text-xs font-normal transition-colors hover:border-primary/40 active:scale-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {uploading ? (
+              <IconLoader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
+            ) : (
+              <IconUpload className="w-3.5 h-3.5 text-muted-foreground" />
+            )}
+            <span className="text-xs text-muted-foreground">
+              {uploading ? t("raw.uploading") : t("slides2Editor.uploadImage")}
+            </span>
+          </Button>
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept="image/*,.svg"
+            multiple
+            onChange={handleUpload}
+            className="hidden"
+            disabled={uploading || !fileStorageConfigured}
+          />
+          <input
+            ref={replaceInputRef}
+            type="file"
+            accept="image/*,.svg"
+            onChange={handleReplaceUpload}
+            className="hidden"
+            disabled={replacingId !== null || !fileStorageConfigured}
+          />
+          <UploadStorageGate
+            configured={fileStorageConfigured}
+            unavailable={!storageQuery.isSuccess}
+            open={storagePromptOpen}
+            onOpenChange={setStoragePromptOpen}
+            onRetry={() => void storageQuery.refetch()}
+          />
+
+          {/* Grid */}
+          {assetsQuery.isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+            </div>
+          ) : assets.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-xs">
+              {t("raw.noAssetsYet")}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              {assets.map((asset) => (
+                <div
+                  key={asset.id}
+                  className="group relative aspect-square rounded-md overflow-hidden border border-border bg-muted"
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={
+                      onSelectAsset ? () => handleSelect(asset.url) : undefined
+                    }
+                    className={`h-full w-full rounded-none p-0 active:scale-100 ${onSelectAsset ? "cursor-pointer hover:ring-2 hover:ring-primary/50" : "cursor-default"}`}
+                  >
+                    <img
+                      src={asset.url}
+                      alt={asset.filename}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openRename(asset);
+                    }}
+                    className="absolute top-0.5 left-0.5 size-5 rounded-full bg-foreground/70 p-0 text-background/80 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/70 hover:text-background active:scale-100 [&_svg]:size-2.5"
+                    aria-label={t("deckCard.rename")}
+                    title={t("deckCard.rename")}
+                  >
+                    <IconPencil className="h-2.5 w-2.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      requestReplace(asset);
+                    }}
+                    disabled={replacingId !== null}
+                    className="absolute top-0.5 left-6 size-5 rounded-full bg-foreground/70 p-0 text-background/80 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/70 hover:text-background active:scale-100 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-2.5"
+                    aria-label={t("contextToolbar.replaceImage")}
+                    title={t("contextToolbar.replaceImage")}
+                  >
+                    {replacingId === asset.id ? (
+                      <IconLoader2 className="h-2.5 w-2.5 animate-spin" />
+                    ) : (
+                      <IconRefresh className="h-2.5 w-2.5" />
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDelete(asset.id);
+                    }}
+                    className="absolute top-0.5 right-0.5 size-5 rounded-full bg-foreground/70 p-0 text-background/70 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-foreground/70 hover:text-destructive active:scale-100 [&_svg]:size-2.5"
+                    aria-label={t("raw.deleteAsset", {
+                      filename: asset.filename,
+                    })}
+                  >
+                    <IconTrash className="w-2.5 h-2.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <Dialog
+          open={renameTarget !== null}
+          onOpenChange={(open) => {
+            if (!open && !renaming) setRenameTarget(null);
+          }}
+        >
+          <DialogContent data-asset-library-dialog>
+            <DialogHeader>
+              <DialogTitle>{t("deckCard.rename")}</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={(e) => void handleRename(e)} className="space-y-4">
+              <Input
+                autoFocus
+                required
+                maxLength={255}
+                value={renameFilename}
+                onChange={(e) => setRenameFilename(e.target.value)}
+                aria-label={t("deckCard.rename")}
+              />
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setRenameTarget(null)}
+                  disabled={renaming}
+                >
+                  {t("comments.cancel")}
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={renaming || !renameFilename.trim()}
+                >
+                  {renaming ? t("raw.uploading") : t("deckCard.rename")}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </PopoverContent>
+    </Popover>
   );
 }

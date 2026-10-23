@@ -258,6 +258,65 @@ describe("uploaded Slides 2 fonts", () => {
     });
   });
 
+  it("resolves registered variants for source-referenced families in the same deck scope", async () => {
+    mocks.state.rows = [
+      ...mocks.state.rows,
+      {
+        id: "font-2",
+        deckId: "deck-1",
+        filename: "font-share-tech-mono-400.woff2",
+        url: "https://storage.example.test/fonts/share-tech-mono.woff2",
+        type: "font/woff2",
+        fontFamily: "Share Tech Mono",
+        fontVariant: "400",
+      },
+      {
+        id: "font-3",
+        deckId: "deck-2",
+        filename: "font-share-tech-mono-700.woff2",
+        url: "https://storage.example.test/fonts/wrong-deck.woff2",
+        type: "font/woff2",
+        fontFamily: "Share Tech Mono",
+        fontVariant: "700",
+      },
+    ];
+
+    await expect(
+      resolveSlideDesignFontAssets(tokens, {
+        deckId: "deck-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        referencedFontFamilies: ["Share Tech Mono"],
+      }),
+    ).resolves.toEqual([
+      {
+        assetId: "font-1",
+        family: "Inter",
+        variant: "400",
+        mimeType: "font/woff2",
+        url: "https://storage.example.test/fonts/inter.woff2",
+      },
+      {
+        assetId: "font-2",
+        family: "Share Tech Mono",
+        variant: "400",
+        mimeType: "font/woff2",
+        url: "https://storage.example.test/fonts/share-tech-mono.woff2",
+      },
+    ]);
+  });
+
+  it("keeps missing non-token source families on their CSS fallback stack", async () => {
+    await expect(
+      resolveSlideDesignFontAssets(tokens, {
+        deckId: "deck-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        referencedFontFamilies: ["Not Imported"],
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
   it("rejects an asset registered under a different family", async () => {
     mocks.state.rows = [{ ...mocks.state.rows[0], fontFamily: "Other" }];
 

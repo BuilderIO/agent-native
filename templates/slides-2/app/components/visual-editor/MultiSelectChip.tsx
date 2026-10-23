@@ -2,6 +2,8 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconX, IconArrowRight } from "@tabler/icons-react";
 import { createPortal } from "react-dom";
 
+import { Button } from "@/components/ui/button";
+
 interface MultiSelectChipProps {
   count: number;
   anchorRect: DOMRect | null;
@@ -51,46 +53,25 @@ export function MultiSelectChip({
       <span style={{ color: "hsl(var(--popover-foreground) / 0.85)" }}>
         {t("raw.selected")}
       </span>
-      <button
+      <Button
         type="button"
+        variant="default"
         onClick={onSendToAgent}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 4,
-          padding: "4px 10px",
-          marginLeft: 4,
-          background: "hsl(var(--slides-accent))",
-          color: "hsl(var(--slides-accent-foreground))",
-          border: "none",
-          borderRadius: 999,
-          fontSize: 12,
-          fontWeight: 600,
-          cursor: "pointer",
-        }}
+        className="ml-1 h-auto gap-1 rounded-full bg-[hsl(var(--slides-accent))] px-2.5 py-1 text-xs font-semibold text-[hsl(var(--slides-accent-foreground))] hover:bg-[hsl(var(--slides-accent-hover))] hover:text-[hsl(var(--slides-accent-foreground))] active:scale-100 [&_svg]:size-3"
       >
         {t("raw.sendToAgent")}
         <IconArrowRight size={12} stroke={3} />
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-xs"
         onClick={onClear}
         aria-label={t("raw.clearSelection")}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 22,
-          height: 22,
-          background: "transparent",
-          color: "hsl(var(--popover-foreground) / 0.7)",
-          border: "none",
-          borderRadius: 999,
-          cursor: "pointer",
-        }}
+        className="size-[22px] rounded-full p-0 text-muted-foreground/70 hover:bg-transparent hover:text-foreground active:scale-100 [&_svg]:size-3.5"
       >
         <IconX size={14} stroke={2.5} />
-      </button>
+      </Button>
     </div>,
     document.body,
   );

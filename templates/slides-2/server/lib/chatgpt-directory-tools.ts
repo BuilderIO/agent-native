@@ -182,7 +182,7 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "update-slide-source":
       "Atomically updates one source-backed slide using exactly one full React TSX replacement or a batch of source-located edits. Pass the revision and source hash from get-slide-source; a stale compare-and-swap is rejected without saving.",
     "transform-slide-objects":
-      "Moves, resizes, rotates, aligns, distributes, groups, ungroups, or reorders selected source-backed objects using current view-screen locators and the revision and source hash from get-slide-source.",
+      "Inserts, duplicates, deletes, or transforms source-backed canvas objects using the exact current request-tab selection, validated single-instance metadata, and revision and source hash from get-slide-source. Calls without an active editor tab or a unique rendered target fail closed; a source edit at a shared JSX callsite changes every rendered copy.",
     "duplicate-deck":
       "Creates a separately editable copy of an existing presentation with a new title. The source presentation remains unchanged.",
   },

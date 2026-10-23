@@ -36,6 +36,55 @@ function messageEvent(
 }
 
 describe("SandboxedSlide frame messages", () => {
+  it("preserves authored line height separately from computed styles", () => {
+    const node = {
+      nodeId: "1:0:0",
+      line: 1,
+      column: 0,
+      instanceIndex: 0,
+      instanceCount: 1,
+      tagName: "div",
+      text: "Authored line height",
+      bounds: { x: 0, y: 0, width: 100, height: 30 },
+      styles: { lineHeight: "24px" },
+      authoredStyles: { lineHeight: "1.2" },
+    };
+
+    expect(
+      parseSandboxedSlideFrameMessage(
+        messageEvent(frameMessage("snapshot", { nodes: [node] })),
+        frameWindow,
+        context,
+      )?.nodes?.[0],
+    ).toMatchObject({
+      styles: { lineHeight: "24px" },
+      authoredStyles: { lineHeight: "1.2" },
+    });
+  });
+
+  it("drops invalid authored line height metadata", () => {
+    const node = {
+      nodeId: "1:0:0",
+      line: 1,
+      column: 0,
+      instanceIndex: 0,
+      instanceCount: 1,
+      tagName: "div",
+      text: "Computed line height",
+      bounds: { x: 0, y: 0, width: 100, height: 30 },
+      styles: { lineHeight: "24px" },
+      authoredStyles: { lineHeight: "x".repeat(401) },
+    };
+
+    expect(
+      parseSandboxedSlideFrameMessage(
+        messageEvent(frameMessage("snapshot", { nodes: [node] })),
+        frameWindow,
+        context,
+      )?.nodes?.[0],
+    ).not.toHaveProperty("authoredStyles");
+  });
+
   it("keeps valid instance metadata and drops out-of-range counts", () => {
     const node = (instanceIndex: number, instanceCount: number) => ({
       nodeId: `1:0:${instanceIndex}`,

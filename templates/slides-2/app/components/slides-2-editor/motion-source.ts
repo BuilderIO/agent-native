@@ -53,8 +53,9 @@ function parseSource(sourceTsx: string): SourceNode | null {
         plugins: ["jsx", "typescript"],
       }) as unknown as { program: SourceNode }
     ).program;
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
   }
 }
 
@@ -489,6 +490,25 @@ export function getSourceBuildDuration(
       elementAttribute(context.chain[context.nearestStepIndex]!, "duration"),
     ) ?? 180
   );
+}
+
+export function canMoveSourceBuildStep(
+  sourceTsx: string,
+  selection: SourceSelection | null,
+  direction: BuildDirection,
+): boolean {
+  if (!selection) return false;
+  const context = nearestStepContext(sourceTsx, selection);
+  if (!context) return false;
+  const parent = context.chain[context.nearestStepIndex - 1]!;
+  const siblings = (parent.children ?? []).filter(
+    (child) =>
+      child.type === "JSXElement" && elementName(child) === context.names.step,
+  );
+  const index = siblings.indexOf(context.chain[context.nearestStepIndex]!);
+  if (index < 0) return false;
+  const adjacentIndex = index + (direction === "earlier" ? -1 : 1);
+  return adjacentIndex >= 0 && adjacentIndex < siblings.length;
 }
 
 export function setSourceBuildDuration(

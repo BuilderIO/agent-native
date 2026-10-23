@@ -2,8 +2,10 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -32,29 +34,12 @@ export default function ImageSearchPanel({
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
-    };
-    const handleClick = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onOpenChange(false);
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    document.addEventListener("mousedown", handleClick);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-      document.removeEventListener("mousedown", handleClick);
-    };
-  }, [open, onOpenChange]);
-
-  useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 50);
+    const timeout = window.setTimeout(() => inputRef.current?.focus(), 50);
+    return () => window.clearTimeout(timeout);
   }, [open]);
 
   const handleSearch = async () => {
@@ -81,103 +66,105 @@ export default function ImageSearchPanel({
     onOpenChange(false);
   };
 
-  if (!open) return null;
-
-  return createPortal(
-    <div
-      ref={panelRef}
-      style={{
-        position: "fixed",
-        top: "50%",
-        left: "50%",
-        transform: "translate(-50%, -50%)",
-        zIndex: 9999,
-      }}
-      className="w-[min(24rem,calc(100vw-24px))] max-h-[480px] bg-popover border border-border rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
-    >
-      <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-sm font-semibold text-foreground">
-          {t("raw.imageSearchTitle")}
-        </h3>
-        <button
-          onClick={() => onOpenChange(false)}
-          className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-          aria-label={t("comments.close")}
-        >
-          <IconX className="w-4 h-4" />
-        </button>
-      </div>
-
-      <div className="px-4 pb-3 flex-shrink-0">
-        <div className="flex gap-2">
-          <div className="flex-1 relative">
-            <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
-            <input
-              ref={inputRef}
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void handleSearch();
-              }}
-              placeholder={t("raw.searchImagesPlaceholder")}
-              className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-primary/50"
-            />
-          </div>
-          <button
-            onClick={handleSearch}
-            disabled={loading || !query.trim()}
-            className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-xs font-medium transition-colors"
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        hideClose
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        className="flex max-h-[min(480px,calc(100dvh-32px))] w-[min(24rem,calc(100vw-24px))] max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0 shadow-2xl shadow-black/60"
+      >
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
+          <DialogTitle className="text-sm font-semibold leading-normal tracking-normal text-foreground">
+            {t("raw.imageSearchTitle")}
+          </DialogTitle>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onOpenChange(false)}
+            className="size-6 p-0 text-muted-foreground/70 transition-colors hover:text-muted-foreground active:scale-100 [&_svg]:size-4"
+            aria-label={t("comments.close")}
           >
-            {loading ? (
-              <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              t("raw.search")
-            )}
-          </button>
+            <IconX className="size-4" />
+          </Button>
         </div>
-      </div>
 
-      <div className="px-4 pb-4 overflow-y-auto flex-1">
-        {error && (
-          <div className="text-center py-4 text-destructive/70 text-xs">
-            {error}
+        <div className="px-4 pb-3 flex-shrink-0">
+          <div className="flex gap-2">
+            <div className="flex-1 relative">
+              <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
+              <Input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleSearch();
+                }}
+                placeholder={t("raw.searchImagesPlaceholder")}
+                size="sm"
+                className="rounded-lg bg-muted py-1.5 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground/70"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              onClick={handleSearch}
+              disabled={loading || !query.trim()}
+              className="rounded-lg px-3 text-xs"
+            >
+              {loading ? (
+                <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                t("raw.search")
+              )}
+            </Button>
           </div>
-        )}
-        {!loading && results.length === 0 && !error && (
-          <div className="text-center py-8 text-muted-foreground text-xs">
-            {t("raw.searchForLogosImagesIcons")}
-          </div>
-        )}
-        {loading && (
-          <div className="flex items-center justify-center py-8">
-            <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
-          </div>
-        )}
-        {results.length > 0 && (
-          <div className="grid grid-cols-3 gap-2">
-            {results.map((result, i) => (
-              <Tooltip key={i}>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => handleSelect(result.url)}
-                    className="aspect-square rounded-md overflow-hidden border border-border bg-muted hover:ring-2 hover:ring-primary/50 transition-all"
-                  >
-                    <img
-                      src={result.thumbnail}
-                      alt={result.title}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                    />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{result.title}</TooltipContent>
-              </Tooltip>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body,
+        </div>
+
+        <div className="px-4 pb-4 overflow-y-auto flex-1">
+          {error && (
+            <div className="text-center py-4 text-destructive/70 text-xs">
+              {error}
+            </div>
+          )}
+          {!loading && results.length === 0 && !error && (
+            <div className="text-center py-8 text-muted-foreground text-xs">
+              {t("raw.searchForLogosImagesIcons")}
+            </div>
+          )}
+          {loading && (
+            <div className="flex items-center justify-center py-8">
+              <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+            </div>
+          )}
+          {results.length > 0 && (
+            <div className="grid grid-cols-3 gap-2">
+              {results.map((result, i) => (
+                <Tooltip key={i}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => handleSelect(result.url)}
+                      className="aspect-square h-auto w-full overflow-hidden rounded-md border border-border bg-muted p-0 transition-colors hover:ring-2 hover:ring-primary/50 active:scale-100"
+                    >
+                      <img
+                        src={result.thumbnail}
+                        alt={result.title}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{result.title}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

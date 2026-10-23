@@ -18,6 +18,22 @@ const mocks = vi.hoisted(() => ({
   deck: { slides: [{ id: "slide-1" }, { id: "slide-2" }] },
   cache: vi.fn(),
   fetch: vi.fn(),
+  preloading: false,
+  navigationCommandRead: vi.fn(),
+  navigationQueryStarted: false,
+}));
+vi.mock(
+  "@agent-native/core/client/application-state",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@agent-native/core/client/application-state")
+      >();
+    return { ...actual, readClientAppState: mocks.navigationCommandRead };
+  },
+);
+vi.mock("@agent-native/core/client/use-session", () => ({
+  useSessionPreloading: () => mocks.preloading,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (_action: string, args: Record<string, unknown>) => ({
@@ -25,7 +41,16 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
 }));
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: mocks.command }),
+  useQuery: (options: {
+    enabled?: boolean;
+    queryFn: () => Promise<unknown>;
+  }) => {
+    if (options.enabled !== false && !mocks.navigationQueryStarted) {
+      mocks.navigationQueryStarted = true;
+      void options.queryFn();
+    }
+    return { data: options.enabled === false ? null : mocks.command };
+  },
   useQueryClient: () => ({ setQueryData: mocks.cache }),
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -61,6 +86,11 @@ function Harness() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.command = null;
+  mocks.preloading = false;
+  mocks.navigationQueryStarted = false;
+  mocks.navigationCommandRead.mockReset().mockImplementation(async () => {
+    return (mocks.command as { command?: unknown } | null)?.command ?? null;
+  });
   mocks.fetch.mockImplementation(async (_url, options) => ({
     ok: true,
     status: 200,
@@ -84,7 +114,34 @@ const appStateWrites = () =>
       state: JSON.parse(options.body),
     }));
 
-describe("template navigation parity", () => {
+describe("template navigation behavior", () => {
+  it("publishes the current route after session preloading ends", async () => {
+    mocks.preloading = true;
+    const renderApp = () => (
+      <MemoryRouter
+        initialEntries={["/home?homeTab=recent&deckSearch=roadmap"]}
+      >
+        <Harness />
+      </MemoryRouter>
+    );
+    const view = render(renderApp());
+
+    expect(mocks.fetch).not.toHaveBeenCalled();
+
+    mocks.preloading = false;
+    view.rerender(renderApp());
+
+    await waitFor(() =>
+      expect(writes()).toContainEqual({
+        app: "slides-2",
+        view: "list",
+        deckFilter: "created-by-me",
+        homeTab: "recent",
+        deckSearch: "roadmap",
+      }),
+    );
+  });
+
   it("captures the Home tab and deck search from the current route", async () => {
     render(
       <MemoryRouter
@@ -165,6 +222,45 @@ describe("template navigation parity", () => {
       expect(screen.getByRole("status").textContent).toBe(
         templateLibraryPath("starter-pitch", "funding & growth"),
       ),
+    );
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("navigate:test"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("keeps an agent navigation command pending until session preloading ends", async () => {
+    mocks.preloading = true;
+    mocks.command = {
+      key: "navigate:test",
+      command: {
+        view: "templates",
+        templateId: "starter-pitch",
+        _writeId: "template-command-during-preload",
+      },
+    };
+    const renderApp = () => (
+      <MemoryRouter initialEntries={["/home"]}>
+        <Harness />
+      </MemoryRouter>
+    );
+    const view = render(renderApp());
+
+    expect(screen.getByRole("status").textContent).toBe("/home");
+    expect(mocks.navigationCommandRead).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+
+    mocks.preloading = false;
+    view.rerender(renderApp());
+
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        templateLibraryPath("starter-pitch"),
+      ),
+    );
+    expect(mocks.navigationCommandRead).toHaveBeenCalledTimes(1);
+    expect(mocks.navigationCommandRead).toHaveBeenCalledWith(
+      "slides-2:navigate:template-navigation-test",
     );
     expect(mocks.fetch).toHaveBeenCalledWith(
       expect.stringContaining("navigate:test"),

@@ -31,7 +31,7 @@ describe("rendered slide theme previews", () => {
         });
         expect(result.artifact.sourceHash).toMatch(/^[a-f0-9]{64}$/);
         expect(result.artifact.runtime).toMatchObject({
-          kind: "open-slide-react-worker-v1",
+          kind: "agent-native-slides-react-worker-v1",
           page: { current: pageIndex + 1, total: 3 },
         });
         expect(result.artifact.runtime.styles.join("\n")).toContain(

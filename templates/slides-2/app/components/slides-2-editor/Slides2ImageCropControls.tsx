@@ -155,6 +155,7 @@ export function Slides2ImageCropControls({
         ? event.target.closest<HTMLElement>("[data-crop-handle]")
         : null;
     const handle = (handleElement?.dataset.cropHandle ?? "move") as CropHandle;
+    (handleElement ?? event.currentTarget).focus();
     gestureRef.current = {
       pointerId: event.pointerId,
       handle,
@@ -196,17 +197,67 @@ export function Slides2ImageCropControls({
   };
 
   const handleCropKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (!crop || event.altKey || event.ctrlKey || event.metaKey) return;
+    const image = imageRef.current;
+    if (!crop || !image) return;
+    const bounds = image.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
 
-    const step = event.shiftKey ? 10 : 1;
+    const step = keyboardStep(event);
     const dx =
-      event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+      event.key === "ArrowLeft"
+        ? -(step / bounds.width) * 100
+        : event.key === "ArrowRight"
+          ? (step / bounds.width) * 100
+          : 0;
     const dy =
-      event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+      event.key === "ArrowUp"
+        ? -(step / bounds.height) * 100
+        : event.key === "ArrowDown"
+          ? (step / bounds.height) * 100
+          : 0;
     if (dx === 0 && dy === 0) return;
 
     event.preventDefault();
     setCrop((current) => (current ? moveCrop(current, dx, dy) : current));
+  };
+
+  const handleCropResizeKeyDown = (
+    handle: Exclude<CropHandle, "move">,
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+  ) => {
+    if (
+      !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+
+    const image = imageRef.current;
+    if (!crop || !image) return;
+    const bounds = image.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+
+    const horizontal = handle.includes("w") || handle.includes("e");
+    const vertical = handle.includes("n") || handle.includes("s");
+    const step = keyboardStep(event);
+    const dx =
+      horizontal && (event.key === "ArrowLeft" || event.key === "ArrowRight")
+        ? ((event.key === "ArrowLeft" ? -step : step) / bounds.width) * 100
+        : 0;
+    const dy =
+      vertical && (event.key === "ArrowUp" || event.key === "ArrowDown")
+        ? ((event.key === "ArrowUp" ? -step : step) / bounds.height) * 100
+        : 0;
+    if (dx === 0 && dy === 0) return;
+
+    const ratio =
+      image.naturalWidth > 0 && image.naturalHeight > 0
+        ? (aspect * image.naturalHeight) / image.naturalWidth
+        : aspect;
+    setCrop((current) =>
+      current ? resizeCrop(current, handle, dx, dy, ratio) : current,
+    );
   };
 
   const onApplyClick = () => {
@@ -321,11 +372,17 @@ export function Slides2ImageCropControls({
                   }}
                 >
                   {handles.map(({ name, className }) => (
-                    <span
+                    <button
                       key={name}
-                      aria-hidden="true"
+                      type="button"
+                      aria-label={labels.cropRegion}
+                      aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
                       data-crop-handle={name}
-                      className={`absolute size-3 border border-primary bg-background shadow-sm ${className}`}
+                      tabIndex={0}
+                      className={`appearance-none absolute size-3 border border-primary bg-background p-0 shadow-sm focus-visible:ring-2 focus-visible:ring-ring ${className}`}
+                      onKeyDown={(event) =>
+                        handleCropResizeKeyDown(name, event)
+                      }
                     />
                   ))}
                 </div>
@@ -484,4 +541,11 @@ function round2(value: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function keyboardStep(
+  event: Pick<KeyboardEvent, "ctrlKey" | "metaKey" | "shiftKey">,
+): number {
+  if (event.ctrlKey || event.metaKey) return 100;
+  return event.shiftKey ? 10 : 1;
 }

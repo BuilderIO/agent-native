@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
-import { getSlides2EditorShortcut } from "./keyboard-shortcuts";
+import {
+  getSlides2EditorShortcut,
+  shouldIgnoreModifiedArrowNavigation,
+} from "./keyboard-shortcuts";
 
 function key(key: string, init: KeyboardEventInit = {}): KeyboardEvent {
   return new KeyboardEvent("keydown", {
@@ -177,6 +180,34 @@ describe("getSlides2EditorShortcut", () => {
     button.remove();
   });
 
+  it("maps V and E to editor modes and C to comment mode when allowed", () => {
+    expect(getSlides2EditorShortcut(key("v"))).toEqual({
+      action: "preview-mode",
+      preventDefault: true,
+    });
+    expect(getSlides2EditorShortcut(key("E", { shiftKey: true }))).toEqual({
+      action: "edit-mode",
+      preventDefault: true,
+    });
+    expect(getSlides2EditorShortcut(key("c"), { canComment: true })).toEqual({
+      action: "toggle-comment-mode",
+      preventDefault: true,
+    });
+    expect(getSlides2EditorShortcut(key("c"))).toBeNull();
+    expect(
+      getSlides2EditorShortcut(key("c", { metaKey: true }), {
+        canComment: true,
+      }),
+    ).toBeNull();
+
+    const button = document.createElement("button");
+    document.body.append(button);
+    const event = key("v");
+    button.dispatchEvent(event);
+    expect(getSlides2EditorShortcut(event)).toBeNull();
+    button.remove();
+  });
+
   it("blocks non-overview shortcuts while the overview is open", () => {
     for (const keyName of ["ArrowUp", "ArrowDown", "f", "Enter", "p"]) {
       expect(
@@ -185,20 +216,78 @@ describe("getSlides2EditorShortcut", () => {
     }
   });
 
-  it("navigates to the previous and next slides with the vertical arrows", () => {
-    expect(getSlides2EditorShortcut(key("ArrowUp"))).toEqual({
-      action: "previous-slide",
-      preventDefault: true,
-    });
-    expect(getSlides2EditorShortcut(key("ArrowDown"))).toEqual({
-      action: "next-slide",
-      preventDefault: true,
-    });
-    expect(getSlides2EditorShortcut(key("ArrowLeft"))).toBeNull();
-    expect(getSlides2EditorShortcut(key("ArrowRight"))).toBeNull();
+  it("navigates between slides with arrows when no object is selected", () => {
+    const arrows = [
+      ["ArrowLeft", "previous-slide"],
+      ["ArrowUp", "previous-slide"],
+      ["ArrowRight", "next-slide"],
+      ["ArrowDown", "next-slide"],
+    ] as const;
+
+    for (const [keyName, action] of arrows) {
+      expect(getSlides2EditorShortcut(key(keyName))).toEqual({
+        action,
+        preventDefault: true,
+      });
+      expect(
+        getSlides2EditorShortcut(key(keyName, { shiftKey: true })),
+      ).toEqual({
+        action,
+        preventDefault: true,
+      });
+    }
+  });
+
+  it("nudges selected objects by one or ten pixels with arrow keys", () => {
+    const deltas = [
+      ["ArrowLeft", { x: -1, y: 0 }, { x: -10, y: 0 }],
+      ["ArrowRight", { x: 1, y: 0 }, { x: 10, y: 0 }],
+      ["ArrowUp", { x: 0, y: -1 }, { x: 0, y: -10 }],
+      ["ArrowDown", { x: 0, y: 1 }, { x: 0, y: 10 }],
+    ] as const;
+
+    for (const [keyName, delta, shiftedDelta] of deltas) {
+      expect(
+        getSlides2EditorShortcut(key(keyName), { hasSelectedObject: true }),
+      ).toEqual({
+        action: "nudge-selected-object",
+        preventDefault: true,
+        delta,
+      });
+      expect(
+        getSlides2EditorShortcut(key(keyName, { shiftKey: true }), {
+          hasSelectedObject: true,
+        }),
+      ).toEqual({
+        action: "nudge-selected-object",
+        preventDefault: true,
+        delta: shiftedDelta,
+      });
+    }
+  });
+
+  it("ignores arrow navigation modified by Alt, Control, or Command", () => {
+    const modifiers = [{ altKey: true }, { ctrlKey: true }, { metaKey: true }];
+
+    for (const keyName of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
+      for (const modifier of modifiers) {
+        expect(
+          shouldIgnoreModifiedArrowNavigation(keyName, {
+            altKey: Boolean(modifier.altKey),
+            ctrlKey: Boolean(modifier.ctrlKey),
+            metaKey: Boolean(modifier.metaKey),
+          }),
+        ).toBe(true);
+        expect(getSlides2EditorShortcut(key(keyName, modifier))).toBeNull();
+      }
+    }
     expect(
-      getSlides2EditorShortcut(key("ArrowDown", { ctrlKey: true })),
-    ).toBeNull();
+      shouldIgnoreModifiedArrowNavigation("ArrowRight", {
+        altKey: false,
+        ctrlKey: false,
+        metaKey: false,
+      }),
+    ).toBe(false);
   });
 
   it("starts fullscreen, windowed, or presenter mode from the matching key", () => {
@@ -228,6 +317,29 @@ describe("getSlides2EditorShortcut", () => {
     expect(
       getSlides2EditorShortcut(key("Enter"), { hasSelectedText: true }),
     ).toEqual({ action: "edit-selected-text", preventDefault: true });
+  });
+
+  it("deletes a selected object with Delete or Backspace outside editor controls", () => {
+    for (const keyName of ["Delete", "Backspace"]) {
+      expect(
+        getSlides2EditorShortcut(key(keyName), { hasSelectedObject: true }),
+      ).toEqual({ action: "delete-selected-object", preventDefault: true });
+      expect(getSlides2EditorShortcut(key(keyName))).toBeNull();
+      expect(
+        getSlides2EditorShortcut(key(keyName, { metaKey: true }), {
+          hasSelectedObject: true,
+        }),
+      ).toBeNull();
+    }
+
+    const input = document.createElement("input");
+    document.body.append(input);
+    const inputBackspace = key("Backspace");
+    input.dispatchEvent(inputBackspace);
+    expect(
+      getSlides2EditorShortcut(inputBackspace, { hasSelectedObject: true }),
+    ).toBeNull();
+    input.remove();
   });
 
   it("does not enter text editing from editor controls or while typing", () => {

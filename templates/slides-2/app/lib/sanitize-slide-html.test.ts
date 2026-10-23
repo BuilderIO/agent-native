@@ -8,6 +8,9 @@ import {
   sanitizeSlideUrl,
 } from "./sanitize-slide-html";
 
+const noiseSvg = (id = 1, additions = "") =>
+  `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="100%" height="100%" viewBox="0 0 220 220" preserveAspectRatio="none" data-slide-loc="2:4"${additions} style="position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none"><defs><filter id="slides2-noise-${id}" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="3" seed="4" stitchTiles="stitch" result="noise"></feTurbulence><feColorMatrix in="noise" type="matrix" values="0 0 0 0 0.85 0 0 0 0 0.93 0 0 0 0 1 1 0 0 0 0"></feColorMatrix></filter></defs><rect width="100%" height="100%" filter="url(#slides2-noise-${id})" opacity="0.2" fill="#fff"></rect></svg>`;
+
 describe("sanitizeSlideHtml", () => {
   it("strips scripts, handlers, and unsafe urls", () => {
     const html = sanitizeSlideHtml(
@@ -29,6 +32,37 @@ describe("sanitizeSlideHtml", () => {
     expect(html).toContain('<span data-slide-number="pad"></span>');
     expect(html).toContain('<span data-slide-total="pad"></span>');
     expect(html).toMatch(/<span data-slide-number(?:="")?><\/span>/);
+  });
+
+  it("preserves only the bounded inline NoiseBackground SVG", () => {
+    const html = sanitizeSlideHtml(
+      `<div>${noiseSvg(1, ' data-slides2-noise="1"')}<svg><path d="M0 0" /></svg></div>`,
+    );
+
+    expect(html).toMatch(/<svg\b/);
+    expect(html).toMatch(/<feTurbulence\b/i);
+    expect(html).toMatch(/<feColorMatrix\b/i);
+    expect(html).toContain('data-slide-loc="2:4"');
+    expect(html).not.toContain("data-slides2-noise");
+    expect(html).not.toContain("<path");
+    expect(html.match(/<svg\b/gi) ?? []).toHaveLength(1);
+  });
+
+  it("rejects unsafe attributes, shapes, and excessive NoiseBackground SVGs", () => {
+    const injected = noiseSvg(1).replace(
+      "<svg xmlns=",
+      '<svg onload="alert(1)" xmlns=',
+    );
+    const excessive = Array.from({ length: 9 }, (_, index) =>
+      noiseSvg(index + 1),
+    ).join("");
+    const html = sanitizeSlideHtml(
+      `${injected}${noiseSvg(1).replace('filter="url(#slides2-noise-1)"', 'filter="url(https://evil.example/a.svg)"')}${excessive}`,
+    );
+
+    expect(html).not.toContain("onload");
+    expect(html).not.toContain("evil.example");
+    expect(html.match(/<svg\b/gi) ?? []).toHaveLength(8);
   });
 
   it("keeps layout styles but removes css url injection", () => {

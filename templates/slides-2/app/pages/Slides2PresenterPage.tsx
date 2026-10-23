@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Navigate,
   useNavigate,
@@ -80,6 +80,25 @@ type AppliedStepCommand = {
   revealedSteps: number;
 };
 
+type PresenterSlideReference = {
+  id: string;
+  skipped?: unknown;
+};
+
+function visibleIndexForRawPosition(
+  rawIndex: number,
+  visibleRawIndexes: number[],
+) {
+  if (visibleRawIndexes.length === 0) return 0;
+  const position = Number.isFinite(rawIndex) ? Math.max(0, rawIndex) : 0;
+  const nextVisibleIndex = visibleRawIndexes.findIndex(
+    (visibleRawIndex) => visibleRawIndex >= position,
+  );
+  return nextVisibleIndex >= 0
+    ? nextVisibleIndex
+    : visibleRawIndexes.length - 1;
+}
+
 function slideArtifactKey(artifact: SlideRenderArtifact): string {
   return `${artifact.deckId}:${artifact.slideId}:${artifact.revision}:${artifact.sourceHash}`;
 }
@@ -140,15 +159,25 @@ function Slides2ProjectionPage() {
     { enabled: Boolean(id) },
   );
   const deck = deckQuery.data;
-  const slides = deck?.slides ?? [];
-  const parsedSlide = Number.parseInt(searchParams.get("slide") ?? "1", 10);
-  const index = Math.max(
-    0,
-    Math.min(
-      slides.length - 1,
-      Number.isFinite(parsedSlide) ? parsedSlide - 1 : 0,
-    ),
+  const rawSlides: PresenterSlideReference[] = deck?.slides ?? [];
+  const visibleRawIndexes = useMemo(
+    () =>
+      rawSlides.flatMap((slide, rawIndex) =>
+        slide.skipped === true ? [] : [rawIndex],
+      ),
+    [rawSlides],
   );
+  const slides = useMemo(
+    () => visibleRawIndexes.map((rawIndex) => rawSlides[rawIndex]),
+    [rawSlides, visibleRawIndexes],
+  );
+  const parsedSlide = Number.parseInt(searchParams.get("slide") ?? "1", 10);
+  const requestedRawIndex = Number.isFinite(parsedSlide) ? parsedSlide - 1 : 0;
+  const index = visibleIndexForRawPosition(
+    requestedRawIndex,
+    visibleRawIndexes,
+  );
+  const rawIndex = visibleRawIndexes[index] ?? 0;
   const active = slides[index];
   const [stepState, setStepState] = useState<PresenterStepState>({
     slideId: active?.id ?? null,
@@ -337,40 +366,42 @@ function Slides2ProjectionPage() {
       view: "present",
       deckId: id,
       slideId: active?.id ?? null,
-      slideIndex: index,
-      slideNumber: index + 1,
-      path: `/deck/${id}/present?slide=${index + 1}`,
+      slideIndex: rawIndex,
+      slideNumber: rawIndex + 1,
+      path: `/deck/${id}/present?slide=${rawIndex + 1}`,
     };
     writeState(appStateKeyForBrowserTab("navigation", TAB_ID), navigation);
     writeState("navigation", navigation);
     const selection = {
       deckId: id,
       slideId: active?.id ?? null,
-      slideIndex: index,
-      slideNumber: index + 1,
+      slideIndex: rawIndex,
+      slideNumber: rawIndex + 1,
       items: [],
     };
     writeState(appStateKeyForBrowserTab("slides-selection", TAB_ID), selection);
-  }, [active?.id, id, index]);
+  }, [active?.id, id, rawIndex]);
 
   useEffect(() => {
     if (!slides.length) return;
-    if (parsedSlide !== index + 1) {
+    if (parsedSlide !== rawIndex + 1) {
       const next = new URLSearchParams(searchParams);
-      next.set("slide", String(index + 1));
+      next.set("slide", String(rawIndex + 1));
       setSearchParams(next, { replace: true });
     }
-  }, [index, parsedSlide, searchParams, setSearchParams, slides.length]);
+  }, [parsedSlide, rawIndex, searchParams, setSearchParams, slides.length]);
 
   const onIndexChange = useCallback(
     (nextIndex: number) => {
-      const destination = slides[nextIndex];
+      const destinationIndex = clampPresenterIndex(nextIndex, slides.length);
+      const destination = slides[destinationIndex];
+      const destinationRawIndex = visibleRawIndexes[destinationIndex] ?? 0;
       const outgoingStepState = stepStateRef.current;
-      if (nextIndex !== index && destination) {
+      if (destinationIndex !== index && destination) {
         const direction: PresenterEntryDirection =
-          nextIndex === index + 1
+          destinationIndex === index + 1
             ? "forward"
-            : nextIndex === index - 1
+            : destinationIndex === index - 1
               ? "backward"
               : "jump";
         pendingStepEntryRef.current = { slideId: destination.id, direction };
@@ -387,7 +418,7 @@ function Slides2ProjectionPage() {
       pendingBoundaryRef.current = null;
       setPendingBoundary(null);
       if (
-        nextIndex !== index &&
+        destinationIndex !== index &&
         destination &&
         active &&
         artifact &&
@@ -405,11 +436,11 @@ function Slides2ProjectionPage() {
                 : outgoingStepState.initialRevealedSteps
               : null,
           ),
-          direction: nextIndex > index ? "forward" : "backward",
+          direction: destinationIndex > index ? "forward" : "backward",
           entryDirection:
-            nextIndex === index + 1
+            destinationIndex === index + 1
               ? "forward"
-              : nextIndex === index - 1
+              : destinationIndex === index - 1
                 ? "backward"
                 : "jump",
         };
@@ -417,7 +448,7 @@ function Slides2ProjectionPage() {
         setPendingBoundary(pending);
       }
       const next = new URLSearchParams(searchParams);
-      next.set("slide", String(nextIndex + 1));
+      next.set("slide", String(destinationRawIndex + 1));
       setSearchParams(next, { replace: true });
     },
     [
@@ -428,6 +459,7 @@ function Slides2ProjectionPage() {
       searchParams,
       setSearchParams,
       slides,
+      visibleRawIndexes,
       commitStepState,
     ],
   );
@@ -745,7 +777,9 @@ function Slides2ProjectionPage() {
           });
           break;
         case "goto":
-          onIndexChange(clampPresenterIndex(message.index, slides.length));
+          onIndexChange(
+            visibleIndexForRawPosition(message.index, visibleRawIndexes),
+          );
           break;
         case "switch-deck":
           if (message.deckId !== id) {
@@ -769,7 +803,7 @@ function Slides2ProjectionPage() {
           break;
       }
     },
-    [goNext, goPrevious, id, navigate, onIndexChange, slides.length],
+    [goNext, goPrevious, id, navigate, onIndexChange, visibleRawIndexes],
   );
   const presenterChannel = useSlides2PresenterChannel(
     id ?? "",
@@ -797,14 +831,14 @@ function Slides2ProjectionPage() {
   }, [presenterChannel.send, stepState]);
   const openPresenter = useCallback(() => {
     if (!id) return;
-    const url = `/deck/${encodeURIComponent(id)}/present?view=presenter&slide=${index + 1}`;
+    const url = `/deck/${encodeURIComponent(id)}/present?view=presenter&slide=${rawIndex + 1}`;
     const presenterWindow = window.open(
       url,
       `slides-2-presenter-${id}`,
       "popup,width=1280,height=800",
     );
     presenterWindow?.focus();
-  }, [id, index]);
+  }, [id, rawIndex]);
 
   if (!id) return <Navigate to="/" replace />;
   const slideRenderPending = Boolean(
@@ -891,7 +925,7 @@ function Slides2ProjectionPage() {
       onIndexChange={onIndexChange}
       onPrevious={goPrevious}
       onNext={goNext}
-      onExit={() => navigate(`/deck/${id}?slide=${index + 1}`)}
+      onExit={() => navigate(`/deck/${id}?slide=${rawIndex + 1}`)}
       labels={labels}
       initialFullscreen
       blackout={blackout}
@@ -904,12 +938,18 @@ function Slides2ProjectionPage() {
           <OverviewSlide
             deckId={id}
             slideId={slide.id}
-            slideNumber={slide.slideNumber}
+            slideNumber={slideIndex + 1}
           />
         ) : null;
       }}
     >
-      {({ onNavigationInput, onFramePointerActivity, onFramePointerMove }) => (
+      {({
+        onFrameKeyboard,
+        onNavigationInput,
+        onFramePointer,
+        onFramePointerActivity,
+        onFramePointerMove,
+      }) => (
         <>
           <span
             className="sr-only md:hidden"
@@ -920,13 +960,14 @@ function Slides2ProjectionPage() {
             {labels.position(index + 1, slides.length)}
           </span>
           {displayedArtifact && !liveRenderError ? (
-            <Slides2Canvas>
+            <Slides2Canvas flat>
               <div className="relative h-full w-full">
                 <SandboxedSlide
                   artifact={displayedArtifact}
                   title={`${deck?.title ?? t("navigation.brand")} · ${t("slides2Presenter.slideLabel", { index: index + 1 })}`}
                   onNodes={() => {}}
                   onPointer={(pointer) => {
+                    onFramePointer(pointer);
                     if (pointer.phase === "move") {
                       onFramePointerMove(
                         { x: pointer.x, y: pointer.y },
@@ -935,6 +976,7 @@ function Slides2ProjectionPage() {
                     }
                   }}
                   onPointerActivity={onFramePointerActivity}
+                  onKeyboard={onFrameKeyboard}
                   onController={onLiveControllerChange}
                   onNavigationInput={onNavigationInput}
                   onReady={onLiveSlideReady}

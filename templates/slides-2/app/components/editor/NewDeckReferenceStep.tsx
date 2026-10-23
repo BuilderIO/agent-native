@@ -23,6 +23,7 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -182,6 +183,10 @@ export function NewDeckReferenceStep({
     useState<FileImportSource | null>(null);
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && busy) return;
+    onOpenChange(nextOpen);
+  };
 
   const designSystemAutoRef = useRef(true);
   const referenceDeckTriggerRef = useRef<HTMLButtonElement>(null);
@@ -417,295 +422,307 @@ export function NewDeckReferenceStep({
       setSelectedSource(null);
     },
   } satisfies ComposerContextPickerConfig;
-  return open ? (
-    <div
-      className="fixed inset-0 z-[200] flex min-h-screen flex-col bg-background text-foreground"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-    >
-      <header className="flex h-14 shrink-0 items-center border-b border-border px-5 sm:px-8">
-        <button
-          type="button"
-          onClick={() => onOpenChange(false)}
-          disabled={busy}
-          className="inline-flex items-center gap-2 rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <IconArrowLeft className="size-4" />
-          <span>{title}</span>
-        </button>
-      </header>
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        hideClose
+        className="left-0 top-0 flex h-dvh min-h-screen w-screen max-w-none -translate-x-0 -translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0 text-foreground shadow-none data-[state=open]:animate-none data-[state=closed]:animate-none"
+      >
+        <DialogTitle className="sr-only">{title}</DialogTitle>
+        <header className="flex h-14 shrink-0 items-center border-b border-border px-5 sm:px-8">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => handleOpenChange(false)}
+            disabled={busy}
+            className="h-8 px-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <IconArrowLeft className="size-4" />
+            <span>{title}</span>
+          </Button>
+        </header>
 
-      <main className="flex min-h-0 flex-1 justify-center overflow-y-auto px-5 py-10 sm:px-8 sm:py-14">
-        <div className="w-full max-w-2xl">
-          <h1 className="text-2xl font-semibold tracking-[-0.025em] text-foreground sm:text-3xl">
-            {t("home.chooseReferences")}
-          </h1>
-          {promptSummary?.trim() && (
-            <p className="mt-2 max-w-xl truncate text-sm text-muted-foreground">
-              “{promptSummary.trim()}”
-            </p>
-          )}
-          <div className="mt-10 space-y-6">
-            {systemsEnabled && (
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {designSystemLabel}
-                  </span>
-                  {designSystems.length === 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowDesignSystemSetup(true)}
-                      className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
-                    >
-                      {t("home.addDesignSystem")}
-                    </button>
-                  )}
-                </div>
-                <Select
-                  value={selectedDesignSystemId ?? "none"}
-                  onValueChange={(value) => {
-                    designSystemAutoRef.current = false;
-                    setSelectedDesignSystemId(value === "none" ? null : value);
-                    setSelectedSource(null);
-                  }}
-                >
-                  <SelectTrigger
-                    className="w-full"
-                    disabled={designSystems.length === 0 || busy}
-                  >
-                    <SelectValue placeholder={designSystemLabel} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">{t("home.none")}</SelectItem>
-                    {designSystems.map((designSystem) => (
-                      <SelectItem key={designSystem.id} value={designSystem.id}>
-                        {designSystem.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+        <main className="flex min-h-0 flex-1 justify-center overflow-y-auto px-5 py-10 sm:px-8 sm:py-14">
+          <div className="w-full max-w-2xl">
+            <h1 className="text-2xl font-semibold tracking-[-0.025em] text-foreground sm:text-3xl">
+              {t("home.chooseReferences")}
+            </h1>
+            {promptSummary?.trim() && (
+              <p className="mt-2 max-w-xl truncate text-sm text-muted-foreground">
+                “{promptSummary.trim()}”
+              </p>
             )}
-
-            <div className="grid gap-2">
-              <span className="text-xs font-medium text-muted-foreground">
-                {referenceDeckLabel}
-              </span>
-              <button
-                ref={referenceDeckTriggerRef}
-                type="button"
-                aria-haspopup="dialog"
-                aria-expanded={referenceDeckSearchOpen}
-                aria-label={referenceDeckLabel}
-                disabled={!referenceOptionsLoaded || busy}
-                onClick={() => setReferenceDeckSearchOpen(true)}
-                className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <span className="truncate">
-                  {selectedReferenceDeckTitle ??
-                    (referenceDeckTouched ? t("home.none") : chooseDeckLabel)}
-                </span>
-                <IconChevronDown className="size-4 shrink-0 opacity-50" />
-              </button>
-            </div>
-
-            <div className="border-t border-border pt-5">
-              <span className="text-xs font-medium text-muted-foreground">
-                {t("home.importFrom")}
-              </span>
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
-                <FileImportOption
-                  accept=".pptx"
-                  icon={<IconPresentation className="size-4" />}
-                  label="PPT"
-                  imported={importedReference?.source === "pptx"}
-                  importedLabel={t("home.imported")}
-                  importing={importing && importingSource === "pptx"}
-                  importingLabel={importingLabel}
-                  storageConfigured={fileStorageConfigured}
-                  disabled={busy}
-                  onStorageRequired={() => setStoragePromptOpen(true)}
-                  onChange={(event) => void handleImport(event, "pptx")}
-                />
-                <FileImportOption
-                  accept=".pdf"
-                  icon={<IconFileTypePdf className="size-4" />}
-                  label="PDF"
-                  imported={importedReference?.source === "pdf"}
-                  importedLabel={t("home.imported")}
-                  importing={importing && importingSource === "pdf"}
-                  importingLabel={importingLabel}
-                  storageConfigured={fileStorageConfigured}
-                  disabled={busy}
-                  onStorageRequired={() => setStoragePromptOpen(true)}
-                  onChange={(event) => void handleImport(event, "pdf")}
-                />
-                <FileImportOption
-                  accept=".docx"
-                  icon={<IconFileText className="size-4" />}
-                  label="DOCX"
-                  imported={importedReference?.source === "docx"}
-                  importedLabel={t("home.imported")}
-                  importing={importing && importingSource === "docx"}
-                  importingLabel={importingLabel}
-                  storageConfigured={fileStorageConfigured}
-                  disabled={busy}
-                  onStorageRequired={() => setStoragePromptOpen(true)}
-                  onChange={(event) => void handleImport(event, "docx")}
-                />
-                <ImportOption
-                  icon={<IconBrandGoogle className="size-4" />}
-                  label={t("home.googleSlidesImportLabel")}
-                  confirmed={importedReference?.source === "google-slides"}
-                  confirmedLabel={t("home.imported")}
-                  selected={
-                    selectedSource?.kind === "google-docs" ||
-                    importedReference?.source === "google-slides"
-                  }
-                  disabled={busy}
-                  onClick={() => chooseSource("google-docs")}
-                />
-                <ImportOption
-                  icon={<IconWorld className="size-4" />}
-                  label={t("raw.website")}
-                  confirmedLabel={t("home.imported")}
-                  selected={selectedSource?.kind === "website"}
-                  disabled={busy}
-                  onClick={() => chooseSource("website")}
-                />
-                <ImportOption
-                  icon={<IconBrandFigma className="size-4" />}
-                  label="Figma"
-                  confirmedLabel={t("home.imported")}
-                  selected={selectedSource?.kind === "figma"}
-                  disabled={busy}
-                  onClick={() => chooseSource("figma")}
-                />
-              </div>
-              <UploadStorageGate
-                configured={fileStorageConfigured}
-                unavailable={!storageQuery.isSuccess}
-                open={storagePromptOpen}
-                onOpenChange={setStoragePromptOpen}
-                onRetry={() => void storageQuery.refetch()}
-                onConnected={() => void storageQuery.refetch()}
-              />
-              {selectedSource && (
-                <Input
-                  autoFocus
-                  className="mt-3"
-                  value={selectedSource.value}
-                  placeholder={
-                    selectedSource.kind === "website"
-                      ? t("home.context.websiteUrl")
-                      : selectedSource.kind === "figma"
-                        ? t("home.context.figmaUrl")
-                        : t("home.googleSlidesReferenceUrl")
-                  }
-                  aria-label={
-                    selectedSource.kind === "website"
-                      ? t("home.context.websiteUrlLabel")
-                      : selectedSource.kind === "figma"
-                        ? t("home.context.figmaUrlLabel")
-                        : t("home.googleSlidesReferenceUrl")
-                  }
-                  disabled={busy}
-                  onChange={(event) =>
-                    setSelectedSource({
-                      ...selectedSource,
-                      value: event.target.value,
-                    })
-                  }
-                />
-              )}
-              {selectedSource?.kind === "google-docs" && (
-                <div
-                  className={cn(
-                    "mt-3",
-                    busy && "pointer-events-none opacity-60",
-                  )}
-                >
-                  <GoogleDriveConnectionCta />
-                </div>
-              )}
-              {importedReference && (
-                <div
-                  className="mt-3 flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                    <IconCheck className="size-3.5" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="font-medium text-foreground">
-                      {t("home.referenceImportSuccess")}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {t("home.referenceImportSelected", {
-                        title: importedReference.title,
-                      })}
-                    </p>
+            <div className="mt-10 space-y-6">
+              {systemsEnabled && (
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {designSystemLabel}
+                    </span>
+                    {designSystems.length === 0 && (
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="xs"
+                        onClick={() => setShowDesignSystemSetup(true)}
+                        className="h-auto p-0 text-xs font-medium"
+                      >
+                        {t("home.addDesignSystem")}
+                      </Button>
+                    )}
                   </div>
+                  <Select
+                    value={selectedDesignSystemId ?? "none"}
+                    onValueChange={(value) => {
+                      designSystemAutoRef.current = false;
+                      setSelectedDesignSystemId(
+                        value === "none" ? null : value,
+                      );
+                      setSelectedSource(null);
+                    }}
+                  >
+                    <SelectTrigger
+                      className="w-full"
+                      disabled={designSystems.length === 0 || busy}
+                    >
+                      <SelectValue placeholder={designSystemLabel} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t("home.none")}</SelectItem>
+                      {designSystems.map((designSystem) => (
+                        <SelectItem
+                          key={designSystem.id}
+                          value={designSystem.id}
+                        >
+                          {designSystem.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
+
+              <div className="grid gap-2">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {referenceDeckLabel}
+                </span>
+                <Button
+                  ref={referenceDeckTriggerRef}
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  aria-haspopup="dialog"
+                  aria-expanded={referenceDeckSearchOpen}
+                  aria-label={referenceDeckLabel}
+                  disabled={!referenceOptionsLoaded || busy}
+                  onClick={() => setReferenceDeckSearchOpen(true)}
+                  className="w-full justify-between border-input bg-background px-3 text-sm font-normal shadow-none hover:bg-background"
+                >
+                  <span className="truncate">
+                    {selectedReferenceDeckTitle ??
+                      (referenceDeckTouched ? t("home.none") : chooseDeckLabel)}
+                  </span>
+                  <IconChevronDown className="size-4 shrink-0 opacity-50" />
+                </Button>
+              </div>
+
+              <div className="border-t border-border pt-5">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t("home.importFrom")}
+                </span>
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  <FileImportOption
+                    accept=".pptx"
+                    icon={<IconPresentation className="size-4" />}
+                    label="PPT"
+                    imported={importedReference?.source === "pptx"}
+                    importedLabel={t("home.imported")}
+                    importing={importing && importingSource === "pptx"}
+                    importingLabel={importingLabel}
+                    storageConfigured={fileStorageConfigured}
+                    disabled={busy}
+                    onStorageRequired={() => setStoragePromptOpen(true)}
+                    onChange={(event) => void handleImport(event, "pptx")}
+                  />
+                  <FileImportOption
+                    accept=".pdf"
+                    icon={<IconFileTypePdf className="size-4" />}
+                    label="PDF"
+                    imported={importedReference?.source === "pdf"}
+                    importedLabel={t("home.imported")}
+                    importing={importing && importingSource === "pdf"}
+                    importingLabel={importingLabel}
+                    storageConfigured={fileStorageConfigured}
+                    disabled={busy}
+                    onStorageRequired={() => setStoragePromptOpen(true)}
+                    onChange={(event) => void handleImport(event, "pdf")}
+                  />
+                  <FileImportOption
+                    accept=".docx"
+                    icon={<IconFileText className="size-4" />}
+                    label="DOCX"
+                    imported={importedReference?.source === "docx"}
+                    importedLabel={t("home.imported")}
+                    importing={importing && importingSource === "docx"}
+                    importingLabel={importingLabel}
+                    storageConfigured={fileStorageConfigured}
+                    disabled={busy}
+                    onStorageRequired={() => setStoragePromptOpen(true)}
+                    onChange={(event) => void handleImport(event, "docx")}
+                  />
+                  <ImportOption
+                    icon={<IconBrandGoogle className="size-4" />}
+                    label={t("home.googleSlidesImportLabel")}
+                    confirmed={importedReference?.source === "google-slides"}
+                    confirmedLabel={t("home.imported")}
+                    selected={
+                      selectedSource?.kind === "google-docs" ||
+                      importedReference?.source === "google-slides"
+                    }
+                    disabled={busy}
+                    onClick={() => chooseSource("google-docs")}
+                  />
+                  <ImportOption
+                    icon={<IconWorld className="size-4" />}
+                    label={t("raw.website")}
+                    confirmedLabel={t("home.imported")}
+                    selected={selectedSource?.kind === "website"}
+                    disabled={busy}
+                    onClick={() => chooseSource("website")}
+                  />
+                  <ImportOption
+                    icon={<IconBrandFigma className="size-4" />}
+                    label="Figma"
+                    confirmedLabel={t("home.imported")}
+                    selected={selectedSource?.kind === "figma"}
+                    disabled={busy}
+                    onClick={() => chooseSource("figma")}
+                  />
+                </div>
+                <UploadStorageGate
+                  configured={fileStorageConfigured}
+                  unavailable={!storageQuery.isSuccess}
+                  open={storagePromptOpen}
+                  onOpenChange={setStoragePromptOpen}
+                  onRetry={() => void storageQuery.refetch()}
+                  onConnected={() => void storageQuery.refetch()}
+                />
+                {selectedSource && (
+                  <Input
+                    autoFocus
+                    className="mt-3"
+                    value={selectedSource.value}
+                    placeholder={
+                      selectedSource.kind === "website"
+                        ? t("home.context.websiteUrl")
+                        : selectedSource.kind === "figma"
+                          ? t("home.context.figmaUrl")
+                          : t("home.googleSlidesReferenceUrl")
+                    }
+                    aria-label={
+                      selectedSource.kind === "website"
+                        ? t("home.context.websiteUrlLabel")
+                        : selectedSource.kind === "figma"
+                          ? t("home.context.figmaUrlLabel")
+                          : t("home.googleSlidesReferenceUrl")
+                    }
+                    disabled={busy}
+                    onChange={(event) =>
+                      setSelectedSource({
+                        ...selectedSource,
+                        value: event.target.value,
+                      })
+                    }
+                  />
+                )}
+                {selectedSource?.kind === "google-docs" && (
+                  <div
+                    className={cn(
+                      "mt-3",
+                      busy && "pointer-events-none opacity-60",
+                    )}
+                  >
+                    <GoogleDriveConnectionCta />
+                  </div>
+                )}
+                {importedReference && (
+                  <div
+                    className="mt-3 flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                      <IconCheck className="size-3.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">
+                        {t("home.referenceImportSuccess")}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {t("home.referenceImportSelected", {
+                          title: importedReference.title,
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      </main>
+        </main>
 
-      <footer className="flex shrink-0 items-center justify-between border-t border-border px-5 py-4 sm:px-8">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => void handleSkip()}
-          disabled={busy}
-        >
-          {skipLabel}
-        </Button>
-        <Button
-          type="button"
-          onClick={() => void handleContinue()}
-          aria-busy={busy}
-          disabled={
-            busy ||
-            !canContinue ||
-            Boolean(selectedSource && !selectedSourceValid)
-          }
-        >
-          {importing || continuing
-            ? importingLabel
-            : importedReference
-              ? t("home.continueToGenerate")
-              : t("home.continue")}
-          <IconCheck className="ms-1.5 size-4" />
-        </Button>
-      </footer>
+        <footer className="flex shrink-0 items-center justify-between border-t border-border px-5 py-4 sm:px-8">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => void handleSkip()}
+            disabled={busy}
+          >
+            {skipLabel}
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void handleContinue()}
+            aria-busy={busy}
+            disabled={
+              busy ||
+              !canContinue ||
+              Boolean(selectedSource && !selectedSourceValid)
+            }
+          >
+            {importing || continuing
+              ? importingLabel
+              : importedReference
+                ? t("home.continueToGenerate")
+                : t("home.continue")}
+            <IconCheck className="ms-1.5 size-4" />
+          </Button>
+        </footer>
 
-      <DesignSystemSetup
-        open={showDesignSystemSetup}
-        onClose={() => setShowDesignSystemSetup(false)}
-        onComplete={() => {
-          setShowDesignSystemSetup(false);
-          onDesignSystemsChanged();
-        }}
-      />
-      {referenceDeckSearchOpen && !busy && (
-        <ComposerRuntimeAdaptersProvider
-          adapters={{ translate: (key, options) => t(key, options) }}
-        >
-          <ComposerContextPickerDialog
-            config={referenceDeckPicker}
-            title={referenceDeckLabel}
-            onClose={() => setReferenceDeckSearchOpen(false)}
-            onRestoreFocus={() => referenceDeckTriggerRef.current?.focus()}
-          />
-        </ComposerRuntimeAdaptersProvider>
-      )}
-    </div>
-  ) : null;
+        <DesignSystemSetup
+          open={showDesignSystemSetup}
+          onClose={() => setShowDesignSystemSetup(false)}
+          onComplete={() => {
+            setShowDesignSystemSetup(false);
+            onDesignSystemsChanged();
+          }}
+        />
+        {referenceDeckSearchOpen && !busy && (
+          <ComposerRuntimeAdaptersProvider
+            adapters={{ translate: (key, options) => t(key, options) }}
+          >
+            <ComposerContextPickerDialog
+              config={referenceDeckPicker}
+              title={referenceDeckLabel}
+              onClose={() => setReferenceDeckSearchOpen(false)}
+              onRestoreFocus={() => referenceDeckTriggerRef.current?.focus()}
+            />
+          </ComposerRuntimeAdaptersProvider>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function FileImportOption({
@@ -736,11 +753,12 @@ function FileImportOption({
   const inputRef = useRef<HTMLInputElement>(null);
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="outline"
         className={cn(
-          "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
-          (importing || disabled) && "pointer-events-none opacity-60",
+          "h-auto w-full justify-center border-border px-3 py-2 text-sm font-medium shadow-none",
+          (importing || disabled) && "opacity-60",
         )}
         disabled={importing || disabled}
         aria-label={
@@ -757,7 +775,7 @@ function FileImportOption({
       >
         {imported ? <IconCheck className="size-4 text-primary" /> : icon}
         <span>{importing ? importingLabel : label}</span>
-      </button>
+      </Button>
       <input
         ref={inputRef}
         type="file"
@@ -789,16 +807,18 @@ function ImportOption({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="default"
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "h-auto w-full justify-center px-3 py-2 text-sm font-medium shadow-none",
         selected
-          ? "border-primary/50 bg-primary/5 text-primary"
+          ? "border-primary/50 bg-primary/5 text-primary hover:bg-primary/10"
           : "border-border hover:bg-accent",
-        disabled && "pointer-events-none opacity-60",
+        disabled && "opacity-60",
       )}
       aria-label={
         confirmed && confirmedLabel ? `${label} - ${confirmedLabel}` : label
@@ -807,6 +827,6 @@ function ImportOption({
     >
       {confirmed ? <IconCheck className="size-4 text-primary" /> : icon}
       <span>{label}</span>
-    </button>
+    </Button>
   );
 }

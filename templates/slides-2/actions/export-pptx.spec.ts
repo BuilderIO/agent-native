@@ -348,6 +348,133 @@ describe("export-pptx action", () => {
     });
   });
 
+  it("reports an image body stream error before writing the export", async () => {
+    const streamError = new Error("image response stream failed");
+    const reader = {
+      read: vi.fn().mockRejectedValue(streamError),
+      cancel: vi.fn().mockResolvedValue(undefined),
+      releaseLock: vi.fn(),
+    };
+    mocks.ssrfSafeFetch.mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "image/png" }),
+      body: { getReader: () => reader },
+    } as unknown as Response);
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "slide-1",
+              content: importedSlide(
+                `<div data-pptx-element-kind="image" style="${SHAPE_BOX}"><img src="https://cdn.example/broken.png" /></div>`,
+              ),
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "pptx_image_unavailable",
+      statusCode: 422,
+      details: { slideNumber: 1 },
+      message: expect.stringContaining("No file was created."),
+    });
+
+    expect(reader.cancel).toHaveBeenCalledOnce();
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it("fails with a typed error before writing when an image exceeds the export limit", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response(new Uint8Array(10 * 1024 * 1024 + 1), {
+        headers: { "content-type": "image/png" },
+      }),
+    );
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "slide-1",
+              content: importedSlide(
+                `<div data-pptx-element-kind="image" style="${SHAPE_BOX}"><img src="https://cdn.example/large.png" /></div>`,
+              ),
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "pptx_image_size_limit",
+      statusCode: 413,
+      details: { slideNumber: 1 },
+    });
+
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it("surfaces image response cleanup failure before writing the export", async () => {
+    const cleanupError = new Error("stream cancellation failed");
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          cancel() {
+            throw cleanupError;
+          },
+        }),
+        {
+          headers: {
+            "content-type": "image/png",
+            "content-length": String(10 * 1024 * 1024 + 1),
+          },
+        },
+      ),
+    );
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "slide-1",
+              content: importedSlide(
+                `<div data-pptx-element-kind="image" style="${SHAPE_BOX}"><img src="https://cdn.example/large.png" /></div>`,
+              ),
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "ui",
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "pptx_image_response_cleanup_failed",
+      statusCode: 502,
+      details: { slideNumber: 1 },
+    });
+
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+  });
+
   it("returns a download link instead of file bytes to tool callers", async () => {
     mocks.resolveAccess.mockResolvedValue({
       resource: {
@@ -711,14 +838,70 @@ describe("fetchImageAsBase64", () => {
     );
   });
 
-  it("returns null when SSRF-safe fetch blocks a URL", async () => {
+  it("propagates SSRF-safe fetch failures instead of reporting a missing image", async () => {
     mocks.ssrfSafeFetch.mockRejectedValue(
       new Error("SSRF blocked: refusing to fetch private/internal address"),
     );
 
     await expect(
       fetchImageAsBase64("http://127.0.0.1/image.png"),
+    ).rejects.toMatchObject({ errorCode: "pptx_image_fetch_failed" });
+  });
+
+  it("reports an empty image response as unavailable", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response(null, {
+        headers: { "content-type": "image/png" },
+      }),
+    );
+
+    await expect(
+      fetchImageAsBase64("https://cdn.example/empty.png"),
     ).resolves.toBe(null);
+  });
+
+  it("caps each remote image while streaming its response body", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response(new Uint8Array(10 * 1024 * 1024 + 1), {
+        headers: { "content-type": "image/png" },
+      }),
+    );
+
+    await expect(
+      fetchImageAsBase64("https://cdn.example/large.png"),
+    ).rejects.toMatchObject({ errorCode: "pptx_image_size_limit" });
+  });
+
+  it("caps aggregate bytes shared by remote images in one export", async () => {
+    const budget = { totalBytes: 40 * 1024 * 1024 - 1 };
+    mocks.ssrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1]), {
+          headers: { "content-type": "image/png" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([2]), {
+          headers: { "content-type": "image/png" },
+        }),
+      );
+
+    await expect(
+      fetchImageAsBase64(
+        "https://cdn.example/last-byte.png",
+        undefined,
+        budget,
+      ),
+    ).resolves.toBe("data:image/png;base64,AQ==");
+    expect(budget.totalBytes).toBe(40 * 1024 * 1024);
+    await expect(
+      fetchImageAsBase64(
+        "https://cdn.example/over-limit.png",
+        undefined,
+        budget,
+      ),
+    ).rejects.toMatchObject({ errorCode: "pptx_image_size_limit" });
+    expect(budget.totalBytes).toBe(40 * 1024 * 1024);
   });
 });
 

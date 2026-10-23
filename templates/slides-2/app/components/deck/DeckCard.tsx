@@ -18,6 +18,7 @@ import {
 import { useState, useRef } from "react";
 import { Link } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -25,6 +26,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import type { Deck } from "@/context/DeckContext";
 import { getDeckListingPreviewFrameStyle } from "@/lib/deck-preview-frame";
 
@@ -124,7 +126,7 @@ export default function DeckCard({
         <div className="agent-template-library-caption">
           <div className="flex items-center gap-2 min-w-0">
             {isRenaming ? (
-              <input
+              <Input
                 autoFocus
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
@@ -136,7 +138,7 @@ export default function DeckCard({
                   e.stopPropagation();
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="flex-1 min-w-0 bg-transparent border-b border-border text-sm font-medium text-foreground outline-none"
+                className="h-auto min-w-0 flex-1 rounded-none border-0 border-b border-border bg-transparent px-0 py-0 text-sm font-medium text-foreground shadow-none outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
               />
             ) : (
               <h3 className="font-medium text-sm text-foreground truncate flex-1">
@@ -151,13 +153,16 @@ export default function DeckCard({
       {/* Star + menu buttons - always visible on touch devices */}
       <div className="absolute top-2 end-2 flex items-center gap-1">
         {deck.createdByMe !== false && (
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               onToggleStar(deck.id, !deck.starred);
             }}
-            className={`rounded-md border border-border bg-foreground/60 p-2 text-background backdrop-blur-sm hover:bg-foreground/80 sm:p-1.5 ${
+            className={`h-auto w-auto rounded-md border border-border bg-foreground/60 p-2 text-background backdrop-blur-sm hover:bg-foreground/80 active:scale-100 sm:p-1.5 [&_svg]:size-3.5 ${
               deck.starred
                 ? ""
                 : "sm:invisible sm:pointer-events-none sm:opacity-0 sm:group-hover:visible sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:visible sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100"
@@ -172,16 +177,19 @@ export default function DeckCard({
             ) : (
               <IconStar className="h-3.5 w-3.5 text-background/70" />
             )}
-          </button>
+          </Button>
         )}
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              className={`rounded-md border border-border bg-foreground/60 p-2 text-background backdrop-blur-sm hover:bg-foreground/80 sm:p-1.5 ${
+              className={`h-auto w-auto rounded-md border border-border bg-foreground/60 p-2 text-background backdrop-blur-sm hover:bg-foreground/80 active:scale-100 sm:p-1.5 [&_svg]:size-3.5 ${
                 menuOpen
                   ? "sm:visible sm:pointer-events-auto sm:opacity-100"
                   : "sm:invisible sm:pointer-events-none sm:opacity-0 sm:group-hover:visible sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:visible sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100"
@@ -189,7 +197,7 @@ export default function DeckCard({
               aria-label={t("raw.deckOptions")}
             >
               <IconDots className="w-3.5 h-3.5 text-background/70" />
-            </button>
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"

@@ -72,13 +72,13 @@ export const UPDATE_DECK = authoredDeck(
       layout: "title",
       content: slide(
         1,
-        `<h1 style="${h1}margin-top:72px;font-size:58px;line-height:1.02;">Platform readout,<br>week 00</h1>
+        `<h1 style="${h1}margin-top:84px;font-size:58px;line-height:1.02;">Platform readout,<br>week 00</h1>
 <p style="margin:16px 0 0;font-size:20px;line-height:1.45;color:var(--deck-muted);max-width:560px;">What shipped, what moved, and the two decisions we need from this room.</p>
-<div style="margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr) 1.5fr;border:1px solid var(--up-line);border-radius:var(--deck-radius);background:var(--deck-bg);">
-<div style="padding:16px 18px;">${chip("ok", "Shipped")}<span style="display:block;margin-top:12px;font-size:36px;font-weight:600;letter-spacing:-0.03em;font-variant-numeric:tabular-nums;">00</span><span style="font-size:14px;color:var(--deck-muted);">items this cycle</span></div>
-<div style="padding:16px 18px;border-left:1px solid var(--up-line);">${chip("warn", "In progress")}<span style="display:block;margin-top:12px;font-size:36px;font-weight:600;letter-spacing:-0.03em;">00</span><span style="font-size:14px;color:var(--deck-muted);">carried forward</span></div>
-<div style="padding:16px 18px;border-left:1px solid var(--up-line);">${chip("risk", "At risk")}<span style="display:block;margin-top:12px;font-size:36px;font-weight:600;letter-spacing:-0.03em;">0</span><span style="font-size:14px;color:var(--deck-muted);">need a decision</span></div>
-<div style="padding:16px 18px;border-left:1px solid var(--up-line);display:flex;flex-direction:column;"><span style="font-size:14px;font-weight:500;">Quarter goal</span><span style="display:flex;align-items:baseline;gap:8px;margin-top:14px;"><span style="font-size:36px;font-weight:600;letter-spacing:-0.03em;">00%</span><span style="font-size:14px;color:var(--deck-muted);">of Q0 scope complete</span></span><span style="margin-top:auto;height:8px;border-radius:4px;background:var(--deck-surface);"><span style="display:block;width:62%;height:8px;border-radius:4px;background:var(--deck-accent);"></span></span></div>
+<div style="margin-top:auto;display:flex;border:1px solid var(--up-line);border-radius:var(--deck-radius);background:var(--deck-bg);">
+<div style="flex:1;min-width:0;box-sizing:border-box;padding:16px 18px;">${chip("ok", "Shipped")}<span style="display:block;margin-top:12px;font-size:36px;font-weight:600;letter-spacing:-0.03em;font-variant-numeric:tabular-nums;">00</span><span style="font-size:14px;color:var(--deck-muted);">items this cycle</span></div>
+<div style="flex:1;min-width:0;box-sizing:border-box;padding:16px 18px;border-left:1px solid var(--up-line);">${chip("warn", "In progress")}<span style="display:block;margin-top:12px;font-size:36px;font-weight:600;letter-spacing:-0.03em;">00</span><span style="font-size:14px;color:var(--deck-muted);">carried forward</span></div>
+<div style="flex:1;min-width:0;box-sizing:border-box;padding:16px 18px;border-left:1px solid var(--up-line);">${chip("risk", "At risk")}<span style="display:block;margin-top:12px;font-size:36px;font-weight:600;letter-spacing:-0.03em;">0</span><span style="font-size:14px;color:var(--deck-muted);">need a decision</span></div>
+<div style="flex:1.5;min-width:0;box-sizing:border-box;padding:16px 18px;border-left:1px solid var(--up-line);display:flex;flex-direction:column;"><span style="font-size:14px;font-weight:500;">Quarter goal</span><span style="display:flex;align-items:baseline;gap:8px;margin-top:14px;"><span style="font-size:36px;font-weight:600;letter-spacing:-0.03em;">00%</span><span style="font-size:14px;color:var(--deck-muted);">of Q0 scope complete</span></span><span style="margin-top:auto;height:8px;border-radius:4px;background:var(--deck-surface);"><span style="display:block;width:62%;height:8px;border-radius:4px;background:var(--deck-accent);"></span></span></div>
 </div>`,
       ),
       notes:

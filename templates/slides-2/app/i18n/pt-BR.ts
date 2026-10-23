@@ -354,6 +354,7 @@ const messages = {
     media: "Mídia",
     generateImage: "Gerar imagem",
     assetLibrary: "Biblioteca de assets",
+    assets: "Recursos",
     globalAssetScope: "Global",
     imageOptions: "Opções da imagem",
     videoPlayback: "Reprodução de vídeo",
@@ -694,6 +695,7 @@ const messages = {
     x: "X",
     y: "Y",
     position: "Posição",
+    source: "Fonte",
     selectParent: "Selecionar elemento pai",
     horizontal: "Horizontal",
     vertical: "Vertical",
@@ -715,6 +717,8 @@ const messages = {
     cornerRadius: "Raio do canto",
     strokeWeight: "Espessura",
     typography: "Tipografia",
+    content: "Conteúdo",
+    editOnSlide: "Editar no slide",
     fontFamily: "Família da fonte",
     lineHeight: "Altura da linha",
     letterSpacing: "Espaçamento entre letras",
@@ -745,7 +749,7 @@ const messages = {
     secondary: "Secondary",
     accent: "Accent",
     surface: "Surface",
-    background: "Background",
+    background: "Plano de fundo",
     text: "Text",
     muted: "Muted",
     white: "White",
@@ -843,8 +847,131 @@ const messages = {
       "As importações do Google Slides agora informam quando faltam dados de imagem, em vez de adicionar imagens vazias.",
     globalMediaPickerScope:
       "O seletor global de mídia agora mostra apenas recursos que a apresentação atual consegue resolver.",
+    presenterControls:
+      "Os controles do apresentador usam os botões e campos de entrada compartilhados do espaço de trabalho",
+    presenterBuildStepPreview:
+      "O console do apresentador mostra uma prévia de cada etapa de criação restante antes de avançar para o próximo slide.",
+    presenterBuildStepBounds:
+      "Os controles das etapas de revelação impedem mover uma etapa além do início ou do fim da ordem de revelação.",
+    staleSlidePreviews:
+      "As prévias antigas são limpas antes de carregar outro slide",
+    boundedMediaTransfers:
+      "As transferências de documentos e mídias de slides param dentro de limites seguros de tamanho e tempo",
+    editorCanvasAppTheme:
+      "O editor de slides segue o tema selecionado no app, incluindo o canvas e os controles dos objetos selecionados.",
+    editorInspectorTextControls:
+      "Formate o texto com controles de tipografia e cor e edite-o diretamente no slide.",
     savedSlideImages:
       "As imagens usadas em slides salvos continuam disponíveis na sua biblioteca.",
+    keyboardObjectTransforms:
+      "Redimensione e gire os objetos de slide selecionados pelo teclado.",
+    editorToolbarInspector:
+      "Os controles de edição de slides estão agrupados em barras de ferramentas compactas, com acesso mais claro aos painéis de formatação e design.",
+    commandMenuTheme:
+      "Alterne entre os temas claro e escuro pelo menu de comandos.",
+    skippedSlidePresentation:
+      "Slides marcados para pular são omitidos das apresentações, com a numeração e o total corretos.",
+    browseDeckVersions:
+      "Consulte as versões salvas do deck e restaure um snapshot anterior pelo editor.",
+    frameMissObjectSelection:
+      "Ao clicar em um objeto do slide, ele é selecionado mesmo quando a moldura não atinge o alvo direto.",
+    commandMenuShortcut:
+      "Command-K abre o menu de comandos do editor de slides.",
+    crossDeckSlideCopy:
+      "Copie slides entre decks, renomeie decks no editor e receba um aviso antes de sair com alterações não salvas.",
+    completedSlideGeneration:
+      "A geração do deck espera a quantidade solicitada de slides concluídos antes de informar sucesso.",
+    deckTitleAndNotesLabel:
+      "Títulos longos do deck continuam visíveis durante a edição, e o rodapé usa um rótulo Notas mais curto.",
+    deleteFocusedCanvasObject:
+      "Delete e Backspace removem o objeto selecionado do canvas quando ele está em foco.",
+    deleteSelectedSlideObject:
+      "Delete e Backspace removem do canvas o objeto selecionado do slide.",
+    slideOverviewFromRail:
+      "Abra a visão geral dos slides diretamente na barra lateral.",
+    presenterKeyboardNavigation:
+      "As apresentações aceitam Page Up, Page Down, Home e End para navegar pelos slides com o teclado.",
+    sourceBackedPdfExport:
+      "Páginas públicas do deck podem exportar para PDF slides baseados em código-fonte.",
+    preserveDeckBriefOnRegeneration:
+      "A regeneração de slides mantém o briefing original do deck no contexto.",
+    jumpToSlideByNumber:
+      "Vá para qualquer slide digitando seu número, inclusive números com vários dígitos.",
+    mobileNavigationAndSlideChat:
+      "A navegação móvel permite dispensar o teclado, e os links do chat acompanham a posição atual do slide.",
+    lightExtraBoldText:
+      "Agora o texto dos slides pode usar pesos light e extra bold para ajustar melhor a tipografia.",
+    thumbnailArrowNavigation:
+      "Agora as miniaturas dos slides podem ser navegadas com as quatro teclas de seta.",
+    homePromptDeckContinuity:
+      "Slides gerados a partir de um prompt na tela inicial continuam no deck que você começou.",
+    slideTransitions:
+      "Slides agora aceitam transições para todo o deck e por slide, morphing de objetos correspondentes e revelações passo a passo.",
+    editorPanelWidthsAndRecovery:
+      "O cabeçalho e os painéis do editor agora se aproximam mais da referência, as ferramentas de zoom e movimento ficam no menu de comandos, e decks recuperados não exibem mais erros antigos.",
+    editorRailAndInspectorAlignment:
+      "A barra lateral do editor de slides, o fundo da tela, a barra de ferramentas e o estado vazio do inspetor agora combinam melhor com o layout de edição.",
+    chatEditPreviewVersion:
+      "As prévias de edição de slides agora mostram a versão exata salva pela edição.",
+    objectCommentsStayAttached:
+      "Os comentários continuam vinculados aos objetos do slide quando eles são movidos.",
+    agentTextSelectionStability:
+      "As seleções de texto do agente continuam vinculadas ao conteúdo salvo do slide enquanto as edições estão pendentes.",
+    templateDeckChatPreviews:
+      "Decks criados a partir de modelos e decks atualizados mostram prévias e ações no chat.",
+    consistentSlideTextSpacing:
+      "O texto dos slides mantém um espaçamento entre linhas consistente no editor.",
+    renderFailuresCanvasMessage:
+      "Slides que não são renderizados agora mostram uma mensagem clara no canvas.",
+    editorPageCountFooter:
+      "O editor mostra a página atual e o total no rodapé.",
+    presentButtonReferenceAccent:
+      "A cor de destaque do botão Apresentar agora corresponde à cor de referência do editor de slides.",
+    positionFieldsPreserveRotatedSize:
+      "Os campos de posição mantêm o tamanho do objeto após a rotação.",
+    selectedSlideArrowNavigation:
+      "As teclas de seta movem os objetos selecionados no slide em 1 px, ou 10 px com Shift; sem uma seleção, elas navegam pelos slides.",
+    chatPreviewStaleContent:
+      "As prévias do chat não mostram mais conteúdo de slides que mudou após o resultado.",
+    deleteGlobalSlideImages:
+      "Exclua imagens não usadas da coleção global de recursos no editor de slides.",
+    presenterSpaceActivation:
+      "Agora a barra de espaço ativa o botão selecionado do apresentador em vez de avançar a apresentação.",
+    presenterPageUpPageDown:
+      "Page Up e Page Down agora podem navegar pela janela do apresentador.",
+    presenterJumpCancellation:
+      "A navegação do apresentador cancela saltos de número de slide pendentes para que não substituam uma escolha posterior.",
+    presenterBlankScreensAndNotes:
+      "As telas do apresentador podem ficar pretas ou brancas, e o tamanho das notas do apresentador pode ser ajustado.",
+    restoreDeckVersionAgainstStaleEdits:
+      "Restaurar uma versão anterior do deck agora a protege contra edições de slides mais antigas.",
+    singleSlideRevealPreview:
+      "Links de prévia de um único slide podem abrir um slide gerado em uma etapa de revelação específica.",
+    agentConnectionStatus:
+      "O editor de slides mostra quando o agente está conectado.",
+    svgPatternScaleRotation:
+      "Os preenchimentos com padrões SVG preservam sua escala e rotação.",
+    sourceBackedClickAndPointer:
+      "Cliques e movimentos do ponteiro agora funcionam em apresentações baseadas em código-fonte.",
+    commandMenuUndoRedoShortcuts:
+      "O menu de comandos do editor de slides agora mostra os atalhos de teclado para desfazer e refazer.",
+    overlappingTextInlineEdit:
+      "Clicar duas vezes no texto agora abre a edição em linha quando a arte do slide se sobrepõe a ele.",
+    presenterViewAlignment:
+      "O modo de apresentação reúne em uma única visualização o slide atual, o próximo, as notas do apresentador e o controle para avançar.",
+    softerSlideFrameShadow:
+      "Os canvases dos slides agora usam uma sombra de moldura mais suave.",
+    presenterTouchNavigation:
+      "Deslize para a esquerda ou para a direita para mudar de slide durante a apresentação.",
+    lightCanvasBorderedSurface:
+      "O canvas do slide agora corresponde à superfície com borda do editor claro.",
+    exactSlideTextFontSize:
+      "Agora você pode digitar um tamanho de fonte exato ao editar o texto do slide.",
+    arrowKeysMoveSelectedObjects:
+      "As teclas de seta movem juntos todos os objetos de slide selecionados.",
+    redoKeyboardShortcuts: "Refazer usa Shift+Command+Z ou Ctrl+Y.",
+    importImageDataAndPreviewSync:
+      "As importações do PowerPoint e do Google Docs agora lidam com dados de imagem grandes com mais segurança, e as prévias geradas permanecem sincronizadas quando os decks mudam.",
   },
   history: {
     unknownTime: "Hora desconocida",
@@ -859,6 +986,8 @@ const messages = {
     versionRestoredDescription: "El deck volvió a la instantánea seleccionada.",
     restoreFailed: "Error al restaurar",
     restoreFailedDescription: "No se pudo restaurar esta versión del deck.",
+    restoreRefreshFailed:
+      "A versão foi restaurada, mas não foi possível atualizar o editor. Tente novamente para recarregá-la.",
     backToSavedVersions: "Volver a versiones guardadas",
     savedVersions: "Versiones guardadas",
     description:
@@ -876,6 +1005,7 @@ const messages = {
     snapshotLoadFailed: "Não foi possível carregar esta versão salva.",
   },
   editorSidebar: {
+    pages: "Páginas",
     selectSlide: "Seleccionar diapositiva {{number}}",
     duplicateSlide: "Duplicar diapositiva",
     moveSlideUp: "Mover slide para cima",
@@ -914,6 +1044,40 @@ const messages = {
     applyUpdates: "Aplicar atualizações ({{count}})",
   },
   slides2Editor: {
+    motion: "Movimento",
+    builds: "Etapas",
+    addBuild: "Adicionar etapa",
+    removeBuild: "Remover etapa",
+    motionScope: "Escopo",
+    moduleDefault: "Padrão do módulo",
+    pageOverride: "Substituição do slide",
+    useModuleDefault: "Usar padrão do módulo",
+    transitionDuration: "Duração (ms)",
+    transitionEasing: "Aceleração",
+    transitionDelay: "Atraso (ms)",
+    transitionEnter: "Entrada",
+    transitionExit: "Saída",
+    throughBackground: "Passar pelo plano de fundo",
+    morph: "Morph",
+    morphDescription: "Associe objetos com o mesmo ID em slides consecutivos.",
+    morphDuration: "Duração do morph (ms)",
+    morphDelay: "Atraso do morph (ms)",
+    morphEasing: "Aceleração do morph",
+    morphId: "ID de correspondência",
+    morphIdPlaceholder: "ex.: brand-mark",
+    setMorphId: "Definir ID de correspondência",
+    removeMorph: "Remover ID de correspondência",
+    buildDuration: "Duração da revelação (ms)",
+    moveBuildEarlier: "Anterior",
+    moveBuildLater: "Posterior",
+    defaultEasing: "Herdar padrão",
+    respectReducedMotion:
+      "As transições respeitam a preferência do sistema para reduzir movimento.",
+    design: "Design",
+    agentConnected: "Agente conectado",
+    format: "Formato",
+    footerNotes: "Notas",
+    footerPage: "página {{current}}/{{total}}",
     now: "AGORA",
     preview: "Visualizar",
     edit: "Editar",
@@ -923,7 +1087,9 @@ const messages = {
     fontWeightMedium: "Médio",
     fontWeightSemibold: "Seminegrito",
     fontWeightBold: "Negrito",
-    selectElement: "Selecione um elemento para editar suas propriedades.",
+    selectElement: "Selecione um objeto",
+    selectElementHint:
+      "Clique em um objeto para formatá-lo. Clique duas vezes no texto para editar.",
     legacyTitle: "Esta apresentação usa o formato antigo de slides",
     legacyDescription:
       "Peça ao agente do Slides 2 para converter a apresentação antes de editá-la aqui.",
@@ -1007,6 +1173,7 @@ const messages = {
     shuffle: "Aleatorizar design",
   },
   slides2Presenter: {
+    presenterLabel: "Apresentador",
     switchDeck: "Trocar apresentação",
     searchDecks: "Pesquisar apresentações acessíveis",
     loadingDecks: "Carregando apresentações…",
@@ -1032,7 +1199,14 @@ const messages = {
     notesTextSize: "Tamanho do texto das notas do apresentador",
     decreaseNotesTextSize: "Diminuir o tamanho do texto das notas",
     increaseNotesTextSize: "Aumentar o tamanho do texto das notas",
+    jumpLabel: "Ir para",
     jumpHint: "Digite o número do slide e pressione Enter",
+    nowShowing: "Em exibição",
+    previousShort: "Anterior",
+    nextShort: "Próximo",
+    blackLabel: "Preto",
+    whiteLabel: "Branco",
+    resetShort: "Redefinir",
     slideLabel: "Slide {{index}}",
     position: "Slide {{index}} de {{total}}",
     shortcutFirstLast: "Ir para o primeiro ou último slide",
@@ -1330,6 +1504,8 @@ const messages = {
         "Este tipo de arquivo não é compatível. Escolha um arquivo compatível.",
       uploadLimitExceeded:
         "O envio excede um limite permitido. Reduza o tamanho do arquivo ou escolha menos arquivos e tente novamente.",
+      pptxImageSizeLimit:
+        "Esta apresentação contém imagens que excedem o limite de tamanho para importação. Remova-as ou reduza o tamanho e tente novamente.",
     },
     importDeck: "Importar apresentação",
     context: {
@@ -1535,6 +1711,14 @@ const messages = {
     emptyDescription: "Crie belas apresentações com geração por IA.",
   },
   agentChat: {
+    settingsShell: {
+      account: {
+        themeFamilyAgentNative: "Agent-Native",
+        themeFamilyOriginal: "Cores originais do app",
+        themeFamilySaveError:
+          "Não foi possível atualizar o tema. Tente novamente.",
+      },
+    },
     setup: {
       providerStatusUnavailable:
         "Não foi possível confirmar se a IA está pronta.",

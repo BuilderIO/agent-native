@@ -48,6 +48,7 @@ Create and edit slide decks through Agent-Native chat and the visual editor, bac
 | `update-slide` | Edit legacy slide content or structure. |
 | `get-slide-source`, `update-slide-source` | Read source and save revision-checked source edits. |
 | `transform-slide-objects` | Insert, duplicate, delete, or transform source-backed objects. |
+| `copy-slide-to-deck` | Copy a source-backed slide to another deck. |
 | `control-slide-editor` | Save, undo, or redo the active editor tab. |
 | `control-deck-history` | Undo or redo a persisted edit in the active DeckEditor tab. |
 | `patch-deck` | Apply supported deck structure or style edits. |

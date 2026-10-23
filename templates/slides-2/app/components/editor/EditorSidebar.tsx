@@ -27,6 +27,7 @@ import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import { AiEditingMarker } from "@/components/editor/AiEditingMarker";
 import { DeferredPopoverFallback } from "@/components/editor/DeferredPopoverFallback";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
+import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -380,9 +381,10 @@ function SortableSlideThumb({
     <div ref={setNodeRef} style={style}>
       <ContextMenu>
         <ContextMenuTrigger asChild disabled={readOnly}>
-          <button
+          <Button
             ref={(node) => registerButtonRef(slide.id, node)}
             type="button"
+            variant="ghost"
             {...(readOnly ? {} : attributes)}
             {...(readOnly ? {} : listeners)}
             onKeyDown={(event) => {
@@ -428,7 +430,7 @@ function SortableSlideThumb({
             aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
             aria-current={isActive ? "true" : undefined}
             data-slide-thumbnail-id={slide.id}
-            className={`w-full text-left flex items-start gap-1.5 p-1.5 rounded-lg transition-[background-color,box-shadow] duration-150 ${
+            className={`h-auto w-full justify-start gap-1.5 text-left flex items-start p-1.5 rounded-lg font-normal whitespace-normal transition-[background-color,box-shadow] duration-150 active:scale-100 hover:bg-transparent hover:text-foreground ${
               isSelected ? "bg-accent" : isActive ? "bg-accent/60" : ""
             } ${
               readOnly ? "" : "cursor-grab active:cursor-grabbing"
@@ -508,7 +510,7 @@ function SortableSlideThumb({
                 )}
               </div>
             </div>
-          </button>
+          </Button>
         </ContextMenuTrigger>
         <ContextMenuContent
           style={{ animation: "none", transition: "none" }}
@@ -583,9 +585,10 @@ function GeneratingSlideSkeleton({
 }) {
   const t = useT();
   return (
-    <button
+    <Button
       type="button"
-      className={`relative block w-full rounded-lg text-left transition-colors ${
+      variant="ghost"
+      className={`relative block h-auto w-full justify-start rounded-lg p-0 text-left font-normal whitespace-normal transition-colors active:scale-100 hover:bg-transparent hover:text-foreground ${
         selected ? "bg-accent" : ""
       }`}
       aria-label={t("editorSidebar.generatingSlide")}
@@ -605,7 +608,7 @@ function GeneratingSlideSkeleton({
           />
         </div>
       </div>
-    </button>
+    </Button>
   );
 }
 

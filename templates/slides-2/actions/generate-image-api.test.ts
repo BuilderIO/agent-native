@@ -209,6 +209,14 @@ describe("generate-image-api", () => {
     ).toThrow();
   });
 
+  it("requires a non-empty image description", () => {
+    expect(() => action.schema.parse({})).toThrow();
+    expect(() => action.schema.parse({ prompt: "   " })).toThrow();
+    expect(action.schema.parse({ prompt: "  cover image  " }).prompt).toBe(
+      "cover image",
+    );
+  });
+
   it("includes explicit referenceImageUrls in the local fallback provider refs", async () => {
     DEFAULT_STYLE_REFERENCE_URLS.push(
       "https://cdn.example.com/default-style.png",
@@ -395,7 +403,7 @@ describe("generate-image-api", () => {
 
   it("registers a selected preview and saves a source-backed slide with CAS", async () => {
     const sourceTsx = [
-      'import { ImagePlaceholder } from "@open-slide/core";',
+      'import { ImagePlaceholder } from "@agent-native/slides-core";',
       "export default function Slide() {",
       '  return <div><ImagePlaceholder label="Hero" /></div>;',
       "}",

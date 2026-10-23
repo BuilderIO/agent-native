@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockTrack = vi.hoisted(() => vi.fn());
 const mockInsertValues = vi.hoisted(() => vi.fn(async () => undefined));
+const mockCompileSlideSource = vi.hoisted(() =>
+  vi.fn(async (sourceTsx: string, _scope: unknown) => ({
+    content: `<div data-compiled-source>${sourceTsx}</div>`,
+    sourceHash: "b".repeat(64),
+  })),
+);
 
 vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mockTrack(...args),
@@ -23,6 +29,9 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: vi.fn(),
+}));
+vi.mock("./_slide-source.js", () => ({
+  compileSlideSource: mockCompileSlideSource,
 }));
 
 vi.mock("./_deck-write.js", async (importOriginal) => {
@@ -54,6 +63,11 @@ describe("add-deck tracking", () => {
   beforeEach(() => {
     mockTrack.mockClear();
     mockInsertValues.mockClear();
+    mockCompileSlideSource.mockClear();
+    mockCompileSlideSource.mockImplementation(async (sourceTsx: string) => ({
+      content: `<div data-compiled-source>${sourceTsx}</div>`,
+      sourceHash: "b".repeat(64),
+    }));
   });
 
   it("emits deck_created for a blank deck", async () => {
@@ -79,6 +93,62 @@ describe("add-deck tracking", () => {
     await expect(
       addDeck.run({ deck: deck({ appId: "slides" }) }, ctx),
     ).rejects.toMatchObject({ statusCode: 404, errorCode: "deck_not_found" });
+
+    expect(mockInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("validates and canonicalizes source-backed slides before insertion", async () => {
+    const sourceTsx = "export default function Slide() { return <div />; }";
+    const payload = deck({
+      slides: [
+        {
+          id: "s1",
+          sourceTsx,
+          content: "stale preview",
+          revision: 9,
+          sourceHash: "stale hash",
+        },
+      ],
+    });
+
+    await addDeck.run({ deck: payload }, ctx);
+
+    expect(mockCompileSlideSource).toHaveBeenCalledWith(sourceTsx, {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const persisted = JSON.parse(
+      mockInsertValues.mock.calls[0]![0].data as string,
+    );
+    expect(persisted.slides[0]).toEqual({
+      id: "s1",
+      sourceTsx,
+      content: `<div data-compiled-source>${sourceTsx}</div>`,
+      revision: 1,
+      sourceHash: "b".repeat(64),
+    });
+  });
+
+  it("does not insert source slides that fail compilation", async () => {
+    const error = new Error("Source validation failed");
+    mockCompileSlideSource.mockRejectedValueOnce(error);
+
+    await expect(
+      addDeck.run(
+        {
+          deck: deck({
+            slides: [
+              {
+                id: "s1",
+                sourceTsx:
+                  "export default function Slide() { return <div />; }",
+              },
+            ],
+          }),
+        },
+        ctx,
+      ),
+    ).rejects.toBe(error);
 
     expect(mockInsertValues).not.toHaveBeenCalled();
   });

@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import SlideContentRenderer from "@/components/slides-2-runtime/SlideContentRenderer";
+import { Button } from "@/components/ui/button";
 import type { Slide } from "@/context/DeckContext";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import messages from "@/i18n/en-US";
@@ -55,6 +56,17 @@ export default function SlideRoute() {
   const deckId = params.get("deckId");
   const slideNumberParam = params.get("slideNumber");
   const slideIndexParam = params.get("slideIndex");
+  const stepParams = params.getAll("step");
+  const stepParam = stepParams[0] ?? null;
+  const parsedStep =
+    stepParam !== null && /^\d+$/.test(stepParam) ? Number(stepParam) : null;
+  const invalidStep =
+    stepParams.length > 1 ||
+    (stepParam !== null &&
+      (parsedStep === null ||
+        !Number.isSafeInteger(parsedStep) ||
+        parsedStep > 500));
+  const stepNumber = invalidStep ? null : parsedStep;
 
   const [slide, setSlide] = useState<Slide | null>(null);
   const [slidePosition, setSlidePosition] = useState<SlidePosition | undefined>(
@@ -67,8 +79,7 @@ export default function SlideRoute() {
   const [deckTitle, setDeckTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const loadRequestId = useRef(0);
-  const { designSystem } = useDeckDesignSystem(designSystemId, deckId);
+  const [loadedPreviewKey, setLoadedPreviewKey] = useState<string | null>(null);
 
   const slideNumber =
     slideNumberParam !== null ? parseInt(slideNumberParam, 10) : null;
@@ -78,54 +89,74 @@ export default function SlideRoute() {
       : slideIndexParam !== null
         ? parseInt(slideIndexParam, 10)
         : 0;
+  const previewKey = JSON.stringify([
+    deckId,
+    slideNumberParam,
+    slideIndexParam,
+  ]);
+  const previewMatchesRoute = loadedPreviewKey === previewKey;
+  const currentDeckTitle = previewMatchesRoute ? deckTitle : null;
+  const { designSystem } = useDeckDesignSystem(
+    previewMatchesRoute ? designSystemId : null,
+    deckId,
+  );
   const inEmbed = isInAgentEmbed();
 
   useEffect(() => {
-    const nextTitle = deckTitle
-      ? `${normalizeDocumentTitle(deckTitle, t("styleInspector.slide"))} — ${t("navigation.brand")}`
+    const nextTitle = currentDeckTitle
+      ? `${normalizeDocumentTitle(currentDeckTitle, t("styleInspector.slide"))} — ${t("navigation.brand")}`
       : t("raw.slidePreviewTitle");
     const previousTitle = document.title;
     document.title = nextTitle;
     return () => {
       if (document.title === nextTitle) document.title = previousTitle;
     };
-  }, [deckTitle, t]);
+  }, [currentDeckTitle, t]);
 
   useEffect(() => {
-    const requestId = ++loadRequestId.current;
-    const isCurrentRequest = () => loadRequestId.current === requestId;
+    if (invalidStep) return;
 
-    setLoading(true);
-    setError(null);
+    let cancelled = false;
     setSlide(null);
     setSlidePosition(undefined);
     setAspectRatio(undefined);
     setDesignSystemId(null);
     setDeckTitle(null);
+    setError(null);
+    setLoadedPreviewKey(null);
+    setLoading(true);
 
-    async function loadSlide() {
+    const showError = (message: string) => {
+      if (cancelled) return;
+      setError(message);
+      setLoadedPreviewKey(previewKey);
+      setLoading(false);
+    };
+
+    const loadPreview = async () => {
+      if (!deckId) {
+        showError(t("raw.missingDeckId"));
+        return;
+      }
+      if (
+        slideNumberParam !== null &&
+        (slideNumber === null || isNaN(slideNumber) || slideNumber < 1)
+      ) {
+        showError(t("raw.invalidSlideNumber"));
+        return;
+      }
+      if (slideIndexParam !== null && isNaN(slideIndex)) {
+        showError(t("raw.invalidSlideIndex"));
+        return;
+      }
       try {
-        if (!deckId) {
-          throw new Error(t("raw.missingDeckId"));
-        }
-        if (
-          slideNumberParam !== null &&
-          (slideNumber === null || isNaN(slideNumber) || slideNumber < 1)
-        ) {
-          throw new Error(t("raw.invalidSlideNumber"));
-        }
-        if (slideIndexParam !== null && isNaN(slideIndex)) {
-          throw new Error(t("raw.invalidSlideIndex"));
-        }
-
         const deck = await callActionWithRetry<{
           title?: string;
           slides?: Slide[];
           aspectRatio?: AspectRatio;
           designSystemId?: string | null;
         }>("get-deck", { id: deckId }, { method: "GET" });
-        if (!isCurrentRequest()) return;
-
+        if (cancelled) return;
         const slides: Slide[] = deck.slides ?? [];
         if (slides.length === 0) {
           throw new Error(t("raw.deckHasNoSlides"));
@@ -136,32 +167,44 @@ export default function SlideRoute() {
         setDeckTitle(deck.title ?? null);
         setAspectRatio(deck.aspectRatio);
         setDesignSystemId(deck.designSystemId ?? null);
+        setError(null);
+        setLoadedPreviewKey(previewKey);
+        setLoading(false);
       } catch (err: unknown) {
-        if (!isCurrentRequest()) return;
-
+        if (cancelled) return;
         const status = (err as { status?: number } | undefined)?.status;
         if (status === 404) {
-          setError(t("raw.deckNotFound"));
+          showError(t("raw.deckNotFound"));
         } else if (status !== undefined) {
-          setError(t("raw.deckLoadFailedStatus", { status }));
+          showError(t("raw.deckLoadFailedStatus", { status }));
         } else {
-          setError(
+          showError(
             err instanceof Error ? err.message : t("raw.couldNotLoadSlide"),
           );
         }
-      } finally {
-        if (isCurrentRequest()) setLoading(false);
       }
-    }
-
-    void loadSlide();
-
-    return () => {
-      if (isCurrentRequest()) loadRequestId.current += 1;
     };
-  }, [deckId, slideIndex, slideIndexParam, slideNumber, slideNumberParam, t]);
 
-  if (loading) {
+    void loadPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    deckId,
+    previewKey,
+    slideIndex,
+    slideIndexParam,
+    slideNumber,
+    slideNumberParam,
+    invalidStep,
+    t,
+  ]);
+
+  if (invalidStep) {
+    return <SlideError message={t("raw.couldNotLoadSlide")} />;
+  }
+
+  if (loading || !previewMatchesRoute) {
     return (
       <div
         className={
@@ -191,10 +234,13 @@ export default function SlideRoute() {
         sourceDeckId={deckId}
         aspectRatio={aspectRatio}
         designSystem={designSystem}
+        initialRevealedSteps={stepNumber}
       />
 
       {inEmbed && (
-        <button
+        <Button
+          type="button"
+          variant="ghost"
           onClick={handleOpenInApp}
           className={
             /* guard:allow-raw-color — preview control stays legible over the fixed black stage. */ "absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/70 backdrop-blur-sm hover:bg-white/20 hover:text-white"
@@ -202,7 +248,7 @@ export default function SlideRoute() {
         >
           <IconExternalLink className="h-3.5 w-3.5" />
           {t("raw.openInApp")}
-        </button>
+        </Button>
       )}
     </div>
   );

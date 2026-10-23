@@ -32,6 +32,8 @@ import {
   setBuildState,
 } from "@/components/presentation/slide-build-steps";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -145,9 +147,10 @@ function SortableAnimationItem({
       className="border-b border-border bg-background"
     >
       <div className="flex min-h-14 items-center gap-2 px-3 py-3">
-        <button
+        <Button
           type="button"
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          variant="ghost"
+          className="h-auto w-auto shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label={
             expanded ? t("animations.collapse") : t("animations.expand")
           }
@@ -158,13 +161,14 @@ function SortableAnimationItem({
           ) : (
             <IconChevronRight className="size-5" />
           )}
-        </button>
+        </Button>
         <span className="w-4 shrink-0 text-xs text-muted-foreground/60">
           {trigger === "with-previous" ? "" : stepNumber}
         </span>
-        <button
+        <Button
           type="button"
-          className="min-w-0 flex-1 text-left text-sm text-foreground"
+          variant="ghost"
+          className="h-auto w-auto min-w-0 flex-1 flex-col items-stretch justify-start gap-0 rounded-none bg-transparent p-0 text-left text-sm font-normal text-foreground hover:bg-transparent hover:text-foreground"
           title={
             preview ||
             t("animations.elementFallback", { index: anim.elementIndex + 1 })
@@ -194,24 +198,26 @@ function SortableAnimationItem({
               {t(REASON_LABEL_KEY[issue])}
             </span>
           )}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
           {...attributes}
           {...listeners}
-          className="shrink-0 touch-none cursor-grab rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground active:cursor-grabbing"
+          className="h-auto w-auto shrink-0 touch-none cursor-grab rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground active:cursor-grabbing"
           aria-label={t("animations.reorder")}
         >
           <IconGripVertical className="size-5" />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          variant="ghost"
+          className="h-auto w-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label={t("animations.remove")}
           onClick={() => onRemove(anim.id)}
         >
           <IconTrash className="size-4" />
-        </button>
+        </Button>
       </div>
 
       {expanded && (
@@ -262,17 +268,22 @@ function SortableAnimationItem({
             </SelectContent>
           </Select>
 
-          <label className="flex items-center gap-3 px-0.5 py-2 text-base text-foreground">
-            <input
-              type="checkbox"
+          <div className="flex items-center gap-3 px-0.5 py-2">
+            <Checkbox
+              id={`animation-by-paragraph-${anim.id}`}
               checked={Boolean(anim.byParagraph)}
-              onChange={(event) =>
-                onChangeByParagraph(anim.id, event.target.checked)
+              onCheckedChange={(checked) =>
+                onChangeByParagraph(anim.id, checked === true)
               }
-              className="size-5 accent-primary"
+              className="size-5"
             />
-            {t("animations.byParagraph")}
-          </label>
+            <Label
+              htmlFor={`animation-by-paragraph-${anim.id}`}
+              className="cursor-pointer text-base font-normal text-foreground"
+            >
+              {t("animations.byParagraph")}
+            </Label>
+          </div>
 
           {anim.byParagraph && paragraphs.length > 0 && (
             <ol className="space-y-1 pl-7 text-sm text-muted-foreground">
@@ -606,14 +617,15 @@ export function AnimationsPanel({
         <h2 className="text-sm font-semibold text-foreground">
           {t("animations.title")}
         </h2>
-        <button
+        <Button
           type="button"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          variant="ghost"
+          className="h-auto w-auto rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
           onClick={onClose}
           aria-label={t("animations.close")}
         >
           <IconX className="size-4" />
-        </button>
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto">

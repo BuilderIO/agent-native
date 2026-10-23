@@ -68,6 +68,11 @@ const defaultDesignSystemLimitFn = vi.fn(async () =>
   defaultDesignSystemId ? [{ id: defaultDesignSystemId }] : [],
 );
 const titleWhereFn = vi.fn(async () => titleQueryRows);
+const lockedSelectFn = vi.fn(async (table: unknown) =>
+  table === mockTables.deckTable && existingDeckRow
+    ? [{ id: existingDeckRow.id }]
+    : [],
+);
 const whereSelectFn = vi.fn((condition: unknown, table?: unknown) => {
   const clauses = (condition as { and?: unknown[] } | undefined)?.and;
   const isTitleQuery =
@@ -81,7 +86,10 @@ const whereSelectFn = vi.fn((condition: unknown, table?: unknown) => {
       table === mockTables.designSystemsTable
         ? defaultDesignSystemLimitFn
         : limitFn,
-    for: vi.fn(async (_mode: string) => []),
+    for: vi.fn((_mode: string) => lockedSelectFn(table)),
+    orderBy: vi.fn(() => ({
+      for: vi.fn((_mode: string) => lockedSelectFn(table)),
+    })),
   };
 });
 const fromFn = vi.fn((table: unknown) => ({
@@ -157,6 +165,12 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
+
+vi.mock("@agent-native/core/settings", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/settings")>();
+  return { ...actual, getOrgSetting: async () => null };
+});
 
 vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mockTrack(...args),
@@ -340,6 +354,33 @@ describe("create-deck — save boundary", () => {
     slides: [],
     promptDraft,
   };
+
+  it("does not read or replace a deck when editor access is denied", async () => {
+    existingDeckRow = {
+      id: "deck-existing",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({ appId: "slides-2", title: "T", slides: [] }),
+    };
+    const denied = new Error("No deck access");
+    mockAssertAccess.mockRejectedValueOnce(denied);
+
+    await expect(
+      action.run({
+        title: "T2",
+        slides: [{ id: "slide-1", content: "<div>New</div>" }],
+        deckId: "deck-existing",
+      }),
+    ).rejects.toBe(denied);
+
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "deck",
+      "deck-existing",
+      "editor",
+    );
+    expect(selectFn).not.toHaveBeenCalled();
+    expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
+    expect(updateFn).not.toHaveBeenCalled();
+  });
 
   it("creates a Home prompt draft with its stable ID and full initial context", async () => {
     const result = await action.run(promptDraftArgs);

@@ -1,9 +1,6 @@
 import { useEffect, useRef } from "react";
 
-const MIN_SWIPE_PX = 50;
-const MAX_SWIPE_MS = 600;
-const FLICK_VELOCITY_PX_MS = 0.4;
-const MIN_FLICK_PX = 24;
+import { getTouchSwipeDirection } from "./touch-swipe";
 
 type Options = {
   target: HTMLElement | null;
@@ -48,19 +45,10 @@ export function useSlides2TouchSwipe({
 
       const dx = touch.clientX - initial.x;
       const dy = touch.clientY - initial.y;
-      if (Math.abs(dx) <= Math.abs(dy)) return;
-
       const duration = performance.now() - initial.time;
-      const distance = Math.abs(dx);
-      const velocity = distance / Math.max(duration, 1);
-      const distanceCommit =
-        distance >= MIN_SWIPE_PX && duration <= MAX_SWIPE_MS;
-      const flickCommit =
-        velocity >= FLICK_VELOCITY_PX_MS && distance >= MIN_FLICK_PX;
-      if (!distanceCommit && !flickCommit) return;
-
-      if (dx < 0) onNext();
-      else onPrevious();
+      const direction = getTouchSwipeDirection(dx, dy, duration);
+      if (direction === "next") onNext();
+      else if (direction === "previous") onPrevious();
     };
 
     const onTouchCancel = () => {

@@ -360,6 +360,7 @@ const messages = {
     media: "Medien",
     generateImage: "Bild generieren",
     assetLibrary: "Asset-Bibliothek",
+    assets: "Assets",
     globalAssetScope: "Global",
     imageOptions: "Bildoptionen",
     videoPlayback: "Videowiedergabe",
@@ -699,6 +700,7 @@ const messages = {
     x: "X",
     y: "Y",
     position: "Position",
+    source: "Quelle",
     selectParent: "Übergeordnetes Element auswählen",
     horizontal: "Horizontal",
     vertical: "Vertikal",
@@ -720,6 +722,8 @@ const messages = {
     cornerRadius: "Eckenradius",
     strokeWeight: "Stärke",
     typography: "Typografie",
+    content: "Inhalt",
+    editOnSlide: "Auf Folie bearbeiten",
     fontFamily: "Schriftfamilie",
     lineHeight: "Zeilenhöhe",
     letterSpacing: "Zeichenabstand",
@@ -750,7 +754,7 @@ const messages = {
     secondary: "Secondary",
     accent: "Accent",
     surface: "Surface",
-    background: "Background",
+    background: "Hintergrund",
     text: "Text",
     muted: "Muted",
     white: "White",
@@ -848,8 +852,131 @@ const messages = {
       "Google-Slides-Importe melden jetzt fehlende Bilddaten, statt leere Bilder hinzuzufügen.",
     globalMediaPickerScope:
       "Die globale Medienauswahl zeigt jetzt nur Assets an, die die aktuelle Präsentation auflösen kann.",
+    presenterControls:
+      "Die Steuerung für Präsentationen verwendet die gemeinsamen Schaltflächen und Eingabefelder des Arbeitsbereichs",
+    presenterBuildStepPreview:
+      "Die Präsentationskonsole zeigt jeden verbleibenden Erstellungsschritt in der Vorschau, bevor sie zur nächsten Folie wechselt.",
+    presenterBuildStepBounds:
+      "Die Steuerelemente für Einblendschritte verhindern, dass ein Schritt über den Anfang oder das Ende der Reihenfolge hinaus verschoben wird.",
+    staleSlidePreviews:
+      "Veraltete Folienvorschauen werden vor dem Laden einer anderen Folie entfernt",
+    boundedMediaTransfers:
+      "Dokument- und Folienmedienübertragungen werden innerhalb sicherer Größen- und Zeitlimits beendet",
+    editorCanvasAppTheme:
+      "Der Folieneditor übernimmt das ausgewählte App-Design für die Arbeitsfläche und die Steuerelemente ausgewählter Objekte.",
+    editorInspectorTextControls:
+      "Formatiere Text mit Typografie- und Farboptionen und bearbeite ihn direkt auf der Folie.",
     savedSlideImages:
       "Bilder, die in gespeicherten Folien verwendet werden, bleiben in deiner Bibliothek verfügbar.",
+    keyboardObjectTransforms:
+      "Ändere die Größe ausgewählter Folienobjekte und drehe sie mit der Tastatur.",
+    editorToolbarInspector:
+      "Die Steuerelemente zum Bearbeiten von Folien sind in kompakten Symbolleisten gruppiert und bieten einen klareren Zugang zu den Formatierungs- und Designbereichen.",
+    commandMenuTheme:
+      "Wechsle über das Befehlsmenü zwischen hellem und dunklem Design.",
+    skippedSlidePresentation:
+      "Zum Überspringen markierte Folien werden in Präsentationen ausgelassen und mit korrekten Foliennummern und Gesamtzahlen angezeigt.",
+    browseDeckVersions:
+      "Durchsuche gespeicherte Deck-Versionen und stelle im Editor einen früheren Snapshot wieder her.",
+    frameMissObjectSelection:
+      "Ein Klick auf ein Folienobjekt wählt es aus, wenn der Rahmen das direkte Ziel verfehlt.",
+    commandMenuShortcut: "Befehl-K öffnet das Befehlsmenü des Folieneditors.",
+    crossDeckSlideCopy:
+      "Kopiere Folien zwischen Decks, benenne Decks im Editor um und lass dich vor dem Verlassen mit ungespeicherten Änderungen warnen.",
+    completedSlideGeneration:
+      "Die Deck-Erstellung wartet auf die angeforderte Anzahl abgeschlossener Folien, bevor sie Erfolg meldet.",
+    deckTitleAndNotesLabel:
+      "Lange Deck-Titel bleiben beim Bearbeiten sichtbar, und die Fußzeile verwendet ein kürzeres Notizen-Label.",
+    deleteFocusedCanvasObject:
+      "Entf und Rücktaste löschen das ausgewählte Canvas-Objekt, wenn die Arbeitsfläche fokussiert ist.",
+    deleteSelectedSlideObject:
+      "Entf und Rücktaste löschen das ausgewählte Folienobjekt von der Arbeitsfläche.",
+    slideOverviewFromRail:
+      "Öffne die Folienübersicht direkt über die Folienleiste.",
+    presenterKeyboardNavigation:
+      "Präsentationen unterstützen Bild auf, Bild ab, Pos1 und Ende für die Foliennavigation per Tastatur.",
+    sourceBackedPdfExport:
+      "Öffentliche Deck-Seiten können quellbasierte Folien als PDF exportieren.",
+    preserveDeckBriefOnRegeneration:
+      "Beim erneuten Generieren einer Folie bleibt das ursprüngliche Deck-Briefing im Kontext.",
+    jumpToSlideByNumber:
+      "Springe zu einer beliebigen Folie, indem du ihre Nummer eingibst, auch bei mehreren Ziffern.",
+    mobileNavigationAndSlideChat:
+      "Die mobile Navigation unterstützt das Ausblenden der Tastatur, und Chat-Links folgen der aktuellen Folienposition.",
+    lightExtraBoldText:
+      "Folientext kann jetzt die Schriftstärken Light und Extra Bold für präzisere Typografie verwenden.",
+    thumbnailArrowNavigation:
+      "Folienminiaturen lassen sich jetzt mit allen vier Pfeiltasten navigieren.",
+    homePromptDeckContinuity:
+      "Folien, die über einen Prompt auf der Startseite erstellt werden, bleiben im gestarteten Deck.",
+    slideTransitions:
+      "Folien unterstützen jetzt deckweite und einzelne Übergänge, Morphing passender Objekte und schrittweise Einblendungen.",
+    editorPanelWidthsAndRecovery:
+      "Kopfzeile und Seitenleisten des Folieneditors entsprechen jetzt stärker der Referenz, Zoom- und Bewegungswerkzeuge sind im Befehlsmenü verfügbar und wiederhergestellte Decks zeigen keine veralteten Fehlermeldungen mehr.",
+    editorRailAndInspectorAlignment:
+      "Seitenleiste, Arbeitsflächenhintergrund, Symbolleiste und leerer Inspektorbereich des Folieneditors passen jetzt besser zum Bearbeitungslayout.",
+    chatEditPreviewVersion:
+      "Vorschauen von Folienbearbeitungen zeigen jetzt genau die Version, die durch die Bearbeitung gespeichert wurde.",
+    objectCommentsStayAttached:
+      "Kommentare bleiben an Folienobjekten verankert, wenn diese verschoben werden.",
+    agentTextSelectionStability:
+      "Textauswahlen des Agenten bleiben während ausstehender Bearbeitungen an den gespeicherten Folieninhalt gebunden.",
+    templateDeckChatPreviews:
+      "In Chats werden Vorschauen und Aktionen für aus Vorlagen erstellte und aktualisierte Decks angezeigt.",
+    consistentSlideTextSpacing:
+      "Folientext behält im Editor einen einheitlichen Zeilenabstand.",
+    renderFailuresCanvasMessage:
+      "Folien, die nicht gerendert werden können, zeigen jetzt eine klare Meldung auf der Arbeitsfläche.",
+    editorPageCountFooter:
+      "Der Editor zeigt die aktuelle Seite und die Gesamtzahl in der Fußzeile an.",
+    presentButtonReferenceAccent:
+      "Die Akzentfarbe der Schaltfläche „Präsentieren“ entspricht jetzt der Referenz des Folieneditors.",
+    positionFieldsPreserveRotatedSize:
+      "Positionsfelder behalten die Größe eines Objekts nach der Drehung bei.",
+    selectedSlideArrowNavigation:
+      "Pfeiltasten verschieben ausgewählte Folienobjekte um 1 px oder mit Umschalttaste um 10 px. Ohne Auswahl navigieren sie durch die Folien.",
+    chatPreviewStaleContent:
+      "Chatvorschauen zeigen keine Folieninhalte mehr an, die sich nach dem Ergebnis geändert haben.",
+    deleteGlobalSlideImages:
+      "Lösche nicht verwendete Bilder im Folieneditor aus der globalen Mediensammlung.",
+    presenterSpaceActivation:
+      "Fokussierte Präsentationsschaltflächen werden jetzt mit der Leertaste aktiviert, ohne zur nächsten Folie zu wechseln.",
+    presenterPageUpPageDown:
+      "Mit Bild auf und Bild ab kannst du jetzt durch das Präsentationsfenster navigieren.",
+    presenterJumpCancellation:
+      "Die Navigation in der Präsentation bricht ausstehende Sprünge zu Foliennummern ab, damit sie eine spätere Auswahl nicht überschreiben.",
+    presenterBlankScreensAndNotes:
+      "Der Präsentationsbildschirm kann schwarz oder weiß geschaltet werden, und die Größe der Sprechernotizen lässt sich ändern.",
+    restoreDeckVersionAgainstStaleEdits:
+      "Das Wiederherstellen einer älteren Deckversion schützt sie jetzt vor älteren Folienbearbeitungen.",
+    singleSlideRevealPreview:
+      "Vorschaulinks für einzelne Folien können eine generierte Folie bei einem bestimmten Aufbauschritt öffnen.",
+    agentConnectionStatus:
+      "Der Folieneditor zeigt an, wenn der Agent verbunden ist.",
+    svgPatternScaleRotation:
+      "SVG-Musterfüllungen behalten ihren Maßstab und ihre Drehung bei.",
+    sourceBackedClickAndPointer:
+      "Klicks und Mausbewegungen funktionieren jetzt auch bei quellbasierten Präsentationen.",
+    commandMenuUndoRedoShortcuts:
+      "Das Befehlsmenü des Folieneditors zeigt jetzt die Tastenkombinationen für Rückgängig und Wiederholen.",
+    overlappingTextInlineEdit:
+      "Ein Doppelklick auf Text öffnet jetzt die Inline-Bearbeitung, wenn Foliengrafiken den Text überlagern.",
+    presenterViewAlignment:
+      "Im Präsentationsmodus sind aktuelle und nächste Folie, Sprechernotizen und Sprungsteuerung in einer Ansicht angeordnet.",
+    softerSlideFrameShadow:
+      "Folienflächen verwenden jetzt einen weicheren Rahmenschatten.",
+    presenterTouchNavigation:
+      "Wische während der Präsentation nach links oder rechts, um zwischen Folien zu wechseln.",
+    lightCanvasBorderedSurface:
+      "Die Folienfläche entspricht jetzt der umrandeten Oberfläche des hellen Editors.",
+    exactSlideTextFontSize:
+      "Beim Bearbeiten von Folientext kannst du jetzt eine genaue Schriftgröße eingeben.",
+    arrowKeysMoveSelectedObjects:
+      "Mit den Pfeiltasten werden alle ausgewählten Folienobjekte gemeinsam verschoben.",
+    redoKeyboardShortcuts:
+      "Wiederholen funktioniert mit Shift+Command+Z oder Ctrl+Y.",
+    importImageDataAndPreviewSync:
+      "PowerPoint- und Google-Docs-Importe verarbeiten große Bilddaten jetzt sicherer, und generierte Vorschauen bleiben bei Änderungen an Präsentationen synchron.",
   },
   history: {
     unknownTime: "Hora desconocida",
@@ -863,6 +990,8 @@ const messages = {
     versionRestoredDescription: "El deck volvió a la instantánea seleccionada.",
     restoreFailed: "Error al restaurar",
     restoreFailedDescription: "No se pudo restaurar esta versión del deck.",
+    restoreRefreshFailed:
+      "Die Version wurde wiederhergestellt, aber der Editor konnte nicht aktualisiert werden. Versuche es erneut, um sie neu zu laden.",
     backToSavedVersions: "Volver a versiones guardadas",
     savedVersions: "Versiones guardadas",
     description:
@@ -881,6 +1010,7 @@ const messages = {
       "Diese gespeicherte Version konnte nicht geladen werden.",
   },
   editorSidebar: {
+    pages: "Seiten",
     selectSlide: "Seleccionar diapositiva {{number}}",
     duplicateSlide: "Duplicar diapositiva",
     moveSlideUp: "Folie nach oben verschieben",
@@ -919,6 +1049,41 @@ const messages = {
     applyUpdates: "Änderungen übernehmen ({{count}})",
   },
   slides2Editor: {
+    motion: "Bewegung",
+    builds: "Aufbauschritte",
+    addBuild: "Aufbauschritt hinzufügen",
+    removeBuild: "Aufbauschritt entfernen",
+    motionScope: "Bereich",
+    moduleDefault: "Modulstandard",
+    pageOverride: "Folienüberschreibung",
+    useModuleDefault: "Modulstandard verwenden",
+    transitionDuration: "Dauer (ms)",
+    transitionEasing: "Beschleunigung",
+    transitionDelay: "Verzögerung (ms)",
+    transitionEnter: "Einblenden",
+    transitionExit: "Ausblenden",
+    throughBackground: "Über den Hintergrund",
+    morph: "Morph",
+    morphDescription:
+      "Objekte mit derselben ID auf aufeinanderfolgenden Folien zuordnen.",
+    morphDuration: "Morphdauer (ms)",
+    morphDelay: "Morphverzögerung (ms)",
+    morphEasing: "Morphbeschleunigung",
+    morphId: "Zuordnungs-ID",
+    morphIdPlaceholder: "z. B. brand-mark",
+    setMorphId: "Zuordnungs-ID festlegen",
+    removeMorph: "Zuordnungs-ID entfernen",
+    buildDuration: "Einblenddauer (ms)",
+    moveBuildEarlier: "Früher",
+    moveBuildLater: "Später",
+    defaultEasing: "Standard übernehmen",
+    respectReducedMotion:
+      "Übergänge beachten die Systemeinstellung für reduzierte Bewegung.",
+    design: "Design",
+    agentConnected: "Agent verbunden",
+    format: "Format",
+    footerNotes: "Notizen",
+    footerPage: "Seite {{current}}/{{total}}",
     now: "JETZT",
     preview: "Vorschau",
     edit: "Bearbeiten",
@@ -928,8 +1093,9 @@ const messages = {
     fontWeightMedium: "Mittel",
     fontWeightSemibold: "Halbfett",
     fontWeightBold: "Fett",
-    selectElement:
-      "Wähle ein Element aus, um seine Eigenschaften zu bearbeiten.",
+    selectElement: "Objekt auswählen",
+    selectElementHint:
+      "Klicke auf ein Objekt, um es zu formatieren. Doppelklicke auf Text zum Bearbeiten.",
     legacyTitle: "Dieses Deck verwendet das ältere Folienformat",
     legacyDescription:
       "Bitte den Slides-2-Agenten, das Deck vor der Bearbeitung hier umzuwandeln.",
@@ -1014,6 +1180,7 @@ const messages = {
     shuffle: "Design mischen",
   },
   slides2Presenter: {
+    presenterLabel: "Presenter",
     switchDeck: "Deck wechseln",
     searchDecks: "Zugängliche Decks suchen",
     loadingDecks: "Decks werden geladen…",
@@ -1039,7 +1206,14 @@ const messages = {
     notesTextSize: "Schriftgröße der Sprechernotizen",
     decreaseNotesTextSize: "Textgröße der Notizen verkleinern",
     increaseNotesTextSize: "Textgröße der Notizen vergrößern",
+    jumpLabel: "Springen",
     jumpHint: "Foliennummer eingeben und Enter drücken",
+    nowShowing: "Jetzt angezeigt",
+    previousShort: "Zurück",
+    nextShort: "Weiter",
+    blackLabel: "Schwarz",
+    whiteLabel: "Weiß",
+    resetShort: "Zurücksetzen",
     slideLabel: "Folie {{index}}",
     position: "Folie {{index}} von {{total}}",
     shortcutFirstLast: "Zur ersten oder letzten Folie springen",
@@ -1342,6 +1516,8 @@ const messages = {
         "Dieser Dateityp wird nicht unterstützt. Wähle eine unterstützte Datei aus.",
       uploadLimitExceeded:
         "Der Upload überschreitet ein zulässiges Limit. Verringere die Dateigröße oder wähle weniger Dateien aus und versuche es erneut.",
+      pptxImageSizeLimit:
+        "Diese Präsentation enthält Bilder, die das Importgrößenlimit überschreiten. Entferne oder verkleinere sie und versuche es erneut.",
     },
     importDeck: "Präsentation importieren",
     context: {
@@ -1549,6 +1725,14 @@ const messages = {
       "Erstelle schöne Präsentationen mit KI-gestützter Generierung.",
   },
   agentChat: {
+    settingsShell: {
+      account: {
+        themeFamilyAgentNative: "Agent-Native",
+        themeFamilyOriginal: "Originalfarben der App",
+        themeFamilySaveError:
+          "Das Farbschema konnte nicht aktualisiert werden. Versuch es noch einmal.",
+      },
+    },
     setup: {
       providerStatusUnavailable:
         "Es konnte nicht bestätigt werden, ob die KI bereit ist.",

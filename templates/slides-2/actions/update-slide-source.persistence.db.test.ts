@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import { closeDbExec, getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -11,6 +11,8 @@ const TEST_DB_PATH = join(
   tmpdir(),
   `slide-source-roundtrip-${process.pid}-${Date.now()}.pglite`,
 );
+const originalDatabaseUrl = process.env.DATABASE_URL;
+const originalAppUrl = process.env.APP_URL;
 const OWNER = {
   userEmail: "slides-2-source-owner@example.test",
   orgId: "slides-2-source-roundtrip",
@@ -25,6 +27,24 @@ const UPDATED_SOURCE = `export default function Slide() {
 }`;
 
 const notifyClients = vi.hoisted(() => vi.fn());
+const mocks = vi.hoisted(() => ({
+  middleware: [] as Array<{
+    path: string;
+    handler: (event: unknown) => Promise<unknown>;
+  }>,
+}));
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...actual,
+    getH3App: () => ({
+      use: (path: string, handler: (event: unknown) => Promise<unknown>) => {
+        mocks.middleware.push({ path, handler });
+      },
+    }),
+  };
+});
 vi.mock("../server/handlers/decks.js", () => ({ notifyClients }));
 
 let dbModule: typeof import("../server/db/index.js");
@@ -42,7 +62,14 @@ beforeAll(async () => {
     .hashSlideSource;
 
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as never);
+  plugin({ h3: {} } as never);
+  const readiness = mocks.middleware.find(
+    ({ path }) => path === "/_agent-native",
+  )?.handler;
+  if (!readiness) {
+    throw new Error("Slides DB plugin did not register readiness middleware");
+  }
+  await readiness({});
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL,
     created_at BIGINT NOT NULL, identity_authority TEXT, identity_id TEXT
@@ -78,7 +105,12 @@ beforeAll(async () => {
   });
 }, 120000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
+  if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = originalDatabaseUrl;
+  if (originalAppUrl === undefined) delete process.env.APP_URL;
+  else process.env.APP_URL = originalAppUrl;
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 

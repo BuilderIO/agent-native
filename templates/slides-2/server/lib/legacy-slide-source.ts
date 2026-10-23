@@ -2,6 +2,7 @@ import { parseFragment, type DefaultTreeAdapterTypes as P5 } from "parse5";
 
 import {
   BUILTIN_SLIDE_DESIGN_FONTS,
+  DEFAULT_SLIDE_MUTED_COLOR,
   DEFAULT_SLIDE_DESIGN_TOKENS,
   slideDesignTokensSchema,
   type SlideDesignTokens,
@@ -134,10 +135,13 @@ export function legacySlideDesignTokensFromHtml(
   const radius = declarations
     .get("--deck-radius")
     ?.match(/^(\d+(?:\.\d+)?)px$/)?.[1];
+  const muted = declarations.get("--deck-muted");
   const parsed = slideDesignTokensSchema.safeParse({
     background:
       declarations.get("--deck-bg") ?? DEFAULT_SLIDE_DESIGN_TOKENS.background,
     text: declarations.get("--deck-ink") ?? DEFAULT_SLIDE_DESIGN_TOKENS.text,
+    muted:
+      muted && /^#[\da-f]{6}$/i.test(muted) ? muted : DEFAULT_SLIDE_MUTED_COLOR,
     accent:
       declarations.get("--deck-accent") ?? DEFAULT_SLIDE_DESIGN_TOKENS.accent,
     displayFont: readFont(

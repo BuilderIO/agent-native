@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import * as t from "@babel/types";
 import { z } from "zod";
@@ -280,11 +280,11 @@ async function requireCurrentVisualSelection(
   slideId: string,
   expectedRevision: number,
   expectedSourceHash: string,
-  target: SourceLocator,
+  targets: SourceLocator[],
 ): Promise<void> {
   if (!getCurrentRequestBrowserTabId()) {
     throw slideSourceFailure(
-      "Duplicate and delete require a current visual selection in the request tab. Reselect the object in the editor and retry.",
+      "Canvas transforms require a current visual selection in the request tab. Select the target objects in the editor and retry.",
       409,
       "slide_transform_selection_required",
     );
@@ -300,9 +300,14 @@ async function requireCurrentVisualSelection(
           typeof item === "object" && item !== null && !Array.isArray(item),
       )
     : [];
-  const selectedTargets = items.filter(
-    (item) =>
-      item.sourceLine === target.line && item.sourceColumn === target.column,
+  const targetKeys = targets.map((target) => `${target.line}:${target.column}`);
+  const targetKeySet = new Set(targetKeys);
+  const selectedKeys = items.map(
+    (item) => `${item.sourceLine}:${item.sourceColumn}`,
+  );
+  const selectedKeySet = new Set(selectedKeys);
+  const selectedTargets = items.filter((item) =>
+    targetKeySet.has(`${item.sourceLine}:${item.sourceColumn}`),
   );
 
   if (
@@ -310,41 +315,46 @@ async function requireCurrentVisualSelection(
     selection.slideId !== slideId ||
     selection.sourceRevision !== expectedRevision ||
     selection.sourceHash !== expectedSourceHash ||
-    items.length !== 1 ||
-    selectedTargets.length !== 1
+    targets.length === 0 ||
+    new Set(targetKeys).size !== targets.length ||
+    items.length !== targets.length ||
+    selectedKeySet.size !== targets.length ||
+    selectedKeys.some((key) => !targetKeySet.has(key)) ||
+    selectedTargets.length !== targets.length
   ) {
     throw slideSourceFailure(
-      "Duplicate and delete require a currently selected source object on the same deck, slide, revision, and source hash. Reselect the object and retry.",
+      "Canvas transforms require the exact target objects to be selected on the same deck, slide, revision, and source hash. Reselect the objects and retry.",
       409,
       "slide_transform_selection_required",
     );
   }
 
-  const selected = selectedTargets[0]!;
-  const instanceIndex = selected.instanceIndex;
-  const instanceCount = selected.instanceCount;
-  if (
-    typeof instanceIndex !== "number" ||
-    !Number.isSafeInteger(instanceIndex) ||
-    typeof instanceCount !== "number" ||
-    !Number.isSafeInteger(instanceCount) ||
-    instanceIndex < 0 ||
-    instanceCount < 1 ||
-    instanceCount > MAX_RENDERED_SLIDE_INSTANCES_PER_SOURCE_LOCATOR ||
-    instanceIndex >= instanceCount
-  ) {
-    throw slideSourceFailure(
-      "Duplicate and delete require fresh rendered-instance metadata from the editor. Reselect the object and call view-screen again.",
-      409,
-      "slide_transform_selection_required",
-    );
-  }
-  if (instanceCount !== 1 || instanceIndex !== 0) {
-    throw slideSourceFailure(
-      `The selected JSX source callsite renders ${instanceCount} visible instances. Duplicate and delete cannot target one rendered copy safely; select an object whose source callsite renders once.`,
-      409,
-      "slide_transform_selection_required",
-    );
+  for (const selected of selectedTargets) {
+    const instanceIndex = selected.instanceIndex;
+    const instanceCount = selected.instanceCount;
+    if (
+      typeof instanceIndex !== "number" ||
+      !Number.isSafeInteger(instanceIndex) ||
+      typeof instanceCount !== "number" ||
+      !Number.isSafeInteger(instanceCount) ||
+      instanceIndex < 0 ||
+      instanceCount < 1 ||
+      instanceCount > MAX_RENDERED_SLIDE_INSTANCES_PER_SOURCE_LOCATOR ||
+      instanceIndex >= instanceCount
+    ) {
+      throw slideSourceFailure(
+        "Canvas transforms require fresh rendered-instance metadata from the editor. Reselect the objects and call view-screen again.",
+        409,
+        "slide_transform_selection_required",
+      );
+    }
+    if (instanceCount !== 1 || instanceIndex !== 0) {
+      throw slideSourceFailure(
+        `The selected JSX source callsite renders ${instanceCount} visible instances. Canvas transforms cannot target one rendered copy safely; select an object whose source callsite renders once.`,
+        409,
+        "slide_transform_selection_required",
+      );
+    }
   }
 }
 
@@ -1423,7 +1433,7 @@ export function planSlideObjectTransform(
 export default defineAction({
   title: "Transform slide objects",
   description:
-    "Insert text or basic shapes, duplicate or delete one selected JSX object, or move, resize, rotate, align, distribute, group, ungroup, or reorder objects on a React source-backed slide. Insertion returns the new object ID and source locator; duplication returns the new locator and a remapped ID for editor-created objects. Duplicate/delete require the locator to match the current request-tab visual selection and its deck, slide, revision, source hash, and rendered-instance metadata; shared source callsites are rejected. Structural changes are source-validated and saved as one revision-checked replacement; geometric transforms keep their static absolute-pixel and same-parent requirements.",
+    "Insert text or basic shapes, duplicate or delete one selected JSX object, or move, resize, rotate, align, distribute, group, ungroup, or reorder objects on a React source-backed slide. Insertion returns the new object ID and source locator; duplication returns the new locator and a remapped ID for editor-created objects. Every transform target must match the current request-tab selection and its deck, slide, revision, source hash, and single-instance metadata; shared source callsites are rejected. Structural changes are source-validated and saved as one revision-checked replacement; geometric transforms keep their static absolute-pixel and same-parent requirements.",
   schema: z.object({
     deckId: z.string().min(1).describe("Deck containing the slide"),
     slideId: z.string().min(1).describe("Stable slide ID to transform"),
@@ -1437,7 +1447,7 @@ export default defineAction({
       .regex(/^[a-f0-9]{64}$/)
       .describe("Current SHA-256 sourceHash returned by get-slide-source"),
     operation: slideObjectTransformOperationSchema.describe(
-      "One atomic source-backed canvas object operation; duplicate/delete locators come from current view-screen selection",
+      "One atomic source-backed canvas object operation; transform locators come from the current editor selection",
     ),
   }),
   retrySafe: (input) => typeof input.expectedSourceHash === "string",
@@ -1451,13 +1461,17 @@ export default defineAction({
     { deckId, slideId, expectedRevision, expectedSourceHash, operation },
     ctx?: ActionRunContext,
   ) => {
-    if (operation.op === "duplicate" || operation.op === "delete") {
+    if (operation.op !== "insert") {
       await requireCurrentVisualSelection(
         deckId,
         slideId,
         expectedRevision,
         expectedSourceHash,
-        operation.target,
+        operation.op === "ungroup"
+          ? [operation.target]
+          : operation.op === "duplicate" || operation.op === "delete"
+            ? [operation.target]
+            : operation.targets,
       );
     }
 

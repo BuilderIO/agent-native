@@ -6,7 +6,7 @@ import { searchProviderImages } from "../server/lib/media-search-providers.js";
 export default defineAction({
   description: "Search for images using Google Custom Search API.",
   schema: z.object({
-    q: z.string().optional().describe("Search query (required)"),
+    q: z.string().trim().min(1).describe("Search query"),
     count: z.coerce
       .number()
       .int()
@@ -18,7 +18,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async (args) => {
-    const q = args.q;
+    const q = args.q.trim();
     if (!q) {
       fail("Missing query parameter 'q'", {
         errorCode: "search_query_required",

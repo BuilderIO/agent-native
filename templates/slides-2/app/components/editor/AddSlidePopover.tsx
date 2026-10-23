@@ -6,17 +6,16 @@ import {
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { appStorageKey } from "@shared/app-storage";
 import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
 import {
@@ -113,10 +112,22 @@ export function AddSlidePopover({
   const fileStorageConfigured =
     storageQuery.data?.configured === true && !storageQuery.isError;
   const panelRef = useRef<HTMLDivElement>(null);
+  const virtualAnchor = useMemo(
+    () => ({
+      current: {
+        get contextElement() {
+          return anchorRef.current ?? document.body;
+        },
+        getBoundingClientRect: () =>
+          anchorRef.current?.getBoundingClientRect() ??
+          new DOMRect(window.innerWidth / 2, window.innerHeight / 2, 0, 0),
+      },
+    }),
+    [anchorRef],
+  );
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
   const [storagePromptOpen, setStoragePromptOpen] = useState(false);
-  const [panelHeight, setPanelHeight] = useState(320);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const handleRetainedFilesAbandoned = useCallback(
@@ -146,47 +157,6 @@ export function AddSlidePopover({
   useEffect(() => {
     if (fileStorageConfigured) setStoragePromptOpen(false);
   }, [fileStorageConfigured]);
-
-  useLayoutEffect(() => {
-    if (!open || !panelRef.current) return;
-    setPanelHeight(panelRef.current.getBoundingClientRect().height);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !panelRef.current) return;
-    const observer = new ResizeObserver(([entry]) => {
-      setPanelHeight(
-        entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height,
-      );
-    });
-    observer.observe(panelRef.current);
-    return () => observer.disconnect();
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (submitting) return;
-      if (isInsidePortaledLayer(e.target)) return;
-      if (
-        panelRef.current &&
-        !panelRef.current.contains(e.target as Node) &&
-        anchorRef.current &&
-        !anchorRef.current.contains(e.target as Node)
-      ) {
-        onOpenChange(false);
-      }
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !submitting) onOpenChange(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [anchorRef, onOpenChange, open, submitting]);
 
   const handleSubmit = useCallback(
     async (text: string, files: File[]) => {
@@ -343,119 +313,127 @@ export function AddSlidePopover({
     }
   }, [open, resetEagerUploads, submitting]);
 
-  if (!open || !anchorRef.current) return null;
-
-  const rect = anchorRef.current.getBoundingClientRect();
-  const panelWidth = Math.min(420, window.innerWidth - 24);
-  const left =
-    placement === "right"
-      ? Math.min(rect.right + 8, window.innerWidth - panelWidth - 12)
-      : Math.max(12, Math.min(rect.left, window.innerWidth - panelWidth - 12));
-  const top =
-    placement === "right"
-      ? Math.max(12, Math.min(rect.top, window.innerHeight - panelHeight - 12))
-      : rect.bottom + 8;
-
-  return createPortal(
-    <div
-      ref={panelRef}
-      data-add-slide-popover
-      className="fixed w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60 z-[200] p-3"
-      style={{
-        top,
-        left,
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && submittingRef.current) return;
+        onOpenChange(nextOpen);
       }}
     >
-      <div className="flex items-center justify-between px-1 pb-2">
-        <p className="text-sm font-medium text-foreground/90">
-          {targetSlideId
-            ? t("editorSidebar.describeThisSlide")
-            : t("editorSidebar.addSlides")}
-        </p>
-        <button
-          type="button"
-          onClick={() => onOpenChange(false)}
-          aria-label={t("editorSidebar.closeAddSlides")}
-          disabled={submitting}
-          className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground/70"
-        >
-          <IconX className="size-3.5" />
-        </button>
-      </div>
-      {(onAddEmpty || (onDuplicateCurrent && slideCount > 0)) && (
-        <>
-          {onAddEmpty && (
-            <button
-              type="button"
-              onClick={() => {
-                onAddEmpty();
-                onOpenChange(false);
-              }}
-              disabled={submitting}
-              className="w-full mb-1 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
-            >
-              <IconSquarePlus className="w-4 h-4 text-muted-foreground" />
-              <span>{t("editorSidebar.addEmptySlide")}</span>
-              <span className="ml-auto text-[11px] text-muted-foreground">
-                {t("editorSidebar.noAi")}
-              </span>
-            </button>
-          )}
-          {onDuplicateCurrent && slideCount > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                onDuplicateCurrent();
-                onOpenChange(false);
-              }}
-              disabled={submitting}
-              className="w-full mb-2 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
-            >
-              <IconCopy className="w-4 h-4 text-muted-foreground" />
-              <span>{t("editorSidebar.duplicateCurrentSlide")}</span>
-              <span className="ml-auto text-[11px] text-muted-foreground">
-                {t("editorSidebar.noAi")}
-              </span>
-            </button>
-          )}
-          <div className="-mx-3 mb-2 h-px bg-border" />
-        </>
-      )}
-      <PromptComposer
-        autoFocus
-        requireAgentEngine
-        attachmentsEnabled={fileStorageConfigured}
-        maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
-        documentAttachmentLimitLabel="Slides reference files"
-        placeholder={t("editorSidebar.promptPlaceholder")}
-        draftScope={appStorageKey(`add-slide:${deckId}`)}
-        disabled={uploading || submitting}
-        onSubmit={handleSubmit}
-        onAttachmentsChange={handleAttachmentsChange}
-        onAttachmentRequest={
-          fileStorageConfigured ? undefined : () => setStoragePromptOpen(true)
-        }
-        onTextChange={setPromptText}
-      />
-      <FileStorageSetupPopover
-        open={storagePromptOpen && !fileStorageConfigured}
-        onOpenChange={setStoragePromptOpen}
-        onConnected={() => void storageQuery.refetch()}
-        anchorRef={panelRef}
-        {...(!storageQuery.isSuccess || storageQuery.isError
-          ? {
-              status: "unavailable" as const,
-              onRetry: () => void storageQuery.refetch(),
-            }
-          : { status: "missing" as const })}
-      />
-      <div className="-mx-1 mt-2">
-        <GoogleDocImportHint
-          promptText={promptText}
-          onSourceContextChange={setGoogleDocContext}
+      <PopoverAnchor virtualRef={virtualAnchor} />
+      <PopoverContent
+        ref={panelRef}
+        data-add-slide-popover
+        side={placement === "right" ? "right" : "bottom"}
+        align="start"
+        sideOffset={8}
+        collisionPadding={12}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onInteractOutside={(event) => {
+          if (submittingRef.current || isInsidePortaledLayer(event.target)) {
+            event.preventDefault();
+          }
+        }}
+        onEscapeKeyDown={(event) => {
+          if (submittingRef.current) event.preventDefault();
+        }}
+        className="max-h-[calc(100dvh-24px)] w-[min(420px,calc(100vw-24px))] overflow-y-auto rounded-xl p-3 shadow-2xl shadow-black/60"
+      >
+        <div className="flex items-center justify-between px-1 pb-2">
+          <p className="text-sm font-medium text-foreground/90">
+            {targetSlideId
+              ? t("editorSidebar.describeThisSlide")
+              : t("editorSidebar.addSlides")}
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onOpenChange(false)}
+            aria-label={t("editorSidebar.closeAddSlides")}
+            disabled={submitting}
+            className="size-5 p-0 text-muted-foreground hover:text-foreground/70 active:scale-100 [&_svg]:size-3.5"
+          >
+            <IconX className="size-3.5" />
+          </Button>
+        </div>
+        {(onAddEmpty || (onDuplicateCurrent && slideCount > 0)) && (
+          <>
+            {onAddEmpty && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  onAddEmpty();
+                  onOpenChange(false);
+                }}
+                disabled={submitting}
+                className="mb-1 h-auto w-full cursor-pointer justify-start rounded-md px-2.5 py-2 text-left text-sm font-normal text-foreground/90 transition-colors active:scale-100"
+              >
+                <IconSquarePlus className="w-4 h-4 text-muted-foreground" />
+                <span>{t("editorSidebar.addEmptySlide")}</span>
+                <span className="ml-auto text-[11px] text-muted-foreground">
+                  {t("editorSidebar.noAi")}
+                </span>
+              </Button>
+            )}
+            {onDuplicateCurrent && slideCount > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  onDuplicateCurrent();
+                  onOpenChange(false);
+                }}
+                disabled={submitting}
+                className="mb-2 h-auto w-full cursor-pointer justify-start rounded-md px-2.5 py-2 text-left text-sm font-normal text-foreground/90 transition-colors active:scale-100"
+              >
+                <IconCopy className="w-4 h-4 text-muted-foreground" />
+                <span>{t("editorSidebar.duplicateCurrentSlide")}</span>
+                <span className="ml-auto text-[11px] text-muted-foreground">
+                  {t("editorSidebar.noAi")}
+                </span>
+              </Button>
+            )}
+            <div className="-mx-3 mb-2 h-px bg-border" />
+          </>
+        )}
+        <PromptComposer
+          autoFocus
+          requireAgentEngine
+          attachmentsEnabled={fileStorageConfigured}
+          maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
+          documentAttachmentLimitLabel="Slides reference files"
+          placeholder={t("editorSidebar.promptPlaceholder")}
+          draftScope={appStorageKey(`add-slide:${deckId}`)}
+          disabled={uploading || submitting}
+          onSubmit={handleSubmit}
+          onAttachmentsChange={handleAttachmentsChange}
+          onAttachmentRequest={
+            fileStorageConfigured ? undefined : () => setStoragePromptOpen(true)
+          }
+          onTextChange={setPromptText}
         />
-      </div>
-    </div>,
-    document.body,
+        <FileStorageSetupPopover
+          open={storagePromptOpen && !fileStorageConfigured}
+          onOpenChange={setStoragePromptOpen}
+          onConnected={() => void storageQuery.refetch()}
+          anchorRef={panelRef}
+          {...(!storageQuery.isSuccess || storageQuery.isError
+            ? {
+                status: "unavailable" as const,
+                onRetry: () => void storageQuery.refetch(),
+              }
+            : { status: "missing" as const })}
+        />
+        <div className="-mx-1 mt-2">
+          <GoogleDocImportHint
+            promptText={promptText}
+            onSourceContextChange={setGoogleDocContext}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

@@ -30,7 +30,7 @@ function artifact(
     html: "",
     assetOrigins: [],
     runtime: {
-      kind: "open-slide-react-worker-v1",
+      kind: "agent-native-slides-react-worker-v1",
       workerSource: "self.onmessage = () => {};",
       page: { current: 1, total: 1 },
       assetUrls: {},
@@ -100,6 +100,53 @@ describe("Slides2 sandbox protocol", () => {
     expect(srcDoc).toContain('"deckId":"deck-1"');
   });
 
+  it("embeds the live bundle only when live execution is explicitly requested", () => {
+    const liveSource = "window.__slides2LiveSentinel = true;";
+    const value = artifact({ liveSource });
+    const staticSrcDoc = buildSlideSrcDoc(value, context.nonce, appOrigin);
+    const liveSrcDoc = buildSlideSrcDoc(
+      value,
+      context.nonce,
+      appOrigin,
+      null,
+      "live",
+    );
+
+    expect(staticSrcDoc).not.toContain("__slides2LiveSentinel");
+    expect(liveSrcDoc).toContain("__slides2LiveSentinel");
+    expect(liveSrcDoc).toContain('"liveMode":true');
+    expect(liveSrcDoc).toContain("connect-src 'none'");
+  });
+
+  it("matches source text rendering defaults while preserving authored slide styles", () => {
+    const authoredMarkup =
+      '<h2>Regular heading</h2><h2 style="font-weight:700">Authored bold</h2>';
+    const srcDoc = buildSlideSrcDoc(
+      { ...artifact(), html: authoredMarkup },
+      context.nonce,
+      appOrigin,
+    );
+
+    expect(srcDoc).toContain("text-rendering:optimizeLegibility");
+    expect(srcDoc).toContain("-webkit-font-smoothing:antialiased");
+    expect(srcDoc).toContain(
+      'font-feature-settings:\"ss01\" on,\"cv11\" on,\"calt\" on',
+    );
+    expect(srcDoc).toContain("letter-spacing:-0.005em");
+    expect(srcDoc).toContain("html{line-height:1.5}");
+    expect(srcDoc).toContain("#slide-root h2{font-weight:400}");
+    expect(srcDoc).toContain(authoredMarkup);
+  });
+
+  it("reports authored line height separately from computed styles", () => {
+    const srcDoc = buildSlideSrcDoc(artifact(), context.nonce, appOrigin);
+
+    expect(srcDoc).toContain("element.style.lineHeight");
+    expect(srcDoc).toContain(
+      "authoredStyles: { lineHeight: authoredLineHeight }",
+    );
+  });
+
   it("loads only registered font assets through an origin-scoped font CSP", () => {
     const fontUrl = "https://assets.example.test/fonts/inter-400.woff2";
     const value: SlideRenderArtifact = {
@@ -133,6 +180,64 @@ describe("Slides2 sandbox protocol", () => {
     expect(srcDoc).toContain(`url(\"${fontUrl}\") format(\"woff2\")`);
     expect(srcDoc).not.toContain("fonts.googleapis.com");
     expect(srcDoc).not.toContain("fonts.gstatic.com");
+  });
+
+  it("loads source-referenced faces beyond the selected display and body tokens", () => {
+    const referencedFontFamilies = [
+      "Architects Daughter",
+      "Inter",
+      "Share Tech Mono",
+    ];
+    const value: SlideRenderArtifact = {
+      ...artifact(),
+      designTokens: {
+        background: "#ffffff",
+        text: "#111827",
+        accent: "#2563eb",
+        displayFont: "Inter",
+        displayFontAssetId: "font-1",
+        bodyFont: "Arial",
+        heroScale: 1,
+        bodyScale: 1,
+        radius: 12,
+      },
+      fontOrigins: ["https://assets.example.test"],
+      referencedFontFamilies,
+      fontAssets: [
+        {
+          assetId: "font-1",
+          family: "Inter",
+          variant: "400",
+          mimeType: "font/woff2",
+          url: "https://assets.example.test/fonts/inter.woff2",
+        },
+        {
+          assetId: "font-2",
+          family: "Share Tech Mono",
+          variant: "400",
+          mimeType: "font/woff2",
+          url: "https://assets.example.test/fonts/share-tech-mono.woff2",
+        },
+        {
+          assetId: "font-3",
+          family: "Architects Daughter",
+          variant: "400",
+          mimeType: "font/woff2",
+          url: "https://assets.example.test/fonts/architects-daughter.woff2",
+        },
+      ],
+    };
+
+    expect(isSlideRenderArtifact(value, appOrigin)).toBe(true);
+    expect(buildSlideSrcDoc(value, context.nonce, appOrigin)).toContain(
+      "font-src https://assets.example.test",
+    );
+    expect(
+      isSlideRenderArtifact(
+        { ...value, referencedFontFamilies: ["Inter", "Share Tech Mono"] },
+        appOrigin,
+      ),
+    ).toBe(false);
   });
 
   it("allows loopback storage on another port only from a loopback app", () => {
@@ -249,7 +354,7 @@ describe("Slides2 sandbox protocol", () => {
     ).toContain("font-style:italic;font-weight:700");
   });
 
-  it("forwards pointer downs and passive hover moves without slide targets", () => {
+  it("hit-tests pointer gestures and omits targets on passive hover moves", () => {
     const srcDoc = buildSlideSrcDoc(artifact(), context.nonce, appOrigin);
 
     expect(srcDoc).toContain(
@@ -259,8 +364,18 @@ describe("Slides2 sandbox protocol", () => {
       "if (pointerId === event.pointerId) emitPointer(event); else if (pointerId === null && event.buttons === 0) emitPointer(event, false);",
     );
     expect(srcDoc).toContain(
-      "target: includeTarget ? targetFor(event.target) : null",
+      "const target = includeTarget ? targetFor(event.target) : null;",
     );
+    expect(srcDoc).toContain(
+      "const needsHitTarget = !target || isFullSlideTarget(target);",
+    );
+    expect(srcDoc).toContain("target,");
+    expect(srcDoc).toContain("hitTarget,");
+    expect(srcDoc).toContain(
+      "const hitTarget = !target || isFullSlideTarget(target) ? targetAtPoint(event.clientX, event.clientY) : null;",
+    );
+    expect(srcDoc).toContain("phase: 'double-click'");
+    expect(srcDoc).toContain("target, hitTarget");
     expect(srcDoc).toContain("pointerType: event.pointerType");
     expect(srcDoc).toContain("pointerType: 'mouse'");
     expect(srcDoc).toContain("ancestorLocatorsComplete");

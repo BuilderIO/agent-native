@@ -18,6 +18,9 @@ import type { SourceEdit } from "./types";
 import type { ElementSnapshot } from "./types";
 
 const frameControllerSend = vi.hoisted(() => vi.fn());
+const transformSlideObjectsMocks = vi.hoisted(() => ({
+  mutateAsync: vi.fn(),
+}));
 const editorCommandMocks = vi.hoisted(() => ({
   appState: new Map<string, unknown>(),
   commandVersion: 0,
@@ -28,6 +31,7 @@ afterEach(cleanup);
 
 beforeEach(() => {
   frameControllerSend.mockClear();
+  transformSlideObjectsMocks.mutateAsync.mockReset();
   editorCommandMocks.appState.clear();
   editorCommandMocks.commandVersion = 0;
   editorCommandMocks.useDbSync.mockClear();
@@ -59,8 +63,20 @@ vi.mock("@agent-native/core/client/application-state", () => ({
 vi.mock("@agent-native/core/client/hooks", () => ({
   getBrowserTabId: () => "slides-2-editor-rotation-test",
   useActionQuery: () => ({ data: undefined, isError: false, isLoading: false }),
+  useActionMutation: () => ({
+    mutateAsync: transformSlideObjectsMocks.mutateAsync,
+    isPending: false,
+  }),
   useChangeVersion: () => editorCommandMocks.commandVersion,
   useDbSync: editorCommandMocks.useDbSync,
+}));
+
+vi.mock("@agent-native/core/client/use-agent-engine-configured", () => ({
+  useAgentEngineConfigured: () => ({
+    canChat: false,
+    missing: false,
+    state: "unknown",
+  }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -72,6 +88,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       template,
     );
   },
+  useFormatters: () => ({ formatNumber: (value: number) => String(value) }),
 }));
 
 vi.mock("@/components/slides-2-editor/Slides2AssetBrowser", () => ({
@@ -120,6 +137,10 @@ vi.mock("../slides-2-runtime/SandboxedSlide", async () => {
         bounds: { x: 10, y: 10, width: 100, height: 50 },
         text: "Object",
         styles: {},
+        instanceIndex: 0,
+        instanceCount: 1,
+        ancestorLocators: [],
+        ancestorLocatorsComplete: true,
         transform: {
           basis: { a: 1, b: 0, c: 0, d: 1 },
           translate: { x: 0, y: 0 },
@@ -270,7 +291,11 @@ describe("Slides2Editor rotation", () => {
         patches: [expect.objectContaining({ styles: { rotate: "45deg" } })],
       }),
     );
-    fireEvent.pointerUp(rotateHandle, {
+    const pointerOverlay = rotateHandle.closest<HTMLElement>(
+      ".pointer-events-none",
+    );
+    expect(pointerOverlay).not.toBeNull();
+    fireEvent.pointerUp(pointerOverlay!, {
       pointerId: 41,
       clientX: 95.3553390593,
       clientY: 70.3553390593,
@@ -282,11 +307,16 @@ describe("Slides2Editor rotation", () => {
     expect(saveButton.disabled).toBe(false);
 
     fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    expect(saveButton.disabled).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: "designSystemSetup.saveChanges" }),
+    ).toBeNull();
 
     fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
-    expect(saveButton.disabled).toBe(false);
-    fireEvent.click(saveButton);
+    const restoredSaveButton = screen.getByRole("button", {
+      name: "designSystemSetup.saveChanges",
+    }) as HTMLButtonElement;
+    expect(restoredSaveButton.disabled).toBe(false);
+    fireEvent.click(restoredSaveButton);
 
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
     expect(onSave.mock.calls[0]?.[0]).toEqual(

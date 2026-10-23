@@ -2,18 +2,41 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
+import { closeDbExec, getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { getBuiltInDeckTemplate } from "../server/lib/deck-templates.js";
+import { legacySlideDesignTokensFromHtml } from "../server/lib/legacy-slide-source.js";
 import { renderSlideSource } from "../server/lib/slide-source.js";
+
+const mocks = vi.hoisted(() => ({
+  middleware: [] as Array<{
+    path: string;
+    handler: (event: unknown) => Promise<unknown>;
+  }>,
+}));
+
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...actual,
+    getH3App: () => ({
+      use: (path: string, handler: (event: unknown) => Promise<unknown>) => {
+        mocks.middleware.push({ path, handler });
+      },
+    }),
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
   `deck-template-copy-${process.pid}-${Date.now()}.pglite`,
 );
+const originalDatabaseUrl = process.env.DATABASE_URL;
+const originalAppUrl = process.env.APP_URL;
 const OWNER = {
   userEmail: "template-owner@example.test",
   orgId: "template-org",
@@ -30,7 +53,22 @@ beforeAll(async () => {
   dbModule = await import("../server/db/index.js");
   create = (await import("./create-deck-from-template.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as never);
+  plugin({ h3: {} } as never);
+  const readiness = mocks.middleware.find(
+    ({ path }) => path === "/_agent-native",
+  )?.handler;
+  if (!readiness) {
+    throw new Error("Slides DB plugin did not register readiness middleware");
+  }
+  const beforeReadiness = await getDbExec().execute<{
+    relation: string | null;
+  }>("SELECT to_regclass('public.decks')::text AS relation");
+  expect(beforeReadiness.rows[0]?.relation).toBeNull();
+  await readiness({});
+  const afterReadiness = await getDbExec().execute<{
+    relation: string | null;
+  }>("SELECT to_regclass('public.decks')::text AS relation");
+  expect(afterReadiness.rows[0]?.relation).toBe("decks");
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL,
     created_at BIGINT NOT NULL, identity_authority TEXT, identity_id TEXT
@@ -42,7 +80,12 @@ beforeAll(async () => {
   )`);
 }, 120000);
 
-afterAll(() => {
+afterAll(async () => {
+  await closeDbExec();
+  if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = originalDatabaseUrl;
+  if (originalAppUrl === undefined) delete process.env.APP_URL;
+  else process.env.APP_URL = originalAppUrl;
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -73,13 +116,14 @@ describe("template copies in isolated PGlite", () => {
       designSystemId: null,
     });
     const stored = JSON.parse(original.data);
+    const template = getBuiltInDeckTemplate(args.templateId)!;
     expect(stored).toMatchObject({
       appId: "slides-2",
-      designTokens: expect.objectContaining({ background: "#F3ECDF" }),
+      designTokens: legacySlideDesignTokensFromHtml(
+        template.slides[0]!.content,
+      ),
     });
-    expect(stored.slides).toHaveLength(
-      getBuiltInDeckTemplate(args.templateId)!.slides.length,
-    );
+    expect(stored.slides).toHaveLength(template.slides.length);
     expect(
       stored.slides.every(
         (slide: {
@@ -97,7 +141,7 @@ describe("template copies in isolated PGlite", () => {
     expect(again).toMatchObject({
       id: first.id,
       reused: true,
-      slideCount: getBuiltInDeckTemplate(args.templateId)!.slides.length,
+      slideCount: template.slides.length,
     });
     expect(await row(first.id)).toEqual(original);
     expect(notifyClients).toHaveBeenCalledExactlyOnceWith(first.id);

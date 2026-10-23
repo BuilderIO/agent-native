@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -46,7 +52,10 @@ const slides = [
   { id: "next-slide", content: "", layout: "content" },
 ] as unknown as Slide[];
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("PresentationView keyboard shortcuts", () => {
   it("leaves focused video controls usable and keeps deck shortcuts elsewhere", () => {
@@ -116,6 +125,68 @@ describe("PresentationView keyboard shortcuts", () => {
     );
 
     expect(screen.getByText("2 / 3")).toBeTruthy();
+  });
+
+  it("supports page and first/last slide navigation keys", () => {
+    const threeSlides = [
+      ...slides,
+      { id: "third-slide", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    render(
+      <MemoryRouter>
+        <PresentationView slides={threeSlides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    fireEvent.keyDown(window, { key: "PageDown" });
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "PageUp" });
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "End" });
+    expect(screen.getByText("3 / 3")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Home" });
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+  });
+
+  it("leaves modified navigation keys to the browser", () => {
+    const threeSlides = [
+      ...slides,
+      { id: "third-slide", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    render(
+      <MemoryRouter>
+        <PresentationView slides={threeSlides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    for (const modifier of ["altKey", "ctrlKey", "metaKey"] as const) {
+      for (const key of [
+        "ArrowRight",
+        "ArrowDown",
+        "PageDown",
+        " ",
+        "ArrowLeft",
+        "ArrowUp",
+        "PageUp",
+        "Home",
+        "End",
+      ]) {
+        const init: KeyboardEventInit = {
+          key,
+          bubbles: true,
+          cancelable: true,
+        };
+        init[modifier] = true;
+        const event = new KeyboardEvent("keydown", init);
+        fireEvent(window, event);
+
+        expect(event.defaultPrevented, `${modifier}+${key}`).toBe(false);
+        expect(screen.getByText("1 / 3")).toBeTruthy();
+      }
+    }
   });
 
   it("keeps Space as a deck shortcut after a mouse-focused button", () => {
@@ -280,6 +351,62 @@ describe("PresentationView keyboard shortcuts", () => {
     expect(screen.getByTestId("current-location").textContent).toBe(
       "/deck/deck-1?slide=1",
     );
+  });
+});
+
+describe("PresentationView controls", () => {
+  it("reveals controls near the bottom and hides them away from the hot zone", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+    const presentationRoot = container.firstElementChild as HTMLElement;
+    const controls = container.querySelector(
+      "[data-presentation-controls]",
+    ) as HTMLElement;
+
+    expect(controls.className).toContain("opacity-0");
+    expect(presentationRoot.style.cursor).toBe("default");
+
+    act(() => vi.advanceTimersByTime(2000));
+    expect(presentationRoot.style.cursor).toBe("none");
+
+    fireEvent.mouseMove(window, {
+      clientY: window.innerHeight - 100,
+    });
+    expect(controls.className).toContain("opacity-100");
+    expect(presentationRoot.style.cursor).toBe("default");
+
+    act(() => vi.advanceTimersByTime(2000));
+    expect(presentationRoot.style.cursor).toBe("default");
+
+    fireEvent.mouseMove(window, {
+      clientY: window.innerHeight - 161,
+    });
+    expect(controls.className).toContain("opacity-0");
+    expect(controls.className).toContain("pointer-events-none");
+    act(() => vi.advanceTimersByTime(2000));
+    expect(presentationRoot.style.cursor).toBe("none");
+  });
+
+  it("temporarily reveals controls after touch input", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+    const controls = container.querySelector(
+      "[data-presentation-controls]",
+    ) as HTMLElement;
+
+    fireEvent.touchStart(window);
+    expect(controls.className).toContain("opacity-100");
+
+    act(() => vi.advanceTimersByTime(2200));
+    expect(controls.className).toContain("opacity-0");
   });
 });
 

@@ -1,5 +1,9 @@
 import {
+  DEFAULT_SLIDE_MUTED_COLOR,
   isSafeSlideFontFamily,
+  MAX_SLIDE_RENDER_FONT_ASSETS,
+  MAX_SLIDE_RENDER_FONT_FAMILIES,
+  MAX_SLIDE_RENDER_FONT_ORIGINS,
   SLIDE_FONT_VARIANT_PATTERN,
   type SlideDesignTokens,
   type SlideFontAsset,
@@ -28,6 +32,7 @@ export type SlideRenderArtifact = {
   assetOrigins?: string[];
   fontOrigins?: string[];
   fontAssets?: SlideFontAsset[];
+  referencedFontFamilies?: string[];
   designTokens?: SlideDesignTokens;
   runtime?: SlideWorkerRuntime;
 };
@@ -263,6 +268,7 @@ export function isSlideDesignTokens(
   return (
     isHexColor(tokens.background) &&
     isHexColor(tokens.text) &&
+    (tokens.muted === undefined || isHexColor(tokens.muted)) &&
     isHexColor(tokens.accent) &&
     isSafeSlideFontFamily(tokens.displayFont) &&
     isFontAssetId(tokens.displayFontAssetId) &&
@@ -343,7 +349,7 @@ export function isSlideRenderArtifact(
   const validFontOrigins =
     fontOrigins === undefined ||
     (Array.isArray(fontOrigins) &&
-      fontOrigins.length <= 2 &&
+      fontOrigins.length <= MAX_SLIDE_RENDER_FONT_ORIGINS &&
       fontOrigins.every((origin) => {
         return (
           typeof origin === "string" &&
@@ -351,6 +357,10 @@ export function isSlideRenderArtifact(
           isAllowedSlideResourceOrigin(origin, appOrigin)
         );
       }));
+  const referencedFontFamilies = artifact.referencedFontFamilies;
+  const validReferencedFontFamilies =
+    referencedFontFamilies === undefined ||
+    isSlideFontFamilyList(referencedFontFamilies);
   const fontAssets = artifact.fontAssets;
   const validFontAssets =
     (fontAssets === undefined &&
@@ -366,6 +376,7 @@ export function isSlideRenderArtifact(
         fontOrigins,
         artifact.designTokens,
         appOrigin,
+        referencedFontFamilies,
       ));
   const runtime = artifact.runtime;
   const validRuntime =
@@ -389,6 +400,7 @@ export function isSlideRenderArtifact(
       isSlideDesignTokens(artifact.designTokens)) &&
     validAssetOrigins &&
     validFontOrigins &&
+    validReferencedFontFamilies &&
     validFontAssets &&
     validRuntime
   );
@@ -399,12 +411,26 @@ export function isSlideFontAssetList(
   origins: unknown[],
   tokens: unknown,
   appOrigin?: string,
+  referencedFontFamilies?: unknown,
 ): boolean {
-  if (assets.length === 0 && origins.length === 0 && tokens === undefined) {
+  if (
+    assets.length === 0 &&
+    origins.length === 0 &&
+    tokens === undefined &&
+    referencedFontFamilies === undefined
+  ) {
     return true;
   }
   if (!isSlideDesignTokens(tokens)) return false;
-  if (assets.length > 2 || origins.length > 2) return false;
+  const familyReferences = referencedFontFamilies ?? [];
+  if (
+    assets.length > MAX_SLIDE_RENDER_FONT_ASSETS ||
+    origins.length > MAX_SLIDE_RENDER_FONT_ORIGINS ||
+    !isSlideFontFamilyList(familyReferences)
+  ) {
+    return false;
+  }
+  const referenced = new Set(familyReferences);
   if (appOrigin) {
     try {
       new URL(appOrigin);
@@ -420,14 +446,8 @@ export function isSlideFontAssetList(
   ] as const) {
     if (typeof id === "string") selected.set(id, family);
   }
-  if (assets.length === 0) {
-    return (
-      origins.length === 0 &&
-      tokens.displayFontAssetId === undefined &&
-      tokens.bodyFontAssetId === undefined
-    );
-  }
-  if (selected.size !== assets.length) return false;
+  if (assets.length === 0) return origins.length === 0 && selected.size === 0;
+  if (selected.size > assets.length) return false;
   const allowedOrigins = new Set<string>();
   for (const origin of origins) {
     if (typeof origin !== "string" || origin.length > 2048) return false;
@@ -467,8 +487,10 @@ export function isSlideFontAssetList(
       typeof asset.assetId !== "string" ||
       !/^[A-Za-z0-9_-]{1,200}$/.test(asset.assetId) ||
       seenIds.has(asset.assetId) ||
-      selected.get(asset.assetId) !== asset.family ||
       !isSafeSlideFontFamily(asset.family) ||
+      (selected.has(asset.assetId)
+        ? selected.get(asset.assetId) !== asset.family
+        : !referenced.has(asset.family)) ||
       typeof asset.variant !== "string" ||
       !SLIDE_FONT_VARIANT_PATTERN.test(asset.variant) ||
       !extension ||
@@ -496,10 +518,24 @@ export function isSlideFontAssetList(
     seenIds.add(asset.assetId);
   }
   return (
-    seenIds.size === selected.size &&
+    [...selected.keys()].every((assetId) => seenIds.has(assetId)) &&
     assetOrigins.size === allowedOrigins.size &&
     [...assetOrigins].every((origin) => allowedOrigins.has(origin))
   );
+}
+
+function isSlideFontFamilyList(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length > MAX_SLIDE_RENDER_FONT_FAMILIES) {
+    return false;
+  }
+  const seen = new Set<string>();
+  for (const family of value) {
+    if (!isSafeSlideFontFamily(family) || seen.has(family)) {
+      return false;
+    }
+    seen.add(family);
+  }
+  return true;
 }
 
 function isSlideWorkerRuntime(
@@ -510,10 +546,14 @@ function isSlideWorkerRuntime(
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const runtime = value as Record<string, unknown>;
   if (
-    runtime.kind !== "open-slide-react-worker-v1" ||
+    runtime.kind !== "agent-native-slides-react-worker-v1" ||
     typeof runtime.workerSource !== "string" ||
     runtime.workerSource.length === 0 ||
     runtime.workerSource.length > 4 * 1024 * 1024 ||
+    (runtime.liveSource !== undefined &&
+      (typeof runtime.liveSource !== "string" ||
+        runtime.liveSource.length === 0 ||
+        runtime.liveSource.length > 4 * 1024 * 1024)) ||
     runtime.timeoutMs !== 2500 ||
     !runtime.page ||
     typeof runtime.page !== "object" ||
@@ -768,6 +808,7 @@ function designTokenStyle(tokens: SlideDesignTokens | undefined): string {
   const style = [
     `--deck-bg:${tokens.background}`,
     `--deck-ink:${tokens.text}`,
+    `--deck-muted:${tokens.muted ?? DEFAULT_SLIDE_MUTED_COLOR}`,
     `--deck-accent:${tokens.accent}`,
     `--deck-heading-font:${tokens.displayFont}`,
     `--deck-body-font:${tokens.bodyFont}`,
@@ -915,14 +956,25 @@ function frameBridge(
   artifact: SlideRenderArtifact,
   initialRevealedSteps: number | null,
   appOrigin: string,
+  liveMode: boolean,
 ): string {
+  const runtime = artifact.runtime;
+  const runtimeForBridge = runtime
+    ? {
+        ...runtime,
+        workerSource: liveMode ? "" : runtime.workerSource,
+        liveSource: undefined,
+      }
+    : null;
+  const liveSource = liveMode ? runtime?.liveSource : undefined;
   const config = safeJson({
     protocolVersion: SLIDE_FRAME_PROTOCOL_VERSION,
     ...context,
     appOrigin,
     assetOrigins: artifact.assetOrigins ?? [],
     fontAssets: artifact.fontAssets ?? [],
-    runtime: artifact.runtime ?? null,
+    runtime: runtimeForBridge,
+    liveMode,
     initialRevealedSteps,
   });
   return `(() => {
@@ -942,10 +994,29 @@ function frameBridge(
     let workerTimer = null;
     let workerRequest = 0;
     let workerReady = false;
+    let liveMount = null;
+    let liveTimer = null;
+    let revealedSteps = config.initialRevealedSteps;
     let bridgeFailureReported = false;
     const send = (type, data = {}) => parentWindow.postMessage({ protocolVersion: config.protocolVersion, nonce: config.nonce, deckId: config.deckId, slideId: config.slideId, revision: config.revision, sourceHash: config.sourceHash, type, ...data }, '*');
+    const unmountLive = () => {
+      const mount = liveMount;
+      liveMount = null;
+      if (!mount) return;
+      try { mount.unmount(); } catch (error) { console.error('Slide live runtime cleanup failed', error); }
+    };
     send('bootstrapped');
     const bridgeFailure = () => {
+      if (config.liveMode) {
+        if (bridgeFailureReported) return;
+        bridgeFailureReported = true;
+        if (liveTimer !== null) clearTimeout(liveTimer);
+        liveTimer = null;
+        unmountLive();
+        if (root) root.replaceChildren();
+        send('error', { stage: 'worker' });
+        return;
+      }
       if (bridgeFailureReported || workerReady) return;
       bridgeFailureReported = true;
       send('error', { stage: 'bridge' });
@@ -959,6 +1030,11 @@ function frameBridge(
       slideWorker = null;
       if (workerUrl) URL.revokeObjectURL(workerUrl);
       workerUrl = null;
+    };
+    const stopLive = () => {
+      if (liveTimer !== null) clearTimeout(liveTimer);
+      liveTimer = null;
+      unmountLive();
     };
     const workerFailure = () => {
       bridgeFailureReported = true;
@@ -1000,6 +1076,57 @@ function frameBridge(
         activeWorker.postMessage({ type: 'render', requestId, page: runtime.page, revealedSteps, isActivePage: true });
       } catch {
         workerFailure();
+      }
+    };
+    const applyRevealedSteps = (count) => {
+      if (!root) return;
+      let index = 0;
+      for (const element of root.querySelectorAll('[data-slides2-step]')) {
+        const revealed = count === null || index < count;
+        element.setAttribute('data-slides2-step', revealed ? 'revealed' : 'pending');
+        element.style.opacity = revealed ? '1' : '0';
+        element.style.visibility = revealed ? 'visible' : 'hidden';
+        index++;
+      }
+    };
+    const liveFailure = () => {
+      if (bridgeFailureReported) return;
+      bridgeFailureReported = true;
+      stopLive();
+      if (root) root.replaceChildren();
+      send('error', { stage: 'worker' });
+    };
+    const renderLive = () => {
+      const runtime = config.runtime;
+      const api = window.__slideRuntimeLive;
+      if (!config.liveMode || !runtime || typeof runtime.liveSource !== 'undefined' || !api || !root) {
+        if (!api || !root || !runtime) liveFailure();
+        return;
+      }
+      stopLive();
+      stopWorker();
+      liveTimer = setTimeout(liveFailure, runtime.timeoutMs);
+      try {
+        liveMount = api.mount(
+          root,
+          {
+            page: runtime.page,
+            isActivePage: true,
+            resolveAssetUrl: (reference) => resolveAssetUrl(reference, runtime.assetUrls, config.appOrigin, config.assetOrigins),
+          },
+          (stepCount) => {
+            if (!Number.isInteger(stepCount) || stepCount < 0 || stepCount > 500) { liveFailure(); return; }
+            if (liveTimer !== null) clearTimeout(liveTimer);
+            liveTimer = null;
+            applyRevealedSteps(revealedSteps);
+            send('rendered', { html: '', stepCount });
+            if (!workerReady) { workerReady = true; send('ready'); }
+            requestAnimationFrame(snapshot);
+          },
+          liveFailure,
+        );
+      } catch {
+        liveFailure();
       }
     };
     const applySlides2Design = (design) => {
@@ -1090,7 +1217,20 @@ function frameBridge(
       const style = getComputedStyle(element);
       const styles = {};
       for (const key of styleKeys) styles[key] = key === 'objectViewBox' ? (style.getPropertyValue('object-view-box') || style[key] || '') : (style[key] || '');
-      return { nodeId, ...loc, instanceIndex, instanceCount, tagName: element.tagName.toLowerCase(), bounds: rect, text: (element.innerText || '').slice(0, 12000), styles, ...ancestorDataFor(element), ...(includeTransform ? { transform: captureTransform(element) } : {}) };
+      const authoredLineHeight = element.style.lineHeight;
+      let imageSrc;
+      if (includeTransform && element.tagName === 'IMG') {
+        const rawImageSrc = element.currentSrc || element.src;
+        if (rawImageSrc.length <= 4096) {
+          try {
+            const imageUrl = new URL(rawImageSrc, document.baseURI);
+            if ((imageUrl.protocol === 'http:' || imageUrl.protocol === 'https:') && !imageUrl.username && !imageUrl.password) imageSrc = imageUrl.href;
+          } catch {
+            // coercion-ok: malformed optional image metadata must not invalidate the full sandbox snapshot.
+          }
+        }
+      }
+      return { nodeId, ...loc, instanceIndex, instanceCount, tagName: element.tagName.toLowerCase(), bounds: rect, text: (element.innerText || '').slice(0, 12000), styles, ...(imageSrc ? { imageSrc } : {}), ...(authoredLineHeight ? { authoredStyles: { lineHeight: authoredLineHeight } } : {}), ...ancestorDataFor(element), ...(includeTransform ? { transform: captureTransform(element) } : {}) };
     };
     const readNodes = () => {
       const visibleNodes = Array.from(document.querySelectorAll(selectors)).flatMap((element) => {
@@ -1124,6 +1264,23 @@ function frameBridge(
       if (index < 0) return null;
       const nodeId = loc.line + ':' + loc.column + ':' + index;
       return { ...loc, nodeId, snapshot: readNode(element, nodeId, true, index, siblings.length) };
+    };
+    const targetAtPoint = (x, y) => {
+      for (const element of document.elementsFromPoint(x, y)) {
+        const target = targetFor(element);
+        if (target) return target;
+      }
+      return null;
+    };
+    const isFullSlideTarget = (target) => {
+      const bounds = target?.snapshot.bounds;
+      return (
+        Boolean(bounds) &&
+        Math.abs(bounds.x) < 1 &&
+        Math.abs(bounds.y) < 1 &&
+        bounds.width >= ${SLIDES_2_CANVAS_WIDTH} - 1 &&
+        bounds.height >= ${SLIDES_2_CANVAS_HEIGHT} - 1
+      );
     };
     const inspectTargets = (targets) => {
       const nodes = [];
@@ -1249,9 +1406,10 @@ function frameBridge(
         const isColor = (value) => typeof value === 'string' && /^#[\\da-f]{6}$/i.test(value);
         const isFont = (value) => typeof value === 'string' && value.length <= 80 && /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(value);
         const isFontAssetId = (value) => value === undefined || (typeof value === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(value));
-        if (!(root instanceof HTMLElement) || !isColor(tokens.background) || !isColor(tokens.text) || !isColor(tokens.accent) || !isFont(tokens.displayFont) || !isFontAssetId(tokens.displayFontAssetId) || !isFont(tokens.bodyFont) || !isFontAssetId(tokens.bodyFontAssetId) || typeof tokens.heroScale !== 'number' || !Number.isFinite(tokens.heroScale) || tokens.heroScale < 0.5 || tokens.heroScale > 2 || typeof tokens.bodyScale !== 'number' || !Number.isFinite(tokens.bodyScale) || tokens.bodyScale < 0.5 || tokens.bodyScale > 2 || typeof tokens.radius !== 'number' || !Number.isFinite(tokens.radius) || tokens.radius < 0 || tokens.radius > 48) return;
+        if (!(root instanceof HTMLElement) || !isColor(tokens.background) || !isColor(tokens.text) || (tokens.muted !== undefined && !isColor(tokens.muted)) || !isColor(tokens.accent) || !isFont(tokens.displayFont) || !isFontAssetId(tokens.displayFontAssetId) || !isFont(tokens.bodyFont) || !isFontAssetId(tokens.bodyFontAssetId) || typeof tokens.heroScale !== 'number' || !Number.isFinite(tokens.heroScale) || tokens.heroScale < 0.5 || tokens.heroScale > 2 || typeof tokens.bodyScale !== 'number' || !Number.isFinite(tokens.bodyScale) || tokens.bodyScale < 0.5 || tokens.bodyScale > 2 || typeof tokens.radius !== 'number' || !Number.isFinite(tokens.radius) || tokens.radius < 0 || tokens.radius > 48) return;
         root.style.setProperty('--deck-bg', tokens.background);
         root.style.setProperty('--deck-ink', tokens.text);
+        root.style.setProperty('--deck-muted', tokens.muted ?? '${DEFAULT_SLIDE_MUTED_COLOR}');
         root.style.setProperty('--deck-accent', tokens.accent);
         root.style.setProperty('--deck-heading-font', tokens.displayFont);
         root.style.setProperty('--deck-body-font', tokens.bodyFont);
@@ -1262,14 +1420,46 @@ function frameBridge(
         root.style.color = tokens.text;
         root.style.fontFamily = tokens.bodyFont;
       }
-      if (command.type === 'set-revealed-steps' && config.runtime && (command.revealedSteps === null || (Number.isInteger(command.revealedSteps) && command.revealedSteps >= 0 && command.revealedSteps <= 500))) renderWorker(command.revealedSteps);
+      if (command.type === 'set-revealed-steps' && config.runtime && (command.revealedSteps === null || (Number.isInteger(command.revealedSteps) && command.revealedSteps >= 0 && command.revealedSteps <= 500))) {
+        revealedSteps = command.revealedSteps;
+        if (config.liveMode) applyRevealedSteps(revealedSteps);
+        else renderWorker(revealedSteps);
+      }
     });
-    const emitPointer = (event, includeTarget = true) => send('pointer', { pointer: { phase: event.type.slice(7), x: event.clientX, y: event.clientY, button: event.button, pointerId: event.pointerId, pointerType: event.pointerType, shiftKey: event.shiftKey, altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, target: includeTarget ? targetFor(event.target) : null } });
+    const emitPointer = (event, includeTarget = true) => {
+      const target = includeTarget ? targetFor(event.target) : null;
+      const needsHitTarget = !target || isFullSlideTarget(target);
+      const hitTarget =
+        (event.type === 'pointerdown' || event.type === 'pointerup') &&
+        needsHitTarget
+          ? targetAtPoint(event.clientX, event.clientY)
+          : null;
+      send('pointer', {
+        pointer: {
+          phase: event.type.slice(7),
+          x: event.clientX,
+          y: event.clientY,
+          button: event.button,
+          pointerId: event.pointerId,
+          pointerType: event.pointerType,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          target,
+          hitTarget,
+        },
+      });
+    };
     document.addEventListener('pointerdown', (event) => { pointerId = event.pointerId; emitPointer(event); }, true);
     document.addEventListener('pointermove', (event) => { if (pointerId === event.pointerId) emitPointer(event); else if (pointerId === null && event.buttons === 0) emitPointer(event, false); }, true);
     document.addEventListener('pointerup', (event) => { if (pointerId === event.pointerId) { emitPointer(event); pointerId = null; } }, true);
     document.addEventListener('pointercancel', (event) => { if (pointerId === event.pointerId) { emitPointer(event); pointerId = null; } }, true);
-    document.addEventListener('dblclick', (event) => send('pointer', { pointer: { phase: 'double-click', x: event.clientX, y: event.clientY, button: event.button, pointerId: 0, pointerType: 'mouse', shiftKey: event.shiftKey, altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, target: targetFor(event.target) } }), true);
+    document.addEventListener('dblclick', (event) => {
+      const target = targetFor(event.target);
+      const hitTarget = !target || isFullSlideTarget(target) ? targetAtPoint(event.clientX, event.clientY) : null;
+      send('pointer', { pointer: { phase: 'double-click', x: event.clientX, y: event.clientY, button: event.button, pointerId: 0, pointerType: 'mouse', shiftKey: event.shiftKey, altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, target, hitTarget } });
+    }, true);
     const navigationPassthrough = 'a, button, input, textarea, select, label, summary, iframe, video, audio, embed, object, [role="button"], [role="link"], [contenteditable="true"], [data-slides2-interactive], [data-slides2-chrome]';
     const navigationWheelIgnored = 'input, textarea, select, [contenteditable="true"], [data-wheel-nav-ignore]';
     document.addEventListener('click', (event) => {
@@ -1322,12 +1512,13 @@ function frameBridge(
       style.textContent = config.runtime.styles.join('\\n');
       document.head.append(style);
       applySlides2Design(config.runtime.design);
-      renderWorker(config.initialRevealedSteps);
+      if (config.liveMode) renderLive();
+      else renderWorker(config.initialRevealedSteps);
     } else {
       send('ready');
       requestAnimationFrame(snapshot);
     }
-    window.addEventListener('pagehide', stopWorker, { once: true });
+    window.addEventListener('pagehide', () => { stopWorker(); stopLive(); }, { once: true });
   })();`;
 }
 
@@ -1336,6 +1527,7 @@ export function buildSlideSrcDoc(
   nonce: string,
   appOrigin: string,
   initialRevealedSteps: number | null = null,
+  executionMode: "static" | "live" = "static",
 ): string {
   const context: SlideFrameContext = {
     deckId: artifact.deckId,
@@ -1390,11 +1582,26 @@ export function buildSlideSrcDoc(
     "base-uri 'none'",
     "form-action 'none'",
   ].join("; ");
+  const liveMode =
+    executionMode === "live" && Boolean(artifact.runtime?.liveSource);
+  const liveSource = liveMode ? artifact.runtime?.liveSource : undefined;
   const script = frameBridge(
     context,
     artifact,
     initialRevealedSteps,
     appUrl.origin,
+    liveMode,
   ).replace(/<\//g, "<\\/");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="viewport" content="width=1920, height=1080, initial-scale=1"><style>html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:transparent}#slide-root{position:relative;width:1920px;height:1080px;overflow:hidden}</style><style>${fontFaceCss}</style></head><body><main id="slide-root"${designTokenStyle(artifact.designTokens)}>${artifact.html}</main><script nonce="${nonce}">${script}</script></body></html>`;
+  const documentCss = [
+    'html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:transparent;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-feature-settings:"ss01" on,"cv11" on,"calt" on}',
+    "html{line-height:1.5}",
+    "body{letter-spacing:-0.005em}",
+    "#slide-root{position:relative;width:1920px;height:1080px;overflow:hidden}",
+    "#slide-root h2{font-weight:400}",
+  ].join("");
+  const liveBundle = liveSource ? liveSource.replace(/<\//g, "<\\/") : "";
+  const liveScript = liveBundle
+    ? `<script nonce="${nonce}">${liveBundle}</script>`
+    : "";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="viewport" content="width=1920, height=1080, initial-scale=1"><style>${documentCss}</style><style>${fontFaceCss}</style></head><body><main id="slide-root"${designTokenStyle(artifact.designTokens)}>${artifact.html}</main>${liveScript}<script nonce="${nonce}">${script}</script></body></html>`;
 }

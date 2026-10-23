@@ -1,4 +1,10 @@
 import {
+  DEFAULT_SLIDE_MUTED_COLOR,
+  MAX_SLIDE_RENDER_FONT_ASSETS,
+  MAX_SLIDE_RENDER_FONT_FAMILIES,
+  MAX_SLIDE_RENDER_FONT_ORIGINS,
+} from "@shared/slide-design-tokens";
+import {
   isSlideTransition,
   type SlideTransition,
 } from "@shared/slides-2-transition";
@@ -66,10 +72,40 @@ export function buildSlideTransitionSrcDoc(
       ...(input.incoming.fontOrigins ?? []),
     ]),
   ];
-  const fontAssets = [
+  const referencedFontFamilies = [
+    ...new Set([
+      ...(input.outgoing.referencedFontFamilies ?? []),
+      ...(input.incoming.referencedFontFamilies ?? []),
+    ]),
+  ];
+  const fontAssetsById = new Map<
+    string,
+    NonNullable<SandboxedSlideRenderResult["fontAssets"]>[number]
+  >();
+  for (const font of [
     ...(input.outgoing.fontAssets ?? []),
     ...(input.incoming.fontAssets ?? []),
-  ];
+  ]) {
+    const previous = fontAssetsById.get(font.assetId);
+    if (
+      previous &&
+      (previous.family !== font.family ||
+        previous.variant !== font.variant ||
+        previous.mimeType !== font.mimeType ||
+        previous.url !== font.url)
+    ) {
+      throw new Error("slide-transition-font-asset-conflict");
+    }
+    fontAssetsById.set(font.assetId, font);
+  }
+  const fontAssets = [...fontAssetsById.values()];
+  if (
+    fontOrigins.length > MAX_SLIDE_RENDER_FONT_ORIGINS ||
+    referencedFontFamilies.length > MAX_SLIDE_RENDER_FONT_FAMILIES ||
+    fontAssets.length > MAX_SLIDE_RENDER_FONT_ASSETS
+  ) {
+    throw new Error("slide-transition-font-limit");
+  }
   const mediaOrigins = assetOrigins.length ? assetOrigins.join(" ") : "'none'";
   const fontSources = fontOrigins.length ? fontOrigins.join(" ") : "'none'";
   const csp = [
@@ -138,6 +174,7 @@ export function buildSlideTransitionSrcDoc(
     "    if (tokens) {",
     "      root.style.setProperty('--deck-bg', tokens.background);",
     "      root.style.setProperty('--deck-ink', tokens.text);",
+    `      root.style.setProperty('--deck-muted', tokens.muted ?? '${DEFAULT_SLIDE_MUTED_COLOR}');`,
     "      root.style.setProperty('--deck-accent', tokens.accent);",
     "      root.style.setProperty('--deck-heading-font', tokens.displayFont);",
     "      root.style.setProperty('--deck-body-font', tokens.bodyFont);",
@@ -309,6 +346,7 @@ function isSafeTransitionSnapshot(
       snapshot.fontOrigins ?? [],
       snapshot.designTokens,
       appOrigin,
+      snapshot.referencedFontFamilies,
     ) ||
     !Array.isArray(snapshot.styles) ||
     snapshot.styles.length > 20 ||

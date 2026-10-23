@@ -3,8 +3,10 @@ import { TextEncoder } from "node:util";
 import { runInNewContext } from "node:vm";
 import { MessageChannel } from "node:worker_threads";
 
+import { Window } from "happy-dom";
 import { describe, expect, it } from "vitest";
 
+import { legacySlideHtmlToSource } from "./legacy-slide-source.js";
 import { MAX_SLIDE_SOURCE_BYTES } from "./slide-source-limits.js";
 import { SlideSourceError } from "./slide-source.js";
 import {
@@ -69,6 +71,12 @@ function renderWorker(
   return response;
 }
 
+function staticSvgNoiseBackground(width = 420) {
+  const matrix = "0 0 0 0 0.85 0 0 0 0 0.93 0 0 0 0 1 1 0 0 0 0";
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${width}' height='${width}'><filter id='n' x='0' y='0' width='100%' height='100%'><feTurbulence type='fractalNoise' baseFrequency='0.012' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='matrix' values='${matrix}'/></filter><rect width='${width}' height='${width}' filter='url(#n)'/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
 describe("React slide source validation", () => {
   it("bundles supported core imports and bounded helpers from the worker shim", async () => {
     const response = await renderInWorker(`
@@ -81,6 +89,161 @@ export default function Slide() {
 
     expect(response.type).toBe("rendered");
     expect(response.html).toContain("1920:Cover, Body");
+  });
+
+  it("renders concise arrow components with parenthesized return bodies", async () => {
+    const response = await renderInWorker(`
+const summary = () => ({ label: "Instrumented preview" });
+const Preview = () => (
+  <main><span>{summary().label}</span></main>
+);
+export default function Slide() { return <Preview />; }
+`);
+
+    expect(response.type).toBe("rendered");
+    expect(response.html).toContain("Instrumented preview");
+  });
+
+  it("renders HTML-imported React source through the slide Worker", async () => {
+    const sourceTsx = legacySlideHtmlToSource(
+      '<section class="fmd-slide" style="color:#172033"><h1>Imported title</h1><p>Imported body</p><img src="asset://imported-image" alt="Imported image"></section>',
+    );
+    const runtime = await buildReactSlideRuntime(sourceTsx, {
+      current: 1,
+      total: 1,
+      assetUrls: new Map([
+        ["imported-image", "https://assets.example.test/imported.png"],
+      ]),
+    });
+
+    const response = renderWorker(runtime.workerSource, runtime.page);
+
+    expect(response.type).toBe("rendered");
+    expect(response.html).toContain("Imported title");
+    expect(response.html).toContain("Imported body");
+    expect(response.html).toContain('src="asset://imported-image"');
+  });
+
+  it("preserves SVG pattern scale and rotation attributes", async () => {
+    const response = await renderInWorker(`
+export default function Slide() {
+  return (
+    <svg viewBox="0 0 100 100">
+      <defs>
+        <pattern id="stripes" patternUnits="userSpaceOnUse" patternTransform="rotate(45)" width="8" height="8">
+          <path d="M 0 0 L 0 8" stroke="#fff" />
+        </pattern>
+      </defs>
+      <rect width="100" height="100" fill="url(#stripes)" />
+    </svg>
+  );
+}
+`);
+
+    expect(response.type).toBe("rendered");
+    expect(response.html?.toLowerCase()).toContain(
+      'patternunits="userSpaceOnUse"'.toLowerCase(),
+    );
+    expect(response.html?.toLowerCase()).toContain(
+      'patterntransform="rotate(45)"',
+    );
+  });
+
+  it("preserves SVG path length for normalized stroke dashes", async () => {
+    const response = await renderInWorker(`
+export default function Slide() {
+  return <svg viewBox="0 0 100 100"><path d="M 0 50 L 100 50" pathLength={1} strokeDasharray="0.2 0.8" /></svg>;
+}
+`);
+
+    expect(response.type).toBe("rendered");
+    expect(response.html?.toLowerCase()).toContain('pathlength="1"');
+  });
+
+  it("renders bounded NoiseBackground primitives as inline SVG and limits them per slide", async () => {
+    const source = `import { NoiseBackground } from "@agent-native/slides-core"; export default function Slide() { return <main><NoiseBackground /><NoiseBackground baseFrequency={0.03} numOctaves={2} seed={8} opacity={0.4} fill="#abc" /></main>; }`;
+    const runtime = await buildReactSlideRuntime(source, {
+      current: 1,
+      total: 1,
+      assetUrls: new Map(),
+    });
+    const response = renderWorker(runtime.workerSource, runtime.page);
+
+    expect(response.type, response.message).toBe("rendered");
+    expect(response.html).toContain("<feTurbulence");
+    expect(response.html).toContain("<feColorMatrix");
+    expect(response.html).toContain('id="slides2-noise-1"');
+    expect(response.html).toContain('id="slides2-noise-2"');
+    expect(response.html).toContain('baseFrequency="0.03"');
+    expect(response.html).not.toContain("data:image");
+    expect(response.html).not.toContain("data-slides2-noise");
+    expect(source).not.toContain("data:image");
+
+    const repeated = Array.from(
+      { length: 9 },
+      (_, index) => `<NoiseBackground key="${index}" />`,
+    ).join("");
+    const limited = await renderInWorker(
+      `import { NoiseBackground } from "@agent-native/slides-core"; export default function Slide() { return <main>${repeated}</main>; }`,
+    );
+
+    expect(limited.type).toBe("error");
+    expect(limited.message).toContain("too many filtered backgrounds");
+
+    const invalid = await renderInWorker(
+      'import { NoiseBackground } from "@agent-native/slides-core"; export default function Slide() { return <NoiseBackground numOctaves={5} />; }',
+    );
+    expect(invalid.type).toBe("error");
+    expect(invalid.message).toContain("NoiseBackground props");
+  });
+
+  it("rejects authored SVG filter primitives outside NoiseBackground", async () => {
+    await expect(
+      renderInWorker(`
+export default function Slide() {
+  return <svg><defs><filter id="noise"><feTurbulence numOctaves="99" /></filter></defs></svg>;
+}
+`),
+    ).rejects.toThrow("JSX element <filter> is not allowed");
+  });
+
+  it("counts built-in noise backgrounds once in the worker render budget", async () => {
+    const noise = staticSvgNoiseBackground();
+    const builtIns = [
+      {
+        component: "ImagePlaceholder",
+        markup: (index: number) =>
+          `<ImagePlaceholder key="${index}" hint="paper" style={{ backgroundImage: ${JSON.stringify(noise)} }} />`,
+      },
+      {
+        component: "MorphElement",
+        markup: (index: number) =>
+          `<MorphElement key="${index}" id="shape-${index}" style={{ backgroundImage: ${JSON.stringify(noise)} }}><div /></MorphElement>`,
+      },
+    ];
+
+    for (const builtIn of builtIns) {
+      const renderedMarkup = (count: number) =>
+        Array.from({ length: count }, (_, index) => builtIn.markup(index)).join(
+          "",
+        );
+      const source = `
+import { ${builtIn.component} } from "@agent-native/slides-core";
+export default function Slide() { return <main>${renderedMarkup(8)}</main>; }
+`;
+      const response = await renderInWorker(source);
+
+      expect(response.type).toBe("rendered");
+      expect(
+        response.html?.match(/data-slide-placeholder|data-slides2-morph/g),
+      ).toHaveLength(8);
+
+      const overLimit = await renderInWorker(
+        source.replace(renderedMarkup(8), renderedMarkup(9)),
+      );
+      expect(overLimit.type).toBe("error");
+      expect(overLimit.message).toContain("too many filtered backgrounds");
+    }
   });
 
   it("uses a static default-page transition override before the module default", async () => {
@@ -137,7 +300,7 @@ export default Cover;
 
   it("merges a morph marker and presentation props onto a single DOM child", async () => {
     const response = await renderInWorker(`
-import { MorphElement } from "@open-slide/core";
+import { MorphElement } from "@agent-native/slides-core";
 export default function Slide() {
   return (
     <MorphElement id="heading" className="morph-frame" style={{ color: "red" }}>
@@ -159,7 +322,7 @@ export default function Slide() {
   it("collapses stepped reveal fades under the reduced-motion media query", async () => {
     const runtime = await buildReactSlideRuntime(
       `
-import { Step, Steps } from "@open-slide/core";
+import { Step, Steps } from "@agent-native/slides-core";
 export default function Slide() {
   return <Steps><Step duration={240}>Reveal</Step></Steps>;
 }
@@ -171,6 +334,23 @@ export default function Slide() {
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain("#slide-root :is([data-slides2-step])");
     expect(css).toContain("transition-duration: 0ms !important");
+  });
+
+  it("keeps safe CSS timing functions in the static slide output", async () => {
+    const runtime = await buildReactSlideRuntime(
+      `export default function Slide() {
+  return <div style={{ transition: "opacity 180ms cubic-bezier(0, 0, 0.2, 1)", animationTimingFunction: "steps(4, end)", clipPath: "inset(0 round 20px)", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gridTemplateRows: "fit-content(240px) 1fr" }} />;
+}`,
+      { current: 1, total: 1, assetUrls: new Map() },
+    );
+    const response = renderWorker(runtime.workerSource, runtime.page);
+
+    expect(response.type).toBe("rendered");
+    expect(response.html).toContain("cubic-bezier(0, 0, 0.2, 1)");
+    expect(response.html).toContain("steps(4, end)");
+    expect(response.html).toContain("inset(0 round 20px)");
+    expect(response.html).toContain("repeat(3, minmax(0, 1fr))");
+    expect(response.html).toContain("fit-content(240px) 1fr");
   });
 
   it("rejects a default export that aliases a Page array", () => {
@@ -213,7 +393,7 @@ export default pages;
   it("preserves slide numbers after the fortieth page", async () => {
     const runtime = await buildReactSlideRuntime(
       [
-        'import { useSlidePageNumber } from "@open-slide/core";',
+        'import { useSlidePageNumber } from "@agent-native/slides-core";',
         "export default function Slide() {",
         "  const { current, total } = useSlidePageNumber();",
         "  return <main>{current}/{total}</main>;",
@@ -251,10 +431,131 @@ export default pages;
       "a destructured hook",
       'import ReactRuntime from "react"; export default function Slide() { const { useEffect: afterRender } = ReactRuntime; afterRender(() => {}, []); return <main />; }',
     ],
-  ])("rejects effect hooks accessed through %s", (_label, sourceTsx) => {
+  ])(
+    "accepts supported effect hooks accessed through %s",
+    (_label, sourceTsx) => {
+      expect(() => prepareReactSlideSource(sourceTsx)).not.toThrow();
+    },
+  );
+
+  it("keeps static rendering deterministic while compiling a separate live React mount", async () => {
+    const sourceTsx = `
+import React, { useState } from "react";
+export default function Slide() {
+  const [count, setCount] = useState(0);
+  React.useEffect(() => {
+    window.requestAnimationFrame(() => setCount(1));
+  }, []);
+  return <div data-testid="count" onClick={(event) => { event.preventDefault(); setCount(event.target.tagName === "div" ? count + 1 : 9); }}>{count}</div>;
+}
+`;
+    const runtime = await buildReactSlideRuntime(sourceTsx, {
+      current: 1,
+      total: 1,
+      assetUrls: new Map(),
+    });
+    const liveSource = runtime.liveSource;
+    if (typeof liveSource !== "string") {
+      throw new Error("The live React bundle was not generated.");
+    }
+    const staticResponse = renderWorker(runtime.workerSource, runtime.page);
+    expect(staticResponse.type).toBe("rendered");
+    expect(staticResponse.html).toContain(">0</div>");
+    expect(liveSource).toContain("__slideRuntimeLive");
+    expect(liveSource).toContain("requestAnimationFrame");
+
+    const browser = new Window({
+      settings: { enableJavaScriptEvaluation: true },
+    });
+    browser.document.body.innerHTML = '<main id="root"></main>';
+    const liveWindow = browser as unknown as Record<string, unknown>;
+    try {
+      browser.eval(liveSource);
+      const api = liveWindow.__slideRuntimeLive as
+        | {
+            mount?: unknown;
+          }
+        | undefined;
+      expect(typeof api?.mount).toBe("function");
+    } finally {
+      await browser.happyDOM.abort();
+    }
+  });
+
+  it.each([
+    "export default function Slide() { while (true) {} return <main />; }",
+    "function first() { second(); } function second() { first(); } export default function Slide() { first(); return <main />; }",
+  ])("rejects unbounded live source execution", (sourceTsx) => {
     expect(() => prepareReactSlideSource(sourceTsx)).toThrow(
-      "React effect hooks do not run during static slide rendering",
+      /Loops are not supported|Recursive slide source functions/,
     );
+  });
+
+  it.each([
+    "window.parent",
+    "window.document",
+    "window.location",
+    "window.matchMedia('all')",
+  ])("rejects unsupported browser access %s", (expression) => {
+    expect(() => prepare(`String(${expression})`)).toThrow(SlideSourceError);
+  });
+
+  it("allows timers only through the bounded window API", () => {
+    expect(() =>
+      prepareBody(
+        "window.setTimeout(() => {}, 10); window.clearTimeout(1); window.setInterval(() => {}, 50); window.clearInterval(2); return <main />;",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      prepareBody("setTimeout(() => {}, 10); return <main />;"),
+    ).toThrow("Slide source cannot access setTimeout.");
+    expect(() => prepareBody("clearTimeout(1); return <main />;")).toThrow(
+      "Slide source cannot access clearTimeout.",
+    );
+  });
+
+  it("allows static style keys named after blocked globals but rejects reads", async () => {
+    const response = await renderInWorker(
+      'export default function Slide() { return <div style={{ position: "absolute", top: 0 }} />; }',
+    );
+
+    expect(response.type).toBe("rendered");
+    expect(response.html).toMatch(/top:\s*0/);
+    expect(() => prepareBody("return <main>{top}</main>;")).toThrow(
+      "Slide source cannot access top.",
+    );
+    expect(() => prepareBody("return <main style={{ top }} />;")).toThrow(
+      "Slide source cannot access top.",
+    );
+  });
+
+  it.each([
+    ["parent frame", `const send = parent["postMessage"]; return <main />;`],
+    ["top frame", `const send = top["postMessage"]; return <main />;`],
+    [
+      "frame collection",
+      `const send = frames[0]["postMessage"]; return <main />;`,
+    ],
+    ["opened frame", `const send = opener["postMessage"]; return <main />;`],
+    [
+      "event frame path",
+      `return <div onClick={(event) => event.view["parent"]} />;`,
+    ],
+  ])("rejects %s access to frame messaging", (_label, body) => {
+    expect(() => prepareBody(body)).toThrow(SlideSourceError);
+  });
+
+  it("allows bounded event handlers and rejects non-allowlisted handlers", () => {
+    expect(() =>
+      prepareReactSlideSource(
+        "export default function Slide() { return <div onClick={() => {}}>Open</div>; }",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      prepareReactSlideSource(
+        "export default function Slide() { return <div onError={() => {}}>Open</div>; }",
+      ),
+    ).toThrow(/Event handlers are not allowed/);
   });
 
   it("rejects computed constructor access on React members", () => {
@@ -323,7 +624,7 @@ export default pages;
 
   it("adds a source locator to the ImagePlaceholder component", () => {
     const sourceTsx = [
-      'import { ImagePlaceholder } from "@open-slide/core";',
+      'import { ImagePlaceholder } from "@agent-native/slides-core";',
       "export default function Slide() {",
       '  return <ImagePlaceholder hint="photo" />;',
       "}",
@@ -338,7 +639,7 @@ export default pages;
   it("renders Slides2 image placeholder hints and dimensions", async () => {
     const response = await renderInWorker(
       [
-        'import { ImagePlaceholder } from "@open-slide/core";',
+        'import { ImagePlaceholder } from "@agent-native/slides-core";',
         "export default function Slide() {",
         '  return <ImagePlaceholder hint="Product hero screenshot" width={640} height={360} />;',
         "}",
@@ -365,7 +666,7 @@ export default pages;
   it("uses the placeholder fallback and does not infer dimensions or aspect ratio", async () => {
     const response = await renderInWorker(
       [
-        'import { ImagePlaceholder } from "@open-slide/core";',
+        'import { ImagePlaceholder } from "@agent-native/slides-core";',
         "export default function Slide() {",
         "  return <ImagePlaceholder width={640} />;",
         "}",
@@ -416,7 +717,7 @@ export default pages;
   it("rejects uploaded image handles on image placeholders", async () => {
     const placeholder = await renderInWorker(
       [
-        'import { ImagePlaceholder } from "@open-slide/core";',
+        'import { ImagePlaceholder } from "@agent-native/slides-core";',
         "export default function Slide() {",
         '  return <ImagePlaceholder hint="Product screenshot" src="asset://uploaded-image" />;',
         "}",
@@ -500,7 +801,7 @@ export default pages;
 
   it("bundles the Worker-safe Slides2 canvas and design values", async () => {
     const sourceTsx = [
-      'import { CANVAS_HEIGHT, CANVAS_WIDTH, defaultDesign, designToCssVars } from "@open-slide/core";',
+      'import { CANVAS_HEIGHT, CANVAS_WIDTH, defaultDesign, designToCssVars } from "@agent-native/slides-core";',
       "export default function Slide() {",
       "  return <main style={{ ...designToCssVars(defaultDesign), width: CANVAS_WIDTH, height: CANVAS_HEIGHT }} />;",
       "}",
@@ -512,7 +813,7 @@ export default pages;
       assetUrls: new Map(),
     });
 
-    expect(runtime.kind).toBe("open-slide-react-worker-v1");
+    expect(runtime.kind).toBe("agent-native-slides-react-worker-v1");
     expect(runtime.workerSource.length).toBeGreaterThan(0);
   });
 
@@ -520,7 +821,7 @@ export default pages;
     const runtime = await buildReactSlideRuntime(
       [
         'import React from "react";',
-        'import { useSlidePageNumber } from "@open-slide/core";',
+        'import { useSlidePageNumber } from "@agent-native/slides-core";',
         "export default function Slide() {",
         "  const { current, total } = useSlidePageNumber();",
         '  return <main data-result="virtual React slide imports resolved">{current}/{total}</main>;',
@@ -538,7 +839,7 @@ export default pages;
     const response = await renderInWorker(
       [
         'import { useId } from "react";',
-        'import { Step, Steps } from "@open-slide/core";',
+        'import { Step, Steps } from "@agent-native/slides-core";',
         "export default function Slide() {",
         "  const id = useId();",
         '  return <main id={id}><a href={"#" + id}>Jump</a><Steps><Step>Reveal</Step></Steps></main>;',
@@ -575,7 +876,7 @@ export default pages;
 
   it("bundles the bounded Slides2 CSS variable serializer", async () => {
     const sourceTsx = [
-      'import { cssVarsToString } from "@open-slide/core";',
+      'import { cssVarsToString } from "@agent-native/slides-core";',
       "export default function Slide() {",
       '  const cssText = cssVarsToString({ "--slides2-accent": "#6d4cff" });',
       "  return <pre>{cssText}</pre>;",
@@ -596,7 +897,7 @@ export default pages;
 
   it("does not enable dynamic stylesheet injection through the serializer", () => {
     const sourceTsx = [
-      'import { cssVarsToString } from "@open-slide/core";',
+      'import { cssVarsToString } from "@agent-native/slides-core";',
       "export default function Slide() {",
       '  const cssText = cssVarsToString({ "--slides2-accent": "#6d4cff" });',
       "  return <style>{cssText}</style>;",
@@ -611,7 +912,7 @@ export default pages;
   it("serializes valid CSS variables as escaped text in the Worker render", async () => {
     const response = await renderInWorker(
       [
-        'import { cssVarsToString } from "@open-slide/core";',
+        'import { cssVarsToString } from "@agent-native/slides-core";',
         "export default function Slide() {",
         '  const cssText = cssVarsToString({ "--slides2-accent": "#6d4cff" });',
         "  return <code>{cssText}</code>;",
@@ -626,7 +927,7 @@ export default pages;
   it("rejects CSS variable values that could add declarations or resources", async () => {
     const response = await renderInWorker(
       [
-        'import { cssVarsToString } from "@open-slide/core";',
+        'import { cssVarsToString } from "@agent-native/slides-core";',
         "export default function Slide() {",
         '  const cssText = cssVarsToString({ "--slides2-accent": "red; background-image: url(https://example.test/a.png)" });',
         "  return <pre>{cssText}</pre>;",

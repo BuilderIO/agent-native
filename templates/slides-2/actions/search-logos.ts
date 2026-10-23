@@ -6,12 +6,16 @@ import { searchProviderLogos } from "../server/lib/media-search-providers.js";
 export default defineAction({
   description: "Search for company logos by name or domain.",
   schema: z.object({
-    q: z.string().optional().describe("Company name or domain to search"),
+    q: z
+      .string()
+      .trim()
+      .min(1)
+      .describe("Company name or domain to search for"),
   }),
   http: { method: "GET" },
   readOnly: true,
   run: async (args) => {
-    const q = (args.q || "").trim();
+    const q = args.q.trim();
     if (!q) {
       fail("Missing ?q= parameter", {
         errorCode: "search_query_required",

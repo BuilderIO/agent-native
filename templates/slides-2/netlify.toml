@@ -1,8 +1,8 @@
 [build]
-ignore = "node ./scripts/netlify-ignore-build.mjs slides"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter slides build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter slides migrate:production; fi"
-publish = "templates/slides/dist"
-functions = "templates/slides/.netlify/functions-internal"
+ignore = "node ./scripts/netlify-ignore-build.mjs slides-2"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter slides-2 build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter slides-2 migrate:production; fi"
+publish = "templates/slides-2/dist"
+functions = "templates/slides-2/.netlify/functions-internal"
 
 [build.environment]
 NODE_VERSION = "24.14.0"

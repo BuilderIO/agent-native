@@ -24,12 +24,14 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
+import { hasPresenterModifier } from "@/components/slides-2-presenter/keyboard";
 import {
   buildSlideFontFaceCss,
   isSlideRenderArtifact,
   type SlideRenderArtifact,
 } from "@/components/slides-2-runtime/protocol";
 import { renderSlideArtifactInSandbox } from "@/components/slides-2-runtime/SandboxedSlide";
+import { Button } from "@/components/ui/button";
 import type { Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
@@ -41,7 +43,11 @@ import { trackSlidesRelay } from "@/lib/slides-relay-tracking";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { normalizeSlideTransition } from "../../../shared/slide-transitions";
-import { openPresentChannel, type PresentMessage } from "./present-channel";
+import {
+  openPresentChannel,
+  type PresentBlackout,
+  type PresentMessage,
+} from "./present-channel";
 import {
   annotateBuildSteps,
   buildClickCount,
@@ -71,6 +77,9 @@ import {
 } from "./SlideTransitionStage";
 
 const NO_BUILD_STEPS: BuildSteps = { steps: [], unresolved: [] };
+const CONTROL_HOTZONE_PX = 160;
+const CURSOR_IDLE_HIDE_MS = 2000;
+const TOUCH_CONTROLS_HIDE_MS = 2200;
 
 interface PresentationViewProps {
   slides: Slide[];
@@ -159,9 +168,7 @@ function PdfSourceSlideCanvas({
     <div
       data-slide-canvas={slide.id}
       data-pdf-slide-root={pdfSlideRoot}
-      className={
-        /* guard:allow-raw-color - tokenless source slides use fixed white paper defaults in PDF output. */ "relative overflow-hidden bg-white text-black"
-      }
+      className="relative overflow-hidden bg-[hsl(var(--slides-canvas-background))] text-[hsl(var(--slides-canvas-foreground))]"
       style={pdfSourceCanvasStyle(render)}
     >
       {fontFaceCss ? <style>{fontFaceCss}</style> : null}
@@ -329,6 +336,7 @@ export default function PresentationView({
   }, []);
 
   const [showControls, setShowControls] = useState(false);
+  const [blackout, setBlackout] = useState<PresentBlackout>(null);
   const [cursorVisible, setCursorVisible] = useState(true);
   const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
   const [pdfExportRequest, setPdfExportRequest] =
@@ -550,6 +558,23 @@ export default function PresentationView({
     () => apply({ type: "command", command: "prev" }),
     [apply],
   );
+  const goTo = useCallback(
+    (index: number) => {
+      const targetIndex = clampIndex(index);
+      apply({
+        type: "seed",
+        index: targetIndex,
+        targetIndex,
+        buildStep: 0,
+      });
+    },
+    [apply, clampIndex],
+  );
+  const goFirst = useCallback(() => goTo(0), [goTo]);
+  const goLast = useCallback(
+    () => goTo(safeSlides.length - 1),
+    [goTo, safeSlides.length],
+  );
 
   const exit = useCallback(() => {
     if (document.fullscreenElement) {
@@ -587,6 +612,10 @@ export default function PresentationView({
         );
       } else if (message?.type === "command") {
         apply({ type: "command", command: message.command });
+      } else if (message?.type === "goto") {
+        goTo(message.index);
+      } else if (message?.type === "blackout") {
+        setBlackout(message.mode);
       }
     };
     // BroadcastChannel has no close event, so the presenter learns the audience
@@ -601,7 +630,7 @@ export default function PresentationView({
       channel.close();
       channelRef.current = null;
     };
-  }, [deckId, apply, postState]);
+  }, [deckId, apply, goTo, postState]);
 
   // The presenter follows the target, so it updates on every press rather than
   // when each transition lands. A build press changes only the build step.
@@ -625,21 +654,55 @@ export default function PresentationView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (isMediaKeyboardEvent(e) || isInteractiveKeyboardEvent(e)) return;
+      if (
+        hasPresenterModifier(e) ||
+        isMediaKeyboardEvent(e) ||
+        isInteractiveKeyboardEvent(e)
+      ) {
+        return;
+      }
       // A held key auto-repeats keydown with repeat=true. Each one would step
       // again, so one physical press could advance two or more slides.
       if (e.repeat) return;
+      if (
+        blackout &&
+        [
+          "ArrowRight",
+          "ArrowDown",
+          "PageDown",
+          " ",
+          "ArrowLeft",
+          "ArrowUp",
+          "PageUp",
+        ].includes(e.key)
+      ) {
+        setBlackout(null);
+        channelRef.current?.postMessage({
+          type: "blackout",
+          mode: null,
+        } satisfies PresentMessage);
+      }
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":
+        case "PageDown":
         case " ":
           e.preventDefault();
           goNext();
           break;
         case "ArrowLeft":
         case "ArrowUp":
+        case "PageUp":
           e.preventDefault();
           goPrev();
+          break;
+        case "Home":
+          e.preventDefault();
+          goFirst();
+          break;
+        case "End":
+          e.preventDefault();
+          goLast();
           break;
         case "f":
         case "F":
@@ -656,13 +719,22 @@ export default function PresentationView({
           openPresenterWindow();
           break;
         case "Escape":
-          exit();
+          if (blackout) {
+            e.preventDefault();
+            setBlackout(null);
+            channelRef.current?.postMessage({
+              type: "blackout",
+              mode: null,
+            } satisfies PresentMessage);
+          } else {
+            exit();
+          }
           break;
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [goNext, goPrev, exit, openPresenterWindow]);
+  }, [goNext, goPrev, goFirst, goLast, exit, openPresenterWindow, blackout]);
 
   const enterFullscreen = useCallback(() => {
     const el = document.documentElement;
@@ -719,22 +791,51 @@ export default function PresentationView({
   }, []);
 
   useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout>;
-    const handleMove = () => {
-      setShowControls(true);
-      setCursorVisible(true);
-      clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        setShowControls(false);
-        setCursorVisible(false);
-      }, 2500);
+    let pointerNearBottom = false;
+    const hideCursorWhenIdle = () => {
+      if (!pointerNearBottom) setCursorVisible(false);
     };
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("touchstart", handleMove);
+    let cursorTimeout = setTimeout(hideCursorWhenIdle, CURSOR_IDLE_HIDE_MS);
+    let controlsTimeout: ReturnType<typeof setTimeout> | null = null;
+    const resetCursorTimer = () => {
+      setCursorVisible(true);
+      clearTimeout(cursorTimeout);
+      cursorTimeout = setTimeout(hideCursorWhenIdle, CURSOR_IDLE_HIDE_MS);
+    };
+    const handleMove = (event: MouseEvent) => {
+      if (controlsTimeout) clearTimeout(controlsTimeout);
+      pointerNearBottom =
+        event.clientY >= window.innerHeight - CONTROL_HOTZONE_PX;
+      setShowControls(pointerNearBottom);
+      resetCursorTimer();
+    };
+    const handleTouchStart = () => {
+      resetCursorTimer();
+      setShowControls(true);
+      if (controlsTimeout) clearTimeout(controlsTimeout);
+      controlsTimeout = setTimeout(
+        () => setShowControls(false),
+        TOUCH_CONTROLS_HIDE_MS,
+      );
+    };
+    const handleMouseLeave = () => {
+      pointerNearBottom = false;
+      setShowControls(false);
+      if (controlsTimeout) clearTimeout(controlsTimeout);
+    };
+    window.addEventListener("mousemove", handleMove, { passive: true });
+    window.addEventListener("mousedown", resetCursorTimer, { passive: true });
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("wheel", resetCursorTimer, { passive: true });
+    document.addEventListener("mouseleave", handleMouseLeave);
     return () => {
       window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("touchstart", handleMove);
-      clearTimeout(timeout);
+      window.removeEventListener("mousedown", resetCursorTimer);
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("wheel", resetCursorTimer);
+      document.removeEventListener("mouseleave", handleMouseLeave);
+      clearTimeout(cursorTimeout);
+      if (controlsTimeout) clearTimeout(controlsTimeout);
     };
   }, []);
 
@@ -854,15 +955,16 @@ export default function PresentationView({
           /* guard:allow-raw-color — the fullscreen presentation stage is fixed black for slide contrast. */ "fixed inset-0 z-[100] flex items-center justify-center bg-black text-white"
         }
       >
-        <button
+        <Button
           type="button"
           onClick={exit}
+          variant="ghost"
           className={
-            /* guard:allow-raw-color — fullscreen controls use fixed white contrast over the black stage. */ "rounded-lg bg-white/10 px-4 py-3 text-sm text-white transition-colors hover:bg-white/20"
+            /* guard:allow-raw-color — fullscreen controls use fixed white contrast over the black stage. */ "h-auto rounded-lg bg-white/10 px-4 py-3 text-sm text-white transition-colors hover:bg-white/20 hover:text-white"
           }
         >
           {t("presentation.noSlides")}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -957,10 +1059,25 @@ export default function PresentationView({
         </div>
       )}
 
+      {blackout && (
+        <div
+          aria-hidden="true"
+          data-presentation-blackout={blackout}
+          className={
+            blackout === "black"
+              ? "pointer-events-none absolute inset-0 z-[100] bg-black" // guard:allow-raw-color black projector blanking requires pure black.
+              : "pointer-events-none absolute inset-0 z-[100] bg-white" // guard:allow-raw-color white projector blanking requires pure white.
+          }
+        />
+      )}
+
       {/* Controls overlay */}
       <div
+        data-presentation-controls
         className={`fixed inset-x-0 bottom-0 z-[101] ${
-          showControls ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+          showControls
+            ? "pointer-events-auto opacity-100 translate-y-0"
+            : "pointer-events-none opacity-0 translate-y-4"
         }`}
         style={{ transition: "opacity 0.3s, transform 0.3s" }}
         onClick={(e) => e.stopPropagation()}
@@ -975,11 +1092,14 @@ export default function PresentationView({
           </span>
 
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              type="button"
               onClick={goPrev}
               disabled={!canCommand(nav, layout, "prev")}
+              variant="ghost"
+              size="icon"
               className={
-                /* guard:allow-raw-color — navigation controls use fixed white contrast over the black stage. */ "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                /* guard:allow-raw-color — navigation controls use fixed white contrast over the black stage. */ "h-11 w-11 rounded-lg bg-white/10 p-3 text-white transition-colors hover:bg-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 sm:h-8 sm:w-8 sm:p-2 [&>svg]:!size-5 sm:[&>svg]:!size-4"
               }
               aria-label={t("presentation.previousSlide")}
             >
@@ -988,12 +1108,15 @@ export default function PresentationView({
                   /* guard:allow-raw-color — navigation icons use fixed white contrast over the black stage. */ "w-5 h-5 sm:w-4 sm:h-4 text-white"
                 }
               />
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
               onClick={goNext}
               disabled={!canCommand(nav, layout, "next")}
+              variant="ghost"
+              size="icon"
               className={
-                /* guard:allow-raw-color — navigation controls use fixed white contrast over the black stage. */ "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                /* guard:allow-raw-color — navigation controls use fixed white contrast over the black stage. */ "h-11 w-11 rounded-lg bg-white/10 p-3 text-white transition-colors hover:bg-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 sm:h-8 sm:w-8 sm:p-2 [&>svg]:!size-5 sm:[&>svg]:!size-4"
               }
               aria-label={t("presentation.nextSlide")}
             >
@@ -1002,12 +1125,12 @@ export default function PresentationView({
                   /* guard:allow-raw-color — navigation icons use fixed white contrast over the black stage. */ "w-5 h-5 sm:w-4 sm:h-4 text-white"
                 }
               />
-            </button>
+            </Button>
           </div>
 
           <div className="flex items-center gap-2">
             {pdfExportTitle && (
-              <button
+              <Button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
@@ -1015,8 +1138,10 @@ export default function PresentationView({
                 }}
                 disabled={pdfExporting}
                 aria-busy={pdfExporting}
+                variant="ghost"
+                size="icon"
                 className={
-                  "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors" // guard:allow-raw-color - fixed black presentation surface
+                  "h-11 w-11 rounded-lg bg-white/10 p-3 text-white transition-colors hover:bg-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 sm:h-8 sm:w-8 sm:p-2 [&>svg]:!size-5 sm:[&>svg]:!size-4" // guard:allow-raw-color - fixed black presentation surface
                 }
                 aria-label={t("editorExport.exportPdf")}
                 title={t("editorExport.exportPdf")}
@@ -1034,12 +1159,15 @@ export default function PresentationView({
                     }
                   />
                 )}
-              </button>
+              </Button>
             )}
-            <button
+            <Button
+              type="button"
               onClick={openPresenterWindow}
+              variant="ghost"
+              size="icon"
               className={
-                /* guard:allow-raw-color — presenter controls use fixed white contrast over the black stage. */ "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+                /* guard:allow-raw-color — presenter controls use fixed white contrast over the black stage. */ "h-11 w-11 rounded-lg bg-white/10 p-3 text-white transition-colors hover:bg-white/20 hover:text-white sm:h-8 sm:w-8 sm:p-2 [&>svg]:!size-5 sm:[&>svg]:!size-4"
               }
               aria-label={t("presentation.presenterView")}
               title={t("presentation.presenterView")}
@@ -1049,11 +1177,14 @@ export default function PresentationView({
                   /* guard:allow-raw-color — presenter icons use fixed white contrast over the black stage. */ "w-5 h-5 sm:w-4 sm:h-4 text-white"
                 }
               />
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
               onClick={exit}
+              variant="ghost"
+              size="icon"
               className={
-                /* guard:allow-raw-color — exit control uses fixed white contrast over the black stage. */ "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+                /* guard:allow-raw-color — exit control uses fixed white contrast over the black stage. */ "h-11 w-11 rounded-lg bg-white/10 p-3 text-white transition-colors hover:bg-white/20 hover:text-white sm:h-8 sm:w-8 sm:p-2 [&>svg]:!size-5 sm:[&>svg]:!size-4"
               }
               aria-label={t("presentation.exitPresentation")}
             >
@@ -1062,7 +1193,7 @@ export default function PresentationView({
                   /* guard:allow-raw-color — exit icon uses fixed white contrast over the black stage. */ "w-5 h-5 sm:w-4 sm:h-4 text-white"
                 }
               />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -1087,20 +1218,21 @@ export default function PresentationView({
       {/* Fullscreen-gesture fallback — shown when the browser blocked our
           auto requestFullscreen() because there was no user gesture. */}
       {needsFullscreenGesture && (
-        <button
+        <Button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             enterFullscreen();
           }}
+          variant="ghost"
           className={
-            /* guard:allow-raw-color — fullscreen prompt uses fixed white contrast over the black stage. */ "fixed top-4 right-4 z-[102] flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-sm text-white hover:bg-white/20 transition-colors"
+            /* guard:allow-raw-color — fullscreen prompt uses fixed white contrast over the black stage. */ "fixed top-4 right-4 z-[102] h-auto items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-sm text-white hover:bg-white/20 hover:text-white transition-colors"
           }
           aria-label={t("presentation.enterFullscreen")}
         >
           <IconMaximize className="w-4 h-4" />
           {t("presentation.clickToEnterFullscreen")}
-        </button>
+        </Button>
       )}
 
       {pdfExportRequest && (

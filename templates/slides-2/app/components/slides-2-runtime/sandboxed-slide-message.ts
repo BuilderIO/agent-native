@@ -162,6 +162,16 @@ function parseElementSnapshot(value: unknown): ElementSnapshot | null {
     if (typeof entry !== "string" || entry.length > 400) continue;
     safeStyles[key] = entry;
   }
+  const authoredStyles = isRecord(value.authoredStyles)
+    ? typeof value.authoredStyles.lineHeight === "string" &&
+      value.authoredStyles.lineHeight.length <= 400
+      ? { lineHeight: value.authoredStyles.lineHeight }
+      : undefined
+    : undefined;
+  const imageSource =
+    tagName.toLowerCase() === "img" && typeof value.imageSrc === "string"
+      ? parseImageSrc(value.imageSrc)
+      : undefined;
   let transform: ElementSnapshot["transform"];
   if (isRecord(value.transform)) {
     const { basis, translate, width, height, rotation } = value.transform;
@@ -210,6 +220,10 @@ function parseElementSnapshot(value: unknown): ElementSnapshot | null {
     text,
     bounds: rect,
     styles: safeStyles,
+    ...(imageSource?.status === "accepted"
+      ? { imageSrc: imageSource.url }
+      : {}),
+    ...(authoredStyles ? { authoredStyles } : {}),
     ...(hasAncestorData
       ? {
           ancestorLocators: value.ancestorLocators as string[],
@@ -218,6 +232,25 @@ function parseElementSnapshot(value: unknown): ElementSnapshot | null {
       : {}),
     ...(transform ? { transform } : {}),
   };
+}
+
+type ParsedImageSource =
+  | { status: "accepted"; url: string }
+  | { status: "rejected" };
+
+function parseImageSrc(value: string): ParsedImageSource {
+  if (value.length > 4096) return { status: "rejected" };
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return { status: "rejected" };
+  }
+  return (url.protocol === "http:" || url.protocol === "https:") &&
+    !url.username &&
+    !url.password
+    ? { status: "accepted", url: url.href }
+    : { status: "rejected" };
 }
 
 function parsePointer(value: unknown): FramePointer | null {

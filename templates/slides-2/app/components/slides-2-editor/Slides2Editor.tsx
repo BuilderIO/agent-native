@@ -5,10 +5,11 @@ import {
 } from "@agent-native/core/client/application-state";
 import {
   useActionQuery,
+  useActionMutation,
   useChangeVersion,
   useDbSync,
 } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type { useT as useTranslator } from "@agent-native/core/client/i18n";
 import { parse } from "@babel/parser";
 import {
@@ -50,29 +51,34 @@ import {
   IconArrowLeft,
   IconChevronLeft,
   IconChevronRight,
+  IconChevronDown,
+  IconChevronUp,
   IconCheck,
+  IconClipboardText,
   IconCrop,
   IconPlayerPlay,
-  IconMinus,
   IconPlus,
-  IconArrowBackUp,
-  IconArrowForwardUp,
   IconArrowDown,
   IconArrowUp,
   IconPhoto,
   IconCopy,
+  IconLink,
   IconMessageCircle,
-  IconSearch,
+  IconPalette,
   IconTrash,
   IconEye,
   IconPencil,
-  IconLayoutSidebarRightCollapse,
+  IconLayoutGrid,
   IconLayoutSidebarRightExpand,
+  IconNotes,
+  IconX,
+  IconScissors,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -82,6 +88,7 @@ import {
 import { Link } from "react-router";
 import { toast } from "sonner";
 
+import { Slides2AgentConnectionBadge } from "@/components/slides-2-editor/Slides2AgentConnectionBadge";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -102,8 +109,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
@@ -129,12 +137,16 @@ import {
   type SlideFrameController,
 } from "../slides-2-runtime/SandboxedSlide";
 import { Slides2Canvas } from "../slides-2-runtime/Slides2Canvas";
+import { currentAgentTextRangeSelection } from "./agent-text-selection";
 import type {
   CrossSlideHistorySelection,
   CrossSlideSourceCommitEntry,
   CrossSlideSourceRestoreRequest,
 } from "./cross-slide-edit-history";
-import { getEditorActionErrorTranslationKey } from "./editor-action-errors";
+import {
+  getEditorActionErrorCode,
+  getEditorActionErrorTranslationKey,
+} from "./editor-action-errors";
 import {
   alignRects,
   constrainMoveDelta,
@@ -157,7 +169,10 @@ import {
   objectViewBoxToCropRect,
 } from "./image-crop-style";
 import { InlineTextEditor } from "./inline-text-editor";
-import { getSlides2EditorShortcut } from "./keyboard-shortcuts";
+import {
+  getSlides2EditorShortcut,
+  shouldIgnoreModifiedArrowNavigation,
+} from "./keyboard-shortcuts";
 import {
   insertSourceObject,
   getDefaultComponentRootRange,
@@ -173,11 +188,13 @@ import {
   type Slides2ExportFormat,
   type Slides2ExportMenuHandle,
 } from "./Slides2ExportMenu";
+import Slides2HistoryPanel from "./Slides2HistoryPanel";
 import {
   Slides2ImageCropControls,
   type Slides2ImageCropResult,
 } from "./Slides2ImageCropControls";
 import { Slides2Inspector } from "./Slides2Inspector";
+import { Slides2MotionPanel } from "./Slides2MotionPanel";
 import {
   deleteSourceElement,
   duplicateSourceElement,
@@ -195,7 +212,7 @@ import type {
 } from "./types";
 
 type Translate = ReturnType<typeof useTranslator>;
-export type Slides2InspectorPanel = "format" | "design" | "notes";
+export type Slides2InspectorPanel = "format" | "design" | "notes" | "motion";
 export type Slides2EditorMode = "edit" | "preview";
 
 type PreviewStepState = {
@@ -220,6 +237,10 @@ type SlideSummary = {
 type Props = {
   deckId: string;
   title: string;
+  onTitleChange?: (title: string) => Promise<void>;
+  canPasteSlide?: boolean;
+  clipboardSourceSlideId?: string | null;
+  clipboardOperation?: "copy" | "cut" | null;
   slides: SlideSummary[];
   activeIndex: number;
   source: SlideSource;
@@ -257,7 +278,10 @@ type Props = {
   t?: Translate;
   onSelectSlide: (index: number) => void;
   onPresent: (mode?: "fullscreen" | "windowed") => void;
+  onRequestFullscreen?: () => boolean | Promise<boolean>;
   onOpenPresenter?: () => void;
+  onShare?: () => void;
+  onVersionRestored?: () => Promise<void> | void;
   onSave: (
     edits: SourceEdit[],
   ) => Promise<Pick<SlideSource, "sourceTsx" | "revision" | "sourceHash">>;
@@ -277,6 +301,9 @@ type Props = {
   onEditorModeChange?: (mode: Slides2EditorMode) => void;
   onAddSlide: () => void;
   onDuplicateSlide: (index: number) => void;
+  onCopySlide?: (slideId: string) => Promise<void> | void;
+  onCutSlide?: (slideId: string) => Promise<void> | void;
+  onPasteSlide?: (afterSlideId?: string) => Promise<void> | void;
   onDeleteSlide: (index: number) => void;
   onMoveSlide: (from: number, to: number) => void;
   crossSlideHistory?: {
@@ -358,6 +385,21 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function transformHandleShortcuts(handle: ResizeHandle | "rotate"): string {
+  const keys =
+    handle === "rotate"
+      ? ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]
+      : [
+          ...(handle.includes("w") || handle.includes("e")
+            ? ["ArrowLeft", "ArrowRight"]
+            : []),
+          ...(handle.includes("n") || handle.includes("s")
+            ? ["ArrowUp", "ArrowDown"]
+            : []),
+        ];
+  return [...keys, ...keys.map((key) => `Shift+${key}`)].join(" ");
+}
+
 function isFullSlideBounds(bounds: Rect): boolean {
   return (
     Math.abs(bounds.x) < 1 &&
@@ -394,6 +436,19 @@ function elementAtPoint(
   }
 
   return target;
+}
+
+function preferredPointerTarget(pointer: FramePointer) {
+  const reportedTarget = pointer.target;
+  const pointTarget = pointer.hitTarget;
+  if (
+    (!reportedTarget || isFullSlideBounds(reportedTarget.snapshot.bounds)) &&
+    pointTarget &&
+    !isFullSlideBounds(pointTarget.snapshot.bounds)
+  ) {
+    return pointTarget;
+  }
+  return reportedTarget;
 }
 
 function uniqueByLocator(nodes: ElementSnapshot[]): ElementSnapshot[] {
@@ -583,6 +638,143 @@ function sourceString(value: string): string {
     .replace(/\u2029/g, "\\u2029");
 }
 
+type SourceJsxElement = {
+  type?: string;
+  loc?: { start?: { line?: number; column?: number } };
+  openingElement?: { attributes?: unknown[] };
+  children?: unknown[];
+  [key: string]: unknown;
+};
+
+function sourceJsxElements(sourceTsx: string): SourceJsxElement[] {
+  const ast = parse(sourceTsx, {
+    sourceType: "module",
+    plugins: ["jsx", "typescript"],
+  });
+  const elements: SourceJsxElement[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    const node = value as SourceJsxElement;
+    if (node.type === "JSXElement") elements.push(node);
+    for (const child of Object.values(node)) visit(child);
+  };
+  visit(ast);
+  return elements;
+}
+
+function sourceJsxAttributeText(
+  element: SourceJsxElement,
+  name: string,
+): string | null {
+  const attributes = element.openingElement?.attributes;
+  if (!attributes) return null;
+  const attribute = attributes.find((value) => {
+    if (!value || typeof value !== "object") return false;
+    const candidate = value as {
+      type?: string;
+      name?: { name?: string };
+    };
+    return candidate.type === "JSXAttribute" && candidate.name?.name === name;
+  }) as
+    | {
+        value?: {
+          type?: string;
+          value?: unknown;
+          expression?: { type?: string; value?: unknown };
+        } | null;
+      }
+    | undefined;
+  if (attribute?.value?.type === "StringLiteral") {
+    return typeof attribute.value.value === "string"
+      ? attribute.value.value
+      : null;
+  }
+  if (
+    attribute?.value?.type === "JSXExpressionContainer" &&
+    attribute.value.expression?.type === "StringLiteral"
+  ) {
+    return typeof attribute.value.expression.value === "string"
+      ? attribute.value.expression.value
+      : null;
+  }
+  return null;
+}
+
+function sourceSelectionForElement(
+  element: SourceJsxElement,
+): SourceSelection | null {
+  const line = element.loc?.start?.line;
+  const column = element.loc?.start?.column;
+  return Number.isInteger(line) && Number.isInteger(column)
+    ? { line: line as number, column: column as number }
+    : null;
+}
+
+function sourceGroupChildIds(
+  sourceTsx: string,
+  target: SourceSelection,
+): string[] | null {
+  const elements = sourceJsxElements(sourceTsx);
+  const group = elements.find((element) => {
+    const selection = sourceSelectionForElement(element);
+    return (
+      selection?.line === target.line && selection.column === target.column
+    );
+  });
+  if (
+    !group ||
+    sourceJsxAttributeText(group, "data-slide-group") !== "true" ||
+    !(sourceJsxAttributeText(group, "className") ?? "")
+      .split(/\s+/)
+      .includes("fmd-slide-group")
+  ) {
+    return null;
+  }
+  const children = group.children ?? [];
+  if (
+    children.some((child) => {
+      if (!child || typeof child !== "object") return true;
+      const node = child as { type?: string; value?: unknown };
+      return !(
+        node.type === "JSXElement" ||
+        (node.type === "JSXText" &&
+          typeof node.value === "string" &&
+          node.value.trim() === "")
+      );
+    })
+  ) {
+    return null;
+  }
+  const childElements = children.filter(
+    (child): child is SourceJsxElement =>
+      Boolean(child) &&
+      typeof child === "object" &&
+      (child as SourceJsxElement).type === "JSXElement",
+  );
+  const childIds = childElements.map((child) =>
+    sourceJsxAttributeText(child, "data-slide-object-id"),
+  );
+  return childIds.length >= 2 &&
+    childIds.every((id) => typeof id === "string" && id.trim().length > 0)
+    ? (childIds as string[])
+    : null;
+}
+
+function sourceSelectionForObjectId(
+  sourceTsx: string,
+  objectId: string,
+): SourceSelection | null {
+  const element = sourceJsxElements(sourceTsx).find(
+    (candidate) =>
+      sourceJsxAttributeText(candidate, "data-slide-object-id") === objectId,
+  );
+  return element ? sourceSelectionForElement(element) : null;
+}
+
 function insertVideoAssetOnCanvas(
   sourceTsx: string,
   assetId: string,
@@ -704,15 +896,13 @@ function isImagePlaceholder(node: ElementSnapshot, sourceTsx: string): boolean {
 
 function cropImageUrl(value: string | undefined): string | null {
   if (!value) return null;
-  try {
-    const url = new URL(value, window.location.origin);
-    return url.protocol === "https:" || url.origin === window.location.origin
-      ? url.toString()
-      : null;
-  } catch {
-    // coercion-ok: malformed source URLs cannot provide a safe crop image and are omitted.
-    return null;
-  }
+  if (!URL.canParse(value, window.location.origin)) return null;
+  const url = new URL(value, window.location.origin);
+  return !url.username &&
+    !url.password &&
+    (url.protocol === "https:" || url.origin === window.location.origin)
+    ? url.toString()
+    : null;
 }
 
 function objectPositionPercent(value: string | undefined): {
@@ -741,6 +931,7 @@ function SlideThumbnail({
   slide,
   slideIndex,
   selected,
+  cut,
   dragDisabled,
   onSelect,
   onNavigate,
@@ -749,6 +940,7 @@ function SlideThumbnail({
   slide: SlideSummary;
   slideIndex: number;
   selected: boolean;
+  cut: boolean;
   dragDisabled: boolean;
   onSelect: () => void;
   onNavigate: (direction: -1 | 1) => void;
@@ -782,60 +974,70 @@ function SlideThumbnail({
   }, []);
 
   return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className={`group grid h-auto w-full grid-cols-[28px_minmax(0,1fr)] items-start gap-2 rounded-md p-2 text-start font-normal transition-colors active:scale-100 ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
+    <div
+      ref={setNodeRef}
+      className={`group flex min-w-0 w-full items-start gap-2 rounded-md ps-2 pe-0.5 py-1.5 ${selected ? "bg-accent/60" : "hover:bg-accent/50"} ${cut ? "opacity-50" : ""}`}
+      data-slide-thumbnail-row="true"
+      data-slides-2-cut={cut ? "true" : undefined}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        touchAction: dragDisabled ? undefined : "none",
+        opacity: isDragging ? 0.6 : undefined,
+      }}
     >
-      <button
-        ref={setNodeRef}
-        type="button"
-        onClick={onSelect}
-        {...attributes}
-        {...listeners}
-        onKeyDown={(event) => {
-          listeners?.onKeyDown?.(event);
-          if (
-            event.defaultPrevented ||
-            isDragging ||
-            event.altKey ||
-            event.ctrlKey ||
-            event.metaKey ||
-            event.shiftKey
-          ) {
-            return;
-          }
-          if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-            event.preventDefault();
-            event.stopPropagation();
-            onNavigate(event.key === "ArrowUp" ? -1 : 1);
-          }
-        }}
-        data-slides-2-thumbnail-index={slideIndex}
-        aria-label={t("editorSidebar.selectSlide", {
-          number: slide.slideNumber,
-        })}
-        aria-current={selected ? "true" : undefined}
-        style={{
-          transform: CSS.Transform.toString(transform),
-          transition,
-          touchAction: dragDisabled ? undefined : "none",
-          opacity: isDragging ? 0.6 : undefined,
-        }}
+      <span
+        data-slide-thumbnail-number="true"
+        className={`w-7 shrink-0 pt-1 text-right font-mono text-xs tabular-nums ${selected ? "text-destructive" : "text-muted-foreground"}`}
       >
-        <span className="pt-1 text-xs tabular-nums text-muted-foreground">
-          {slide.slideNumber}
-        </span>
-        <span className="min-w-0">
+        {String(slide.slideNumber).padStart(2, "0")}
+      </span>
+      <span className="min-w-0 flex-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="block h-auto w-full p-0"
+          onClick={onSelect}
+          {...attributes}
+          {...listeners}
+          onKeyDown={(event) => {
+            listeners?.onKeyDown?.(event);
+            if (
+              event.defaultPrevented ||
+              isDragging ||
+              event.altKey ||
+              event.ctrlKey ||
+              event.metaKey ||
+              event.shiftKey
+            ) {
+              return;
+            }
+            if (
+              event.key === "ArrowUp" ||
+              event.key === "ArrowLeft" ||
+              event.key === "ArrowDown" ||
+              event.key === "ArrowRight"
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              onNavigate(
+                event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1,
+              );
+            }
+          }}
+          data-slides-2-thumbnail-index={slideIndex}
+          aria-label={t("editorSidebar.selectSlide", {
+            number: slide.slideNumber,
+          })}
+          aria-current={selected ? "true" : undefined}
+        >
           <span
             ref={frameRef}
-            className={
-              /* guard:allow-raw-color — thumbnail previews render the fixed white slide canvas. */ `relative block aspect-video overflow-hidden rounded border bg-white ${selected ? "border-primary" : "border-border"}`
-            }
+            className={`relative block aspect-video w-full max-w-[184px] overflow-hidden rounded border bg-muted ${selected ? "border-destructive" : "border-border/70"}`}
           >
             {visible && render.data ? (
-              <Slides2Canvas scale={0.085} flat blockInteractions>
+              <Slides2Canvas flat blockInteractions>
                 <SandboxedSlide
                   artifact={render.data}
                   title={t("slides2Presenter.slideLabel", {
@@ -851,14 +1053,9 @@ function SlideThumbnail({
               </span>
             )}
           </span>
-          {slide.textPreview ? (
-            <span className="mt-1 block truncate text-[11px] text-muted-foreground">
-              {slide.textPreview}
-            </span>
-          ) : null}
-        </span>
-      </button>
-    </Button>
+        </Button>
+      </span>
+    </div>
   );
 }
 
@@ -994,9 +1191,33 @@ function applyTranslate(
   ]);
 }
 
+function hasUniqueRenderedInstances(
+  targets: Array<Pick<SourceSelection, "line" | "column">>,
+  nodes: ElementSnapshot[],
+): boolean {
+  const uniqueTargets = new Map(
+    targets.map((target) => [`${target.line}:${target.column}`, target]),
+  );
+  if (uniqueTargets.size === 0) return false;
+  return [...uniqueTargets.values()].every((target) => {
+    const matches = nodes.filter(
+      (node) => node.line === target.line && node.column === target.column,
+    );
+    return (
+      matches.length === 1 &&
+      matches[0]?.instanceIndex === 0 &&
+      matches[0]?.instanceCount === 1
+    );
+  });
+}
+
 export function Slides2Editor({
   deckId,
   title,
+  onTitleChange,
+  canPasteSlide = false,
+  clipboardSourceSlideId,
+  clipboardOperation,
   slides,
   activeIndex,
   source,
@@ -1033,8 +1254,11 @@ export function Slides2Editor({
   onOverviewOpenChange,
   t: suppliedT,
   onSelectSlide,
+  onRequestFullscreen,
   onPresent,
   onOpenPresenter,
+  onShare,
+  onVersionRestored,
   onSave,
   onReloadSource,
   onRestore,
@@ -1046,12 +1270,22 @@ export function Slides2Editor({
   onEditorModeChange,
   onAddSlide,
   onDuplicateSlide,
+  onCopySlide,
+  onCutSlide,
+  onPasteSlide,
   onDeleteSlide,
   onMoveSlide,
   crossSlideHistory,
 }: Props) {
   const defaultT = useT();
   const t = suppliedT ?? defaultT;
+  const formatters = useFormatters();
+  const transformSlideObjects = useActionMutation<
+    Pick<SlideSource, "sourceTsx" | "revision" | "sourceHash"> & {
+      createdObjectId?: string;
+      createdLocator?: SourceSelection;
+    }
+  >("transform-slide-objects");
   const editorCommandKey = appStateKeyForBrowserTab(
     appStateKey(SLIDE_EDITOR_COMMAND_KEY),
     TAB_ID,
@@ -1134,7 +1368,7 @@ export function Slides2Editor({
   }
   const [pendingSourceSelection, setPendingSourceSelection] = useState<{
     revision: number;
-    selection: SourceSelection;
+    selections: SourceSelection[];
   } | null>(null);
   const appliedHistorySelectionRef = useRef<string | null>(null);
   const processingHistoryRestoreRef = useRef<string | null>(null);
@@ -1202,11 +1436,6 @@ export function Slides2Editor({
   useEffect(() => {
     if (activePanel !== "design") previousPanelRef.current = activePanel;
   }, [activePanel]);
-  const toggleDesignPanel = useCallback(() => {
-    setActivePanel((panel) =>
-      panel === "design" ? previousPanelRef.current : "design",
-    );
-  }, [setActivePanel]);
   const toggleInspector = useCallback(() => {
     if (previewModeRef.current) {
       inspectorToggledInPreviewRef.current = true;
@@ -1214,11 +1443,136 @@ export function Slides2Editor({
     }
     setInspectorOpen((open) => !open);
   }, [onInspectorToggledInPreviewChange, setInspectorOpen]);
+  const showInspectorPanel = useCallback(
+    (panel: Slides2InspectorPanel) => {
+      setActivePanel(panel);
+      if (!inspectorOpen) toggleInspector();
+    },
+    [inspectorOpen, setActivePanel, toggleInspector],
+  );
+  const toggleDesignPanel = useCallback(() => {
+    if (!inspectorOpen) {
+      showInspectorPanel("design");
+      return;
+    }
+    setActivePanel((panel) =>
+      panel === "design" ? previousPanelRef.current : "design",
+    );
+  }, [inspectorOpen, setActivePanel, showInspectorPanel]);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const renderIdentity = `${source.id}:${source.revision}:${source.sourceHash}`;
+  const [renderFailure, setRenderFailure] = useState<{
+    identity: string;
+    message: string;
+  } | null>(null);
+  const renderError =
+    renderFailure?.identity === renderIdentity ? renderFailure.message : null;
+  const reportRenderError = useCallback(
+    (message: string) =>
+      setRenderFailure({ identity: renderIdentity, message }),
+    [renderIdentity],
+  );
+  const clearRenderError = useCallback(
+    () =>
+      setRenderFailure((failure) =>
+        failure?.identity === renderIdentity ? null : failure,
+      ),
+    [renderIdentity],
+  );
+  const [titleDraft, setTitleDraft] = useState(title);
+  const titleMeasureRef = useRef<HTMLSpanElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleCommitInFlightRef = useRef(false);
+  const [titleInputWidth, setTitleInputWidth] = useState(96);
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleSaving, setTitleSaving] = useState(false);
+  const discardTitleDraftOnBlurRef = useRef(false);
+  useEffect(() => {
+    if (!titleEditing) setTitleDraft(title);
+  }, [title, titleEditing]);
+  useEffect(() => {
+    if (!titleEditing) return;
+    queueMicrotask(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    });
+  }, [titleEditing]);
+  useLayoutEffect(() => {
+    const measuredWidth =
+      titleMeasureRef.current?.getBoundingClientRect().width;
+    if (typeof measuredWidth !== "number" || !Number.isFinite(measuredWidth)) {
+      return;
+    }
+    setTitleInputWidth(
+      Math.min(768, Math.max(96, Math.ceil(measuredWidth) + 16)),
+    );
+  }, [titleDraft]);
   const [reloadingSource, setReloadingSource] = useState(false);
   const pendingSourceRestore =
     crossSlideHistory?.restoreRequest?.deckId === deckId;
   const canEdit = hasEditPermission && !sourceConflict && !pendingSourceRestore;
+  const commitTitle = useCallback(
+    async (value: string) => {
+      const nextTitle = value.trim();
+      if (
+        !canEdit ||
+        !onTitleChange ||
+        structuralSaving ||
+        !nextTitle ||
+        nextTitle === title.trim()
+      ) {
+        setTitleDraft(title);
+        return;
+      }
+      setSaveError(null);
+      try {
+        await onTitleChange(nextTitle);
+        setTitleDraft(nextTitle);
+      } catch (error) {
+        setSaveError(
+          t(getEditorActionErrorTranslationKey(error) ?? "settings.saveFailed"),
+        );
+        setTitleDraft(title);
+      }
+    },
+    [canEdit, onTitleChange, structuralSaving, t, title],
+  );
+  const finishTitleEdit = useCallback(
+    async (value: string) => {
+      if (titleCommitInFlightRef.current) return;
+      if (!canEdit || !onTitleChange || structuralSaving) {
+        setTitleDraft(title);
+        setTitleEditing(false);
+        return;
+      }
+      titleCommitInFlightRef.current = true;
+      setTitleSaving(true);
+      try {
+        await commitTitle(value);
+      } finally {
+        titleCommitInFlightRef.current = false;
+        setTitleSaving(false);
+        setTitleEditing(false);
+      }
+    },
+    [canEdit, commitTitle, onTitleChange, structuralSaving, title],
+  );
+  const handleTitleKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.nativeEvent.isComposing) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.currentTarget.blur();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        discardTitleDraftOnBlurRef.current = true;
+        setTitleDraft(title);
+        setTitleEditing(false);
+        event.currentTarget.blur();
+      }
+    },
+    [title],
+  );
   const [notesDraft, setNotesDraft] = useState(notes);
   const [assetBrowserOpen, setAssetBrowserOpen] = useState(false);
   const [imageCropOpen, setImageCropOpen] = useState(false);
@@ -1236,6 +1590,7 @@ export function Slides2Editor({
   );
   const [focusedOverviewIndex, setFocusedOverviewIndex] = useState(activeIndex);
   const [commentMode, setCommentMode] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [commentDraftAnchor, setCommentDraftAnchor] =
     useState<SlideCommentAnchor | null>(null);
   const exportMenuRef = useRef<Slides2ExportMenuHandle>(null);
@@ -1427,6 +1782,21 @@ export function Slides2Editor({
     [gestureSelectionIds, nodes, selectedIds],
   );
   const distinctSelected = useMemo(() => uniqueByLocator(selected), [selected]);
+  const rejectUnsafeRenderedTargets = useCallback(
+    (targets: Array<Pick<SourceSelection, "line" | "column">>) => {
+      if (hasUniqueRenderedInstances(targets, nodes)) return false;
+      toast.error(t("slides2Editor.objectStructureUnsupported"));
+      return true;
+    },
+    [nodes, t],
+  );
+  const selectedGroupChildIds = useMemo(() => {
+    if (distinctSelected.length !== 1) return null;
+    const target = distinctSelected[0];
+    return target
+      ? sourceGroupChildIds(committedSource.sourceTsx, target)
+      : null;
+  }, [committedSource.sourceTsx, distinctSelected]);
   const inspectSelectedTextRange = useCallback(
     (range: { start: number; end: number; expectedText: string } | null) => {
       if (!range) {
@@ -1516,7 +1886,9 @@ export function Slides2Editor({
   const selectedImageAsset = imageAssetsQuery.data?.find(
     (asset) => asset.id === selectedImageAssetId,
   );
-  const selectedImageSrc = cropImageUrl(selectedImageAsset?.url);
+  const selectedImageSrc =
+    cropImageUrl(selectedImageAsset?.url) ??
+    cropImageUrl(selectedImage?.imageSrc);
   const selectionBounds = useMemo(
     () => unionRects(selected.map((node) => node.bounds)),
     [selected],
@@ -1526,6 +1898,18 @@ export function Slides2Editor({
     [overlaySelected],
   );
   const hasUnsavedEdits = currentHistoryIndex > 0;
+  const hasUnsavedEditsRef = useRef(hasUnsavedEdits);
+  hasUnsavedEditsRef.current = hasUnsavedEdits;
+  const inspectSavedTextRange = useCallback(
+    (range: { start: number; end: number; expectedText: string } | null) => {
+      if (hasUnsavedEditsRef.current) {
+        setSelectedTextRange(null);
+        return;
+      }
+      inspectSelectedTextRange(range);
+    },
+    [inspectSelectedTextRange],
+  );
   const hasPendingUndo = crossSlideHistory
     ? crossSlideHistory.canUndo
     : currentHistoryIndex > 0;
@@ -1807,6 +2191,7 @@ export function Slides2Editor({
   );
 
   useEffect(() => {
+    if (source.revision < committedSource.revision) return;
     if (source.sourceHash === committedSource.sourceHash || hasUnsavedEdits)
       return;
     bumpHistoryVersion();
@@ -1834,6 +2219,7 @@ export function Slides2Editor({
     setSelectedIds([]);
   }, [
     committedHistory,
+    committedSource.revision,
     committedSource.sourceHash,
     hasUnsavedEdits,
     source.revision,
@@ -1844,8 +2230,12 @@ export function Slides2Editor({
   ]);
 
   useEffect(() => {
+    if (hasUnsavedEdits) setSelectedTextRange(null);
+  }, [hasUnsavedEdits]);
+
+  useEffect(() => {
     const target = distinctSelected.length === 1 ? distinctSelected[0] : null;
-    const textRange = currentSlideTextRangeSelection(
+    const textRange = currentAgentTextRangeSelection(
       selectedTextRange,
       {
         slideId: source.id,
@@ -1853,10 +2243,12 @@ export function Slides2Editor({
         sourceHash: source.sourceHash,
       },
       target ? { line: target.line, column: target.column } : null,
+      hasUnsavedEdits,
     );
     onSelectionChange(selected, textRange);
   }, [
     distinctSelected,
+    hasUnsavedEdits,
     onSelectionChange,
     selected,
     selectedTextRange,
@@ -1880,19 +2272,24 @@ export function Slides2Editor({
       }
       return;
     }
-    const target = nodes.find(
-      (node) =>
-        node.line === pendingSourceSelection.selection.line &&
-        node.column === pendingSourceSelection.selection.column,
+    const targets = pendingSourceSelection.selections.map((selection) =>
+      nodes.find(
+        (node) =>
+          node.line === selection.line && node.column === selection.column,
+      ),
     );
-    if (!target) return;
-    selectedIdsRef.current = [target.nodeId];
-    setSelectedIds([target.nodeId]);
+    if (targets.some((target) => !target)) return;
+    const resolvedTargets = targets as ElementSnapshot[];
+    const nextSelectedIds = resolvedTargets.map((target) => target.nodeId);
+    selectedIdsRef.current = nextSelectedIds;
+    setSelectedIds(nextSelectedIds);
     controllerRef.current?.send({
       type: "inspect",
-      targets: [
-        { line: target.line, column: target.column, nodeId: target.nodeId },
-      ],
+      targets: resolvedTargets.map((target) => ({
+        line: target.line,
+        column: target.column,
+        nodeId: target.nodeId,
+      })),
     });
     setPendingSourceSelection(null);
   }, [artifact?.revision, nodes, pendingSourceSelection]);
@@ -1953,6 +2350,7 @@ export function Slides2Editor({
   const appendEdits = useCallback(
     (edits: SourceEdit[]) => {
       if (!edits.length) return;
+      if (rejectUnsafeRenderedTargets(edits)) return;
       bumpHistoryVersion();
       setSaveError(null);
       if (crossSlideHistory) {
@@ -1965,7 +2363,13 @@ export function Slides2Editor({
         setHistoryIndex(bounded.length);
       }
     },
-    [bumpHistoryVersion, crossSlideHistory, editBatches, historyIndex],
+    [
+      bumpHistoryVersion,
+      crossSlideHistory,
+      editBatches,
+      historyIndex,
+      rejectUnsafeRenderedTargets,
+    ],
   );
 
   const applyImageCrop = useCallback(
@@ -2022,14 +2426,46 @@ export function Slides2Editor({
     [canEdit],
   );
 
+  const openImageCrop = useCallback(
+    (target: ElementSnapshot | null | undefined) => {
+      if (!canEdit || target?.tagName.toLowerCase() !== "img") return;
+      setHoveredTarget(null);
+      const ids = [target.nodeId];
+      selectedIdsRef.current = ids;
+      setSelectedIds(ids);
+      setNodes((current) => [
+        ...current.filter((node) => node.nodeId !== target.nodeId),
+        target,
+      ]);
+      setGuideLines([]);
+      setInlineNode(null);
+      setImageCropOpen(true);
+      controllerRef.current?.send({
+        type: "inspect",
+        targets: [
+          { line: target.line, column: target.column, nodeId: target.nodeId },
+        ],
+      });
+    },
+    [canEdit],
+  );
+
   const handleNodes = useCallback((nextNodes: ElementSnapshot[]) => {
     setNodes((current) => {
       const currentById = new Map(current.map((node) => [node.nodeId, node]));
       const nextById = new Map(nextNodes.map((node) => [node.nodeId, node]));
       for (const node of nextNodes) {
         const previous = currentById.get(node.nodeId);
-        if (previous?.transform && !node.transform)
-          nextById.set(node.nodeId, { ...node, transform: previous.transform });
+        if (!previous) continue;
+        const keepTransform = Boolean(previous.transform && !node.transform);
+        const keepImageSrc = Boolean(previous.imageSrc && !node.imageSrc);
+        if (keepTransform || keepImageSrc) {
+          nextById.set(node.nodeId, {
+            ...node,
+            ...(keepTransform ? { transform: previous.transform } : {}),
+            ...(keepImageSrc ? { imageSrc: previous.imageSrc } : {}),
+          });
+        }
       }
       return [...nextById.values()];
     });
@@ -2117,7 +2553,7 @@ export function Slides2Editor({
   const beginPointerInteraction = useCallback(
     (pointer: FramePointer) => {
       if (pointer.phase !== "down" || pointer.button !== 0) return;
-      const hitTarget = pointer.target?.snapshot;
+      const hitTarget = preferredPointerTarget(pointer)?.snapshot;
       const target =
         hitTarget &&
         isFullSlideBounds(hitTarget.bounds) &&
@@ -2231,7 +2667,7 @@ export function Slides2Editor({
             pointerId: pointer.pointerId,
             start: { x: pointer.x, y: pointer.y },
             moved: false,
-            target: pointer.target?.snapshot ?? null,
+            target: preferredPointerTarget(pointer)?.snapshot ?? null,
           };
           return;
         }
@@ -2249,7 +2685,8 @@ export function Slides2Editor({
           commentGestureRef.current = null;
           if (pointer.phase !== "up") return;
 
-          const target = pointer.target?.snapshot ?? gesture.target;
+          const target =
+            preferredPointerTarget(pointer)?.snapshot ?? gesture.target;
           const slideRect = { left: 0, top: 0, width: 1920, height: 1080 };
           void (async () => {
             let sourceHash =
@@ -2332,18 +2769,21 @@ export function Slides2Editor({
         return;
       }
       if (pointer.phase === "double-click") {
-        openInlineTextEditor(pointer.target?.snapshot, {
-          x: pointer.x,
-          y: pointer.y,
-        });
+        const target = preferredPointerTarget(pointer)?.snapshot;
+        if (target?.tagName.toLowerCase() === "img") {
+          openImageCrop(target);
+        } else {
+          openInlineTextEditor(target, { x: pointer.x, y: pointer.y });
+        }
         return;
       }
       if (inlineNode) return;
       if (pointer.phase === "down") {
+        const pointerTarget = preferredPointerTarget(pointer);
         setHoveredNode(
           pointer.pointerType === "touch"
             ? null
-            : (pointer.target?.nodeId ?? null),
+            : (pointerTarget?.nodeId ?? null),
         );
         beginPointerInteraction(pointer);
         return;
@@ -2461,7 +2901,31 @@ export function Slides2Editor({
         !drag.moved &&
         pointer.phase === "up"
       ) {
-        if (!drag.additive) {
+        const reportedTarget = pointer.target?.snapshot;
+        const pointTarget = preferredPointerTarget(pointer)?.snapshot;
+        const hasCanvasTarget =
+          reportedTarget && isFullSlideBounds(reportedTarget.bounds);
+        const clickTarget =
+          pointTarget && !isFullSlideBounds(pointTarget.bounds)
+            ? pointTarget
+            : !reportedTarget ||
+                (hasCanvasTarget &&
+                  !selectedIdsRef.current.includes(reportedTarget.nodeId))
+              ? elementAtPoint(nodes, { x: pointer.x, y: pointer.y })
+              : reportedTarget;
+        if (clickTarget) {
+          beginPointerInteraction({
+            ...pointer,
+            phase: "down",
+            target: {
+              line: clickTarget.line,
+              column: clickTarget.column,
+              nodeId: clickTarget.nodeId,
+              snapshot: clickTarget,
+            },
+          });
+          dragRef.current = null;
+        } else if (!drag.additive) {
           selectedIdsRef.current = [];
           setSelectedIds([]);
           inspect([]);
@@ -2489,6 +2953,7 @@ export function Slides2Editor({
       inlineNode,
       nodes,
       openInlineTextEditor,
+      openImageCrop,
       restoreActivePreview,
       setCommentDraftAnchor,
       setCommentMode,
@@ -2544,6 +3009,122 @@ export function Slides2Editor({
         : {}),
     };
     event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleTransformKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    handle: ResizeHandle | "rotate",
+  ) => {
+    if (
+      !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(
+        event.key,
+      ) ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const node = selected[0];
+    const bounds = selectionBounds;
+    if (
+      !canEdit ||
+      commentMode ||
+      saving ||
+      structuralSaving ||
+      selected.length !== 1 ||
+      !node ||
+      !bounds
+    ) {
+      return;
+    }
+
+    if (handle === "rotate") {
+      const direction =
+        event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 : -1;
+      const rotation =
+        node.transform?.rotation ??
+        Number.parseFloat(node.styles.rotate ?? "0");
+      const currentRotation = Number.isFinite(rotation) ? rotation : 0;
+      const nextRotation = event.shiftKey
+        ? direction > 0
+          ? (Math.floor(currentRotation / 15) + 1) * 15
+          : (Math.ceil(currentRotation / 15) - 1) * 15
+        : currentRotation + direction;
+      appendEdits([
+        editFor(node, [
+          {
+            kind: "set-style",
+            key: "rotate",
+            value: `${round(nextRotation)}deg`,
+            ...(node.text ? { prevText: node.text } : {}),
+          },
+        ]),
+      ]);
+      return;
+    }
+
+    const horizontal = handle.includes("w") || handle.includes("e");
+    const vertical = handle.includes("n") || handle.includes("s");
+    const delta = event.shiftKey ? 10 : 1;
+    const movement = {
+      x:
+        event.key === "ArrowLeft"
+          ? -delta
+          : event.key === "ArrowRight"
+            ? delta
+            : 0,
+      y:
+        event.key === "ArrowUp"
+          ? -delta
+          : event.key === "ArrowDown"
+            ? delta
+            : 0,
+    };
+    if ((movement.x !== 0 && !horizontal) || (movement.y !== 0 && !vertical)) {
+      return;
+    }
+
+    const next = resizeRect(bounds, handle, movement, event.shiftKey);
+    if (
+      next.x === bounds.x &&
+      next.y === bounds.y &&
+      next.width === bounds.width &&
+      next.height === bounds.height
+    ) {
+      return;
+    }
+    const initialSize = {
+      width: node.transform?.width ?? node.bounds.width,
+      height: node.transform?.height ?? node.bounds.height,
+    };
+    const solved = resizeDimensionsForBounds(node, initialSize, bounds, next);
+    appendEdits([
+      editFor(node, [
+        {
+          kind: "set-style",
+          key: "width",
+          value: `${Math.max(8, round(solved.width))}px`,
+          ...(node.text ? { prevText: node.text } : {}),
+        },
+        {
+          kind: "set-style",
+          key: "height",
+          value: `${Math.max(8, round(solved.height))}px`,
+          ...(node.text ? { prevText: node.text } : {}),
+        },
+        {
+          kind: "set-style",
+          key: "translate",
+          value: localTranslateForBounds(node, next.x, next.y),
+          ...(node.text ? { prevText: node.text } : {}),
+        },
+      ]),
+    ]);
   };
 
   const handleOverlayPointerMove = (
@@ -2795,6 +3376,7 @@ export function Slides2Editor({
   const persistEdits = async (edits: SourceEdit[]): Promise<boolean> => {
     if (!edits.length) return true;
     if (saving || !canEdit) return false;
+    if (rejectUnsafeRenderedTargets(edits)) return false;
     bumpHistoryVersion();
     setSaveError(null);
     try {
@@ -2830,11 +3412,31 @@ export function Slides2Editor({
     ]);
   };
 
+  const acceptSourceReplacement = (
+    result: Pick<SlideSource, "sourceTsx" | "revision" | "sourceHash">,
+    selections: SourceSelection[] = [],
+  ) => {
+    recordCommittedSource(result);
+    setEditBatches([]);
+    setHistoryIndex(0);
+    selectedIdsRef.current = [];
+    setSelectedIds([]);
+    setNodes([]);
+    setPendingSourceSelection(
+      selections.length ? { revision: result.revision, selections } : null,
+    );
+    controllerRef.current?.send({ type: "clear-preview" });
+  };
+
   const commitSourceReplacement = async (
     sourceTsx: string,
     selection?: SourceSelection,
+    editedTargets: SourceSelection[] = [],
   ): Promise<boolean> => {
     if (!canEdit || saving) return false;
+    if (editedTargets.length && rejectUnsafeRenderedTargets(editedTargets)) {
+      return false;
+    }
     if (hasUnsavedEdits) {
       setSaveError(t("slides2Editor.saveBeforeStructureEdit"));
       return false;
@@ -2843,16 +3445,7 @@ export function Slides2Editor({
     setSaveError(null);
     try {
       const result = await onRestore(sourceTsx, committedSourceRef.current);
-      recordCommittedSource(result);
-      setEditBatches([]);
-      setHistoryIndex(0);
-      selectedIdsRef.current = [];
-      setSelectedIds([]);
-      setNodes([]);
-      setPendingSourceSelection(
-        selection ? { revision: result.revision, selection } : null,
-      );
-      controllerRef.current?.send({ type: "clear-preview" });
+      acceptSourceReplacement(result, selection ? [selection] : []);
       return true;
     } catch (error) {
       setSaveError(
@@ -2862,9 +3455,160 @@ export function Slides2Editor({
     }
   };
 
+  const transformErrorMessage = (error: unknown) => {
+    const errorCode = getEditorActionErrorCode(error);
+    const messageKey =
+      errorCode === "slide_transform_unsupported" ||
+      errorCode === "slide_transform_selection_required"
+        ? "slides2Editor.objectStructureUnsupported"
+        : (getEditorActionErrorTranslationKey(error) ?? "settings.saveFailed");
+    setSaveError(t(messageKey));
+  };
+
+  const writeCurrentSelectionForTransform = async (
+    targets: ElementSnapshot[],
+    currentSource: Pick<SlideSource, "revision" | "sourceHash">,
+  ): Promise<boolean> => {
+    if (rejectUnsafeRenderedTargets(targets)) return false;
+    if (
+      !artifact ||
+      artifact.deckId !== deckId ||
+      artifact.slideId !== source.id ||
+      artifact.revision !== currentSource.revision ||
+      artifact.sourceHash !== currentSource.sourceHash
+    ) {
+      toast.error(t("slides2Editor.objectStructureUnsupported"));
+      return false;
+    }
+    await writeClientAppState(
+      appStateKeyForBrowserTab(appStateKey("slides-selection"), TAB_ID),
+      {
+        deckId,
+        slideId: source.id,
+        slideIndex: activeIndex,
+        slideNumber: activeIndex + 1,
+        sourceRevision: currentSource.revision,
+        sourceHash: currentSource.sourceHash,
+        items: targets.map((node) => ({
+          sourceLine: node.line,
+          sourceColumn: node.column,
+          ...(typeof node.instanceIndex === "number"
+            ? { instanceIndex: node.instanceIndex }
+            : {}),
+          ...(typeof node.instanceCount === "number"
+            ? { instanceCount: node.instanceCount }
+            : {}),
+          sourceTag: node.tagName,
+          sourceText: node.text.slice(0, 300),
+          sourceStyle: node.styles,
+        })),
+      },
+      { keepalive: true, requestSource: TAB_ID },
+    );
+    return true;
+  };
+
+  const groupObjects = async () => {
+    if (
+      !canEdit ||
+      saving ||
+      structuralSaving ||
+      transformSlideObjects.isPending ||
+      distinctSelected.length < 2
+    ) {
+      return;
+    }
+    if (hasUnsavedEdits) {
+      setSaveError(t("slides2Editor.saveBeforeStructureEdit"));
+      return;
+    }
+    setSaveError(null);
+    const currentSource = committedSourceRef.current;
+    try {
+      if (
+        !(await writeCurrentSelectionForTransform(
+          distinctSelected,
+          currentSource,
+        ))
+      ) {
+        return;
+      }
+      const result = await transformSlideObjects.mutateAsync({
+        deckId,
+        slideId: source.id,
+        expectedRevision: currentSource.revision,
+        expectedSourceHash: currentSource.sourceHash,
+        operation: {
+          op: "group",
+          targets: distinctSelected.map(({ line, column }) => ({
+            line,
+            column,
+          })),
+        },
+      });
+      const selection =
+        result.createdLocator ??
+        (result.createdObjectId
+          ? sourceSelectionForObjectId(result.sourceTsx, result.createdObjectId)
+          : null);
+      acceptSourceReplacement(result, selection ? [selection] : []);
+    } catch (error) {
+      transformErrorMessage(error);
+    }
+  };
+
+  const ungroupObjects = async () => {
+    const target = distinctSelected.length === 1 ? distinctSelected[0] : null;
+    if (
+      !canEdit ||
+      saving ||
+      structuralSaving ||
+      transformSlideObjects.isPending ||
+      !target ||
+      !selectedGroupChildIds
+    ) {
+      return;
+    }
+    if (hasUnsavedEdits) {
+      setSaveError(t("slides2Editor.saveBeforeStructureEdit"));
+      return;
+    }
+    setSaveError(null);
+    const currentSource = committedSourceRef.current;
+    try {
+      if (!(await writeCurrentSelectionForTransform([target], currentSource))) {
+        return;
+      }
+      const result = await transformSlideObjects.mutateAsync({
+        deckId,
+        slideId: source.id,
+        expectedRevision: currentSource.revision,
+        expectedSourceHash: currentSource.sourceHash,
+        operation: {
+          op: "ungroup",
+          target: { line: target.line, column: target.column },
+        },
+      });
+      const selections = selectedGroupChildIds
+        .map((objectId) =>
+          sourceSelectionForObjectId(result.sourceTsx, objectId),
+        )
+        .filter(
+          (selection): selection is SourceSelection => selection !== null,
+        );
+      acceptSourceReplacement(
+        result,
+        selections.length === selectedGroupChildIds.length ? selections : [],
+      );
+    } catch (error) {
+      transformErrorMessage(error);
+    }
+  };
+
   const duplicateObject = async () => {
     const target = distinctSelected.length === 1 ? distinctSelected[0] : null;
     if (!canEdit || saving || !target) return;
+    if (rejectUnsafeRenderedTargets([target])) return;
     if (hasUnsavedEdits) {
       setSaveError(t("slides2Editor.saveBeforeStructureEdit"));
       return;
@@ -2880,12 +3624,13 @@ export function Slides2Editor({
       setSaveError(t("slides2Editor.objectStructureUnsupported"));
       return;
     }
-    await commitSourceReplacement(result.sourceTsx, result.selection);
+    await commitSourceReplacement(result.sourceTsx, result.selection, [target]);
   };
 
   const deleteObject = async () => {
     const target = distinctSelected.length === 1 ? distinctSelected[0] : null;
     if (!canEdit || saving || !target) return;
+    if (rejectUnsafeRenderedTargets([target])) return;
     if (hasUnsavedEdits) {
       setSaveError(t("slides2Editor.saveBeforeStructureEdit"));
       return;
@@ -2898,7 +3643,7 @@ export function Slides2Editor({
       setSaveError(t("slides2Editor.objectStructureUnsupported"));
       return;
     }
-    await commitSourceReplacement(result.sourceTsx);
+    await commitSourceReplacement(result.sourceTsx, undefined, [target]);
   };
 
   const insertAsset = async (
@@ -2919,10 +3664,14 @@ export function Slides2Editor({
         assetId,
       );
       if (!sourceTsx) return t(failureKey);
-      const saved = await commitSourceReplacement(sourceTsx, {
-        line: assetTarget.line,
-        column: assetTarget.column,
-      });
+      const saved = await commitSourceReplacement(
+        sourceTsx,
+        {
+          line: assetTarget.line,
+          column: assetTarget.column,
+        },
+        [assetTarget],
+      );
       return saved ? null : t(failureKey);
     }
     if (type.startsWith("video/") && !isVideo) return t(failureKey);
@@ -3008,7 +3757,24 @@ export function Slides2Editor({
   );
 
   const present = async (mode: "fullscreen" | "windowed" = "fullscreen") => {
-    if (hasUnsavedEdits && !(await save())) return;
+    let fullscreenRequest: Promise<boolean> | undefined;
+    if (mode === "fullscreen" && onRequestFullscreen) {
+      try {
+        fullscreenRequest = Promise.resolve(onRequestFullscreen()).catch(
+          () => false,
+        );
+      } catch {
+        fullscreenRequest = Promise.resolve(false);
+      }
+    }
+
+    if (hasUnsavedEdits && !(await save())) {
+      if ((await fullscreenRequest) && document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => undefined);
+      }
+      return;
+    }
+    if (fullscreenRequest) await fullscreenRequest;
     onPresent(mode);
   };
 
@@ -3199,7 +3965,7 @@ export function Slides2Editor({
     if (ids.length) window.requestAnimationFrame(() => inspect(ids));
   };
 
-  const dispatchEditorShortcut = (action: string) => {
+  const dispatchEditorShortcut = (action: string, delta?: Point) => {
     switch (action) {
       case "select-all":
         if (
@@ -3221,6 +3987,18 @@ export function Slides2Editor({
       case "toggle-inspector":
         toggleInspector();
         break;
+      case "preview-mode":
+        if (!previewMode) togglePreviewMode();
+        break;
+      case "edit-mode":
+        if (previewMode) togglePreviewMode();
+        break;
+      case "toggle-comment-mode":
+        if (!canComment) return;
+        if (previewMode) togglePreviewMode();
+        commentGestureRef.current = null;
+        setCommentMode((value) => !value);
+        break;
       case "present-fullscreen":
         void present("fullscreen");
         break;
@@ -3234,6 +4012,18 @@ export function Slides2Editor({
       case "edit-selected-text":
         openInlineTextEditor(selectionNodes(selectedIdsRef.current)[0]);
         break;
+      case "delete-selected-object":
+        void deleteObject();
+        break;
+      case "nudge-selected-object": {
+        if (!delta) return;
+        const targets = selectionNodes(selectedIdsRef.current);
+        if (!targets.length) return;
+        appendEdits(
+          targets.map((node) => applyTranslate(node, delta.x, delta.y)),
+        );
+        break;
+      }
       case "previous-slide":
         onSelectSlide(Math.max(0, activeIndex - 1));
         break;
@@ -3520,12 +4310,13 @@ export function Slides2Editor({
       },
     ) => {
       const command = modifiers.ctrlKey || modifiers.metaKey;
+      if (shouldIgnoreModifiedArrowNavigation(key, modifiers)) return;
       if (!modifiers.altKey && command && key.toLowerCase() === "z") {
         if (modifiers.shiftKey) redo();
         else undo();
         return;
       }
-      if (!modifiers.altKey && command && key.toLowerCase() === "y") {
+      if (!modifiers.altKey && modifiers.ctrlKey && key.toLowerCase() === "y") {
         redo();
         return;
       }
@@ -3542,23 +4333,6 @@ export function Slides2Editor({
         setSelectedIds([]);
         setGestureSelectionIds(null);
         setGuideLines([]);
-        return;
-      }
-      if (
-        canEdit &&
-        !commentMode &&
-        selectedIdsRef.current.length &&
-        !modifiers.altKey &&
-        !modifiers.ctrlKey &&
-        !modifiers.metaKey &&
-        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(key)
-      ) {
-        const delta = modifiers.shiftKey ? 10 : 1;
-        const dx =
-          key === "ArrowLeft" ? -delta : key === "ArrowRight" ? delta : 0;
-        const dy = key === "ArrowUp" ? -delta : key === "ArrowDown" ? delta : 0;
-        const selectedNodes = selectionNodes(selectedIdsRef.current);
-        appendEdits(selectedNodes.map((node) => applyTranslate(node, dx, dy)));
         return;
       }
       if (key === "PageDown" || key === "ArrowRight" || key === " ") {
@@ -3591,20 +4365,38 @@ export function Slides2Editor({
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229)
         return;
 
-      const selectedNudge =
-        canEdit &&
-        !commentMode &&
-        selectedIdsRef.current.length > 0 &&
+      const eventTarget = event.target;
+      const typingTarget =
+        eventTarget instanceof HTMLElement &&
+        (eventTarget.isContentEditable ||
+          eventTarget.matches("input, textarea"));
+      if (
+        !typingTarget &&
         !event.altKey &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key);
-      const shortcut = selectedNudge
-        ? null
-        : getSlides2EditorShortcut(event, {
-            overviewOpen,
-            hasSelectedText: canEditSelectedText,
-          });
+        !event.shiftKey &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "k"
+      ) {
+        event.preventDefault();
+        setCommandMenuOpen(true);
+        return;
+      }
+
+      const shortcut = getSlides2EditorShortcut(event, {
+        overviewOpen,
+        hasSelectedText: canEditSelectedText,
+        hasSelectedObject:
+          canEdit &&
+          !saving &&
+          !structuralSaving &&
+          !previewMode &&
+          !commentMode &&
+          !assetBrowserOpen &&
+          !imageCropOpen &&
+          !commandMenuOpen &&
+          distinctSelected.length > 0,
+        canComment,
+      });
       if (shortcut) {
         if (shortcut.preventDefault) event.preventDefault();
         if (previewMode && shortcut.action === "previous-slide") {
@@ -3612,7 +4404,7 @@ export function Slides2Editor({
         } else if (previewMode && shortcut.action === "next-slide") {
           goPreviewNext();
         } else {
-          dispatchEditorShortcut(shortcut.action);
+          dispatchEditorShortcut(shortcut.action, shortcut.delta);
         }
         return;
       }
@@ -3634,6 +4426,7 @@ export function Slides2Editor({
           imageCropOpen
         )
           return;
+        if (shouldIgnoreModifiedArrowNavigation(event.key, event)) return;
         if (event.key === "Escape") {
           event.preventDefault();
           togglePreviewMode();
@@ -3667,6 +4460,7 @@ export function Slides2Editor({
           ))
       )
         return;
+      if (shouldIgnoreModifiedArrowNavigation(event.key, event)) return;
       if (
         !event.isComposing &&
         event.keyCode !== 229 &&
@@ -3682,6 +4476,8 @@ export function Slides2Editor({
         setCommentMode(false);
         return;
       }
+      const command = !event.altKey && (event.ctrlKey || event.metaKey);
+      const key = event.key.toLowerCase();
       if (
         event.key === "Escape" ||
         event.key === "PageDown" ||
@@ -3693,9 +4489,8 @@ export function Slides2Editor({
         event.key === "Home" ||
         event.key === "End" ||
         event.key === " " ||
-        (!event.altKey &&
-          (event.ctrlKey || event.metaKey) &&
-          ["z", "y"].includes(event.key.toLowerCase()))
+        (command && key === "z") ||
+        (!event.altKey && event.ctrlKey && key === "y")
       ) {
         event.preventDefault();
         keyCommand(event.key, event);
@@ -3745,9 +4540,10 @@ export function Slides2Editor({
       if (shortcut) {
         if (shortcut.action === "previous-slide") goPreviewPrevious();
         else if (shortcut.action === "next-slide") goPreviewNext();
-        else dispatchEditorShortcut(shortcut.action);
+        else dispatchEditorShortcut(shortcut.action, shortcut.delta);
         return;
       }
+      if (shouldIgnoreModifiedArrowNavigation(keyboard.key, keyboard)) return;
       if (keyboard.key === "Escape") togglePreviewMode();
       else if (keyboard.key === "ArrowLeft" || keyboard.key === "PageUp")
         goPreviewPrevious();
@@ -3778,32 +4574,29 @@ export function Slides2Editor({
         handlePreviewFrameKeyboard(keyboard);
         return;
       }
-      const selectedNudge =
-        canEdit &&
-        !commentMode &&
-        selectedIdsRef.current.length > 0 &&
-        !keyboard.isTypingTarget &&
-        !keyboard.isControlTarget &&
-        !keyboard.isComposing &&
-        keyboard.keyCode !== 229 &&
-        !keyboard.altKey &&
-        !keyboard.ctrlKey &&
-        !keyboard.metaKey &&
-        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(
-          keyboard.key,
-        );
-      const shortcut = selectedNudge
-        ? null
-        : getSlides2EditorShortcut(new KeyboardEvent("keydown", keyboard), {
-            overviewOpen,
-            hasSelectedText: canEditSelectedText,
-            isTypingTarget: keyboard.isTypingTarget,
-            isControlTarget: keyboard.isControlTarget,
-            isComposing: keyboard.isComposing,
-            keyCode: keyboard.keyCode,
-          });
+      const shortcut = getSlides2EditorShortcut(
+        new KeyboardEvent("keydown", keyboard),
+        {
+          overviewOpen,
+          hasSelectedText: canEditSelectedText,
+          hasSelectedObject:
+            canEdit &&
+            !saving &&
+            !structuralSaving &&
+            !commentMode &&
+            !assetBrowserOpen &&
+            !imageCropOpen &&
+            !commandMenuOpen &&
+            distinctSelected.length > 0,
+          canComment,
+          isTypingTarget: keyboard.isTypingTarget,
+          isControlTarget: keyboard.isControlTarget,
+          isComposing: keyboard.isComposing,
+          keyCode: keyboard.keyCode,
+        },
+      );
       if (shortcut) {
-        dispatchEditorShortcut(shortcut.action);
+        dispatchEditorShortcut(shortcut.action, shortcut.delta);
         return;
       }
       if (
@@ -3832,12 +4625,15 @@ export function Slides2Editor({
       canEditSelectedText,
       commentMode,
       commandMenuOpen,
+      distinctSelected.length,
       dispatchEditorShortcut,
       handlePreviewFrameKeyboard,
       imageCropOpen,
       keyCommand,
       overviewOpen,
       previewMode,
+      saving,
+      structuralSaving,
       toggleDesignPanel,
     ],
   );
@@ -3916,54 +4712,149 @@ export function Slides2Editor({
       ? (nodes.find((node) => node.nodeId === hoveredTarget.nodeId) ?? null)
       : null;
   const canvasScale = fitScale > 0 ? fitScale : 1;
+  const handleSize = 12 / canvasScale;
+  const rotateHandleTop = -28 / canvasScale;
+  const rotateStemLength = 16 / canvasScale;
   const sliderPosition = activeSlide?.slideNumber ?? activeIndex + 1;
   const fitToScreen = () => setZoom(1);
+  const inspectorTitle =
+    activePanel === "format"
+      ? t("slides2Editor.format")
+      : activePanel === "design"
+        ? t("slides2Editor.design")
+        : activePanel === "motion"
+          ? t("slides2Editor.motion")
+          : t("presentation.speakerNotes");
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
-      <header className="grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-[hsl(var(--sidebar-border))] bg-[hsl(var(--surface))] px-3">
-        <div className="flex min-w-0 items-center gap-1">
-          <Button asChild type="button" variant="ghost" size="icon">
+    <div
+      data-slides2-editor
+      className="@container/editor-header flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground"
+    >
+      <header className="grid min-h-11 shrink-0 grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_auto] items-center gap-x-2 gap-y-1 border-b border-[hsl(var(--sidebar-border))] bg-[hsl(var(--surface))] px-3 py-1 @min-[72rem]/editor-header:h-12 @min-[72rem]/editor-header:grid-cols-[auto_minmax(0,1fr)_auto] @min-[72rem]/editor-header:grid-rows-1 @min-[72rem]/editor-header:gap-2 @min-[72rem]/editor-header:gap-y-0 @min-[72rem]/editor-header:py-0">
+        <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2">
+          <Button
+            asChild
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7"
+          >
             <Link to={backHref} aria-label={t("editorToolbar.backToDecks")}>
               <IconArrowLeft className="size-4" />
             </Link>
           </Button>
-          <div className={previewMode ? "hidden" : "flex items-center gap-1"}>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={undo}
-              disabled={!canUndo || saving}
-              aria-label={t("editorToolbar.undo")}
+          <Separator orientation="vertical" className="mx-0.5 h-5" />
+          <div
+            role="group"
+            aria-label={t("header.slides")}
+            className="inline-flex items-center rounded-md border border-border/70 bg-muted/20 p-0.5"
+          >
+            <span
+              aria-current="page"
+              className="inline-flex h-6 items-center rounded-sm bg-accent px-2.5 text-xs font-medium text-foreground"
             >
-              <IconArrowBackUp className="size-4" />
-            </Button>
+              {t("header.slides")}
+            </span>
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              onClick={redo}
-              disabled={!canRedo || saving}
-              aria-label={t("editorToolbar.redo")}
-            >
-              <IconArrowForwardUp className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
+              size="xs"
+              className="px-2.5"
               onClick={() => setAssetBrowserOpen(true)}
-              aria-label={t("editorToolbar.assetLibrary")}
-              title={t("editorToolbar.assetLibrary")}
+              aria-label={t("editorToolbar.assets")}
+              title={t("editorToolbar.assets")}
             >
-              <IconPhoto className="size-4" aria-hidden="true" />
+              {t("editorToolbar.assets")}
+            </Button>
+          </div>
+          <Slides2AgentConnectionBadge />
+          <span
+            ref={titleMeasureRef}
+            aria-hidden="true"
+            data-slides2-title-measure
+            className="pointer-events-none fixed -left-[9999px] whitespace-pre font-heading text-[13.5px] font-semibold tracking-[-0.01em] opacity-0"
+          >
+            {titleDraft || " "}
+          </span>
+        </div>
+        {titleEditing ? (
+          <Input
+            ref={titleInputRef}
+            aria-label={t("deckCard.rename")}
+            className="col-span-2 row-start-2 h-8 min-w-0 w-full max-w-full justify-self-center rounded-[5px] border border-foreground/30 bg-card px-2 py-0.5 text-center font-heading text-[13.5px] md:text-[13.5px] font-semibold tracking-[-0.01em] outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-100 @min-[72rem]/editor-header:col-span-1 @min-[72rem]/editor-header:col-start-2 @min-[72rem]/editor-header:row-start-1 @min-[72rem]/editor-header:max-w-[min(40vw,48rem)] @min-[72rem]/editor-header:justify-self-center"
+            disabled={structuralSaving || titleSaving}
+            maxLength={80}
+            onBlur={(event) => {
+              if (discardTitleDraftOnBlurRef.current) {
+                discardTitleDraftOnBlurRef.current = false;
+                return;
+              }
+              void finishTitleEdit(event.currentTarget.value);
+            }}
+            onChange={(event) => setTitleDraft(event.currentTarget.value)}
+            onKeyDown={handleTitleKeyDown}
+            readOnly={!canEdit || !onTitleChange}
+            spellCheck={false}
+            style={{ width: `${titleInputWidth}px` }}
+            title={titleDraft}
+            value={titleDraft}
+          />
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label={t("deckCard.rename")}
+            className="col-span-2 row-start-2 flex h-8 min-w-0 w-full max-w-full items-center justify-center justify-self-center rounded-[5px] border border-transparent bg-transparent px-2 py-0.5 text-center font-heading text-[13.5px] font-semibold tracking-[-0.01em] transition-colors duration-100 active:scale-100 hover:border-foreground/30 hover:bg-card focus-visible:border-foreground/30 focus-visible:bg-card focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-default disabled:opacity-100 disabled:hover:border-transparent disabled:hover:bg-transparent @min-[72rem]/editor-header:col-span-1 @min-[72rem]/editor-header:col-start-2 @min-[72rem]/editor-header:row-start-1 @min-[72rem]/editor-header:max-w-[min(40vw,48rem)] @min-[72rem]/editor-header:justify-self-center"
+            disabled={!canEdit || !onTitleChange || structuralSaving}
+            onClick={() => setTitleEditing(true)}
+            style={{ width: `${titleInputWidth}px` }}
+            title={titleDraft}
+          >
+            <h1 className="truncate">{titleDraft}</h1>
+          </Button>
+        )}
+        <div className="col-start-2 row-start-1 flex min-w-0 flex-wrap items-center justify-end gap-1 @min-[72rem]/editor-header:flex-nowrap @min-[72rem]/editor-header:col-start-3 @min-[72rem]/editor-header:row-start-1">
+          <div
+            role="group"
+            aria-label={t("editorToolbar.preview")}
+            className="inline-flex h-8 items-center rounded-lg border border-border/70 bg-muted/70 p-0.5"
+          >
+            <Button
+              type="button"
+              variant={previewMode ? "secondary" : "ghost"}
+              size="icon-sm"
+              className="h-full w-8"
+              aria-label={t("slides2Editor.preview")}
+              aria-pressed={previewMode}
+              title={t("slides2Editor.preview")}
+              onClick={() => {
+                if (!previewMode) togglePreviewMode();
+              }}
+            >
+              <IconEye className="size-3.5" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant={previewMode ? "ghost" : "secondary"}
+              size="icon-sm"
+              className="h-full w-8"
+              aria-label={t("slides2Editor.edit")}
+              aria-pressed={!previewMode}
+              title={t("slides2Editor.edit")}
+              onClick={() => {
+                if (previewMode) togglePreviewMode();
+              }}
+            >
+              <IconPencil className="size-3.5" aria-hidden="true" />
             </Button>
             {canComment ? (
               <Button
                 type="button"
                 variant={commentMode ? "secondary" : "ghost"}
-                size="icon"
+                size="icon-sm"
+                className="h-full w-8"
                 aria-label={t("comments.addComment")}
                 aria-pressed={commentMode}
                 title={t("comments.clickToAddComment")}
@@ -3972,56 +4863,29 @@ export function Slides2Editor({
                   setCommentMode((value) => !value);
                 }}
               >
-                <IconMessageCircle className="size-4" aria-hidden="true" />
+                <IconMessageCircle className="size-3.5" aria-hidden="true" />
               </Button>
             ) : null}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={!canEdit || saving || structuralSaving}
-                  aria-label={t("slides2Editor.insertObjects")}
-                  title={t("slides2Editor.insertObjects")}
-                >
-                  <IconPlus className="me-1 size-4" aria-hidden="true" />
-                  {t("slides2Editor.insertObjects")}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem onSelect={() => void insertObject("text")}>
-                  {t("slides2Editor.insertTextBox")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => void insertObject("rectangle")}
-                >
-                  {t("slides2Editor.insertRectangle")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void insertObject("ellipse")}>
-                  {t("slides2Editor.insertEllipse")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void insertObject("line")}>
-                  {t("slides2Editor.insertLine")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setCommandMenuOpen(true)}
-              aria-label={t("slides2Editor.commands")}
-              title={t("slides2Editor.commandShortcutHint")}
-            >
-              <IconSearch className="size-4" aria-hidden="true" />
-            </Button>
           </div>
-        </div>
-        <span className="min-w-0 max-w-[28rem] justify-self-center truncate text-center text-sm font-medium">
-          {title}
-        </span>
-        <div className="flex min-w-0 items-center justify-end gap-1">
+          <Separator
+            orientation="vertical"
+            className="mx-0.5 hidden h-5 md:block"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => void copyLink()}
+            aria-label={t("share.copyLink")}
+            title={t("share.copyLink")}
+          >
+            <IconLink aria-hidden="true" />
+          </Button>
+          {onShare ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onShare}>
+              {t("share.title")}
+            </Button>
+          ) : null}
           <div className={previewMode ? "hidden" : "flex items-center gap-1"}>
             <Slides2ExportMenu
               ref={exportMenuRef}
@@ -4031,111 +4895,191 @@ export function Slides2Editor({
               aspectRatio={aspectRatio}
               onBeforeExport={save}
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void save()}
-              disabled={!hasUnsavedEdits || saving || !canEdit}
-            >
-              <IconCheck className="me-1 size-4" />
-              {saving
-                ? t("designSystemSetup.saving")
-                : t("designSystemSetup.saveChanges")}
-            </Button>
+            {hasUnsavedEdits ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void save()}
+                disabled={saving || !canEdit}
+              >
+                <IconCheck className="me-1 size-4" />
+                {saving
+                  ? t("designSystemSetup.saving")
+                  : t("designSystemSetup.saveChanges")}
+              </Button>
+            ) : null}
           </div>
-          {hasUnsavedEdits ? (
+          <div
+            role="group"
+            aria-label={t("header.tool")}
+            className="inline-flex items-center rounded-md border border-border/70 bg-muted/20 p-0.5"
+          >
             <Button
               type="button"
-              size="sm"
-              onClick={() => void present()}
-              disabled={slides.length === 0 || saving}
+              variant={
+                inspectorOpen && activePanel === "design"
+                  ? "secondary"
+                  : "ghost"
+              }
+              size="xs"
+              aria-pressed={inspectorOpen && activePanel === "design"}
+              onClick={() => showInspectorPanel("design")}
             >
-              <IconPlayerPlay className="me-1 size-4" />
-              {t("editorToolbar.present")}
+              <IconPalette className="size-4" aria-hidden="true" />
+              {t("slides2Editor.design")}
+              {import.meta.env.DEV ? (
+                <kbd
+                  aria-hidden="true"
+                  className="ms-1 rounded-sm border border-border/70 bg-muted/40 px-1 text-[10px] leading-4 text-muted-foreground"
+                >
+                  D
+                </kbd>
+              ) : null}
             </Button>
-          ) : slides.length > 0 ? (
-            <Button asChild size="sm">
-              <Link to={presentHref}>
-                <IconPlayerPlay className="me-1 size-4" />
-                {t("editorToolbar.present")}
-              </Link>
-            </Button>
-          ) : (
-            <Button size="sm" disabled>
-              <IconPlayerPlay className="me-1 size-4" />
-              {t("editorToolbar.present")}
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={t(
-              inspectorOpen
-                ? "slides2Editor.hideInspector"
-                : "slides2Editor.showInspector",
-            )}
-            title={t(
-              inspectorOpen
-                ? "slides2Editor.hideInspector"
-                : "slides2Editor.showInspector",
-            )}
-            aria-pressed={inspectorOpen}
-            onClick={toggleInspector}
-          >
-            {inspectorOpen ? (
-              <IconLayoutSidebarRightCollapse
-                className="size-4"
-                aria-hidden="true"
-              />
-            ) : (
+            <Button
+              type="button"
+              variant={
+                inspectorOpen && activePanel === "format"
+                  ? "secondary"
+                  : "ghost"
+              }
+              size="xs"
+              aria-pressed={inspectorOpen && activePanel === "format"}
+              onClick={() => showInspectorPanel("format")}
+            >
               <IconLayoutSidebarRightExpand
                 className="size-4"
                 aria-hidden="true"
               />
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant={previewMode ? "secondary" : "outline"}
-            size="sm"
-            aria-label={t(
-              previewMode ? "slides2Editor.edit" : "slides2Editor.preview",
-            )}
-            aria-pressed={previewMode}
-            onClick={togglePreviewMode}
-          >
-            {previewMode ? (
-              <IconPencil className="me-1 size-4" aria-hidden="true" />
-            ) : (
-              <IconEye className="me-1 size-4" aria-hidden="true" />
-            )}
-            {t(previewMode ? "slides2Editor.edit" : "slides2Editor.preview")}
-          </Button>
+              {t("slides2Editor.format")}
+            </Button>
+          </div>
+          <Separator
+            orientation="vertical"
+            className="mx-0.5 hidden h-5 md:block"
+          />
+          <DropdownMenu>
+            <div className="inline-flex items-center">
+              {hasUnsavedEdits ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 rounded-e-none px-2.5"
+                  data-slides2-present="true"
+                  onClick={() => void present()}
+                  disabled={slides.length === 0 || saving}
+                >
+                  <IconPlayerPlay aria-hidden="true" />
+                  {t("editorToolbar.present")}
+                </Button>
+              ) : slides.length > 0 ? (
+                <Button
+                  asChild
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 rounded-e-none px-2.5"
+                  data-slides2-present="true"
+                >
+                  <Link
+                    to={presentHref}
+                    onClick={(event) => {
+                      if (
+                        event.button !== 0 ||
+                        event.metaKey ||
+                        event.ctrlKey ||
+                        event.shiftKey ||
+                        event.altKey
+                      ) {
+                        return;
+                      }
+                      event.preventDefault();
+                      void present();
+                    }}
+                  >
+                    <IconPlayerPlay aria-hidden="true" />
+                    {t("editorToolbar.present")}
+                  </Link>
+                </Button>
+              ) : (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 rounded-e-none px-2.5"
+                  data-slides2-present="true"
+                  disabled
+                >
+                  <IconPlayerPlay aria-hidden="true" />
+                  {t("editorToolbar.present")}
+                </Button>
+              )}
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="icon-sm"
+                  className="h-7 w-6 rounded-s-none border-s border-destructive-foreground/25 p-0"
+                  data-slides2-present="true"
+                  disabled={slides.length === 0}
+                  aria-label={t("editorToolbar.more")}
+                  title={t("editorToolbar.more")}
+                >
+                  <IconChevronDown className="size-3" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+            </div>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => void present("windowed")}>
+                {t("slides2Editor.presentInWindow")}
+              </DropdownMenuItem>
+              {onOpenPresenter ? (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    onOpenPresenter();
+                    void present("windowed");
+                  }}
+                >
+                  {t("presentation.presenterView")}
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
-      <div className="flex min-h-0 flex-1 gap-2">
+      <div className="flex min-h-0 flex-1">
         <aside
-          className={`relative shrink-0 bg-[hsl(var(--surface))] ${previewMode ? "hidden" : ""}`}
+          className={`relative flex min-h-0 shrink-0 flex-col bg-[hsl(var(--surface))] ${previewMode ? "hidden" : ""}`}
           style={{ width: slideRailWidth }}
         >
           <div
             ref={slideRailListRef}
             id="slides-2-slide-list"
-            className="h-full overflow-y-auto border-e border-[hsl(var(--sidebar-border))] px-3 py-2"
+            className="min-h-0 flex-1 overflow-y-auto border-e border-[hsl(var(--sidebar-border))] px-3 pt-0 pb-2"
           >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mb-2 w-full"
-              disabled={!canEdit || structuralSaving || saving}
-              onClick={onAddSlide}
-            >
-              <IconPlus className="me-1 size-4" />
-              {t("editorSidebar.addEmptySlide")}
-            </Button>
+            <div className="mb-2 flex min-h-8 items-center justify-between gap-2 px-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                {t("editorSidebar.pages")}
+              </span>
+              <div className="flex items-center gap-2">
+                <span
+                  data-slide-rail-count="true"
+                  className="font-mono text-xs tabular-nums text-muted-foreground"
+                >
+                  {String(slides.length).padStart(2, "0")}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("slides2Presenter.overview")}
+                  title={t("slides2Presenter.overview")}
+                  onClick={() => setOverviewOpen(true)}
+                >
+                  <IconLayoutGrid className="size-4" aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
             <DndContext
               sensors={dndSensors}
               collisionDetection={closestCenter}
@@ -4149,7 +5093,7 @@ export function Slides2Editor({
                 {slides.map((slide, index) => (
                   <ContextMenu key={slide.id}>
                     <ContextMenuTrigger
-                      asChild
+                      className="mb-2 block w-full"
                       onContextMenu={() => onSelectSlide(index)}
                     >
                       <SlideThumbnail
@@ -4157,6 +5101,10 @@ export function Slides2Editor({
                         slide={slide}
                         slideIndex={index}
                         selected={index === activeIndex}
+                        cut={
+                          clipboardOperation === "cut" &&
+                          clipboardSourceSlideId === slide.id
+                        }
                         dragDisabled={!canEdit || structuralSaving || saving}
                         onSelect={() => onSelectSlide(index)}
                         onNavigate={(direction) =>
@@ -4165,6 +5113,48 @@ export function Slides2Editor({
                       />
                     </ContextMenuTrigger>
                     <ContextMenuContent>
+                      {onCopySlide ? (
+                        <ContextMenuItem
+                          disabled={!canEdit || structuralSaving || saving}
+                          onSelect={() => void onCopySlide(slide.id)}
+                        >
+                          <IconCopy className="me-2 size-4" />
+                          {t("editorSidebar.copy")}
+                        </ContextMenuItem>
+                      ) : null}
+                      {onCutSlide ? (
+                        <ContextMenuItem
+                          disabled={
+                            !canEdit ||
+                            structuralSaving ||
+                            saving ||
+                            slides.length <= 1
+                          }
+                          onSelect={() => void onCutSlide(slide.id)}
+                        >
+                          <IconScissors className="me-2 size-4" />
+                          {t("editorSidebar.cut")}
+                        </ContextMenuItem>
+                      ) : null}
+                      {onPasteSlide ? (
+                        <ContextMenuItem
+                          disabled={
+                            !canEdit ||
+                            !canPasteSlide ||
+                            (clipboardOperation === "cut" &&
+                              clipboardSourceSlideId === slide.id) ||
+                            structuralSaving ||
+                            saving
+                          }
+                          onSelect={() => void onPasteSlide(slide.id)}
+                        >
+                          <IconClipboardText className="me-2 size-4" />
+                          {t("editorSidebar.paste")}
+                        </ContextMenuItem>
+                      ) : null}
+                      {onCopySlide || onCutSlide || onPasteSlide ? (
+                        <ContextMenuSeparator />
+                      ) : null}
                       <ContextMenuItem
                         disabled={!canEdit || structuralSaving || saving}
                         onSelect={() => onDuplicateSlide(index)}
@@ -4232,197 +5222,220 @@ export function Slides2Editor({
             onKeyDown={handleSlideRailResizeKeyDown}
           />
         </aside>
-        <main className="relative flex min-w-0 flex-1 flex-col bg-[hsl(var(--surface))] pb-2">
-          <div className="relative min-h-0 flex-1 px-10 py-5">
-            {loading ? (
-              <div className="absolute inset-x-10 inset-y-5 flex items-center justify-center">
-                <Skeleton className="aspect-video w-full max-w-5xl" />
-              </div>
-            ) : artifact ? (
-              <Slides2Canvas zoom={zoom} onScaleChange={setFitScale}>
-                <div
-                  ref={stageRef}
-                  className="absolute left-0 top-0 h-[1080px] w-[1920px]"
-                  data-slides-2-stage-inner
-                  onPointerLeave={() => setHoveredNode(null)}
-                >
-                  <SandboxedSlide
-                    artifact={artifact}
-                    title={title}
-                    onNodes={handleNodes}
-                    onPointer={previewMode ? () => {} : handleFramePointer}
-                    onKeyboard={handleFrameKeyboard}
-                    onController={setFrameController}
-                    onNavigationInput={handlePreviewNavigationInput}
-                    onStepCount={handlePreviewStepCount}
-                    initialRevealedSteps={previewMode ? 0 : null}
-                    onTextRangeStyle={setTextRangeStyleSnapshot}
-                    onError={setSaveError}
-                    className="absolute inset-0"
-                  />
-                  <Slides2Comments
-                    deckId={deckId}
-                    slideId={source.id}
-                    canComment={canComment}
-                    canEdit={hasEditPermission}
-                    active={!previewMode && commentMode}
-                    sourceHash={hasUnsavedEdits ? null : source.sourceHash}
-                    sourceNodes={nodes}
-                    draftAnchor={commentDraftAnchor}
-                    onDraftDone={() => setCommentDraftAnchor(null)}
-                  />
+        <main className="relative mb-2 flex min-w-0 flex-1 flex-col bg-[hsl(var(--surface))] ps-2 pe-2">
+          <div
+            data-slides-2-stage-surface
+            className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-[hsl(var(--slides2-stage-backdrop))]"
+          >
+            <div
+              data-slides-2-stage-viewport
+              className="relative min-h-0 flex-1 ps-8 pe-10 py-5 lg:ps-10 lg:pe-10 lg:pt-5"
+            >
+              {loading ? (
+                <div className="absolute inset-x-10 inset-y-5 flex items-center justify-center">
+                  <Skeleton className="aspect-video w-full max-w-5xl" />
+                </div>
+              ) : artifact ? (
+                <Slides2Canvas zoom={zoom} onScaleChange={setFitScale}>
                   <div
-                    className={`absolute inset-0 pointer-events-none ${previewMode ? "hidden" : ""}`}
-                    onPointerMove={handleOverlayPointerMove}
-                    onPointerUp={finishOverlayPointer}
-                    onPointerCancel={finishOverlayPointer}
+                    ref={stageRef}
+                    className="absolute left-0 top-0 h-[1080px] w-[1920px]"
+                    data-slides-2-stage-inner
+                    onPointerLeave={() => setHoveredNode(null)}
                   >
-                    {hoveredNode &&
-                    !overlaySelected.some(
-                      (node) => node.nodeId === hoveredNode.nodeId,
-                    ) &&
-                    !commentMode &&
-                    !inlineNode &&
-                    !dragRef.current ? (
-                      <div
-                        className="absolute border border-dashed border-primary/70"
-                        style={{
-                          left: hoveredNode.bounds.x,
-                          top: hoveredNode.bounds.y,
-                          width: hoveredNode.bounds.width,
-                          height: hoveredNode.bounds.height,
-                        }}
-                      />
-                    ) : null}
-                    {overlaySelected.map((node) => (
-                      <div
-                        key={node.nodeId}
-                        className="absolute border-2 border-primary ring-1 ring-background"
-                        style={{
-                          left: node.bounds.x,
-                          top: node.bounds.y,
-                          width: node.bounds.width,
-                          height: node.bounds.height,
-                        }}
-                      />
-                    ))}
-                    {selectedRect && overlaySelected.length === 1 ? (
-                      <div
-                        className="absolute"
-                        style={{
-                          left: selectedRect.x,
-                          top: selectedRect.y,
-                          width: selectedRect.width,
-                          height: selectedRect.height,
-                        }}
-                      >
-                        {/* guard:allow-raw-color — white handle centers stay visible over arbitrary slide backgrounds. */}
-                        {RESIZE_HANDLES.map(({ key, cursor }) => {
-                          const point = handlePoint(selectedRect, key);
-                          return (
-                            <button
-                              key={key}
-                              type="button"
-                              disabled={!canEdit || saving || structuralSaving}
-                              aria-label={t("styleInspector.resizeHandle", {
-                                handle: key,
-                              })}
-                              onPointerDown={(event) => startHandle(event, key)}
-                              className={
-                                /* guard:allow-raw-color — resize handles stay visible over arbitrary slide fills. */ "pointer-events-auto absolute size-2.5 rounded-sm border border-primary bg-white shadow-sm focus-visible:outline-2 focus-visible:outline-primary"
-                              }
-                              style={{
-                                left: point.x - selectedRect.x - 5,
-                                top: point.y - selectedRect.y - 5,
-                                cursor,
-                              }}
-                            />
-                          );
-                        })}
-                        <button
-                          type="button"
-                          disabled={!canEdit || saving || structuralSaving}
-                          aria-label={t("styleInspector.rotateHandle")}
-                          onPointerDown={(event) =>
-                            startHandle(event, "rotate")
-                          }
-                          className={
-                            /* guard:allow-raw-color — rotate handle stays visible over arbitrary slide fills. */ "pointer-events-auto absolute left-1/2 top-0 size-3 -translate-x-1/2 -translate-y-6 cursor-grab rounded-full border border-primary bg-white shadow-sm focus-visible:outline-2 focus-visible:outline-primary"
-                          }
-                        />
+                    <SandboxedSlide
+                      artifact={artifact}
+                      title={title}
+                      onNodes={handleNodes}
+                      onPointer={previewMode ? () => {} : handleFramePointer}
+                      onKeyboard={handleFrameKeyboard}
+                      onController={setFrameController}
+                      onNavigationInput={handlePreviewNavigationInput}
+                      onStepCount={handlePreviewStepCount}
+                      initialRevealedSteps={previewMode ? 0 : null}
+                      onTextRangeStyle={setTextRangeStyleSnapshot}
+                      onReady={clearRenderError}
+                      onError={reportRenderError}
+                      className="absolute inset-0"
+                    />
+                    {renderError ? (
+                      <div className="pointer-events-none absolute inset-x-16 bottom-16 z-30 flex justify-center">
+                        <div
+                          role="alert"
+                          className="max-w-full rounded-md border border-destructive/30 bg-background px-4 py-2 text-sm text-destructive shadow-sm"
+                        >
+                          {renderError}
+                        </div>
                       </div>
                     ) : null}
-                    {selectedRect && overlaySelected.length > 1 ? (
-                      <div
-                        className="absolute border border-primary"
-                        style={{
-                          left: selectedRect.x,
-                          top: selectedRect.y,
-                          width: selectedRect.width,
-                          height: selectedRect.height,
-                        }}
-                      />
-                    ) : null}
-                    {selectedRect &&
-                    selected.length === 1 &&
-                    hasImageTarget &&
-                    !dragRef.current ? (
-                      <div
-                        className="pointer-events-auto absolute z-10 flex rounded-md border border-border bg-popover p-1 shadow-md"
-                        style={{
-                          left: selectedRect.x + selectedRect.width / 2,
-                          top:
-                            selectedRect.y +
-                            selectedRect.height +
-                            10 / canvasScale,
-                          gap: 4 / canvasScale,
-                          padding: 4 / canvasScale,
-                          transform: "translateX(-50%)",
-                        }}
-                      >
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="shrink-0"
-                          disabled={!canEdit || saving || structuralSaving}
-                          aria-label={t("contextToolbar.replaceImage")}
-                          title={t("contextToolbar.replaceImage")}
-                          onClick={() => setAssetBrowserOpen(true)}
+                    <Slides2Comments
+                      deckId={deckId}
+                      slideId={source.id}
+                      canComment={canComment}
+                      canEdit={hasEditPermission}
+                      active={!previewMode && commentMode}
+                      sourceHash={hasUnsavedEdits ? null : source.sourceHash}
+                      sourceNodes={nodes}
+                      draftAnchor={commentDraftAnchor}
+                      onDraftDone={() => setCommentDraftAnchor(null)}
+                    />
+                    <div
+                      className={`absolute inset-0 pointer-events-none ${previewMode ? "hidden" : ""}`}
+                      onPointerMove={handleOverlayPointerMove}
+                      onPointerUp={finishOverlayPointer}
+                      onPointerCancel={finishOverlayPointer}
+                    >
+                      {hoveredNode &&
+                      !overlaySelected.some(
+                        (node) => node.nodeId === hoveredNode.nodeId,
+                      ) &&
+                      !commentMode &&
+                      !inlineNode &&
+                      !dragRef.current ? (
+                        <div
+                          className="absolute border border-dashed border-primary/70"
                           style={{
-                            width: 28 / canvasScale,
-                            height: 28 / canvasScale,
+                            left: hoveredNode.bounds.x,
+                            top: hoveredNode.bounds.y,
+                            width: hoveredNode.bounds.width,
+                            height: hoveredNode.bounds.height,
+                          }}
+                        />
+                      ) : null}
+                      {overlaySelected.map((node) => (
+                        <div
+                          key={node.nodeId}
+                          data-slide-selection-outline="true"
+                          className="absolute border-[3px] slides2-selection-outline"
+                          style={{
+                            left: node.bounds.x,
+                            top: node.bounds.y,
+                            width: node.bounds.width,
+                            height: node.bounds.height,
+                          }}
+                        />
+                      ))}
+                      {selectedRect && overlaySelected.length === 1 ? (
+                        <div
+                          className="absolute"
+                          style={{
+                            left: selectedRect.x,
+                            top: selectedRect.y,
+                            width: selectedRect.width,
+                            height: selectedRect.height,
                           }}
                         >
-                          <IconPhoto
+                          {RESIZE_HANDLES.map(({ key, cursor }) => {
+                            const point = handlePoint(selectedRect, key);
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                data-slide-resize-handle={key}
+                                disabled={
+                                  !canEdit || saving || structuralSaving
+                                }
+                                aria-label={t("styleInspector.resizeHandle", {
+                                  handle: key,
+                                })}
+                                aria-keyshortcuts={transformHandleShortcuts(
+                                  key,
+                                )}
+                                onKeyDown={(event) =>
+                                  handleTransformKeyDown(event, key)
+                                }
+                                onPointerDown={(event) =>
+                                  startHandle(event, key)
+                                }
+                                className="pointer-events-auto absolute rounded-[5px] border-[3px] slides2-selection-handle shadow-sm focus-visible:outline-2 focus-visible:outline-primary"
+                                style={{
+                                  left:
+                                    point.x - selectedRect.x - handleSize / 2,
+                                  top:
+                                    point.y - selectedRect.y - handleSize / 2,
+                                  width: handleSize,
+                                  height: handleSize,
+                                  cursor,
+                                }}
+                              />
+                            );
+                          })}
+                          <span
                             aria-hidden="true"
+                            data-slide-rotate-stem="true"
+                            className="pointer-events-none absolute left-1/2 -translate-x-1/2 slides2-selection-rotate-stem"
                             style={{
-                              width: 14 / canvasScale,
-                              height: 14 / canvasScale,
+                              top: -rotateStemLength,
+                              width: 1 / canvasScale,
+                              height: rotateStemLength,
                             }}
                           />
-                        </Button>
-                        {selectedImage ? (
+                          <button
+                            type="button"
+                            data-slide-rotate-handle="true"
+                            disabled={!canEdit || saving || structuralSaving}
+                            aria-label={t("styleInspector.rotateHandle")}
+                            aria-keyshortcuts={transformHandleShortcuts(
+                              "rotate",
+                            )}
+                            onKeyDown={(event) =>
+                              handleTransformKeyDown(event, "rotate")
+                            }
+                            onPointerDown={(event) =>
+                              startHandle(event, "rotate")
+                            }
+                            className="pointer-events-auto absolute left-1/2 -translate-x-1/2 cursor-grab rounded-full border-[3px] slides2-selection-handle shadow-sm focus-visible:outline-2 focus-visible:outline-primary"
+                            style={{
+                              top: rotateHandleTop,
+                              width: handleSize,
+                              height: handleSize,
+                            }}
+                          />
+                        </div>
+                      ) : null}
+                      {selectedRect && overlaySelected.length > 1 ? (
+                        <div
+                          className="absolute border border-primary"
+                          style={{
+                            left: selectedRect.x,
+                            top: selectedRect.y,
+                            width: selectedRect.width,
+                            height: selectedRect.height,
+                          }}
+                        />
+                      ) : null}
+                      {selectedRect &&
+                      selected.length === 1 &&
+                      hasImageTarget &&
+                      !dragRef.current ? (
+                        <div
+                          className="pointer-events-auto absolute z-10 flex rounded-md border border-border bg-popover p-1 shadow-md"
+                          style={{
+                            left: selectedRect.x + selectedRect.width / 2,
+                            top:
+                              selectedRect.y +
+                              selectedRect.height +
+                              10 / canvasScale,
+                            gap: 4 / canvasScale,
+                            padding: 4 / canvasScale,
+                            transform: "translateX(-50%)",
+                          }}
+                        >
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
                             className="shrink-0"
-                            disabled={
-                              !canEdit ||
-                              saving ||
-                              structuralSaving ||
-                              !selectedImageSrc
-                            }
-                            aria-label={t("editorToolbar.cropImage")}
-                            title={t("editorToolbar.cropImage")}
-                            onClick={() => setImageCropOpen(true)}
+                            disabled={!canEdit || saving || structuralSaving}
+                            aria-label={t("contextToolbar.replaceImage")}
+                            title={t("contextToolbar.replaceImage")}
+                            onClick={() => setAssetBrowserOpen(true)}
                             style={{
                               width: 28 / canvasScale,
                               height: 28 / canvasScale,
                             }}
                           >
-                            <IconCrop
+                            <IconPhoto
                               aria-hidden="true"
                               style={{
                                 width: 14 / canvasScale,
@@ -4430,96 +5443,116 @@ export function Slides2Editor({
                               }}
                             />
                           </Button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {guideLines.map((guide, index) => (
-                      <div
-                        key={`${guide.axis}:${guide.position}:${index}`}
-                        className="absolute border-primary"
-                        style={
-                          guide.axis === "x"
-                            ? {
-                                left: guide.position,
-                                top: guide.start,
-                                height: guide.end - guide.start,
-                                borderLeftWidth: 1,
+                          {selectedImage ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0"
+                              disabled={
+                                !canEdit ||
+                                saving ||
+                                structuralSaving ||
+                                !selectedImageSrc
                               }
-                            : {
-                                top: guide.position,
-                                left: guide.start,
-                                width: guide.end - guide.start,
-                                borderTopWidth: 1,
-                              }
-                        }
-                      />
-                    ))}
-                    {marquee ? (
-                      <div
-                        className="absolute border border-primary bg-primary/10"
-                        style={{
-                          left: marquee.x,
-                          top: marquee.y,
-                          width: marquee.width,
-                          height: marquee.height,
-                        }}
-                      />
-                    ) : null}
-                    {inlineNode ? (
-                      <InlineTextEditor
-                        key={inlineNode.nodeId}
-                        node={inlineNode}
-                        initialPoint={inlineTextPoint ?? undefined}
-                        disabled={!canEdit || saving}
-                        t={t}
-                        onCommit={commitInlineEdits}
-                        onCancel={() => setInlineNode(null)}
-                        onUndo={() => void undo()}
-                        onRedo={() => void redo()}
-                      />
-                    ) : null}
+                              aria-label={t("editorToolbar.cropImage")}
+                              title={t("editorToolbar.cropImage")}
+                              onClick={() => setImageCropOpen(true)}
+                              style={{
+                                width: 28 / canvasScale,
+                                height: 28 / canvasScale,
+                              }}
+                            >
+                              <IconCrop
+                                aria-hidden="true"
+                                style={{
+                                  width: 14 / canvasScale,
+                                  height: 14 / canvasScale,
+                                }}
+                              />
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {guideLines.map((guide, index) => (
+                        <div
+                          key={`${guide.axis}:${guide.position}:${index}`}
+                          className="absolute border-primary"
+                          style={
+                            guide.axis === "x"
+                              ? {
+                                  left: guide.position,
+                                  top: guide.start,
+                                  height: guide.end - guide.start,
+                                  borderLeftWidth: 1,
+                                }
+                              : {
+                                  top: guide.position,
+                                  left: guide.start,
+                                  width: guide.end - guide.start,
+                                  borderTopWidth: 1,
+                                }
+                          }
+                        />
+                      ))}
+                      {marquee ? (
+                        <div
+                          className="absolute border border-primary bg-primary/10"
+                          style={{
+                            left: marquee.x,
+                            top: marquee.y,
+                            width: marquee.width,
+                            height: marquee.height,
+                          }}
+                        />
+                      ) : null}
+                      {inlineNode ? (
+                        <InlineTextEditor
+                          key={inlineNode.nodeId}
+                          node={inlineNode}
+                          initialPoint={inlineTextPoint ?? undefined}
+                          disabled={!canEdit || saving}
+                          t={t}
+                          onCommit={commitInlineEdits}
+                          onCancel={() => setInlineNode(null)}
+                          onUndo={() => void undo()}
+                          onRedo={() => void redo()}
+                        />
+                      ) : null}
+                    </div>
                   </div>
+                </Slides2Canvas>
+              ) : (
+                <div className="absolute inset-0 grid place-items-center p-8 text-sm text-muted-foreground">
+                  {loadingError ?? t("presentation.loadFailed")}
                 </div>
-              </Slides2Canvas>
-            ) : (
-              <div className="absolute inset-0 grid place-items-center p-8 text-sm text-muted-foreground">
-                {loadingError ?? t("presentation.loadFailed")}
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </main>
         {inspectorOpen ? (
-          <aside className="h-full w-[320px] shrink-0 border-s border-border bg-background">
-            <Tabs
-              value={activePanel}
-              onValueChange={(value) => {
-                if (
-                  value === "format" ||
-                  value === "design" ||
-                  value === "notes"
-                )
-                  setActivePanel(value);
-              }}
-              className="flex h-full flex-col"
-            >
-              <TabsList
-                variant="line"
-                className="h-9 w-full shrink-0 justify-start px-2"
+          <aside className="flex h-full w-80 shrink-0 flex-col border-s border-border bg-background">
+            <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/60 ps-5 pe-3">
+              <span className="flex min-w-0 items-center gap-2 text-[13px] font-medium">
+                <IconPalette
+                  className="size-3 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                {inspectorTitle}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("slides2Editor.hideInspector")}
+                title={t("slides2Editor.hideInspector")}
+                onClick={toggleInspector}
               >
-                <TabsTrigger value="format" className="px-2 text-xs">
-                  {t("styleInspector.title")}
-                </TabsTrigger>
-                <TabsTrigger value="design" className="px-2 text-xs">
-                  {t("slides2DesignTokens.title")}
-                </TabsTrigger>
-                <TabsTrigger value="notes" className="px-2 text-xs">
-                  {t("presentation.speakerNotes")}
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent
-                value="format"
-                className="mt-0 min-h-0 flex-1 overflow-hidden"
-              >
+                <IconX aria-hidden="true" />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {activePanel === "format" ? (
                 <Slides2Inspector
                   selected={
                     distinctSelected.length === 1
@@ -4528,9 +5561,19 @@ export function Slides2Editor({
                   }
                   rangeStyleSnapshot={textRangeStyleSnapshot}
                   selectionCount={distinctSelected.length}
-                  disabled={!canEdit || saving || structuralSaving}
+                  disabled={
+                    !canEdit ||
+                    saving ||
+                    structuralSaving ||
+                    transformSlideObjects.isPending
+                  }
                   t={t}
-                  onInspectTextRange={inspectSelectedTextRange}
+                  onInspectTextRange={inspectSavedTextRange}
+                  onEditOnSlide={() => {
+                    if (distinctSelected.length === 1) {
+                      openInlineTextEditor(distinctSelected[0]);
+                    }
+                  }}
                   onEdit={editSelected}
                   onAlign={alignSelection}
                   alignToSlide={alignToSlide}
@@ -4542,16 +5585,15 @@ export function Slides2Editor({
                   }}
                   onDistribute={distributeSelection}
                   onArrange={arrangeSelection}
+                  onGroup={() => void groupObjects()}
+                  onUngroup={() => void ungroupObjects()}
+                  canUngroup={selectedGroupChildIds !== null}
                   onDuplicateObject={() => void duplicateObject()}
                   onDeleteObject={() => void deleteObject()}
                   canSelectParent={Boolean(selectedParentNode)}
                   onSelectParent={selectParent}
                 />
-              </TabsContent>
-              <TabsContent
-                value="design"
-                className="mt-0 min-h-0 flex-1 overflow-hidden"
-              >
+              ) : activePanel === "design" ? (
                 <Slides2DesignTokens
                   tokens={designTokens}
                   disabled={!canEdit}
@@ -4559,11 +5601,27 @@ export function Slides2Editor({
                   onPreview={handleDesignTokenPreview}
                   onSave={onSaveDesignTokens}
                 />
-              </TabsContent>
-              <TabsContent
-                value="notes"
-                className="mt-0 min-h-0 flex-1 overflow-hidden"
-              >
+              ) : activePanel === "motion" ? (
+                <Slides2MotionPanel
+                  key={activeSlide?.id}
+                  sourceTsx={committedSourceRef.current.sourceTsx}
+                  transition={artifact?.runtime?.transition}
+                  selection={
+                    distinctSelected.length === 1 &&
+                    hasUniqueRenderedInstances(distinctSelected, nodes)
+                      ? {
+                          line: distinctSelected[0]!.line,
+                          column: distinctSelected[0]!.column,
+                        }
+                      : null
+                  }
+                  disabled={
+                    !canEdit || saving || structuralSaving || hasUnsavedEdits
+                  }
+                  t={t}
+                  onCommit={commitSourceReplacement}
+                />
+              ) : (
                 <div className="grid h-full grid-rows-[minmax(0,1fr)_auto] gap-3 p-4">
                   <Textarea
                     value={notesDraft}
@@ -4585,101 +5643,56 @@ export function Slides2Editor({
                       : t("designSystemSetup.saveChanges")}
                   </Button>
                 </div>
-              </TabsContent>
-            </Tabs>
+              )}
+            </div>
           </aside>
         ) : null}
       </div>
-      <footer className="flex h-9 shrink-0 items-center justify-between border-t border-border px-4 text-xs text-muted-foreground">
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={t("presentation.previousSlide")}
-            disabled={activeIndex <= 0}
-            onClick={() => onSelectSlide(Math.max(0, activeIndex - 1))}
-          >
-            <IconChevronLeft className="size-4" />
-          </Button>
-          <span>
-            {t("slides2Presenter.position", {
-              index: sliderPosition,
-              total: slides.length,
-            })}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={t("presentation.nextSlide")}
-            disabled={activeIndex >= slides.length - 1}
-            onClick={() =>
-              onSelectSlide(Math.min(slides.length - 1, activeIndex + 1))
-            }
-          >
-            <IconChevronRight className="size-4" />
-          </Button>
-        </div>
-        {structuralSaving ? (
-          <span>{t("designSystemSetup.saving")}</span>
-        ) : saveError || structuralError || loadingError ? (
-          <div className="flex max-w-[55%] items-center gap-2">
-            <span className="min-w-0 truncate text-destructive">
-              {saveError ?? structuralError ?? loadingError}
-            </span>
-            {sourceConflict ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 shrink-0 px-2 text-xs"
-                disabled={reloadingSource}
-                onClick={() => void reloadConflictedSource()}
-              >
-                {t("raw.reload")}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label={t("raw.zoomOut")}
-            onClick={() =>
-              setZoom((value) => Math.max(MIN_ZOOM, round(value - ZOOM_STEP)))
-            }
-          >
-            <IconMinus className="size-3.5" />
-          </Button>
+      <footer className="flex h-9 shrink-0 items-center justify-between ps-0 pe-2 text-xs text-muted-foreground">
+        <div className="flex min-w-0 items-center">
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            onClick={fitToScreen}
-            className="h-auto min-w-12 rounded px-1 py-1 text-center text-xs font-normal text-muted-foreground transition-none hover:bg-accent hover:text-muted-foreground active:scale-100"
-            aria-label={t("raw.fitSlideToScreen")}
+            className="h-7 justify-start px-1 text-xs text-muted-foreground"
+            aria-label={t("presentation.speakerNotes")}
+            aria-pressed={inspectorOpen && activePanel === "notes"}
+            title={t("presentation.speakerNotes")}
+            onClick={() => showInspectorPanel("notes")}
           >
-            {Math.round(fitScale * 100)}%
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label={t("raw.zoomIn")}
-            onClick={() =>
-              setZoom((value) => Math.min(MAX_ZOOM, round(value + ZOOM_STEP)))
-            }
-          >
-            <IconPlus className="size-3.5" />
+            <IconNotes aria-hidden="true" />
+            <span>{t("slides2Editor.footerNotes")}</span>
+            <span className="ms-1 tabular-nums">
+              {t("slides2Editor.footerPage", {
+                current: formatters.formatNumber(sliderPosition),
+                total: formatters.formatNumber(slides.length),
+              })}
+            </span>
           </Button>
         </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-6 text-muted-foreground"
+          aria-label={
+            inspectorOpen
+              ? t("slides2Editor.hideInspector")
+              : t("slides2Editor.showInspector")
+          }
+          title={
+            inspectorOpen
+              ? t("slides2Editor.hideInspector")
+              : t("slides2Editor.showInspector")
+          }
+          onClick={toggleInspector}
+        >
+          {inspectorOpen ? (
+            <IconChevronUp aria-hidden="true" />
+          ) : (
+            <IconChevronDown aria-hidden="true" />
+          )}
+        </Button>
       </footer>
       <Slides2AssetBrowser
         deckId={deckId}
@@ -4688,6 +5701,21 @@ export function Slides2Editor({
         onOpenChange={setAssetBrowserOpen}
         canInsert={canEdit && !saving && !structuralSaving}
         onInsert={insertAsset}
+      />
+      <Slides2HistoryPanel
+        deckId={deckId}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        canRestore={canEdit}
+        restoreDisabled={saving || structuralSaving}
+        onBeforeRestore={async () => {
+          if (!(await save())) {
+            throw new Error(t("slides2Editor.saveBeforeStructureEdit"));
+          }
+        }}
+        onRestored={async () => {
+          await onVersionRestored?.();
+        }}
       />
       {imageCropOpen && selectedImage && selectedImageSrc ? (
         <Slides2ImageCropControls
@@ -4789,11 +5817,24 @@ export function Slides2Editor({
         }}
         onOpenOverview={() => setOverviewOpen(true)}
         onToggleDesignPanel={toggleDesignPanel}
+        onOpenMotionPanel={() => showInspectorPanel("motion")}
+        onSetZoom={(action) => {
+          if (action === "fit") {
+            fitToScreen();
+            return;
+          }
+          setZoom((value) =>
+            action === "out"
+              ? Math.max(MIN_ZOOM, round(value - ZOOM_STEP))
+              : Math.min(MAX_ZOOM, round(value + ZOOM_STEP)),
+          );
+        }}
         onToggleCommentMode={() => {
           commentGestureRef.current = null;
           setCommentMode((value) => !value);
         }}
         onCopyLink={() => void copyLink()}
+        onOpenHistory={() => setHistoryOpen(true)}
         onOpenAssets={() => setAssetBrowserOpen(true)}
         onExport={(format: Slides2ExportFormat) =>
           exportMenuRef.current?.run(format)

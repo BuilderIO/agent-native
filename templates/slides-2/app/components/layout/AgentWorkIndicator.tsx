@@ -7,6 +7,7 @@ import { focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { CHAT_STOP_DEBOUNCE_MS } from "@/hooks/use-agent-generating";
 
 export function isAgentSidebarVisible() {
@@ -172,8 +173,10 @@ export function AgentWorkIndicator() {
             {t("raw.agentWorking")}
           </span>
         </div>
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="xs"
           onClick={() => {
             window.dispatchEvent(
               new CustomEvent("agent-panel:set-mode", {
@@ -182,11 +185,11 @@ export function AgentWorkIndicator() {
             );
             focusAgentChat();
           }}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="shrink-0 border-border bg-transparent px-2 text-muted-foreground shadow-none hover:bg-accent hover:text-foreground"
         >
-          <IconMessageCircle className="h-3.5 w-3.5" />
+          <IconMessageCircle className="size-3" />
           {t("raw.openChat")}
-        </button>
+        </Button>
       </div>
     </div>
   );

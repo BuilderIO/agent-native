@@ -86,7 +86,7 @@ beforeEach(() => {
     html: "",
     assetOrigins: [],
     runtime: {
-      kind: "open-slide-react-worker-v1",
+      kind: "agent-native-slides-react-worker-v1",
       workerSource: "self.onmessage = () => {};",
       page: { current: 1, total: 2 },
       assetUrls: {},
@@ -174,8 +174,12 @@ describe("PresentationView source-backed PDF export", () => {
       '[data-pdf-export-stage] [data-slide-canvas="source-slide"]',
     );
     expect(sourceCanvas?.textContent).toContain("Sandbox-rendered source");
-    expect(sourceCanvas?.className).toContain("bg-white");
-    expect(sourceCanvas?.className).toContain("text-black");
+    expect(sourceCanvas?.className).toContain(
+      "bg-[hsl(var(--slides-canvas-background))]",
+    );
+    expect(sourceCanvas?.className).toContain(
+      "text-[hsl(var(--slides-canvas-foreground))]",
+    );
     expect(sourceCanvas?.querySelector("style")?.textContent).toContain(
       '[data-pdf-slide-root="0"]',
     );
@@ -184,7 +188,7 @@ describe("PresentationView source-backed PDF export", () => {
     );
   });
 
-  it("uses source design tokens over the white PDF fallback", async () => {
+  it("applies source design tokens over the PDF canvas defaults", async () => {
     const designTokens = {
       background: "#123456",
       text: "#abcdef",
@@ -226,8 +230,12 @@ describe("PresentationView source-backed PDF export", () => {
     const sourceCanvas = document.querySelector<HTMLElement>(
       '[data-pdf-export-stage] [data-slide-canvas="source-slide"]',
     );
-    expect(sourceCanvas?.className).toContain("bg-white");
-    expect(sourceCanvas?.className).toContain("text-black");
+    expect(sourceCanvas?.className).toContain(
+      "bg-[hsl(var(--slides-canvas-background))]",
+    );
+    expect(sourceCanvas?.className).toContain(
+      "text-[hsl(var(--slides-canvas-foreground))]",
+    );
     expect(sourceCanvas?.style.getPropertyValue("--deck-bg")).toBe("#123456");
     expect(sourceCanvas?.style.getPropertyValue("--deck-ink")).toBe("#abcdef");
     expect(sourceCanvas?.style.backgroundColor).not.toBe("");

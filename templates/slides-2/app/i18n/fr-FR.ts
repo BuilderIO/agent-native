@@ -361,6 +361,7 @@ const messages = {
     media: "Média",
     generateImage: "Générer une image",
     assetLibrary: "Bibliothèque de ressources",
+    assets: "Ressources",
     globalAssetScope: "Global",
     imageOptions: "Options de l’image",
     videoPlayback: "Lecture vidéo",
@@ -705,6 +706,7 @@ const messages = {
     x: "X",
     y: "Y",
     position: "Position",
+    source: "Source",
     selectParent: "Sélectionner l’élément parent",
     horizontal: "Horizontal",
     vertical: "Vertical",
@@ -726,6 +728,8 @@ const messages = {
     cornerRadius: "Rayon des coins",
     strokeWeight: "Épaisseur",
     typography: "Typographie",
+    content: "Contenu",
+    editOnSlide: "Modifier sur la diapositive",
     fontFamily: "Famille de polices",
     lineHeight: "Interligne",
     letterSpacing: "Espacement des lettres",
@@ -756,7 +760,7 @@ const messages = {
     secondary: "Secondary",
     accent: "Accent",
     surface: "Surface",
-    background: "Background",
+    background: "Arrière-plan",
     text: "Text",
     muted: "Muted",
     white: "White",
@@ -855,8 +859,131 @@ const messages = {
       "Les imports Google Slides signalent désormais les données d’image manquantes au lieu d’ajouter des images vides.",
     globalMediaPickerScope:
       "Le sélecteur global de médias n’affiche désormais que les ressources que le diaporama actuel peut résoudre.",
+    presenterControls:
+      "Les commandes du présentateur utilisent les boutons et champs de saisie communs de l’espace de travail",
+    presenterBuildStepPreview:
+      "La console du présentateur affiche un aperçu de chaque étape de création restante avant de passer à la diapositive suivante.",
+    presenterBuildStepBounds:
+      "Les commandes des étapes d’apparition empêchent de déplacer une étape au-delà du début ou de la fin de l’ordre d’apparition.",
+    staleSlidePreviews:
+      "Les anciens aperçus sont effacés avant le chargement d’une autre diapositive",
+    boundedMediaTransfers:
+      "Les transferts de documents et de médias de diapositives s’arrêtent dans des limites sûres de taille et de durée",
+    editorCanvasAppTheme:
+      "L’éditeur de diapositives suit le thème choisi dans l’application, sur le canevas et dans les commandes des objets sélectionnés.",
+    editorInspectorTextControls:
+      "Mettez le texte en forme avec les options de typographie et de couleur, puis modifiez-le directement sur la diapositive.",
     savedSlideImages:
       "Les images utilisées par les diapositives enregistrées restent disponibles dans votre bibliothèque.",
+    keyboardObjectTransforms:
+      "Redimensionnez et faites pivoter les objets de diapositive sélectionnés au clavier.",
+    editorToolbarInspector:
+      "Les commandes de modification des diapositives sont regroupées dans des barres d’outils compactes, avec un accès plus clair aux panneaux de mise en forme et de conception.",
+    commandMenuTheme:
+      "Passez du thème clair au thème sombre depuis le menu des commandes.",
+    skippedSlidePresentation:
+      "Les diapositives marquées comme à ignorer sont omises des présentations, avec une numérotation et un total corrects.",
+    browseDeckVersions:
+      "Parcourez les versions enregistrées du diaporama et restaurez un instantané antérieur depuis l’éditeur.",
+    frameMissObjectSelection:
+      "Cliquer sur un objet de la diapositive le sélectionne lorsque le cadre manque la cible directe.",
+    commandMenuShortcut:
+      "⌘K ouvre le menu de commandes de l’éditeur de diapositives.",
+    crossDeckSlideCopy:
+      "Copiez des diapositives entre les diaporamas, renommez-les dans l’éditeur et recevez un avertissement avant de quitter avec des modifications non enregistrées.",
+    completedSlideGeneration:
+      "La génération du diaporama attend le nombre de diapositives terminées demandé avant d’annoncer sa réussite.",
+    deckTitleAndNotesLabel:
+      "Les titres longs restent visibles pendant la modification et le pied de page utilise un libellé Notes plus court.",
+    deleteFocusedCanvasObject:
+      "Suppr et Retour arrière suppriment l’objet sélectionné du canevas lorsque celui-ci a le focus.",
+    deleteSelectedSlideObject:
+      "Suppr et Retour arrière suppriment l’objet sélectionné de la diapositive du canevas.",
+    slideOverviewFromRail:
+      "Ouvrez l’aperçu des diapositives directement depuis le rail.",
+    presenterKeyboardNavigation:
+      "Les présentations prennent en charge Page précédente, Page suivante, Début et Fin pour naviguer au clavier.",
+    sourceBackedPdfExport:
+      "Les pages publiques peuvent exporter en PDF les diapositives basées sur le code source.",
+    preserveDeckBriefOnRegeneration:
+      "La régénération d’une diapositive conserve le brief initial du diaporama dans le contexte.",
+    jumpToSlideByNumber:
+      "Accédez à n’importe quelle diapositive en saisissant son numéro, y compris les numéros à plusieurs chiffres.",
+    mobileNavigationAndSlideChat:
+      "La navigation mobile permet de masquer le clavier et les liens du chat suivent la position actuelle de la diapositive.",
+    lightExtraBoldText:
+      "Le texte des diapositives peut désormais utiliser les graisses Light et Extra Bold pour une typographie plus précise.",
+    thumbnailArrowNavigation:
+      "Les vignettes des diapositives se parcourent désormais avec les quatre touches fléchées.",
+    homePromptDeckContinuity:
+      "Les diapositives générées depuis une invite sur l’accueil restent dans le diaporama commencé.",
+    slideTransitions:
+      "Les diapositives prennent désormais en charge les transitions globales ou par diapositive, les transformations d’objets correspondants et les révélations étape par étape.",
+    editorPanelWidthsAndRecovery:
+      "L’en-tête et les panneaux de l’éditeur correspondent mieux à la référence, les outils de zoom et de mouvement se trouvent dans le menu de commandes et les présentations récupérées n’affichent plus d’anciennes erreurs.",
+    editorRailAndInspectorAlignment:
+      "La barre latérale de l’éditeur de diapositives, l’arrière-plan du canevas, la barre d’outils et l’état vide de l’inspecteur s’accordent désormais mieux à la mise en page d’édition.",
+    chatEditPreviewVersion:
+      "Les aperçus des modifications de diapositives affichent désormais la version exacte enregistrée par la modification.",
+    objectCommentsStayAttached:
+      "Les commentaires restent associés aux objets de la diapositive lorsque ceux-ci sont déplacés.",
+    agentTextSelectionStability:
+      "Les sélections de texte de l’agent restent liées au contenu enregistré de la diapositive pendant les modifications en attente.",
+    templateDeckChatPreviews:
+      "Les présentations créées à partir de modèles et les présentations modifiées affichent des aperçus et des actions dans le chat.",
+    consistentSlideTextSpacing:
+      "Le texte des diapositives conserve un interligne cohérent dans l’éditeur.",
+    renderFailuresCanvasMessage:
+      "Les diapositives qui ne peuvent pas être rendues affichent désormais un message clair sur le canevas.",
+    editorPageCountFooter:
+      "L’éditeur affiche la page actuelle et le nombre total dans le pied de page.",
+    presentButtonReferenceAccent:
+      "La couleur d’accent du bouton Présenter correspond désormais à la référence de l’éditeur de diapositives.",
+    positionFieldsPreserveRotatedSize:
+      "Les champs de position préservent la taille de l’objet après sa rotation.",
+    selectedSlideArrowNavigation:
+      "Les touches fléchées déplacent les objets sélectionnés sur une diapositive de 1 px, ou de 10 px avec Maj ; sans sélection, elles permettent de naviguer entre les diapositives.",
+    chatPreviewStaleContent:
+      "Les aperçus du chat n’affichent plus le contenu d’une diapositive qui a changé après le résultat.",
+    deleteGlobalSlideImages:
+      "Supprimez les images inutilisées de la bibliothèque globale dans l’éditeur de diapositives.",
+    presenterSpaceActivation:
+      "Les boutons du présentateur actifs s’utilisent désormais avec la barre d’espace sans faire avancer le diaporama.",
+    presenterPageUpPageDown:
+      "Les touches Page précédente et Page suivante permettent désormais de naviguer dans la fenêtre du présentateur.",
+    presenterJumpCancellation:
+      "La navigation du présentateur annule les sauts de numéro de diapositive en attente afin qu’ils ne remplacent pas un choix ultérieur.",
+    presenterBlankScreensAndNotes:
+      "L’écran du présentateur peut être noir ou blanc, et la taille des notes du présentateur peut être ajustée.",
+    restoreDeckVersionAgainstStaleEdits:
+      "La restauration d’une version antérieure protège désormais le deck des modifications de diapositives plus anciennes.",
+    singleSlideRevealPreview:
+      "Les liens d’aperçu d’une seule diapositive peuvent ouvrir une diapositive générée à une étape de révélation précise.",
+    agentConnectionStatus:
+      "L’éditeur de diapositives indique quand l’agent est connecté.",
+    svgPatternScaleRotation:
+      "Les remplissages à motifs SVG conservent leur échelle et leur rotation.",
+    sourceBackedClickAndPointer:
+      "Les clics et les mouvements du pointeur fonctionnent désormais dans les présentations basées sur une source.",
+    commandMenuUndoRedoShortcuts:
+      "Le menu de commandes de l’éditeur de diapositives affiche désormais les raccourcis clavier pour annuler et rétablir.",
+    overlappingTextInlineEdit:
+      "Un double-clic sur le texte ouvre désormais l’édition en ligne lorsque les éléments graphiques de la diapositive le recouvrent.",
+    presenterViewAlignment:
+      "Le mode présentateur réunit dans une même vue la diapositive actuelle, la suivante, les notes et la commande de navigation.",
+    softerSlideFrameShadow:
+      "Les diapositives utilisent désormais une ombre de cadre plus douce.",
+    presenterTouchNavigation:
+      "Balayez vers la gauche ou la droite pour changer de diapositive pendant la présentation.",
+    lightCanvasBorderedSurface:
+      "La surface de la diapositive correspond désormais à la surface bordée de l’éditeur clair.",
+    exactSlideTextFontSize:
+      "Vous pouvez désormais saisir une taille de police précise lors de la modification du texte d’une diapositive.",
+    arrowKeysMoveSelectedObjects:
+      "Les flèches déplacent ensemble tous les objets de diapositive sélectionnés.",
+    redoKeyboardShortcuts: "Rétablir utilise Shift+Command+Z ou Ctrl+Y.",
+    importImageDataAndPreviewSync:
+      "Les imports PowerPoint et Google Docs gèrent désormais plus sûrement les données d’images volumineuses, et les aperçus générés restent synchronisés lorsque les présentations changent.",
   },
   history: {
     unknownTime: "Hora desconocida",
@@ -871,6 +998,8 @@ const messages = {
     versionRestoredDescription: "El deck volvió a la instantánea seleccionada.",
     restoreFailed: "Error al restaurar",
     restoreFailedDescription: "No se pudo restaurar esta versión del deck.",
+    restoreRefreshFailed:
+      "La version a été restaurée, mais l’éditeur n’a pas pu s’actualiser. Réessayez pour la recharger.",
     backToSavedVersions: "Volver a versiones guardadas",
     savedVersions: "Versiones guardadas",
     description:
@@ -888,6 +1017,7 @@ const messages = {
     snapshotLoadFailed: "Impossible de charger cette version enregistrée.",
   },
   editorSidebar: {
+    pages: "Pages",
     selectSlide: "Seleccionar diapositiva {{number}}",
     duplicateSlide: "Duplicar diapositiva",
     moveSlideUp: "Déplacer la diapositive vers le haut",
@@ -926,6 +1056,41 @@ const messages = {
     applyUpdates: "Appliquer les mises à jour ({{count}})",
   },
   slides2Editor: {
+    motion: "Mouvement",
+    builds: "Étapes",
+    addBuild: "Ajouter une étape",
+    removeBuild: "Supprimer l’étape",
+    motionScope: "Portée",
+    moduleDefault: "Valeur par défaut du module",
+    pageOverride: "Remplacement de la diapositive",
+    useModuleDefault: "Utiliser la valeur par défaut du module",
+    transitionDuration: "Durée (ms)",
+    transitionEasing: "Accélération",
+    transitionDelay: "Délai (ms)",
+    transitionEnter: "Entrée",
+    transitionExit: "Sortie",
+    throughBackground: "Passer par l’arrière-plan",
+    morph: "Morphose",
+    morphDescription:
+      "Associez les objets ayant le même identifiant sur des diapositives consécutives.",
+    morphDuration: "Durée de morphose (ms)",
+    morphDelay: "Délai de morphose (ms)",
+    morphEasing: "Accélération de morphose",
+    morphId: "Identifiant de correspondance",
+    morphIdPlaceholder: "ex. brand-mark",
+    setMorphId: "Définir l’identifiant",
+    removeMorph: "Supprimer l’identifiant",
+    buildDuration: "Durée de révélation (ms)",
+    moveBuildEarlier: "Plus tôt",
+    moveBuildLater: "Plus tard",
+    defaultEasing: "Hériter de la valeur par défaut",
+    respectReducedMotion:
+      "Les transitions respectent le réglage système de réduction des animations.",
+    design: "Design",
+    agentConnected: "Agent connecté",
+    format: "Format",
+    footerNotes: "Notes",
+    footerPage: "page {{current}}/{{total}}",
     now: "MAINTENANT",
     preview: "Aperçu",
     edit: "Modifier",
@@ -935,7 +1100,9 @@ const messages = {
     fontWeightMedium: "Moyen",
     fontWeightSemibold: "Semi-gras",
     fontWeightBold: "Gras",
-    selectElement: "Sélectionnez un élément pour modifier ses propriétés.",
+    selectElement: "Sélectionnez un objet",
+    selectElementHint:
+      "Cliquez sur un objet pour le mettre en forme. Double-cliquez sur le texte pour modifier son contenu.",
     legacyTitle: "Cette présentation utilise l’ancien format de diapositives",
     legacyDescription:
       "Demandez à l’agent Slides 2 de convertir la présentation avant de la modifier ici.",
@@ -1019,6 +1186,7 @@ const messages = {
     shuffle: "Mélanger le design",
   },
   slides2Presenter: {
+    presenterLabel: "Présentateur",
     switchDeck: "Changer de présentation",
     searchDecks: "Rechercher des présentations accessibles",
     loadingDecks: "Chargement des présentations…",
@@ -1044,7 +1212,14 @@ const messages = {
     notesTextSize: "Taille du texte des notes du présentateur",
     decreaseNotesTextSize: "Réduire la taille du texte des notes",
     increaseNotesTextSize: "Augmenter la taille du texte des notes",
+    jumpLabel: "Aller à",
     jumpHint: "Saisissez un numéro de diapositive, puis appuyez sur Entrée",
+    nowShowing: "À l’écran",
+    previousShort: "Précédent",
+    nextShort: "Suivant",
+    blackLabel: "Noir",
+    whiteLabel: "Blanc",
+    resetShort: "Réinitialiser",
     slideLabel: "Diapositive {{index}}",
     position: "Diapositive {{index}} sur {{total}}",
     shortcutFirstLast: "Aller à la première ou à la dernière diapositive",
@@ -1343,6 +1518,8 @@ const messages = {
         "Ce type de fichier n’est pas pris en charge. Choisissez un fichier compatible.",
       uploadLimitExceeded:
         "Le téléversement dépasse une limite autorisée. Réduisez la taille du fichier ou choisissez moins de fichiers, puis réessayez.",
+      pptxImageSizeLimit:
+        "Cette présentation contient des images qui dépassent la limite de taille d’importation. Supprimez-les ou réduisez leur taille, puis réessayez.",
     },
     importDeck: "Importer une présentation",
     context: {
@@ -1552,6 +1729,14 @@ const messages = {
       "Créez de belles présentations avec la génération par IA.",
   },
   agentChat: {
+    settingsShell: {
+      account: {
+        themeFamilyAgentNative: "Agent-Native",
+        themeFamilyOriginal: "Couleurs d’origine de l’application",
+        themeFamilySaveError:
+          "Impossible de mettre à jour le thème. Réessayez.",
+      },
+    },
     setup: {
       providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
     },

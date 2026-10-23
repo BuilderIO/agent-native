@@ -1,9 +1,13 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  readSlideFontReferences,
+  SlideFontReferenceParseError,
+} from "../server/lib/slide-font-references.js";
 import { slideAssetOrigins } from "../server/lib/slide-source.js";
 import { buildReactSlideRuntime } from "../server/lib/slide-worker-runtime.js";
 import { resolveSlideDesignFontAssets } from "../server/lib/uploaded-fonts.js";
@@ -101,10 +105,29 @@ export default defineAction({
       assetUrls: rendered.assetUrls,
     });
     const designTokens = readSlideDesignTokens(snapshot.data);
+    let referencedFontFamilies: string[];
+    try {
+      referencedFontFamilies = readSlideFontReferences({
+        html: rendered.content,
+        styles: runtime.styles,
+        designFonts: runtime.design?.fonts,
+        tokenFamilies: [designTokens.displayFont, designTokens.bodyFont],
+      });
+    } catch (error) {
+      if (error instanceof SlideFontReferenceParseError) {
+        throw slideSourceFailure(
+          "Slide styles could not be parsed while resolving fonts.",
+          422,
+          "invalid_slide_styles",
+        );
+      }
+      throw error;
+    }
     const fontAssets = await resolveSlideDesignFontAssets(designTokens, {
       deckId,
       ownerEmail: row.ownerEmail,
       orgId: row.orgId,
+      referencedFontFamilies,
     });
     return {
       protocolVersion: 1,
@@ -118,6 +141,7 @@ export default defineAction({
       assetOrigins: rendered.assetOrigins,
       fontOrigins: slideAssetOrigins(fontAssets.map((font) => font.url)),
       fontAssets,
+      referencedFontFamilies,
       designTokens,
       runtime,
     };

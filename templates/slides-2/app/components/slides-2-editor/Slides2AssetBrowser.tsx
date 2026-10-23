@@ -1,5 +1,6 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
+  actionErrorMessage,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -9,6 +10,7 @@ import {
   IconPhoto,
   IconRefresh,
   IconSearch,
+  IconTrash,
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
@@ -17,6 +19,15 @@ import { toast } from "sonner";
 
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Slides2SvglLogoSearchDialog } from "@/components/slides-2-editor/Slides2SvglLogoSearchDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -103,6 +114,9 @@ export function Slides2AssetBrowser({
     { success: boolean; filename: string; cleanupWarning?: boolean },
     { id: string; filename?: string; replacementId?: string }
   >("update-asset");
+  const deleteAsset = useActionMutation<{ success: boolean }, { id: string }>(
+    "delete-asset",
+  );
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const uploadButtonRef = useRef<HTMLButtonElement>(null);
@@ -121,6 +135,8 @@ export function Slides2AssetBrowser({
     null,
   );
   const [replacingId, setReplacingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<UploadedAsset | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const assetErrorMessage = (
     errorCode: unknown,
@@ -272,6 +288,20 @@ export function Slides2AssetBrowser({
       toast.error(t("raw.assetUpdateFailed"));
     } finally {
       setRenaming(false);
+    }
+  };
+
+  const confirmDeleteAsset = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteAsset.mutateAsync({ id: deleteTarget.id });
+      await assetsQuery.refetch();
+      setDeleteTarget(null);
+    } catch (error) {
+      toast.error(actionErrorMessage(error) ?? t("raw.assetDeleteFailed"));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -615,7 +645,9 @@ export function Slides2AssetBrowser({
                                 className="size-7"
                                 aria-label={t("deckCard.rename")}
                                 title={t("deckCard.rename")}
-                                disabled={renaming || replacingId !== null}
+                                disabled={
+                                  renaming || replacingId !== null || deleting
+                                }
                                 onClick={() => openRename(asset)}
                               >
                                 <IconPencil
@@ -630,7 +662,9 @@ export function Slides2AssetBrowser({
                                 className="size-7"
                                 aria-label={t("contextToolbar.replaceImage")}
                                 title={t("contextToolbar.replaceImage")}
-                                disabled={renaming || replacingId !== null}
+                                disabled={
+                                  renaming || replacingId !== null || deleting
+                                }
                                 onClick={() => requestReplace(asset)}
                               >
                                 {replacingId === asset.id ? (
@@ -644,6 +678,27 @@ export function Slides2AssetBrowser({
                                     aria-hidden="true"
                                   />
                                 )}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 hover:text-destructive"
+                                aria-label={t("raw.deleteAsset", {
+                                  filename: asset.filename,
+                                })}
+                                title={t("raw.deleteAsset", {
+                                  filename: asset.filename,
+                                })}
+                                disabled={
+                                  renaming || replacingId !== null || deleting
+                                }
+                                onClick={() => setDeleteTarget(asset)}
+                              >
+                                <IconTrash
+                                  className="size-4"
+                                  aria-hidden="true"
+                                />
                               </Button>
                             </div>
                           ) : null}
@@ -709,6 +764,37 @@ export function Slides2AssetBrowser({
           </form>
         </DialogContent>
       </Dialog>
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(next) => {
+          if (!next && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("raw.deleteAsset", {
+                filename: deleteTarget?.filename ?? "",
+              })}
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>
+              {t("home.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDeleteAsset();
+              }}
+            >
+              {t("home.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {logoSearchOpen ? (
         <Slides2SvglLogoSearchDialog
           open

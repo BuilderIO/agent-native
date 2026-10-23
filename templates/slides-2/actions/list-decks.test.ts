@@ -34,10 +34,24 @@ const previewFor = (data: string) => {
     aspectRatio: parsed.aspectRatio ?? null,
   };
 };
+function idCondition(
+  condition: unknown,
+): { column?: unknown; value?: unknown } | undefined {
+  if (!condition || typeof condition !== "object") return undefined;
+  if ("column" in condition && "value" in condition) {
+    return condition as { column?: unknown; value?: unknown };
+  }
+  if ("and" in condition && Array.isArray(condition.and)) {
+    return condition.and.map(idCondition).find(Boolean);
+  }
+  return undefined;
+}
+
 const whereFn = vi.fn((condition?: { column?: unknown; value?: unknown }) => {
-  const isRowLookup = condition?.column === "id_col";
+  const rowCondition = idCondition(condition);
+  const isRowLookup = rowCondition?.column === "id_col";
   const rows = isRowLookup
-    ? rowsForQuery.filter((row) => row.id === condition?.value)
+    ? rowsForQuery.filter((row) => row.id === rowCondition?.value)
     : rowsForQuery;
   const result: Promise<unknown[]> = !isRowLookup
     ? Promise.resolve(rows)
@@ -184,6 +198,16 @@ describe("list-decks", () => {
         (_call, index) => "data" in (selectFn.mock.calls[index]?.[0] ?? {}),
       );
       expect(bodyReads).toHaveLength(1);
+      const pagedWhere = whereFn.mock.calls[0]?.[0];
+      const rowLookups = whereFn.mock.calls.filter(
+        ([condition]) => idCondition(condition)?.column === "id_col",
+      );
+      expect(rowLookups.length).toBeGreaterThan(0);
+      for (const [condition] of rowLookups) {
+        expect((condition as { and?: unknown[] }).and).toContainEqual(
+          pagedWhere,
+        );
+      }
     } finally {
       unregister();
     }

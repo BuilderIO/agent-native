@@ -7,7 +7,7 @@ const AERO_DEMO_SOURCE = restoreSourceTemplateEscapes(String.raw`import {
   type Page,
   useIsActivePage,
   useSlidePageNumber,
-} from '@open-slide/core';
+} from '@agent-native/slides-core';
 import type { CSSProperties, ReactNode } from 'react';
 
 export const design: DesignSystem = {
@@ -101,12 +101,14 @@ const BODY: CSSProperties = {
   margin: 0,
 };
 
-const abs = (left: number, top: number, extra?: CSSProperties): CSSProperties => ({
-  position: 'absolute',
-  left,
-  top,
-  ...extra,
-});
+const abs = (left: number, topPx: number, extra?: CSSProperties): CSSProperties => {
+  return {
+    position: 'absolute',
+    left,
+    top: topPx,
+    ...extra,
+  };
+};
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -646,7 +648,7 @@ const FIELDWORK_DEMO_SOURCE = restoreSourceTemplateEscapes(String.raw`import {
   type SlideTransition,
   useIsActivePage,
   useSlidePageNumber,
-} from '@open-slide/core';
+} from '@agent-native/slides-core';
 import { type CSSProperties, type ReactNode } from 'react';
 
 const KEYFRAMES = \`
@@ -693,13 +695,15 @@ export const transition: SlideTransition = {
   },
 };
 
-const abs = (left: number, top: number, width?: number, height?: number): CSSProperties => ({
-  position: 'absolute',
-  left,
-  top,
-  width,
-  height,
-});
+const abs = (left: number, topPx: number, width?: number, height?: number): CSSProperties => {
+  return {
+    position: 'absolute',
+    left,
+    top: topPx,
+    width,
+    height,
+  };
+};
 
 const root: CSSProperties = {
   position: 'relative',
@@ -1248,7 +1252,7 @@ const POMMI_DEMO_SOURCE = restoreSourceTemplateEscapes(String.raw`import {
   type Page,
   useIsActivePage,
   useSlidePageNumber,
-} from '@open-slide/core';
+} from '@agent-native/slides-core';
 import { type CSSProperties, type ReactNode } from 'react';
 
 export const design: DesignSystem = {
@@ -1303,12 +1307,14 @@ const BODY: CSSProperties = {
 
 const NUM: CSSProperties = { ...DISPLAY, fontVariantNumeric: 'tabular-nums' };
 
-const abs = (left: number, top: number, extra?: CSSProperties): CSSProperties => ({
-  position: 'absolute',
-  left,
-  top,
-  ...extra,
-});
+const abs = (left: number, topPx: number, extra?: CSSProperties): CSSProperties => {
+  return {
+    position: 'absolute',
+    left,
+    top: topPx,
+    ...extra,
+  };
+};
 
 const pad = (n: number) => String(n).padStart(2, '0');
 

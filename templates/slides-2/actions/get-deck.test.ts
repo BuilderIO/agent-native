@@ -622,6 +622,37 @@ describe("get-deck", () => {
     expect(result.slides[0]).not.toHaveProperty("index");
   });
 
+  it("exposes skipped state in compact summaries without renumbering slides", async () => {
+    currentResource!.data = JSON.stringify({
+      appId: "slides-2",
+      title: "Presenter deck",
+      slides: [
+        { id: "slide-a", content: "<h1>First</h1>", skipped: false },
+        { id: "slide-b", content: "<h1>Hidden</h1>", skipped: true },
+        { id: "slide-c", content: "<h1>Third</h1>" },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(
+      result.slides.map(({ id, slideNumber, zeroBasedIndex, skipped }) => ({
+        id,
+        slideNumber,
+        zeroBasedIndex,
+        skipped,
+      })),
+    ).toEqual([
+      { id: "slide-a", slideNumber: 1, zeroBasedIndex: 0, skipped: false },
+      { id: "slide-b", slideNumber: 2, zeroBasedIndex: 1, skipped: true },
+      { id: "slide-c", slideNumber: 3, zeroBasedIndex: 2, skipped: false },
+    ]);
+    expect(result.slides[1]).not.toHaveProperty("content");
+  });
+
   it("repairs duplicate persisted slide IDs before returning the deck", async () => {
     currentResource = {
       id: "deck-1",

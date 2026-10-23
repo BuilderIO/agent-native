@@ -1,9 +1,34 @@
 import type { useT } from "@agent-native/core/client/i18n";
-import { IconArrowBackUp, IconCopy, IconTrash } from "@tabler/icons-react";
+import {
+  IconAlignCenter,
+  IconAlignJustified,
+  IconAlignLeft,
+  IconAlignRight,
+  IconArrowBackUp,
+  IconArrowsMove,
+  IconBold,
+  IconChevronDown,
+  IconCopy,
+  IconItalic,
+  IconLetterT,
+  IconLetterSpacing,
+  IconLineHeight,
+  IconPalette,
+  IconPointer,
+  IconPencil,
+  IconTextSize,
+  IconTypography,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -38,6 +63,7 @@ type Props = {
       expectedText: string;
     } | null,
   ) => void;
+  onEditOnSlide?: () => void;
   onEdit: (ops: SourceEditOp[]) => void;
   onAlign: (
     alignment: "left" | "center" | "right" | "top" | "middle" | "bottom",
@@ -49,6 +75,9 @@ type Props = {
   onSmartGuidesChange: (enabled: boolean) => void;
   onDistribute: (axis: "x" | "y") => void;
   onArrange: (direction: "front" | "forward" | "backward" | "back") => void;
+  onGroup: () => void;
+  onUngroup: () => void;
+  canUngroup: boolean;
   onDuplicateObject: () => void;
   onDeleteObject: () => void;
   canSelectParent: boolean;
@@ -62,7 +91,7 @@ const INLINE_TEXT_STYLE_KEYS = new Set([
   "fontFamily",
   "color",
 ]);
-const FONT_WEIGHT_VALUES = ["400", "500", "600", "700"] as const;
+const FONT_WEIGHT_VALUES = ["300", "400", "500", "600", "700", "800"] as const;
 type InlineTextStyleKey =
   | "fontFamily"
   | "fontSize"
@@ -112,16 +141,92 @@ function colorValue(
     .join("")}`;
 }
 
+function ColorField({
+  label,
+  value,
+  fallback,
+  disabled,
+  onChange,
+  action,
+}: {
+  label: string;
+  value: string | undefined;
+  fallback: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  action?: ReactNode;
+}) {
+  const color = colorValue(value, fallback);
+  const [draft, setDraft] = useState(color);
+  const [pickerColor, setPickerColor] = useState(color);
+
+  useEffect(() => {
+    setDraft(color);
+    setPickerColor(color);
+  }, [color]);
+
+  const commitDraft = () => {
+    const next = draft.trim();
+    if (!/^#[\da-f]{6}$/i.test(next)) {
+      setDraft(color);
+      return;
+    }
+    const normalized = next.toLowerCase();
+    setDraft(normalized);
+    setPickerColor(normalized);
+    if (normalized !== pickerColor.toLowerCase()) onChange(normalized);
+  };
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="w-[4.5rem] shrink-0 whitespace-nowrap">{label}</span>
+      <span className="flex min-w-0 flex-1 items-center gap-1">
+        <Input
+          type="color"
+          value={pickerColor}
+          disabled={disabled}
+          onChange={(event) => {
+            setDraft(event.currentTarget.value);
+            setPickerColor(event.currentTarget.value);
+            onChange(event.currentTarget.value);
+          }}
+          className="size-7 shrink-0 cursor-pointer p-1"
+          aria-label={label}
+        />
+        <Input
+          type="text"
+          value={draft}
+          disabled={disabled}
+          onChange={(event) => setDraft(event.currentTarget.value)}
+          onBlur={commitDraft}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+          className="h-7 min-w-0 flex-1 font-mono text-xs text-foreground"
+          aria-label={label}
+        />
+        {action}
+      </span>
+    </div>
+  );
+}
+
 function NumericField({
   label,
   value,
   unit = "",
+  compact = false,
+  step,
+  prefix,
   disabled,
   onCommit,
 }: {
   label: string;
   value: number;
   unit?: string;
+  compact?: boolean;
+  step?: number | "any";
+  prefix?: ReactNode;
   disabled: boolean;
   onCommit: (value: number) => void;
 }) {
@@ -136,11 +241,22 @@ function NumericField({
   }, [formattedValue]);
 
   return (
-    <label className="grid min-w-0 gap-1 text-xs text-muted-foreground">
-      <span>{label}</span>
+    <label
+      className={`grid min-w-0 ${compact ? "" : "gap-1 text-xs text-muted-foreground"}`}
+    >
+      <span className={compact ? "sr-only" : undefined}>{label}</span>
       <span className="relative">
+        {prefix ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+          >
+            {prefix}
+          </span>
+        ) : null}
         <Input
           type="number"
+          step={step}
           value={draft}
           disabled={disabled}
           onFocus={() => {
@@ -172,7 +288,7 @@ function NumericField({
               event.currentTarget.blur();
             }
           }}
-          className="h-8 pr-8 text-foreground"
+          className={`${compact ? "h-7" : "h-8"} ${prefix ? "pl-7" : ""} pr-8 text-foreground`}
         />
         {unit ? (
           <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px]">
@@ -188,15 +304,43 @@ function Section({
   title,
   action,
   children,
+  className,
+  collapsible = false,
 }: {
   title: string;
   action?: ReactNode;
   children: ReactNode;
+  className?: string;
+  collapsible?: boolean;
 }) {
+  if (collapsible) {
+    return (
+      <details
+        className={`group border-b border-border last:border-0 ${className ?? ""}`}
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 py-4 [&::-webkit-details-marker]:hidden">
+          <h3 className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+            {title}
+          </h3>
+          {action}
+          <IconChevronDown
+            aria-hidden="true"
+            className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+          />
+        </summary>
+        <div className="grid gap-3 pb-4">{children}</div>
+      </details>
+    );
+  }
+
   return (
-    <section className="grid gap-3 border-b border-border py-4 last:border-0">
+    <section
+      className={`grid gap-3 border-b border-border py-4 last:border-0 ${className ?? ""}`}
+    >
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-medium text-foreground">{title}</h3>
+        <h3 className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+          {title}
+        </h3>
         {action}
       </div>
       {children}
@@ -215,6 +359,9 @@ function ArrangeSection({
   onSmartGuidesChange,
   onDistribute,
   onArrange,
+  onGroup,
+  onUngroup,
+  canUngroup,
   onDuplicateObject,
   onDeleteObject,
   canSelectParent,
@@ -231,6 +378,9 @@ function ArrangeSection({
   | "onSmartGuidesChange"
   | "onDistribute"
   | "onArrange"
+  | "onGroup"
+  | "onUngroup"
+  | "canUngroup"
   | "onDuplicateObject"
   | "onDeleteObject"
   | "canSelectParent"
@@ -340,6 +490,32 @@ function ArrangeSection({
               </>
             ) : null}
           </div>
+          {selectionCount > 1 || canUngroup ? (
+            <div className="grid grid-cols-2 gap-2">
+              {selectionCount > 1 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled}
+                  onClick={onGroup}
+                >
+                  {t("styleInspector.group")}
+                </Button>
+              ) : null}
+              {canUngroup ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled}
+                  onClick={onUngroup}
+                >
+                  {t("styleInspector.ungroup")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </>
       ) : null}
       <div className="grid grid-cols-2 gap-2">
@@ -402,6 +578,7 @@ export function Slides2Inspector({
   t,
   rangeStyleSnapshot,
   onInspectTextRange,
+  onEditOnSlide,
   onEdit,
   onAlign,
   alignToSlide,
@@ -410,6 +587,9 @@ export function Slides2Inspector({
   onSmartGuidesChange,
   onDistribute,
   onArrange,
+  onGroup,
+  onUngroup,
+  canUngroup,
   onDuplicateObject,
   onDeleteObject,
   canSelectParent,
@@ -452,6 +632,11 @@ export function Slides2Inspector({
     onEdit([{ kind: "set-text", value, prevText: previousText }]);
   };
   const reportTextRange = (textArea: HTMLTextAreaElement) => {
+    if (composingTextRef.current) {
+      setTextRange(null);
+      onInspectTextRange?.(null);
+      return;
+    }
     const { selectionStart: start, selectionEnd: end } = textArea;
     const nextRange = start < end ? { start, end } : null;
     setTextRange(nextRange);
@@ -493,9 +678,19 @@ export function Slides2Inspector({
   };
   const fontFamily = textStyleValue("fontFamily") ?? "";
   const [fontFamilyDraft, setFontFamilyDraft] = useState(fontFamily);
+  const [fontFamilyOpen, setFontFamilyOpen] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<"format" | "arrange">(
+    "format",
+  );
   useEffect(() => {
     setFontFamilyDraft(fontFamily);
   }, [fontFamily, selected?.nodeId, text]);
+  useEffect(() => {
+    setFontFamilyOpen(false);
+  }, [selected?.nodeId]);
+  useEffect(() => {
+    setInspectorTab("format");
+  }, [selected?.nodeId]);
   const editStyle = (key: string, value: string | null) => {
     if (!selected) return;
     const textArea = textAreaRef.current;
@@ -552,6 +747,20 @@ export function Slides2Inspector({
     return `${Math.round((translate.x + local.x) * 100) / 100}px ${Math.round((translate.y + local.y) * 100) / 100}px`;
   };
   const fontSize = valueNumber(textStyleValue("fontSize")) ?? 24;
+  const authoredLineHeight = selected?.authoredStyles?.lineHeight?.trim();
+  const unitlessLineHeight = Boolean(
+    authoredLineHeight &&
+    /^[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i.test(authoredLineHeight),
+  );
+  const authoredPixelLineHeight = Boolean(
+    authoredLineHeight &&
+    /^[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?px$/i.test(authoredLineHeight),
+  );
+  const lineHeightValue = unitlessLineHeight
+    ? Number(authoredLineHeight)
+    : authoredPixelLineHeight
+      ? (valueNumber(authoredLineHeight) ?? Math.round(fontSize * 1.2))
+      : (valueNumber(styles.lineHeight) ?? Math.round(fontSize * 1.2));
   const rawFontWeight = textStyleValue("fontWeight")?.trim() || "400";
   const fontWeight =
     rawFontWeight === "normal"
@@ -562,10 +771,12 @@ export function Slides2Inspector({
   const bold = Number(fontWeight) >= 600;
   const italic = textStyleValue("fontStyle") === "italic";
   const fontWeightOptions = [
+    { value: "300", label: "300" },
     { value: "400", label: t("slides2Editor.fontWeightRegular") },
     { value: "500", label: t("slides2Editor.fontWeightMedium") },
     { value: "600", label: t("slides2Editor.fontWeightSemibold") },
     { value: "700", label: t("slides2Editor.fontWeightBold") },
+    { value: "800", label: "800" },
   ] as const;
   const opacity = Math.round((valueNumber(styles.opacity) ?? 1) * 100);
   const rotation =
@@ -588,6 +799,9 @@ export function Slides2Inspector({
               onSmartGuidesChange={onSmartGuidesChange}
               onDistribute={onDistribute}
               onArrange={onArrange}
+              onGroup={onGroup}
+              onUngroup={onUngroup}
+              canUngroup={canUngroup}
               onDuplicateObject={onDuplicateObject}
               onDeleteObject={onDeleteObject}
               canSelectParent={canSelectParent}
@@ -595,9 +809,18 @@ export function Slides2Inspector({
             />
           </div>
         ) : (
-          <p className="px-4 py-5 text-sm text-muted-foreground">
-            {t("slides2Editor.selectElement")}
-          </p>
+          <div className="flex flex-col items-center px-4 pt-16 text-center ltr:translate-x-1">
+            <IconPointer
+              className="size-6 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <h3 className="mt-5 text-[13px] leading-5 font-medium text-foreground">
+              {t("slides2Editor.selectElement")}
+            </h3>
+            <p className="mt-2 max-w-[17.5rem] text-xs leading-[17px] tracking-[-0.018em] text-muted-foreground">
+              {t("slides2Editor.selectElementHint")}
+            </p>
+          </div>
         )}
       </div>
     );
@@ -605,9 +828,87 @@ export function Slides2Inspector({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-background">
-      <div className="min-h-0 flex-1 overflow-auto px-4">
+      <div className="min-h-0 flex-1 overflow-auto px-4 flex flex-col">
         {selectionCount === 1 ? (
-          <Section title={t("styleInspector.position")}>
+          <div className="order-first flex items-center justify-between gap-2 border-b border-border py-3">
+            <div className="flex min-w-0 items-center gap-2">
+              {isText ? (
+                <IconLetterT
+                  className="size-4 text-muted-foreground"
+                  aria-hidden="true"
+                />
+              ) : (
+                <IconPalette
+                  className="size-4 text-muted-foreground"
+                  aria-hidden="true"
+                />
+              )}
+              <span className="text-sm font-medium text-foreground">
+                {isText
+                  ? t("styleInspector.text")
+                  : t("styleInspector.appearance")}
+              </span>
+            </div>
+            <ToggleGroup
+              type="single"
+              value={inspectorTab}
+              onValueChange={(value) => {
+                if (value === "format" || value === "arrange") {
+                  setInspectorTab(value);
+                }
+              }}
+              aria-label={
+                isText
+                  ? t("styleInspector.text")
+                  : t("styleInspector.appearance")
+              }
+              className="shrink-0"
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="format"
+                    variant="outline"
+                    size="sm"
+                    className="size-7 p-0"
+                    aria-label={
+                      isText
+                        ? t("styleInspector.text")
+                        : t("styleInspector.appearance")
+                    }
+                  >
+                    {isText ? (
+                      <IconLetterT aria-hidden="true" />
+                    ) : (
+                      <IconPalette aria-hidden="true" />
+                    )}
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isText
+                    ? t("styleInspector.text")
+                    : t("styleInspector.appearance")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="arrange"
+                    variant="outline"
+                    size="sm"
+                    className="size-7 p-0"
+                    aria-label={t("styleInspector.arrange")}
+                  >
+                    <IconArrowsMove aria-hidden="true" />
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent>{t("styleInspector.arrange")}</TooltipContent>
+              </Tooltip>
+            </ToggleGroup>
+          </div>
+        ) : null}
+        {selectionCount === 1 && inspectorTab === "arrange" ? (
+          <Section title={t("styleInspector.position")} collapsible>
             <div className="grid grid-cols-2 gap-2">
               <NumericField
                 label={t("styleInspector.x")}
@@ -635,7 +936,7 @@ export function Slides2Inspector({
               />
               <NumericField
                 label={t("styleInspector.width")}
-                value={selected.bounds.width}
+                value={selected.transform?.width ?? selected.bounds.width}
                 unit="px"
                 disabled={disabled}
                 onCommit={(value) =>
@@ -644,7 +945,7 @@ export function Slides2Inspector({
               />
               <NumericField
                 label={t("styleInspector.height")}
-                value={selected.bounds.height}
+                value={selected.transform?.height ?? selected.bounds.height}
                 unit="px"
                 disabled={disabled}
                 onCommit={(value) =>
@@ -664,99 +965,85 @@ export function Slides2Inspector({
           </Section>
         ) : null}
 
-        <ArrangeSection
-          selectionCount={selectionCount}
-          disabled={disabled}
-          t={t}
-          onAlign={onAlign}
-          alignToSlide={alignToSlide}
-          onAlignToSlideChange={onAlignToSlideChange}
-          smartGuidesEnabled={smartGuidesEnabled}
-          onSmartGuidesChange={onSmartGuidesChange}
-          onDistribute={onDistribute}
-          onArrange={onArrange}
-          onDuplicateObject={onDuplicateObject}
-          onDeleteObject={onDeleteObject}
-          canSelectParent={canSelectParent}
-          onSelectParent={onSelectParent}
-        />
+        {selectionCount > 1 || inspectorTab === "arrange" ? (
+          <div>
+            <ArrangeSection
+              selectionCount={selectionCount}
+              disabled={disabled}
+              t={t}
+              onAlign={onAlign}
+              alignToSlide={alignToSlide}
+              onAlignToSlideChange={onAlignToSlideChange}
+              smartGuidesEnabled={smartGuidesEnabled}
+              onSmartGuidesChange={onSmartGuidesChange}
+              onDistribute={onDistribute}
+              onArrange={onArrange}
+              onGroup={onGroup}
+              onUngroup={onUngroup}
+              canUngroup={canUngroup}
+              onDuplicateObject={onDuplicateObject}
+              onDeleteObject={onDeleteObject}
+              canSelectParent={canSelectParent}
+              onSelectParent={onSelectParent}
+            />
+          </div>
+        ) : null}
 
-        {selectionCount === 1 && isText ? (
-          <Section title={t("styleInspector.typography")}>
-            <label className="grid gap-1 text-xs text-muted-foreground">
-              <span>{t("styleInspector.text")}</span>
-              <Textarea
-                ref={textAreaRef}
-                rows={4}
-                value={textDraft}
-                disabled={disabled}
-                onCompositionStart={() => {
-                  composingTextRef.current = true;
-                }}
-                onCompositionEnd={(event) => {
-                  composingTextRef.current = false;
-                  const next = event.currentTarget.value;
-                  setTextDraft(next);
-                  commitText(next);
-                  reportTextRange(event.currentTarget);
-                }}
-                onChange={(event) => {
-                  const next = event.currentTarget.value;
-                  setTextDraft(next);
-                  if (!composingTextRef.current) commitText(next);
-                  reportTextRange(event.currentTarget);
-                }}
-                onSelect={(event) => reportTextRange(event.currentTarget)}
-                onKeyUp={(event) => reportTextRange(event.currentTarget)}
-                onMouseUp={(event) => reportTextRange(event.currentTarget)}
-                onBlur={(event) => {
-                  commitText(event.currentTarget.value);
-                }}
-                className="resize-y text-foreground"
-              />
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <NumericField
-                label={t("styleInspector.size")}
-                value={fontSize}
-                unit="px"
-                disabled={disabled}
-                onCommit={(value) =>
-                  editStyle("fontSize", `${Math.max(1, Math.round(value))}px`)
-                }
-              />
-              <NumericField
-                label={t("styleInspector.lineHeight")}
-                value={
-                  valueNumber(styles.lineHeight) ?? Math.round(fontSize * 1.2)
-                }
-                unit="px"
-                disabled={disabled}
-                onCommit={(value) =>
-                  editStyle("lineHeight", `${Math.max(1, Math.round(value))}px`)
-                }
-              />
-              <NumericField
-                label={t("styleInspector.letterSpacing")}
-                value={valueNumber(styles.letterSpacing) ?? 0}
-                unit="px"
-                disabled={disabled}
-                onCommit={(value) =>
-                  editStyle(
-                    "letterSpacing",
-                    `${Math.round(value * 100) / 100}px`,
-                  )
-                }
-              />
-              <label className="grid gap-1 text-xs text-muted-foreground">
-                <span>{t("styleInspector.weight")}</span>
+        {selectionCount === 1 && isText && inspectorTab === "format" ? (
+          <Section
+            title={t("styleInspector.typography")}
+            action={
+              <Popover open={fontFamilyOpen} onOpenChange={setFontFamilyOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-7 text-muted-foreground"
+                    aria-label={t("styleInspector.fontFamily")}
+                    title={t("styleInspector.fontFamily")}
+                  >
+                    <IconTypography aria-hidden="true" className="size-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-56 p-3">
+                  <label className="grid gap-1 text-xs text-muted-foreground">
+                    <span className="sr-only">
+                      {t("styleInspector.fontFamily")}
+                    </span>
+                    <Input
+                      value={fontFamilyDraft}
+                      disabled={disabled}
+                      onChange={(event) =>
+                        setFontFamilyDraft(event.currentTarget.value)
+                      }
+                      onBlur={(event) =>
+                        editStyle(
+                          "fontFamily",
+                          event.currentTarget.value || null,
+                        )
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                      className="h-8 text-foreground"
+                      aria-label={t("styleInspector.fontFamily")}
+                    />
+                  </label>
+                </PopoverContent>
+              </Popover>
+            }
+          >
+            <div className="grid grid-cols-[2fr_1fr] gap-2">
+              <label className="grid min-w-0">
+                <span className="sr-only">{t("styleInspector.weight")}</span>
                 <Select
                   value={fontWeight}
                   disabled={disabled}
                   onValueChange={(value) => editStyle("fontWeight", value)}
                 >
                   <SelectTrigger
-                    className="h-8 text-foreground"
+                    className="h-7 text-foreground"
                     aria-label={t("styleInspector.weight")}
                   >
                     <SelectValue />
@@ -777,57 +1064,21 @@ export function Slides2Inspector({
                   </SelectContent>
                 </Select>
               </label>
-            </div>
-            <label className="grid gap-1 text-xs text-muted-foreground">
-              <span>{t("styleInspector.fontFamily")}</span>
-              <Input
-                value={fontFamilyDraft}
+              <NumericField
+                label={t("styleInspector.size")}
+                value={fontSize}
+                unit="px"
+                compact
+                prefix={
+                  <IconTextSize aria-hidden="true" className="size-3.5" />
+                }
                 disabled={disabled}
-                onChange={(event) =>
-                  setFontFamilyDraft(event.currentTarget.value)
+                onCommit={(value) =>
+                  editStyle("fontSize", `${Math.max(1, Math.round(value))}px`)
                 }
-                onBlur={(event) =>
-                  editStyle("fontFamily", event.currentTarget.value || null)
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") event.currentTarget.blur();
-                }}
-                className="h-8 text-foreground"
-                aria-label={t("styleInspector.fontFamily")}
               />
-            </label>
-            <div className="flex flex-wrap items-center gap-1">
-              <ToggleGroup
-                type="single"
-                value={styles.textAlign || "left"}
-                aria-label={t("styleInspector.align")}
-                disabled={disabled}
-                onValueChange={(alignment) => {
-                  if (alignment) editStyle("textAlign", alignment);
-                }}
-              >
-                {(["left", "center", "right", "justify"] as const).map(
-                  (alignment) => (
-                    <ToggleGroupItem
-                      key={alignment}
-                      value={alignment}
-                      variant="outline"
-                      size="sm"
-                      className="h-8 px-2 text-xs"
-                      aria-label={
-                        alignment === "justify"
-                          ? t("styleInspector.justify")
-                          : t(
-                              `styleInspector.textAlign${alignment[0]!.toUpperCase()}${alignment.slice(1)}`,
-                            )
-                      }
-                      title={t(`styleInspector.${alignment}`)}
-                    >
-                      {t(`styleInspector.${alignment}`)}
-                    </ToggleGroupItem>
-                  ),
-                )}
-              </ToggleGroup>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <ToggleGroup
                 type="multiple"
                 value={[
@@ -847,92 +1098,229 @@ export function Slides2Inspector({
                   }
                 }}
               >
-                <ToggleGroupItem
-                  value="bold"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-2 text-xs"
-                  aria-label={t("styleInspector.bold")}
-                  title={t("styleInspector.bold")}
-                >
-                  {t("styleInspector.bold")}
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="italic"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-2 text-xs"
-                  aria-label={t("styleInspector.italic")}
-                  title={t("styleInspector.italic")}
-                >
-                  {t("styleInspector.italic")}
-                </ToggleGroupItem>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <ToggleGroupItem
+                      value="bold"
+                      variant="outline"
+                      size="sm"
+                      className="size-7 p-0"
+                      aria-label={t("styleInspector.bold")}
+                    >
+                      <IconBold aria-hidden="true" />
+                    </ToggleGroupItem>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("styleInspector.bold")}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <ToggleGroupItem
+                      value="italic"
+                      variant="outline"
+                      size="sm"
+                      className="size-7 p-0"
+                      aria-label={t("styleInspector.italic")}
+                    >
+                      <IconItalic aria-hidden="true" />
+                    </ToggleGroupItem>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("styleInspector.italic")}</TooltipContent>
+                </Tooltip>
+              </ToggleGroup>
+              <ToggleGroup
+                type="single"
+                value={styles.textAlign || "left"}
+                aria-label={t("styleInspector.align")}
+                disabled={disabled}
+                onValueChange={(alignment) => {
+                  if (alignment) editStyle("textAlign", alignment);
+                }}
+              >
+                {(
+                  [
+                    ["left", IconAlignLeft],
+                    ["center", IconAlignCenter],
+                    ["right", IconAlignRight],
+                    ["justify", IconAlignJustified],
+                  ] as const
+                ).map(([alignment, Icon]) => (
+                  <Tooltip key={alignment}>
+                    <TooltipTrigger asChild>
+                      <ToggleGroupItem
+                        value={alignment}
+                        variant="outline"
+                        size="sm"
+                        className="size-7 p-0"
+                        aria-label={
+                          alignment === "justify"
+                            ? t("styleInspector.justify")
+                            : t(
+                                `styleInspector.textAlign${alignment[0]!.toUpperCase()}${alignment.slice(1)}`,
+                              )
+                        }
+                      >
+                        <Icon aria-hidden="true" />
+                      </ToggleGroupItem>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {alignment === "justify"
+                        ? t("styleInspector.justify")
+                        : t(
+                            `styleInspector.textAlign${alignment[0]!.toUpperCase()}${alignment.slice(1)}`,
+                          )}
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
               </ToggleGroup>
             </div>
-          </Section>
-        ) : null}
-
-        {selectionCount === 1 ? (
-          <Section title={t("styleInspector.appearance")}>
-            {isText ? (
-              <label className="grid gap-1 text-xs text-muted-foreground">
-                <span>{t("styleInspector.textColor")}</span>
-                <Input
-                  type="color"
-                  value={colorValue(textStyleValue("color"))}
-                  disabled={disabled}
-                  onChange={(event) =>
-                    editStyle("color", event.currentTarget.value)
-                  }
-                  className="h-9 p-1"
-                  aria-label={t("styleInspector.textColor")}
-                />
-              </label>
-            ) : null}
             <div className="grid grid-cols-2 gap-2">
-              <div className="grid min-w-0 gap-1 text-xs text-muted-foreground">
-                <span>{t("styleInspector.fill")}</span>
-                <span className="flex min-w-0 items-center gap-1">
-                  <Input
-                    type="color"
-                    value={colorValue(
-                      styles.backgroundColor,
-                      /* guard:allow-raw-color — native color input needs a concrete fallback for transparent fills. */
-                      "#ffffff",
-                    )}
-                    disabled={disabled}
-                    onChange={(event) =>
-                      editStyle("backgroundColor", event.currentTarget.value)
-                    }
-                    className="h-9 min-w-0 flex-1 p-1"
-                    aria-label={t("styleInspector.fill")}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      disabled || isTransparentColor(styles.backgroundColor)
-                    }
-                    onClick={() => editStyle("backgroundColor", null)}
-                  >
-                    {t("styleInspector.transparent")}
-                  </Button>
-                </span>
-              </div>
               <NumericField
-                label={t("styleInspector.opacity")}
-                value={opacity}
-                unit="%"
+                label={t("styleInspector.lineHeight")}
+                value={lineHeightValue}
+                unit={unitlessLineHeight ? "" : "px"}
+                compact
+                step={unitlessLineHeight ? "any" : undefined}
+                prefix={
+                  <IconLineHeight aria-hidden="true" className="size-3.5" />
+                }
                 disabled={disabled}
                 onCommit={(value) =>
                   editStyle(
-                    "opacity",
-                    String(Math.max(0, Math.min(100, Math.round(value))) / 100),
+                    "lineHeight",
+                    unitlessLineHeight
+                      ? String(Math.max(0, Math.round(value * 100) / 100))
+                      : `${Math.max(1, Math.round(value))}px`,
+                  )
+                }
+              />
+              <NumericField
+                label={t("styleInspector.letterSpacing")}
+                value={valueNumber(styles.letterSpacing) ?? 0}
+                unit="px"
+                compact
+                prefix={
+                  <IconLetterSpacing aria-hidden="true" className="size-3.5" />
+                }
+                disabled={disabled}
+                onCommit={(value) =>
+                  editStyle(
+                    "letterSpacing",
+                    `${Math.round(value * 100) / 100}px`,
                   )
                 }
               />
             </div>
+          </Section>
+        ) : null}
+
+        {selectionCount === 1 && inspectorTab === "format" ? (
+          <Section title={t("styleInspector.color")}>
+            {isText ? (
+              <ColorField
+                label={t("styleInspector.textColor")}
+                value={textStyleValue("color") ?? undefined}
+                fallback={
+                  /* guard:allow-raw-color - native color input needs a concrete fallback when the text color is inherited. */
+                  "#000000"
+                }
+                disabled={disabled}
+                onChange={(value) => editStyle("color", value)}
+              />
+            ) : null}
+            <ColorField
+              label={t("styleInspector.background")}
+              value={styles.backgroundColor}
+              fallback={
+                /* guard:allow-raw-color — native color input needs a concrete fallback for transparent fills. */
+                "#ffffff"
+              }
+              disabled={disabled}
+              onChange={(value) => editStyle("backgroundColor", value)}
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 px-2 text-[11px]"
+                  disabled={
+                    disabled || isTransparentColor(styles.backgroundColor)
+                  }
+                  onClick={() => editStyle("backgroundColor", null)}
+                >
+                  {t("styleInspector.transparent")}
+                </Button>
+              }
+            />
+          </Section>
+        ) : null}
+
+        {selectionCount === 1 && isText && inspectorTab === "format" ? (
+          <Section
+            title={t("styleInspector.content")}
+            action={
+              onEditOnSlide ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-1.5 text-[11px]"
+                  disabled={disabled}
+                  onClick={onEditOnSlide}
+                >
+                  <IconPencil className="size-3.5" aria-hidden="true" />
+                  {t("styleInspector.editOnSlide")}
+                </Button>
+              ) : null
+            }
+          >
+            <Textarea
+              ref={textAreaRef}
+              rows={2}
+              value={textDraft}
+              disabled={disabled}
+              onCompositionStart={() => {
+                composingTextRef.current = true;
+                setTextRange(null);
+                onInspectTextRange?.(null);
+              }}
+              onCompositionEnd={(event) => {
+                composingTextRef.current = false;
+                const next = event.currentTarget.value;
+                setTextDraft(next);
+                commitText(next);
+                reportTextRange(event.currentTarget);
+              }}
+              onChange={(event) => {
+                const next = event.currentTarget.value;
+                setTextDraft(next);
+                if (!composingTextRef.current) commitText(next);
+                reportTextRange(event.currentTarget);
+              }}
+              onSelect={(event) => reportTextRange(event.currentTarget)}
+              onKeyUp={(event) => reportTextRange(event.currentTarget)}
+              onMouseUp={(event) => reportTextRange(event.currentTarget)}
+              onBlur={(event) => {
+                commitText(event.currentTarget.value);
+              }}
+              className="resize-y text-foreground"
+            />
+          </Section>
+        ) : null}
+
+        {selectionCount === 1 && inspectorTab === "format" && !isText ? (
+          <Section title={t("styleInspector.appearance")}>
+            <NumericField
+              label={t("styleInspector.opacity")}
+              value={opacity}
+              unit="%"
+              disabled={disabled}
+              onCommit={(value) =>
+                editStyle(
+                  "opacity",
+                  String(Math.max(0, Math.min(100, Math.round(value))) / 100),
+                )
+              }
+            />
             <NumericField
               label={t("styleInspector.cornerRadius")}
               value={valueNumber(styles.borderRadius) ?? 0}
@@ -942,6 +1330,19 @@ export function Slides2Inspector({
                 editStyle("borderRadius", `${Math.max(0, Math.round(value))}px`)
               }
             />
+          </Section>
+        ) : null}
+
+        {selectionCount === 1 ? (
+          <Section
+            title={t("styleInspector.source")}
+            className="mt-auto"
+            collapsible
+          >
+            <span className="font-mono text-[10.5px] text-muted-foreground">
+              &lt;{selected.tagName.toLowerCase()}&gt; · {selected.line}:
+              {selected.column}
+            </span>
           </Section>
         ) : null}
       </div>

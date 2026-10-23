@@ -3,6 +3,8 @@ import fs from "fs";
 import { Window } from "happy-dom";
 import { expect, it, vi } from "vitest";
 
+import { DEFAULT_SLIDE_DESIGN_TOKENS } from "../shared/slide-design-tokens.js";
+
 const mocks = vi.hoisted(() => ({
   resolveAccess: vi.fn(),
   track: vi.fn(),
@@ -19,6 +21,10 @@ vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 vi.mock("../server/db/index.js", () => ({}));
 
 import exportHtml, { buildStandaloneHtml } from "./export-html";
+
+it("keeps the full HTML download payload on the UI-only action surface", () => {
+  expect(exportHtml.agentTool).toBe(false);
+});
 
 it("reports a failed HTML export once, then rethrows", async () => {
   mocks.resolveAccess.mockResolvedValue({
@@ -65,13 +71,16 @@ it("rejects source-only slides before writing an HTML export", async () => {
   mocks.track.mockClear();
   mocks.resolveAccess.mockResolvedValue({
     resource: {
+      ownerEmail: "local@example.com",
+      orgId: null,
       data: JSON.stringify({
         appId: "slides-2",
         slides: [
           { id: "static-slide", content: "<main>Static preview</main>" },
           {
             id: "source-only-slide",
-            sourceTsx: "export default function Slide() { return null; }",
+            sourceTsx:
+              'import { Steps } from "@agent-native/slides-core"; export default function Slide() { return <Steps><main>Dynamic source</main></Steps>; }',
           },
         ],
       }),
@@ -99,6 +108,79 @@ it("rejects source-only slides before writing an HTML export", async () => {
       error_type: "source_runtime_export_required",
       slide_count: 2,
     });
+  } finally {
+    writeSpy.mockRestore();
+  }
+});
+
+it("statically compiles supported source slides in a mixed HTML export", async () => {
+  mocks.resolveAccess.mockResolvedValue({
+    resource: {
+      title: "Deck",
+      ownerEmail: "local@example.com",
+      orgId: null,
+      data: JSON.stringify({
+        appId: "slides-2",
+        slides: [
+          { id: "legacy-slide", content: "<main>Legacy preview</main>" },
+          {
+            id: "source-slide",
+            content: "",
+            sourceTsx:
+              "export default function Slide() { return <main><h1>Source preview</h1></main>; }",
+          },
+        ],
+      }),
+    },
+  });
+  vi.stubEnv("NETLIFY", "1");
+  const writeSpy = vi.spyOn(fs, "writeFileSync");
+
+  try {
+    const result = await exportHtml.run({ deckId: "deck-1" }, {
+      caller: "ui",
+    } as never);
+
+    expect(result.html).toContain("Legacy preview");
+    expect(result.html).toContain("Source preview");
+    expect(result.slideCount).toBe(2);
+    expect(writeSpy).not.toHaveBeenCalled();
+  } finally {
+    writeSpy.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
+it("keeps Worker-required source slides on the typed no-file failure path", async () => {
+  mocks.resolveAccess.mockResolvedValue({
+    resource: {
+      ownerEmail: "local@example.com",
+      orgId: null,
+      data: JSON.stringify({
+        appId: "slides-2",
+        slides: [
+          {
+            id: "runtime-slide",
+            content: "",
+            sourceTsx:
+              "export default function Slide() { return <main>Runtime output</main>; }",
+            sourceRuntimeRequired: true,
+          },
+        ],
+      }),
+    },
+  });
+  const writeSpy = vi.spyOn(fs, "writeFileSync");
+
+  try {
+    await expect(
+      exportHtml.run({ deckId: "deck-1" }, { caller: "ui" } as never),
+    ).rejects.toMatchObject({
+      errorCode: "source_runtime_export_required",
+      statusCode: 422,
+      details: { format: "html", slideIds: ["runtime-slide"], slideCount: 1 },
+    });
+    expect(writeSpy).not.toHaveBeenCalled();
   } finally {
     writeSpy.mockRestore();
   }
@@ -153,6 +235,76 @@ it("preserves safe video playback in standalone HTML exports", () => {
   expect(html).toMatch(/<video[^>]*\bmuted\b/);
   expect(html).toMatch(/<video[^>]*\bplaysinline\b/);
   expect(html).not.toContain("javascript:");
+});
+
+it("keeps slide CSS and design data in the standalone document head", () => {
+  const html = buildStandaloneHtml("Styled deck", [
+    {
+      id: "styled-slide",
+      content:
+        "<style>h1 { color: var(--deck-accent); }</style><h1>Styled</h1>",
+      styles: ["#slide-root h1 { font-size: 72px; }"],
+      designTokens: DEFAULT_SLIDE_DESIGN_TOKENS,
+      design: {
+        palette: {
+          bg: DEFAULT_SLIDE_DESIGN_TOKENS.background,
+          text: DEFAULT_SLIDE_DESIGN_TOKENS.text,
+          accent: DEFAULT_SLIDE_DESIGN_TOKENS.accent,
+        },
+        fonts: {
+          display: DEFAULT_SLIDE_DESIGN_TOKENS.displayFont,
+          body: DEFAULT_SLIDE_DESIGN_TOKENS.bodyFont,
+        },
+        typeScale: { hero: 72, body: 24 },
+        radius: 12,
+      },
+      fontAssets: [
+        {
+          assetId: "font-1",
+          family: "Display Font",
+          variant: "regular",
+          mimeType: "font/woff2",
+          url: "https://fonts.example.test/display.woff2",
+        },
+      ],
+    },
+  ]);
+  const slideSection = html.match(
+    /<section class="slide"[\s\S]*?<\/section>/,
+  )?.[0];
+
+  expect(slideSection).toContain('data-standalone-slide-root="0"');
+  expect(slideSection).not.toContain("<style");
+  expect(html).toContain(
+    '<style data-slide-style="0">[data-standalone-slide-root="0"] h1',
+  );
+  expect(html).toContain("--deck-bg:");
+  expect(html).toContain("--slides2-bg:");
+  expect(html).toContain("@font-face");
+  expect(html).toContain("https://fonts.example.test/display.woff2");
+});
+
+it("keeps slide styles from escaping their standalone style element", async () => {
+  const window = new Window({ settings: { enableJavaScriptEvaluation: true } });
+  const html = buildStandaloneHtml("Styled deck", [
+    {
+      id: "styled-slide",
+      content: "<h1>Styled</h1>",
+      styles: [
+        "#slide-root h1 { color: red; }</style><script>window.__slides2StyleEscape = true</script><style>",
+      ],
+    },
+  ]);
+
+  window.document.write(html);
+  await window.happyDOM.whenAsyncComplete();
+
+  expect(window.document.querySelectorAll("script")).toHaveLength(1);
+  expect(
+    (window as unknown as { __slides2StyleEscape?: boolean })
+      .__slides2StyleEscape,
+  ).toBeUndefined();
+  await window.happyDOM.abort();
 });
 
 it("keeps video controls from navigating or continuing playback off-slide", async () => {

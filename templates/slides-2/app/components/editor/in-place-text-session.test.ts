@@ -5075,7 +5075,7 @@ describe("in-place text session: review round 3", () => {
   );
 });
 
-describe("in-place text session: Content authoring parity", () => {
+describe("in-place text session: Content authoring behavior", () => {
   it.each([
     ["- ", "bullet"],
     ["* ", "bullet"],

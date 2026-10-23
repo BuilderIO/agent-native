@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     isLoading: false,
   },
   sandboxArtifact: undefined as unknown,
+  sandboxProps: undefined as Record<string, unknown> | undefined,
   htmlSlide: undefined as unknown,
 }));
 
@@ -56,8 +57,9 @@ vi.mock("./Slides2Canvas", async () => {
 vi.mock("./SandboxedSlide", async () => {
   const { createElement } = await import("react");
   return {
-    SandboxedSlide: (props: { artifact: unknown }) => {
+    SandboxedSlide: (props: Record<string, unknown>) => {
       mocks.sandboxArtifact = props.artifact;
+      mocks.sandboxProps = props;
       return createElement("div", { "data-testid": "sandboxed-slide" });
     },
   };
@@ -65,6 +67,7 @@ vi.mock("./SandboxedSlide", async () => {
 
 import type { Slide } from "@/context/DeckContext";
 
+import type { SlideFrameNavigationInput } from "./protocol";
 import SlideContentRenderer from "./SlideContentRenderer";
 
 afterEach(cleanup);
@@ -73,6 +76,7 @@ beforeEach(() => {
   mocks.queries = [];
   mocks.query = { data: undefined, error: undefined, isLoading: false };
   mocks.sandboxArtifact = undefined;
+  mocks.sandboxProps = undefined;
   mocks.htmlSlide = undefined;
 });
 
@@ -120,6 +124,71 @@ describe("SlideContentRenderer", () => {
     expect(screen.getByTestId("slides-2-canvas")).toBeTruthy();
     expect(screen.getByTestId("sandboxed-slide")).toBeTruthy();
     expect(mocks.sandboxArtifact).toBe(runtimeArtifact);
+  });
+
+  it("passes the requested reveal count to the source sandbox", () => {
+    mocks.query.data = runtimeArtifact;
+
+    render(
+      <SlideContentRenderer
+        slide={sourceSlide}
+        sourceDeckId="deck-1"
+        initialRevealedSteps={2}
+      />,
+    );
+
+    expect(mocks.sandboxProps?.initialRevealedSteps).toBe(2);
+  });
+
+  it("waits for the source runtime artifact before mounting the sandbox", () => {
+    mocks.query = { data: undefined, error: undefined, isLoading: true };
+    const props = { slide: sourceSlide, sourceDeckId: "deck-1" };
+    const { rerender } = render(<SlideContentRenderer {...props} />);
+
+    expect(
+      document.querySelector('[data-source-slide-loading="slide-source"]'),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("sandboxed-slide")).toBeNull();
+
+    mocks.query = { data: runtimeArtifact, error: undefined, isLoading: false };
+    rerender(<SlideContentRenderer {...props} />);
+
+    expect(document.querySelector("[data-source-slide-loading]")).toBeNull();
+    expect(screen.getByTestId("sandboxed-slide")).toBeTruthy();
+  });
+
+  it("bubbles plain sandbox clicks to the presentation stage", () => {
+    mocks.query.data = runtimeArtifact;
+    const onClick = vi.fn();
+    render(
+      <div onClick={onClick}>
+        <SlideContentRenderer slide={sourceSlide} sourceDeckId="deck-1" />
+      </div>,
+    );
+
+    const onNavigationInput = mocks.sandboxProps?.onNavigationInput as (
+      input: SlideFrameNavigationInput,
+    ) => void;
+    const click: SlideFrameNavigationInput = {
+      type: "click",
+      x: 0.5,
+      y: 0.5,
+      button: 0,
+      defaultPrevented: false,
+      interactive: false,
+      hasSelection: false,
+    };
+
+    act(() => onNavigationInput(click));
+    expect(onClick).toHaveBeenCalledTimes(1);
+
+    act(() =>
+      onNavigationInput({
+        ...click,
+        interactive: true,
+      } satisfies SlideFrameNavigationInput),
+    );
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 
   it("preserves HTML slide rendering without requesting a runtime", () => {

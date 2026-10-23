@@ -4,7 +4,12 @@ type ShortcutAction =
   | "present-windowed"
   | "open-presenter-view"
   | "toggle-inspector"
+  | "preview-mode"
+  | "edit-mode"
+  | "toggle-comment-mode"
   | "edit-selected-text"
+  | "delete-selected-object"
+  | "nudge-selected-object"
   | "previous-slide"
   | "next-slide"
   | "select-all"
@@ -13,6 +18,7 @@ type ShortcutAction =
 export type Slides2EditorShortcut = {
   action: ShortcutAction;
   preventDefault: boolean;
+  delta?: { x: number; y: number };
 };
 
 type Options = {
@@ -21,8 +27,22 @@ type Options = {
   isControlTarget?: boolean;
   isComposing?: boolean;
   hasSelectedText?: boolean;
+  hasSelectedObject?: boolean;
+  canComment?: boolean;
   keyCode?: number;
 };
+
+type ArrowModifiers = Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey">;
+
+export function shouldIgnoreModifiedArrowNavigation(
+  key: string,
+  modifiers: ArrowModifiers,
+): boolean {
+  return (
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(key) &&
+    (modifiers.altKey || modifiers.ctrlKey || modifiers.metaKey)
+  );
+}
 
 function isTypingTarget(target: EventTarget | null): boolean {
   return (
@@ -49,6 +69,8 @@ export function getSlides2EditorShortcut(
     isControlTarget: frameIsControlTarget = false,
     isComposing = false,
     hasSelectedText = false,
+    hasSelectedObject = false,
+    canComment = false,
     keyCode,
   }: Options = {},
 ): Slides2EditorShortcut | null {
@@ -87,10 +109,45 @@ export function getSlides2EditorShortcut(
 
   if (key === "i") return { action: "toggle-inspector", preventDefault: true };
 
-  if (event.key === "ArrowUp")
+  if (
+    hasSelectedObject &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+  ) {
+    const step = event.shiftKey ? 10 : 1;
+    return {
+      action: "nudge-selected-object",
+      preventDefault: true,
+      delta: {
+        x:
+          event.key === "ArrowLeft"
+            ? -step
+            : event.key === "ArrowRight"
+              ? step
+              : 0,
+        y:
+          event.key === "ArrowUp"
+            ? -step
+            : event.key === "ArrowDown"
+              ? step
+              : 0,
+      },
+    };
+  }
+
+  if (event.key === "ArrowLeft" || event.key === "ArrowUp")
     return { action: "previous-slide", preventDefault: true };
-  if (event.key === "ArrowDown")
+  if (event.key === "ArrowRight" || event.key === "ArrowDown")
     return { action: "next-slide", preventDefault: true };
+  if (key === "v") return { action: "preview-mode", preventDefault: true };
+  if (key === "e") return { action: "edit-mode", preventDefault: true };
+  if (key === "c" && canComment)
+    return { action: "toggle-comment-mode", preventDefault: true };
+  if (
+    hasSelectedObject &&
+    (event.key === "Delete" || event.key === "Backspace")
+  ) {
+    return { action: "delete-selected-object", preventDefault: true };
+  }
   if (key === "f")
     return { action: "present-fullscreen", preventDefault: false };
   if (event.key === "Enter" && hasSelectedText)

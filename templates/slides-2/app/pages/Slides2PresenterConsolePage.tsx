@@ -9,14 +9,12 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
-  IconMinus,
-  IconPlus,
   IconRotateClockwise,
   IconSquare,
   IconSun,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   Navigate,
@@ -25,7 +23,10 @@ import {
   useSearchParams,
 } from "react-router";
 
-import { getPresenterConsoleCommand } from "@/components/slides-2-presenter/keyboard";
+import {
+  getPresenterConsoleCommand,
+  isPresenterTypingTarget,
+} from "@/components/slides-2-presenter/keyboard";
 import {
   clampPresenterIndex,
   useSlides2PresenterChannel,
@@ -49,6 +50,7 @@ import { TAB_ID } from "@/lib/tab-id";
 
 type SlideReference = {
   id: string;
+  skipped?: unknown;
 };
 
 type PresenterDeckOption = {
@@ -62,6 +64,42 @@ type PresenterDeckList = {
   decks: PresenterDeckOption[];
   nextCursor?: string;
 };
+
+const NOTES_TEXT_SIZE_STORAGE_KEY = "slides-2:presenter-notes-text-size";
+const NOTES_TEXT_SIZE_CLASSES = [
+  "text-xs",
+  "text-[13.5px]",
+  "text-base",
+  "text-lg",
+  "text-xl",
+] as const;
+const DEFAULT_NOTES_TEXT_SIZE_INDEX = 1;
+
+function readNotesTextSizeIndex() {
+  if (typeof window === "undefined") return DEFAULT_NOTES_TEXT_SIZE_INDEX;
+  const stored = window.localStorage.getItem(NOTES_TEXT_SIZE_STORAGE_KEY);
+  if (stored === null) return DEFAULT_NOTES_TEXT_SIZE_INDEX;
+  const index = Number(stored);
+  return Number.isSafeInteger(index) &&
+    index >= 0 &&
+    index < NOTES_TEXT_SIZE_CLASSES.length
+    ? index
+    : DEFAULT_NOTES_TEXT_SIZE_INDEX;
+}
+
+function visibleIndexForRawPosition(
+  rawIndex: number,
+  visibleRawIndexes: number[],
+) {
+  if (visibleRawIndexes.length === 0) return 0;
+  const position = Number.isFinite(rawIndex) ? Math.max(0, rawIndex) : 0;
+  const nextVisibleIndex = visibleRawIndexes.findIndex(
+    (visibleRawIndex) => visibleRawIndex >= position,
+  );
+  return nextVisibleIndex >= 0
+    ? nextVisibleIndex
+    : visibleRawIndexes.length - 1;
+}
 
 function getPreviewSlideId(
   deck: PresenterDeckOption | null,
@@ -191,7 +229,6 @@ function CurrentClock() {
       {formatters.formatDate(now, {
         hour: "numeric",
         minute: "2-digit",
-        second: "2-digit",
       })}
     </time>
   );
@@ -234,20 +271,10 @@ function ElapsedTimer({
   );
 }
 
-function isTypingTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    Boolean(
-      target.closest(
-        'input, textarea, select, [contenteditable="true"], [role="textbox"]',
-      ),
-    )
-  );
-}
-
 export default function Slides2PresenterConsolePage() {
   const { id } = useParams<{ id: string }>();
   const t = useT();
+  const formatters = useFormatters();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckPickerOpen, setDeckPickerOpen] = useState(false);
@@ -259,7 +286,18 @@ export default function Slides2PresenterConsolePage() {
     { enabled: Boolean(id) },
   );
   const deck = deckQuery.data;
-  const slides: SlideReference[] = deck?.slides ?? [];
+  const rawSlides: SlideReference[] = deck?.slides ?? [];
+  const visibleRawIndexes = useMemo(
+    () =>
+      rawSlides.flatMap((slide, rawIndex) =>
+        slide.skipped === true ? [] : [rawIndex],
+      ),
+    [rawSlides],
+  );
+  const slides = useMemo(
+    () => visibleRawIndexes.map((rawIndex) => rawSlides[rawIndex]),
+    [rawSlides, visibleRawIndexes],
+  );
   const deckListQuery = useActionQuery(
     "list-decks",
     {
@@ -290,13 +328,19 @@ export default function Slides2PresenterConsolePage() {
     pickerPreviewSlideId,
   );
   const requestedSlide = Number.parseInt(searchParams.get("slide") ?? "1", 10);
-  const requestedIndex = Number.isFinite(requestedSlide)
-    ? Math.max(0, requestedSlide - 1)
+  const requestedRawIndex = Number.isFinite(requestedSlide)
+    ? requestedSlide - 1
     : 0;
-  const [localIndex, setLocalIndex] = useState(requestedIndex);
+  const requestedIndex = visibleIndexForRawPosition(
+    requestedRawIndex,
+    visibleRawIndexes,
+  );
+  const [localBlackout, setLocalBlackout] = useState<PresenterBlackout>(null);
   const [localStart] = useState(() => Date.now());
   const [timerResetAt, setTimerResetAt] = useState<number | null>(null);
-  const [notesTextSizeIndex, setNotesTextSizeIndex] = useState(1);
+  const [notesTextSizeIndex, setNotesTextSizeIndex] = useState(
+    readNotesTextSizeIndex,
+  );
   const [jumpValue, setJumpValue] = useState("");
   const [receivedState, setReceivedState] = useState<{
     deckId: string;
@@ -358,13 +402,16 @@ export default function Slides2PresenterConsolePage() {
 
   useEffect(() => {
     setReceivedState(null);
+    setLocalBlackout(null);
     setTimerResetAt(null);
-    setNotesTextSizeIndex(1);
   }, [id]);
 
   useEffect(() => {
-    setLocalIndex(clampPresenterIndex(requestedIndex, slides.length));
-  }, [id, requestedIndex, slides.length]);
+    window.localStorage.setItem(
+      NOTES_TEXT_SIZE_STORAGE_KEY,
+      String(notesTextSizeIndex),
+    );
+  }, [notesTextSizeIndex]);
 
   useEffect(() => {
     if (!id || !channel.available) return;
@@ -386,30 +433,33 @@ export default function Slides2PresenterConsolePage() {
   }, [id, receivedState]);
 
   const index = clampPresenterIndex(
-    connectedState?.index ?? localIndex,
+    connectedState?.index ?? requestedIndex,
     slides.length,
   );
+  const rawIndex = visibleRawIndexes[index] ?? 0;
   const total = slides.length;
   const currentSlide = slides[index];
   const nextSlide = slides[index + 1];
-  const blackout = connectedState?.blackout ?? null;
+  const blackout = connectedState ? connectedState.blackout : localBlackout;
   const startedAt = connectedState ? connectedState.startedAt : localStart;
   const stepIndex = connectedState?.stepIndex ?? 0;
   const stepCount = connectedState?.stepCount ?? null;
   const canPrevious = index > 0 || stepIndex > 0;
-  const canNext =
-    index < total - 1 || (stepCount !== null && stepIndex < stepCount);
-  const nextPreviewSteps =
-    stepCount === null ? null : stepIndex < stepCount ? stepIndex + 1 : 0;
+  const hasNextBuildStep = stepCount !== null && stepIndex < stepCount;
+  const canNext = index < total - 1 || hasNextBuildStep;
+  const upNextSlide = hasNextBuildStep ? currentSlide : nextSlide;
+  const upNextSlideIndex = hasNextBuildStep ? index + 1 : index + 2;
+  const upNextInitialRevealedSteps = hasNextBuildStep ? stepIndex + 1 : 0;
+  const hasUpNext = hasNextBuildStep || Boolean(nextSlide);
   const currentPreview = useSlidePreview(id ?? "", currentSlide?.id);
-  const nextPreview = useSlidePreview(id ?? "", nextSlide?.id);
+  const upNextPreview = useSlidePreview(id ?? "", upNextSlide?.id);
 
   useEffect(() => {
-    if (!connectedState || connectedState.index + 1 === requestedSlide) return;
+    if (total === 0 || requestedSlide === rawIndex + 1) return;
     const next = new URLSearchParams(searchParams);
-    next.set("slide", String(connectedState.index + 1));
+    next.set("slide", String(rawIndex + 1));
     setSearchParams(next, { replace: true });
-  }, [connectedState?.index, requestedSlide, searchParams, setSearchParams]);
+  }, [rawIndex, requestedSlide, searchParams, setSearchParams, total]);
 
   useEffect(() => {
     if (!id) return;
@@ -418,33 +468,35 @@ export default function Slides2PresenterConsolePage() {
       view: "presenter",
       deckId: id,
       slideId: currentSlide?.id ?? null,
-      slideIndex: index,
-      slideNumber: index + 1,
-      path: `/deck/${encodeURIComponent(id)}/present?view=presenter&slide=${index + 1}`,
+      slideIndex: rawIndex,
+      slideNumber: rawIndex + 1,
+      path: `/deck/${encodeURIComponent(id)}/present?view=presenter&slide=${rawIndex + 1}`,
     };
     writeState(appStateKeyForBrowserTab("navigation", TAB_ID), navigation);
     writeState("navigation", navigation);
     const selection = {
       deckId: id,
       slideId: currentSlide?.id ?? null,
-      slideIndex: index,
-      slideNumber: index + 1,
+      slideIndex: rawIndex,
+      slideNumber: rawIndex + 1,
       items: [],
     };
     writeState(appStateKeyForBrowserTab("slides-selection", TAB_ID), selection);
-  }, [currentSlide?.id, id, index]);
+  }, [currentSlide?.id, id, rawIndex]);
 
   const goTo = useCallback(
     (nextIndex: number) => {
-      if (!connectedState || !id) return;
+      if (!id) return;
       const next = clampPresenterIndex(nextIndex, total);
+      const nextRawIndex = visibleRawIndexes[next] ?? 0;
       const nextParams = new URLSearchParams(searchParams);
-      nextParams.set("slide", String(next + 1));
+      nextParams.set("slide", String(nextRawIndex + 1));
       setSearchParams(nextParams, { replace: true });
+      if (!connectedState) return;
       void presenterControls.run({
         operation: "goto",
         deckId: id,
-        slideNumber: next + 1,
+        slideNumber: nextRawIndex + 1,
       });
     },
     [
@@ -454,21 +506,30 @@ export default function Slides2PresenterConsolePage() {
       searchParams,
       setSearchParams,
       total,
+      visibleRawIndexes,
     ],
   );
   const step = useCallback(
     (direction: "next" | "prev") => {
-      if (!connectedState || !id) return;
+      if (!id) return;
+      if (!connectedState) {
+        goTo(index + (direction === "next" ? 1 : -1));
+        return;
+      }
       void presenterControls.run({
         operation: direction === "next" ? "next" : "previous",
         deckId: id,
       });
     },
-    [connectedState, id, presenterControls.run],
+    [connectedState, goTo, id, index, presenterControls.run],
   );
   const toggleBlackout = useCallback(
     (mode: Exclude<PresenterBlackout, null>) => {
-      if (!connectedState || !id) return;
+      if (!connectedState) {
+        setLocalBlackout(mode);
+        return;
+      }
+      if (!id) return;
       void presenterControls.run({
         operation: "blackout",
         deckId: id,
@@ -480,7 +541,7 @@ export default function Slides2PresenterConsolePage() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (deckPickerOpen || isTypingTarget(event.target)) {
+      if (deckPickerOpen || isPresenterTypingTarget(event.target)) {
         return;
       }
 
@@ -520,7 +581,7 @@ export default function Slides2PresenterConsolePage() {
   if (deckQuery.isLoading) {
     return (
       <div
-        className="dark h-dvh animate-pulse bg-background"
+        className="dark h-dvh animate-pulse bg-neutral-950"
         aria-hidden="true"
       />
     );
@@ -528,7 +589,7 @@ export default function Slides2PresenterConsolePage() {
 
   if (deckQuery.error || !deck) {
     return (
-      <div className="dark grid h-dvh place-items-center bg-background px-6 text-center text-sm text-foreground">
+      <div className="dark grid h-dvh place-items-center bg-neutral-950 px-6 text-center text-sm text-foreground">
         {actionErrorMessage(deckQuery.error) ?? t("presentation.loadFailed")}
       </div>
     );
@@ -536,29 +597,21 @@ export default function Slides2PresenterConsolePage() {
 
   if (total === 0) {
     return (
-      <div className="dark grid h-dvh place-items-center bg-background px-6 text-center text-sm text-foreground">
+      <div className="dark grid h-dvh place-items-center bg-neutral-950 px-6 text-center text-sm text-foreground">
         {t("presentation.noSlides")}
       </div>
     );
   }
 
-  const nextLabel = nextSlide
+  const nextLabel = hasUpNext
     ? t("presentation.upNext")
     : t("presentation.endOfDeck");
   const position = t("slides2Presenter.position", {
     index: index + 1,
     total,
   });
-  const notesTextSizeClasses = [
-    "text-xs",
-    "text-sm",
-    "text-base",
-    "text-lg",
-    "text-xl",
-  ];
-
   return (
-    <div className="dark flex h-dvh min-h-[480px] w-screen flex-col overflow-hidden bg-background text-foreground">
+    <div className="dark flex h-dvh min-h-[480px] w-screen flex-col overflow-hidden bg-neutral-950 text-foreground">
       {presenterControls.hasError ? (
         <div
           className="border-b border-destructive/30 px-5 py-2 text-xs text-destructive"
@@ -568,8 +621,12 @@ export default function Slides2PresenterConsolePage() {
             t("slides2Presenter.controlFailed")}
         </div>
       ) : null}
-      <header className="flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-border px-5 md:px-6">
-        <div className="min-w-0">
+      <header className="grid h-12 min-h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-border px-5 md:px-6">
+        <div className="flex min-w-0 items-center gap-2">
+          {/* guard:allow-eyebrow — deliberate: matches the source presenter console's mode nameplate. */}
+          <span className="hidden shrink-0 font-sans text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground sm:inline">
+            {t("slides2Presenter.presenterLabel")}
+          </span>
           <h1 className="min-w-0 text-sm font-semibold tracking-tight">
             <Button
               type="button"
@@ -590,11 +647,8 @@ export default function Slides2PresenterConsolePage() {
               />
             </Button>
           </h1>
-          <p className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-muted-foreground">
-            {position}
-          </p>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="col-start-2 flex shrink-0 items-center gap-3">
           {!projectionLinked && (
             <span
               role="status"
@@ -607,32 +661,47 @@ export default function Slides2PresenterConsolePage() {
               {t("slides2Presenter.projectionNotLinked")}
             </span>
           )}
+        </div>
+        <div className="col-start-3 flex shrink-0 items-center gap-3">
           <CurrentClock />
           <ElapsedTimer startedAt={startedAt} resetAt={timerResetAt} />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("slides2Presenter.resetTimer")}
-            title={t("slides2Presenter.resetTimer")}
-            onClick={() => setTimerResetAt(Date.now())}
+          <span
+            aria-label={position}
+            className="font-mono text-base tabular-nums text-foreground"
           >
-            <IconRotateClockwise aria-hidden="true" />
+            {formatters.formatNumber(index + 1, {
+              minimumIntegerDigits: 2,
+              useGrouping: false,
+            })}{" "}
+            /{" "}
+            {formatters.formatNumber(total, {
+              minimumIntegerDigits: 2,
+              useGrouping: false,
+            })}
+          </span>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => window.close()}
+            aria-label={t("presentation.closePresenterView")}
+            title={t("presentation.closePresenterView")}
+          >
+            <IconX aria-hidden="true" />
           </Button>
         </div>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          onClick={() => window.close()}
-          aria-label={t("presentation.closePresenterView")}
-          title={t("presentation.closePresenterView")}
-        >
-          <IconX aria-hidden="true" />
-        </Button>
       </header>
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)] lg:gap-5 lg:p-6">
-        <section className="flex min-h-0 flex-col gap-2">
+      <div className="grid h-6 shrink-0 grid-cols-1 items-center gap-4 px-4 lg:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)] lg:gap-6 lg:px-6">
+        <h2 className="font-sans text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          {t("slides2Presenter.nowShowing")}
+        </h2>
+        <h2 className="hidden font-sans text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground lg:block">
+          {nextLabel}
+        </h2>
+      </div>
+
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto px-4 pb-4 pt-0 lg:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)] lg:gap-6 lg:px-6 lg:pb-4">
+        <section className="flex min-h-0 flex-col gap-2 pt-1">
           <h2 className="sr-only">{position}</h2>
           <div className="min-h-0 flex-1">
             <SlidePreview
@@ -641,26 +710,26 @@ export default function Slides2PresenterConsolePage() {
               loading={currentPreview.loading}
               title={t("slides2Presenter.slideLabel", { index: index + 1 })}
               blackout={blackout}
-              initialRevealedSteps={connectedState?.stepIndex ?? null}
+              initialRevealedSteps={stepIndex}
               className="h-full min-h-[220px]"
             />
           </div>
         </section>
 
-        <aside className="grid min-h-0 grid-rows-[auto_minmax(180px,1fr)] gap-4">
+        <aside className="grid min-h-0 grid-rows-[auto_minmax(180px,1fr)_auto] gap-4">
           <section className="flex flex-col gap-2">
-            <h2 className="text-xs font-medium text-muted-foreground">
+            <h2 className="text-xs font-medium text-muted-foreground lg:hidden">
               {nextLabel}
             </h2>
-            {nextSlide ? (
+            {hasUpNext ? (
               <SlidePreview
-                artifact={nextPreview.artifact}
-                failed={nextPreview.failed}
-                loading={nextPreview.loading}
+                artifact={upNextPreview.artifact}
+                failed={upNextPreview.failed}
+                loading={upNextPreview.loading}
                 title={t("slides2Presenter.slideLabel", {
-                  index: index + 2,
+                  index: upNextSlideIndex,
                 })}
-                initialRevealedSteps={nextPreviewSteps}
+                initialRevealedSteps={upNextInitialRevealedSteps}
               />
             ) : (
               <div className="grid aspect-video place-items-center rounded-md bg-card text-xs text-muted-foreground ring-1 ring-border">
@@ -671,7 +740,7 @@ export default function Slides2PresenterConsolePage() {
 
           <section className="flex min-h-0 flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-xs font-medium text-muted-foreground">
+              <h2 className="font-sans text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                 {t("presentation.speakerNotes")}
               </h2>
               <div
@@ -690,7 +759,7 @@ export default function Slides2PresenterConsolePage() {
                     setNotesTextSizeIndex((size) => Math.max(0, size - 1))
                   }
                 >
-                  <IconMinus aria-hidden="true" />
+                  A↓
                 </Button>
                 <Button
                   type="button"
@@ -699,20 +768,20 @@ export default function Slides2PresenterConsolePage() {
                   aria-label={t("slides2Presenter.increaseNotesTextSize")}
                   title={t("slides2Presenter.increaseNotesTextSize")}
                   disabled={
-                    notesTextSizeIndex === notesTextSizeClasses.length - 1
+                    notesTextSizeIndex === NOTES_TEXT_SIZE_CLASSES.length - 1
                   }
                   onClick={() =>
                     setNotesTextSizeIndex((size) =>
-                      Math.min(notesTextSizeClasses.length - 1, size + 1),
+                      Math.min(NOTES_TEXT_SIZE_CLASSES.length - 1, size + 1),
                     )
                   }
                 >
-                  <IconPlus aria-hidden="true" />
+                  A↑
                 </Button>
               </div>
             </div>
             <div
-              className={`min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-card p-4 leading-relaxed text-card-foreground ${notesTextSizeClasses[notesTextSizeIndex]}`}
+              className={`min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-neutral-900 p-3 leading-relaxed text-card-foreground ${NOTES_TEXT_SIZE_CLASSES[notesTextSizeIndex]}`}
             >
               {currentPreview.loading ? (
                 <div
@@ -724,7 +793,7 @@ export default function Slides2PresenterConsolePage() {
                   {t("presentation.loadFailed")}
                 </span>
               ) : currentPreview.source?.notes?.trim() ? (
-                <div className="[&_li]:my-1 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5">
+                <div className="space-y-[0.65em] whitespace-pre-wrap [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-[1.4em] [&_p]:mb-0 [&_ul]:list-disc [&_ul]:pl-[1.4em]">
                   <ReactMarkdown>
                     {currentPreview.source.notes ?? ""}
                   </ReactMarkdown>
@@ -736,29 +805,7 @@ export default function Slides2PresenterConsolePage() {
               )}
             </div>
           </section>
-        </aside>
-      </main>
 
-      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 md:px-6">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => step("prev")}
-            disabled={!projectionLinked || !canPrevious}
-          >
-            <IconChevronLeft aria-hidden="true" />
-            {t("presentation.previousSlide")}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => step("next")}
-            disabled={!projectionLinked || !canNext}
-          >
-            {t("presentation.nextSlide")}
-            <IconChevronRight aria-hidden="true" />
-          </Button>
           <form
             className="flex items-center gap-2"
             onSubmit={(event) => {
@@ -770,54 +817,102 @@ export default function Slides2PresenterConsolePage() {
               }
             }}
           >
-            <input
+            <span className="font-sans text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+              {t("slides2Presenter.jumpLabel")}
+            </span>
+            <Input
               type="number"
+              size="sm"
               min={1}
               max={total}
               value={jumpValue}
               onChange={(event) => setJumpValue(event.target.value)}
-              disabled={!projectionLinked}
               placeholder={String(index + 1)}
               aria-label={t("slides2Presenter.shortcutJump")}
-              className="h-8 w-16 rounded-md border border-border bg-card px-2 font-mono text-xs tabular-nums text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="w-16 rounded-md bg-card px-2 font-mono text-xs tabular-nums text-foreground"
             />
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+              /{" "}
+              {formatters.formatNumber(total, {
+                minimumIntegerDigits: 2,
+                useGrouping: false,
+              })}
+            </span>
             <Button
               type="submit"
-              variant="outline"
+              variant="ghost"
               size="sm"
+              className="sr-only focus:not-sr-only"
+              aria-label={t("slides2Presenter.shortcutJump")}
               disabled={
                 !jumpValue ||
-                !projectionLinked ||
                 Number.parseInt(jumpValue, 10) < 1 ||
                 Number.parseInt(jumpValue, 10) > total
               }
             >
-              {t("slides2Presenter.shortcutJump")}
+              {t("slides2Presenter.jumpLabel")}
             </Button>
           </form>
+        </aside>
+      </main>
+
+      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 md:px-6">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => step("prev")}
+            disabled={projectionLinked && !canPrevious}
+            aria-label={t("presentation.previousSlide")}
+            title={t("presentation.previousSlide")}
+          >
+            <IconChevronLeft aria-hidden="true" />
+            {t("slides2Presenter.previousShort")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => step("next")}
+            disabled={projectionLinked && !canNext}
+            aria-label={t("presentation.nextSlide")}
+            title={t("presentation.nextSlide")}
+          >
+            {t("slides2Presenter.nextShort")}
+            <IconChevronRight aria-hidden="true" />
+          </Button>
         </div>
         <div className="flex items-center gap-2">
           <Button
             variant={blackout === "black" ? "default" : "outline"}
-            size="icon-sm"
+            size="sm"
             onClick={() => toggleBlackout("black")}
-            disabled={!projectionLinked}
             aria-label={t("slides2Presenter.blackout")}
             aria-pressed={blackout === "black"}
             title={t("slides2Presenter.blackout")}
           >
             <IconSquare aria-hidden="true" />
+            {t("slides2Presenter.blackLabel")}
           </Button>
           <Button
             variant={blackout === "white" ? "default" : "outline"}
-            size="icon-sm"
+            size="sm"
             onClick={() => toggleBlackout("white")}
-            disabled={!projectionLinked}
             aria-label={t("slides2Presenter.whiteout")}
             aria-pressed={blackout === "white"}
             title={t("slides2Presenter.whiteout")}
           >
             <IconSun aria-hidden="true" />
+            {t("slides2Presenter.whiteLabel")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setTimerResetAt(Date.now())}
+            aria-label={t("slides2Presenter.resetTimer")}
+            title={t("slides2Presenter.resetTimer")}
+          >
+            <IconRotateClockwise aria-hidden="true" />
+            {t("slides2Presenter.resetShort")}
           </Button>
         </div>
       </footer>
@@ -865,17 +960,19 @@ export default function Slides2PresenterConsolePage() {
                   </div>
                 ) : pickerDecks.length > 0 ? (
                   pickerDecks.map((pickerDeck) => (
-                    <button
+                    <Button
                       key={pickerDeck.id}
                       type="button"
+                      variant="ghost"
+                      size="sm"
                       aria-pressed={focusedDeck?.id === pickerDeck.id}
                       onClick={() => setFocusedDeckId(pickerDeck.id)}
-                      className={`flex w-full items-center rounded-sm px-3 py-2 text-left text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground ${focusedDeck?.id === pickerDeck.id ? "bg-accent text-accent-foreground" : "text-foreground"}`}
+                      className={`h-auto w-full justify-start rounded-sm px-3 py-2 text-left text-sm font-normal outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground ${focusedDeck?.id === pickerDeck.id ? "bg-accent text-accent-foreground" : "text-foreground"}`}
                     >
                       <span className="truncate">
                         {pickerDeck.title || t("navigation.brand")}
                       </span>
-                    </button>
+                    </Button>
                   ))
                 ) : (
                   <div className="flex min-h-24 items-center justify-center p-4 text-center text-sm text-muted-foreground">

@@ -1,5 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { PptxImageByteLimitError } from "@agent-native/core/ingestion";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -15,10 +16,13 @@ import { convertToSlideHtml } from "../server/handlers/import/html-converter.js"
 import {
   assertPptxImageByteLimits,
   assertPptxImagesRenderable,
+  MAX_PPTX_IMAGE_BYTES,
+  MAX_PPTX_IMAGES_TOTAL_BYTES,
   uploadPptxSlideImages,
 } from "../server/handlers/import/pptx-assets.js";
 import {
   parsePptx,
+  parsePptxWithImageByteLimits,
   type ParsedElement,
   type ParsedImage,
   type ParsedPresentation,
@@ -71,11 +75,19 @@ type ImportPostCommitWarning =
   | "client_notification_failed"
   | "refresh_signal_failed";
 
+type ImportPostCommitStatus = {
+  clientNotification: "helper-returned" | "failed";
+  refreshSignal: "written" | "failed";
+};
+
 async function notifyImportedDeckAfterCommit(args: {
   deckId: string;
   timestamp: string;
   source: string;
-}): Promise<ImportPostCommitWarning[]> {
+}): Promise<{
+  status: ImportPostCommitStatus;
+  warnings: ImportPostCommitWarning[];
+}> {
   const outcomes = await Promise.allSettled([
     Promise.resolve().then(() => notifyClients(args.deckId)),
     Promise.resolve().then(() =>
@@ -92,13 +104,24 @@ async function notifyImportedDeckAfterCommit(args: {
   if (outcomes[1]?.status === "rejected") {
     warnings.push("refresh_signal_failed");
   }
-  if (warnings.length > 0) {
+  if (warnings.includes("client_notification_failed")) {
     console.warn(
-      "[slides-2] PPTX import committed with post-commit refresh failures.",
-      warnings,
+      "[slides-2] PPTX import committed, but client notification failed.",
     );
   }
-  return warnings;
+  if (warnings.includes("refresh_signal_failed")) {
+    console.warn(
+      "[slides-2] PPTX import committed, but refresh signal failed.",
+    );
+  }
+  return {
+    status: {
+      clientNotification:
+        outcomes[0]?.status === "fulfilled" ? "helper-returned" : "failed",
+      refreshSignal: outcomes[1]?.status === "fulfilled" ? "written" : "failed",
+    },
+    warnings,
+  };
 }
 
 export function applyImageFallbacks(
@@ -162,6 +185,11 @@ export async function importPptxBufferToDeck(args: {
   postCommitWarnings?: ImportPostCommitWarning[];
   imagesSkipped?: number;
   tablesDegraded?: number;
+  postCommit: {
+    committed: true;
+    clientNotification: "helper-returned" | "failed";
+    refreshSignal: "written" | "failed";
+  };
 }> {
   const {
     fileBuffer,
@@ -207,6 +235,9 @@ export async function importPptxBufferToDeck(args: {
       });
     }
     assertSlides2DeckData(safeParseDeckData(deck.data));
+  }
+  if (designSystemId !== undefined && designSystemId !== null) {
+    await assertAccess("design-system", designSystemId, "viewer");
   }
   assertPptxImagesRenderable(presentation.slides);
 
@@ -356,7 +387,7 @@ export async function importPptxBufferToDeck(args: {
         assertDeckWriteApplied(updateResult, deckId, "PPTX import");
         assetBatch.markCommitted();
 
-        const postCommitWarnings = await notifyImportedDeckAfterCommit({
+        const postCommit = await notifyImportedDeckAfterCommit({
           deckId,
           timestamp: now,
           source,
@@ -365,11 +396,14 @@ export async function importPptxBufferToDeck(args: {
         return {
           id: deckId,
           title: deckTitle,
+          postCommit: { committed: true, ...postCommit.status },
           slideCount: slides.length,
           theme: presentation.theme,
           imported: true,
           url: getDeckUrl(deckId),
-          ...(postCommitWarnings.length > 0 ? { postCommitWarnings } : {}),
+          ...(postCommit.warnings.length > 0
+            ? { postCommitWarnings: postCommit.warnings }
+            : {}),
           ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
           ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
         };
@@ -407,7 +441,7 @@ export async function importPptxBufferToDeck(args: {
     );
     assetBatch.markCommitted();
 
-    const postCommitWarnings = await notifyImportedDeckAfterCommit({
+    const postCommit = await notifyImportedDeckAfterCommit({
       deckId: id,
       timestamp: now,
       source,
@@ -416,11 +450,14 @@ export async function importPptxBufferToDeck(args: {
     return {
       id,
       title: deckTitle,
+      postCommit: { committed: true, ...postCommit.status },
       slideCount: slides.length,
       theme: presentation.theme,
       imported: true,
       url: getDeckUrl(id),
-      ...(postCommitWarnings.length > 0 ? { postCommitWarnings } : {}),
+      ...(postCommit.warnings.length > 0
+        ? { postCommitWarnings: postCommit.warnings }
+        : {}),
       ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
       ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
     };
@@ -553,8 +590,19 @@ async function parsePptxBeforeDeckWrite(
   fileBuffer: Buffer,
 ): Promise<ParsedPresentation> {
   try {
-    return await parsePptx(fileBuffer);
+    return await parsePptxWithImageByteLimits(fileBuffer, {
+      maxImageBytes: MAX_PPTX_IMAGE_BYTES,
+      maxTotalImageBytes: MAX_PPTX_IMAGES_TOTAL_BYTES,
+    });
   } catch (error) {
+    if (error instanceof PptxImageByteLimitError) {
+      fail(
+        error.limit === "per-image"
+          ? "Source-faithful PPTX import cannot preserve an image above the 10 MB limit. No images were uploaded."
+          : "Source-faithful PPTX import cannot preserve images above the 40 MB total limit. No images were uploaded.",
+        { errorCode: "pptx_image_size_limit", statusCode: 413 },
+      );
+    }
     if (!(error instanceof InvalidPptxSourceError)) throw error;
     fail(
       "Slides could not read this PowerPoint file. No slides were written to the deck.",

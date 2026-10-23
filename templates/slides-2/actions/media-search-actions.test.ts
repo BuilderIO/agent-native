@@ -21,6 +21,16 @@ describe("Slides media search action surface", () => {
     expect(importSvglLogo.readOnly).not.toBe(true);
   });
 
+  it("requires non-empty image and logo search queries", () => {
+    for (const action of [searchImages, searchLogos]) {
+      expect(() => action.schema.parse({})).toThrow();
+      expect(() => action.schema.parse({ q: "   " })).toThrow();
+      expect(action.schema.parse({ q: "  slides  " })).toMatchObject({
+        q: "slides",
+      });
+    }
+  });
+
   it("keeps provider configuration HTTP-callable but off the agent surface", () => {
     expect(logoConfig.http).toEqual({ method: "GET" });
     expect(logoConfig.readOnly).toBe(true);

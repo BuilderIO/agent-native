@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({
     | undefined,
   updatedFields: undefined as Record<string, unknown> | undefined,
   insertedFields: undefined as Record<string, unknown> | undefined,
-  insertFailure: undefined as unknown,
+  insertError: undefined as unknown,
 }));
 const mockNotifyClients = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
@@ -54,7 +54,7 @@ vi.mock("../server/db/index.js", () => ({
       update,
       insert: () => ({
         values: async (fields: Record<string, unknown>) => {
-          if (state.insertFailure !== undefined) throw state.insertFailure;
+          if (state.insertError !== undefined) throw state.insertError;
           state.insertedFields = fields;
         },
       }),
@@ -155,7 +155,7 @@ describe("save-deck design-system relation persistence", () => {
     state.access = { role: "owner", resource: existingResource() };
     state.updatedFields = undefined;
     state.insertedFields = undefined;
-    state.insertFailure = undefined;
+    state.insertError = undefined;
     mockWithSlideAssetReferencesLocked.mockReset();
     mockWithSlideAssetReferencesLocked.mockImplementation(runUnlockedWrite);
     mockCreateDeckVersionSnapshot.mockClear();
@@ -348,7 +348,7 @@ describe("save-deck design-system relation persistence", () => {
   it("preserves plain database failures while saving a new deck", async () => {
     state.access = undefined;
     const failure = new Error("Deck insert failed");
-    state.insertFailure = failure;
+    state.insertError = failure;
 
     await expect(
       saveDeckAction.run(
@@ -440,7 +440,7 @@ describe("save-deck tracking", () => {
     state.access = { role: "owner", resource: existingResource() };
     state.updatedFields = undefined;
     state.insertedFields = undefined;
-    state.insertFailure = undefined;
+    state.insertError = undefined;
     mockWithSlideAssetReferencesLocked.mockReset();
     mockWithSlideAssetReferencesLocked.mockImplementation(runUnlockedWrite);
     mockCreateDeckVersionSnapshot.mockClear();
@@ -562,5 +562,67 @@ describe("save-deck tracking", () => {
       caller: "frontend",
     });
     expect(JSON.stringify(properties)).not.toContain("Quarterly");
+  });
+});
+
+describe("save-deck insert error handling", () => {
+  beforeEach(() => {
+    state.access = undefined;
+    state.insertedFields = undefined;
+    state.insertError = undefined;
+  });
+
+  async function createDeck() {
+    return saveDeckAction.run(
+      {
+        deckId: "deck-new",
+        deck: {
+          title: "New deck",
+          slides: [{ id: "slide-1", content: "<p>New</p>" }],
+        },
+      },
+      {},
+    );
+  }
+
+  it("maps only the deck primary-key race to not found", async () => {
+    state.insertError = Object.assign(new Error("duplicate deck id"), {
+      code: "23505",
+      constraint: "decks_pkey",
+    });
+
+    await expect(createDeck()).rejects.toMatchObject({
+      message: "Deck not found",
+      statusCode: 404,
+    });
+  });
+
+  it("preserves unrelated unique-constraint failures", async () => {
+    const error = Object.assign(new Error("duplicate asset"), {
+      code: "23505",
+      constraint: "uploaded_assets_pkey",
+    });
+    state.insertError = error;
+
+    await expect(createDeck()).rejects.toBe(error);
+  });
+
+  it("preserves transient database failures", async () => {
+    const error = Object.assign(new Error("connection reset"), {
+      code: "ECONNRESET",
+    });
+    state.insertError = error;
+
+    await expect(createDeck()).rejects.toBe(error);
+  });
+
+  it("preserves unavailable slide asset errors", async () => {
+    const error = Object.assign(
+      new Error("One or more slide assets are unavailable to this deck."),
+      { statusCode: 404, errorCode: "slide_asset_unavailable" },
+    );
+    state.insertError = error;
+
+    await expect(createDeck()).rejects.toBe(error);
   });
 });

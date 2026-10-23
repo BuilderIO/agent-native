@@ -3,6 +3,9 @@ import { appStorageKey } from "@shared/app-storage";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+
 interface SpeakerNotesPanelProps {
   notes: string;
   onChange: (notes: string) => void;
@@ -90,9 +93,12 @@ export function SpeakerNotesPanel({
           <div className="h-px w-10 rounded-full bg-muted-foreground/30 transition-colors group-hover:bg-muted-foreground/70" />
         </div>
       )}
-      <button
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
         onClick={toggle}
-        className="group flex w-full cursor-pointer items-center justify-between px-4 py-1.5"
+        className="group h-auto w-full cursor-pointer justify-between px-4 py-1.5 text-left font-normal hover:bg-transparent active:scale-100"
       >
         <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider transition-colors group-hover:text-foreground/80">
           {t("raw.speakerNotes")}
@@ -102,15 +108,15 @@ export function SpeakerNotesPanel({
         ) : (
           <IconChevronUp className="w-3 h-3 text-muted-foreground" />
         )}
-      </button>
+      </Button>
       {expanded && (
         <div className="px-4 pb-3" style={{ height }}>
-          <textarea
+          <Textarea
             value={notes || ""}
             onChange={(e) => onChange(e.target.value)}
             readOnly={readOnly}
             placeholder={readOnly ? undefined : t("raw.addSpeakerNotes")}
-            className="h-full w-full resize-none bg-transparent font-mono text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/70"
+            className="h-full min-h-0 w-full resize-none rounded-none border-0 bg-transparent p-0 font-mono text-xs text-muted-foreground shadow-none outline-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
           />
         </div>
       )}

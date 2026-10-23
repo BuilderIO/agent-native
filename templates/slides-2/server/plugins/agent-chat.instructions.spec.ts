@@ -47,7 +47,11 @@ describe("Slides content-edit agent guidance", () => {
       (match) => match[1],
     );
 
+    expect(initialNames).toHaveLength(27);
     expect(actionNames).toEqual(initialNames);
+    expect(Object.keys(actionsRegistry)).toEqual(
+      expect.arrayContaining(initialNames),
+    );
   });
 
   it("exposes presenter controls to first-turn and external connector callers", () => {
@@ -114,6 +118,22 @@ describe("Slides content-edit agent guidance", () => {
     expect(externalTools?.[1]).toContain('"transform-slide-objects"');
     expect(deckEditTools?.[1]).toContain('"transform-slide-objects"');
     expect(agentChatSource).toContain("keyToolNames: INITIAL_TOOL_NAMES");
+  });
+
+  it("exposes slide transfer, deck tokens, and uploaded media to connectors", () => {
+    const externalTools = agentChatSource.match(
+      /const EXTERNAL_CONNECTOR_TOOL_NAMES = \[([\s\S]*?)\];/,
+    );
+
+    for (const name of [
+      "copy-slide-to-deck",
+      "get-deck-design-tokens",
+      "update-deck-design-tokens",
+      "list-assets",
+    ]) {
+      expect(externalTools?.[1]).toContain(`"${name}"`);
+      expect(actionsRegistry).toHaveProperty(name);
+    }
   });
 
   it("exposes the existing-deck design-system action and names its schema-backed flow", () => {
@@ -284,6 +304,18 @@ describe("Slides content-edit agent guidance", () => {
     );
     expect(agentChatSource).toContain(
       "The Import from controls and these explicit requests are the only import triggers.",
+    );
+  });
+
+  it("routes source-backed canvas transforms through the selected-object action", () => {
+    expect(agentChatSource).toContain(
+      "For source-backed canvas object insertion, duplication, deletion, and geometry or arrangement (move, resize, rotate, align, distribute, group, ungroup, or z-order), use transform-slide-objects after view-screen and get-slide-source with the current selection locators and matching revision and source hash.",
+    );
+    expect(agentChatSource).toContain(
+      "If it returns slide_transform_selection_required, refresh the selection or explain that the rendered copy cannot be targeted safely; never fall back to update-slide-source to emulate that canvas transform.",
+    );
+    expect(agentChatSource).toContain(
+      "A source edit to a shared JSX callsite changes every rendered copy, so make that edit only when the user explicitly wants all copies changed.",
     );
   });
 

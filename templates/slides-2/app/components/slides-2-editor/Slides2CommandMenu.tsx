@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { useThemeFamily } from "@agent-native/core/client/ui";
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
@@ -10,19 +11,26 @@ import {
   IconCopy,
   IconDownload,
   IconFileTypePdf,
+  IconHistory,
   IconLink,
   IconLayoutGrid,
   IconMaximize,
   IconMessageCircle,
+  IconMinus,
+  IconMoon,
   IconPalette,
   IconPhoto,
   IconPlayerPlay,
   IconPresentation,
   IconPlus,
+  IconSun,
   IconTrash,
+  IconZoomIn,
 } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import {
   Command,
@@ -40,6 +48,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { shortcutLabel } from "@/lib/utils";
 
 import type { Slides2ObjectKind } from "./object-insertion";
 import type { Slides2ExportFormat } from "./Slides2ExportMenu";
@@ -82,11 +91,29 @@ type Props = {
   onOpenPresenter?: () => void;
   onOpenOverview: () => void;
   onToggleDesignPanel: () => void;
+  onOpenMotionPanel?: () => void;
+  onSetZoom?: (action: "out" | "fit" | "in") => void;
   onToggleCommentMode: () => void;
   onCopyLink: () => void | Promise<void>;
+  onOpenHistory: () => void;
   onOpenAssets: () => void;
   onExport: (format: Slides2ExportFormat) => void | Promise<void>;
 };
+
+function isShortcutControlTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || target.matches("input, textarea"))
+  ) {
+    return true;
+  }
+  return Boolean(
+    target.closest(
+      'button, a, input, textarea, select, summary, [role="dialog"], [role="menu"], [role="listbox"], [role="tablist"], [data-inspector-ui], [data-design-ui]',
+    ),
+  );
+}
 
 export function Slides2CommandMenu({
   open,
@@ -109,13 +136,19 @@ export function Slides2CommandMenu({
   onOpenPresenter,
   onOpenOverview,
   onToggleDesignPanel,
+  onOpenMotionPanel,
+  onSetZoom,
   onToggleCommentMode,
   onCopyLink,
+  onOpenHistory,
   onOpenAssets,
   onExport,
 }: Props) {
   const t = useT();
   const navigate = useNavigate();
+  const { resolvedTheme, setTheme } = useTheme();
+  const { family, setFamily } = useThemeFamily();
+  const isDark = resolvedTheme === "dark";
   const [search, setSearch] = useState("");
   const deleteSlideIcon = <IconTrash className="size-4" aria-hidden="true" />;
   const previousSlideIcon = (
@@ -125,18 +158,37 @@ export function Slides2CommandMenu({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
-        event.key.toLowerCase() !== "k" ||
-        (!event.metaKey && !event.ctrlKey) ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229 ||
         event.repeat
       ) {
         return;
       }
+      const key = event.key.toLowerCase();
+      if (key === "k" && (event.metaKey || event.ctrlKey)) {
+        if (event.altKey || event.shiftKey) return;
+        event.preventDefault();
+        onOpenChange(!open);
+        return;
+      }
+      if (
+        open ||
+        !canComment ||
+        key !== "c" ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        isShortcutControlTarget(event.target)
+      ) {
+        return;
+      }
       event.preventDefault();
-      onOpenChange(!open);
+      onToggleCommentMode();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onOpenChange, open]);
+  }, [canComment, onOpenChange, onToggleCommentMode, open]);
 
   useEffect(() => {
     if (!open) setSearch("");
@@ -148,6 +200,7 @@ export function Slides2CommandMenu({
       {
         id: "undo",
         label: t("editorToolbar.undo"),
+        shortcut: shortcutLabel("cmd+z"),
         icon: <IconArrowBackUp className="size-4" aria-hidden="true" />,
         disabled: !canUndo,
         run: onUndo,
@@ -155,6 +208,7 @@ export function Slides2CommandMenu({
       {
         id: "redo",
         label: t("editorToolbar.redo"),
+        shortcut: shortcutLabel("shift+cmd+z"),
         icon: <IconArrowForwardUp className="size-4" aria-hidden="true" />,
         disabled: !canRedo,
         run: onRedo,
@@ -184,6 +238,7 @@ export function Slides2CommandMenu({
         id: "toggle-comments",
         label: t("comments.addComment"),
         keywords: ["comment", "annotate", "feedback"],
+        shortcut: canComment ? "C" : undefined,
         icon: <IconMessageCircle className="size-4" aria-hidden="true" />,
         disabled: !canComment,
         run: onToggleCommentMode,
@@ -266,6 +321,71 @@ export function Slides2CommandMenu({
         run: onToggleDesignPanel,
       },
       {
+        id: "motion-panel",
+        label: t("slides2Editor.motion"),
+        keywords: ["motion", "animation"],
+        icon: <IconPlayerPlay className="size-4" aria-hidden="true" />,
+        disabled: !onOpenMotionPanel,
+        run: () => onOpenMotionPanel?.(),
+      },
+      {
+        id: "zoom-out",
+        label: t("raw.zoomOut"),
+        keywords: ["zoom", "out", "smaller"],
+        icon: <IconMinus className="size-4" aria-hidden="true" />,
+        disabled: !onSetZoom,
+        run: () => onSetZoom?.("out"),
+      },
+      {
+        id: "zoom-fit",
+        label: t("raw.fitSlideToScreen"),
+        keywords: ["zoom", "fit", "reset"],
+        icon: <IconZoomIn className="size-4" aria-hidden="true" />,
+        disabled: !onSetZoom,
+        run: () => onSetZoom?.("fit"),
+      },
+      {
+        id: "zoom-in",
+        label: t("raw.zoomIn"),
+        keywords: ["zoom", "in", "larger"],
+        icon: <IconPlus className="size-4" aria-hidden="true" />,
+        disabled: !onSetZoom,
+        run: () => onSetZoom?.("in"),
+      },
+      {
+        id: "toggle-theme",
+        label: isDark
+          ? t("editorToolbar.lightTheme")
+          : t("editorToolbar.darkTheme"),
+        keywords: ["theme", "dark", "light", "mode"],
+        icon: isDark ? (
+          <IconSun className="size-4" aria-hidden="true" />
+        ) : (
+          <IconMoon className="size-4" aria-hidden="true" />
+        ),
+        run: () => setTheme(isDark ? "light" : "dark"),
+      },
+      {
+        id: "toggle-theme-family",
+        label:
+          family === "original"
+            ? t("agentChat.settingsShell.account.themeFamilyAgentNative")
+            : t("agentChat.settingsShell.account.themeFamilyOriginal"),
+        keywords: ["theme", "family", "agent-native", "original", "colors"],
+        icon: <IconPalette className="size-4" aria-hidden="true" />,
+        run: async () => {
+          try {
+            await setFamily(
+              family === "original" ? "agent-native" : "original",
+            );
+          } catch {
+            toast.error(
+              t("agentChat.settingsShell.account.themeFamilySaveError"),
+            );
+          }
+        },
+      },
+      {
         id: "copy-link",
         label: t("share.copyLink"),
         keywords: ["copy", "link", "url", "share"],
@@ -304,6 +424,13 @@ export function Slides2CommandMenu({
       });
     }
     const files: CommandItemSpec[] = [
+      {
+        id: "saved-versions",
+        label: t("history.savedVersions"),
+        keywords: ["history", "restore", "versions"],
+        icon: <IconHistory className="size-4" aria-hidden="true" />,
+        run: onOpenHistory,
+      },
       {
         id: "export-html",
         label: t("editorExport.downloadHtml"),
@@ -371,22 +498,29 @@ export function Slides2CommandMenu({
     canComment,
     canRedo,
     canUndo,
+    family,
+    isDark,
     onAddSlide,
     onDeleteSlide,
     onDuplicateSlide,
     onInsertObject,
     onCopyLink,
+    onOpenHistory,
     onExport,
     onOpenAssets,
     navigate,
     onToggleDesignPanel,
     onToggleCommentMode,
     onOpenOverview,
+    onOpenMotionPanel,
     onOpenPresenter,
+    onSetZoom,
     onPresent,
     onRedo,
     onSelectSlide,
     onUndo,
+    setFamily,
+    setTheme,
     slides,
     t,
   ]);

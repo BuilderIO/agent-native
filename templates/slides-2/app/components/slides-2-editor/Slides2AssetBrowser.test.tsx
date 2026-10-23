@@ -12,53 +12,73 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   refetch: vi.fn(),
   mutateAsync: vi.fn(),
+  actionMutation: vi.fn(),
+  toastError: vi.fn(),
   storageConfigured: true,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
+  actionErrorMessage: (error: unknown) =>
+    error && typeof error === "object" && "actionMessage" in error
+      ? String(error.actionMessage)
+      : undefined,
   useActionQuery: (...args: unknown[]) => mocks.query(...args),
-  useActionMutation: () => ({ mutateAsync: mocks.mutateAsync }),
+  useActionMutation: (name: string) => {
+    mocks.actionMutation(name);
+    return { mutateAsync: mocks.mutateAsync };
+  },
 }));
 
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) =>
-    ({
-      "comments.thisSlide": "This Slide",
-      "editorToolbar.assetLibrary": "Asset Library",
-      "editorToolbar.globalAssetScope": "Global",
-      "header.deck": "Deck",
-      "slides2Editor.mediaFilters.all": "All",
-      "slides2Editor.mediaFilters.image": "Images",
-      "slides2Editor.mediaFilters.video": "Videos",
-      "slides2Editor.mediaTypeFilter": "Filter by media type",
-      "slides2Editor.assetsLoadFailed": "Could not load media",
-      "slides2Editor.uploadMedia": "Upload media",
-      "slides2Editor.searchMediaPlaceholder": "Search images and videos",
-      "slides2Editor.searchLogos": "Search logos",
-      "slides2Editor.addLogo": "Add logo",
-      "slides2Editor.videoUploadFailed": "Video upload failed",
-      "slides2Editor.videoInsertFailed": "Video insert failed",
-      "slides2Editor.noAssetsMatch": "No media matches",
-      "slides2Editor.noVideosYet": "No videos yet",
-      "raw.noAssetsYet": "No images yet",
-      "raw.mediaUploadFailed": "Media upload failed",
-      "raw.uploading": "Uploading",
-      "raw.logoSearchTitle": "Logo Search",
-      "raw.searchCompanyPlaceholder": "Search company name",
-      "raw.search": "Search",
-      "raw.searchCompanyLogo": "Search for a company to find their logo",
-      "raw.noLogosFound": "No logos found",
-      "raw.searchFailed": "Search failed",
-      "raw.assetErrors.assetSaveFailed": "Asset save failed",
-      "raw.assetErrors.listFailed": "Could not load images",
-      "appMenu.themeLight": "Light",
-      "appMenu.themeDark": "Dark",
-      "designSystemSetup.saving": "Saving",
-      "comments.retry": "Retry",
-      "comments.cancel": "Cancel",
-      "deckCard.rename": "Rename",
-      "contextToolbar.replaceImage": "Replace image",
-    })[key] ?? key,
+  useT: () => (key: string, values?: Record<string, unknown>) => {
+    const value =
+      {
+        "comments.thisSlide": "This Slide",
+        "editorToolbar.assetLibrary": "Asset Library",
+        "editorToolbar.globalAssetScope": "Global",
+        "header.deck": "Deck",
+        "slides2Editor.mediaFilters.all": "All",
+        "slides2Editor.mediaFilters.image": "Images",
+        "slides2Editor.mediaFilters.video": "Videos",
+        "slides2Editor.mediaTypeFilter": "Filter by media type",
+        "slides2Editor.assetsLoadFailed": "Could not load media",
+        "slides2Editor.uploadMedia": "Upload media",
+        "slides2Editor.searchMediaPlaceholder": "Search images and videos",
+        "slides2Editor.searchLogos": "Search logos",
+        "slides2Editor.addLogo": "Add logo",
+        "slides2Editor.videoUploadFailed": "Video upload failed",
+        "slides2Editor.videoInsertFailed": "Video insert failed",
+        "slides2Editor.noAssetsMatch": "No media matches",
+        "slides2Editor.noVideosYet": "No videos yet",
+        "raw.noAssetsYet": "No images yet",
+        "raw.mediaUploadFailed": "Media upload failed",
+        "raw.uploading": "Uploading",
+        "raw.logoSearchTitle": "Logo Search",
+        "raw.searchCompanyPlaceholder": "Search company name",
+        "raw.search": "Search",
+        "raw.searchCompanyLogo": "Search for a company to find their logo",
+        "raw.noLogosFound": "No logos found",
+        "raw.searchFailed": "Search failed",
+        "raw.assetErrors.assetSaveFailed": "Asset save failed",
+        "raw.assetErrors.listFailed": "Could not load images",
+        "appMenu.themeLight": "Light",
+        "appMenu.themeDark": "Dark",
+        "designSystemSetup.saving": "Saving",
+        "comments.retry": "Retry",
+        "comments.cancel": "Cancel",
+        "home.cancel": "Cancel",
+        "home.delete": "Delete",
+        "deckCard.rename": "Rename",
+        "contextToolbar.replaceImage": "Replace image",
+        "raw.assetDeleteFailed": "Failed to delete asset",
+        "raw.deleteAsset": "Delete {{filename}}",
+      }[key] ?? key;
+    return values
+      ? value.replace("{{filename}}", String(values.filename ?? ""))
+      : value;
+  },
 }));
 
 vi.mock("@/hooks/use-slide-file-storage-status", () => ({
@@ -106,6 +126,40 @@ vi.mock("@/components/ui/dialog", async () => {
     DialogHeader: ({ children }: { children: React.ReactNode }) =>
       React.createElement("header", null, children),
     DialogTitle: ({ children }: { children: React.ReactNode }) =>
+      React.createElement("h2", null, children),
+  };
+});
+
+vi.mock("@/components/ui/alert-dialog", async () => {
+  const React = await import("react");
+  return {
+    AlertDialog: ({
+      open,
+      children,
+    }: {
+      open: boolean;
+      children: React.ReactNode;
+    }) =>
+      open
+        ? React.createElement("div", { role: "alertdialog" }, children)
+        : null,
+    AlertDialogAction: ({
+      children,
+      ...props
+    }: React.ButtonHTMLAttributes<HTMLButtonElement>) =>
+      React.createElement("button", { ...props, type: "button" }, children),
+    AlertDialogCancel: ({
+      children,
+      ...props
+    }: React.ButtonHTMLAttributes<HTMLButtonElement>) =>
+      React.createElement("button", { ...props, type: "button" }, children),
+    AlertDialogContent: ({ children }: { children: React.ReactNode }) =>
+      React.createElement("section", null, children),
+    AlertDialogFooter: ({ children }: { children: React.ReactNode }) =>
+      React.createElement("footer", null, children),
+    AlertDialogHeader: ({ children }: { children: React.ReactNode }) =>
+      React.createElement("header", null, children),
+    AlertDialogTitle: ({ children }: { children: React.ReactNode }) =>
       React.createElement("h2", null, children),
   };
 });
@@ -178,6 +232,7 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.storageConfigured = true;
+  mocks.mutateAsync.mockReset();
   mocks.refetch.mockResolvedValue({ isSuccess: false, data: undefined });
   mocks.query.mockReturnValue({
     data: [],
@@ -301,6 +356,101 @@ describe("Slides2AssetBrowser", () => {
       }),
     );
     expect(mocks.refetch).toHaveBeenCalled();
+  });
+
+  it("confirms deletion of a global image through the delete-asset action", async () => {
+    const asset = {
+      id: "asset-1",
+      url: "https://assets.example.com/cover.png",
+      filename: "cover.png",
+      size: 100,
+      createdAt: "2026-10-19T00:00:00.000Z",
+      type: "image/png",
+    };
+    mocks.query.mockImplementation(
+      (_name: string, args: { scope?: string }) => ({
+        data: args.scope === "global" ? [asset] : [],
+        isLoading: false,
+        isError: false,
+        error: null,
+        refetch: mocks.refetch,
+      }),
+    );
+    mocks.mutateAsync.mockResolvedValue({ success: true });
+
+    render(
+      <Slides2AssetBrowser
+        deckId="deck-1"
+        slideId="slide-2"
+        open
+        onOpenChange={vi.fn()}
+        canInsert
+        onInsert={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Global" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete cover.png" }),
+    );
+
+    expect(screen.getByRole("alertdialog").textContent).toContain(
+      "Delete cover.png",
+    );
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() =>
+      expect(mocks.mutateAsync).toHaveBeenCalledWith({ id: "asset-1" }),
+    );
+    expect(mocks.actionMutation).toHaveBeenCalledWith("delete-asset");
+    expect(mocks.refetch).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
+  it("keeps an in-use global image when the delete action rejects it", async () => {
+    const asset = {
+      id: "asset-1",
+      url: "https://assets.example.com/cover.png",
+      filename: "cover.png",
+      size: 100,
+      createdAt: "2026-10-19T00:00:00.000Z",
+      type: "image/png",
+    };
+    const actionMessage =
+      "The uploaded image is used by a saved slide and cannot be deleted.";
+    mocks.query.mockImplementation(
+      (_name: string, args: { scope?: string }) => ({
+        data: args.scope === "global" ? [asset] : [],
+        isLoading: false,
+        isError: false,
+        error: null,
+        refetch: mocks.refetch,
+      }),
+    );
+    mocks.mutateAsync.mockRejectedValue({ actionMessage });
+
+    render(
+      <Slides2AssetBrowser
+        deckId="deck-1"
+        slideId="slide-2"
+        open
+        onOpenChange={vi.fn()}
+        canInsert
+        onInsert={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Global" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete cover.png" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(actionMessage),
+    );
+    expect(mocks.refetch).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "cover.png" })).toBeTruthy();
   });
 
   it("searches SVGL and imports the selected variant into the active deck", async () => {

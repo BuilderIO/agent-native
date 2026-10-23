@@ -145,12 +145,15 @@ users at the PPTX export and Google Slides' File → Import meanwhile.
 ## Exporting source-backed slides
 
 `export-html`, `export-pptx`, and the delegated `export-google-slides` action
-consume each slide's static `content` HTML. If a slide has React source but no
-static preview, they return the typed `source_runtime_export_required` error
-before creating a file. The editor's PDF flow is Worker-backed: it
-calls `get-slide-render`, renders the artifact in the opaque sandbox, then
-captures the sanitized HTML. The editor's image-PPTX export uses the same render
-artifact, captures each slide as a full-page image, and keeps speaker notes.
+attempt bounded static rendering for supported source-backed slides that lack
+a saved preview. Sources that require Worker rendering return the typed
+`source_runtime_export_required` error before a server file is created. The
+editor's HTML, editable PPTX, and Google Slides flows catch that error and use
+the existing opaque-origin Worker renderer to build the download locally. The
+editor's PDF flow is also Worker-backed: it calls `get-slide-render`, renders
+the artifact in the opaque sandbox, then captures the sanitized HTML. The
+editor's image-PPTX export uses the same render artifact, captures each slide
+as a full-page image, and keeps speaker notes.
 This is a browser-only export command, not an agent action; the agent can guide a
 user to the editor's Export menu but cannot start the download itself. The
 public `/p/:id` and `/share/:token` viewers only receive a share snapshot and

@@ -68,6 +68,31 @@ function shouldSnapshotDeckWrite(
   );
 }
 
+function isDeckPrimaryKeyConflict(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    code?: unknown;
+    constraint?: unknown;
+    constraint_name?: unknown;
+    cause?: unknown;
+  };
+  const cause =
+    candidate.cause && typeof candidate.cause === "object"
+      ? (candidate.cause as {
+          code?: unknown;
+          constraint?: unknown;
+          constraint_name?: unknown;
+        })
+      : undefined;
+  const code = candidate.code ?? cause?.code;
+  const constraint =
+    candidate.constraint ??
+    candidate.constraint_name ??
+    cause?.constraint ??
+    cause?.constraint_name;
+  return code === "23505" && constraint === "decks_pkey";
+}
+
 export default defineAction({
   description:
     "Create or replace a deck's full JSON payload (title, slides, deck-level fields).",
@@ -140,24 +165,31 @@ export default defineAction({
         await assertDesignSystemReadable(deckDesignSystemId(deck));
         assertNoDeckRenderArtifacts(null, deck);
         const orgId = getRequestOrgId() ?? null;
-        await withSlideAssetReferencesLocked(
-          db,
-          deck,
-          { ownerEmail, orgId },
-          async (tx) => {
-            await tx.insert(schema.decks).values({
-              id: deckId,
-              title,
-              data: JSON.stringify(deck),
-              designSystemId: deckDesignSystemId(deck),
-              ...deckClientWriteFields(clientWrite, now),
-              ownerEmail,
-              orgId,
-              createdAt: now,
-              updatedAt: now,
-            });
-          },
-        );
+        try {
+          await withSlideAssetReferencesLocked(
+            db,
+            deck,
+            { ownerEmail, orgId },
+            async (tx) => {
+              await tx.insert(schema.decks).values({
+                id: deckId,
+                title,
+                data: JSON.stringify(deck),
+                designSystemId: deckDesignSystemId(deck),
+                ...deckClientWriteFields(clientWrite, now),
+                ownerEmail,
+                orgId,
+                createdAt: now,
+                updatedAt: now,
+              });
+            },
+          );
+        } catch (error) {
+          if (isDeckPrimaryKeyConflict(error)) {
+            throw deckHttpError(404, "Deck not found");
+          }
+          throw error;
+        }
       } else if (
         access.role === "owner" ||
         access.role === "admin" ||

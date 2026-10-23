@@ -168,10 +168,21 @@ function hasExcalidrawElements(data: unknown): boolean {
 }
 
 export function isRealSlide(slide: unknown): boolean {
-  const { content, excalidrawData } = (slide ?? {}) as {
+  const { content, excalidrawData, isBlank, sourceTsx } = (slide ?? {}) as {
     content?: unknown;
     excalidrawData?: unknown;
+    isBlank?: unknown;
+    sourceTsx?: unknown;
   };
+  if (typeof isBlank === "boolean") return !isBlank;
+  if (
+    typeof sourceTsx === "string" &&
+    sourceTsx.trim() &&
+    typeof content === "string" &&
+    content.trim() === ""
+  ) {
+    return true;
+  }
   return (
     hasExcalidrawElements(excalidrawData) ||
     !isBlankSlideContent(typeof content === "string" ? content : "")

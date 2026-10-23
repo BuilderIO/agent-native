@@ -267,6 +267,7 @@ vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => conditions,
   asc: (column: unknown) => ({ asc: column }),
   eq: (left: unknown, right: unknown) => ({ left, right }),
+  gt: (left: unknown, right: unknown) => ({ gt: { left, right } }),
   inArray: (column: unknown, values: unknown[]) => ({ column, values }),
   isNull: (column: unknown) => ({ isNull: column }),
   ne: (left: unknown, right: unknown) => ({ not: { left, right } }),

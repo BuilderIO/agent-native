@@ -136,7 +136,7 @@ vi.mock("drizzle-orm", () => ({
   }),
   or: (...conditions: Clause[]): Clause => ({ kind: "or", conditions }),
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
-    strings,
+    strings: [...strings],
     values,
   })),
 }));

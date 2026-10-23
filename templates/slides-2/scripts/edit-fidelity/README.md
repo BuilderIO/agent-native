@@ -59,7 +59,7 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
 pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser firefox
 ```
 
-Run the in-place rich-text authoring parity round in Chromium (the default),
+Run the in-place rich-text authoring QA round in Chromium (the default),
 WebKit, or Firefox. It types every
 Content StarterKit Markdown shortcut at a block start and after Enter, runs all
 eight enabled slash commands, and exercises styled bullet rows plus semantic
@@ -73,7 +73,7 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser webkit
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser firefox
 ```
 
-Rerun one authoring parity case while debugging it by matching a substring of
+Rerun one authoring QA case while debugging it by matching a substring of
 its case ID:
 
 ```bash
@@ -135,7 +135,7 @@ four jobs at a time. PR CI runs a bounded 80-step smoke with seed 16 in each
 browser, plus an 80-step seed 2 absolute-layout smoke in Chromium. It does not
 run the full soak.
 
-## Authoring parity checklist
+## Authoring gesture checklist
 
 Before #5916, Slides used the shared Content editor with tasks, code blocks,
 tables, and the Markdown serializer disabled. Its eight slash commands were

@@ -1,9 +1,9 @@
 import { writeFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
 
-import { parseArgs } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import { parseArgs } from "@agent-native/core/scripts";
 import pLimit from "p-limit";
 import { z } from "zod";
 

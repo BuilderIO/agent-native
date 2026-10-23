@@ -26,6 +26,117 @@ const t = ((key: string) => {
 }) as ReturnType<typeof useT>;
 
 describe("InlineTextEditor formatting controls", () => {
+  it("sets an exact font size for the selected text", async () => {
+    const node: ElementSnapshot = {
+      nodeId: "text-1",
+      line: 1,
+      column: 1,
+      tagName: "h1",
+      bounds: { x: 100, y: 120, width: 400, height: 80 },
+      text: "Hello",
+      styles: { fontSize: "24px" },
+    };
+    const onCommit = vi.fn(async () => true);
+
+    render(
+      <InlineTextEditor
+        node={node}
+        disabled={false}
+        t={t}
+        onCommit={onCommit}
+        onCancel={() => {}}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", {
+      name: t("styleInspector.text"),
+    });
+    const textNode = editor.firstChild;
+    if (!textNode) throw new Error("Expected the editable slide text");
+    const range = document.createRange();
+    range.setStart(textNode, 1);
+    range.setEnd(textNode, 4);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    const sizeInput = screen.getByLabelText(t("styleInspector.size"));
+    fireEvent.change(sizeInput, { target: { value: "36" } });
+    fireEvent.keyDown(sizeInput, { key: "Enter" });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: t("designSystemSetup.saveChanges"),
+      }),
+    );
+
+    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
+    expect(onCommit).toHaveBeenCalledWith([
+      {
+        line: 1,
+        column: 1,
+        ops: [
+          {
+            kind: "set-text-range-style",
+            start: 1,
+            end: 4,
+            key: "fontSize",
+            value: "36px",
+            prevText: "Hello",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("adjusts font size with arrow keys without bubbling to slide navigation", async () => {
+    const node: ElementSnapshot = {
+      nodeId: "text-1",
+      line: 1,
+      column: 1,
+      tagName: "h1",
+      bounds: { x: 100, y: 120, width: 400, height: 80 },
+      text: "Hello",
+      styles: { fontSize: "400px" },
+    };
+    const onCommit = vi.fn(async () => true);
+    const onParentKeyDown = vi.fn();
+
+    render(
+      <div onKeyDown={onParentKeyDown}>
+        <InlineTextEditor
+          node={node}
+          disabled={false}
+          t={t}
+          onCommit={onCommit}
+          onCancel={() => {}}
+        />
+      </div>,
+    );
+
+    const sizeInput = screen.getByLabelText(t("styleInspector.size"));
+    fireEvent.keyDown(sizeInput, { key: "ArrowUp" });
+    expect(sizeInput).toHaveProperty("value", "400");
+    expect(onParentKeyDown).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(sizeInput, { key: "ArrowDown" });
+    expect(sizeInput).toHaveProperty("value", "399");
+    expect(onParentKeyDown).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: t("designSystemSetup.saveChanges"),
+      }),
+    );
+
+    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
+    expect(onCommit).toHaveBeenCalledWith([
+      {
+        line: 1,
+        column: 1,
+        ops: [{ kind: "set-style", key: "fontSize", value: "399px" }],
+      },
+    ]);
+  });
+
   it("keeps selected-text formatting offsets relative to the slide text", async () => {
     const node: ElementSnapshot = {
       nodeId: "text-1",
@@ -304,7 +415,11 @@ describe("InlineTextEditor formatting controls", () => {
 
     await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
     expect(onCancel).not.toHaveBeenCalled();
-    expect(screen.queryByRole("textbox")).not.toBeNull();
+    expect(
+      screen.queryByRole("textbox", {
+        name: t("styleInspector.text"),
+      }),
+    ).not.toBeNull();
   });
 
   it("does not consume Escape while an IME composition is active", () => {

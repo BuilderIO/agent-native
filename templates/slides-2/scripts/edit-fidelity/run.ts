@@ -3091,7 +3091,7 @@ async function runCaretQa(page: Page, base: string) {
   return problems;
 }
 
-async function runAuthoringParityQa(
+async function runAuthoringQa(
   page: Page,
   base: string,
   outRoot: string,
@@ -3177,13 +3177,13 @@ async function runAuthoringParityQa(
     (test) => !caseFilter || test.id.includes(caseFilter),
   );
   if (!cases.length) {
-    throw new Error(`no authoring parity cases match ${caseFilter}`);
+    throw new Error(`no authoring QA cases match ${caseFilter}`);
   }
 
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
   await ensureSignedIn(page);
   const created = await action(page, "create-deck", {
-    title: `[edit-fidelity] authoring parity ${Date.now()}`,
+    title: `[edit-fidelity] authoring QA ${Date.now()}`,
     slides: cases.map((test) => {
       if (test.kind === "ul-flow" || test.kind === "ul-enter-exit") {
         return {
@@ -3910,13 +3910,13 @@ async function runAuthoringParityQa(
       }
     }
   } catch (error) {
-    problems.push(`authoring parity ${currentCaseId}: ${String(error)}`);
+    problems.push(`authoring QA ${currentCaseId}: ${String(error)}`);
   } finally {
     try {
       await action(page, "delete-deck", { id: deckId }, "DELETE");
     } catch (error) {
       problems.push(
-        `authoring parity could not delete its synthetic deck: ${String(error)}`,
+        `authoring QA could not delete its synthetic deck: ${String(error)}`,
       );
     }
   }
@@ -8108,7 +8108,7 @@ async function main() {
 
     if (authoringOnly) {
       const page = await context.newPage();
-      const problems = await runAuthoringParityQa(
+      const problems = await runAuthoringQa(
         page,
         base,
         outRoot,
@@ -8116,9 +8116,7 @@ async function main() {
       );
       await page.close();
       if (problems.length) {
-        console.error(
-          `[edit-fidelity] authoring parity: ${problems.join("; ")}`,
-        );
+        console.error(`[edit-fidelity] authoring QA: ${problems.join("; ")}`);
         return 1;
       }
       console.log(

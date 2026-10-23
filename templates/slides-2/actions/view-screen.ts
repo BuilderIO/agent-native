@@ -15,6 +15,10 @@ import { z } from "zod";
 
 import { getPreset } from "../app/lib/design-systems.js";
 import { getDb, schema } from "../server/db/index.js";
+import {
+  projectSlidesViewScreenResult,
+  SLIDES_VIEW_SCREEN_RESULT_RENDERER,
+} from "../shared/action-ui.js";
 import { appStateKey } from "../shared/app-state-tabs.js";
 import { isSlides2DeckData } from "../shared/deck-app-scope.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
@@ -186,6 +190,11 @@ export default defineAction({
     readOnlyHint: false,
     destructiveHint: false,
     openWorldHint: false,
+  },
+  chatUI: {
+    renderer: SLIDES_VIEW_SCREEN_RESULT_RENDERER,
+    when: (_args, result) => projectSlidesViewScreenResult(result) !== null,
+    projectResult: (_args, result) => projectSlidesViewScreenResult(result),
   },
   run: async (_args) => {
     const storedNavigation = await readAppStateForCurrentTab(
@@ -363,6 +372,7 @@ export default defineAction({
               : 0;
       const slideNumber = slideIndex + 1;
       const currentSlide = slides[slideIndex] ?? null;
+      const currentSlideSourceIdentity = getSlideSourceIdentity(currentSlide);
 
       const lines: string[] = [];
       lines.push(`## Current Screen`);
@@ -401,6 +411,12 @@ export default defineAction({
             ? `currentSlideContentHash: ${hashSlideContent(String(currentSlide.content ?? ""))}   (preview hash only; read get-slide-source for the revision and sourceHash used by update-slide-source)`
             : `currentSlideContentHash: ${hashSlideContent(String(currentSlide.content ?? ""))}   ← baseContentHash for update-slide`,
         );
+        if (currentSlideSourceIdentity) {
+          lines.push(
+            `currentSlideSourceRevision: ${currentSlideSourceIdentity.revision}`,
+            `currentSlideSourceHash: ${currentSlideSourceIdentity.sourceHash}`,
+          );
+        }
       } else {
         lines.push(
           `currentSlideId: (no slide for slide number ${slideNumber} / internal index ${slideIndex} — deck may be empty)`,
@@ -583,16 +599,15 @@ export default defineAction({
         { fallbackToGlobal: false },
       );
       const editorStatus = slideEditorStatusSchema.safeParse(editorStatusState);
-      const currentEditorSourceIdentity = getSlideSourceIdentity(currentSlide);
       if (
         editorStatus.success &&
         currentSlide &&
-        currentEditorSourceIdentity &&
+        currentSlideSourceIdentity &&
         editorStatus.data.deckId === rows[0].id &&
         editorStatus.data.slideId === currentSlide.id &&
         editorStatus.data.sourceRevision ===
-          currentEditorSourceIdentity.revision &&
-        editorStatus.data.sourceHash === currentEditorSourceIdentity.sourceHash
+          currentSlideSourceIdentity.revision &&
+        editorStatus.data.sourceHash === currentSlideSourceIdentity.sourceHash
       ) {
         lines.push(``);
         lines.push(`### Visual editor draft`);
@@ -821,12 +836,12 @@ export default defineAction({
                 );
                 if (renderedInstance.instanceCount > 1) {
                   lines.push(
-                    `sourceCallsiteStatus: shared across ${renderedInstance.instanceCount} visible instances; duplicate/delete cannot target one rendered copy safely and will be rejected`,
+                    `sourceCallsiteStatus: shared across ${renderedInstance.instanceCount} visible instances; canvas transforms cannot target one rendered copy safely, and source edits at this locator change every copy`,
                   );
                 }
               } else {
                 lines.push(
-                  "sourceCallsiteStatus: rendered instance metadata is unavailable; duplicate/delete require a fresh editor selection",
+                  "sourceCallsiteStatus: rendered instance metadata is unavailable; transforms requiring a unique rendered target need a fresh editor selection",
                 );
               }
               if (typeof item.sourceText === "string") {
@@ -836,7 +851,7 @@ export default defineAction({
               }
               lines.push(
                 selectionSourceMatches
-                  ? `sourceTargetStatus: use get-slide-source, then update-slide-source with line=${item.sourceLine}, column=${sourceColumn}; the selection revision and source hash match the current source, and sourceTextPreview is not an exact browser-range selection`
+                  ? `sourceTargetStatus: current; canvas transforms use transform-slide-objects with this locator and the exact selection; source text, content, or style edits use get-slide-source and update-slide-source with line=${item.sourceLine}, column=${sourceColumn}; sourceTextPreview is not an exact browser-range selection`
                   : `sourceTargetStatus: the selection source identity is stale or unavailable; do not apply this line and column directly. Reselect the element or inspect the current source with get-slide-source`,
               );
               if (

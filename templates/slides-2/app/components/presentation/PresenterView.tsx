@@ -3,12 +3,18 @@ import { useLiveTranscription } from "@agent-native/core/client/transcription/us
 import {
   IconChevronLeft,
   IconChevronRight,
+  IconMinus,
   IconMicrophone,
+  IconPlus,
+  IconSquare,
+  IconSun,
   IconX,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
@@ -18,7 +24,11 @@ import {
 
 import type { DesignSystemData } from "../../../shared/api";
 import type { SlideTransitionType } from "../../../shared/slide-transitions";
-import { openPresentChannel, type PresentMessage } from "./present-channel";
+import {
+  openPresentChannel,
+  type PresentBlackout,
+  type PresentMessage,
+} from "./present-channel";
 import {
   annotateBuildSteps,
   buildClickCount,
@@ -48,6 +58,28 @@ function formatElapsed(seconds: number) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+const NOTES_TEXT_SIZE_STORAGE_KEY = "slides-2:presenter-notes-text-size";
+const NOTES_TEXT_SIZE_CLASSES = [
+  "text-xs",
+  "text-sm",
+  "text-base",
+  "text-lg",
+  "text-xl",
+] as const;
+const DEFAULT_NOTES_TEXT_SIZE_INDEX = 3;
+
+function readNotesTextSizeIndex() {
+  if (typeof window === "undefined") return DEFAULT_NOTES_TEXT_SIZE_INDEX;
+  const stored = window.localStorage.getItem(NOTES_TEXT_SIZE_STORAGE_KEY);
+  if (stored === null) return DEFAULT_NOTES_TEXT_SIZE_INDEX;
+  const index = Number(stored);
+  return Number.isSafeInteger(index) &&
+    index >= 0 &&
+    index < NOTES_TEXT_SIZE_CLASSES.length
+    ? index
+    : DEFAULT_NOTES_TEXT_SIZE_INDEX;
 }
 
 // The presenter holds no flight, only the settled position it mirrors.
@@ -102,6 +134,13 @@ export default function PresenterView({
   });
   const index = position.index;
   const [elapsed, setElapsed] = useState(0);
+  const [blackout, setBlackout] = useState<PresentBlackout>(null);
+  const blackoutRef = useRef(blackout);
+  blackoutRef.current = blackout;
+  const [jumpValue, setJumpValue] = useState("");
+  const [notesTextSizeIndex, setNotesTextSizeIndex] = useState(
+    readNotesTextSizeIndex,
+  );
   const safeSlides = useMemo(
     () =>
       Array.isArray(slides)
@@ -135,11 +174,21 @@ export default function PresenterView({
     if (!channel) return;
     channel.onmessage = (event: MessageEvent<PresentMessage>) => {
       if (event.data?.type === "state") {
+        const wasConnected = controllerConnectedRef.current;
         controllerConnectedRef.current = true;
         setPosition({
           index: event.data.index,
           buildStep: event.data.buildStep,
         });
+        if (!wasConnected) {
+          channel.postMessage({
+            type: "blackout",
+            mode: blackoutRef.current,
+          } satisfies PresentMessage);
+        }
+      } else if (event.data?.type === "blackout") {
+        blackoutRef.current = event.data.mode;
+        setBlackout(event.data.mode);
       } else if (event.data?.type === "bye") {
         controllerConnectedRef.current = false;
       }
@@ -180,6 +229,11 @@ export default function PresenterView({
         });
         return;
       }
+      if (message.type === "goto" && !controllerConnectedRef.current) {
+        channel?.postMessage(message);
+        setPosition({ index: message.index, buildStep: 0 });
+        return;
+      }
       // Connected: this is a relay only. The audience applies the command once
       // and reports its new state back, so nothing here steps the presenter.
       channel?.postMessage(message);
@@ -195,6 +249,33 @@ export default function PresenterView({
     () => send({ type: "command", command: "prev" }),
     [send],
   );
+  const goTo = useCallback(
+    (targetIndex: number) => {
+      const index = Math.max(
+        0,
+        Math.min(Math.trunc(targetIndex), safeSlides.length - 1),
+      );
+      send({ type: "goto", index });
+    },
+    [safeSlides.length, send],
+  );
+  const setBlackoutMode = useCallback((mode: PresentBlackout) => {
+    blackoutRef.current = mode;
+    setBlackout(mode);
+    channelRef.current?.postMessage({ type: "blackout", mode });
+  }, []);
+  const toggleBlackout = useCallback(
+    (mode: Exclude<PresentBlackout, null>) =>
+      setBlackoutMode(blackoutRef.current === mode ? null : mode),
+    [setBlackoutMode],
+  );
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      NOTES_TEXT_SIZE_STORAGE_KEY,
+      String(notesTextSizeIndex),
+    );
+  }, [notesTextSizeIndex]);
 
   const nextVoiceCommand = t("presentation.voiceNavigationNextCommand");
   const previousVoiceCommand = t("presentation.voiceNavigationPreviousCommand");
@@ -300,26 +381,40 @@ export default function PresenterView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       if (isMediaKeyboardEvent(e) || isInteractiveKeyboardEvent(e)) return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
       // Same as the audience view: auto-repeat keydowns are not new presses.
       if (e.repeat) return;
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":
+        case "PageDown":
         case " ":
           e.preventDefault();
           goNext();
           break;
         case "ArrowLeft":
         case "ArrowUp":
+        case "PageUp":
           e.preventDefault();
           goPrev();
+          break;
+        case "b":
+        case "B":
+          e.preventDefault();
+          toggleBlackout("black");
+          break;
+        case "w":
+        case "W":
+          e.preventDefault();
+          toggleBlackout("white");
           break;
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [goNext, goPrev]);
+  }, [goNext, goPrev, toggleBlackout]);
 
   // One atomic effect handles both cases so they can't race each other:
   // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
@@ -367,35 +462,79 @@ export default function PresenterView({
       annotateBuildSteps(current, buildSteps[index], position.buildStep),
     [buildSteps, current, index, position.buildStep],
   );
+  const requestedSlideNumber = Number(jumpValue);
+  const canJumpToSlide =
+    jumpValue.trim() !== "" &&
+    Number.isSafeInteger(requestedSlideNumber) &&
+    requestedSlideNumber >= 1 &&
+    requestedSlideNumber <= safeSlides.length;
 
   if (safeSlides.length === 0) {
     return (
       // guard:allow-raw-color — matches the presenter's dedicated dark surface used throughout this file, not app chrome
       <div className="fixed inset-0 flex items-center justify-center bg-[hsl(240,6%,6%)] text-white">
-        <button
+        <Button
           type="button"
+          variant="ghost"
           onClick={() => window.close()}
           // guard:allow-raw-color — matches the presenter's dedicated dark surface used throughout this file, not app chrome
-          className="cursor-pointer rounded-lg bg-white/10 px-4 py-3 text-sm hover:bg-white/20"
+          className="h-auto cursor-pointer rounded-lg bg-white/10 px-4 py-3 text-sm text-white shadow-none hover:bg-white/20 hover:text-white"
         >
           {t("presentation.noSlides")}
-        </button>
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="fixed inset-0 flex flex-col bg-background text-foreground">
-      <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3">
-        <span className="font-mono text-sm text-muted-foreground">
-          {index + 1} / {safeSlides.length}
-        </span>
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3">
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-sm text-muted-foreground">
+            {index + 1} / {safeSlides.length}
+          </span>
+          <form
+            className="flex items-center gap-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!canJumpToSlide) return;
+              goTo(requestedSlideNumber - 1);
+              setJumpValue("");
+            }}
+          >
+            <Input
+              type="number"
+              size="sm"
+              min={1}
+              max={safeSlides.length}
+              step={1}
+              value={jumpValue}
+              onChange={(event) => setJumpValue(event.target.value)}
+              placeholder={String(index + 1)}
+              aria-label={t("slides2Presenter.shortcutJump")}
+              className="w-16 bg-card px-2 font-mono text-xs tabular-nums"
+            />
+            <Button
+              type="submit"
+              variant="ghost"
+              size="icon"
+              disabled={!canJumpToSlide}
+              aria-label={t("slides2Presenter.shortcutJump")}
+              title={t("slides2Presenter.shortcutJump")}
+              className="cursor-pointer rounded-lg text-foreground shadow-none disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <IconChevronRight aria-hidden="true" />
+            </Button>
+          </form>
+        </div>
         <span className="font-mono text-2xl tabular-nums text-foreground">
           {formatElapsed(elapsed)}
         </span>
         <div className="flex items-center gap-2">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             onClick={toggleVoiceNavigation}
             disabled={!voiceSupported}
             title={
@@ -405,7 +544,7 @@ export default function PresenterView({
                   ? t("presentation.voiceNavigationError")
                   : voiceCommandHint
             }
-            className={`cursor-pointer rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-30 ${voiceActive ? voiceActiveButtonClassName : voiceIdleButtonClassName}`}
+            className={`cursor-pointer rounded-lg p-2 text-foreground shadow-none disabled:cursor-not-allowed disabled:opacity-30 ${voiceActive ? voiceActiveButtonClassName : voiceIdleButtonClassName}`}
             aria-label={t("presentation.voiceNavigation")}
             aria-description={
               !voiceSupported
@@ -417,7 +556,7 @@ export default function PresenterView({
             aria-pressed={voiceActive}
           >
             <IconMicrophone className="h-4 w-4" aria-hidden="true" />
-          </button>
+          </Button>
           <span
             role="status"
             aria-live="polite"
@@ -434,29 +573,62 @@ export default function PresenterView({
                   ? t("presentation.voiceNavigationUnavailable")
                   : ""}
           </span>
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
             onClick={goPrev}
             disabled={!canCommand(navState, presenterLayout, "prev")}
-            className="cursor-pointer rounded-lg bg-muted p-2 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
+            className="cursor-pointer rounded-lg bg-muted p-2 text-foreground shadow-none hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={t("presentation.previousSlide")}
           >
             <IconChevronLeft className="h-4 w-4" />
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
             onClick={goNext}
             disabled={!canCommand(navState, presenterLayout, "next")}
-            className="cursor-pointer rounded-lg bg-muted p-2 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
+            className="cursor-pointer rounded-lg bg-muted p-2 text-foreground shadow-none hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={t("presentation.nextSlide")}
           >
             <IconChevronRight className="h-4 w-4" />
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            variant={blackout === "black" ? "secondary" : "ghost"}
+            size="icon"
+            onClick={() => toggleBlackout("black")}
+            aria-label={t("slides2Presenter.blackout")}
+            aria-pressed={blackout === "black"}
+            title={t("slides2Presenter.blackout")}
+            className="cursor-pointer rounded-lg text-foreground shadow-none"
+          >
+            <IconSquare aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
+            variant={blackout === "white" ? "secondary" : "ghost"}
+            size="icon"
+            onClick={() => toggleBlackout("white")}
+            aria-label={t("slides2Presenter.whiteout")}
+            aria-pressed={blackout === "white"}
+            title={t("slides2Presenter.whiteout")}
+            className="cursor-pointer rounded-lg text-foreground shadow-none"
+          >
+            <IconSun aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
             onClick={() => window.close()}
-            className="cursor-pointer rounded-lg bg-muted p-2 hover:bg-accent"
+            className="cursor-pointer rounded-lg bg-muted p-2 text-foreground shadow-none hover:bg-accent"
             aria-label={t("presentation.closePresenterView")}
           >
             <IconX className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -464,7 +636,7 @@ export default function PresenterView({
         <div className="flex gap-4">
           <div
             className={
-              /* guard:allow-raw-color — slide previews use the fixed black stage behind transparent content. */ "w-2/3 overflow-hidden rounded-lg bg-black"
+              /* guard:allow-raw-color — slide previews use the fixed black stage behind transparent content. */ "relative w-2/3 overflow-hidden rounded-lg bg-black"
             }
           >
             {currentPreview && (
@@ -475,6 +647,19 @@ export default function PresenterView({
                 aspectRatio={aspectRatio}
                 designSystem={designSystem}
               />
+            )}
+            {blackout && (
+              <div
+                aria-hidden="true"
+                data-presenter-blackout={blackout}
+                className={
+                  /* guard:allow-raw-color — blackout controls must render pure black or white. */ `absolute inset-0 grid place-items-center ${blackout === "black" ? "bg-black text-white/50" : "bg-white text-black/50"}`
+                }
+              >
+                {blackout === "black"
+                  ? t("slides2Presenter.blackout")
+                  : t("slides2Presenter.whiteout")}
+              </div>
             )}
           </div>
           <div className="flex w-1/3 flex-col gap-2">
@@ -507,11 +692,51 @@ export default function PresenterView({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto rounded-lg bg-muted p-5">
-          <div className="mb-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
-            {t("presentation.speakerNotes")}
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+              {t("presentation.speakerNotes")}
+            </div>
+            <div
+              role="group"
+              aria-label={t("slides2Presenter.notesTextSize")}
+              className="flex items-center gap-1"
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={t("slides2Presenter.decreaseNotesTextSize")}
+                title={t("slides2Presenter.decreaseNotesTextSize")}
+                disabled={notesTextSizeIndex === 0}
+                onClick={() =>
+                  setNotesTextSizeIndex((size) => Math.max(0, size - 1))
+                }
+              >
+                <IconMinus aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={t("slides2Presenter.increaseNotesTextSize")}
+                title={t("slides2Presenter.increaseNotesTextSize")}
+                disabled={
+                  notesTextSizeIndex === NOTES_TEXT_SIZE_CLASSES.length - 1
+                }
+                onClick={() =>
+                  setNotesTextSizeIndex((size) =>
+                    Math.min(NOTES_TEXT_SIZE_CLASSES.length - 1, size + 1),
+                  )
+                }
+              >
+                <IconPlus aria-hidden="true" />
+              </Button>
+            </div>
           </div>
           {notes ? (
-            <p className="whitespace-pre-wrap text-lg leading-relaxed text-foreground">
+            <p
+              className={`whitespace-pre-wrap leading-relaxed text-foreground ${NOTES_TEXT_SIZE_CLASSES[notesTextSizeIndex]}`}
+            >
               {notes}
             </p>
           ) : (

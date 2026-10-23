@@ -34,6 +34,10 @@ export type UploadedAssetObjectDeletionResult =
   | { status: "deleted" | "already-deleted" | "shared" | "stale" }
   | { status: "failed"; error: unknown };
 
+type UploadedAssetObjectDeletionPreparation =
+  | UploadedAssetObjectDeletionResult
+  | { deletionClaim: { token: string; expiresAt: string } };
+
 type DeletionTransactionCallback = (
   transaction: SlidesTransaction,
 ) => Promise<void>;
@@ -244,71 +248,79 @@ export async function deleteUploadedAssetObject(args: {
   const db = getDb();
   const keys = identityKeys(args.identity);
 
-  const preparation:
-    | UploadedAssetObjectDeletionResult
-    | {
-        deletionClaim: UploadedAssetObjectDeletionClaim;
-      } = await db.transaction(async (transaction) => {
-    await lockIdentityKeys(transaction, keys);
-    if (args.lease && !(await isCurrentCleanupLease(transaction, args.lease))) {
-      return { status: "stale" } as const;
-    }
+  const preparation =
+    await db.transaction<UploadedAssetObjectDeletionPreparation>(
+      async (transaction) => {
+        await lockIdentityKeys(transaction, keys);
+        if (
+          args.lease &&
+          !(await isCurrentCleanupLease(transaction, args.lease))
+        ) {
+          return { status: "stale" } as const;
+        }
 
-    const otherAssetScope = args.excludeAssetId
-      ? and(
-          ne(schema.uploadedAssets.id, args.excludeAssetId),
-          storedObjectWhere(args.identity),
-        )
-      : storedObjectWhere(args.identity);
-    const [otherAsset] = await transaction
-      .select({ id: schema.uploadedAssets.id })
-      .from(schema.uploadedAssets)
-      .where(otherAssetScope)
-      .limit(1);
-    const states = await lifecycleRows(transaction, keys);
+        const otherAssetScope = args.excludeAssetId
+          ? and(
+              ne(schema.uploadedAssets.id, args.excludeAssetId),
+              storedObjectWhere(args.identity),
+            )
+          : storedObjectWhere(args.identity);
+        const [otherAsset] = await transaction
+          .select({ id: schema.uploadedAssets.id })
+          .from(schema.uploadedAssets)
+          .where(otherAssetScope)
+          .limit(1);
+        const states = await lifecycleRows(transaction, keys);
 
-    if (otherAsset) {
-      if (states.some((row) => row.state !== "active")) {
-        throw new Error("A stored asset alias exists for a terminal object.");
-      }
-      await writeLifecycleState(transaction, keys, "active");
-      await args.onShared?.(transaction);
-      return { status: "shared" } as const;
-    }
+        if (otherAsset) {
+          if (states.some((row) => row.state !== "active")) {
+            throw new Error(
+              "A stored asset alias exists for a terminal object.",
+            );
+          }
+          await writeLifecycleState(transaction, keys, "active");
+          await args.onShared?.(transaction);
+          return { status: "shared" } as const;
+        }
 
-    if (states.some((row) => row.state === "deleted")) {
-      await args.onAlreadyDeleted?.(transaction);
-      return { status: "already-deleted" } as const;
-    }
+        if (states.some((row) => row.state === "deleted")) {
+          await args.onAlreadyDeleted?.(transaction);
+          return { status: "already-deleted" } as const;
+        }
 
-    if (
-      states.some((row) => row.state !== "active" && row.state !== "deleting")
-    ) {
-      throw new Error("Stored asset deletion state changed unexpectedly.");
-    }
+        if (
+          states.some(
+            (row) => row.state !== "active" && row.state !== "deleting",
+          )
+        ) {
+          throw new Error("Stored asset deletion state changed unexpectedly.");
+        }
 
-    const now = Date.now();
-    const activeDeletionClaim = states.some(
-      (row) =>
-        row.state === "deleting" &&
-        row.deletionLeaseToken &&
-        row.deletionLeaseExpiresAt &&
-        Date.parse(row.deletionLeaseExpiresAt) > now,
+        const now = Date.now();
+        const activeDeletionClaim = states.some(
+          (row) =>
+            row.state === "deleting" &&
+            row.deletionLeaseToken &&
+            row.deletionLeaseExpiresAt &&
+            Date.parse(row.deletionLeaseExpiresAt) > now,
+        );
+        if (activeDeletionClaim) {
+          return {
+            status: "failed",
+            error: new Error("Stored asset deletion is already in progress."),
+          } as const;
+        }
+
+        const deletionClaim = {
+          token: randomUUID(),
+          expiresAt: new Date(
+            now + OBJECT_DELETION_CLAIM_LEASE_MS,
+          ).toISOString(),
+        };
+        await writeLifecycleState(transaction, keys, "deleting", deletionClaim);
+        return { deletionClaim } as const;
+      },
     );
-    if (activeDeletionClaim) {
-      return {
-        status: "failed",
-        error: new Error("Stored asset deletion is already in progress."),
-      } as const;
-    }
-
-    const deletionClaim = {
-      token: randomUUID(),
-      expiresAt: new Date(now + OBJECT_DELETION_CLAIM_LEASE_MS).toISOString(),
-    };
-    await writeLifecycleState(transaction, keys, "deleting", deletionClaim);
-    return { deletionClaim } as const;
-  });
 
   if ("status" in preparation) {
     return preparation;

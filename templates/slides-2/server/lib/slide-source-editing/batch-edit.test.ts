@@ -5,7 +5,7 @@ import { applyEditBatch } from "./batch-edit.js";
 describe("replace-placeholder-with-image", () => {
   it("replaces the source-located ImagePlaceholder and keeps its label as alt text", () => {
     const source = [
-      'import { ImagePlaceholder } from "@open-slide/core";',
+      'import { ImagePlaceholder } from "@agent-native/slides-core";',
       "export default function Slide() {",
       '  return <ImagePlaceholder label="team photo" />;',
       "}",

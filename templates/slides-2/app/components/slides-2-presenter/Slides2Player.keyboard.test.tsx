@@ -11,6 +11,10 @@ vi.mock("./useSlides2TouchSwipe", () => ({
 }));
 
 import type { SlideFramePointerType } from "../slides-2-runtime/protocol";
+import type {
+  FrameKeyboard,
+  FramePointer,
+} from "../slides-2-runtime/SandboxedSlide";
 import Slides2Player, {
   type Slides2PlayerProps,
   type Slides2PresenterLabels,
@@ -59,14 +63,16 @@ const labels: Slides2PresenterLabels = {
 
 function renderPlayer(
   children: Slides2PlayerProps["children"] = <div>Slide content</div>,
+  total = 4,
+  initialFullscreen = false,
 ) {
   const onIndexChange = vi.fn();
   const onPrevious = vi.fn();
   const onNext = vi.fn();
-  const view = render(
+  const createPlayer = (index: number) => (
     <Slides2Player
-      index={1}
-      total={4}
+      index={index}
+      total={total}
       canPrevious
       canNext
       onIndexChange={onIndexChange}
@@ -74,16 +80,258 @@ function renderPlayer(
       onNext={onNext}
       onExit={vi.fn()}
       labels={labels}
-      initialFullscreen={false}
+      initialFullscreen={initialFullscreen}
     >
       {children}
-    </Slides2Player>,
+    </Slides2Player>
   );
-  return { ...view, onIndexChange, onPrevious, onNext };
+  const view = render(createPlayer(1));
+  return {
+    ...view,
+    onIndexChange,
+    onPrevious,
+    onNext,
+    rerenderAtIndex: (index: number) => view.rerender(createPlayer(index)),
+  };
+}
+
+function frameKeyboard(overrides: Partial<FrameKeyboard> = {}): FrameKeyboard {
+  return {
+    key: "ArrowRight",
+    keyCode: 39,
+    shiftKey: false,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    isTypingTarget: false,
+    isControlTarget: false,
+    isComposing: false,
+    ...overrides,
+  };
+}
+
+function framePointer(overrides: Partial<FramePointer> = {}): FramePointer {
+  return {
+    phase: "down",
+    x: 200,
+    y: 200,
+    button: 0,
+    pointerId: 1,
+    pointerType: "touch",
+    shiftKey: false,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    target: null,
+    ...overrides,
+  };
 }
 
 describe("Slides2Player keyboard navigation", () => {
-  it("leaves system-modified navigation keys to the browser", () => {
+  it("navigates when a slide frame forwards a keyboard event", () => {
+    let sendFrameKeyboard: ((keyboard: FrameKeyboard) => void) | null = null;
+    const { onNext } = renderPlayer(({ onFrameKeyboard }) => {
+      sendFrameKeyboard = onFrameKeyboard;
+      return <div>Slide content</div>;
+    });
+
+    act(() => sendFrameKeyboard?.(frameKeyboard()));
+
+    expect(onNext).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["typing", frameKeyboard({ isTypingTarget: true })],
+    ["a slide control", frameKeyboard({ isControlTarget: true })],
+    ["an active composition", frameKeyboard({ isComposing: true })],
+    ["the legacy IME key", frameKeyboard({ keyCode: 229 })],
+  ])("ignores frame keyboard input from %s", (_target, keyboard) => {
+    let sendFrameKeyboard: ((keyboard: FrameKeyboard) => void) | null = null;
+    const { onNext } = renderPlayer(({ onFrameKeyboard }) => {
+      sendFrameKeyboard = onFrameKeyboard;
+      return <div>Slide content</div>;
+    });
+
+    act(() => sendFrameKeyboard?.(keyboard));
+
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it("keeps presenter modifier behavior for forwarded keys", () => {
+    let sendFrameKeyboard: ((keyboard: FrameKeyboard) => void) | null = null;
+    const { onIndexChange, onNext } = renderPlayer(({ onFrameKeyboard }) => {
+      sendFrameKeyboard = onFrameKeyboard;
+      return <div>Slide content</div>;
+    });
+
+    act(() =>
+      sendFrameKeyboard?.(frameKeyboard({ key: "ArrowRight", ctrlKey: true })),
+    );
+    act(() =>
+      sendFrameKeyboard?.(
+        frameKeyboard({ key: "3", keyCode: 51, ctrlKey: true }),
+      ),
+    );
+
+    expect(onNext).toHaveBeenCalledOnce();
+    expect(onIndexChange).not.toHaveBeenCalled();
+  });
+
+  it("recognizes the document fullscreen element after the editor handoff", () => {
+    const originalFullscreen = Object.getOwnPropertyDescriptor(
+      document,
+      "fullscreenElement",
+    );
+    const originalExit = Object.getOwnPropertyDescriptor(
+      document,
+      "exitFullscreen",
+    );
+    const originalRequest = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "requestFullscreen",
+    );
+    const requestFullscreen = vi.fn(() => Promise.resolve());
+
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      value: document.documentElement,
+    });
+    Object.defineProperty(document, "exitFullscreen", {
+      configurable: true,
+      value: vi.fn(() => Promise.resolve()),
+    });
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+
+    try {
+      renderPlayer(undefined, 4, true);
+
+      expect(requestFullscreen).not.toHaveBeenCalled();
+      expect(
+        screen.getByRole("button", { name: "Exit fullscreen" }),
+      ).toBeTruthy();
+    } finally {
+      cleanup();
+      if (originalFullscreen) {
+        Object.defineProperty(
+          document,
+          "fullscreenElement",
+          originalFullscreen,
+        );
+      } else {
+        Reflect.deleteProperty(document, "fullscreenElement");
+      }
+      if (originalExit) {
+        Object.defineProperty(document, "exitFullscreen", originalExit);
+      } else {
+        Reflect.deleteProperty(document, "exitFullscreen");
+      }
+      if (originalRequest) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "requestFullscreen",
+          originalRequest,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "requestFullscreen");
+      }
+    }
+  });
+
+  it("keeps the requested windowed presentation from auto-entering fullscreen", () => {
+    const currentLocation = new URL(window.location.href);
+    const originalRequest = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "requestFullscreen",
+    );
+    const requestFullscreen = vi.fn(() => Promise.resolve());
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+    window.history.replaceState({}, "", "/?windowed=1");
+
+    try {
+      renderPlayer(undefined, 4, true);
+
+      expect(requestFullscreen).not.toHaveBeenCalled();
+      expect(
+        screen.getAllByRole("button", { name: "Enter fullscreen" }),
+      ).toHaveLength(1);
+    } finally {
+      cleanup();
+      window.history.replaceState(
+        {},
+        "",
+        `${currentLocation.pathname}${currentLocation.search}${currentLocation.hash}`,
+      );
+      if (originalRequest) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "requestFullscreen",
+          originalRequest,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "requestFullscreen");
+      }
+    }
+  });
+
+  it("offers a windowed fallback when the fullscreen request throws", () => {
+    const originalFullscreen = Object.getOwnPropertyDescriptor(
+      document,
+      "fullscreenElement",
+    );
+    const originalRequest = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "requestFullscreen",
+    );
+    const requestFullscreen = vi.fn(() => {
+      throw new Error("Fullscreen is unavailable");
+    });
+
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      value: null,
+    });
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+
+    try {
+      renderPlayer(undefined, 4, true);
+
+      expect(requestFullscreen).toHaveBeenCalledOnce();
+      expect(
+        screen.getAllByRole("button", { name: "Enter fullscreen" }),
+      ).toHaveLength(2);
+    } finally {
+      cleanup();
+      if (originalFullscreen) {
+        Object.defineProperty(
+          document,
+          "fullscreenElement",
+          originalFullscreen,
+        );
+      } else {
+        Reflect.deleteProperty(document, "fullscreenElement");
+      }
+      if (originalRequest) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "requestFullscreen",
+          originalRequest,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "requestFullscreen");
+      }
+    }
+  });
+
+  it("keeps system-modified navigation keys active", () => {
     const { onIndexChange, onPrevious, onNext } = renderPlayer();
 
     fireEvent.keyDown(window, { key: "ArrowRight", altKey: true });
@@ -91,9 +339,44 @@ describe("Slides2Player keyboard navigation", () => {
     fireEvent.keyDown(window, { key: "Home", metaKey: true });
     fireEvent.keyDown(window, { key: "End", altKey: true });
 
+    expect(onNext).toHaveBeenCalledTimes(2);
+    expect(onPrevious).not.toHaveBeenCalled();
+    expect(onIndexChange).toHaveBeenCalledTimes(2);
+    expect(onIndexChange).toHaveBeenNthCalledWith(1, 0);
+    expect(onIndexChange).toHaveBeenNthCalledWith(2, 3);
+  });
+
+  it("leaves presenter keys inside editable slide content alone", () => {
+    const { onNext } = renderPlayer(
+      <span data-testid="editable-content">Editable content</span>,
+    );
+    const editableContent = screen.getByTestId("editable-content");
+    editableContent.setAttribute("contenteditable", "plaintext-only");
+    Object.defineProperty(editableContent, "isContentEditable", {
+      configurable: true,
+      value: true,
+    });
+
+    fireEvent.keyDown(editableContent, { key: "ArrowRight" });
+
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it("keeps Space available to activate a focused presenter button", () => {
+    const { onNext, onPrevious } = renderPlayer();
+    const previousButton = screen.getAllByRole("button", {
+      name: "Previous",
+    })[0]!;
+    previousButton.focus();
+
+    fireEvent.keyDown(previousButton, { key: " " });
+
     expect(onNext).not.toHaveBeenCalled();
     expect(onPrevious).not.toHaveBeenCalled();
-    expect(onIndexChange).not.toHaveBeenCalled();
+
+    fireEvent.click(previousButton);
+
+    expect(onPrevious).toHaveBeenCalledOnce();
   });
 
   it("keeps Shift navigation available", () => {
@@ -102,6 +385,144 @@ describe("Slides2Player keyboard navigation", () => {
     fireEvent.keyDown(window, { key: "ArrowRight", shiftKey: true });
 
     expect(onNext).toHaveBeenCalledOnce();
+  });
+
+  it("commits a typed slide number after the input settles", () => {
+    vi.useFakeTimers();
+    try {
+      const { onIndexChange } = renderPlayer();
+
+      fireEvent.keyDown(window, { key: "3" });
+      expect(onIndexChange).not.toHaveBeenCalled();
+
+      act(() => vi.advanceTimersByTime(1199));
+      expect(onIndexChange).not.toHaveBeenCalled();
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(onIndexChange).toHaveBeenCalledWith(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clamps an idle numeric jump to the last slide", () => {
+    vi.useFakeTimers();
+    try {
+      const { onIndexChange } = renderPlayer();
+
+      fireEvent.keyDown(window, { key: "9" });
+      act(() => vi.advanceTimersByTime(1200));
+
+      expect(onIndexChange).toHaveBeenCalledOnce();
+      expect(onIndexChange).toHaveBeenCalledWith(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("commits a typed slide number immediately when Enter is pressed", () => {
+    vi.useFakeTimers();
+    try {
+      const { onIndexChange } = renderPlayer();
+
+      fireEvent.keyDown(window, { key: "3" });
+      fireEvent.keyDown(window, { key: "Enter" });
+
+      expect(onIndexChange).toHaveBeenCalledOnce();
+      expect(onIndexChange).toHaveBeenCalledWith(2);
+
+      act(() => vi.advanceTimersByTime(1200));
+      expect(onIndexChange).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clamps an Enter numeric jump to the last slide", () => {
+    vi.useFakeTimers();
+    try {
+      const { onIndexChange } = renderPlayer();
+
+      fireEvent.keyDown(window, { key: "9" });
+      fireEvent.keyDown(window, { key: "Enter" });
+
+      expect(onIndexChange).toHaveBeenCalledOnce();
+      expect(onIndexChange).toHaveBeenCalledWith(3);
+
+      act(() => vi.advanceTimersByTime(1200));
+      expect(onIndexChange).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the first four digits of a longer numeric jump", () => {
+    vi.useFakeTimers();
+    try {
+      const { onIndexChange } = renderPlayer(undefined, 1234);
+
+      for (const key of ["1", "2", "3", "4", "5"]) {
+        fireEvent.keyDown(window, { key });
+      }
+      fireEvent.keyDown(window, { key: "Enter" });
+
+      expect(onIndexChange).toHaveBeenCalledOnce();
+      expect(onIndexChange).toHaveBeenCalledWith(1233);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a pending number jump when a presenter control is activated", () => {
+    vi.useFakeTimers();
+    try {
+      const { onIndexChange, onPrevious } = renderPlayer();
+
+      fireEvent.keyDown(window, { key: "3" });
+      fireEvent.click(screen.getAllByRole("button", { name: "Previous" })[0]!);
+      act(() => vi.advanceTimersByTime(1200));
+
+      expect(onPrevious).toHaveBeenCalledOnce();
+      expect(onIndexChange).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a pending number jump after slide pointer activity", () => {
+    vi.useFakeTimers();
+    try {
+      let onFramePointerActivity: FramePointerActivity | null = null;
+      const { onIndexChange } = renderPlayer(
+        ({ onFramePointerActivity: onActivity }) => {
+          onFramePointerActivity = onActivity;
+          return <div>Slide content</div>;
+        },
+      );
+
+      fireEvent.keyDown(window, { key: "3" });
+      act(() => onFramePointerActivity?.("mouse"));
+      act(() => vi.advanceTimersByTime(1200));
+
+      expect(onIndexChange).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a pending number jump when the current slide changes externally", () => {
+    vi.useFakeTimers();
+    try {
+      const { onIndexChange, rerenderAtIndex } = renderPlayer();
+
+      fireEvent.keyDown(window, { key: "3" });
+      rerenderAtIndex(2);
+      act(() => vi.advanceTimersByTime(1200));
+
+      expect(onIndexChange).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("opens overview and navigates to the selected slide", () => {
@@ -174,10 +595,10 @@ describe("Slides2Player keyboard navigation", () => {
     let onFramePointerMove: FramePointerMove | null = null;
     const { container } = renderPlayer(({ onFramePointerMove: onMove }) => {
       onFramePointerMove = onMove;
-      return <iframe data-slides-2-frame title="Slide" />;
+      return <iframe data-slides2-frame title="Slide" />;
     });
     const frame = container.querySelector<HTMLIFrameElement>(
-      "iframe[data-slides-2-frame]",
+      "iframe[data-slides2-frame]",
     )!;
     Object.defineProperties(frame, {
       clientWidth: { configurable: true, value: 1920 },
@@ -207,16 +628,121 @@ describe("Slides2Player keyboard navigation", () => {
     expect(laser?.style.transform).toBe("translate3d(331px, 176px, 0)");
   });
 
+  it("navigates on a horizontal touch swipe inside a sandboxed slide", () => {
+    let onFramePointer: ((pointer: FramePointer) => void) | null = null;
+    const { container, onNext } = renderPlayer(
+      ({ onFramePointer: onPointer }) => {
+        onFramePointer = onPointer;
+        return <iframe data-slides2-frame title="Slide" />;
+      },
+    );
+    const frame = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-slides2-frame]",
+    )!;
+    Object.defineProperties(frame, {
+      clientWidth: { configurable: true, value: 1920 },
+      clientHeight: { configurable: true, value: 1080 },
+    });
+    vi.spyOn(frame, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 960,
+      bottom: 540,
+      width: 960,
+      height: 540,
+      toJSON: () => ({}),
+    });
+    let now = 1000;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
+
+    try {
+      act(() => onFramePointer?.(framePointer({ x: 400, y: 400 })));
+      now = 1100;
+      act(() =>
+        onFramePointer?.(
+          framePointer({ phase: "up", x: 300, y: 400, pointerId: 1 }),
+        ),
+      );
+
+      expect(onNext).toHaveBeenCalledOnce();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("ignores vertical and multi-finger gestures inside sandboxed slides", () => {
+    let onFramePointer: ((pointer: FramePointer) => void) | null = null;
+    const { container, onPrevious, onNext } = renderPlayer(
+      ({ onFramePointer: onPointer }) => {
+        onFramePointer = onPointer;
+        return <iframe data-slides2-frame title="Slide" />;
+      },
+    );
+    const frame = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-slides2-frame]",
+    )!;
+    Object.defineProperties(frame, {
+      clientWidth: { configurable: true, value: 1920 },
+      clientHeight: { configurable: true, value: 1080 },
+    });
+    vi.spyOn(frame, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 960,
+      bottom: 540,
+      width: 960,
+      height: 540,
+      toJSON: () => ({}),
+    });
+    let now = 1000;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
+
+    try {
+      act(() => onFramePointer?.(framePointer({ x: 400, y: 400 })));
+      now = 1100;
+      act(() =>
+        onFramePointer?.(
+          framePointer({ phase: "up", x: 400, y: 300, pointerId: 1 }),
+        ),
+      );
+
+      act(() => onFramePointer?.(framePointer({ pointerId: 2 })));
+      act(() =>
+        onFramePointer?.(framePointer({ pointerId: 3, x: 500, y: 400 })),
+      );
+      now = 1200;
+      act(() =>
+        onFramePointer?.(
+          framePointer({ phase: "up", pointerId: 2, x: 300, y: 400 }),
+        ),
+      );
+      act(() =>
+        onFramePointer?.(
+          framePointer({ phase: "up", pointerId: 3, x: 400, y: 400 }),
+        ),
+      );
+
+      expect(onPrevious).not.toHaveBeenCalled();
+      expect(onNext).not.toHaveBeenCalled();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("restores activity and reveals controls for iframe movement in the bottom hot zone", () => {
     vi.useFakeTimers();
     try {
       let onFramePointerMove: FramePointerMove | null = null;
       const { container } = renderPlayer(({ onFramePointerMove: onMove }) => {
         onFramePointerMove = onMove;
-        return <iframe data-slides-2-frame title="Slide" />;
+        return <iframe data-slides2-frame title="Slide" />;
       });
       const frame = container.querySelector<HTMLIFrameElement>(
-        "iframe[data-slides-2-frame]",
+        "iframe[data-slides2-frame]",
       )!;
       const frameRect = {
         x: 32,
@@ -286,11 +812,11 @@ describe("Slides2Player keyboard navigation", () => {
       const { container, onNext } = renderPlayer(
         ({ onFramePointerMove: onMove }) => {
           onFramePointerMove = onMove;
-          return <iframe data-slides-2-frame title="Slide" />;
+          return <iframe data-slides2-frame title="Slide" />;
         },
       );
       const frame = container.querySelector<HTMLIFrameElement>(
-        "iframe[data-slides-2-frame]",
+        "iframe[data-slides2-frame]",
       )!;
       const frameRect = {
         x: 32,
@@ -352,7 +878,7 @@ describe("Slides2Player keyboard navigation", () => {
       const { container, onNext } = renderPlayer(
         ({ onFramePointerActivity: onActivity }) => {
           onFramePointerActivity = onActivity;
-          return <iframe data-slides-2-frame title="Slide" />;
+          return <iframe data-slides2-frame title="Slide" />;
         },
       );
 

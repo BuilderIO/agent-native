@@ -65,12 +65,13 @@ vi.mock("./_slide-source.js", async (importOriginal) => {
 });
 
 import { hashSlideSource } from "../server/lib/slide-source.js";
+import { DEFAULT_SLIDE_MUTED_COLOR } from "../shared/slide-design-tokens.js";
 import action from "./get-slide-render.js";
 
 const sourceTsx = "export default function Slide() { return <main />; }";
 const sourceHash = hashSlideSource(sourceTsx);
 const workerRuntime = {
-  kind: "open-slide-react-worker-v1",
+  kind: "agent-native-slides-react-worker-v1",
   workerSource: "self.onmessage = () => {};",
   page: { current: 2, total: 3 },
   assetUrls: { "asset-a": "https://cdn.example.com/a.png" },
@@ -140,6 +141,120 @@ describe("get-slide-render", () => {
       assetOrigins: ["https://cdn.example.com"],
       runtime: workerRuntime,
     });
+  });
+
+  it("renders sanitized persisted slide source without a source integrity conflict", async () => {
+    const sanitizedSource = `import { NoiseBackground } from "@agent-native/slides-core";
+      export default function Slide() {
+        return <main><NoiseBackground baseFrequency={0.03} numOctaves={2} seed={8} opacity={0.2} fill="#223344" /><span>Persisted</span></main>;
+      }`;
+    const sanitizedHash = hashSlideSource(sanitizedSource);
+    const sanitizedContent =
+      "<main><svg><filter><feTurbulence /></filter></svg><span>Persisted</span></main>";
+    const assetUrls = new Map<string, string>();
+    mocks.limit.mockResolvedValue([
+      {
+        id: "deck-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "slide-2",
+              sourceTsx: sanitizedSource,
+              sourceHash: sanitizedHash,
+              revision: 5,
+              content: sanitizedContent,
+            },
+          ],
+        }),
+      },
+    ]);
+    mocks.compileSource.mockResolvedValue({
+      sourceHash: sanitizedHash,
+      content: sanitizedContent,
+      assetUrls,
+      assetOrigins: [],
+    });
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-2",
+      expectedRevision: 5,
+      expectedSourceHash: sanitizedHash,
+    })) as Record<string, any>;
+
+    expect(mocks.compileSource).toHaveBeenCalledWith(sanitizedSource, {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    expect(mocks.buildRuntime).toHaveBeenCalledWith(sanitizedSource, {
+      current: 1,
+      total: 1,
+      assetUrls,
+    });
+    expect(result).toMatchObject({
+      revision: 5,
+      sourceHash: sanitizedHash,
+      html: sanitizedContent,
+      assetOrigins: [],
+    });
+  });
+
+  it("returns a typed error when slide styles cannot be parsed for fonts", async () => {
+    const invalidStyles = "<style>.title { font-family: Inter;";
+    mocks.compileSource.mockResolvedValueOnce({
+      sourceHash,
+      content: invalidStyles,
+      assetUrls: new Map(),
+      assetOrigins: [],
+    });
+    mocks.limit.mockResolvedValueOnce([
+      {
+        id: "deck-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        data: JSON.stringify({
+          appId: "slides-2",
+          slides: [
+            {
+              id: "slide-2",
+              sourceTsx,
+              sourceHash,
+              revision: 4,
+              content: invalidStyles,
+            },
+          ],
+        }),
+      },
+    ]);
+
+    await expect(
+      action.run({ deckId: "deck-1", slideId: "slide-2" }),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "invalid_slide_styles",
+    });
+    expect(mocks.resolveFonts).not.toHaveBeenCalled();
+  });
+
+  it("rejects an expected source version that is older than the saved slide", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-2",
+        expectedRevision: 3,
+        expectedSourceHash: "b".repeat(64),
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "slide_source_conflict",
+      details: { revision: 4, sourceHash },
+    });
+
+    expect(mocks.compileSource).not.toHaveBeenCalled();
+    expect(mocks.buildRuntime).not.toHaveBeenCalled();
   });
 
   it("allows anonymous public viewers while still denying private decks", async () => {
@@ -216,7 +331,7 @@ describe("get-slide-render", () => {
     expect(result.runtime.page).toEqual({ current: 41, total: 41 });
   });
 
-  it("returns only the registered font handles selected by deck tokens", async () => {
+  it("returns selected font handles and references from source-backed styles", async () => {
     const designTokens = {
       background: "#ffffff",
       text: "#111827",
@@ -237,6 +352,30 @@ describe("get-slide-render", () => {
         url: "https://storage.example.test/fonts/inter.woff2",
       },
     ];
+    const referencedFontFamilies = [
+      "Architects Daughter",
+      "Arial",
+      "Inter",
+      "Saira Semi Condensed",
+      "Share Tech Mono",
+    ];
+    const renderedContent = `<div style="font-family: 'Share Tech Mono', monospace"></div>`;
+    mocks.compileSource.mockResolvedValueOnce({
+      sourceHash,
+      content: renderedContent,
+      assetUrls: new Map([["asset-a", "https://cdn.example.com/a.png"]]),
+      assetOrigins: ["https://cdn.example.com"],
+    });
+    mocks.buildRuntime.mockResolvedValueOnce({
+      ...workerRuntime,
+      styles: ["#slide-root{font-family:'Saira Semi Condensed'}"],
+      design: {
+        palette: { bg: "#ffffff", text: "#111827", accent: "#2563eb" },
+        fonts: { display: "Architects Daughter", body: "Inter" },
+        typeScale: { hero: 1, body: 1 },
+        radius: 12,
+      },
+    });
     mocks.limit.mockResolvedValue([
       {
         id: "deck-1",
@@ -251,7 +390,13 @@ describe("get-slide-render", () => {
               sourceTsx: "export default function First() {}",
               content: "",
             },
-            { id: "slide-2", sourceTsx, sourceHash, revision: 4, content: "" },
+            {
+              id: "slide-2",
+              sourceTsx,
+              sourceHash,
+              revision: 4,
+              content: renderedContent,
+            },
           ],
         }),
       },
@@ -263,14 +408,19 @@ describe("get-slide-render", () => {
       slideId: "slide-2",
     })) as Record<string, any>;
 
-    expect(mocks.resolveFonts).toHaveBeenCalledWith(designTokens, {
-      deckId: "deck-1",
-      ownerEmail: "owner@example.com",
-      orgId: "org-1",
-    });
+    expect(mocks.resolveFonts).toHaveBeenCalledWith(
+      { ...designTokens, muted: DEFAULT_SLIDE_MUTED_COLOR },
+      {
+        deckId: "deck-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        referencedFontFamilies,
+      },
+    );
     expect(result).toMatchObject({
       designTokens,
       fontAssets,
+      referencedFontFamilies,
       fontOrigins: ["https://storage.example.test"],
     });
   });

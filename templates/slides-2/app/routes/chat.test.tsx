@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { chatSurfaceMock, agentPanelMock } = vi.hoisted(() => ({
@@ -62,11 +66,32 @@ vi.mock("@/components/editor/SlidesComposerContextProvider", () => ({
   SlidesComposerContextProvider: () => null,
 }));
 
+// source-read-ok: keeps the route's rich chat renderer bootstrap wired at app startup.
+const appRootSource = readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "../root.tsx"),
+  "utf8",
+);
+
 import { AgentPanel } from "@agent-native/toolkit/app/chat";
 
+import { SlidesComposerContextProvider } from "@/components/editor/SlidesComposerContextProvider";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 
 import ChatRoute from "./chat";
+
+function NavigateToSecondSlideChat() {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        navigate("/chat?deckId=deck-1&slideId=slide-2&slideNumber=2")
+      }
+    >
+      Open second slide chat
+    </button>
+  );
+}
 
 afterEach(() => {
   cleanup();
@@ -76,7 +101,7 @@ afterEach(() => {
 });
 
 describe("Slides chat route", () => {
-  it("uses the shared AgentPanel behind its full-page chat surface", () => {
+  it("uses the shared chat composer and result renderers on its full-page surface", () => {
     render(
       <MemoryRouter initialEntries={["/chat"]}>
         <Routes>
@@ -85,6 +110,13 @@ describe("Slides chat route", () => {
       </MemoryRouter>,
     );
 
+    expect(chatSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "page",
+        defaultMode: "chat",
+        composerContextProvider: SlidesComposerContextProvider,
+      }),
+    );
     expect(agentPanelMock).toHaveBeenCalledWith(
       expect.objectContaining({
         type: AgentPanel,
@@ -97,6 +129,7 @@ describe("Slides chat route", () => {
         }),
       }),
     );
+    expect(appRootSource).toContain('import "@/lib/register-chat-renderers";');
   });
 
   it("updates the scope label and agent context after slide navigation", () => {
@@ -212,5 +245,36 @@ describe("Slides chat route", () => {
     expect(props.threadUrlSync.getPath("thread/1")).toBe(
       "/chat/thread%2F1?deckId=deck%2F1&slideId=slide%2F2&slideNumber=2",
     );
+  });
+
+  it("uses the new route slide scope on the first render after query navigation", () => {
+    render(
+      <MemoryRouter
+        initialEntries={["/chat?deckId=deck-1&slideId=slide-1&slideNumber=1"]}
+      >
+        <NavigateToSecondSlideChat />
+        <Routes>
+          <Route path="/chat" element={<ChatRoute />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const previousCallCount = chatSurfaceMock.mock.calls.length;
+    act(() =>
+      screen.getByRole("button", { name: "Open second slide chat" }).click(),
+    );
+
+    const transitionCalls = chatSurfaceMock.mock.calls.slice(previousCallCount);
+    expect(transitionCalls.length).toBeGreaterThan(0);
+    for (const [props] of transitionCalls) {
+      expect(props).toEqual(
+        expect.objectContaining({
+          scope: expect.objectContaining({
+            label: "Slide 2",
+            context: expect.stringContaining("Current slide id: slide-2."),
+          }),
+        }),
+      );
+    }
   });
 });

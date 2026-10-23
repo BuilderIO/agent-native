@@ -108,16 +108,19 @@ export function DesignSystemCard({
             {accessRole === "owner" && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
                     onClick={onSetDefault}
-                    className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+                    className="rounded-md border border-border/40 bg-background/80 backdrop-blur-sm hover:bg-background active:scale-100 cursor-pointer"
                   >
                     {isDefault ? (
                       <IconStarFilled className="w-4 h-4 text-primary" />
                     ) : (
                       <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
                     )}
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>
                   {isDefault ? "Default design system" : "Set as default"}

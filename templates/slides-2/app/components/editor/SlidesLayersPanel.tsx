@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { useState, type DragEvent, type ReactNode } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -193,9 +194,11 @@ function LayerRow({
       onDrop={handleDrop}
     >
       {children.length ? (
-        <button
+        <Button
           type="button"
-          className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+          variant="ghost"
+          size="icon-xs"
+          className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0 active:scale-100 [&_svg]:size-4"
           aria-label={expanded ? labels.collapse : labels.expand}
           onClick={() => setExpanded(!collapsedState)}
         >
@@ -204,12 +207,13 @@ function LayerRow({
           ) : (
             <IconChevronRight className="size-4" />
           )}
-        </button>
+        </Button>
       ) : null}
-      <button
+      <Button
         type="button"
+        variant="ghost"
         data-layer-row-button
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="min-w-0 h-auto flex-1 justify-start gap-2 rounded-sm px-0 py-0 text-left text-[11px] font-[450] leading-4 tracking-[0.055px] text-foreground hover:bg-transparent hover:text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0 active:scale-100"
         onClick={(event) =>
           onSelectLayer(
             node.id,
@@ -221,7 +225,7 @@ function LayerRow({
           <LayerGlyph kind={node.kind} hasChildren={children.length > 0} />
         </span>
         <span className="min-w-0 flex-1 truncate">{node.label}</span>
-      </button>
+      </Button>
     </div>
   );
 
@@ -315,9 +319,11 @@ export function SlidesLayersPanel({
           {labels.title}
         </h2>
         <div className="flex items-center">
-          <button
+          <Button
             type="button"
-            className={`flex size-[22px] items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground ${searching ? "bg-accent text-foreground" : ""}`}
+            variant="ghost"
+            size="icon-xs"
+            className={`size-[22px] shrink-0 rounded-md p-0 text-muted-foreground hover:bg-accent hover:text-foreground active:scale-100 [&_svg]:size-3 ${searching ? "bg-accent text-foreground" : ""}`}
             onClick={() => {
               setSearching((value) => !value);
               setQuery("");
@@ -326,15 +332,17 @@ export function SlidesLayersPanel({
             aria-pressed={searching}
           >
             <IconSearch className="size-3" />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="flex size-[22px] items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            variant="ghost"
+            size="icon-xs"
+            className="size-[22px] shrink-0 rounded-md p-0 text-muted-foreground hover:bg-accent hover:text-foreground active:scale-100 [&_svg]:size-3"
             onClick={onClose}
             aria-label={labels.close}
           >
             <IconX className="size-3" />
-          </button>
+          </Button>
         </div>
       </header>
       {searching ? (

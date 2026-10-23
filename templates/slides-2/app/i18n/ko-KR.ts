@@ -347,6 +347,7 @@ const messages = {
     media: "미디어",
     generateImage: "이미지 생성",
     assetLibrary: "에셋 라이브러리",
+    assets: "에셋",
     globalAssetScope: "글로벌",
     imageOptions: "이미지 옵션",
     videoPlayback: "동영상 재생",
@@ -681,6 +682,7 @@ const messages = {
     x: "X",
     y: "Y",
     position: "위치",
+    source: "소스",
     selectParent: "부모 요소 선택",
     horizontal: "가로",
     vertical: "세로",
@@ -702,6 +704,8 @@ const messages = {
     cornerRadius: "모서리 반경",
     strokeWeight: "두께",
     typography: "타이포그래피",
+    content: "콘텐츠",
+    editOnSlide: "슬라이드에서 편집",
     fontFamily: "글꼴 패밀리",
     lineHeight: "줄 간격",
     letterSpacing: "자간",
@@ -732,7 +736,7 @@ const messages = {
     secondary: "Secondary",
     accent: "Accent",
     surface: "Surface",
-    background: "Background",
+    background: "배경",
     text: "Text",
     muted: "Muted",
     white: "White",
@@ -822,8 +826,128 @@ const messages = {
       "Google Slides 가져오기는 빈 이미지를 추가하는 대신 이미지 데이터가 누락되었다고 알립니다.",
     globalMediaPickerScope:
       "전체 미디어 선택기에는 현재 프레젠테이션에서 사용할 수 있는 에셋만 표시됩니다.",
+    presenterControls:
+      "발표자 컨트롤에서 워크스페이스 공용 버튼과 입력 필드를 사용합니다",
+    presenterBuildStepPreview:
+      "발표자 콘솔에서 다음 슬라이드로 넘어가기 전에 남은 빌드 단계를 하나씩 미리 볼 수 있습니다.",
+    presenterBuildStepBounds:
+      "빌드 단계 컨트롤은 단계를 표시 순서의 시작보다 앞이나 끝보다 뒤로 이동하지 못하게 합니다.",
+    staleSlidePreviews:
+      "다른 슬라이드를 불러오기 전에 오래된 미리보기를 지웁니다",
+    boundedMediaTransfers:
+      "문서와 슬라이드 미디어 전송은 안전한 크기 및 시간 제한 내에서 중단됩니다",
+    editorCanvasAppTheme:
+      "슬라이드 편집기의 캔버스와 선택한 개체 컨트롤은 선택한 앱 테마를 따릅니다.",
+    editorInspectorTextControls:
+      "타이포그래피와 색상 컨트롤로 텍스트를 서식 지정하고 슬라이드에서 바로 편집하세요.",
     savedSlideImages:
       "저장된 슬라이드에서 사용하는 이미지는 라이브러리에서 계속 사용할 수 있습니다.",
+    keyboardObjectTransforms:
+      "키보드로 선택한 슬라이드 개체의 크기를 조정하고 회전할 수 있습니다.",
+    editorToolbarInspector:
+      "슬라이드 편집 컨트롤을 간결한 도구 모음에 모아 서식 및 디자인 패널에 더 쉽게 접근할 수 있습니다.",
+    commandMenuTheme:
+      "명령 메뉴에서 라이트 테마와 다크 테마를 전환할 수 있습니다.",
+    skippedSlidePresentation:
+      "건너뛸 슬라이드로 표시된 슬라이드는 프레젠테이션에서 제외되고 슬라이드 번호와 전체 개수가 올바르게 표시됩니다.",
+    browseDeckVersions:
+      "저장된 덱 버전을 찾아보고 편집기에서 이전 스냅샷을 복원하세요.",
+    frameMissObjectSelection:
+      "프레임이 직접 대상을 놓쳐도 슬라이드 개체를 클릭하면 선택됩니다.",
+    commandMenuShortcut: "Command-K로 슬라이드 편집기의 명령 메뉴를 엽니다.",
+    crossDeckSlideCopy:
+      "덱 간에 슬라이드를 복사하고 편집기에서 덱 이름을 바꾸며, 저장하지 않은 변경 사항이 있을 때 나가기 전에 경고를 받을 수 있습니다.",
+    completedSlideGeneration:
+      "덱 생성은 성공을 알리기 전에 요청한 수의 슬라이드가 완성될 때까지 기다립니다.",
+    deckTitleAndNotesLabel:
+      "긴 덱 제목은 편집 중에도 계속 표시되며, 바닥글에는 더 짧은 Notes 레이블이 사용됩니다.",
+    deleteFocusedCanvasObject:
+      "캔버스에 포커스가 있을 때 Delete와 Backspace로 선택한 캔버스 개체를 삭제합니다.",
+    deleteSelectedSlideObject:
+      "Delete와 Backspace로 선택한 슬라이드 개체를 캔버스에서 삭제합니다.",
+    slideOverviewFromRail: "슬라이드 레일에서 바로 슬라이드 개요를 엽니다.",
+    presenterKeyboardNavigation:
+      "프레젠테이션에서 Page Up, Page Down, Home, End 키로 슬라이드를 탐색할 수 있습니다.",
+    sourceBackedPdfExport:
+      "공개 덱 페이지에서 소스 기반 슬라이드를 PDF로 내보낼 수 있습니다.",
+    preserveDeckBriefOnRegeneration:
+      "슬라이드를 다시 생성해도 원래 덱 개요가 컨텍스트에 유지됩니다.",
+    jumpToSlideByNumber:
+      "여러 자릿수도 포함해 번호를 입력하여 원하는 슬라이드로 이동할 수 있습니다.",
+    mobileNavigationAndSlideChat:
+      "모바일에서 키보드를 닫을 수 있고 슬라이드 채팅 링크는 현재 슬라이드 위치를 따릅니다.",
+    lightExtraBoldText:
+      "더 정밀한 타이포그래피를 위해 슬라이드 텍스트에서 Light와 Extra Bold 굵기를 사용할 수 있습니다.",
+    thumbnailArrowNavigation:
+      "슬라이드 썸네일을 이제 네 방향 화살표 키로 탐색할 수 있습니다.",
+    homePromptDeckContinuity:
+      "홈 화면 프롬프트로 생성한 슬라이드는 시작한 덱에 그대로 저장됩니다.",
+    slideTransitions:
+      "덱 전체 및 슬라이드별 전환, 일치하는 개체의 모핑, 단계별 표시를 지원합니다.",
+    editorPanelWidthsAndRecovery:
+      "슬라이드 편집기 헤더와 패널이 기준 화면에 더 가까워졌고, 확대 및 모션 도구는 명령 메뉴에서 사용할 수 있으며, 복구된 덱에 오래된 오류가 더 이상 표시되지 않습니다.",
+    editorRailAndInspectorAlignment:
+      "슬라이드 편집기의 레일, 캔버스 배경, 도구 모음, 검사기 빈 상태가 이제 편집 레이아웃과 더 잘 맞습니다.",
+    chatEditPreviewVersion:
+      "슬라이드 편집 미리보기에서 이제 편집으로 저장된 정확한 버전을 보여줍니다.",
+    objectCommentsStayAttached:
+      "슬라이드 개체를 이동해도 댓글이 해당 개체에 계속 연결됩니다.",
+    agentTextSelectionStability:
+      "편집이 보류 중인 동안에도 에이전트 텍스트 선택은 저장된 슬라이드 콘텐츠에 연결된 상태로 유지됩니다.",
+    templateDeckChatPreviews:
+      "템플릿으로 만들거나 업데이트한 덱의 미리보기와 작업이 채팅에 표시됩니다.",
+    consistentSlideTextSpacing:
+      "슬라이드 텍스트는 편집기에서 일관된 줄 간격을 유지합니다.",
+    renderFailuresCanvasMessage:
+      "렌더링에 실패한 슬라이드가 이제 캔버스에 명확한 메시지를 표시합니다.",
+    editorPageCountFooter:
+      "편집기 바닥글에 현재 페이지와 전체 페이지 수가 표시됩니다.",
+    presentButtonReferenceAccent:
+      "Present 버튼의 강조 색상이 이제 슬라이드 편집기의 기준 색상과 일치합니다.",
+    positionFieldsPreserveRotatedSize:
+      "위치 필드는 회전 후에도 개체의 크기를 유지합니다.",
+    selectedSlideArrowNavigation:
+      "화살표 키를 누르면 선택한 슬라이드 개체가 1px, Shift 키와 함께 누르면 10px 이동합니다. 선택된 개체가 없으면 슬라이드를 이동합니다.",
+    chatPreviewStaleContent:
+      "채팅 미리보기에는 결과가 나온 뒤 변경된 슬라이드 내용이 더 이상 표시되지 않습니다.",
+    deleteGlobalSlideImages:
+      "슬라이드 편집기에서 전역 에셋 모음의 사용하지 않는 이미지를 삭제할 수 있습니다.",
+    presenterSpaceActivation:
+      "포커스된 발표자 버튼은 이제 슬라이드를 넘기지 않고 Space 키로 활성화됩니다.",
+    presenterPageUpPageDown:
+      "이제 Page Up과 Page Down 키로 발표자 창을 이동할 수 있습니다.",
+    presenterJumpCancellation:
+      "발표자 탐색은 대기 중인 슬라이드 번호 이동을 취소해 이후 선택을 덮어쓰지 않도록 합니다.",
+    presenterBlankScreensAndNotes:
+      "발표자 화면을 검은색이나 흰색으로 전환하고 발표자 노트 크기를 조절할 수 있습니다.",
+    restoreDeckVersionAgainstStaleEdits:
+      "이전 덱 버전을 복원하면 더 오래된 슬라이드 편집이 덮어쓰지 못하도록 보호됩니다.",
+    singleSlideRevealPreview:
+      "단일 슬라이드 미리보기 링크로 생성된 슬라이드를 특정 공개 단계에서 열 수 있습니다.",
+    agentConnectionStatus: "슬라이드 편집기에 에이전트 연결 상태가 표시됩니다.",
+    svgPatternScaleRotation: "SVG 패턴 채우기는 크기 비율과 회전을 유지합니다.",
+    sourceBackedClickAndPointer:
+      "소스 기반 프레젠테이션에서 클릭과 포인터 이동이 이제 작동합니다.",
+    commandMenuUndoRedoShortcuts:
+      "슬라이드 편집기의 명령 메뉴에 실행 취소와 다시 실행 단축키가 표시됩니다.",
+    overlappingTextInlineEdit:
+      "슬라이드 그래픽이 텍스트와 겹칠 때 텍스트를 두 번 클릭하면 인라인 편집이 열립니다.",
+    presenterViewAlignment:
+      "프레젠터 모드에서는 현재 슬라이드, 다음 슬라이드, 발표자 노트와 이동 컨트롤을 한 화면에 정렬합니다.",
+    softerSlideFrameShadow:
+      "슬라이드 캔버스의 프레임 그림자가 더 부드러워졌습니다.",
+    presenterTouchNavigation:
+      "프레젠테이션 중 왼쪽이나 오른쪽으로 밀어 슬라이드를 이동할 수 있습니다.",
+    lightCanvasBorderedSurface:
+      "슬라이드 캔버스가 이제 라이트 편집기의 테두리 있는 표면과 일치합니다.",
+    exactSlideTextFontSize:
+      "슬라이드 텍스트를 편집할 때 글꼴 크기를 정확히 입력할 수 있습니다.",
+    arrowKeysMoveSelectedObjects:
+      "화살표 키를 누르면 선택한 슬라이드 개체가 모두 함께 이동합니다.",
+    redoKeyboardShortcuts:
+      "다시 실행은 Shift+Command+Z 또는 Ctrl+Y를 사용합니다.",
+    importImageDataAndPreviewSync:
+      "이제 PowerPoint 및 Google Docs 가져오기는 대용량 이미지 데이터를 더 안전하게 처리하며, 덱이 변경되면 생성된 미리보기도 동기화됩니다.",
   },
   history: {
     unknownTime: "未知时间",
@@ -837,6 +961,8 @@ const messages = {
     versionRestoredDescription: "幻灯片已回滚到所选快照。",
     restoreFailed: "恢复失败",
     restoreFailedDescription: "无法恢复此幻灯片版本。",
+    restoreRefreshFailed:
+      "버전은 복원되었지만 편집기를 새로고침하지 못했습니다. 다시 시도하여 다시 불러오세요.",
     backToSavedVersions: "返回已保存版本",
     savedVersions: "已保存版本",
     description: "浏览已保存的幻灯片版本并恢复以前的快照。",
@@ -852,6 +978,7 @@ const messages = {
     snapshotLoadFailed: "이 저장된 버전을 불러올 수 없습니다.",
   },
   editorSidebar: {
+    pages: "페이지",
     selectSlide: "选择幻灯片 {{number}}",
     duplicateSlide: "复制幻灯片",
     moveSlideUp: "슬라이드를 위로 이동",
@@ -890,6 +1017,39 @@ const messages = {
     applyUpdates: "업데이트 적용 ({{count}})",
   },
   slides2Editor: {
+    motion: "모션",
+    builds: "빌드",
+    addBuild: "빌드 추가",
+    removeBuild: "빌드 제거",
+    motionScope: "범위",
+    moduleDefault: "모듈 기본값",
+    pageOverride: "슬라이드 재정의",
+    useModuleDefault: "모듈 기본값 사용",
+    transitionDuration: "시간(ms)",
+    transitionEasing: "이징",
+    transitionDelay: "지연(ms)",
+    transitionEnter: "진입",
+    transitionExit: "종료",
+    throughBackground: "배경 통과",
+    morph: "모핑",
+    morphDescription: "연속된 슬라이드에서 같은 ID를 가진 개체를 연결합니다.",
+    morphDuration: "모핑 시간(ms)",
+    morphDelay: "모핑 지연(ms)",
+    morphEasing: "모핑 이징",
+    morphId: "연결 ID",
+    morphIdPlaceholder: "예: brand-mark",
+    setMorphId: "연결 ID 설정",
+    removeMorph: "연결 ID 제거",
+    buildDuration: "표시 시간(ms)",
+    moveBuildEarlier: "앞으로",
+    moveBuildLater: "뒤로",
+    defaultEasing: "기본값 상속",
+    respectReducedMotion: "전환은 시스템의 동작 줄이기 설정을 따릅니다.",
+    design: "디자인",
+    agentConnected: "에이전트 연결됨",
+    format: "서식",
+    footerNotes: "노트",
+    footerPage: "{{current}}/{{total}}페이지",
     now: "현재",
     preview: "미리보기",
     edit: "편집",
@@ -899,7 +1059,9 @@ const messages = {
     fontWeightMedium: "중간",
     fontWeightSemibold: "세미볼드",
     fontWeightBold: "굵게",
-    selectElement: "요소를 선택해 속성을 편집하세요.",
+    selectElement: "개체 선택",
+    selectElementHint:
+      "개체를 클릭해 서식을 지정하세요. 텍스트를 두 번 클릭해 편집하세요.",
     legacyTitle: "이 덱은 이전 슬라이드 형식을 사용합니다",
     legacyDescription:
       "여기서 편집하기 전에 Slides 2 에이전트에 덱 변환을 요청하세요.",
@@ -981,6 +1143,7 @@ const messages = {
     shuffle: "디자인 섞기",
   },
   slides2Presenter: {
+    presenterLabel: "발표자",
     switchDeck: "덱 전환",
     searchDecks: "접근 가능한 덱 검색",
     loadingDecks: "덱을 불러오는 중…",
@@ -1006,7 +1169,14 @@ const messages = {
     notesTextSize: "발표자 노트 글자 크기",
     decreaseNotesTextSize: "노트 글자 크기 줄이기",
     increaseNotesTextSize: "노트 글자 크기 늘리기",
+    jumpLabel: "이동",
     jumpHint: "슬라이드 번호를 입력한 다음 Enter를 누르세요",
+    nowShowing: "현재 표시 중",
+    previousShort: "이전",
+    nextShort: "다음",
+    blackLabel: "검정",
+    whiteLabel: "흰색",
+    resetShort: "초기화",
     slideLabel: "슬라이드 {{index}}",
     position: "전체 {{total}}장 중 {{index}}장",
     shortcutFirstLast: "첫 번째 또는 마지막 슬라이드로 이동",
@@ -1295,6 +1465,8 @@ const messages = {
         "지원되지 않는 파일 형식입니다. 지원되는 파일을 선택하세요.",
       uploadLimitExceeded:
         "업로드가 허용된 한도를 초과했습니다. 파일 크기를 줄이거나 더 적은 파일을 선택한 다음 다시 시도하세요.",
+      pptxImageSizeLimit:
+        "이 프레젠테이션에는 가져오기 크기 제한을 초과하는 이미지가 있습니다. 이미지를 제거하거나 크기를 줄인 후 다시 시도하세요.",
     },
     importDeck: "덱 가져오기",
     context: {
@@ -1497,6 +1669,14 @@ const messages = {
     emptyDescription: "AI 생성으로 아름다운 프레젠테이션을 만드세요.",
   },
   agentChat: {
+    settingsShell: {
+      account: {
+        themeFamilyAgentNative: "Agent-Native",
+        themeFamilyOriginal: "앱의 원래 색상",
+        themeFamilySaveError:
+          "테마 스타일을 업데이트하지 못했습니다. 다시 시도하세요.",
+      },
+    },
     setup: {
       providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },

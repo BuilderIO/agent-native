@@ -141,14 +141,16 @@ export function GoogleDriveConnectionCta({
             : t("editorExport.connectGoogle")}
         </Button>
       )}
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-xs"
         onClick={() => setDismissed(true)}
-        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="size-6 shrink-0 rounded-md p-0 text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-100 [&_svg]:size-3.5"
         aria-label={t("comments.close")}
       >
         <IconX className="size-3.5" />
-      </button>
+      </Button>
     </div>
   );
 }

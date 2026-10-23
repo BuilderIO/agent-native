@@ -417,12 +417,16 @@ export default (nitroApp: any): void => {
   let ready: Promise<void> | undefined;
   const waitForReady = async (event: any) => {
     ready ??= (async () => {
+      console.info("[slides-2:diagnostic] migration-start");
       await runSlidesMigrations(nitroApp);
+      console.info("[slides-2:diagnostic] migration-finished");
       try {
+        console.info("[slides-2:diagnostic] additive-columns-start");
         const summary = await ensureAdditiveColumns({
           db: getDbExec(),
           tables: schemaTables,
         });
+        console.info("[slides-2:diagnostic] additive-columns-finished");
         if (summary.errors.length > 0) {
           console.warn(
             "[db] ensureAdditiveColumns completed with errors:",

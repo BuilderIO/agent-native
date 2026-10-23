@@ -77,6 +77,23 @@ function locatorAt(sourceText: string, value: string) {
   };
 }
 
+function selectTargets(
+  targets: Array<{ line: number; column: number }>,
+  instance = { instanceIndex: 0, instanceCount: 1 },
+) {
+  mocks.readAppStateForCurrentTab.mockResolvedValue({
+    deckId: "deck-1",
+    slideId: "slide-1",
+    sourceRevision: 3,
+    sourceHash: "a".repeat(64),
+    items: targets.map((target) => ({
+      sourceLine: target.line,
+      sourceColumn: target.column,
+      ...instance,
+    })),
+  });
+}
+
 function styleOps(
   plan: ReturnType<typeof planSlideObjectTransform>,
   id: string,
@@ -440,6 +457,8 @@ describe("transform-slide-objects action", () => {
   });
 
   it("reads and updates through the revision-checked source action", async () => {
+    const target = locatorFor(source, "a");
+    selectTargets([target]);
     const context = {
       caller: "frontend",
       actionName: "transform-slide-objects",
@@ -452,7 +471,7 @@ describe("transform-slide-objects action", () => {
         expectedSourceHash: "a".repeat(64),
         operation: {
           op: "move",
-          targets: [locatorFor(source, "a")],
+          targets: [target],
           dx: 10,
           dy: 5,
         },
@@ -753,6 +772,7 @@ describe("transform-slide-objects action", () => {
   });
 
   it("fails before writing when the selected source revision is stale", async () => {
+    selectTargets([locatorFor(source, "a")]);
     mocks.getSlideSource.mockResolvedValue({
       slide: { sourceTsx: source, revision: 4, sourceHash: "b".repeat(64) },
     });
@@ -779,6 +799,7 @@ describe("transform-slide-objects action", () => {
   });
 
   it("reports legacy HTML as unsupported by this source-backed action", async () => {
+    selectTargets([locatorFor(source, "a")]);
     mocks.getSlideSource.mockRejectedValue(
       Object.assign(new Error("source missing"), {
         errorCode: "slide_source_missing",
@@ -802,6 +823,30 @@ describe("transform-slide-objects action", () => {
       statusCode: 409,
       errorCode: "slide_transform_legacy_unsupported",
     });
+    expect(mocks.updateSlideSource).not.toHaveBeenCalled();
+  });
+
+  it("rejects a move when the selected source callsite renders multiple instances", async () => {
+    const target = locatorFor(source, "a");
+    selectTargets([target], { instanceIndex: 1, instanceCount: 2 });
+
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-1",
+          expectedRevision: 3,
+          expectedSourceHash: "a".repeat(64),
+          operation: { op: "move", targets: [target], dx: 10, dy: 5 },
+        } as never,
+        { caller: "agent", actionName: "transform-slide-objects" } as never,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "slide_transform_selection_required",
+    });
+
+    expect(mocks.getSlideSource).not.toHaveBeenCalled();
     expect(mocks.updateSlideSource).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,35 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { shortcutLabel } from "@/lib/utils";
+
 import { Slides2CommandMenu } from "./Slides2CommandMenu";
 
-const { navigateMock } = vi.hoisted(() => ({ navigateMock: vi.fn() }));
+const {
+  navigateMock,
+  setFamilyMock,
+  setThemeMock,
+  themeState,
+  toastErrorMock,
+} = vi.hoisted(() => ({
+  navigateMock: vi.fn(),
+  setFamilyMock: vi.fn(),
+  setThemeMock: vi.fn(),
+  themeState: {
+    resolvedTheme: "dark" as string | undefined,
+    family: "original" as "original" | "agent-native",
+  },
+  toastErrorMock: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -15,6 +38,16 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("react-router", () => ({
   useNavigate: () => navigateMock,
 }));
+
+vi.mock("@agent-native/core/client/ui", () => ({
+  useThemeFamily: () => ({ ...themeState, setFamily: setFamilyMock }),
+}));
+
+vi.mock("next-themes", () => ({
+  useTheme: () => ({ ...themeState, setTheme: setThemeMock }),
+}));
+
+vi.mock("sonner", () => ({ toast: { error: toastErrorMock } }));
 
 vi.mock("@/components/ui/command", () => ({
   Command: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -86,6 +119,11 @@ vi.mock("@/components/ui/dialog", () => ({
 afterEach(() => {
   cleanup();
   navigateMock.mockReset();
+  setFamilyMock.mockReset();
+  setThemeMock.mockReset();
+  themeState.resolvedTheme = "dark";
+  themeState.family = "original";
+  toastErrorMock.mockReset();
 });
 
 function makeProps(
@@ -117,6 +155,7 @@ function makeProps(
     onToggleDesignPanel: vi.fn(),
     onToggleCommentMode: vi.fn(),
     onCopyLink: vi.fn(),
+    onOpenHistory: vi.fn(),
     onOpenAssets: vi.fn(),
     onExport: vi.fn(),
     ...overrides,
@@ -132,9 +171,21 @@ function command(id: string): HTMLButtonElement {
 }
 
 describe("Slides2CommandMenu", () => {
+  it("shows the platform undo and redo shortcuts beside their commands", () => {
+    render(<Slides2CommandMenu {...makeProps()} />);
+
+    expect(command("undo").querySelector("kbd")?.textContent).toBe(
+      shortcutLabel("cmd+z"),
+    );
+    expect(command("redo").querySelector("kbd")?.textContent).toBe(
+      shortcutLabel("shift+cmd+z"),
+    );
+  });
+
   it("dispatches windowed presentation and copy-link commands", () => {
     const onPresent = vi.fn();
     const onCopyLink = vi.fn();
+    const onOpenHistory = vi.fn();
     const onExport = vi.fn();
 
     render(
@@ -160,6 +211,7 @@ describe("Slides2CommandMenu", () => {
         onToggleDesignPanel={vi.fn()}
         onToggleCommentMode={vi.fn()}
         onCopyLink={onCopyLink}
+        onOpenHistory={onOpenHistory}
         onOpenAssets={vi.fn()}
         onExport={onExport}
       />,
@@ -171,6 +223,7 @@ describe("Slides2CommandMenu", () => {
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "share.copyLink" }));
+    fireEvent.click(command("saved-versions"));
     fireEvent.click(
       screen.getByRole("button", {
         name: "editorExport.exportPptxAsImages",
@@ -179,11 +232,32 @@ describe("Slides2CommandMenu", () => {
 
     expect(onPresent).toHaveBeenCalledWith("windowed");
     expect(onCopyLink).toHaveBeenCalledOnce();
+    expect(onOpenHistory).toHaveBeenCalledOnce();
     expect(onExport).toHaveBeenCalledWith("pptx-images");
     expect(screen.getByText("F")).toBeTruthy();
     expect(screen.getByText("↵")).toBeTruthy();
     expect(screen.getByText("P")).toBeTruthy();
     expect(screen.getByText("O")).toBeTruthy();
+  });
+
+  it("keeps motion and zoom controls available in the command menu", () => {
+    const onOpenMotionPanel = vi.fn();
+    const onSetZoom = vi.fn();
+    render(
+      <Slides2CommandMenu
+        {...makeProps()}
+        onOpenMotionPanel={onOpenMotionPanel}
+        onSetZoom={onSetZoom}
+      />,
+    );
+
+    fireEvent.click(command("motion-panel"));
+    fireEvent.click(command("zoom-out"));
+    fireEvent.click(command("zoom-fit"));
+    fireEvent.click(command("zoom-in"));
+
+    expect(onOpenMotionPanel).toHaveBeenCalledOnce();
+    expect(onSetZoom.mock.calls).toEqual([["out"], ["fit"], ["in"]]);
   });
 
   it("runs the comment toggle for commenters and disables it otherwise", () => {
@@ -209,13 +283,14 @@ describe("Slides2CommandMenu", () => {
       onToggleDesignPanel: vi.fn(),
       onToggleCommentMode,
       onCopyLink: vi.fn(),
+      onOpenHistory: vi.fn(),
       onOpenAssets: vi.fn(),
       onExport: vi.fn(),
     };
     const { rerender } = render(<Slides2CommandMenu {...props} />);
 
     const commentToggle = screen.getByRole("button", {
-      name: "comments.addComment",
+      name: "comments.addComment C",
     });
     expect((commentToggle as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(commentToggle);
@@ -227,6 +302,64 @@ describe("Slides2CommandMenu", () => {
     });
     expect((unauthorizedToggle as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(unauthorizedToggle);
+    expect(onToggleCommentMode).toHaveBeenCalledOnce();
+  });
+
+  it("toggles comment mode with C outside typing and control targets", () => {
+    const onToggleCommentMode = vi.fn();
+    const props = makeProps({ onToggleCommentMode });
+    const { rerender } = render(<Slides2CommandMenu {...props} />);
+
+    expect(command("toggle-comments").querySelector("kbd")?.textContent).toBe(
+      "C",
+    );
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "c",
+      }),
+    );
+    expect(onToggleCommentMode).not.toHaveBeenCalled();
+
+    rerender(<Slides2CommandMenu {...props} open={false} />);
+    const shortcut = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "c",
+    });
+    window.dispatchEvent(shortcut);
+
+    expect(onToggleCommentMode).toHaveBeenCalledOnce();
+    expect(shortcut.defaultPrevented).toBe(true);
+
+    const input = document.createElement("input");
+    document.body.append(input);
+    const typingShortcut = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "c",
+    });
+    input.dispatchEvent(typingShortcut);
+    input.remove();
+
+    const modifiedShortcut = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "c",
+      metaKey: true,
+    });
+    window.dispatchEvent(modifiedShortcut);
+    expect(onToggleCommentMode).toHaveBeenCalledOnce();
+
+    rerender(<Slides2CommandMenu {...props} open={false} canComment={false} />);
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "c",
+      }),
+    );
     expect(onToggleCommentMode).toHaveBeenCalledOnce();
   });
 
@@ -258,6 +391,7 @@ describe("Slides2CommandMenu", () => {
         onToggleCommentMode={vi.fn()}
         onCopyLink={vi.fn()}
         onOpenAssets={vi.fn()}
+        onOpenHistory={vi.fn()}
         onExport={vi.fn()}
       />,
     );
@@ -300,6 +434,7 @@ describe("Slides2CommandMenu", () => {
         onToggleCommentMode={vi.fn()}
         onCopyLink={vi.fn()}
         onOpenAssets={vi.fn()}
+        onOpenHistory={vi.fn()}
         onExport={vi.fn()}
       />,
     );
@@ -395,6 +530,72 @@ describe("Slides2CommandMenu", () => {
     );
   });
 
+  it("offers the opposite theme and applies the resolved theme change", () => {
+    const props = makeProps();
+    const { rerender } = render(<Slides2CommandMenu {...props} />);
+
+    expect(command("toggle-theme").textContent).toContain(
+      "editorToolbar.lightTheme",
+    );
+    expect(command("toggle-theme").dataset.commandKeywords).toContain(
+      "theme dark light mode",
+    );
+    fireEvent.click(command("toggle-theme"));
+    expect(setThemeMock).toHaveBeenLastCalledWith("light");
+
+    themeState.resolvedTheme = "light";
+    setThemeMock.mockClear();
+    rerender(<Slides2CommandMenu {...props} />);
+
+    expect(command("toggle-theme").textContent).toContain(
+      "editorToolbar.darkTheme",
+    );
+    fireEvent.click(command("toggle-theme"));
+    expect(setThemeMock).toHaveBeenLastCalledWith("dark");
+  });
+
+  it("switches theme family with existing localized labels", async () => {
+    setFamilyMock.mockResolvedValue("agent-native");
+    const props = makeProps();
+    const { rerender } = render(<Slides2CommandMenu {...props} />);
+
+    expect(command("toggle-theme-family").textContent).toContain(
+      "agentChat.settingsShell.account.themeFamilyAgentNative",
+    );
+    expect(command("toggle-theme-family").dataset.commandKeywords).toContain(
+      "theme family agent-native original colors",
+    );
+    fireEvent.click(command("toggle-theme-family"));
+    await waitFor(() =>
+      expect(setFamilyMock).toHaveBeenLastCalledWith("agent-native"),
+    );
+
+    themeState.family = "agent-native";
+    setFamilyMock.mockResolvedValue("original");
+    rerender(<Slides2CommandMenu {...props} />);
+
+    expect(command("toggle-theme-family").textContent).toContain(
+      "agentChat.settingsShell.account.themeFamilyOriginal",
+    );
+    fireEvent.click(command("toggle-theme-family"));
+    await waitFor(() =>
+      expect(setFamilyMock).toHaveBeenLastCalledWith("original"),
+    );
+  });
+
+  it("shows the shared localized error when saving a theme family fails", async () => {
+    setFamilyMock.mockRejectedValue(new Error("save failed"));
+    render(<Slides2CommandMenu {...makeProps()} />);
+
+    fireEvent.click(command("toggle-theme-family"));
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "agentChat.settingsShell.account.themeFamilySaveError",
+      ),
+    );
+  });
+
   it("shows the design shortcut only in development builds", () => {
     const onToggleDesignPanel = vi.fn();
     render(<Slides2CommandMenu {...makeProps({ onToggleDesignPanel })} />);
@@ -479,6 +680,7 @@ describe("Slides2CommandMenu", () => {
       onOpenOverview,
       onToggleDesignPanel,
       onCopyLink,
+      onOpenHistory: vi.fn(),
       onSelectSlide,
       onOpenAssets,
       onExport,

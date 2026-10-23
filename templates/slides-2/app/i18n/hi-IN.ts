@@ -342,6 +342,7 @@ const messages = {
     media: "मीडिया",
     generateImage: "इमेज बनाएं",
     assetLibrary: "एसेट लाइब्रेरी",
+    assets: "एसेट",
     globalAssetScope: "वैश्विक",
     imageOptions: "छवि विकल्प",
     videoPlayback: "वीडियो प्लेबैक",
@@ -671,6 +672,7 @@ const messages = {
     x: "X",
     y: "Y",
     position: "स्थिति",
+    source: "स्रोत",
     selectParent: "पैरेंट एलिमेंट चुनें",
     horizontal: "क्षैतिज",
     vertical: "लंबवत",
@@ -692,6 +694,8 @@ const messages = {
     cornerRadius: "कोने की त्रिज्या",
     strokeWeight: "मोटाई",
     typography: "टाइपोग्राफी",
+    content: "सामग्री",
+    editOnSlide: "स्लाइड पर संपादित करें",
     fontFamily: "फ़ॉन्ट परिवार",
     lineHeight: "पंक्ति की ऊँचाई",
     letterSpacing: "अक्षरों के बीच की दूरी",
@@ -722,7 +726,7 @@ const messages = {
     secondary: "Secondary",
     accent: "Accent",
     surface: "Surface",
-    background: "Background",
+    background: "पृष्ठभूमि",
     text: "Text",
     muted: "Muted",
     white: "White",
@@ -814,8 +818,125 @@ const messages = {
       "Google Slides इंपोर्ट अब खाली इमेज जोड़ने के बजाय गायब इमेज डेटा की सूचना देता है।",
     globalMediaPickerScope:
       "ग्लोबल मीडिया चयन में अब केवल वही एसेट दिखते हैं जिन्हें मौजूदा प्रेज़ेंटेशन हल कर सकता है।",
+    presenterControls:
+      "प्रेज़ेंटर कंट्रोल में वर्कस्पेस के साझा बटन और इनपुट फ़ील्ड इस्तेमाल होते हैं",
+    presenterBuildStepPreview:
+      "प्रेज़ेंटर कंसोल अगली स्लाइड पर जाने से पहले हर बचे हुए बिल्ड चरण का पूर्वावलोकन दिखाता है।",
+    presenterBuildStepBounds:
+      "प्रकट करने के चरणों के नियंत्रण किसी चरण को क्रम की शुरुआत से पहले या अंत के बाद ले जाने से रोकते हैं।",
+    staleSlidePreviews:
+      "दूसरी स्लाइड लोड करने से पहले पुराना पूर्वावलोकन साफ़ हो जाता है",
+    boundedMediaTransfers:
+      "दस्तावेज़ और स्लाइड मीडिया स्थानांतरण सुरक्षित आकार और समय सीमाओं के भीतर रुक जाते हैं",
+    editorCanvasAppTheme:
+      "स्लाइड एडिटर में कैनवस और चुने हुए ऑब्जेक्ट के कंट्रोल, दोनों आपकी चुनी हुई ऐप थीम का पालन करते हैं।",
+    editorInspectorTextControls:
+      "टाइपोग्राफी और रंग नियंत्रणों से टेक्स्ट फ़ॉर्मैट करें, फिर उसे सीधे स्लाइड पर संपादित करें।",
     savedSlideImages:
       "सेव की गई स्लाइड में इस्तेमाल होने वाली इमेज आपकी लाइब्रेरी में उपलब्ध रहती हैं।",
+    keyboardObjectTransforms:
+      "कीबोर्ड से चुने गए स्लाइड ऑब्जेक्ट का आकार बदलें और उन्हें घुमाएँ।",
+    editorToolbarInspector:
+      "स्लाइड संपादन नियंत्रण अब छोटे टूलबार में समूहित हैं, जिससे फ़ॉर्मैटिंग और डिज़ाइन पैनलों तक पहुँचना आसान है।",
+    commandMenuTheme: "कमांड मेनू से लाइट और डार्क थीम के बीच स्विच करें।",
+    skippedSlidePresentation:
+      "छोड़ने के लिए चिह्नित स्लाइड प्रस्तुतियों से हटाई जाती हैं, और स्लाइड नंबर व कुल संख्या सही दिखाई देती है।",
+    browseDeckVersions:
+      "सहेजे गए डेक संस्करण देखें और एडिटर से पिछला स्नैपशॉट पुनर्स्थापित करें।",
+    frameMissObjectSelection:
+      "फ़्रेम सीधे लक्ष्य तक न पहुँचे, तब भी स्लाइड ऑब्जेक्ट पर क्लिक करने से वह चुना जाता है।",
+    commandMenuShortcut: "Command-K स्लाइड एडिटर का कमांड मेनू खोलता है।",
+    crossDeckSlideCopy:
+      "डेक के बीच स्लाइड कॉपी करें, एडिटर में डेक का नाम बदलें और बिना सहेजे बदलावों के साथ बाहर निकलने से पहले चेतावनी पाएँ।",
+    completedSlideGeneration:
+      "सफलता बताने से पहले डेक जनरेशन अनुरोधित संख्या में पूरी हुई स्लाइडों की प्रतीक्षा करता है।",
+    deckTitleAndNotesLabel:
+      "लंबे डेक शीर्षक संपादन के दौरान दिखाई देते रहते हैं, और फुटर में छोटा Notes लेबल दिखता है।",
+    deleteFocusedCanvasObject:
+      "कैनवस पर फ़ोकस होने पर Delete और Backspace चुने गए कैनवस ऑब्जेक्ट को हटाते हैं।",
+    deleteSelectedSlideObject:
+      "Delete और Backspace चुने गए स्लाइड ऑब्जेक्ट को कैनवस से हटाते हैं।",
+    slideOverviewFromRail: "स्लाइड रेल से सीधे स्लाइड अवलोकन खोलें।",
+    presenterKeyboardNavigation:
+      "प्रेज़ेंटेशन में कीबोर्ड से स्लाइड बदलने के लिए Page Up, Page Down, Home और End का समर्थन है।",
+    sourceBackedPdfExport:
+      "सार्वजनिक डेक पेज स्रोत-आधारित स्लाइड को PDF में निर्यात कर सकते हैं।",
+    preserveDeckBriefOnRegeneration:
+      "स्लाइड फिर से जनरेट करते समय मूल डेक ब्रीफ़ संदर्भ में बना रहता है।",
+    jumpToSlideByNumber:
+      "कई अंकों वाली स्लाइड संख्या सहित, उसका नंबर टाइप करके किसी भी स्लाइड पर जाएँ।",
+    mobileNavigationAndSlideChat:
+      "मोबाइल नेविगेशन में कीबोर्ड छिपाने का समर्थन है, और स्लाइड चैट लिंक स्लाइड की मौजूदा स्थिति का अनुसरण करते हैं।",
+    lightExtraBoldText:
+      "बेहतर टाइपोग्राफी के लिए स्लाइड टेक्स्ट में अब Light और Extra Bold वज़न इस्तेमाल किए जा सकते हैं।",
+    thumbnailArrowNavigation:
+      "अब स्लाइड थंबनेल को चारों ऐरो की से नेविगेट किया जा सकता है।",
+    homePromptDeckContinuity:
+      "होम स्क्रीन के प्रॉम्प्ट से बने स्लाइड उसी डेक में रहते हैं जिसे आपने शुरू किया था।",
+    slideTransitions:
+      "स्लाइड अब पूरे डेक और अलग-अलग स्लाइड के ट्रांज़िशन, मेल खाते ऑब्जेक्ट के मॉर्फ और चरण-दर-चरण रिवील का समर्थन करते हैं।",
+    editorPanelWidthsAndRecovery:
+      "स्लाइड संपादक का हेडर और पैनल अब संदर्भ स्क्रीन से अधिक मेल खाते हैं, ज़ूम और मोशन टूल कमांड मेनू में उपलब्ध हैं, और रिकवर किए गए डेक अब पुरानी त्रुटियां नहीं दिखाते।",
+    editorRailAndInspectorAlignment:
+      "स्लाइड एडिटर रेल, कैनवस बैकड्रॉप, टूलबार और इंस्पेक्टर की खाली स्थिति अब एडिटिंग लेआउट से बेहतर मेल खाते हैं।",
+    chatEditPreviewVersion:
+      "स्लाइड संपादन के प्रीव्यू अब उसी सटीक संस्करण को दिखाते हैं जिसे संपादन ने सहेजा था।",
+    objectCommentsStayAttached:
+      "स्लाइड ऑब्जेक्ट को खिसकाने पर टिप्पणियां उनसे जुड़ी रहती हैं।",
+    agentTextSelectionStability:
+      "लंबित संपादनों के दौरान एजेंट के टेक्स्ट चयन सहेजी गई स्लाइड सामग्री से जुड़े रहते हैं।",
+    templateDeckChatPreviews:
+      "टेम्पलेट से बनाए गए और अपडेट किए गए डेक चैट में प्रीव्यू और कार्रवाइयां दिखाते हैं।",
+    consistentSlideTextSpacing:
+      "स्लाइड का टेक्स्ट संपादक में एकसमान लाइन स्पेसिंग बनाए रखता है।",
+    renderFailuresCanvasMessage:
+      "जो स्लाइड रेंडर नहीं हो पातीं, वे अब कैनवस पर स्पष्ट संदेश दिखाती हैं।",
+    editorPageCountFooter: "संपादक फ़ुटर में मौजूदा पेज और कुल पेज दिखाता है।",
+    presentButtonReferenceAccent:
+      "Present बटन का एक्सेंट रंग अब स्लाइड एडिटर के संदर्भ रंग से मेल खाता है।",
+    positionFieldsPreserveRotatedSize:
+      "स्थिति फ़ील्ड, घुमाने के बाद भी ऑब्जेक्ट का आकार बनाए रखते हैं।",
+    selectedSlideArrowNavigation:
+      "तीर कुंजियाँ चुने गए स्लाइड ऑब्जेक्ट को 1 px तक, या Shift के साथ 10 px तक खिसकाती हैं; कोई ऑब्जेक्ट चुना न हो, तो वे स्लाइडों पर नेविगेट करती हैं।",
+    chatPreviewStaleContent:
+      "चैट प्रीव्यू में अब परिणाम के बाद बदली गई स्लाइड सामग्री नहीं दिखती।",
+    deleteGlobalSlideImages:
+      "स्लाइड एडिटर में ग्लोबल एसेट संग्रह से इस्तेमाल न होने वाली छवियां हटाएं।",
+    presenterSpaceActivation:
+      "फ़ोकस किए गए प्रेज़ेंटर बटन अब प्रस्तुति आगे बढ़ाने के बजाय Space से चुने गए नियंत्रण को सक्रिय करते हैं।",
+    presenterPageUpPageDown:
+      "अब Page Up और Page Down से प्रेज़ेंटर विंडो में नेविगेट किया जा सकता है।",
+    presenterJumpCancellation:
+      "प्रेज़ेंटर नेविगेशन लंबित स्लाइड-नंबर जंप रद्द कर देता है, ताकि बाद की पसंद न बदले।",
+    presenterBlankScreensAndNotes:
+      "प्रेज़ेंटर स्क्रीन को काला या सफ़ेद किया जा सकता है और वक्ता नोट्स का आकार बदला जा सकता है।",
+    restoreDeckVersionAgainstStaleEdits:
+      "पिछले डेक संस्करण को पुनर्स्थापित करने पर अब पुराने स्लाइड संपादन उसे बदल नहीं पाते।",
+    singleSlideRevealPreview:
+      "एकल-स्लाइड प्रीव्यू लिंक जनरेट की गई स्लाइड को किसी खास reveal चरण पर खोल सकते हैं।",
+    agentConnectionStatus: "स्लाइड संपादक दिखाता है कि एजेंट कब कनेक्ट है।",
+    svgPatternScaleRotation: "SVG पैटर्न वाले भरण अपना स्केल और घुमाव बनाए रखते हैं।",
+    sourceBackedClickAndPointer:
+      "सोर्स-आधारित प्रस्तुतियों में अब क्लिक और पॉइंटर की गति काम करती है।",
+    commandMenuUndoRedoShortcuts:
+      "स्लाइड एडिटर का कमांड मेनू अब Undo और Redo के कीबोर्ड शॉर्टकट दिखाता है।",
+    overlappingTextInlineEdit:
+      "जब स्लाइड की कलाकृति टेक्स्ट को ढकती है, तो उस पर डबल-क्लिक करने से अब इनलाइन संपादन खुलता है।",
+    presenterViewAlignment:
+      "प्रेज़ेंटर मोड में मौजूदा स्लाइड, अगली स्लाइड, वक्ता के नोट्स और स्लाइड पर जाने का नियंत्रण एक ही दृश्य में होते हैं।",
+    softerSlideFrameShadow: "स्लाइड कैनवस अब फ्रेम के लिए हल्की छाया इस्तेमाल करते हैं।",
+    presenterTouchNavigation:
+      "प्रस्तुत करते समय स्लाइड बदलने के लिए बाएँ या दाएँ स्वाइप करें।",
+    lightCanvasBorderedSurface:
+      "स्लाइड कैनवस अब लाइट एडिटर की बॉर्डर वाली सतह से मेल खाता है।",
+    exactSlideTextFontSize:
+      "स्लाइड टेक्स्ट संपादित करते समय अब आप फ़ॉन्ट का सटीक आकार लिख सकते हैं।",
+    arrowKeysMoveSelectedObjects:
+      "तीर कुंजियाँ सभी चुने हुए स्लाइड ऑब्जेक्ट को एक साथ खिसकाती हैं।",
+    redoKeyboardShortcuts:
+      "फिर से करने के लिए Shift+Command+Z या Ctrl+Y का उपयोग करें।",
+    importImageDataAndPreviewSync:
+      "PowerPoint और Google Docs से आयात अब बड़े इमेज डेटा को अधिक सुरक्षित रूप से संभालते हैं, और डेक बदलने पर जनरेट किए गए पूर्वावलोकन सिंक रहते हैं।",
   },
   history: {
     unknownTime: "अज्ञात समय",
@@ -829,6 +950,8 @@ const messages = {
     versionRestoredDescription: "डेक को चुने गए स्नैपशॉट पर वापस कर दिया गया।",
     restoreFailed: "बहाल करना विफल",
     restoreFailedDescription: "इस डेक संस्करण को बहाल नहीं किया जा सका।",
+    restoreRefreshFailed:
+      "संस्करण बहाल हो गया, लेकिन एडिटर रीफ़्रेश नहीं हो सका। इसे फिर से लोड करने के लिए दोबारा कोशिश करें।",
     backToSavedVersions: "सहेजे गए संस्करणों पर वापस जाएं",
     savedVersions: "सहेजे गए संस्करण",
     description: "सहेजे गए डेक संस्करण ब्राउज़ करें और पिछला स्नैपशॉट बहाल करें।",
@@ -845,6 +968,7 @@ const messages = {
     snapshotLoadFailed: "यह सहेजा गया संस्करण लोड नहीं हो सका।",
   },
   editorSidebar: {
+    pages: "पृष्ठ",
     selectSlide: "स्लाइड {{number}} चुनें",
     duplicateSlide: "स्लाइड डुप्लिकेट करें",
     moveSlideUp: "स्लाइड को ऊपर ले जाएँ",
@@ -882,6 +1006,39 @@ const messages = {
     applyUpdates: "अपडेट लागू करें ({{count}})",
   },
   slides2Editor: {
+    motion: "गति",
+    builds: "बिल्ड चरण",
+    addBuild: "बिल्ड चरण जोड़ें",
+    removeBuild: "बिल्ड चरण हटाएँ",
+    motionScope: "दायरा",
+    moduleDefault: "मॉड्यूल डिफ़ॉल्ट",
+    pageOverride: "स्लाइड ओवरराइड",
+    useModuleDefault: "मॉड्यूल डिफ़ॉल्ट इस्तेमाल करें",
+    transitionDuration: "अवधि (ms)",
+    transitionEasing: "ईज़िंग",
+    transitionDelay: "देरी (ms)",
+    transitionEnter: "प्रवेश",
+    transitionExit: "निकास",
+    throughBackground: "पृष्ठभूमि से होकर",
+    morph: "मॉर्फ",
+    morphDescription: "लगातार स्लाइडों पर समान ID वाले ऑब्जेक्ट मिलाएँ।",
+    morphDuration: "मॉर्फ अवधि (ms)",
+    morphDelay: "मॉर्फ देरी (ms)",
+    morphEasing: "मॉर्फ ईज़िंग",
+    morphId: "मिलान ID",
+    morphIdPlaceholder: "जैसे brand-mark",
+    setMorphId: "मिलान ID सेट करें",
+    removeMorph: "मिलान ID हटाएँ",
+    buildDuration: "दिखाने की अवधि (ms)",
+    moveBuildEarlier: "पहले",
+    moveBuildLater: "बाद में",
+    defaultEasing: "डिफ़ॉल्ट अपनाएँ",
+    respectReducedMotion: "ट्रांज़िशन सिस्टम की कम गति वाली सेटिंग का पालन करते हैं।",
+    design: "डिज़ाइन",
+    agentConnected: "एजेंट कनेक्ट है",
+    format: "प्रारूप",
+    footerNotes: "नोट्स",
+    footerPage: "पृष्ठ {{current}}/{{total}}",
     now: "अभी",
     preview: "पूर्वावलोकन",
     edit: "संपादित करें",
@@ -891,7 +1048,9 @@ const messages = {
     fontWeightMedium: "मध्यम",
     fontWeightSemibold: "अर्ध-मोटा",
     fontWeightBold: "मोटा",
-    selectElement: "उसकी विशेषताएँ संपादित करने के लिए कोई तत्व चुनें।",
+    selectElement: "कोई ऑब्जेक्ट चुनें",
+    selectElementHint:
+      "फ़ॉर्मैट करने के लिए किसी ऑब्जेक्ट पर क्लिक करें। टेक्स्ट संपादित करने के लिए डबल-क्लिक करें।",
     legacyTitle: "यह डेक पुराने स्लाइड फ़ॉर्मैट का उपयोग करता है",
     legacyDescription: "यहाँ संपादित करने से पहले Slides 2 एजेंट से डेक बदलने को कहें।",
     commands: "कमांड",
@@ -969,6 +1128,7 @@ const messages = {
     shuffle: "डिज़ाइन बदलें",
   },
   slides2Presenter: {
+    presenterLabel: "प्रस्तुतकर्ता",
     switchDeck: "डेक बदलें",
     searchDecks: "सुलभ डेक खोजें",
     loadingDecks: "डेक लोड हो रहे हैं…",
@@ -993,7 +1153,14 @@ const messages = {
     notesTextSize: "प्रस्तुतकर्ता नोट्स का टेक्स्ट आकार",
     decreaseNotesTextSize: "नोट्स का टेक्स्ट छोटा करें",
     increaseNotesTextSize: "नोट्स का टेक्स्ट बड़ा करें",
+    jumpLabel: "जाएँ",
     jumpHint: "स्लाइड नंबर लिखें, फिर Enter दबाएँ",
+    nowShowing: "अभी दिख रहा है",
+    previousShort: "पिछला",
+    nextShort: "अगला",
+    blackLabel: "काला",
+    whiteLabel: "सफेद",
+    resetShort: "रीसेट",
     slideLabel: "स्लाइड {{index}}",
     position: "{{total}} में से स्लाइड {{index}}",
     shortcutFirstLast: "पहली या आखिरी स्लाइड पर जाएँ",
@@ -1273,6 +1440,8 @@ const messages = {
       unsupportedFileType: "यह फ़ाइल प्रकार समर्थित नहीं है। समर्थित फ़ाइल चुनें।",
       uploadLimitExceeded:
         "अपलोड की अनुमति सीमा पार हो गई है। फ़ाइल का आकार कम करें या कम फ़ाइलें चुनें, फिर दोबारा कोशिश करें।",
+      pptxImageSizeLimit:
+        "इस प्रेज़ेंटेशन में ऐसी इमेज हैं जो आयात आकार सीमा से बड़ी हैं। उन्हें हटाएँ या छोटा करें, फिर दोबारा कोशिश करें।",
     },
     importDeck: "प्रस्तुति आयात करें",
     context: {
@@ -1474,6 +1643,13 @@ const messages = {
     emptyDescription: "AI-संचालित जनरेशन के साथ सुंदर प्रेज़ेंटेशन बनाएं।",
   },
   agentChat: {
+    settingsShell: {
+      account: {
+        themeFamilyAgentNative: "Agent-Native",
+        themeFamilyOriginal: "ऐप के मूल रंग",
+        themeFamilySaveError: "थीम शैली अपडेट नहीं की जा सकी। फिर कोशिश करें।",
+      },
+    },
     setup: {
       providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
     },

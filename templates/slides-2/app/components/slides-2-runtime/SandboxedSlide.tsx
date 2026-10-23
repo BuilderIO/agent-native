@@ -3,10 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ElementSnapshot } from "../slides-2-editor/types";
 import {
-  isSlideFrameAncestorData,
   isSlideFrameNavigationInput,
   isSlideFrameMessage,
-  isSlideFramePointerType,
   type SlideFrameCommand,
   type SlideFrameContext,
   type SlideFrameMessage,
@@ -17,27 +15,11 @@ import {
   buildSlideSrcDoc,
   isSlideRenderArtifact,
 } from "./protocol";
-
-const MAX_RENDERED_SLIDE_INSTANCES_PER_SOURCE_LOCATOR = 8_000;
-
-type FramePointer = {
-  phase: "down" | "move" | "up" | "cancel" | "double-click";
-  x: number;
-  y: number;
-  button: number;
-  pointerId: number;
-  pointerType: SlideFramePointerType;
-  shiftKey: boolean;
-  altKey: boolean;
-  ctrlKey: boolean;
-  metaKey: boolean;
-  target: {
-    line: number;
-    column: number;
-    nodeId: string;
-    snapshot: ElementSnapshot;
-  } | null;
-};
+import {
+  forwardSandboxedSlidePointer,
+  parseSandboxedSlideFrameMessage,
+  type FramePointer,
+} from "./sandboxed-slide-message";
 
 type Props = {
   artifact: SlideRenderArtifact;
@@ -69,6 +51,7 @@ export type SandboxedSlideRenderResult = {
   assetOrigins: string[];
   fontOrigins?: string[];
   fontAssets?: NonNullable<SlideRenderArtifact["fontAssets"]>;
+  referencedFontFamilies?: string[];
   design?: NonNullable<SlideRenderArtifact["runtime"]>["design"];
   designTokens?: SlideRenderArtifact["designTokens"];
   stepCount: number;
@@ -113,6 +96,7 @@ export async function renderSlideArtifactInSandbox(
       assetOrigins: artifact.assetOrigins ?? [],
       fontOrigins: artifact.fontOrigins ?? [],
       fontAssets: artifact.fontAssets ?? [],
+      referencedFontFamilies: artifact.referencedFontFamilies ?? [],
       designTokens: artifact.designTokens,
       stepCount: 0,
     };
@@ -207,6 +191,7 @@ export async function renderSlideArtifactInSandbox(
         assetOrigins: artifact.assetOrigins ?? [],
         fontOrigins: artifact.fontOrigins ?? [],
         fontAssets: artifact.fontAssets ?? [],
+        referencedFontFamilies: artifact.referencedFontFamilies ?? [],
         ...(runtime.design ? { design: runtime.design } : {}),
         ...(artifact.designTokens
           ? { designTokens: artifact.designTokens }
@@ -234,200 +219,6 @@ function createNonce(): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function parseElementSnapshot(value: unknown): ElementSnapshot | null {
-  if (!isRecord(value) || !isRecord(value.bounds) || !isRecord(value.styles))
-    return null;
-  const { line, column, nodeId, tagName, text, bounds, styles } = value;
-  if (
-    !Number.isInteger(line) ||
-    Number(line) < 1 ||
-    !Number.isInteger(column) ||
-    Number(column) < 0 ||
-    typeof nodeId !== "string" ||
-    nodeId.length > 100 ||
-    typeof tagName !== "string" ||
-    tagName.length > 32 ||
-    typeof text !== "string" ||
-    text.length > 12000
-  ) {
-    return null;
-  }
-  const instanceIndex = value.instanceIndex;
-  const instanceCount = value.instanceCount;
-  const hasAncestorData =
-    "ancestorLocators" in value || "ancestorLocatorsComplete" in value;
-  if (
-    hasAncestorData &&
-    !isSlideFrameAncestorData(
-      value.ancestorLocators,
-      value.ancestorLocatorsComplete,
-    )
-  ) {
-    return null;
-  }
-  const instanceNodeId = /^(\d+):(\d+):(\d+)$/.exec(nodeId);
-  const hasInstanceMetadata =
-    Number.isSafeInteger(instanceIndex) &&
-    Number(instanceIndex) >= 0 &&
-    Number.isSafeInteger(instanceCount) &&
-    Number(instanceCount) > 0 &&
-    Number(instanceCount) <= MAX_RENDERED_SLIDE_INSTANCES_PER_SOURCE_LOCATOR &&
-    Number(instanceIndex) < Number(instanceCount) &&
-    Number(instanceNodeId?.[1]) === Number(line) &&
-    Number(instanceNodeId?.[2]) === Number(column) &&
-    Number(instanceNodeId?.[3]) === Number(instanceIndex);
-  const rectValues = [bounds.x, bounds.y, bounds.width, bounds.height];
-  if (
-    rectValues.some(
-      (entry) => typeof entry !== "number" || !Number.isFinite(entry),
-    )
-  ) {
-    return null;
-  }
-  const rect = {
-    x: bounds.x as number,
-    y: bounds.y as number,
-    width: bounds.width as number,
-    height: bounds.height as number,
-  };
-  const safeStyles: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(styles)) {
-    if (typeof entry !== "string" || entry.length > 400) continue;
-    safeStyles[key] = entry;
-  }
-  let transform: ElementSnapshot["transform"];
-  if (isRecord(value.transform)) {
-    const { basis, translate, width, height, rotation } = value.transform;
-    if (
-      isRecord(basis) &&
-      isRecord(translate) &&
-      [
-        basis.a,
-        basis.b,
-        basis.c,
-        basis.d,
-        translate.x,
-        translate.y,
-        width,
-        height,
-        rotation,
-      ].every((entry) => typeof entry === "number" && Number.isFinite(entry)) &&
-      Number(width) >= 0 &&
-      Number(height) >= 0
-    ) {
-      transform = {
-        basis: {
-          a: Number(basis.a),
-          b: Number(basis.b),
-          c: Number(basis.c),
-          d: Number(basis.d),
-        },
-        translate: { x: Number(translate.x), y: Number(translate.y) },
-        width: Number(width),
-        height: Number(height),
-        rotation: Number(rotation),
-      };
-    }
-  }
-  return {
-    line: Number(line),
-    column: Number(column),
-    ...(hasInstanceMetadata
-      ? {
-          instanceIndex: Number(instanceIndex),
-          instanceCount: Number(instanceCount),
-        }
-      : {}),
-    nodeId,
-    tagName,
-    text,
-    bounds: rect,
-    styles: safeStyles,
-    ...(hasAncestorData
-      ? {
-          ancestorLocators: value.ancestorLocators as string[],
-          ancestorLocatorsComplete: value.ancestorLocatorsComplete as boolean,
-        }
-      : {}),
-    ...(transform ? { transform } : {}),
-  };
-}
-
-function parsePointer(value: unknown): FramePointer | null {
-  if (!isRecord(value)) return null;
-  const {
-    phase,
-    x,
-    y,
-    button,
-    pointerId,
-    pointerType,
-    shiftKey,
-    altKey,
-    ctrlKey,
-    metaKey,
-    target,
-  } = value;
-  if (
-    (phase !== "down" &&
-      phase !== "move" &&
-      phase !== "up" &&
-      phase !== "cancel" &&
-      phase !== "double-click") ||
-    typeof x !== "number" ||
-    !Number.isFinite(x) ||
-    typeof y !== "number" ||
-    !Number.isFinite(y) ||
-    typeof button !== "number" ||
-    !Number.isInteger(pointerId) ||
-    !isSlideFramePointerType(pointerType) ||
-    typeof shiftKey !== "boolean" ||
-    typeof altKey !== "boolean" ||
-    typeof ctrlKey !== "boolean" ||
-    typeof metaKey !== "boolean"
-  ) {
-    return null;
-  }
-  let safeTarget: FramePointer["target"] = null;
-  if (
-    isRecord(target) &&
-    Number.isInteger(target.line) &&
-    Number(target.line) > 0 &&
-    Number.isInteger(target.column) &&
-    Number(target.column) >= 0 &&
-    typeof target.nodeId === "string" &&
-    target.nodeId.length <= 100
-  ) {
-    const snapshot = parseElementSnapshot(target.snapshot);
-    if (
-      snapshot &&
-      snapshot.line === Number(target.line) &&
-      snapshot.column === Number(target.column) &&
-      snapshot.nodeId === target.nodeId
-    ) {
-      safeTarget = {
-        line: Number(target.line),
-        column: Number(target.column),
-        nodeId: target.nodeId,
-        snapshot,
-      };
-    }
-  }
-  return {
-    phase,
-    x,
-    y,
-    button,
-    pointerId: Number(pointerId),
-    pointerType,
-    shiftKey,
-    altKey,
-    ctrlKey,
-    metaKey,
-    target: safeTarget,
-  };
 }
 
 export function SandboxedSlide({
@@ -490,6 +281,7 @@ export function SandboxedSlide({
             context.nonce,
             window.location.origin,
             initialRevealedSteps,
+            artifact.runtime?.liveSource ? "live" : "static",
           )
         : "",
     [artifact, artifactIsValid, context, initialRevealedSteps],
@@ -520,14 +312,14 @@ export function SandboxedSlide({
   const handleMessage = useCallback(
     (event: MessageEvent<unknown>) => {
       const frame = frameRef.current;
-      if (!frame?.contentWindow || event.source !== frame.contentWindow) return;
-      if (
-        event.origin !== "null" ||
-        !context ||
-        !isSlideFrameMessage(event.data, context)
-      )
-        return;
-      const message = event.data as SlideFrameMessage;
+      if (!frame?.contentWindow || !context) return;
+      const parsedMessage = parseSandboxedSlideFrameMessage(
+        event,
+        frame.contentWindow,
+        context,
+      );
+      if (!parsedMessage) return;
+      const message = parsedMessage.message;
       if (message.type === "bootstrapped") {
         if (frame.dataset.frameReady !== "error") {
           frame.dataset.frameNavigation = "bootstrapped";
@@ -551,22 +343,15 @@ export function SandboxedSlide({
         (message.type === "snapshot" || message.type === "inspect") &&
         Array.isArray(message.nodes)
       ) {
-        onNodes(
-          message.nodes.flatMap((node) => {
-            const parsed = parseElementSnapshot(node);
-            return parsed ? [parsed] : [];
-          }),
-        );
+        onNodes(parsedMessage.nodes ?? []);
       } else if (message.type === "text-range-style" && message.rangeStyle) {
         onTextRangeStyle?.(message.rangeStyle);
       } else if (message.type === "pointer") {
-        const pointer = parsePointer(message.pointer);
-        if (pointer) {
-          if (pointer.phase === "down") {
-            onPointerActivity?.(pointer.pointerType);
-          }
-          onPointer(pointer);
-        }
+        forwardSandboxedSlidePointer(
+          parsedMessage,
+          onPointer,
+          onPointerActivity,
+        );
       } else if (message.type === "keyboard") {
         const keyboard = message.keyboard;
         if (

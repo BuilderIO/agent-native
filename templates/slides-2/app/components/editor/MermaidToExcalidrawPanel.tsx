@@ -2,6 +2,8 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconTransform, IconLoader2 } from "@tabler/icons-react";
 import { useState, useCallback } from "react";
 
+import { Button } from "@/components/ui/button";
+
 interface MermaidToExcalidrawPanelProps {
   mermaidDefinition: string;
   onConvert: (excalidrawData: string) => void;
@@ -57,10 +59,12 @@ export function MermaidToExcalidrawPanel({
       </pre>
       {error && <div className="text-xs text-destructive">{error}</div>}
       <div className="flex gap-2">
-        <button
+        <Button
+          type="button"
+          size="xs"
           onClick={handleConvert}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[hsl(var(--slides-accent))] hover:bg-[hsl(var(--slides-accent-hover))] text-[hsl(var(--slides-accent-foreground))] text-xs font-medium disabled:opacity-50"
+          className="h-auto gap-1.5 rounded-md bg-[hsl(var(--slides-accent))] px-3 py-1.5 text-xs font-medium text-[hsl(var(--slides-accent-foreground))] hover:bg-[hsl(var(--slides-accent-hover))] hover:text-[hsl(var(--slides-accent-foreground))] active:scale-100 [&_svg]:size-3"
         >
           {loading ? (
             <IconLoader2 className="w-3 h-3 animate-spin" />
@@ -68,13 +72,16 @@ export function MermaidToExcalidrawPanel({
             <IconTransform className="w-3 h-3" />
           )}
           {t("raw.convert")}
-        </button>
-        <button
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
           onClick={onCancel}
-          className="px-3 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
+          className="h-auto rounded-md px-3 py-1.5 text-xs font-normal text-muted-foreground hover:text-foreground hover:bg-accent active:scale-100"
         >
           {t("designSystems.cancel")}
-        </button>
+        </Button>
       </div>
     </div>
   );

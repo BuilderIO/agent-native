@@ -552,15 +552,18 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         {headless ? null : (
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
-              <button
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
                 disabled={!hasSlides}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-8 gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <IconUpload className="w-3.5 h-3.5" />
                 <span className="hidden md:inline">
                   {t("editorExport.export")}
                 </span>
-              </button>
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
               {menuContent}
