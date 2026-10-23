@@ -505,6 +505,35 @@ describe("the Discussion panel", () => {
     expect(card("text-1")).toBeNull();
   });
 
+  it("keeps each page comment posted under a filter that hides them in view", async () => {
+    render();
+    act(() => replies.setHistoryFilters({ target: "text" }));
+    const post = async (id: string, text: string) => {
+      actions.create.mockResolvedValueOnce({ id, threadId: id });
+      const composer = container.querySelector<HTMLElement>(
+        "[data-discussion-composer]",
+      )!;
+      await setRichEditorValue(richEditor(composer)!, text);
+      await act(async () =>
+        composer
+          .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')!
+          .click(),
+      );
+    };
+    await post("created-1", "First");
+    await post("created-2", "Second");
+    expect(actions.create).toHaveBeenCalledTimes(2);
+    threads = [
+      ...fixtureThreads,
+      thread("created-1", null),
+      thread("created-2", null),
+    ];
+    render();
+    expect(card("created-1")).not.toBeNull();
+    expect(card("created-2")).not.toBeNull();
+    expect(card("page-1")).toBeNull();
+  });
+
   it("keeps a conflict's view while someone searches, without saving over their filters", () => {
     render();
     act(() => replies.setHistoryFilters({ target: "text" }));

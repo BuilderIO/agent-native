@@ -1618,11 +1618,20 @@ export function CommentsSidebar({
     historyShowsSuggestions,
     historyStatus,
   ]);
-  // A comment someone just posted on the page stays in view even when their
-  // filters would hide it, until they change the filters.
-  const [postedThreadId, setPostedThreadId] = useState<string | null>(null);
+  // Comments someone just posted on the page stay in view even when their
+  // filters would hide them, until they change the filters.
+  const [postedThreadIds, setPostedThreadIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const keepPostedThread = useCallback(
+    (threadId: string) =>
+      setPostedThreadIds((current) =>
+        current.has(threadId) ? current : new Set(current).add(threadId),
+      ),
+    [],
+  );
   useEffect(() => {
-    setPostedThreadId(null);
+    setPostedThreadIds((current) => (current.size === 0 ? current : new Set()));
   }, [
     activeHistoryTab,
     documentId,
@@ -1640,7 +1649,7 @@ export function CommentsSidebar({
       // confirmed: its card holds the only way to check it.
       if (
         thread.threadId === selectedThreadId ||
-        thread.threadId === postedThreadId ||
+        postedThreadIds.has(thread.threadId) ||
         thread.comments.some(
           (comment) =>
             comment.mutation?.ambiguous && comment.mutation.kind === "create",
@@ -1683,7 +1692,7 @@ export function CommentsSidebar({
     historyTarget,
     threads,
     selectedThreadId,
-    postedThreadId,
+    postedThreadIds,
   ]);
 
   const [threadPositions, setThreadPositions] = useState<
@@ -1947,7 +1956,7 @@ export function CommentsSidebar({
         mentions,
       });
       pageDraft.finishSubmission(clientOperationId);
-      setPostedThreadId(result.threadId);
+      keepPostedThread(result.threadId);
       return { id: result.id, threadId: result.threadId };
     } catch (error) {
       // An unconfirmed save keeps its card, which offers the check instead.
@@ -2814,7 +2823,7 @@ export function CommentsSidebar({
             onCreatedCommentConfirmed={(operationId) => {
               // Once confirmed, a new thread is one just posted, saved under
               // its operation's id, so the filters still don't hide it.
-              if (id === thread.comments[0]?.id) setPostedThreadId(operationId);
+              if (id === thread.comments[0]?.id) keepPostedThread(operationId);
               if (
                 pendingHandoff?.operationId === operationId &&
                 pendingCommentRef.current?.id === pendingHandoff.id
