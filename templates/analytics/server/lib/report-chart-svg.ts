@@ -13,7 +13,7 @@ import {
   type DashboardFunnelOutcomeSummary,
 } from "../../shared/dashboard-funnel";
 import { formatDollars } from "../../shared/format-dollars";
-import { formatDuration } from "../../shared/format-duration";
+import { durationTicks, formatDuration } from "../../shared/format-duration";
 import { isSafeSvgHexColor } from "../../shared/svg-color";
 import {
   FUNNEL_OUTCOME_REPORT_COLORS,
@@ -339,6 +339,8 @@ type ResolvedSeries = {
 type AxisScale = {
   min: number;
   span: number;
+  /** Labelled values, bottom to top. */
+  ticks: number[];
   yFor: (value: number) => number;
   zeroY: number;
 };
@@ -347,14 +349,28 @@ function buildAxisScale(
   values: number[],
   chartBottom: number,
   plotHeight: number,
+  formatter?: ReportChartValueFormatter,
 ): AxisScale {
-  const min = Math.min(0, ...values);
+  const observedMin = Math.min(0, ...values);
   const observedMax = values.length ? Math.max(...values) : 0;
-  const max = observedMax > 0 ? observedMax : min < 0 ? 0 : 1;
+  // Duration axes step in whole units (10 min, 6 hours) like the dashboard
+  // axis, so no two labels round to the same text; others split into quarters.
+  const duration =
+    formatter === "duration" ? durationTicks(observedMin, observedMax) : null;
+  const min = duration ? duration[0] : observedMin;
+  const max = duration
+    ? duration[duration.length - 1]
+    : observedMax > 0
+      ? observedMax
+      : min < 0
+        ? 0
+        : 1;
   const span = max - min || 1;
+  const ticks =
+    duration ?? [0, 1, 2, 3, 4].map((index) => min + span * (index / 4));
   const yFor = (value: number) =>
     chartBottom - ((value - min) / span) * plotHeight;
-  return { min, span, yFor, zeroY: yFor(0) };
+  return { min, span, ticks, yFor, zeroY: yFor(0) };
 }
 
 function stackSegments(
@@ -776,32 +792,48 @@ function renderCartesianChartSvg({
           ),
         );
 
+  const leftFormatter = series[leftAxisIndexes[0]]?.formatter;
+  const rightFormatter = series[rightAxisIndexes[0]]?.formatter;
   const leftScale = buildAxisScale(
     axisValues(
       dualAxis ? leftAxisIndexes : leftAxisIndexes.concat(rightAxisIndexes),
     ),
     chartBottom,
     plotHeight,
+    leftFormatter,
   );
   const rightScale = dualAxis
-    ? buildAxisScale(axisValues(rightAxisIndexes), chartBottom, plotHeight)
+    ? buildAxisScale(
+        axisValues(rightAxisIndexes),
+        chartBottom,
+        plotHeight,
+        rightFormatter,
+      )
     : leftScale;
-  const leftFormatter = series[leftAxisIndexes[0]]?.formatter;
-  const rightFormatter = series[rightAxisIndexes[0]]?.formatter;
   const scaleFor = (seriesIndex: number): AxisScale =>
     dualAxis && series[seriesIndex].axis === "right" ? rightScale : leftScale;
 
   const labelStep = Math.max(1, Math.ceil(labels.length / 8));
 
-  const grid = Array.from({ length: 5 }, (_, index) => {
-    const fraction = (4 - index) / 4;
-    const value = leftScale.min + leftScale.span * fraction;
-    const y = leftScale.yFor(value);
-    const rightTick = dualAxis
-      ? `<text x="${chartRight + 10}" y="${(y + 4).toFixed(1)}" text-anchor="start" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(rightScale.min + rightScale.span * fraction, rightFormatter))}</text>`
-      : "";
-    return `<line x1="${chartLeft}" x2="${chartRight}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${theme.gridColor}" stroke-width="0.8"/><text x="${chartLeft - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(value, leftFormatter))}</text>${rightTick}`;
-  }).join("");
+  // Gridlines follow the left axis. The right axis labels its own ticks, which
+  // share the left lines unless one side is a duration.
+  const gridLines = [...leftScale.ticks]
+    .reverse()
+    .map((value) => {
+      const y = leftScale.yFor(value);
+      return `<line x1="${chartLeft}" x2="${chartRight}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${theme.gridColor}" stroke-width="0.8"/><text x="${chartLeft - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(value, leftFormatter))}</text>`;
+    })
+    .join("");
+  const rightTicks = dualAxis
+    ? [...rightScale.ticks]
+        .reverse()
+        .map(
+          (value) =>
+            `<text x="${chartRight + 10}" y="${(rightScale.yFor(value) + 4).toFixed(1)}" text-anchor="start" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(value, rightFormatter))}</text>`,
+        )
+        .join("")
+    : "";
+  const grid = gridLines + rightTicks;
 
   const xLabels = categoryAxis
     ? labels
