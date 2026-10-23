@@ -279,14 +279,20 @@ describe("view-screen recording access", () => {
   });
 
   it.each(["viewer@example.com", "owner@example.com"])(
-    "omits disabled comments for %s",
+    "applies owner visibility to disabled comments for %s",
     async (email) => {
       context.email = email;
       context.recording!.enableComments = false;
       const screen = JSON.parse(await action.run({}));
       expect(screen.recording.id).toBe("rec-test");
-      expect(screen.comments).toEqual([]);
-      expect(context.childReads).not.toHaveBeenCalledWith("recordingComments");
+      expect(
+        screen.comments.map((comment: { content: string }) => comment.content),
+      ).toEqual(email === "owner@example.com" ? ["Fake discussion"] : []);
+      if (email !== "owner@example.com") {
+        expect(context.childReads).not.toHaveBeenCalledWith(
+          "recordingComments",
+        );
+      }
     },
   );
 

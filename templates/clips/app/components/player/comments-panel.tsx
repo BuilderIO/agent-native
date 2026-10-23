@@ -768,7 +768,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
           onSeek={onSeek}
           onReply={() => openReply(node.comment)}
           onDelete={(id) => remove.mutate({ id })}
-          isEditing={editingId === node.comment.id}
+          isEditing={canComment && editingId === node.comment.id}
           editDraft={editDraft}
           onEditDraftChange={setEditDraft}
           onEditMentionAdd={(mention) =>
@@ -786,7 +786,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
           canReply={replyAllowed}
           isReply={depth > 0}
         />
-        {replyAllowed && replyTo?.id === node.comment.id ? (
+        {canComment && replyAllowed && replyTo?.id === node.comment.id ? (
           <div className="ps-8">
             <InlineReplyComposer
               draft={replyDraft}

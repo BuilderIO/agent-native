@@ -514,7 +514,10 @@ async function addRecordingContext(
   const [transcript, comments, browserDiagnosticsSummary, bugReportSummary] =
     await Promise.all([
       fetchTranscript(recordingId),
-      recording.enableComments ? fetchComments(recordingId) : [],
+      recording.enableComments ||
+      sameOwnerEmail(recording.ownerEmail, getRequestUserEmail())
+        ? fetchComments(recordingId)
+        : [],
       fetchBrowserDiagnosticsSummary(recordingId),
       fetchBugReportSummary(recordingId),
     ]);

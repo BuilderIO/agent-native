@@ -15,7 +15,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    await assertCommentAccess(args.recordingId);
+    await assertCommentAccess(args.recordingId, "read");
 
     const db = getDb();
     const rows = await db
