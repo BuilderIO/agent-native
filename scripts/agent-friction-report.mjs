@@ -952,7 +952,7 @@ function isOtherProductMergeGate(sentence, gate) {
   );
 }
 
-const PR_REVIEW_COMMENT_CONTEXT = String.raw`(?:\b(?:PR|pull\s+request)\s+(?:comment|reply|response)\b|\breview\s+thread\b|\/pull\/\d+\b)`;
+const PR_REVIEW_COMMENT_CONTEXT = String.raw`(?:\b(?:PR|pull\s+request)\s+(?:comment|reply|response)\b|\breview\s+thread\b|\/pull\/\d+(?:#issuecomment-\d+|\/comments\/\d+)\b)`;
 const PR_REVIEW_VAGUE_CLOSURE_INSTRUCTION = String.raw`\b(?:don['’]t|do\s+not|never|avoid|should\s+never|must\s+never)\b[^\n]{0,80}\b(?:say|write|use|leave|comment|reply)\b`;
 const PR_REVIEW_VAGUE_CLOSURE_TERMS = String.raw`(?:ambiguous|vague|unclear|I\s+have\s+no\s+further\s+feedback|no\s+further\s+feedback)`;
 const PR_REVIEW_VAGUE_CLOSURE_RE = new RegExp(
@@ -1081,6 +1081,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     true,
     "I should never leave it ambiguous like this https://github.com/BuilderIO/agent-native/pull/7629#issuecomment-6359578348.",
+  ],
+  [
+    false,
+    "I should never leave it ambiguous like this https://github.com/BuilderIO/agent-native/pull/7629.",
   ],
   [
     false,
