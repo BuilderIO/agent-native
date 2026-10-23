@@ -11,6 +11,7 @@ import {
   isTransientDatabaseError,
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
+import { ForbiddenError } from "../sharing/access.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import {
   BuilderOAuthScopeError,
@@ -154,6 +155,7 @@ export function assertCredentialStoreReadable(result: {
   lookupFailed: boolean;
   cause?: unknown;
 }): void {
+  if (result.cause instanceof ForbiddenError) throw result.cause;
   if (result.lookupFailed && isTransientDatabaseError(result.cause)) {
     throw new CredentialStoreUnavailableError(result.cause);
   }
@@ -443,6 +445,7 @@ async function resolveOrgIdForRequestEmail(
     const { resolveOrgIdForEmail } = await import("../org/context.js");
     return { orgId: await resolveOrgIdForEmail(email) };
   } catch (err) {
+    if (err instanceof ForbiddenError) throw err;
     return { orgId: null, cause: err };
   }
 }
@@ -704,6 +707,7 @@ async function resolveScopedBuilderCredential(
       );
     }
   } catch (err) {
+    if (err instanceof ForbiddenError) throw err;
     if (traceLookup) {
       console.log(
         `[builder-credential] key=${key} email=${email} scope=${scopeAttempted} error=${(err as Error)?.message ?? err}`,
@@ -887,6 +891,7 @@ async function resolveScopedBuilderCredentials(
       }
     }
   } catch (err) {
+    if (err instanceof ForbiddenError) throw err;
     if (traceLookup) {
       console.log(
         `[builder-credential] email=${email} scope=${scopeAttempted} credentials error=${(err as Error)?.message ?? err}`,
@@ -1311,6 +1316,7 @@ export async function resolveBuilderGatewayAuth(
         ? await hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
         : await hasBuilderOAuthSession(ownerEmail, orgId);
     } catch (error) {
+      if (error instanceof ForbiddenError) throw error;
       throw new BuilderCredentialLookupError(error);
     }
   }
@@ -1329,6 +1335,7 @@ export async function resolveBuilderGatewayAuth(
           }
         : null;
     } catch (error) {
+      if (error instanceof ForbiddenError) throw error;
       if (error instanceof BuilderOAuthScopeError) return null;
       throw new BuilderCredentialLookupError(error);
     }
@@ -2104,6 +2111,7 @@ export async function resolveSecretPairs(
       }
     }
   } catch (error) {
+    if (error instanceof ForbiddenError) throw error;
     lookupFailed = true;
     cause = error;
   }
@@ -2312,6 +2320,7 @@ export async function resolveSecretDetailed(
         }
       }
     } catch (err) {
+      if (err instanceof ForbiddenError) throw err;
       if (traceLookup) {
         console.log(
           `[resolve-secret] key=${key} email=${email} scope=error err=${(err as Error)?.message ?? err}`,
