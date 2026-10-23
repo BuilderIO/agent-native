@@ -44,6 +44,12 @@ vi.mock("./mcp-app-host.js", () => ({
   sendMcpAppHostMessage: sendMcpAppHostMessageMock,
 }));
 
+const trackEventMock = vi.hoisted(() => vi.fn());
+vi.mock("./analytics.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./analytics.js")>()),
+  trackEvent: trackEventMock,
+}));
+
 const windowStub = {
   parent: { postMessage: parentPostMessageSpy },
   addEventListener: addEventListenerSpy,
@@ -1942,6 +1948,156 @@ describe("sendToAgentChat", () => {
       "agentNative.chatContextChanged",
       "agent-panel:prepare",
     ]);
+  });
+
+  describe("agent_turn_submitted for a send that starts no local turn", () => {
+    const MCP_BRIDGE_SEARCH =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    const submitted = () =>
+      trackEventMock.mock.calls
+        .filter(([name]) => name === "agent_turn_submitted")
+        .map(([, properties]) => properties);
+
+    beforeEach(() => {
+      trackEventMock.mockReset();
+    });
+
+    it("reports a Builder code prompt once, as routed to Builder", () => {
+      frameState.inBuilderFrame = true;
+
+      sendToAgentChat({
+        message: "change this app",
+        submit: true,
+        type: "code",
+        preset: "app-editor",
+        submitMessageId: "submit-builder",
+      });
+
+      expect(sendToBuilderChatMock).toHaveBeenCalledOnce();
+      expect(submitted()).toEqual([
+        {
+          routed_to: "builder",
+          surface: "app-editor",
+          initiator: "app",
+          submit_message_id: "submit-builder",
+        },
+      ]);
+    });
+
+    it("does not report a blank prompt, the same as app.first_action", async () => {
+      frameState.inBuilderFrame = true;
+
+      sendToAgentChat({ message: "   ", submit: true, type: "code" });
+
+      expect(sendToBuilderChatMock).toHaveBeenCalledOnce();
+      expect(submitted()).toEqual([]);
+    });
+
+    it("reports an MCP host prompt once, as routed to the host", async () => {
+      window.location.search = MCP_BRIDGE_SEARCH;
+      sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(false));
+
+      sendToAgentChat({ message: "rewrite this", submit: true });
+      await flushMicrotasks();
+
+      // Undelivered, it falls back to the wrapper relay: still one send.
+      expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+      const [event] = submitted();
+      expect(submitted()).toHaveLength(1);
+      expect(event).toEqual({
+        routed_to: "mcp_host",
+        surface: "chat",
+        initiator: "app",
+        submit_message_id:
+          parentPostMessageSpy.mock.calls[0][0].data.submitMessageId,
+      });
+      expect(event).not.toHaveProperty("turn_id");
+    });
+
+    it.each([true, false])(
+      "reports a confirmed ChatGPT handoff once (host delivered: %s)",
+      async (delivered) => {
+        vi.useFakeTimers();
+        window.location.search = MCP_BRIDGE_SEARCH;
+        isOpenAiMcpAppHostMock.mockReturnValue(true);
+        sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(delivered));
+
+        const result = sendToAgentChatAndConfirm(
+          {
+            message: "Apply these comments",
+            submit: true,
+            chatTarget: "local",
+          },
+          { submitMessageId: "submit-chatgpt" },
+        );
+        await flushMicrotasks();
+        if (!delivered) reportAgentChatSubmitResult("submit-chatgpt", true);
+        await result;
+
+        expect(submitted()).toEqual([
+          expect.objectContaining({
+            routed_to: "mcp_host",
+            submit_message_id: "submit-chatgpt",
+          }),
+        ]);
+      },
+    );
+
+    it("keeps a confirmed ChatGPT handoff delivered when a JS caller sends no message", async () => {
+      vi.useFakeTimers();
+      window.location.search = MCP_BRIDGE_SEARCH;
+      isOpenAiMcpAppHostMock.mockReturnValue(true);
+      sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+      const result = await sendToAgentChatAndConfirm(
+        { submit: true, chatTarget: "local" } as never,
+        { submitMessageId: "submit-no-message" },
+      );
+
+      expect(result).toMatchObject({ delivered: true });
+      expect(submitted()).toEqual([]);
+    });
+
+    it("reports nothing for a prefill or a local send", () => {
+      vi.useFakeTimers();
+      frameState.inBuilderFrame = true;
+      sendToAgentChat({ message: "draft", submit: false, type: "code" });
+      frameState.inBuilderFrame = false;
+      window.location.search = MCP_BRIDGE_SEARCH;
+      sendToAgentChat({ message: "draft", submit: false });
+      window.location.search = "";
+      sendToAgentChat({ message: "local", submit: true, chatTarget: "local" });
+
+      // The local turn is reported by the chat runtime when it starts.
+      expect(submitted()).toEqual([]);
+      expect(trackEventMock).toHaveBeenCalledWith(
+        "app.first_action",
+        expect.objectContaining({ action: "chat_submit" }),
+      );
+    });
+
+    it("still routes the prompt when analytics throws", () => {
+      frameState.inBuilderFrame = true;
+      trackEventMock.mockImplementation((name: string) => {
+        if (name === "agent_turn_submitted") throw new Error("analytics down");
+      });
+
+      sendToAgentChat({
+        message: "change this app",
+        submit: true,
+        type: "code",
+      });
+
+      expect(sendToBuilderChatMock).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("carries the sender's preset through to the parsed submit as its surface", () => {
+    sendToAgentChat({ message: "outline", preset: "deck-outline" });
+    const parsed = parseSubmitChatMessage({
+      data: parentPostMessageSpy.mock.calls[0][0],
+    } as MessageEvent);
+    expect(parsed?.surface).toBe("deck-outline");
   });
 });
 

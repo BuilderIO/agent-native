@@ -368,6 +368,24 @@ export function trackAgentChatRunLifecycle(
   );
 }
 
+/** `run_started` from every agent-chat entry point, keyed to its turn. */
+export function trackAgentChatRunStarted(
+  threadId: string,
+  runId: string,
+  turnId: string,
+  owner: string | undefined,
+  appId: string | undefined,
+): void {
+  trackAgentChatRunLifecycle(
+    "run_started",
+    threadId,
+    runId,
+    owner,
+    { turn_id: turnId },
+    appId,
+  );
+}
+
 /**
  * The run's owner is set on the run context only once its system prompt is
  * built, after `run_started`, and a durable worker has no browser session at
@@ -5364,6 +5382,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
           runId: string,
+          turnId: string,
         ) => {
           await recordPreRunGitStatus(threadId);
           _runSendByThread.set(threadId, send);
@@ -5372,12 +5391,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.threadId = threadId;
             runCtx.runId = runId;
           }
-          trackAgentChatRunLifecycle(
-            "run_started",
+          trackAgentChatRunStarted(
             threadId,
             runId,
+            turnId,
             runCtx?.owner,
-            {},
             options?.appId,
           );
           await runPreAgentTurnAutosave(
@@ -5452,6 +5470,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ) => void,
                 threadId: string,
                 runId: string,
+                turnId: string,
               ) => {
                 await recordPreRunGitStatus(threadId);
                 _runSendByThread.set(threadId, send);
@@ -5460,12 +5479,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runCtx.threadId = threadId;
                   runCtx.runId = runId;
                 }
-                trackAgentChatRunLifecycle(
-                  "run_started",
+                trackAgentChatRunStarted(
                   threadId,
                   runId,
+                  turnId,
                   runCtx?.owner,
-                  {},
                   options?.appId,
                 );
               },
@@ -5706,6 +5724,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
             runId: string,
+            turnId: string,
           ) => {
             await recordPreRunGitStatus(threadId);
             _runSendByThread.set(threadId, send);
@@ -5714,12 +5733,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.threadId = threadId;
               runCtx.runId = runId;
             }
-            trackAgentChatRunLifecycle(
-              "run_started",
+            trackAgentChatRunStarted(
               threadId,
               runId,
+              turnId,
               runCtx?.owner,
-              {},
               options?.appId,
             );
             await runPreAgentTurnAutosave(

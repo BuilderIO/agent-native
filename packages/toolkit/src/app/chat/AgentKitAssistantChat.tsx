@@ -54,7 +54,10 @@ import {
   readAssistantChatComposerDraft,
   writeAssistantChatComposerDraft,
 } from "@agent-native/core/client/agent-chat";
-import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
+import {
+  createAgentNativeChatRuntime,
+  trackTurnSubmitted,
+} from "@agent-native/core/client/agent-chat";
 import type { CreateAgentNativeChatRuntimeOptions } from "@agent-native/core/client/agent-chat";
 import { useAgentDynamicSuggestionsResult } from "@agent-native/core/client/agent-chat";
 import {
@@ -645,6 +648,8 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   deferredAgentId?: string | null;
   deferredContextScope?: AgentKitAssistantChatProps["contextScope"] | null;
   deferredSubmissionId?: string;
+  /** The deferred send came from app code, whose id the deferral drops. */
+  deferredFromApp?: boolean;
 };
 
 function isSubmissionExpired(submissionExpiresAt: number | undefined): boolean {
@@ -2003,7 +2008,9 @@ export const AgentKitAssistantChat = forwardRef<
         apiUrl: props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
         runtime:
           injectedRuntimeRef.current ??
-          createAgentNativeChatRuntime(runtimeOptions),
+          createAgentNativeChatRuntime(runtimeOptions, {
+            onTurnSubmitted: trackTurnSubmitted,
+          }),
         browserTabId: props.browserTabId,
         get threadId() {
           return transportThreadIdRef.current;
@@ -3589,6 +3596,9 @@ const AgentKitAssistantChatBody = forwardRef<
                 agentNativeDeferredSubmissionId: options.deferredSubmissionId,
               }
             : {}),
+          ...(options.deferredFromApp
+            ? { agentNativeDeferredFromApp: true }
+            : {}),
           ...(retryRequestAttachments.length
             ? { agentNativeRetryRequestAttachments: retryRequestAttachments }
             : {}),
@@ -3604,6 +3614,7 @@ const AgentKitAssistantChatBody = forwardRef<
             ? { submitMessageId: options.submitMessageId }
             : {}),
           ...(options.usageLabel ? { usageLabel: options.usageLabel } : {}),
+          ...(options.surface ? { agentNativeSurface: options.surface } : {}),
           ...(options.trackInRunsTray ? { trackInRunsTray: true } : {}),
           ...(skipAmbientSelectionContext
             ? { agentNativeSkipPendingSelectionContext: true }
@@ -3851,6 +3862,7 @@ const AgentKitAssistantChatBody = forwardRef<
               deferredOptions.skipAmbientSelectionContext = true;
             }
             delete deferredOptions.submitMessageId;
+            if (submitMessageId) deferredOptions.deferredFromApp = true;
             delete deferredOptions.attachments;
             deferredOptions.contextAlreadyIncluded = true;
             deferredOptions.deferredRequestAttachments = requestAttachments;

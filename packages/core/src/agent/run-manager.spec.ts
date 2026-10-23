@@ -239,10 +239,15 @@ vi.mock("./run-store.js", () => ({
 vi.mock("../tracking/registry.js", () => ({
   track: vi.fn(),
 }));
+vi.mock("../observability/metrics.js", async (importActual) => ({
+  ...(await importActual<typeof import("../observability/metrics.js")>()),
+  recordAgentRun: vi.fn(),
+}));
 vi.mock("../observability/tracking-identity.js", () => ({
   trackingIdentityProperties: vi.fn(() => ({ app: "test-app" })),
 }));
 
+import { recordAgentRun } from "../observability/metrics.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/registry.js";
@@ -9659,8 +9664,27 @@ describe("run manager soft timeout", () => {
       expect(properties).not.toHaveProperty("dispatch_mode");
     });
 
-    it("emits an aborted event with the abort reason, not a false completion", async () => {
+    it("attributes agent_run_terminal to the run's user", async () => {
       startRun(
+        "run-tracking-user",
+        "thread-tracking-user",
+        async (send) => {
+          send({ type: "text", text: "fast answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0, userId: "ada@acme-corp.io" },
+      );
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      const [name, , source] = vi.mocked(track).mock.calls[0];
+      expect(name).toBe("agent_run_terminal");
+      expect(source).toMatchObject({ userId: "ada@acme-corp.io" });
+    });
+
+    it("leaves an aborted run to the SQL write that ended it, never a false completion", async () => {
+      vi.mocked(recordAgentRun).mockClear();
+      const live = startRun(
         "run-tracking-abort",
         "thread-tracking-abort",
         async (send, signal) => {
@@ -9673,18 +9697,22 @@ describe("run manager soft timeout", () => {
       );
 
       expect(abortRun("run-tracking-abort")).toBe(true);
+      await live.finalized;
+      // The terminal send loads its provider lazily; let it land first.
+      await vi.dynamicImportSettled();
+      await Promise.resolve();
 
-      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
-
-      expect(track).toHaveBeenCalledWith(
+      expect(track).not.toHaveBeenCalledWith(
         "agent_run_terminal",
-        expect.objectContaining({
-          run_id: "run-tracking-abort",
-          status: "aborted",
-          terminal_reason: "aborted:user",
-          abort_reason: "user",
-        }),
         expect.anything(),
+        expect.anything(),
+      );
+      // The run counter has no SQL-side writer, so this process still counts it.
+      expect(recordAgentRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "aborted",
+          terminalReason: "aborted:user",
+        }),
       );
     });
 
