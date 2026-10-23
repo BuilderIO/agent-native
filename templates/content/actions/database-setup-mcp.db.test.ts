@@ -51,6 +51,7 @@ let outsiderClient: MCPClient;
 function callerIdentity(userEmail: string): MCPCallerIdentity {
   return {
     userEmail,
+    orgId: null,
     orgDomain: undefined,
     oauthScopes: ["mcp:read", "mcp:write"],
   };
