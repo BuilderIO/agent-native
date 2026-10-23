@@ -1802,6 +1802,13 @@ export async function syncGitHubSource(
   // Files this run read and had to skip. A run that fails partway keeps
   // them too, so the next one doesn't read them again.
   let readSkipsSoFar: GitHubReadSkip[] | null = null;
+  // Images the pages this run wrote left waiting. A run that fails partway
+  // still counts them, so the next sync goes back for them.
+  let imagesWaitingSoFar = 0;
+  const keepImagesWaiting = (current: GitHubSourceState) =>
+    imagesWaitingSoFar > current.imagesWaiting
+      ? { ...current, imagesWaiting: imagesWaitingSoFar }
+      : current;
   const failed = (problem: GitHubSourceState["problem"]): GitHubSyncResult => ({
     ...emptyResult("error", state.pendingCommitSha, problem),
     created: result.created,
@@ -2000,7 +2007,10 @@ export async function syncGitHubSource(
     const failedAt = new Map(
       work.map((file) => [
         file,
-        (file.row ? rowState(file.row)?.imagesFailedAt : undefined) ?? "",
+        (() => {
+          const linked = file.row ?? file.renamedFrom;
+          return linked ? rowState(linked)?.imagesFailedAt : undefined;
+        })() ?? "",
       ]),
     );
     work.sort(
@@ -2061,6 +2071,7 @@ export async function syncGitHubSource(
         }
         throw error;
       }
+      imagesWaitingSoFar += file.imagesWaiting ?? 0;
       if (typeof outcome === "string") result[outcome] += 1;
       else
         readSkips.push({
@@ -2172,7 +2183,7 @@ export async function syncGitHubSource(
       // may well finish, so the link shows no problem and waits its turn. It
       // can't say the rows match the branch, though, until a check gets through.
       await release(
-        (current) => current,
+        (current) => keepImagesWaiting(current),
         (next) => ({
           syncState: next.pendingCommitSha
             ? "refreshing"
@@ -2205,7 +2216,7 @@ export async function syncGitHubSource(
     }
     await release(
       (current) => ({
-        ...current,
+        ...keepImagesWaiting(current),
         checkedAt: now,
         problem,
         ...(readSkipsSoFar ? { readSkips: readSkipsSoFar } : {}),

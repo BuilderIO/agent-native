@@ -1907,6 +1907,52 @@ describe("GitHub folder source", () => {
     }
   });
 
+  it("goes back for a rejected image when a later read in the same sync fails", async () => {
+    const { database } = await linkBaseFolder();
+    github.state.rejectFilename = "poster.png";
+    github.commit({
+      ...BASE_FILES,
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/images/poster.png": "PNGPOSTER",
+      "docs/zz-last.md": "# Last\n",
+    });
+    // The poster's page is written without it; the next read fails.
+    const failAfterRejection = async () => {
+      if (github.state.uploadFailures > 0) throw new Error("socket hang up");
+      github.state.duringBlobRead = failAfterRejection;
+    };
+    github.state.duringBlobRead = failAfterRejection;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const id = await sourceId(database.id);
+      const failed = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(failed).toMatchObject({ state: "error", created: 1 });
+      expect(github.state.uploadFailures).toBe(1);
+
+      github.state.rejectFilename = null;
+      const filled = await as(() =>
+        syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
+      );
+      expect(filled).toMatchObject({
+        state: "synced",
+        created: 1,
+        updated: 1,
+        imagesWaiting: 0,
+        problem: null,
+      });
+      const poster = (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/a-poster.md",
+      )!;
+      expect(poster.content).toMatch(
+        /https:\/\/files\.example\.test\/\d+\/poster\.png/,
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("keeps general source settings off a GitHub link, and disconnecting frees its pages", async () => {
     const { database } = await linkBaseFolder();
     const id = await sourceId(database.id);
