@@ -42,6 +42,11 @@ export interface Comment {
   property_name?: string | null;
   property_value?: string | null;
   /**
+   * The Collection that owns property_id, on a comment not yet saved, so
+   * retrying it targets the same Collection's Property. Saved rows omit it.
+   */
+  property_database_id?: string | null;
+  /**
    * The Blocks field tab the thread sits in; null or absent is the page body.
    * Replies carry their root's field.
    */
@@ -512,6 +517,7 @@ export function useCreateComment(author: CommentAuthor = {}) {
         property_id: variables.propertyId ?? null,
         property_name: null,
         property_value: null,
+        property_database_id: variables.databaseId ?? null,
         field_id: variables.fieldId ?? null,
         field_name: null,
         mentions:

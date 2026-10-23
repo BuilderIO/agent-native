@@ -200,8 +200,6 @@ describe("HTML Motion source adapter", () => {
       ':style="style"',
       'x-bind:style="style"',
       'v-bind:style="style"',
-      'x-show="visible"',
-      'v-show="visible"',
       ':class="{ active: visible }"',
       'x-bind:class="classes"',
       'v-bind:class="classes"',
@@ -231,6 +229,126 @@ describe("HTML Motion source adapter", () => {
       expect(writeError).toMatchObject({ code: "unsupported-target" });
     }
   });
+
+  it("round-trips an Alpine visibility state through static HTML Motion source", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        '<main x-data="{ open: true }" @click="open = !open">',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" x-show="open">Hello</h1>',
+      )
+      .replace(
+        "</body>",
+        '<script type="module">import Alpine from "alpinejs"; window.Alpine = Alpine; Alpine.start();</script>\n</body>',
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+
+    const edit = apply(source);
+    expect(edit.source).toContain('@click="open = !open"');
+    expect(edit.source).toContain('x-show="open"');
+    expect(readMotionHtmlSource(edit.source)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
+
+  it("fails closed when an import map can redirect the managed Alpine runtime", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        '<main x-data="{ open: true }" @click="open = !open">',
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 data-agent-native-node-id="hero-title" x-show="open">Hello</h1>',
+      )
+      .replace(
+        "</body>",
+        '<script type="importmap">{"imports":{"alpinejs":"/custom-alpine.js"}}</script>\n<script type="module">import Alpine from "alpinejs"; Alpine.start();</script>\n</body>',
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+    });
+
+    let writeError: unknown;
+    try {
+      apply(source);
+    } catch (error) {
+      writeError = error;
+    }
+    expect(writeError).toMatchObject({ code: "unsupported-target" });
+  });
+
+  it.each([
+    ['x-show="visible"', '<main class="card">'],
+    ['x-show="open || visible"', '<main x-data="{ open: true }">'],
+    ['x-show="toggle()"', '<main x-data="{ open: true }">'],
+    [
+      'x-show="document.body.style.opacity = 0"',
+      '<main x-data="{ open: true }">',
+    ],
+  ])(
+    "fails closed for unproven Alpine visibility expression %s",
+    (show, scope) => {
+      const source = html
+        .replace('<main class="card">', scope)
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+          `<h1 data-agent-native-node-id="hero-title" ${show}>Hello</h1>`,
+        );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+      expect(() => apply(source)).toThrow(
+        /cannot be proven free of style mutations/,
+      );
+    },
+  );
+
+  it.each(["toggle()", "open = document.body.style.opacity = 0"])(
+    "fails closed for Alpine visibility scopes with executable handlers %s",
+    (handler) => {
+      const source = html
+        .replace(
+          '<main class="card">',
+          `<main x-data="{ open: true }" @click="${handler}">`,
+        )
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+          '<h1 data-agent-native-node-id="hero-title" x-show="open">Hello</h1>',
+        );
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+      expect(() => apply(source)).toThrow(
+        /cannot be proven free of style mutations/,
+      );
+    },
+  );
 
   it.each([
     ["Vue v-show", 'v-show="visible"'],
@@ -1181,6 +1299,568 @@ describe("HTML Motion source adapter", () => {
       );
     },
   );
+
+  const TAILWIND_CDN =
+    '<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>';
+  const ALPINE_CDN =
+    '<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>';
+
+  it("accepts the Tailwind and Alpine scripts every generated design loads", () => {
+    const source = html.replace(
+      "</body>",
+      `${TAILWIND_CDN}\n${ALPINE_CDN}\n</body>`,
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+    expect(() => apply(source)).not.toThrow();
+  });
+
+  it.each([
+    [
+      "a different package on jsDelivr",
+      '<script src="https://cdn.jsdelivr.net/npm/alpinejs-lookalike@3.15.11/dist/cdn.min.js"></script>',
+    ],
+    [
+      "the Alpine path on another host",
+      '<script src="https://cdn.example.com/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>',
+    ],
+    [
+      "a query string on the Alpine URL",
+      '<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js?payload=1"></script>',
+    ],
+    [
+      "inline code alongside the Alpine src",
+      '<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js">document.body.className = "x"</script>',
+    ],
+    [
+      "an onload handler on the Tailwind script",
+      '<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" onload="document.body.className = \'x\'"></script>',
+    ],
+  ])("still rejects %s", (_label, script) => {
+    const source = html.replace("</body>", `${script}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    [
+      "an x-text expression",
+      `<p x-data x-text="document.querySelector('[data-agent-native-node-id=hero-title]').classList.add('fade') || 'x'"></p>`,
+    ],
+    [
+      "a :class expression",
+      `<p x-data :class="document.querySelector('[data-agent-native-node-id=hero-title]').style.opacity = '0'"></p>`,
+    ],
+    [
+      "an x-bind expression",
+      `<p x-data x-bind:title="document.querySelector('[data-agent-native-node-id=hero-title]').classList.add('fade')"></p>`,
+    ],
+  ])(
+    "rejects %s on a sibling that changes a Motion target when Alpine loads from the CDN",
+    (_label, sibling) => {
+      const source = html.replace(
+        "</body>",
+        `${sibling}\n${ALPINE_CDN}\n</body>`,
+      );
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it.each([
+    ["an ancestor's x-text", '<main class="card" x-data x-text="label">'],
+    ["an ancestor's x-html", '<main class="card" x-data x-html="markup">'],
+  ])(
+    "rejects %s, which replaces the Motion target when Alpine runs",
+    (_label, main) => {
+      const source = html
+        .replace('<main class="card">', main)
+        .replace("</body>", `${ALPINE_CDN}\n</body>`);
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it.each([
+    [
+      "an x-html sibling that can inject a stylesheet",
+      `<div x-data x-html="'<style>[data-agent-native-node-id=hero-title]{color:red}</style>'"></div>`,
+    ],
+    [
+      "an x-if template whose content changes a Motion target",
+      `<div x-data><template x-if="true"><p x-init="document.querySelector('[data-agent-native-node-id=hero-title]').style.color = 'red'"></p></template></div>`,
+    ],
+    [
+      "an x-for template whose content changes a Motion target",
+      `<div x-data="{ items: [1] }"><template x-for="item in items"><p @click="document.querySelector('[data-agent-native-node-id=hero-title]').classList.add('fade')"></p></template></div>`,
+    ],
+  ])("rejects %s when Alpine loads from the CDN", (_label, sibling) => {
+    const source = html.replace(
+      "</body>",
+      `${sibling}\n${ALPINE_CDN}\n</body>`,
+    );
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    ["dot access", `$refs.hero.style.color = 'red'`],
+    ["bracket access", `$refs['hero'].classList.add('fade')`],
+    ["a computed ref name", `$refs[name].classList.add('fade')`],
+  ])(
+    "rejects a sibling that changes an x-ref Motion target through $refs with %s",
+    (_label, expression) => {
+      const source = html
+        .replace('<main class="card">', '<main class="card" x-data>')
+        .replace(
+          '<h1 data-agent-native-node-id="hero-title">',
+          '<h1 data-agent-native-node-id="hero-title" x-ref="hero">',
+        )
+        .replace(
+          "</main>",
+          `  <p x-data x-text="(${expression}) && ''"></p>\n  </main>`,
+        )
+        .replace("</body>", `${ALPINE_CDN}\n</body>`);
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it("allows $refs that only change an element other than the Motion target", () => {
+    const source = html
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 data-agent-native-node-id="hero-title" x-ref="hero">',
+      )
+      .replace('<main class="card">', '<main class="card" x-data>')
+      .replace(
+        "</main>",
+        `  <p x-ref="note" x-text="($refs.note.classList.add('seen')) && ''"></p>\n  </main>`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
+  it("rejects a binding that selects a Motion target inside its $root", () => {
+    const source = html
+      .replace('<main class="card">', '<main class="card" x-data>')
+      .replace(
+        "</main>",
+        `  <p x-text="($root.querySelector('[data-agent-native-node-id=hero-title]').style.color = 'red') && ''"></p>\n  </main>`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("rejects a binding that reaches a Motion target through its $root's owner document", () => {
+    const source = html.replace(
+      "</body>",
+      `<p x-data x-text="($root.ownerDocument.querySelector('[data-agent-native-node-id=hero-title]').classList.add('fade')) && ''"></p>\n${ALPINE_CDN}\n</body>`,
+    );
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("rejects an x-teleport template whose content changes a Motion target", () => {
+    const source = html.replace(
+      "</body>",
+      `<div x-data><template x-teleport="body"><p x-init="document.querySelector('[data-agent-native-node-id=hero-title]').style.color = 'red'"></p></template></div>\n${ALPINE_CDN}\n</body>`,
+    );
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("resolves $root to the closest x-data, not an x-init between them", () => {
+    const source = html
+      .replace('<main class="card">', '<main class="card" x-data>')
+      .replace(
+        "</main>",
+        `  <template x-if="true"><div x-init="ready = true"><p x-text="($root.querySelector('[data-agent-native-node-id=hero-title]').style.color = 'red') && ''"></p></div></template>\n  </main>`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    ["$refs", `$refs.card.innerHTML = ''`, 'x-ref="card"'],
+    ["$root", `$root.replaceChildren()`, ""],
+  ])(
+    "rejects %s replacing the content around a Motion target",
+    (_label, expression, ref) => {
+      const source = html
+        .replace('<main class="card">', `<main class="card" x-data ${ref}>`)
+        .replace(
+          "</main>",
+          `  <p x-text="(${expression}) || ''"></p>\n  </main>`,
+        )
+        .replace("</body>", `${ALPINE_CDN}\n</body>`);
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it.each([
+    [
+      "Object.assign on a ref",
+      `Object.assign($refs.hero, { style: 'color: red' })`,
+    ],
+    ["Reflect.set on the root", `Reflect.set($root, 'innerHTML', '')`],
+    [
+      "Object.defineProperty on a ref",
+      `Object.defineProperty($refs.hero, 'className', { value: 'fade' })`,
+    ],
+  ])("rejects %s that reaches a Motion target", (_label, expression) => {
+    const source = html
+      .replace('<main class="card">', '<main class="card" x-data>')
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 data-agent-native-node-id="hero-title" x-ref="hero">',
+      )
+      .replace("</main>", `  <p x-text="(${expression}) && ''"></p>\n  </main>`)
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    [
+      "a sibling replacing its parent's content",
+      (source: string) =>
+        source.replace(
+          "</main>",
+          `  <p x-text="($el.parentElement.innerHTML = '') || ''"></p>\n  </main>`,
+        ),
+    ],
+    [
+      "an ancestor binding replacing its own content",
+      (source: string) =>
+        source.replace(
+          '<main class="card">',
+          `<main class="card" x-bind:title="($el.innerHTML = '') || ''">`,
+        ),
+    ],
+  ])("rejects %s around a Motion target", (_label, edit) => {
+    const source = edit(html).replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("allows a nested component's ref that shadows a Motion target's ref of the same name", () => {
+    const source = html
+      .replace('<main class="card">', '<main class="card" x-data>')
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 data-agent-native-node-id="hero-title" x-ref="hero">',
+      )
+      .replace(
+        "</main>",
+        `  <div x-data><span x-ref="hero"></span><p x-text="($refs.hero.classList.add('seen')) && ''"></p></div>\n  </main>`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
+  it("still rejects an outer component's Motion target ref that no nested ref shadows", () => {
+    const source = html
+      .replace('<main class="card">', '<main class="card" x-data>')
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 data-agent-native-node-id="hero-title" x-ref="hero">',
+      )
+      .replace(
+        "</main>",
+        `  <div x-data><span x-ref="note"></span><p x-text="($refs.hero.classList.add('seen')) && ''"></p></div>\n  </main>`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    [
+      "a selected target's remove()",
+      `<p x-data x-text="document.querySelector('[data-agent-native-node-id=hero-title]').remove() || ''"></p>`,
+    ],
+    [
+      "Object.assign on a selected target",
+      `<p x-data x-text="Object.assign(document.querySelector('[data-agent-native-node-id=hero-title]'), { className: 'fade' }) && ''"></p>`,
+    ],
+  ])("rejects %s from a sibling", (_label, sibling) => {
+    const source = html.replace(
+      "</body>",
+      `${sibling}\n${ALPINE_CDN}\n</body>`,
+    );
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    [
+      "Object.assign on $el",
+      "<h1 data-agent-native-node-id=\"hero-title\" x-bind:title=\"Object.assign($el, { className: 'fade' }) && ''\">",
+      '<main class="card">',
+    ],
+    [
+      "a handler removing itself",
+      '<h1 data-agent-native-node-id="hero-title" onclick="this.remove()">',
+      '<main class="card">',
+    ],
+    [
+      "an ancestor removing the clicked element",
+      '<h1 data-agent-native-node-id="hero-title">',
+      '<main class="card" onclick="event.target.remove()">',
+    ],
+  ])("rejects %s on a Motion target", (_label, h1, main) => {
+    const source = html
+      .replace('<h1 data-agent-native-node-id="hero-title">', h1)
+      .replace('<main class="card">', main)
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("allows x-text on the Motion target itself, which only replaces its text", () => {
+    const source = html
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        `<h1 data-agent-native-node-id="hero-title" x-data x-text="'Hello'">`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
+  it("rejects a dynamic Tailwind arbitrary variant, which the browser runtime compiles into a rule that can reach a Motion target", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        `<nav x-data="{ on: false }" :class="on ? '[&~main_h1]:opacity-0' : ''"></nav>\n  <main class="card">`,
+      )
+      .replace("</body>", `${TAILWIND_CDN}\n${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("rejects a class joined from component state that may spell a Tailwind arbitrary variant", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        `<nav x-data="{ b: ']:opacity-0', a: '[&~main_h1' }" :class="a + b"></nav>\n  <main class="card">`,
+      )
+      .replace("</body>", `${TAILWIND_CDN}\n${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it("allows a sibling's dynamic Tailwind utilities that cannot reach another element", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        `<nav x-data="{ on: false }" :class="on ? 'shadow-md' : ''"></nav>\n  <main class="card">`,
+      )
+      .replace("</body>", `${TAILWIND_CDN}\n${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
+  it("rejects an ancestor binding that removes a Motion target it selects", () => {
+    const source = html
+      .replace(
+        '<main class="card">',
+        `<main class="card" x-data x-bind:title="$el.querySelector('[data-agent-native-node-id=hero-title]').remove() || ''">`,
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    ["remove()", "el.remove()"],
+    ["Object.assign", "Object.assign(el, { className: 'fade' })"],
+  ])(
+    "rejects %s on a selected Motion target assigned to a variable",
+    (_label, write) => {
+      const source = html.replace(
+        "</body>",
+        `<p x-data x-init="const el = document.querySelector('[data-agent-native-node-id=hero-title]'); ${write}"></p>\n${ALPINE_CDN}\n</body>`,
+      );
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it.each([
+    [
+      "an x-transition class list",
+      `x-transition:enter="[&~main_h1]:opacity-0"`,
+    ],
+    [
+      "a class built by concatenation",
+      `:class="on ? '[' + '&~main_h1' + ']' + ':opacity-0' : ''"`,
+    ],
+    [
+      "a class built by a template literal",
+      ":class=\"on ? `${open}&~main_h1${close}:opacity-0` : ''\"",
+    ],
+  ])(
+    "rejects %s that may add a Tailwind arbitrary variant",
+    (_label, attribute) => {
+      const source = html
+        .replace(
+          '<main class="card">',
+          `<nav x-data="{ on: false, open: '[', close: ']' }" ${attribute}></nav>\n  <main class="card">`,
+        )
+        .replace("</body>", `${TAILWIND_CDN}\n${ALPINE_CDN}\n</body>`);
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it("allows a $root selector whose root does not contain the Motion target", () => {
+    const source = html.replace(
+      "</body>",
+      `<div x-data><p x-text="($root.querySelector('p').classList.add('seen')) && ''"></p></div>\n${ALPINE_CDN}\n</body>`,
+    );
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
+  it("allows a sibling's Alpine bindings that only touch the sibling", () => {
+    const source = html.replace(
+      "</body>",
+      `<p x-data="{ open: true }" :class="open ? 'is-open' : ''" x-text="open ? 'Open' : 'Closed'"></p>\n${ALPINE_CDN}\n</body>`,
+    );
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "supported" });
+  });
+
+  it("still rejects an Alpine binding that changes a Motion target when Alpine loads from the CDN", () => {
+    const source = html
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 data-agent-native-node-id="hero-title" x-data="{ on: false }" :class="on ? \'fade\' : \'\'">',
+      )
+      .replace("</body>", `${ALPINE_CDN}\n</body>`);
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
 
   it("rejects executable scripts embedded in iframe srcdoc with Motion targets", () => {
     const iframe =

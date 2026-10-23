@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/shared/motion-source-node-id";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { parse as parseJavaScript } from "acorn";
 import { parse, type ParserError } from "parse5";
 import postcss from "postcss";
 
@@ -470,6 +471,203 @@ function isStaticRuntimeScopeData(value: string): boolean {
   );
 }
 
+function staticRuntimeScopeHasName(value: string, name: string): boolean {
+  if (!isStaticRuntimeScopeData(value)) return false;
+  const normalized = value.trim();
+  const entries = splitStaticObjectProperties(normalized.slice(1, -1).trim());
+  return (
+    entries?.some((entry) => {
+      const match = /^([A-Za-z_$][\w$]*)\s*:\s*(.+)$/s.exec(entry);
+      return match?.[1] === name;
+    }) ?? false
+  );
+}
+
+function enclosingStaticRuntimeScope(
+  node: HtmlNode,
+  boundary?: HtmlNode,
+): { name: string; value: string } | undefined {
+  let current: HtmlNode | undefined = node;
+  while (current) {
+    const scope = current.attrs?.find(({ name }) =>
+      isRuntimeStyleMutationScope(name),
+    );
+    if (scope) return scope;
+    if (current === boundary) break;
+    current = current.parentNode;
+  }
+  return undefined;
+}
+
+function isSafeStaticVisibilityBinding(
+  node: HtmlNode,
+  name: string,
+  value: string,
+  boundary?: HtmlNode,
+): boolean {
+  const normalized = name.toLowerCase();
+  if (normalized !== "x-show" && normalized !== "v-show") return false;
+
+  const expression = value.trim();
+  if (expression === "true" || expression === "false") return true;
+  const match = /^!?([A-Za-z_$][\w$]*)$/.exec(expression);
+  if (!match) return false;
+
+  const scope = enclosingStaticRuntimeScope(node, boundary);
+  return Boolean(scope && staticRuntimeScopeHasName(scope.value, match[1]!));
+}
+
+function isJavaScriptNode(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function isJavaScriptIdentifier(value: unknown, name: string): boolean {
+  return (
+    isJavaScriptNode(value) &&
+    value.type === "Identifier" &&
+    value.name === name
+  );
+}
+
+function isJavaScriptMember(
+  value: unknown,
+  objectName: string,
+  propertyName: string,
+): boolean {
+  return (
+    isJavaScriptNode(value) &&
+    value.type === "MemberExpression" &&
+    value.computed === false &&
+    isJavaScriptIdentifier(value.object, objectName) &&
+    isJavaScriptIdentifier(value.property, propertyName)
+  );
+}
+
+function isSafeStaticRuntimeStateHandler(
+  node: HtmlNode,
+  name: string,
+  value: string,
+  boundary?: HtmlNode,
+): boolean {
+  if (!isRuntimeEventHandler(name)) return false;
+
+  const scope = enclosingStaticRuntimeScope(node, boundary);
+  if (!scope) return false;
+
+  let program: unknown;
+  try {
+    program = parseJavaScript(value, { ecmaVersion: "latest" });
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return false;
+  }
+  if (!isJavaScriptNode(program) || !Array.isArray(program.body)) return false;
+  const [statement, ...rest] = program.body;
+  if (rest.length > 0 || !isJavaScriptNode(statement)) return false;
+  if (statement.type !== "ExpressionStatement") return false;
+
+  const assignment = statement.expression;
+  if (
+    !isJavaScriptNode(assignment) ||
+    assignment.type !== "AssignmentExpression" ||
+    assignment.operator !== "=" ||
+    !isJavaScriptNode(assignment.left) ||
+    assignment.left.type !== "Identifier" ||
+    typeof assignment.left.name !== "string" ||
+    !staticRuntimeScopeHasName(scope.value, assignment.left.name)
+  ) {
+    return false;
+  }
+
+  const assignedName = assignment.left.name;
+  const right = assignment.right;
+  if (
+    isJavaScriptNode(right) &&
+    right.type === "Literal" &&
+    ["string", "number", "boolean"].includes(typeof right.value)
+  ) {
+    return true;
+  }
+  if (isJavaScriptIdentifier(right, assignedName)) return true;
+  return (
+    isJavaScriptNode(right) &&
+    right.type === "UnaryExpression" &&
+    right.operator === "!" &&
+    isJavaScriptIdentifier(right.argument, assignedName)
+  );
+}
+
+function isStaticAlpineBootstrapRuntime(node: HtmlNode): boolean {
+  if (
+    node.tagName !== "script" ||
+    attributes(node, "type")[0]?.value.trim().toLowerCase() !== "module" ||
+    attributes(node, "src").length > 0
+  ) {
+    return false;
+  }
+
+  let program: unknown;
+  try {
+    program = parseJavaScript(textContent(node), {
+      ecmaVersion: "latest",
+      sourceType: "module",
+    });
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return false;
+  }
+  if (!isJavaScriptNode(program) || !Array.isArray(program.body)) return false;
+  const body = program.body;
+  if (body.length !== 2 && body.length !== 3) return false;
+
+  const [importDeclaration, ...afterImport] = body;
+  if (
+    !isJavaScriptNode(importDeclaration) ||
+    importDeclaration.type !== "ImportDeclaration" ||
+    !isJavaScriptNode(importDeclaration.source) ||
+    importDeclaration.source.value !== "alpinejs" ||
+    !Array.isArray(importDeclaration.specifiers) ||
+    importDeclaration.specifiers.length !== 1
+  ) {
+    return false;
+  }
+
+  const defaultImport = importDeclaration.specifiers[0];
+  if (
+    !isJavaScriptNode(defaultImport) ||
+    defaultImport.type !== "ImportDefaultSpecifier" ||
+    !isJavaScriptNode(defaultImport.local) ||
+    defaultImport.local.name !== "Alpine"
+  ) {
+    return false;
+  }
+
+  const startCall = afterImport[afterImport.length - 1];
+  if (
+    !isJavaScriptNode(startCall) ||
+    startCall.type !== "ExpressionStatement" ||
+    !isJavaScriptNode(startCall.expression) ||
+    startCall.expression.type !== "CallExpression" ||
+    !isJavaScriptMember(startCall.expression.callee, "Alpine", "start") ||
+    !Array.isArray(startCall.expression.arguments) ||
+    startCall.expression.arguments.length !== 0
+  ) {
+    return false;
+  }
+
+  if (afterImport.length === 1) return true;
+  const exposure = afterImport[0];
+  return (
+    isJavaScriptNode(exposure) &&
+    exposure.type === "ExpressionStatement" &&
+    isJavaScriptNode(exposure.expression) &&
+    exposure.expression.type === "AssignmentExpression" &&
+    exposure.expression.operator === "=" &&
+    isJavaScriptMember(exposure.expression.left, "window", "Alpine") &&
+    isJavaScriptIdentifier(exposure.expression.right, "Alpine")
+  );
+}
+
 function splitStaticObjectProperties(value: string): string[] | null {
   if (!value) return [];
   const properties: string[] = [];
@@ -529,8 +727,11 @@ function findRuntimeStyleMutationAttribute(target: HtmlNode):
 
   for (let index = 0; index < ancestors.length; index++) {
     const node = ancestors[index]!;
-    const attribute = node.attrs?.find(({ name, value }) =>
-      isRuntimeStyleMutationHandler(name, value),
+    const attribute = node.attrs?.find(
+      ({ name, value }) =>
+        isRuntimeStyleMutationHandler(name, value) &&
+        !isSafeStaticVisibilityBinding(node, name, value) &&
+        !isSafeStaticRuntimeStateHandler(node, name, value),
     );
     if (attribute) {
       return {
@@ -613,6 +814,76 @@ function srcdocContainsExecutableContentOrNestedFrame(value: string): boolean {
     }
     return false;
   });
+}
+
+// Every generated design loads these two from jsDelivr. Neither touches a
+// Motion target by itself: Tailwind only reads classes already in the
+// markup, and Alpine acts only through its directives, which the checks
+// below refuse when they could change, replace or restyle a target. Any other
+// script, or these URLs with inline code, extra attributes or a query, is
+// still unknown code and stays refused.
+const GENERATED_DESIGN_LIBRARY_SCRIPT_URLS = [
+  /^https:\/\/cdn\.jsdelivr\.net\/npm\/@tailwindcss\/browser@4(?:\.\d+){0,2}(?:\/dist\/index\.global\.js)?$/,
+  /^https:\/\/cdn\.jsdelivr\.net\/npm\/alpinejs@3(?:\.\d+){0,2}\/dist\/cdn(?:\.min)?\.js$/,
+];
+const GENERATED_DESIGN_LIBRARY_SCRIPT_ATTRIBUTES = new Set([
+  "src",
+  "defer",
+  "async",
+  "crossorigin",
+  "integrity",
+  "referrerpolicy",
+]);
+
+function writesClasses(name: string, value: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    normalized === "x-bind" ||
+    dynamicBoundAttributeName(normalized.split(".", 1)[0]!) === "class" ||
+    /\bclass(?:List|Name)\b|setAttribute\s*\(\s*["']class["']/.test(value)
+  );
+}
+
+function buildsStringAtRuntime(value: string): boolean {
+  return (
+    /`[^`]*\$\{/.test(value) ||
+    /\+/.test(value) ||
+    /\bfromCharCode\b|\.\s*(?:join|concat|replace(?:All)?|repeat)\s*\(/.test(
+      value,
+    )
+  );
+}
+
+function isTailwindBrowserRuntime(node: HtmlNode): boolean {
+  return (
+    node.tagName === "script" &&
+    !node.insideTemplate &&
+    isGeneratedDesignLibraryScript(node) &&
+    GENERATED_DESIGN_LIBRARY_SCRIPT_URLS[0]!.test(
+      attributes(node, "src")[0]?.value.trim() ?? "",
+    )
+  );
+}
+
+function isGeneratedDesignLibraryScript(node: HtmlNode): boolean {
+  if ((node.childNodes ?? []).some((child) => (child.value ?? "").trim())) {
+    return false;
+  }
+  const attrs = node.attrs ?? [];
+  if (
+    !attrs.every((attr) =>
+      GENERATED_DESIGN_LIBRARY_SCRIPT_ATTRIBUTES.has(attr.name.toLowerCase()),
+    )
+  ) {
+    return false;
+  }
+  const src = attributes(node, "src");
+  return (
+    src.length === 1 &&
+    GENERATED_DESIGN_LIBRARY_SCRIPT_URLS.some((url) =>
+      url.test(src[0]!.value.trim()),
+    )
+  );
 }
 
 function isManagedMotionTextRuntime(source: string, node: HtmlNode): boolean {
@@ -740,13 +1011,51 @@ function assertExecutableScriptsSafe(
   targetNodeIds: readonly string[],
   generatedIds: Map<number | undefined, string>,
 ): void {
+  const alpineBootstraps = nodes.filter(isStaticAlpineBootstrapRuntime);
+  const alpineBootstrap =
+    alpineBootstraps.length === 1 ? alpineBootstraps[0] : undefined;
+  const compilesClassesAtRuntime =
+    targetNodeIds.length > 0 && nodes.some(isTailwindBrowserRuntime);
   for (const node of nodes) {
-    if (node.insideTemplate) continue;
+    if (node.insideTemplate && !isRenderedByAlpine(node)) continue;
 
+    // The Tailwind browser runtime compiles classes as they are added, and an
+    // arbitrary variant ([&~main_h1]:) can style elements other than its own.
+    // A class assembled at runtime may spell one that no literal shows.
+    const runtimeVariant =
+      compilesClassesAtRuntime &&
+      node.attrs?.find(
+        ({ name, value }) =>
+          (isAlpineExpressionAttribute(name) ||
+            isEventHandlerAttribute(name) ||
+            /^x-transition/i.test(name)) &&
+          (/\[[^\]]*\]:/.test(value) ||
+            (writesClasses(name, value) && buildsStringAtRuntime(value))),
+      );
+    if (runtimeVariant) {
+      sourceError(
+        "unsupported-target",
+        `HTML Motion targets cannot be synchronized safely while ${runtimeVariant.name} may add a Tailwind arbitrary variant that restyles them.`,
+      );
+    }
+
+    const markupSink =
+      targetNodeIds.length > 0 &&
+      node.attrs?.find(({ name }) => isAlpineMarkupInjection(name));
+    if (markupSink) {
+      sourceError(
+        "unsupported-target",
+        `HTML Motion targets cannot be synchronized safely while ${markupSink.name} may inject a stylesheet.`,
+      );
+    }
+
+    // A template is never rendered, so nothing fires its event handlers.
     const targetMutatingHandler = node.attrs?.find(
       ({ name, value }) =>
+        !(node.tagName === "template" && isEventHandlerAttribute(name)) &&
         (isEventHandlerAttribute(name) ||
-          isRuntimeLifecycleMutationAttribute(name)) &&
+          isRuntimeLifecycleMutationAttribute(name) ||
+          isAlpineExpressionAttribute(name)) &&
         handlerMayMutateMotionTarget(
           value,
           node,
@@ -786,6 +1095,15 @@ function assertExecutableScriptsSafe(
 
     if (node.tagName !== "script") continue;
     if (
+      alpineBootstrap &&
+      attributes(node, "type")[0]?.value.trim().toLowerCase() === "importmap"
+    ) {
+      sourceError(
+        "unsupported-target",
+        "HTML Motion targets cannot be synchronized safely while an executable script may change their class or style.",
+      );
+    }
+    if (
       !isExecutableScript(node) &&
       !hasPotentialRuntimeMutationHandler(node.attrs)
     ) {
@@ -793,15 +1111,73 @@ function assertExecutableScriptsSafe(
     }
     if (
       !hasPotentialRuntimeMutationHandler(node.attrs) &&
-      isManagedMotionTextRuntime(source, node)
+      (node === alpineBootstrap || isManagedMotionTextRuntime(source, node))
     ) {
       continue;
     }
+    if (isGeneratedDesignLibraryScript(node)) continue;
     sourceError(
       "unsupported-target",
       "HTML Motion targets cannot be synchronized safely while an executable script may change their class or style.",
     );
   }
+}
+
+// Alpine clones x-if, x-for and x-teleport template content into the live
+// document, so what it renders runs like any other markup.
+function isRenderedByAlpine(node: HtmlNode): boolean {
+  for (let current = node.parentNode; current; current = current.parentNode) {
+    if (
+      current.tagName === "template" &&
+      current.attrs?.some(({ name }) =>
+        /^x-(?:if|for|teleport)(?:\.|$)/i.test(name),
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isAlpineMarkupInjection(name: string): boolean {
+  const directive = name.toLowerCase().split(".", 1)[0]!;
+  return (
+    directive === "x-html" ||
+    ["innerhtml", "outerhtml"].includes(
+      dynamicBoundAttributeName(directive) ?? "",
+    )
+  );
+}
+
+function isAlpineContentReplacement(name: string): boolean {
+  const directive = name.toLowerCase().split(".", 1)[0]!;
+  return (
+    directive === "x-text" ||
+    isAlpineMarkupInjection(directive) ||
+    ["textcontent", "innertext"].includes(
+      dynamicBoundAttributeName(directive) ?? "",
+    )
+  );
+}
+
+function findContentReplacement(
+  target: HtmlNode,
+):
+  | { attribute: { name: string; value: string }; onTarget: boolean }
+  | undefined {
+  for (
+    let current: HtmlNode | undefined = target;
+    current;
+    current = current.parentNode
+  ) {
+    // x-text on the target only replaces its text, which CSS Motion does not
+    // depend on; Motion Text refuses dynamic text on its own.
+    const replaces =
+      current === target ? isAlpineMarkupInjection : isAlpineContentReplacement;
+    const attribute = current.attrs?.find(({ name }) => replaces(name));
+    if (attribute) return { attribute, onTarget: current === target };
+  }
+  return undefined;
 }
 
 function isRuntimeEventHandler(name: string): boolean {
@@ -812,6 +1188,27 @@ function isRuntimeEventHandler(name: string): boolean {
     normalized === "v-on" ||
     normalized.startsWith("v-on:") ||
     normalized.startsWith("@")
+  );
+}
+
+// Alpine evaluates every directive value as JavaScript on any element, so a
+// binding on a sibling can reach a Motion target as surely as a handler can.
+// Directives whose values are class lists, selectors or names are not run.
+const ALPINE_NON_EXPRESSION_DIRECTIVES = new Set([
+  "x-cloak",
+  "x-ignore",
+  "x-ref",
+  "x-teleport",
+]);
+
+function isAlpineExpressionAttribute(name: string): boolean {
+  const normalized = name.toLowerCase();
+  if (normalized.startsWith(":") || normalized.startsWith("@")) return true;
+  if (!normalized.startsWith("x-")) return false;
+  const directive = normalized.split(/[.:]/, 1)[0]!;
+  return (
+    !ALPINE_NON_EXPRESSION_DIRECTIVES.has(directive) &&
+    directive !== "x-transition"
   );
 }
 
@@ -839,6 +1236,27 @@ function handlerMayMutateMotionTarget(
 
   const targetIds = new Set(targetNodeIds);
   if (mayMutateThroughAlternateDomRoot(value, nodes, targetIds, generatedIds)) {
+    return true;
+  }
+  if (
+    alpineMagicMayMutateMotionTarget(
+      value,
+      handlerNode,
+      nodes,
+      targetIds,
+      generatedIds,
+    )
+  ) {
+    return true;
+  }
+  const handlerReachesTarget = () =>
+    isMotionTargetNode(handlerNode, targetIds, generatedIds) ||
+    containsMotionTarget(handlerNode, nodes, targetIds, generatedIds);
+  if (
+    (DIRECT_ELEMENT_CONTENT_REPLACEMENT.test(value) ||
+      (REFLECTIVE_WRITE.test(value) && SELF_REFERENCE.test(value))) &&
+    handlerReachesTarget()
+  ) {
     return true;
   }
   const directTargetMutation =
@@ -875,6 +1293,87 @@ function handlerMayMutateMotionTarget(
   );
 }
 
+// $root and $refs hand an expression elements it never selects, so the
+// selector checks cannot see them reach a Motion target. Both resolve
+// through the x-data components around the expression; x-init runs an
+// expression without starting one, so it is not a root. Replacing an
+// element's content removes any Motion target inside it.
+function alpineMagicMayMutateMotionTarget(
+  value: string,
+  handlerNode: HtmlNode,
+  nodes: readonly HtmlNode[],
+  targetIds: ReadonlySet<string>,
+  generatedIds: Map<number | undefined, string>,
+): boolean {
+  if (!mayWriteElement(value)) return false;
+  const roots = alpineRoots(handlerNode);
+  if (roots.length === 0) return false;
+  const reachesTarget = (node: HtmlNode) =>
+    isMotionTargetNode(node, targetIds, generatedIds) ||
+    containsMotionTarget(node, nodes, targetIds, generatedIds);
+
+  if (/\$root\b/.test(value) && reachesTarget(roots[0]!)) return true;
+
+  const refs =
+    /\$refs\b(?:\s*\??\.\s*([A-Za-z_$][\w$]*)|\s*\[\s*(["'])([^"']*)\2\s*\])?/g;
+  // Alpine merges the refs of every component around the expression, the
+  // nearest first, so a name resolves in the nearest component defining it.
+  const refsIn = (root: HtmlNode, name: string | undefined) =>
+    nodes.filter(
+      (node) =>
+        alpineRoots(node)[0] === root &&
+        attributes(node, "x-ref").some(
+          ({ value: ref }) => name === undefined || ref === name,
+        ),
+    );
+  for (const match of value.matchAll(refs)) {
+    const name = match[1] ?? match[3];
+    const referenced =
+      name === undefined
+        ? roots.flatMap((root) => refsIn(root, undefined))
+        : (roots
+            .map((root) => refsIn(root, name))
+            .find((found) => found.length > 0) ?? []);
+    if (referenced.some(reachesTarget)) return true;
+  }
+  return false;
+}
+
+function alpineRoots(node: HtmlNode): HtmlNode[] {
+  const roots: HtmlNode[] = [];
+  for (
+    let current: HtmlNode | undefined = node;
+    current;
+    current = current.parentNode
+  ) {
+    if (attributes(current, "x-data").length > 0) roots.push(current);
+  }
+  return roots;
+}
+
+const CONTENT_REPLACEMENT_MEMBERS = String.raw`innerHTML|outerHTML|textContent|innerText|outerText|replaceChildren|replaceWith|remove|removeChild|insertAdjacentHTML`;
+const CONTENT_REPLACEMENT_MEMBER_ACCESS = String.raw`(?:\?\.|\.)\s*(?:${CONTENT_REPLACEMENT_MEMBERS})\b|\[\s*["'](?:${CONTENT_REPLACEMENT_MEMBERS})["']\s*\]`;
+const CONTENT_REPLACEMENT_ACCESS = new RegExp(
+  CONTENT_REPLACEMENT_MEMBER_ACCESS,
+);
+// These write any property named by a string or key, so the member checks
+// cannot tell what they change.
+const REFLECTIVE_WRITE =
+  /\b(?:Object\s*\.\s*(?:assign|defineProperty|defineProperties)|Reflect\s*\.\s*(?:set|defineProperty))\s*\(/;
+
+const REFLECTIVE_WRITE_TARGET =
+  /\b(?:Object\s*\.\s*(?:assign|defineProperty|defineProperties)|Reflect\s*\.\s*(?:set|defineProperty))\s*\(\s*$/;
+const SELF_REFERENCE =
+  /(?:\bthis\b|\$el\b|\b(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))/;
+
+function mayWriteElement(value: string): boolean {
+  return (
+    MUTATION_MEMBER_ACCESS_PATTERN.test(value) ||
+    CONTENT_REPLACEMENT_ACCESS.test(value) ||
+    REFLECTIVE_WRITE.test(value)
+  );
+}
+
 const MUTATION_MEMBER_ACCESS = String.raw`(?:\?\.|\.)\s*(?:style\b|classList\b|className\b|setAttribute(?:NS)?\s*\(|removeAttribute\s*\(|toggleAttribute\s*\(|animate\s*\()|\[\s*["'](?:style|classList|className|setAttribute(?:NS)?|removeAttribute|toggleAttribute|animate)["']\s*\]`;
 const MUTATION_MEMBER_ACCESS_PATTERN = new RegExp(MUTATION_MEMBER_ACCESS, "i");
 
@@ -891,7 +1390,7 @@ function handlerElementSelectorMayMutateMotionTarget(
     String.raw`(?:^|[^\w$])${scope}\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
     "gi",
   );
-  const hasMutation = MUTATION_MEMBER_ACCESS_PATTERN.test(value);
+  const hasMutation = mayWriteElement(value);
   if (!hasMutation) return false;
 
   const aliases = assignedAliases(
@@ -917,6 +1416,11 @@ function handlerElementSelectorMayMutateMotionTarget(
 
 const DIRECT_ELEMENT_MUTATION = new RegExp(
   String.raw`(?:\bthis\b|\b(?:event|e)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\])|\$el|\$event\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))\s*(?:${MUTATION_MEMBER_ACCESS})`,
+  "i",
+);
+
+const DIRECT_ELEMENT_CONTENT_REPLACEMENT = new RegExp(
+  String.raw`(?:\bthis\b|\$el|\b(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))\s*(?:${CONTENT_REPLACEMENT_MEMBER_ACCESS})`,
   "i",
 );
 
@@ -952,7 +1456,7 @@ function mayMutateThroughDomTraversal(value: string): boolean {
     /(?:\.\s*(?:parentElement|parentNode|children|childNodes|firstElementChild|lastElementChild|firstChild|lastChild|nextElementSibling|previousElementSibling|nextSibling|previousSibling|closest|matches)\b|\[\s*["'](?:parentElement|parentNode|children|childNodes|firstElementChild|lastElementChild|firstChild|lastChild|nextElementSibling|previousElementSibling|nextSibling|previousSibling|closest|matches)["']\s*\])/i.test(
       value,
     );
-  return traversesDom && MUTATION_MEMBER_ACCESS_PATTERN.test(value);
+  return traversesDom && mayWriteElement(value);
 }
 
 function mayMutateThroughAlternateDomRoot(
@@ -961,7 +1465,7 @@ function mayMutateThroughAlternateDomRoot(
   targetIds: ReadonlySet<string>,
   generatedIds: Map<number | undefined, string>,
 ): boolean {
-  const root = String.raw`(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))`;
+  const root = String.raw`(?:this|\$el|\$root|\$refs\s*(?:\??\.\s*[A-Za-z_$][\w$]*|\[[^\]]*\])|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))`;
   const selectorNames = String.raw`querySelector(?:All)?|getElementById|getElementsBy(?:ClassName|Name|TagName)`;
   const selectorCalls = new RegExp(
     String.raw`(?<![\w$])${root}\s*(?:\.\s*(?:ownerDocument)|\.\s*getRootNode\s*\(\s*\)|\[\s*["'](?:ownerDocument|getRootNode)["']\s*\](?:\s*\(\s*\))?)\s*(?:\.\s*(${selectorNames})|\[\s*["'](${selectorNames})["']\s*\])\s*\(`,
@@ -1201,6 +1705,7 @@ function identifierMayFeedMutationSink(
   const aliases = identifierAliases(source, identifier);
   return aliases.some((alias) => {
     if (elementMutationSinkForIdentifier(alias).test(source)) return true;
+    if (identifierWriteSink(alias).test(source)) return true;
     const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(
       `\\b${escaped}(?:\\s*(?:\\?\\.|\\.)\\s*[A-Za-z_$][\\w$]*|\\s*\\[\\s*["'][^"']+["']\\s*\\]){1,8}\\s*(?:${MUTATION_MEMBER_ACCESS})`,
@@ -1213,8 +1718,10 @@ function handlerTargetAliasMayMutate(value: string): boolean {
   const targetExpression =
     /^(?:this|\$el|(?:event|e|\$event)\s*(?:\.\s*(?:currentTarget|target)|\[\s*["'](?:currentTarget|target)["']\s*\]))/i;
   const aliases = assignedAliases(value, targetExpression);
-  return [...aliases].some((alias) =>
-    identifierMutationSink(alias).test(value),
+  return [...aliases].some(
+    (alias) =>
+      identifierMutationSink(alias).test(value) ||
+      identifierWriteSink(alias).test(value),
   );
 }
 
@@ -1222,8 +1729,10 @@ function eventTargetAliasMayMutate(value: string): boolean {
   const targetExpression =
     /^(?:event|e|\$event)\s*(?:\.\s*target|\[\s*["']target["']\s*\])/i;
   const aliases = assignedAliases(value, targetExpression);
-  return [...aliases].some((alias) =>
-    identifierMutationSink(alias).test(value),
+  return [...aliases].some(
+    (alias) =>
+      identifierMutationSink(alias).test(value) ||
+      identifierWriteSink(alias).test(value),
   );
 }
 
@@ -1275,8 +1784,7 @@ function handlerSelectsAndMutatesMotionTarget(
     );
   if (
     !usesDocumentSelector ||
-    (!MUTATION_MEMBER_ACCESS_PATTERN.test(value) &&
-      !destructuredMutationCandidate)
+    (!mayWriteElement(value) && !destructuredMutationCandidate)
   )
     return false;
 
@@ -1377,6 +1885,9 @@ function selectorCallFeedsMutationSink(
 ): boolean {
   const afterCall = source.slice(callEndIndex);
   if (SELECTED_ELEMENT_MUTATION_SINK.test(afterCall)) return true;
+  if (REFLECTIVE_WRITE_TARGET.test(source.slice(0, callStartIndex))) {
+    return true;
+  }
   if (
     destructuredSelectorCallHasActualMutationSink(
       source.slice(0, callStartIndex),
@@ -1506,6 +2017,15 @@ const SELECTED_ELEMENT_MUTATION_SINK = new RegExp(
   `^\\s*(?:\\[\\s*\\d+\\s*\\]\\s*)?(?:${MUTATION_MEMBER_ACCESS})`,
   "i",
 );
+
+// Content replacement on an element, or a reflective write taking it first.
+function identifierWriteSink(identifier: string): RegExp {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    String.raw`\b${escaped}\s*(?:${CONTENT_REPLACEMENT_MEMBER_ACCESS})|\b(?:Object\s*\.\s*(?:assign|defineProperty|defineProperties)|Reflect\s*\.\s*(?:set|defineProperty))\s*\(\s*${escaped}\b`,
+    "i",
+  );
+}
 
 function elementMutationSinkForIdentifier(identifier: string): RegExp {
   const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1707,8 +2227,11 @@ function findRuntimeStyleMutationInScope(
     const node = pending.pop()!;
     if (node.insideTemplate || node.tagName === "template") continue;
 
-    const attribute = node.attrs?.find(({ name, value }) =>
-      isRuntimeStyleMutationHandler(name, value),
+    const attribute = node.attrs?.find(
+      ({ name, value }) =>
+        isRuntimeStyleMutationHandler(name, value) &&
+        !isSafeStaticVisibilityBinding(node, name, value, scope) &&
+        !isSafeStaticRuntimeStateHandler(node, name, value, scope),
     );
     if (attribute) return attribute;
 
@@ -1970,6 +2493,14 @@ function assertTargetsExist(
         sourceError(
           "unsupported-target",
           `Motion target "${nodeId}" ${runtimeScope}, whose runtime expression cannot be proven free of style mutations.`,
+        );
+      }
+      const contentReplacement = findContentReplacement(target);
+      if (contentReplacement) {
+        const { attribute, onTarget } = contentReplacement;
+        sourceError(
+          "unsupported-target",
+          `Motion target "${nodeId}" ${onTarget ? "uses" : "has an ancestor using"} ${attribute.name}, which replaces its content when Alpine runs.`,
         );
       }
       const inlineStyle = target.attrs?.find(({ name }) => name === "style");

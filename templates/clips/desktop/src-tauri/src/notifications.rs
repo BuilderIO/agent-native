@@ -112,6 +112,90 @@ fn start_meeting_notification_hover_tracking(app: &AppHandle) {
     });
 }
 
+/// Debug-only: writes a JSON snapshot into the app log folder so the card's
+/// state can be read without screen capture. A no-op unless debug logging is on.
+fn write_debug_snapshot(app: &AppHandle, name: &str, payload: &Value) -> Result<(), String> {
+    if !crate::debug::debug_enabled() {
+        return Ok(());
+    }
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| e.to_string())?
+        .join("debug");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let body = serde_json::to_string_pretty(payload).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(format!("{name}.json")), body).map_err(|e| e.to_string())
+}
+
+fn is_valid_snapshot_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+#[tauri::command]
+pub fn debug_write_snapshot(app: AppHandle, name: String, payload: Value) -> Result<(), String> {
+    if !is_valid_snapshot_name(&name) {
+        return Err(format!("invalid snapshot name: {name}"));
+    }
+    write_debug_snapshot(&app, &name, &payload)
+}
+
+fn snapshot_meeting_notification_window(app: &AppHandle) {
+    if !crate::debug::debug_enabled() {
+        return;
+    }
+    let Some(win) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) else {
+        return;
+    };
+    let app = app.clone();
+    let main_win = win.clone();
+    // AppKit state can only be read on the main thread.
+    if let Err(err) = win.run_on_main_thread(move || {
+        let payload = serde_json::json!({
+            "visible": main_win.is_visible().ok(),
+            "position": main_win.outer_position().ok().map(|p| (p.x, p.y)),
+            "size": main_win.outer_size().ok().map(|s| (s.width, s.height)),
+            "scaleFactor": main_win.scale_factor().ok(),
+            "appKit": appkit_window_state(&main_win),
+        });
+        if let Err(err) = write_debug_snapshot(&app, "meeting-notif-window", &payload) {
+            eprintln!("[clips-tray] debug snapshot write failed: {err}");
+        }
+    }) {
+        eprintln!("[clips-tray] debug snapshot main-thread dispatch failed: {err}");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn appkit_window_state(win: &WebviewWindow) -> Value {
+    let ptr = match win.ns_window() {
+        Ok(ptr) if !ptr.is_null() => ptr,
+        Ok(_) => return serde_json::json!({ "error": "ns_window is null" }),
+        Err(err) => return serde_json::json!({ "error": err.to_string() }),
+    };
+    // SAFETY: ns_window() returns a live NSWindow*, and this runs on the main thread.
+    unsafe {
+        let obj = &*(ptr as *mut objc2::runtime::AnyObject);
+        let alpha: f64 = objc2::msg_send![obj, alphaValue];
+        let level: isize = objc2::msg_send![obj, level];
+        let occlusion: usize = objc2::msg_send![obj, occlusionState];
+        let visible: bool = objc2::msg_send![obj, isVisible];
+        let on_active_space: bool = objc2::msg_send![obj, isOnActiveSpace];
+        serde_json::json!({
+            "alpha": alpha,
+            "level": level,
+            "occlusionState": occlusion,
+            "isVisible": visible,
+            "isOnActiveSpace": on_active_space,
+        })
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn appkit_window_state(_win: &WebviewWindow) -> Value {
+    serde_json::json!({ "error": "AppKit state is only available on macOS" })
+}
+
 pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     let (w, h, x, y) = notification_rect(app);
     if let Some(existing) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) {
@@ -119,6 +203,7 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
         let _ = existing.set_position(PhysicalPosition::new(x, y));
         configure_overlay_behavior(&existing);
         show_without_activation(&existing);
+        snapshot_meeting_notification_window(app);
         start_meeting_notification_hover_tracking(&app);
         return Ok(());
     }
@@ -150,6 +235,7 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     let _ = win.set_position(PhysicalPosition::new(x, y));
     configure_overlay_behavior(&win);
     show_without_activation(&win);
+    snapshot_meeting_notification_window(app);
     start_meeting_notification_hover_tracking(&app);
     Ok(())
 }
@@ -394,6 +480,7 @@ pub async fn notify_meeting_starting(
         "scheduledStart": scheduled_start,
         "scheduledEnd": scheduled_end,
         "autoStart": auto_start.unwrap_or(false),
+        "debugSnapshots": crate::debug::debug_enabled(),
     });
     let state = app.state::<MeetingNotificationState>();
     let should_show = {
@@ -435,6 +522,14 @@ pub async fn notify_meeting_starting(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_names_cannot_escape_the_debug_folder() {
+        assert!(is_valid_snapshot_name("meeting-notif-dom"));
+        assert!(!is_valid_snapshot_name(""));
+        assert!(!is_valid_snapshot_name("../clips-tray"));
+        assert!(!is_valid_snapshot_name("a/b"));
+    }
 
     #[test]
     fn clears_only_the_matching_pending_notification() {

@@ -15,7 +15,10 @@ import {
   CANCELLED_BUILDER_REVIEW_NOTE_PREFIX,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 const PRE_DISPATCH_STATES = new Set(["ready", "write_disabled", "blocked"]);
 
@@ -166,6 +169,7 @@ export default defineAction({
     }),
   run: async (
     args: CancelPreparedBuilderSourceUpdateRequest,
+    context,
   ): Promise<CancelPreparedBuilderSourceUpdateResponse> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
@@ -379,10 +383,13 @@ export default defineAction({
     });
 
     return {
-      ...(await getContentDatabaseResponse(database.id, {
-        limit: 100,
-        offset: 0,
-      })),
+      ...contentDatabaseResponseForCaller(
+        await getContentDatabaseResponse(database.id, {
+          limit: 100,
+          offset: 0,
+        }),
+        context,
+      ),
       cancellation: {
         sourceId: args.sourceId,
         changeSetId: args.changeSetId,

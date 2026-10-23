@@ -16,6 +16,7 @@ const SWITCH_REFUSALS: Record<LiveBodyConversionErrorCode, string> = {
   flag_off: "LIVE_BODY_WRITER_OFF",
   local_file: "LIVE_BODY_SWITCH_LOCAL_FILE",
   base_changed: "LIVE_BODY_SWITCH_CONFLICT",
+  rebaseline_blocked: "LIVE_BODY_SWITCH_BLOCKED",
 };
 
 export default defineAction({
@@ -43,6 +44,7 @@ export default defineAction({
         throw new ActionContractError(error.message, {
           errorCode: SWITCH_REFUSALS[error.code],
           statusCode: 409,
+          ...(error.blocked ? { details: error.blocked } : {}),
         });
       }
       throw error;

@@ -416,6 +416,7 @@ import {
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   turnRunLedgerExhausted,
 } from "./run-store.js";
+import { setRunTurnIdHeader } from "./run-turn-id-header.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   claimSetupResume,
@@ -2125,6 +2126,7 @@ export interface ProductionAgentOptions {
     send: (event: AgentChatEvent) => void,
     threadId: string,
     runId: string,
+    turnId: string,
   ) => void | Promise<void>;
   /**
    * Called when the run's engine, model, and effort resolve, and again before
@@ -13142,6 +13144,7 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "Cache-Control", "no-cache");
         setResponseHeader(event, "Connection", "keep-alive");
         setResponseHeader(event, "X-Run-Id", result.submittedRunId);
+        setRunTurnIdHeader(event, getRun(result.submittedRunId)?.turnId);
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }
@@ -13257,6 +13260,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", submittedRunId);
+          setRunTurnIdHeader(event, getRun(submittedRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return stream;
         }
@@ -14940,6 +14944,9 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "Cache-Control", "no-cache");
         setResponseHeader(event, "Connection", "keep-alive");
         setResponseHeader(event, "X-Run-Id", slot.completedRunId);
+        // The client leaves a replay's turn out unless named here, and this
+        // replay was found by its turn, so the stored turn is known.
+        setRunTurnIdHeader(event, effectiveTurnId);
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }
@@ -15227,6 +15234,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", duplicateRunId);
+          setRunTurnIdHeader(event, getRun(duplicateRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
           return stream;
         }
@@ -15345,6 +15353,7 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "Cache-Control", "no-cache");
           setResponseHeader(event, "Connection", "keep-alive");
           setResponseHeader(event, "X-Run-Id", runId);
+          setRunTurnIdHeader(event, effectiveTurnId);
           setResponseHeader(event, "X-Dispatch-Mode", "background");
           return stream;
         }
@@ -15790,7 +15799,12 @@ export function createProductionAgentHandler(
         }
 
         if (options.onRunStart) {
-          await options.onRunStart(send, threadId ?? runId, runId);
+          await options.onRunStart(
+            send,
+            threadId ?? runId,
+            runId,
+            effectiveTurnId,
+          );
         }
 
         const unknownOutcomes = noUnknownOutcomes();
@@ -16288,6 +16302,7 @@ export function createProductionAgentHandler(
                 loopOpts: agentLoopOpts,
                 runId,
                 threadId: threadId ?? null,
+                turnId: effectiveTurnId,
                 userId: ownerEmail,
                 config: obsConfig,
                 spanName:
@@ -16401,10 +16416,12 @@ export function createProductionAgentHandler(
             : "foreground",
         runRowAlreadyInserted: foregroundRunRowInserted,
         executionLease: true,
+        // An anonymous run is not a user; `run_started` does not name one either.
+        userId: turnInitiator?.anonymous
+          ? undefined
+          : (ownerEmail ?? undefined),
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
-        // No userId here: `ownerEmail` is the only identity known at this
-        // scope and is PII (email), which the terminal event must not carry.
         model: effectiveModel,
         engineName: engine.name,
         attemptCount: backgroundContinuationCount,
@@ -16426,6 +16443,7 @@ export function createProductionAgentHandler(
     setResponseHeader(event, "Cache-Control", "no-cache");
     setResponseHeader(event, "Connection", "keep-alive");
     setResponseHeader(event, "X-Run-Id", runId);
+    setRunTurnIdHeader(event, effectiveTurnId);
     setResponseHeader(
       event,
       "X-Dispatch-Mode",

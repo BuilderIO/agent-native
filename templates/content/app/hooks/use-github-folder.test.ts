@@ -44,6 +44,7 @@ import {
   useCreateGitHubCollection,
   useGitHubConnection,
   useLinkGitHubFolder,
+  useSyncGitHubFolder,
 } from "./use-github-folder";
 
 beforeEach(() => {
@@ -71,6 +72,30 @@ describe("useLinkGitHubFolder", () => {
       url: "https://github.com/acme/site/tree/main/docs",
       dryRun: true,
     });
+    expect(hook.invalidateQueries).not.toHaveBeenCalled();
+  });
+});
+
+describe("useSyncGitHubFolder", () => {
+  const variables = { databaseId: "db" };
+  const answer = (state: string) => ({ sync: { state } });
+
+  it("refreshes the collection after a sync, and after one that failed", () => {
+    useSyncGitHubFolder();
+    hook.options?.onSettled?.(answer("partial"), null, variables);
+    hook.options?.onSettled?.(undefined, new Error("Network down"), variables);
+    expect(hook.invalidateQueries).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves queries alone when another sync held the folder", () => {
+    useSyncGitHubFolder();
+    hook.options?.onSettled?.(answer("busy"), null, variables);
+    expect(hook.invalidateQueries).not.toHaveBeenCalled();
+  });
+
+  it("leaves refreshing to a caller that asks to", () => {
+    useSyncGitHubFolder({ refresh: false });
+    hook.options?.onSettled?.(answer("partial"), null, variables);
     expect(hook.invalidateQueries).not.toHaveBeenCalled();
   });
 });

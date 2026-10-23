@@ -2,6 +2,10 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import {
+  discussionMessages,
+  discussionMessagesByLocale,
+} from "./discussion-messages";
 import { importMessagesByLocale } from "./import-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
@@ -1634,6 +1638,7 @@ const enUS = {
   },
   comments: {
     ...commentAttributionMessagesByLocale["en-US"],
+    ...discussionMessages,
     filter: "Filter",
     add: "Add a comment...",
     title: "Comments",
@@ -1662,6 +1667,13 @@ const enUS = {
       "Could not confirm saving. Check this thread before trying again.",
     backToList: "Back to comments",
     cancel: "Cancel",
+    discardCommentQuestion: "Discard comment?",
+    discardReplyQuestion: "Discard reply?",
+    discardEditQuestion: "Discard changes?",
+    discardDescription: "What you've written will be lost.",
+    discardEditDescription: "Your comment will stay as it was.",
+    discard: "Discard",
+    keepEditing: "Keep editing",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",
@@ -1743,6 +1755,10 @@ const enUS = {
     proposalEditCount_other: "{{count}} edits",
     acceptRemaining: "Accept remaining",
     rejectRemaining: "Reject remaining",
+    acceptAll: "Accept all",
+    rejectAll: "Reject all",
+    suggestionReviewReadOnly:
+      "Only people who can edit this page can accept or reject its suggestions.",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",
@@ -2546,6 +2562,7 @@ function mergeMessagesForLocale(
       ...base.comments,
       ...bundle.comments,
       ...bundle.reviewDiscussions,
+      ...discussionMessagesByLocale[locale],
     },
     landing: { ...base.landing, ...bundle.landing },
     root: { ...base.root, ...rawLiteralOverrides.root },
