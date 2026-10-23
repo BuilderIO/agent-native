@@ -708,6 +708,12 @@ describe("Analytics agent Plan mode policy", () => {
       "call again with its `metricName` and returned `nextPage`",
     );
     expect(dataQueryingSkill).toContain("connection-required error");
+    expect(dataQueryingSkill).toContain(
+      "is resumable: call again with only its `metricName`, `queryId`, and `nextPage`",
+    );
+    expect(dataQueryingSkill).toContain(
+      "resume with `queryId` and `nextPage` when `nextPage` is present",
+    );
     expect(readMarkdown("../../actions/bigquery.ts")).toContain(
       "For an owner-defined dbt metric question, even unnamed, follow the dbt path in `data-querying/SKILL.md` first.",
     );

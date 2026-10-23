@@ -23,10 +23,10 @@ For a question about something an owner-defined dbt metric measures, even withou
 
 Use `tool-search` to load `query-dbt-semantic-metric` for a matched metric and pass its exact name. Use dbt as the definition and grain source; Sigma and Amplitude are examples or cross-checks.
 
-Pass a listed `connectionId` on `connection_selection_required`. Call `get-dbt-connection` only on `connection_error`, `connection_unavailable`, or a connection-required error, and report its actual readiness or error, keeping unknown distinct from disconnected. Handle the other statuses:
+Pass a listed `connectionId` on `connection_selection_required`. Call `get-dbt-connection` only on `connection_error`, `connection_unavailable`, or a connection-required error, and report its actual readiness or error, keeping unknown distinct from disconnected. Any result that carries `queryId` and `nextPage` is resumable: call again with only its `metricName`, `queryId`, and `nextPage`, with no query scope. Resume it before other handling, whether it is `pending`, a truncated `success`, or an error status that carries them. Handle the other statuses:
 
-- `success`: answer from its rows. If `truncated` is true, say the figures are partial, and continue with `nextPage` only when it is present.
-- `pending`: call again with only its returned `metricName`, `queryId`, and `nextPage`. Do not resend the original `groupBy`, filters, or grain.
+- `success`: answer from its rows. If `truncated` is true, say the figures are partial and resume with `queryId` and `nextPage` when `nextPage` is present.
+- `pending`: resume as above. Do not resend the original `groupBy`, filters, or grain.
 - `metadata_truncated`: call again with its `metricName` and returned `nextPage`, and no query scope (no `groupBy`, `timeRange`, or `allTime`), to read the next metadata page. This is separate from the `not_found` recheck.
 - `not_found`: search `find-data` for the exact name once and retry the query. If `find-data` has no dbt entry, retry it once with concept words from the question (synonyms or likely definition terms). If still nothing, say no owner-defined metric matched, without claiming it is missing from dbt. A `not_found` result alone does not confirm a missing definition.
 - `ambiguous_metric`: list the names `find-data` returns for it and ask which one is meant.
