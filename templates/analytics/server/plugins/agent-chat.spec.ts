@@ -683,10 +683,10 @@ describe("Analytics agent Plan mode policy", () => {
       "retry no-candidate searches once with owner terms",
     );
     expect(agentsGuide).toContain(
-      "If still unmatched: no listed connection means normal sources, said",
+      'Use normal source selection only when a successful result has `readiness: "not_connected"` and no listed connections',
     );
     expect(agentsGuide).toContain(
-      "listed but none ready means name the missing step and stop",
+      "Treat `connected: false`, null readiness, and failed or unreadable lookups as unknown, not disconnected",
     );
     expect(dataQueryingSkill).toContain("`metadata_truncated`");
     expect(dataQueryingSkill).toContain("`no_metrics_available`");
@@ -701,7 +701,10 @@ describe("Analytics agent Plan mode policy", () => {
       "follow the dbt path in `data-querying/SKILL.md`",
     );
     expect(bigquerySkill).toContain(
-      "stop at the mapping gap for this metric. If `get-dbt-connection` lists no connections, continue with steps 1–3 and say so.",
+      'Only a successful `get-dbt-connection` result with `readiness: "not_connected"` and an empty `connections[]` permits normal source selection',
+    );
+    expect(bigquerySkill).toContain(
+      "If any row is ready, keep dbt as the source even when top-level readiness is null",
     );
     expect(ruleText("references")).toContain("only dbt routing searches again");
     expect(dataQueryingSkill).toContain(
@@ -722,13 +725,13 @@ describe("Analytics agent Plan mode policy", () => {
     );
     expect(dataQueryingSkill).toContain("gets one resume");
     expect(dataQueryingSkill).toContain(
-      "If `connections` is empty, use normal source selection and say that dbt has no connection.",
+      'Use normal source selection only when a successful result has `readiness: "not_connected"` and an empty `connections[]`.',
     );
     expect(dataQueryingSkill).toContain(
-      "If connections exist but none is `ready`, name the missing step from its `readiness`",
+      "If rows exist but none is ready, report or resolve their readiness and do not fall back.",
     );
     expect(dataQueryingSkill).toContain(
-      "stopping after five resumes in one turn or when a resume returns the same `nextPage` again",
+      "A failed or unreadable result, `connected: false`, or null readiness is not evidence dbt is absent.",
     );
     expect(dataQueryingSkill).toContain(
       "resume first (above) so the answer covers the full result",

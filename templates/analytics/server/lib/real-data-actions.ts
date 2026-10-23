@@ -1659,7 +1659,7 @@ export function hasBigQueryPartialDisclosure(
 }
 
 const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
-  /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
+  /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|(?<!not )(?<!n't )(?<!to )\bcomplete\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
 
 const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
   /\b(?:defensible|confident|confidence|full available|available corpus|full corpus|entire corpus|complete corpus|all available|any (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)|every (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?))\b/i;

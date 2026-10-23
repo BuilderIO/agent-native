@@ -31,7 +31,7 @@ writing the query is always faster than debugging a wrong result.
 
 Before writing SQL, use the highest-confidence source available:
 
-0. Owner-defined dbt metric question, even unnamed: follow the dbt path in `data-querying/SKILL.md`, including its status rules, retry, and warehouse conditions. Its definition outranks any table. If that path finds no exact name while a dbt connection is ready, stop at the mapping gap for this metric. If `get-dbt-connection` lists no connections, continue with steps 1–3 and say so. If connections are listed but none is ready, name the missing step and stop. A warehouse figure for this metric needs an explicit user request.
+0. Owner-defined dbt metric question, even unnamed: follow the dbt path in `data-querying/SKILL.md`, including its status rules, retry, and warehouse conditions. Its definition outranks any table. Only a successful `get-dbt-connection` result with `readiness: "not_connected"` and an empty `connections[]` permits normal source selection. If any row is ready, keep dbt as the source even when top-level readiness is null. If rows exist but none is ready, report or resolve their readiness and stop. Treat `connected: false`, null readiness, and failed or unreadable lookups as unknown, not disconnected. A warehouse figure for this metric needs an explicit user request.
 1. `find-data` with a focused metric or entity question.
 2. Existing dashboard SQL or saved analyses that already answer the same metric.
 3. `search-bigquery-schema` metadata for exact datasets, tables, and columns.

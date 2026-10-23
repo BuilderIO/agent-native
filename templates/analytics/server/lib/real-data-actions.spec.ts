@@ -2029,6 +2029,16 @@ describe("incomplete evidence detection", () => {
       looksLikeStrongCoverageClaim("I reviewed every call in the cohort."),
     ).toBe(true);
     expect(
+      looksLikeStrongCoverageClaim(
+        "The dbt metric query did not complete, so there is no owner-approved figure for active accounts yet.",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeStrongCoverageClaim(
+        "We checked the complete cohort of records.",
+      ),
+    ).toBe(true);
+    expect(
       hasExplicitPartialDisclosure(
         "This is partial: I only inspected the first 20 calls.",
       ),

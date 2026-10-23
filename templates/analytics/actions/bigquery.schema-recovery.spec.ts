@@ -594,7 +594,10 @@ WHERE o.a IS DISTINCT FROM u.b`,
 describe("bigquery dbt routing", () => {
   it("defers owner-defined dbt metric questions to the dbt path before warehouse SQL", () => {
     expect(bigquery.tool.description).toContain(
-      "once dbt has listed connections, never substitute warehouse SQL for an unmatched or not-ready metric unless the user asks for it.",
+      "Use normal source selection only when a successful `get-dbt-connection` result has `readiness: not_connected` and an empty `connections[]`",
+    );
+    expect(bigquery.tool.description).toContain(
+      "Do not use BigQuery to replace an unmatched or unavailable owner-defined metric unless the user explicitly asks for warehouse SQL.",
     );
   });
 });
