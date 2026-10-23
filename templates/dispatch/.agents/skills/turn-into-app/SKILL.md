@@ -23,19 +23,28 @@ shows progress and receives the result. Avoid form-under-stepper layouts.
 
 - Local scaffolding needs Node.js 22.22.0 or newer (including npm/npx) and
   pnpm.
-- **Local host**: a terminal, a filesystem, and a target checkout (Claude Code,
-  Codex, Cursor, or an Agent-Native agent that can edit files). Build the app in
-  that checkout with steps 1-6. Never call `start-workspace-app-creation` or
+- **Local host**: a directory on the user's own machine, or their repo or
+  workspace (even a new, empty one), in Claude Code, Codex, Cursor, or an
+  Agent-Native agent that can edit files. A vendor cloud sandbox (a chat's
+  sandbox, such as `/home/claude`) is not local. Build the app in that
+  directory with steps 1-6. Never call `start-workspace-app-creation` or
   `create_workspace_app` on this path.
-- **Browser host**: Claude or ChatGPT on the web, their web Projects, or any
-  runtime that cannot edit files. Do steps 1-2, then make the Dispatch handoff
-  in [the browser-host guide](references/fresh-project.md), with files per
-  [the attachment reference](references/attachments.md). Never run `npm`,
-  `pnpm`, or `npx`, edit files, or start a server there, and never invent a
-  Builder branch URL: report what Dispatch returned.
-- Decide an ambiguous host by the environment: a real working directory,
-  terminal, and workspace mean local host. A Builder or Dispatch connector being
-  available does not make a host a browser host.
+- **Browser host**: claude.ai, the Claude desktop and mobile app chat, ChatGPT
+  on the web, and their Projects, even when they offer a code sandbox, shell, or
+  file tools; or any runtime without the user's own working directory. Do steps
+  1-2. Then read [the browser-host guide](references/fresh-project.md) before
+  calling
+  `start-workspace-app-creation`: it has the attachments, the Connect section,
+  and the closing line `prompt` must end with. Connector tools may be deferred
+  (listed by name only): load `start-workspace-app-creation` with tool search
+  before concluding Dispatch is unavailable. Make the Dispatch handoff there,
+  with files per [the attachment reference](references/attachments.md). Never
+  run `npm`, `pnpm`, or `npx`, edit files, start a server, or scaffold in
+  the host's sandbox, and never invent a Builder branch URL: report what
+  Dispatch returned.
+- Decide an ambiguous host by whether the working directory is the user's own
+  (their machine or repo) rather than a chat's cloud sandbox. A Builder or
+  Dispatch connector being available does not make a host a browser host.
 
 ### Pick the source
 
@@ -289,13 +298,17 @@ are different states.
 ## Final report
 
 Keep it demo-short. The first line is the verdict ("Built X in `<dir>`;
-locally verified, not deployed"). Then: the app directory, local URL, and
-server state (PID and stop command); the archetype, the direction, and what
+locally verified, not deployed"). Next, a numbered "Next steps" list, the most
+prominent part of the report: each integration to connect and where in the app,
+the credential key name, and whether to save it for just the user or the whole
+organization; plus any other pending step. If nothing is needed, write
+"No setup needed". Then: the app directory, local URL, and server state (PID
+and stop command); the archetype, the direction, and what
 each control does (agent handoff or local action); absolute paths of the final
 screenshots, rubric scores, and open criteria; the verification, with evidence
 labels, and what the review click left behind; a deployment URL only if it is
-real, and one precise pending step if any; what changed from the brief
-(assumptions, gaps in the source, choices where it was silent).
+real; what changed from the brief (assumptions, gaps in the source, choices
+where it was silent).
 
 Report what exists, not what was intended. Never claim the app exists without
 a path and a verification result. If the scaffold never completed, a step was

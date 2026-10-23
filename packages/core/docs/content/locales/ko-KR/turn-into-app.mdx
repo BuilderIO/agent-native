@@ -39,9 +39,9 @@ Agent-Native CLI가 이미 있는 프로젝트 안에서는 `agent-native skills
 | Claude Code, Codex, Cursor, 기타 로컬 코딩 에이전트 | 사용자의 체크아웃에서 앱을 빌드하고 실행하며 검토합니다.                                                              |
 | 웹의 Claude 또는 ChatGPT                            | 범위가 정해진 브리프를 작성하여 Dispatch 커넥터를 통해 Builder에 전달합니다. 자체적으로는 아무것도 실행하지 않습니다. |
 
-호스트에 실제 작업 디렉터리, 터미널, 워크스페이스가 있으면 로컬 호스트로 간주합니다. Builder나 Dispatch 커넥터가 있다고 해서 브라우저 호스트가 되는 것은 아닙니다.
+Claude.ai, Claude 앱 채팅, 웹의 ChatGPT(해당 Projects 포함)는 코드 샌드박스, 셸, 파일 도구를 제공하더라도 브라우저 호스트입니다. 작업 디렉터리가 사용자 본인의 컴퓨터, 또는 사용자의 리포지토리나 워크스페이스에 있을 때만 로컬 호스트로 간주합니다. 새로 만든 빈 디렉터리라도 마찬가지입니다. 벤더가 제공하는 채팅 샌드박스는 로컬이 아닙니다. Builder나 Dispatch 커넥터가 있다고 해서 브라우저 호스트가 되는 것은 아닙니다.
 
-브라우저 호스트에서는 skill이 Agent-Native Dispatch MCP 커넥터(`https://dispatch.agent-native.com/mcp`, OAuth)를 필요로 하며 해당 커넥터의 `start-workspace-app-creation` 액션을 호출합니다. 호스트는 앱을 실행하거나 검사할 수 없으므로, Dispatch가 반환한 브랜치가 빌드될 때까지 보고서는 보류 또는 미검증 상태로 남습니다. skill은 Dispatch가 실제로 반환한 내용만 보고하며 브랜치 URL을 지어내지 않습니다. ChatGPT 프로젝트나 MCP만 노출하는 호스트에서는 skill 지침을 프로젝트 지침이나 지식 파일에 넣으세요.
+브라우저 호스트에서는 skill이 Agent-Native Dispatch MCP 커넥터(`https://dispatch.agent-native.com/mcp`, OAuth)를 필요로 하며 해당 커넥터의 `start-workspace-app-creation` 액션을 호출합니다. 호스트는 앱을 실행하거나 검사할 수 없으므로, Dispatch가 반환한 브랜치가 빌드될 때까지 보고서는 보류 또는 미검증 상태로 남습니다. skill은 Dispatch가 실제로 반환한 내용만 보고하며 브랜치 URL을 지어내지 않습니다. ChatGPT 프로젝트나 MCP만 노출하는 호스트에서는 skill 지침을 프로젝트 지침이나 지식 파일에 넣으세요. 커넥터 도구는 지연 로드될 수 있으므로, skill은 커넥터를 사용할 수 없다고 판단하기 전에 도구 검색으로 Dispatch 액션을 먼저 로드합니다.
 
 ## 로컬 사전 요구 사항
 

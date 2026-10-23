@@ -39,9 +39,9 @@ npx @agent-native/core@latest skills add turn-into-app
 | Claude Code、Codex、Cursor 及其他本地编码智能体 | 在你的检出目录中构建、运行并审查应用。                                             |
 | 网页版 Claude 或 ChatGPT                        | 编写一份范围明确的简报，并通过 Dispatch 连接器交给 Builder。它自己不运行任何内容。 |
 
-当宿主具有真实的工作目录、终端和工作区时，才算本地宿主。拥有 Builder 或 Dispatch 连接器并不会使宿主成为浏览器宿主。
+Claude.ai、Claude 应用聊天，以及网页版 ChatGPT（包括其项目）都是浏览器宿主，即使它们提供代码沙盒、shell 或文件工具也是如此。只有当工作目录位于用户自己的机器上，或其代码仓库或工作区中（即使是新建的空目录）时，宿主才算本地宿主。供应商的聊天沙盒不是本地。拥有 Builder 或 Dispatch 连接器并不会使宿主成为浏览器宿主。
 
-在浏览器宿主上，skill 需要 Agent-Native Dispatch MCP 连接器（`https://dispatch.agent-native.com/mcp`，OAuth），并调用其 `start-workspace-app-creation` 操作。宿主无法运行或检查应用，因此在 Dispatch 返回的分支构建完成之前，报告会保持待处理或未验证状态。skill 只报告 Dispatch 实际返回的内容，绝不编造分支 URL。对于 ChatGPT 项目，或任何仅暴露 MCP 的宿主，请将 skill 指令放入项目指令或知识文件中。
+在浏览器宿主上，skill 需要 Agent-Native Dispatch MCP 连接器（`https://dispatch.agent-native.com/mcp`，OAuth），并调用其 `start-workspace-app-creation` 操作。宿主无法运行或检查应用，因此在 Dispatch 返回的分支构建完成之前，报告会保持待处理或未验证状态。skill 只报告 Dispatch 实际返回的内容，绝不编造分支 URL。对于 ChatGPT 项目，或任何仅暴露 MCP 的宿主，请将 skill 指令放入项目指令或知识文件中。 连接器工具可能是延迟加载的，因此 skill 会先通过工具搜索加载 Dispatch 操作，然后再判断连接器不可用。
 
 ## 本地前置条件
 

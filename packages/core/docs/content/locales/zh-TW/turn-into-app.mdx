@@ -39,9 +39,9 @@ npx @agent-native/core@latest skills add turn-into-app
 | Claude Code、Codex、Cursor 及其他本機編碼代理 | 在你的檢出目錄中建構、執行並審查應用程式。                                         |
 | 網頁版 Claude 或 ChatGPT                      | 撰寫一份範圍明確的簡報，並透過 Dispatch 連接器交給 Builder。它自己不執行任何內容。 |
 
-當主機具有真實的工作目錄、終端機和工作區時，才算本機主機。擁有 Builder 或 Dispatch 連接器並不會讓主機成為瀏覽器主機。
+Claude.ai、Claude 應用程式聊天，以及網頁版 ChatGPT（包括其專案）都是瀏覽器主機，即使它們提供程式碼沙盒、shell 或檔案工具也是如此。只有當工作目錄位於使用者自己的機器上，或其程式碼倉庫或工作區中（即使是新建的空目錄）時，主機才算本機主機。供應商的聊天沙盒不是本機。擁有 Builder 或 Dispatch 連接器並不會讓主機成為瀏覽器主機。
 
-在瀏覽器主機上，skill 需要 Agent-Native Dispatch MCP 連接器（`https://dispatch.agent-native.com/mcp`，OAuth），並呼叫其 `start-workspace-app-creation` 動作。主機無法執行或檢查應用程式，因此在 Dispatch 回傳的分支建構完成之前，報告會維持待處理或未驗證狀態。skill 只會回報 Dispatch 實際回傳的內容，絕不捏造分支 URL。對於 ChatGPT 專案，或任何僅公開 MCP 的主機，請將 skill 指示放入專案指示或知識檔案中。
+在瀏覽器主機上，skill 需要 Agent-Native Dispatch MCP 連接器（`https://dispatch.agent-native.com/mcp`，OAuth），並呼叫其 `start-workspace-app-creation` 動作。主機無法執行或檢查應用程式，因此在 Dispatch 回傳的分支建構完成之前，報告會維持待處理或未驗證狀態。skill 只會回報 Dispatch 實際回傳的內容，絕不捏造分支 URL。對於 ChatGPT 專案，或任何僅公開 MCP 的主機，請將 skill 指示放入專案指示或知識檔案中。 連接器工具可能是延遲載入的，因此 skill 會先透過工具搜尋載入 Dispatch 動作，然後才判斷連接器不可用。
 
 ## 本機先決條件
 
