@@ -1201,7 +1201,7 @@ jobs:
 
             let desktopVersion;
             let clipsVersion;
-            if (!publicationError) {
+            if (!publicationUnavailable) {
               const desktopPackage = await readJsonAt(
                 releaseSha,
                 "packages/desktop-app/package.json",

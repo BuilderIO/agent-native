@@ -1570,6 +1570,103 @@ return downstream;`,
     ]);
   });
 
+  it("does not reserve desktop release tags when npm publication is unavailable", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const reservationStart = source.indexOf("let desktopVersion;");
+    const reservationEnd = source.indexOf(
+      "// Downstream workflows own these reserved tags after dispatch.",
+      reservationStart,
+    );
+    assert.ok(reservationStart >= 0 && reservationEnd > reservationStart);
+
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const selectDesktopVersions = new AsyncFunction(
+      "publicationUnavailable",
+      "publicationError",
+      "releaseSha",
+      "readJsonAt",
+      "stableVersion",
+      "reserveStableVersion",
+      "cleanupReservedTags",
+      "core",
+      `${source.slice(reservationStart, reservationEnd)}
+return { desktopVersion, clipsVersion };`,
+    ) as (
+      publicationUnavailable: Error | null,
+      releaseSha: string,
+      readJsonAt: (sha: string, path: string) => Promise<{ version: string }>,
+      stableVersion: (version: string, label: string) => string,
+      reserveStableVersion: (
+        prefix: string,
+        version: string,
+        sha: string,
+      ) => Promise<string>,
+      cleanupReservedTags: () => Promise<void>,
+      core: { info: (message: string) => void },
+    ) => Promise<{
+      desktopVersion: string | undefined;
+      clipsVersion: string | undefined;
+    }>;
+
+    const reads: string[] = [];
+    const reservations: { prefix: string; version: string; sha: string }[] = [];
+    const dependencies = {
+      readJsonAt: async (sha: string, filePath: string) => {
+        reads.push(`${sha}:${filePath}`);
+        return { version: filePath.includes("clips") ? "2.3.4" : "1.2.3" };
+      },
+      stableVersion: (version: string) => version,
+      reserveStableVersion: async (
+        prefix: string,
+        version: string,
+        sha: string,
+      ) => {
+        reservations.push({ prefix, version, sha });
+        return version;
+      },
+      cleanupReservedTags: async () => {},
+      core: { info: () => {} },
+    };
+
+    const unavailable = await selectDesktopVersions(
+      new Error("npm publication status is unknown"),
+      null,
+      "a".repeat(40),
+      dependencies.readJsonAt,
+      dependencies.stableVersion,
+      dependencies.reserveStableVersion,
+      dependencies.cleanupReservedTags,
+      dependencies.core,
+    );
+    assert.deepEqual(unavailable, {
+      desktopVersion: undefined,
+      clipsVersion: undefined,
+    });
+    assert.deepEqual(reads, []);
+    assert.deepEqual(reservations, []);
+
+    const verified = await selectDesktopVersions(
+      null,
+      null,
+      "b".repeat(40),
+      dependencies.readJsonAt,
+      dependencies.stableVersion,
+      dependencies.reserveStableVersion,
+      dependencies.cleanupReservedTags,
+      dependencies.core,
+    );
+    assert.deepEqual(verified, {
+      desktopVersion: "1.2.3",
+      clipsVersion: "2.3.4",
+    });
+    assert.deepEqual(reservations, [
+      { prefix: "v", version: "1.2.3", sha: "b".repeat(40) },
+      { prefix: "clips-v", version: "2.3.4", sha: "b".repeat(40) },
+    ]);
+  });
+
   it("isolates stable auto-publish lanes from nightly pushes", () => {
     const group = String((autoPublishWorkflow.concurrency as Workflow).group);
     assert.match(group, /github\.event_name == 'workflow_dispatch'/);
