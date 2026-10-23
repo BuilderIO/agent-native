@@ -2,6 +2,7 @@ import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUp, IconMessagePlus } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -52,6 +53,7 @@ interface TimestampedCommentBarProps {
   className?: string;
   draft?: string;
   onDraftChange?: (value: string) => void;
+  portalContainer?: HTMLElement | null;
 }
 
 export function TimestampedCommentBar({
@@ -64,13 +66,11 @@ export function TimestampedCommentBar({
   className,
   draft: controlledDraft,
   onDraftChange,
+  portalContainer,
 }: TimestampedCommentBarProps) {
-  const t = useT();
   const [uncontrolledDraft, setUncontrolledDraft] = useState("");
   const draft = controlledDraft ?? uncontrolledDraft;
   const setDraft = onDraftChange ?? setUncontrolledDraft;
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  useAutoResizeCommentTextarea(textareaRef, draft, 1);
 
   const commentAccessTokenRef = useRef<string | null | undefined>(
     commentAccessToken,
@@ -106,10 +106,6 @@ export function TimestampedCommentBar({
     },
   });
 
-  useEffect(() => {
-    requestAnimationFrame(() => textareaRef.current?.focus());
-  }, []);
-
   const submit = () => {
     const content = draft.trim();
     if (!content || sendingRef.current) return;
@@ -127,6 +123,53 @@ export function TimestampedCommentBar({
     );
   };
 
+  // Moving into or out of the player remounts the fields, so the send stays
+  // out here where a pending one survives the move.
+  const fields = (
+    <TimestampedCommentFields
+      draft={draft}
+      onDraftChange={(value) => {
+        setDraft(value);
+        setFailed(false);
+      }}
+      failed={failed}
+      pending={addComment.isPending}
+      atMs={atMs}
+      onSubmit={submit}
+      onClose={onClose}
+      className={className}
+    />
+  );
+  return portalContainer ? createPortal(fields, portalContainer) : fields;
+}
+
+function TimestampedCommentFields({
+  draft,
+  onDraftChange,
+  failed,
+  pending,
+  atMs,
+  onSubmit,
+  onClose,
+  className,
+}: {
+  draft: string;
+  onDraftChange: (value: string) => void;
+  failed: boolean;
+  pending: boolean;
+  atMs: number;
+  onSubmit: () => void;
+  onClose: () => void;
+  className?: string;
+}) {
+  const t = useT();
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  useAutoResizeCommentTextarea(textareaRef, draft, 1);
+
+  useEffect(() => {
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
+
   return (
     <div
       data-player-ui
@@ -136,14 +179,11 @@ export function TimestampedCommentBar({
         <Textarea
           ref={textareaRef}
           value={draft}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            setFailed(false);
-          }}
+          onChange={(e) => onDraftChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
-              submit();
+              onSubmit();
             }
             if (e.key === "Escape") {
               e.preventDefault();
@@ -179,8 +219,8 @@ export function TimestampedCommentBar({
               type="button"
               size="icon"
               className="size-7 rounded-full"
-              disabled={!draft.trim() || addComment.isPending}
-              onClick={submit}
+              disabled={!draft.trim() || pending}
+              onClick={onSubmit}
               aria-label={`${t("commentsPanel.commentAt")} ${msToClock(atMs)}`}
             >
               <IconArrowUp className="size-4" />

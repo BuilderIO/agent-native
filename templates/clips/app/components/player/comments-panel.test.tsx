@@ -252,6 +252,32 @@ function ProofShare({
   );
 }
 
+// Like the share and recording routes: the page owns the draft, and the bar
+// paints inside the player only while the player is fullscreen.
+function FullscreenCommentPage({
+  fullscreen,
+  player,
+  initialDraft = "",
+  ...bar
+}: Omit<
+  React.ComponentProps<typeof TimestampedCommentBar>,
+  "draft" | "onDraftChange" | "portalContainer"
+> & {
+  fullscreen: boolean;
+  player: HTMLElement;
+  initialDraft?: string;
+}) {
+  const [draft, setDraft] = React.useState(initialDraft);
+  return (
+    <TimestampedCommentBar
+      {...bar}
+      draft={draft}
+      onDraftChange={setDraft}
+      portalContainer={fullscreen ? player : undefined}
+    />
+  );
+}
+
 describe("CommentsPanel reply composer", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -322,6 +348,47 @@ describe("CommentsPanel reply composer", () => {
       );
     });
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+
+  function renderFullscreenCommentPage(
+    props: Omit<
+      React.ComponentProps<typeof FullscreenCommentPage>,
+      "fullscreen" | "player"
+    >,
+  ) {
+    act(() => root.render(null));
+    actionMocks.realMutations = true;
+    const player = document.createElement("div");
+    document.body.appendChild(player);
+    onTestFinished(() => {
+      actionMocks.realMutations = false;
+      player.remove();
+    });
+    const setFullscreen = (fullscreen: boolean) =>
+      act(() =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <FullscreenCommentPage
+              {...props}
+              fullscreen={fullscreen}
+              player={player}
+            />
+          </QueryClientProvider>,
+        ),
+      );
+    setFullscreen(true);
+    const bar = () => {
+      const composer = document.body.querySelector("textarea");
+      const send =
+        document.body.querySelector<HTMLButtonElement>("button[aria-label]");
+      if (!composer || !send) throw new Error("Expected the comment bar");
+      return {
+        composer,
+        send,
+        alert: document.body.querySelector('[role="alert"]'),
+      };
+    };
+    return { player, setFullscreen, bar };
   }
 
   it("supplies current password proof to every comment mutation after rotation", () => {
@@ -1016,12 +1083,7 @@ describe("CommentsPanel reply composer", () => {
     },
   );
 
-  it("keeps a fullscreen draft open with feedback when proof cannot renew, then sends it on retry", async () => {
-    act(() => root.render(null));
-    actionMocks.realMutations = true;
-    onTestFinished(() => {
-      actionMocks.realMutations = false;
-    });
+  it("keeps a fullscreen draft open with feedback when proof cannot renew, then sends it on retry after leaving fullscreen", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(
       async () =>
         new Response(JSON.stringify({ id: "comment-2" }), {
@@ -1036,42 +1098,30 @@ describe("CommentsPanel reply composer", () => {
       .mockResolvedValueOnce("fake-renewed-proof");
     const onAdded = vi.fn();
     const onClose = vi.fn();
-    const onDraftChange = vi.fn();
-    act(() =>
-      root.render(
-        <QueryClientProvider client={queryClient}>
-          <TimestampedCommentBar
-            recordingId="recording-1"
-            atMs={12000}
-            draft="Fake fullscreen comment"
-            onDraftChange={onDraftChange}
-            onAdded={onAdded}
-            onClose={onClose}
-            commentAccessToken="fake-stale-proof"
-            getCommentAccessToken={getCommentAccessToken}
-          />
-        </QueryClientProvider>,
-      ),
-    );
-    const send =
-      container.querySelector<HTMLButtonElement>("button[aria-label]");
-    await act(async () => {
-      send?.click();
+    const { player, setFullscreen, bar } = renderFullscreenCommentPage({
+      recordingId: "recording-1",
+      atMs: 12000,
+      initialDraft: "Fake fullscreen comment",
+      onAdded,
+      onClose,
+      commentAccessToken: "fake-stale-proof",
+      getCommentAccessToken,
     });
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      "notificationsRoute.sendFailed",
-    );
+    expect(player.contains(bar().composer)).toBe(true);
+    await act(async () => {
+      bar().send.click();
+    });
+    setFullscreen(false);
+    expect(player.contains(bar().composer)).toBe(false);
+    expect(bar().alert?.textContent).toBe("notificationsRoute.sendFailed");
     expect(fetch).not.toHaveBeenCalled();
     expect(onAdded).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
-    expect(onDraftChange).not.toHaveBeenCalled();
-    expect(container.querySelector("textarea")?.value).toBe(
-      "Fake fullscreen comment",
-    );
-    expect(send?.disabled).toBe(false);
+    expect(bar().composer.value).toBe("Fake fullscreen comment");
+    expect(bar().send.disabled).toBe(false);
 
     await act(async () => {
-      send?.click();
+      bar().send.click();
     });
     expect(getCommentAccessToken).toHaveBeenLastCalledWith("fake-stale-proof");
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -1079,18 +1129,13 @@ describe("CommentsPanel reply composer", () => {
     expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
       "fake-renewed-proof",
     );
-    expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(onDraftChange).toHaveBeenCalledWith("");
+    expect(bar().alert).toBeNull();
+    expect(bar().composer.value).toBe("");
     expect(onAdded).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("sends a fullscreen comment once however often send repeats before it settles", async () => {
-    act(() => root.render(null));
-    actionMocks.realMutations = true;
-    onTestFinished(() => {
-      actionMocks.realMutations = false;
-    });
+  it("sends a fullscreen comment once however often send repeats or the player leaves fullscreen before it settles", async () => {
     let completeRenewal!: (token: string) => void;
     const renewal = new Promise<string>((resolve) => {
       completeRenewal = resolve;
@@ -1110,26 +1155,16 @@ describe("CommentsPanel reply composer", () => {
     vi.stubGlobal("fetch", fetch);
     const onAdded = vi.fn();
     const onClose = vi.fn();
-    act(() =>
-      root.render(
-        <QueryClientProvider client={queryClient}>
-          <TimestampedCommentBar
-            recordingId="recording-1"
-            atMs={12000}
-            onAdded={onAdded}
-            onClose={onClose}
-            commentAccessToken="fake-expired-proof"
-            getCommentAccessToken={getCommentAccessToken}
-          />
-        </QueryClientProvider>,
-      ),
-    );
-    const composer = container.querySelector("textarea");
-    const send =
-      container.querySelector<HTMLButtonElement>("button[aria-label]");
-    if (!composer || !send) throw new Error("Expected the comment bar");
+    const { player, setFullscreen, bar } = renderFullscreenCommentPage({
+      recordingId: "recording-1",
+      atMs: 12000,
+      onAdded,
+      onClose,
+      commentAccessToken: "fake-expired-proof",
+      getCommentAccessToken,
+    });
     const pressSend = (modifier: "ctrlKey" | "metaKey") =>
-      composer.dispatchEvent(
+      bar().composer.dispatchEvent(
         new KeyboardEvent("keydown", {
           key: "Enter",
           [modifier]: true,
@@ -1137,30 +1172,41 @@ describe("CommentsPanel reply composer", () => {
           cancelable: true,
         }),
       );
-    act(() => setTextareaValue(composer, "Fake fullscreen comment"));
+    act(() => setTextareaValue(bar().composer, "Fake fullscreen comment"));
 
     // Same tick, before React Query publishes the pending state.
     await act(async () => {
       pressSend("ctrlKey");
-      send.click();
+      bar().send.click();
       pressSend("metaKey");
     });
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(send.disabled).toBe(true);
+    expect(bar().send.disabled).toBe(true);
     await act(async () => {
       pressSend("ctrlKey");
     });
+    for (const fullscreen of [false, true]) {
+      setFullscreen(fullscreen);
+      expect(player.contains(bar().composer)).toBe(fullscreen);
+      expect(bar().composer.value).toBe("Fake fullscreen comment");
+      await act(async () => {
+        pressSend("ctrlKey");
+        bar().send.click();
+      });
+    }
     expect(getCommentAccessToken).toHaveBeenCalledTimes(1);
     expect(fetch).not.toHaveBeenCalled();
+    expect(bar().send.disabled).toBe(true);
 
     await act(async () => {
       completeRenewal("fake-fresh-proof");
     });
     expect(fetch).toHaveBeenCalledTimes(1);
+    setFullscreen(false);
     await act(async () => {
       pressSend("metaKey");
     });
-    expect(composer.value).toBe("Fake fullscreen comment");
+    expect(bar().composer.value).toBe("Fake fullscreen comment");
     expect(onClose).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -1173,10 +1219,10 @@ describe("CommentsPanel reply composer", () => {
     ).toBe("fake-fresh-proof");
     expect(onAdded).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(composer.value).toBe("");
-    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(bar().composer.value).toBe("");
+    expect(bar().alert).toBeNull();
 
-    act(() => setTextareaValue(composer, "Fake follow-up comment"));
+    act(() => setTextareaValue(bar().composer, "Fake follow-up comment"));
     await act(async () => {
       pressSend("ctrlKey");
     });

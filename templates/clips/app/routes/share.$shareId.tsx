@@ -43,7 +43,6 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   type HeadersArgs,
   type LoaderFunctionArgs,
@@ -1844,48 +1843,42 @@ export default function ShareRoute() {
                     }
                     className="h-full w-full rounded-none sm:rounded-xl"
                   />
-                  {commentOpen && viewerCanComment
-                    ? (() => {
-                        const composer = (
-                          <TimestampedCommentBar
-                            commentAccessToken={
-                              recording.commentAccessToken ?? undefined
-                            }
-                            getCommentAccessToken={
-                              recording.commentAccessToken
-                                ? getCommentAccessToken
-                                : undefined
-                            }
-                            recordingId={recording.id}
-                            atMs={commentAtMs}
-                            draft={commentDraft}
-                            onDraftChange={setCommentDraft}
-                            onClose={() => setCommentOpen(false)}
-                            onAdded={() => {
-                              void dataQ.refetch();
-                              if (
-                                resumedAccountActionRef.current === "comment"
-                              ) {
-                                resumedAccountActionRef.current = null;
-                                trackEvent("share_account_action_completed", {
-                                  surface: "public_share",
-                                  recording_id: recording.id,
-                                  intent: "comment",
-                                });
-                              }
-                            }}
-                          />
-                        );
-                        // The Fullscreen API only paints the player's own element,
-                        // so portal the composer there instead of exiting
-                        // fullscreen when it's open.
-                        const fullscreenContainer =
-                          isPlayerFullscreen && playerRef.current?.container;
-                        return fullscreenContainer
-                          ? createPortal(composer, fullscreenContainer)
-                          : composer;
-                      })()
-                    : null}
+                  {commentOpen && viewerCanComment ? (
+                    <TimestampedCommentBar
+                      commentAccessToken={
+                        recording.commentAccessToken ?? undefined
+                      }
+                      getCommentAccessToken={
+                        recording.commentAccessToken
+                          ? getCommentAccessToken
+                          : undefined
+                      }
+                      recordingId={recording.id}
+                      atMs={commentAtMs}
+                      draft={commentDraft}
+                      onDraftChange={setCommentDraft}
+                      onClose={() => setCommentOpen(false)}
+                      onAdded={() => {
+                        void dataQ.refetch();
+                        if (resumedAccountActionRef.current === "comment") {
+                          resumedAccountActionRef.current = null;
+                          trackEvent("share_account_action_completed", {
+                            surface: "public_share",
+                            recording_id: recording.id,
+                            intent: "comment",
+                          });
+                        }
+                      }}
+                      // The Fullscreen API only paints the player's own element,
+                      // so the composer moves there instead of exiting
+                      // fullscreen when it's open.
+                      portalContainer={
+                        isPlayerFullscreen
+                          ? playerRef.current?.container
+                          : undefined
+                      }
+                    />
+                  ) : null}
                 </div>
               )}
             </div>
