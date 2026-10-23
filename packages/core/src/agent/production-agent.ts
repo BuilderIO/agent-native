@@ -5271,21 +5271,26 @@ function recordUnknownCauseBeside(
   }
 }
 
-/** Why a repeat of a call whose outcome is unknown did not run. */
+/**
+ * Why a repeat of a call whose outcome is unknown did not run; `cause`
+ * `undefined` when the attempts it counts do not share one.
+ */
 function unknownRepeatResult(
   tool: string,
-  cause: UnknownOutcomeCause,
+  cause: UnknownOutcomeCause | undefined,
   times?: number,
 ): string {
   const count = times === undefined ? "" : ` ${times} time(s)`;
   const happened =
-    cause === "rejection"
-      ? `failed${count} without confirming whether it saved changes`
-      : cause === "unattributed"
-        ? `ran${count}, but I could not confirm what it changed`
-        : times === undefined
-          ? "was interrupted and its result is unknown"
-          : `was interrupted${count}, and I could not recover its result`;
+    cause === undefined
+      ? `has ${times ?? 1} earlier attempt(s) whose outcome is unknown`
+      : cause === "rejection"
+        ? `failed${count} without confirming whether it saved changes`
+        : cause === "unattributed"
+          ? `ran${count}, but I could not confirm what it changed`
+          : times === undefined
+            ? "was interrupted and its result is unknown"
+            : `was interrupted${count}, and I could not recover its result`;
   return (
     `The ${tool} action ${happened}. ` +
     "I stopped without running it again. Check whether it completed before asking me to retry."
@@ -9671,7 +9676,13 @@ export async function runAgentLoop(opts: {
         const recordedCauses = [
           `call:${preparedCallKey}`,
           `input:${toolCallCacheKey(toolCall.name, toolCall.input)}`,
-        ].map((key) => unknownOutcomes.causes.get(key));
+        ].map((key) =>
+          unknownOutcomes.causes.has(key)
+            ? unknownOutcomes.causes.get(key)
+            : unknownOutcomes.uncaused.has(key)
+              ? null
+              : undefined,
+        );
         unknownOutcomeCause =
           recordedCauses.find((cause) => cause !== undefined) ?? undefined;
         const result = unknownRepeatResult(
@@ -9910,9 +9921,14 @@ export async function runAgentLoop(opts: {
                 `${specific[0]}:${repeatKeys[specific[0]]}`,
               )
             : undefined) ?? "interruption";
+        // Its cause speaks for the count only when every attempt counted is
+        // one under that key.
+        const causeCoversCount =
+          specific !== undefined &&
+          specific[1].get(repeatKeys[specific[0]]) === priorInterruptions;
         const result = unknownRepeatResult(
           toolCall.name,
-          blockedBy,
+          causeCoversCount ? blockedBy : undefined,
           priorInterruptions,
         );
         await send({

@@ -576,10 +576,11 @@ describe("a write whose outcome is really unknown", () => {
       threadId: `thread-${stored.map(({ id }) => id).join("-")}`,
     });
     expect(run).not.toHaveBeenCalled();
-    return events.find(
+    const stop = events.find(
       (event): event is Extract<AgentChatEvent, { type: "error" }> =>
         event.type === "error",
     );
+    return stop && { ...stop, held: toolDones(events).at(-1)?.result };
   }
 
   it("reads a stored cause it does not recognise as an interruption", async () => {
@@ -609,6 +610,23 @@ describe("a write whose outcome is really unknown", () => {
       blockedBy: "interruption",
       // Both earlier calls sent `{}`, and either may have saved changes.
       error: expect.stringContaining("2 earlier attempts may have"),
+    });
+  });
+
+  it("words a repeat neutrally when the attempts it counts do not share a cause", async () => {
+    const stop = await repeatAfterStoredUnknowns(
+      [
+        { id: "stamp-1", prepared: { stamp: 1 }, cause: "interruption" },
+        { id: "stamp-2", prepared: { stamp: 2 }, cause: "rejection" },
+      ],
+      z.object({ stamp: z.number().default(2) }),
+      {},
+    );
+    expect(stop).toMatchObject({
+      blockedBy: "rejection",
+      held: expect.stringContaining(
+        "The send action has 2 earlier attempt(s) whose outcome is unknown.",
+      ),
     });
   });
 

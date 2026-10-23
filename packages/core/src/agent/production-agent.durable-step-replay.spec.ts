@@ -285,6 +285,86 @@ describe("durable execution step replay", () => {
     );
   });
 
+  it("does not borrow a shared key's cause when the step's own was recorded without one", async () => {
+    const input = { id: "deck-4" };
+    const unknown = (
+      id: string,
+      prepared: Record<string, unknown>,
+      start: Partial<AgentChatEvent>,
+      cause?: "rejection",
+    ): AgentChatEvent[] => [
+      {
+        type: "tool_start",
+        id,
+        tool: "create-deck",
+        ...start,
+      } as AgentChatEvent,
+      {
+        type: "tool_done",
+        id,
+        tool: "create-deck",
+        result: "Error running create-deck: lost.",
+        isError: true,
+        outcomeUnknown: true,
+        ...(cause ? { unknownCause: cause } : {}),
+        argumentsHash: actionArgumentsHash(prepared),
+      },
+    ];
+    durableStep.priorEvents = [
+      // This call, recorded without its input or a cause.
+      ...unknown("same", input, {}),
+      // Another call sent the same arguments and recorded a rejection.
+      ...unknown("other", { id: "other" }, { input }, "rejection"),
+    ];
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const events: AgentChatEvent[] = [];
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", input)], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [text("Create the deck.")] },
+          { role: "user", content: [text(AGENT_INTERNAL_CONTINUE_PROMPT)] },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Deck deck-4"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        blockedBy: "interruption",
+      }),
+    );
+  });
+
   it("records no cause for a step stored as unknown that nothing explains", async () => {
     const { beginAgentExecutionStep } = await import("./run-store.js");
     vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
