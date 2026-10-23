@@ -55,8 +55,7 @@ const coreRequire = createRequire(
 const { PGlite } = coreRequire("@electric-sql/pglite");
 const jose = await import(pathToFileURL(coreRequire.resolve("jose")).href);
 
-const { invalidateMemberOrgCaches, organizations, orgMembers } =
-  await import("@agent-native/core/org");
+const { organizations, orgMembers } = await import("@agent-native/core/org");
 const { putUserSetting } = await import("@agent-native/core/settings");
 const { signA2AToken } = await import("@agent-native/core/a2a");
 const { withDbExec } = await import("@agent-native/core/db");
@@ -187,15 +186,25 @@ async function insertWorkspace(
   });
 }
 
-async function addMember(orgId: string, email: string, joinedAt: number) {
-  await state.db.insert(orgMembers).values({
-    id: `member-${orgId}-${email}`,
-    orgId,
-    email,
-    role: "member",
-    joinedAt,
-  });
-  invalidateMemberOrgCaches();
+let workspaceReaders = 0;
+
+/**
+ * A new reader who belongs to these workspaces, joined in this order. Core
+ * caches memberships and the active-workspace choice per process by email,
+ * so a reader with workspaces must never carry over into another test.
+ */
+async function readerInWorkspaces(...orgIds: string[]): Promise<string> {
+  const email = `workspace-reader-${++workspaceReaders}@content.example.test`;
+  for (const [index, orgId] of orgIds.entries()) {
+    await state.db.insert(orgMembers).values({
+      id: `member-${orgId}-${email}`,
+      orgId,
+      email,
+      role: "member",
+      joinedAt: index + 1,
+    });
+  }
+  return email;
 }
 
 /** Written through core, which drops its cached choice the way a switch does. */
@@ -391,9 +400,6 @@ beforeEach(async () => {
   state.db = drizzle(client);
   state.blobs.clear();
   __resetContentClipRateLimitsForTests();
-  // Core caches workspace memberships per process; a new database makes
-  // whatever an earlier test left there stale.
-  invalidateMemberOrgCaches();
   for (const table of [
     schema.recordings,
     schema.recordingShares,
@@ -753,7 +759,7 @@ describe("a pasted Clip keeps its own sharing", () => {
 
   it("plays for a reader whose workspace the Clip is shared with", async () => {
     await insertWorkspace("clips-org");
-    await addMember("clips-org", READER, 1);
+    const reader = await readerInWorkspaces("clips-org");
     await state.db.insert(schema.recordingShares).values({
       id: "share-org",
       resourceId: "rec-pasted",
@@ -766,7 +772,7 @@ describe("a pasted Clip keeps its own sharing", () => {
 
     const shared = await playback(
       "rec-pasted",
-      await token({ recordingId: "rec-pasted" }),
+      await token({ recordingId: "rec-pasted", sub: reader }),
     );
     expect(shared.status).toBe(200);
     const video = await fetchMedia(videoRoute, shared.body.playback.videoUrl);
@@ -802,13 +808,14 @@ describe("a pasted Clip keeps its own sharing", () => {
 });
 
 describe("a reader in several workspaces acts in the active one", () => {
+  let reader: string;
+
   beforeEach(async () => {
     await insertWorkspace("org-first");
     await insertWorkspace("org-active");
     await insertWorkspace("org-outside");
-    await addMember("org-first", READER, 1);
-    await addMember("org-active", READER, 2);
-    await setActiveWorkspace(READER, "org-active");
+    reader = await readerInWorkspaces("org-first", "org-active");
+    await setActiveWorkspace(reader, "org-active");
     for (const [recordingId, orgId] of [
       ["rec-active-org", "org-active"],
       ["rec-first-org", "org-first"],
@@ -824,7 +831,7 @@ describe("a reader in several workspaces acts in the active one", () => {
   });
 
   it("opens a Clip shared with that workspace, through Content and its media URLs", async () => {
-    const bearer = await token({ recordingId: "rec-active-org" });
+    const bearer = await token({ recordingId: "rec-active-org", sub: reader });
     const opened = await playback("rec-active-org", bearer);
     expect(opened.status).toBe(200);
     expect((await listComments("rec-active-org", bearer)).status).toBe(200);
@@ -838,7 +845,7 @@ describe("a reader in several workspaces acts in the active one", () => {
 
   it("refuses a Clip shared with another workspace, even one the reader belongs to", async () => {
     for (const recordingId of ["rec-first-org", "rec-outside-org"]) {
-      const bearer = await token({ recordingId });
+      const bearer = await token({ recordingId, sub: reader });
       expect((await playback(recordingId, bearer)).status).toBe(404);
       expect((await listComments(recordingId, bearer)).status).toBe(404);
     }
@@ -847,9 +854,9 @@ describe("a reader in several workspaces acts in the active one", () => {
   it("stops an issued media URL when the reader switches workspace", async () => {
     const opened = await playback(
       "rec-active-org",
-      await token({ recordingId: "rec-active-org" }),
+      await token({ recordingId: "rec-active-org", sub: reader }),
     );
-    await setActiveWorkspace(READER, "org-first");
+    await setActiveWorkspace(reader, "org-first");
 
     for (const [route, url] of [
       [videoRoute, opened.body.playback.videoUrl],
@@ -1351,6 +1358,7 @@ describe("token checks", () => {
   describe("a token that names a workspace", () => {
     const WORKSPACE_DOMAIN = "content.example.test";
     const WORKSPACE_SECRET = "content-workspace-a2a-secret-0123456789";
+    let reader: string;
 
     beforeEach(async () => {
       await insertWorkspace("org-content", {
@@ -1360,8 +1368,8 @@ describe("token checks", () => {
       await client.query(
         "UPDATE organizations SET a2a_member_delegation_enabled = true WHERE id = 'org-content'",
       );
-      await addMember("org-content", READER, 1);
-      await setActiveWorkspace(READER, "org-content");
+      reader = await readerInWorkspaces("org-content");
+      await setActiveWorkspace(reader, "org-content");
       await insertWorkspace("org-named", {
         allowedDomain: "named.example.test",
       });
@@ -1376,14 +1384,22 @@ describe("token checks", () => {
           jti: "delegation-1",
         },
       ]) {
-        const bearer = await token({ secret: WORKSPACE_SECRET, extra });
+        const bearer = await token({
+          sub: reader,
+          secret: WORKSPACE_SECRET,
+          extra,
+        });
         expect((await playback("rec-upload", bearer)).status).toBe(401);
       }
     });
 
     it("reaches one recording and document, from the placement's Content app", async () => {
       const named = (input: TokenInput = {}) =>
-        token({ ...input, extra: { org_domain: WORKSPACE_DOMAIN } });
+        token({
+          sub: reader,
+          ...input,
+          extra: { org_domain: WORKSPACE_DOMAIN },
+        });
       await insertRecording("rec-other");
 
       expect((await playback("rec-upload", await named())).status).toBe(200);
@@ -1416,6 +1432,7 @@ describe("token checks", () => {
 
       const bearer = await token({
         recordingId: "rec-named",
+        sub: reader,
         extra: { org_domain: "named.example.test" },
       });
       expect((await playback("rec-named", bearer)).status).toBe(404);
