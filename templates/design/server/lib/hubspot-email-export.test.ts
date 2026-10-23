@@ -333,6 +333,50 @@ describe("HubSpot email HTML export", () => {
     ).toContainEqual({ name: "href", value: "https://example.com/docs" });
   });
 
+  it("preserves quoted closing delimiters and literal placeholder text", () => {
+    const token =
+      "{{ personalization_token('contact.firstname', 'Hi }} there') }}";
+    const url =
+      "{{ personalization_token('contact.website', 'https://example.com/}}/docs') }}";
+    const { html } = prepareHubSpotEmailHtml(
+      withContent(`ANHUBL0TOKEN ANHUBL1TOKEN <a href="${url}">${token}</a>`),
+    );
+    expect(html).toContain(token);
+    expect(html).toContain(url);
+    expect(html).toContain("ANHUBL0TOKEN ANHUBL1TOKEN");
+    expect(html).not.toContain("undefined");
+  });
+
+  it("reports unclosed HubL without treating the document as valid", () => {
+    expect(() =>
+      prepareHubSpotEmailHtml(
+        withContent("{{ personalization_token('contact.firstname', 'there')"),
+      ),
+    ).toThrowError(
+      expect.objectContaining({
+        errorCode: "invalid_hubspot_email",
+        statusCode: 422,
+      }),
+    );
+  });
+
+  it.each([
+    '<iframe src="https://example.com"></iframe>',
+    '<img src="https://example.com/a.png">',
+    '<a href="javascript:alert(1)">Open</a>',
+  ])(
+    "rejects markup hidden inside a personalization default (%s)",
+    (fallback) => {
+      expect(() =>
+        prepareHubSpotEmailHtml(
+          withContent(
+            `{{ personalization_token('contact.firstname', '${fallback}') }}`,
+          ),
+        ),
+      ).toThrow("without HTML markup");
+    },
+  );
+
   it.each([
     [
       "href",
@@ -496,11 +540,7 @@ describe("HubSpot email HTML export", () => {
     ).toThrow("unsubscribe_link");
   });
 
-  it.each([
-    ["display:block!important", "display:none!important"],
-    ["display:block", "display:none"],
-    ["", "display:none!important;display:table-cell!important"],
-  ])(
+  it.each([["", "display:none!important;display:table-cell!important"]])(
     "respects inline and within-rule precedence for responsive visibility (%s / %s)",
     (inline, css) => {
       const html = withContent(
@@ -511,6 +551,25 @@ describe("HubSpot email HTML export", () => {
         `<td class="email-footer" style="${inline}">`,
       );
       expect(prepareHubSpotEmailHtml(html).html).toContain("@media");
+    },
+  );
+
+  it.each([
+    ["display:block!important", "display:none!important"],
+    ["display:block", "display:none"],
+  ])(
+    "rejects responsive changes blocked by original inline styles (%s / %s)",
+    (inline, css) => {
+      const html = withContent(
+        "Hello",
+        `@media(max-width:620px){.email-footer{${css}}}`,
+      ).replace(
+        '<td class="email-footer">',
+        `<td class="email-footer" style="${inline}">`,
+      );
+      expect(() => prepareHubSpotEmailHtml(html)).toThrow(
+        "would be overridden after inlining",
+      );
     },
   );
 
@@ -542,6 +601,101 @@ describe("HubSpot email HTML export", () => {
       ).html,
     ).toContain("font-size:20px!important");
   });
+
+  it.each([
+    [
+      '<span class="title" style="font-size:32px">Hello</span>',
+      "",
+      "font-size:20px",
+    ],
+    [
+      '<span class="title">Hello</span>',
+      ".title{padding:0}",
+      "padding-left:20px",
+    ],
+    [
+      '<span class="title">Hello</span>',
+      ".title{padding-left:0}",
+      "padding:20px",
+    ],
+    [
+      '<span class="title">Hello</span>',
+      ".title{border:0}",
+      "border-left-width:2px",
+    ],
+  ])(
+    "detects responsive property conflicts after inlining (%s / %s / %s)",
+    (content, base, mobile) => {
+      expect(() =>
+        prepareHubSpotEmailHtml(
+          withContent(
+            content,
+            `${base}@media(max-width:620px){.title{${mobile}}}`,
+          ),
+        ),
+      ).toThrow("would be overridden after inlining");
+      expect(
+        prepareHubSpotEmailHtml(
+          withContent(
+            content,
+            `${base}@media(max-width:620px){.title{${mobile}!important}}`,
+          ),
+        ).html,
+      ).toContain(`${mobile}!important`);
+    },
+  );
+
+  it("rejects computed opacity instead of guessing whether required footer content is visible", () => {
+    expect(() =>
+      prepareHubSpotEmailHtml(
+        withContent("Hello", ".email-footer{opacity:calc(0)}"),
+      ),
+    ).toThrow("resolved numeric opacity");
+    expect(() =>
+      prepareHubSpotEmailHtml(
+        withContent("Hello", ".email-footer{opacity:-1}"),
+      ),
+    ).toThrow("visible footer");
+  });
+
+  it.each([
+    "height:0;overflow:hidden",
+    "max-height:0;overflow-y:clip",
+    "width:0;overflow:auto",
+  ])("rejects footer tokens in a clipped wrapper (%s)", (style) => {
+    const html = withContent("Hello").replace(
+      "{{ site_settings.company_name }}",
+      `<span style="display:block;${style}">{{ site_settings.company_name }}</span>`,
+    );
+    expect(() => prepareHubSpotEmailHtml(html)).toThrow("visible footer");
+  });
+
+  it("allows zero-height wrappers with visible overflow", () => {
+    const html = withContent("Hello").replace(
+      "{{ site_settings.company_name }}",
+      '<span style="display:block;height:0;overflow:visible">{{ site_settings.company_name }}</span>',
+    );
+    expect(prepareHubSpotEmailHtml(html).html).toContain("height:0");
+  });
+
+  it.each([
+    ["height:0", "overflow:hidden"],
+    ["overflow:hidden", "height:0"],
+  ])(
+    "rejects clipping assembled across base and responsive rules (%s / %s)",
+    (base, mobile) => {
+      const html = withContent(
+        "Hello",
+        `.footer-name{display:block;${base}}@media(max-width:620px){.footer-name{${mobile}!important}}`,
+      ).replace(
+        "{{ site_settings.company_name }}",
+        '<span class="footer-name">{{ site_settings.company_name }}</span>',
+      );
+      expect(() => prepareHubSpotEmailHtml(html)).toThrow(
+        "Responsive CSS may hide required email footer content",
+      );
+    },
+  );
 
   it("preserves explicit font properties, zero indentation, and visibility resets", () => {
     const html = withContent(
@@ -618,7 +772,7 @@ describe("HubSpot email HTML export", () => {
     },
   );
 
-  it("respects opaque inline important colors over responsive transparency", () => {
+  it("reports responsive colors blocked by original important inline colors", () => {
     const html = withContent(
       "Hello",
       "@media(max-width:620px){.email-footer{color:transparent!important}}",
@@ -626,8 +780,8 @@ describe("HubSpot email HTML export", () => {
       '<td class="email-footer">',
       '<td class="email-footer" style="color:#333!important">',
     );
-    expect(prepareHubSpotEmailHtml(html).html).toContain(
-      "color:#333!important",
+    expect(() => prepareHubSpotEmailHtml(html)).toThrow(
+      "would be overridden after inlining",
     );
   });
 

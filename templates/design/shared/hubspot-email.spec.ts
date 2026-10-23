@@ -32,6 +32,8 @@ describe("HubSpot email frame classification", () => {
     '<meta name="description" name="agent-native:frame-type" content="hubspot-email">',
     "{{ \"<meta name='agent-native:frame-type' content='hubspot-email'>\" }}",
     "{{ \"}} <meta name='agent-native:frame-type' content='hubspot-email'>\" }}",
+    String.raw`{{ "escaped \" }} <meta name='agent-native:frame-type' content='hubspot-email'>" }}`,
+    `{{ '${MARKER}`,
   ])("does not classify inert marker lookalikes (%s)", (head) => {
     expect(isHubSpotEmailHtml(documentWithHead(head))).toBe(false);
   });
@@ -45,6 +47,13 @@ describe("HubSpot email frame classification", () => {
       '<meta name="description" content="{{ personalization_token("contact.firstname", "Hi > }} there") }}">' +
       MARKER;
     expect(isHubSpotEmailHtml(documentWithHead(head))).toBe(true);
+  });
+
+  it("classifies many unclosed HubL openers within the interaction budget", () => {
+    const source = "{{".repeat(40_000);
+    const start = performance.now();
+    expect(isHubSpotEmailHtml(source)).toBe(false);
+    expect(performance.now() - start).toBeLessThan(2_000);
   });
 
   it("rejects ordinary metadata", () => {

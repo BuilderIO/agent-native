@@ -1,15 +1,21 @@
 import { parse } from "parse5";
 
+import { scanHubLInterpolations } from "./hubl-tokens.js";
+
 export const HUBSPOT_EMAIL_FRAME_TYPE = "hubspot-email";
 
 export function isHubSpotEmailHtml(content: string): boolean {
   // HubL string literals may contain HTML attribute delimiters or closing braces.
-  const document = parse(
-    content.replace(
-      /{{(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|[^'"}]|}(?!}))*}}/g,
-      "ANHUBL",
-    ),
-  );
+  const scanned = scanHubLInterpolations(content);
+  if (scanned.unclosedAt !== undefined) return false;
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const token of scanned.tokens) {
+    parts.push(content.slice(cursor, token.start), "ANHUBL");
+    cursor = token.end;
+  }
+  parts.push(content.slice(cursor));
+  const document = parse(parts.join(""));
   const html = document.childNodes.find(
     (node) => "tagName" in node && node.tagName === "html",
   );

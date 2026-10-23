@@ -2,7 +2,9 @@ import { fail } from "@agent-native/core/action";
 import { parse, serialize, type DefaultTreeAdapterTypes } from "parse5";
 import { z } from "zod";
 
+import { scanHubLInterpolations } from "../../shared/hubl-tokens.js";
 import { parseHubLInterpolation } from "./hubl-interpolation.js";
+import { protectHubLTokens } from "./protect-hubl-tokens.js";
 
 export const sampleContactValuesSchema = z
   .array(
@@ -78,35 +80,44 @@ export function createHubSpotEmailPreview(
   const samples = Object.fromEntries(
     validated.data.map(({ field, value }) => [field, value]),
   );
-  let prefix = "ANEMAILPREVIEW";
-  while (source.includes(prefix)) prefix += "_";
-  const tokens: string[] = [];
-  const protectedHtml = source.replace(
-    /{{[\s\S]*?}}|{%[\s\S]*?%}/g,
-    (token) => {
-      tokens.push(token);
-      return `${prefix}${tokens.length - 1}TOKEN`;
-    },
+  const scanned = scanHubLInterpolations(source);
+  if (scanned.unclosedAt !== undefined)
+    fail("The email contains an unclosed HubL interpolation.", {
+      errorCode: "invalid_hubspot_email",
+      statusCode: 422,
+    });
+  const spans = [
+    ...scanned.tokens,
+    ...Array.from(source.matchAll(/\{%[\s\S]*?%\}/g), (match) => ({
+      start: match.index,
+      end: match.index + match[0].length,
+      raw: match[0],
+    })),
+  ].sort((a, b) => a.start - b.start);
+  let end = 0;
+  const protectedContent = protectHubLTokens(
+    source,
+    spans.filter((span) => {
+      if (span.start < end) return false;
+      end = span.end;
+      return true;
+    }),
   );
   const substitutedTokens = new Set<string>();
   const unresolvedTokens = new Set<string>();
   const restore = (value: string, substitute: boolean): string =>
-    value.replace(
-      new RegExp(`${prefix}(\\d+)TOKEN`, "g"),
-      (_, index: string) => {
-        const token = tokens[Number(index)];
-        const sample = substitute
-          ? previewValue(token, samples, usedContactFields)
-          : undefined;
-        if (sample === undefined) {
-          unresolvedTokens.add(token);
-          return token;
-        }
-        substitutedTokens.add(token);
-        return sample;
-      },
-    );
-  const document = parse(protectedHtml);
+    protectedContent.restore(value, (token) => {
+      const sample = substitute
+        ? previewValue(token, samples, usedContactFields)
+        : undefined;
+      if (sample === undefined) {
+        unresolvedTokens.add(token);
+        return token;
+      }
+      substitutedTokens.add(token);
+      return sample;
+    });
+  const document = parse(protectedContent.html);
   const visit = (
     node: DefaultTreeAdapterTypes.Node,
     substitute = true,

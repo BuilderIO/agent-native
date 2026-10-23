@@ -10,6 +10,30 @@ function text(node: DefaultTreeAdapterTypes.Node): string {
 }
 
 describe("HubSpot sample email preview", () => {
+  it("handles quoted closing delimiters and preserves literal placeholder text", () => {
+    const result = createHubSpotEmailPreview(
+      `<p>ANHUBL0TOKEN ANHUBL1TOKEN {{ personalization_token('contact.firstname', 'Hi }} there') }}</p>`,
+    );
+    expect(text(parse(result.html))).toBe(
+      "ANHUBL0TOKEN ANHUBL1TOKEN Hi }} there",
+    );
+    expect(result.preview.unresolvedTokens).toEqual([]);
+    expect(result.preview.substitutedTokens).toEqual([
+      "{{ personalization_token('contact.firstname', 'Hi }} there') }}",
+    ]);
+  });
+
+  it("reports an unclosed interpolation", () => {
+    expect(() =>
+      createHubSpotEmailPreview("<p>{{ contact.firstname</p>"),
+    ).toThrowError(
+      expect.objectContaining({
+        errorCode: "invalid_hubspot_email",
+        statusCode: 422,
+      }),
+    );
+  });
+
   it("renders fake company values and literal contact defaults without interpreting HTML", () => {
     const source = `<p>{{ site_settings.company_name|escape_html }}</p><p>{{ contact.firstname|default('<strong>Friend</strong>', true)|escape_html }}</p><a title="{{ personalization_token('contact.company', 'A & B')|escape_attr }}">Open</a>`;
     const result = createHubSpotEmailPreview(source);

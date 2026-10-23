@@ -3,10 +3,14 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { parse, serialize, type DefaultTreeAdapterTypes } from "parse5";
 import postcss, { type Declaration } from "postcss";
 
+import { scanHubLInterpolations } from "../../shared/hubl-tokens.js";
+import { propertiesOverlap } from "./email-css-properties.js";
 import { inspectEmailCssValue } from "./email-css-values.js";
+import { canClipText, hasClippedText } from "./email-css-visibility.js";
 import { verifyEmailImageResponse } from "./email-image-bytes.js";
 import { classifyEmailTextColor } from "./email-text-color.js";
 import { parseHubLInterpolation } from "./hubl-interpolation.js";
+import { protectHubLTokens } from "./protect-hubl-tokens.js";
 
 type Element = DefaultTreeAdapterTypes.Element;
 type Node = DefaultTreeAdapterTypes.Node;
@@ -66,8 +70,8 @@ function validateContactInterpolation(token: string): void {
 }
 
 function validateAttributeInterpolations(value: string, at: string): void {
-  for (const token of value.match(/{{[\s\S]*?}}/g) ?? []) {
-    if (parseHubLInterpolation(token)?.fallback?.includes('"'))
+  for (const token of scanHubLInterpolations(value).tokens) {
+    if (parseHubLInterpolation(token.raw)?.fallback?.includes('"'))
       invalid(
         `Personalization defaults in attributes at ${at} cannot contain literal double quotes. Use an encoded URL or an HTML entity in text attributes.`,
       );
@@ -113,20 +117,21 @@ function elements(node: Node): Element[] {
 }
 
 function parseHtmlWithHubL(content: string) {
-  const tokens: string[] = [];
-  const protectedContent = content.replace(/{{[\s\S]*?}}/g, (token) => {
-    const key = `ANHUBL${tokens.length}TOKEN`;
-    if (content.includes(key))
-      invalid("The HTML contains a reserved token placeholder.");
-    tokens.push(token);
-    return key;
-  });
-  const restoreTokens = (value: string) =>
-    value.replace(
-      /ANHUBL(\d+)TOKEN/g,
-      (_, index: string) => tokens[Number(index)],
-    );
-  return { document: parse(protectedContent), tokens, restoreTokens };
+  const scanned = scanHubLInterpolations(content);
+  if (scanned.unclosedAt !== undefined)
+    invalid("The email contains an unclosed HubL interpolation.");
+  const tokens = scanned.tokens.map((token) => token.raw);
+  for (const token of tokens)
+    if (/<\s*(?:\/?[a-z]|!|\?)/i.test(token))
+      invalid(
+        "HubL interpolation defaults must contain plain text or URLs, without HTML markup.",
+      );
+  const protectedContent = protectHubLTokens(content, scanned.tokens);
+  return {
+    document: parse(protectedContent.html),
+    tokens,
+    restoreTokens: protectedContent.restore,
+  };
 }
 
 function approvedAnchorDestinations(
@@ -321,6 +326,13 @@ function validateDeclaration(declaration: Declaration): void {
       `CSS "${property}: ${declaration.value}" contains an invalid value.`,
     );
   if (
+    property === "opacity" &&
+    !/^(?:[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?%?|inherit|initial|unset)$/.test(
+      value,
+    )
+  )
+    invalid("Use resolved numeric opacity values for email export.");
+  if (
     ["font", "all"].includes(property) ||
     (property === "text-indent" &&
       !/^[+-]?(?:0*\.)?0+(?:[a-z%]+)?$/.test(value))
@@ -390,25 +402,24 @@ function inlineDeclarations(element: Element) {
 
 function assertResponsiveInlining(
   element: Element,
-  css: string,
   rules: ConditionalStyleRule[],
 ): void {
-  const base = styleDeclarations(css);
-  const original = inlineDeclarations(element);
+  const inline = inlineDeclarations(element);
   for (const rule of rules) {
     if (!matchesSelector(element, rule.parts)) continue;
     for (const declaration of rule.declarations) {
       const property = declaration.prop.toLowerCase();
-      const inlined = base.get(property);
-      const existing = original.get(property);
       if (
-        !inlined ||
-        inlined.value === declaration.value ||
-        existing?.important ||
-        (existing && !inlined.important)
+        [...inline.values()].some(
+          (inlined) =>
+            propertiesOverlap(inlined.prop, property) &&
+            !(
+              inlined.prop.toLowerCase() === property &&
+              inlined.value === declaration.value
+            ) &&
+            (inlined.important || !declaration.important),
+        )
       )
-        continue;
-      if (inlined.important || !declaration.important)
         invalid(
           `Responsive CSS for ${property} at ${location(element)} would be overridden after inlining. Use !important on the responsive override and keep the base declaration non-important.`,
         );
@@ -428,8 +439,10 @@ function mayHideText(declaration: Declaration): boolean {
   return (
     (property === "display" && value === "none") ||
     (property === "visibility" && ["hidden", "collapse"].includes(value)) ||
-    (property === "opacity" && Number(value.replace(/%$/, "")) === 0) ||
-    (property === "font-size" && /^[+-]?(?:0*\.)?0+(?:[a-z%]+)?$/.test(value))
+    (property === "opacity" && Number(value.replace(/%$/, "")) <= 0) ||
+    (property === "font-size" &&
+      /^[+-]?(?:0*\.)?0+(?:[a-z%]+)?$/.test(value)) ||
+    canClipText(declaration)
   );
 }
 
@@ -480,7 +493,8 @@ function visibleTextByElement(document: Node): Map<Node, string> {
       const opacity = value("opacity");
       if (
         value("display") === "none" ||
-        (opacity !== undefined && Number(opacity.replace(/%$/, "")) === 0)
+        (opacity !== undefined && Number(opacity.replace(/%$/, "")) <= 0) ||
+        hasClippedText(declarations.values())
       )
         return "";
       const visibility = value("visibility");
@@ -535,8 +549,8 @@ function assertResponsiveFooterVisibility(
       path.push(parent);
       parent = parent.parentNode;
     }
-    for (const token of restoreTokens(text).match(/{{[\s\S]*?}}/g) ?? []) {
-      const parsed = parseHubLInterpolation(token);
+    for (const token of scanHubLInterpolations(restoreTokens(text)).tokens) {
+      const parsed = parseHubLInterpolation(token.raw);
       if (parsed && REQUIRED_FOOTER_TOKENS.includes(parsed.name))
         candidates.get(parsed.name)?.push(path);
     }
@@ -559,6 +573,7 @@ function assertResponsiveFooterVisibility(
         if (!styles.has(element))
           styles.set(element, inlineDeclarations(element));
         const inline = styles.get(element)!;
+        const clipping = [...inline.values()];
         const parentColorVisible = colorVisible;
         colorVisible = textColorVisible(
           inline.get("color")?.value,
@@ -571,6 +586,10 @@ function assertResponsiveFooterVisibility(
             const winner = inline.get(property);
             if (winner?.important || (!!winner && !declaration.important))
               continue;
+            if (canClipText(declaration)) {
+              clipping.push(declaration);
+              continue;
+            }
             if (property !== "color") return false;
             colorVisible &&= textColorVisible(
               declaration.value,
@@ -578,6 +597,7 @@ function assertResponsiveFooterVisibility(
             );
           }
         }
+        if (hasClippedText(clipping)) return false;
       }
       return colorVisible;
     });
@@ -827,20 +847,20 @@ export function prepareHubSpotEmailHtml(
     }
     const css = inlinedStyles.get(element)!;
     if (css) {
-      assertResponsiveInlining(element, css, conditionalStyleRules);
       const existing = element.attrs.find((attr) => attr.name === "style");
       if (existing) existing.value = css + existing.value;
       else element.attrs.push({ name: "style", value: css });
     }
+    assertResponsiveInlining(element, conditionalStyleRules);
   }
   const conditionalVisibilityRules = conditionalStyleRules.map((rule) => ({
     ...rule,
     declarations: rule.declarations.filter(mayHideText),
   }));
   const visibleText = visibleTextByElement(document);
-  const footerTokens = (
-    restoreTokens(visibleText.get(body) ?? "").match(/{{[\s\S]*?}}/g) ?? []
-  ).map(parseHubLInterpolation);
+  const footerTokens = scanHubLInterpolations(
+    restoreTokens(visibleText.get(body) ?? ""),
+  ).tokens.map((token) => parseHubLInterpolation(token.raw));
   for (const token of REQUIRED_FOOTER_TOKENS) {
     if (!footerTokens.some((parsed) => parsed?.name === token))
       invalid(
