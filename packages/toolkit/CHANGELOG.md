@@ -1,5 +1,48 @@
 # @agent-native/toolkit
 
+## 0.218.0
+
+### Minor Changes
+
+- fc038a0: Add opt-in transcript positioning and chart presentation controls to shared chat, including regular tool-call renderers.
+
+### Patch Changes
+
+- 84e4b2e: Add an ownership-aware chat history adapter that combines owned chats, shared chats, and eligible started drafts with independent sections, paging, and failure-safe optimistic mutations.
+- Release all public npm packages with a patch version bump.
+- 84e4b2e: Keep shared chat rows on one line with the owner's avatar, give every chat row a Copy link menu, and stop the share panel's people search from opening an empty "No people found" list.
+- Updated dependencies
+  - @agent-native/agentkit@0.218.0
+
+## 0.217.0
+
+### Minor Changes
+
+- 6c3f3cb: Let each command menu add ordered app commands, nested pages, selected-row previews, filter launchers, no-match suggestions, and an embedded chat slot without replacing the shared menu. Apps can also choose a shared wide dialog, supply search and empty states, report when dynamic result components contain rows, control selection and result placement, and opt into custom footer content or portal containers.
+- 4c43f86: Let each settings shell declare app-owned pages, ordered navigation sections, nested routes, custom controls, optional widget, chat, and toggle slots, and expose the shared theme-family setting to app-owned pages.
+- 9e4119f: Expose the shared toast notification helper from the toolkit UI package.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.217.0
+
+## 0.216.0
+
+### Minor Changes
+
+- 31a1f1e: Allow hosts to customize the shared AgentPanel page header share trigger content.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies
+  - @agent-native/agentkit@0.216.0
+
 ## 0.215.0
 
 ### Minor Changes
@@ -1259,23 +1302,5 @@
 ### Patch Changes
 
 - c41fd16: Use theme tokens for collaboration edit highlight labels.
-
-## 0.13.7
-
-### Patch Changes
-
-- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-## 0.13.6
-
-### Patch Changes
-
-- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-## 0.13.5
-
-### Patch Changes
-
-- a107169: Fix PPTX/PDF import color and text fidelity: resolve theme/master colors (including `lumMod`/`lumOff`/`tint`/`shade` transforms) instead of defaulting to black, inherit per-level placeholder colors from the slide master, resolve each slide's own layout→master→theme chain instead of reusing the deck's first master (fixes wrong colors in presentations combining more than one template), recover per-run text colors and styles from PDF content streams instead of collapsing multi-color/multi-weight lines to a single style, treat a PDF's initial (unset) fill color as the known black default instead of an unresolved guess, preserve real PDF line spacing for bullet lists, bound concurrent PDF page image uploads, and fail clearly instead of silently importing a scanned/unrecoverable PDF as blank placeholder slides.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

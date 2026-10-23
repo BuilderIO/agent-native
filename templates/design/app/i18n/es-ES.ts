@@ -238,6 +238,23 @@ export default {
     expandSidebar: "Expandir barra lateral",
     collapseSidebar: "Contraer barra lateral",
   },
+  gettingStarted: {
+    title: "Primeros pasos",
+    progress: "{{completeCount}} de {{totalCount}} completados",
+    collapse: "Contraer",
+    expand: "Expandir",
+    completed: "Completado",
+    loadError: "No se pudo cargar tu lista",
+    retry: "Reintentar",
+    steps: {
+      createDesign: "Crea tu primer diseño",
+      addBrand: "Añade tu marca",
+      useRealData: "Usa tus datos reales",
+      shareFeedback: "Comparte para recibir comentarios",
+      inviteTeammate: "Invita a un compañero",
+      saveTemplate: "Guarda un diseño como plantilla",
+    },
+  },
   settings: {
     agentTitle: "Gestionar agente",
     agentDescription:
@@ -1396,7 +1413,7 @@ export default {
       sourceWriteUnavailable:
         "Por ahora, el código de movimiento solo se puede escribir en diseños HTML integrados.",
       unresolvedStylesheets:
-        "Resuelve las hojas de estilo externas antes de editar o añadir Motion.",
+        "Resuelve los estilos externos o generados en tiempo de ejecución antes de editar o añadir Motion.",
       sourceConflict:
         "El código de Motion cambió mientras esta línea de tiempo tenía cambios sin guardar. Recarga el código para descartar esos cambios y usar la fuente actual.",
       reloadFromSource: "Volver a cargar el código",

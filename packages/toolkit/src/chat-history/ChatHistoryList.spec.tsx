@@ -635,4 +635,55 @@ describe("ChatHistoryList", () => {
     });
     expect(container.querySelector(".an-chat-history-row__menu")).toBeNull();
   });
+
+  it("keeps a read-only row to its owner header and Copy link", async () => {
+    const onCopyLink = vi.fn();
+    const onDelete = vi.fn();
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[
+            item({
+              id: "shared",
+              readOnly: true,
+              ownerAvatar: <span data-testid="avatar">P</span>,
+              ownerLabel: "pat@example.com",
+              accessLabel: "Shared with your organization",
+              accessBasis: "organization",
+            }),
+          ]}
+          onSelect={() => {}}
+          onRename={() => {}}
+          onDelete={onDelete}
+          onTogglePin={() => {}}
+          onCopyLink={onCopyLink}
+        />,
+      );
+    });
+
+    const row = container.querySelector<HTMLElement>(".an-chat-history-row")!;
+    const mark = row.querySelector(".an-chat-history-row__owner-mark");
+    expect(mark?.getAttribute("data-access-basis")).toBe("organization");
+    expect(mark?.querySelector("[data-testid='avatar']")).not.toBeNull();
+    expect(
+      row.querySelector(".an-chat-history-row__topline")?.textContent,
+    ).toBe("sharedP");
+
+    await openMenu(
+      row.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    expect(
+      document.body.querySelector(".an-chat-history-row__menu-owner")
+        ?.textContent,
+    ).toBe("Ppat@example.comShared with your organization");
+    expect(getMenuItems().map((element) => element.textContent)).toEqual([
+      "Copy link",
+    ]);
+
+    act(() => getMenuItems()[0]?.click());
+    expect(onCopyLink).toHaveBeenCalledWith("shared");
+    expect(onDelete).not.toHaveBeenCalled();
+  });
 });

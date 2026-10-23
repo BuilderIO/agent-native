@@ -32,6 +32,68 @@ import { AgentKitActionWidget } from "./action-widget.js";
 const catalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("AgentKitActionWidget", () => {
+  it.each(["running", "completed", "failed", "cancelled"] as const)(
+    "exposes the %s tool status to renderers while retaining isRunning",
+    async (status) => {
+      const toolCall: AgentToolCall = {
+        id: "tool-1",
+        name: "preview-inbox",
+        input: {},
+        output: { ok: true },
+        status,
+      };
+      const widget: AgentWidget = {
+        id: "tool-1:chat-ui",
+        kind: "mail.inbox-preview",
+        data: { toolCallId: toolCall.id, toolName: toolCall.name },
+      };
+      const client = new AgentKitClient({
+        transport: {
+          async startRun() {
+            return { runId: "run-1" };
+          },
+          async *subscribeToRun() {},
+          async cancelRun() {},
+          async getThreadSnapshot() {
+            return {
+              id: "thread-1",
+              createdAt: "2026-09-26T00:00:00.000Z",
+              updatedAt: "2026-09-26T00:00:00.000Z",
+              messages: [],
+              toolCalls: [toolCall],
+            };
+          },
+        },
+      });
+      await client.loadThread("thread-1");
+      const unregister = registerActionChatRenderer({
+        id: `test.agentkit-action-widget-status-${status}`,
+        renderer: widget.kind,
+        Component: ({ context }: ToolRendererProps) => (
+          <output
+            data-status={context.status}
+            data-running={String(context.isRunning)}
+          />
+        ),
+      });
+
+      try {
+        const html = renderToStaticMarkup(
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitActionWidget value={widget} threadId="thread-1" />
+          </AgentKitProvider>,
+        );
+
+        expect(html).toContain(`data-status="${status}"`);
+        expect(html).toContain(
+          `data-running="${String(status === "running")}"`,
+        );
+      } finally {
+        unregister();
+      }
+    },
+  );
+
   it("resolves the renderer with stored action args and structured result", async () => {
     const toolCall: AgentToolCall = {
       id: "tool-1",

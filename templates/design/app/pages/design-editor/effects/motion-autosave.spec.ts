@@ -98,7 +98,7 @@ function createArgs(
     writeMotionAvailable: true,
     sourceWriteUnavailableMessage: "Motion edits are unavailable.",
     unresolvedStylesheetsMessage:
-      "Resolve external stylesheets before editing or adding Motion.",
+      "Resolve external or runtime-generated styles before editing or adding Motion.",
   };
 }
 
@@ -181,7 +181,8 @@ describe("runMotionAutosave", () => {
     ];
     options.onError({
       errorCode: "motion_html_source_unresolved_stylesheet",
-      message: "Resolve external stylesheets before editing or adding Motion.",
+      message:
+        "Resolve external or runtime-generated styles before editing or adding Motion.",
     });
 
     expect(toast.error).toHaveBeenCalledWith(args.unresolvedStylesheetsMessage);

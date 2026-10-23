@@ -237,6 +237,23 @@ export default {
     expandSidebar: "Seitenleiste erweitern",
     collapseSidebar: "Seitenleiste einklappen",
   },
+  gettingStarted: {
+    title: "Erste Schritte",
+    progress: "{{completeCount}} von {{totalCount}} abgeschlossen",
+    collapse: "Einklappen",
+    expand: "Ausklappen",
+    completed: "Abgeschlossen",
+    loadError: "Checkliste konnte nicht geladen werden",
+    retry: "Erneut versuchen",
+    steps: {
+      createDesign: "Erstelle dein erstes Design",
+      addBrand: "Füge deine Marke hinzu",
+      useRealData: "Nutze deine echten Daten",
+      shareFeedback: "Für Feedback teilen",
+      inviteTeammate: "Teammitglied einladen",
+      saveTemplate: "Design als Vorlage speichern",
+    },
+  },
   settings: {
     agentTitle: "Agent verwalten",
     agentDescription:
@@ -1399,7 +1416,7 @@ export default {
       sourceWriteUnavailable:
         "Motion-Code kann derzeit nur in eingebettete HTML-Designs geschrieben werden.",
       unresolvedStylesheets:
-        "Löse externe Stylesheets auf, bevor du Motion bearbeitest oder hinzufügst.",
+        "Löse externe oder zur Laufzeit erzeugte Styles auf, bevor du Motion bearbeitest oder hinzufügst.",
       sourceConflict:
         "Der Motion-Quellcode wurde geändert, während diese Zeitleiste ungespeicherte Änderungen hatte. Lade den Code neu, um diese Änderungen zu verwerfen und die aktuelle Quelle zu verwenden.",
       reloadFromSource: "Code neu laden",

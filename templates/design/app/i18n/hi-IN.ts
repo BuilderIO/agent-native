@@ -232,6 +232,23 @@ export default {
     expandSidebar: "साइडबार फैलाएं",
     collapseSidebar: "साइडबार समेटें",
   },
+  gettingStarted: {
+    title: "शुरुआत करें",
+    progress: "{{totalCount}} में से {{completeCount}} पूरे",
+    collapse: "छोटा करें",
+    expand: "बड़ा करें",
+    completed: "पूरा हुआ",
+    loadError: "चेकलिस्ट लोड नहीं हो सकी",
+    retry: "फिर कोशिश करें",
+    steps: {
+      createDesign: "अपना पहला डिज़ाइन बनाएँ",
+      addBrand: "अपना ब्रांड जोड़ें",
+      useRealData: "अपना असली डेटा इस्तेमाल करें",
+      shareFeedback: "फ़ीडबैक के लिए शेयर करें",
+      inviteTeammate: "टीम के किसी सदस्य को आमंत्रित करें",
+      saveTemplate: "डिज़ाइन को टेम्पलेट के रूप में सेव करें",
+    },
+  },
   settings: {
     agentTitle: "एजेंट प्रबंधित करें",
     agentDescription:
@@ -1377,7 +1394,7 @@ export default {
       sourceWriteUnavailable:
         "अभी Motion कोड केवल इनलाइन HTML डिज़ाइन में लिखा जा सकता है।",
       unresolvedStylesheets:
-        "Motion में बदलाव करने या जोड़ने से पहले बाहरी स्टाइलशीट हल करें।",
+        "Motion में बदलाव करने या जोड़ने से पहले बाहरी या रनटाइम पर बने स्टाइल हल करें।",
       sourceConflict:
         "इस टाइमलाइन में बिना सहेजे बदलाव होने के दौरान Motion स्रोत बदल गया। उन बदलावों को छोड़कर मौजूदा स्रोत इस्तेमाल करने के लिए कोड फिर से लोड करें।",
       reloadFromSource: "कोड फिर से लोड करें",

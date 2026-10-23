@@ -1793,6 +1793,59 @@ it("republishes a newer acknowledged save when an obsolete retry is consumed", a
   publish.mockRestore();
 });
 
+describe("a retried save whose edit a peer's save already stored", () => {
+  const edited = "Saved body, edited in this tab";
+  const stored = `${edited}, and in another`;
+
+  function journalKeys() {
+    return Object.keys(localStorage).filter((key) =>
+      key.startsWith("content-page-draft-journal-v1:"),
+    );
+  }
+
+  async function retryAfterPeerStoredEdit() {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fixture.flushUpdates.mockResolvedValueOnce(false);
+    await act(async () => renderEditor());
+
+    act(() => fixture.editor!.onChange(edited));
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(fixture.save).not.toHaveBeenCalled();
+    expect(journalKeys()).toHaveLength(1);
+
+    act(() => fixture.editor!.onRemoteSnapshotChange!(stored));
+    fixture.page = {
+      ...fixture.page!,
+      content: stored,
+      revision: "r2",
+      updatedAt: "2026-10-19T12:00:01.000Z",
+    };
+    await act(async () => renderEditor());
+    await act(async () => vi.advanceTimersByTimeAsync(800));
+    expect(fixture.save).toHaveBeenCalledOnce();
+    expect(fixture.save.mock.calls[0][0]).toMatchObject({
+      title: fixture.page.title,
+      content: stored,
+      baseRevision: "r2",
+    });
+  }
+
+  it("clears the journal once the server confirms it holds the edit", async () => {
+    fixture.save.mockImplementation(async () => fixture.page);
+    await retryAfterPeerStoredEdit();
+    expect(journalKeys()).toEqual([]);
+  });
+
+  it("keeps the journal when the server refuses the confirmation", async () => {
+    fixture.save.mockImplementation(async () => ({
+      conflict: true,
+      document: fixture.page,
+    }));
+    await retryAfterPeerStoredEdit();
+    expect(journalKeys()).toHaveLength(1);
+  });
+});
+
 describe("actual additional field freshness", () => {
   async function mountField(fakeDate = false) {
     fixture.realAdditionalEditors = true;

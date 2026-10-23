@@ -620,6 +620,28 @@ describe("ordinary property and table-view setup", () => {
         itemLayout: { line2: { propertyId: propertyIds.Due } },
       }),
     ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+
+    // Page text takes line 2 instead of a property, and switching back
+    // brings the first text property.
+    const pageText = await update("page-text", "ideas", {
+      itemLayout: { line2: { source: "page", lines: 3 } },
+    });
+    expect(pageText.value.itemLayout?.line2).toEqual({
+      source: "page",
+      propertyId: null,
+      lines: 3,
+    });
+    await expect(
+      update("page-text-and-property", "ideas", {
+        itemLayout: {
+          line2: { source: "page", propertyId: propertyIds.Pitch },
+        },
+      }),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+    const backToProperty = await update("back-to-property", "ideas", {
+      itemLayout: { line2: { source: "property", lines: 2 } },
+    });
+    expect(backToProperty.value.itemLayout).toEqual(tweaked.value.itemLayout);
     await expect(
       update("list-wrap", "ideas", { wrapCells: true }),
     ).rejects.toMatchObject({ errorCode: "UNSUPPORTED_SCHEMA_CHANGE" });

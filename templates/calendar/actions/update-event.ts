@@ -224,16 +224,45 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
-  needsApproval: ({
+  needsApproval: async ({
+    id,
+    accountEmail: requestedAccountEmail,
+    scope,
     sendUpdates,
     notificationMessage,
     targetAccountEmail,
+    attendees,
     addAttendees,
-  }) =>
-    targetAccountEmail !== undefined ||
-    sendUpdates === "all" ||
-    !!notificationMessage?.trim() ||
-    (sendUpdates === undefined && namesGuests(addAttendees)),
+  }) => {
+    if (targetAccountEmail !== undefined || !!notificationMessage?.trim()) {
+      return true;
+    }
+    if (sendUpdates === "none") return false;
+    if (sendUpdates === undefined) return namesGuests(addAttendees);
+
+    if (namesGuests(attendees) || namesGuests(addAttendees)) return true;
+
+    // An empty replacement can still send cancellation notices to removed guests.
+    const ownerEmail = requireActionUserEmail();
+    const accountEmail = await resolveOwnedAccountEmail(
+      resolveGoogleEventAccountEmail(id, requestedAccountEmail),
+      ownerEmail,
+    );
+    let event = await googleCalendar.getEvent(
+      normalizeWritableGoogleEventId(id),
+      {
+        ownerEmail,
+        accountEmail,
+      },
+    );
+    if (scope === "all" && event.recurringEventId) {
+      event = await googleCalendar.getEvent(event.recurringEventId, {
+        ownerEmail,
+        accountEmail,
+      });
+    }
+    return (event.attendees?.length ?? 0) > 0;
+  },
   run: async (args, actionContext?: ActionRunContext) => {
     const ownerEmail = requireActionUserEmail();
     if (args.addGoogleMeet && args.addZoom) {

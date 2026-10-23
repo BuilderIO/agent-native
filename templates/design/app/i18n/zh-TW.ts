@@ -223,6 +223,23 @@ export default {
     expandSidebar: "展開側邊欄",
     collapseSidebar: "收起側邊欄",
   },
+  gettingStarted: {
+    title: "開始使用",
+    progress: "已完成 {{completeCount}}/{{totalCount}}",
+    collapse: "收合",
+    expand: "展開",
+    completed: "已完成",
+    loadError: "無法載入清單",
+    retry: "重試",
+    steps: {
+      createDesign: "建立你的第一個設計",
+      addBrand: "新增你的品牌",
+      useRealData: "使用你的真實資料",
+      shareFeedback: "分享以取得意見回饋",
+      inviteTeammate: "邀請隊友",
+      saveTemplate: "將設計儲存為範本",
+    },
+  },
   settings: {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
@@ -1493,7 +1510,8 @@ export default {
       size: "大小",
       sourceReadUnavailable: "Motion 無法在不改變其行為的情況下讀取此動畫。",
       sourceWriteUnavailable: "目前，Motion 程式碼只能寫入內嵌 HTML 設計。",
-      unresolvedStylesheets: "請先解決外部樣式表，再編輯或新增 Motion。",
+      unresolvedStylesheets:
+        "請先處理外部或執行期間產生的樣式，再編輯或新增 Motion。",
       sourceConflict:
         "時間軸有未儲存變更時，Motion 原始碼已變更。重新載入程式碼會捨棄這些變更並使用目前的原始碼。",
       reloadFromSource: "從程式碼重新載入",

@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 
-import { createNativeSceneProvider } from "./native-source-provider";
+import {
+  createNativeSceneProvider,
+  NativeSourceCapabilityError,
+} from "./native-source-provider";
 import { serializeNativeSvgSource } from "./native-svg-source";
 
 afterEach(() => {
@@ -189,9 +192,10 @@ it.each([
   const provider = createNativeSceneProvider(child as HTMLElement, "layer");
   expect(provider).not.toBeNull();
   try {
-    await expect(
-      tag === "path" ? provider!.readScene() : provider!.readReceiverCoverage(),
-    ).rejects.toMatchObject({ code });
+    const capture =
+      tag === "path" ? provider!.readScene() : provider!.readReceiverCoverage();
+    await expect(capture).rejects.toBeInstanceOf(NativeSourceCapabilityError);
+    await expect(capture).rejects.toMatchObject({ code });
   } finally {
     provider!.dispose();
   }
@@ -260,3 +264,116 @@ it("rejects pixel-changing animation effects on an adopted node", async () => {
     provider.dispose();
   }
 });
+
+it("suspends a zero-area clipped native background and resumes its composition after resize", async () => {
+  const { provider, target } = createAdoptedSceneFixture();
+  const readStyle = vi.mocked(window.getComputedStyle).getMockImplementation()!;
+  let width = 0;
+  let shadow = "none";
+  Object.defineProperty(target, "offsetWidth", {
+    configurable: true,
+    get: () => width,
+  });
+  vi.mocked(window.getComputedStyle).mockImplementation((element) => {
+    const style = readStyle(element);
+    return element === target
+      ? ({
+          ...style,
+          backgroundColor: "rgb(240, 240, 220)",
+          overflowX: "hidden",
+          overflowY: "hidden",
+          boxShadow: shadow,
+        } as CSSStyleDeclaration)
+      : style;
+  });
+  try {
+    expect(await provider.readScene()).toEqual([]);
+    width = 100;
+    expect(
+      (await provider.readScene()).map((record) => record.nativeInstanceId),
+    ).toEqual(["final-layer"]);
+    width = 0;
+    shadow = "rgb(0, 0, 0) 0px 0px 10px 0px";
+    const failure = provider.readScene();
+    await expect(failure).rejects.toBeInstanceOf(NativeSourceCapabilityError);
+    await expect(failure).rejects.toMatchObject({
+      code: "source-empty-own-paint-unsupported",
+    });
+  } finally {
+    provider.dispose();
+  }
+});
+
+it("ignores an empty native target's stale presentation pixels and resumes after resize", async () => {
+  const { provider, target } = createAdoptedSceneFixture();
+  let width = 0;
+  Object.defineProperty(target, "offsetWidth", {
+    configurable: true,
+    get: () => width,
+  });
+  const child = document.createElement("div");
+  child.setAttribute("data-an-native-layer-instance", "overflow-child");
+  const presentation = document.createElement("canvas");
+  presentation.setAttribute("data-an-native-presentation", "");
+  presentation.setAttribute("data-an-native-canvas", "overflow-child");
+  presentation.setAttribute("data-an-native-layer-opacity-owner", "receiver");
+  target.append(child, presentation);
+  for (const element of [child, presentation])
+    Object.defineProperties(element, {
+      offsetWidth: { value: 80 },
+      offsetHeight: { value: 60 },
+      offsetLeft: { value: 0 },
+      offsetTop: { value: 0 },
+      offsetParent: { value: target },
+      getBoundingClientRect: { value: () => new DOMRect(10, 20, 80, 60) },
+      getAnimations: { value: () => [] },
+    });
+  try {
+    expect(
+      (await provider.readScene()).map((record) => record.nativeInstanceId),
+    ).toEqual(["overflow-child"]);
+    width = 100;
+    expect(
+      (await provider.readScene()).map((record) => record.nativeInstanceId),
+    ).toEqual(["final-layer"]);
+  } finally {
+    provider.dispose();
+  }
+});
+
+it.each(["shadow", "filter", "pseudo"] as const)(
+  "classifies unsupported %s paint without accepting it as captured pixels",
+  async (feature) => {
+    const { provider: completeScene, target } = createAdoptedSceneFixture();
+    completeScene.dispose();
+    for (const attribute of [...target.attributes])
+      target.removeAttribute(attribute.name);
+    const readStyle = vi
+      .mocked(window.getComputedStyle)
+      .getMockImplementation()!;
+    if (feature === "shadow") target.attachShadow({ mode: "open" });
+    vi.mocked(window.getComputedStyle).mockImplementation((element, pseudo) => {
+      const style = readStyle(element);
+      if (element !== target) return style;
+      return {
+        ...style,
+        filter: feature === "filter" ? "blur(2px)" : "none",
+        content: feature === "pseudo" && pseudo ? '"label"' : "none",
+      } as CSSStyleDeclaration;
+    });
+    const provider = createNativeSceneProvider(target, "layer")!;
+    try {
+      const capture = provider.readReceiverCoverage();
+      await expect(capture).rejects.toBeInstanceOf(NativeSourceCapabilityError);
+      await expect(capture).rejects.toMatchObject({
+        code: {
+          shadow: "source-shadow-dom",
+          filter: "source-css-composite",
+          pseudo: "source-pseudo",
+        }[feature],
+      });
+    } finally {
+      provider.dispose();
+    }
+  },
+);

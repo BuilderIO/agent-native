@@ -90,7 +90,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
     formatDate: (date: Date | string) => new Date(date).toISOString(),
   }),
-  useT: () => (key: string) => key,
+  useT: () => (key: string, params?: { count?: number }) =>
+    key === "comments.proposalEditCount" ? `${key}:${params?.count}` : key,
 }));
 vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => content,
@@ -341,6 +342,27 @@ describe("comment review interactions", () => {
       ).not.toBeNull();
     },
   );
+  it("keeps an expanded proposal open and counts the edits left after its first is accepted", () => {
+    const members = ["one", "two", "three"].map((id) => proposalSuggestion(id));
+    const header = () =>
+      container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-proposal='proposal'] > button[aria-expanded]",
+      );
+    render(null, [], "inline", { suggestions: members });
+    expect(header()?.getAttribute("aria-expanded")).toBe("false");
+    expect(header()?.textContent).toContain("comments.proposalEditCount:3");
+    act(() => header()!.click());
+    expect(header()?.getAttribute("aria-expanded")).toBe("true");
+
+    render(null, [], "inline", {
+      suggestions: [
+        { ...members[0]!, status: "accepted" },
+        ...members.slice(1),
+      ],
+    });
+    expect(header()?.getAttribute("aria-expanded")).toBe("true");
+    expect(header()?.textContent).toContain("comments.proposalEditCount:2");
+  });
   it("shows every pending proposal member before deciding from a focused inline card", () => {
     const onDecideSuggestionProposal = vi.fn();
     render(null, [], "inline", {
