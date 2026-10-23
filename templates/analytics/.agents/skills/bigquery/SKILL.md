@@ -31,7 +31,7 @@ writing the query is always faster than debugging a wrong result.
 
 Before writing SQL, use the highest-confidence source available:
 
-0. `query-dbt-semantic-metric` for an exact owner-defined dbt metric. Its definition outranks any table; if it is not ready, check `get-dbt-connection`.
+0. For an owner-defined dbt metric question, even unnamed, use `find-data` for its exact name, then `query-dbt-semantic-metric` with that name. Its definition outranks any table; if it is not ready, check `get-dbt-connection`.
 1. `find-data` with a focused metric or entity question.
 2. Existing dashboard SQL or saved analyses that already answer the same metric.
 3. `search-bigquery-schema` metadata for exact datasets, tables, and columns.
@@ -42,7 +42,7 @@ table; `BIGQUERY_PROJECT_ID` is only the default project.
 
 ## Warehouse Table Priority (CRITICAL)
 
-**Always prefer dbt-built warehouse tables before raw source tables.** They are warehouse data, not owner-approved Semantic Layer definitions; for an owner-defined metric, use step 0 of the source order first.
+**Always prefer dbt-built warehouse tables before raw source tables.** They are warehouse data, not owner-approved Semantic Layer definitions; for an owner-defined metric, use the dbt step (step 0 of the source order) first.
 
 1. `dbt_mart.*` — dbt-built, first choice for business-level data (deals, contracts, subscriptions, customers, companies).
 2. `dbt_analytics.*` — dbt-built, first choice for reporting views and aggregated metrics.
