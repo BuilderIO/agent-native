@@ -4351,20 +4351,32 @@ function ThreadView({
           />
         ) : null}
         {(isPanel || showQuote) && quote ? (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              if (canExpand) onExpand();
-            }}
-            className={cn(
-              "-mb-1 border-s-2 border-border ps-2.5 text-start text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              isPanel ? "line-clamp-2" : "line-clamp-1",
-            )}
-            data-comment-quote
-          >
-            {quote}
-          </button>
+          canExpand ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onExpand();
+              }}
+              className={cn(
+                "-mb-1 border-s-2 border-border ps-2.5 text-start text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                isPanel ? "line-clamp-2" : "line-clamp-1",
+              )}
+              data-comment-quote
+            >
+              {quote}
+            </button>
+          ) : (
+            <p
+              className={cn(
+                "-mb-1 border-s-2 border-border ps-2.5 text-sm text-muted-foreground",
+                isPanel ? "line-clamp-2" : "line-clamp-1",
+              )}
+              data-comment-quote
+            >
+              {quote}
+            </p>
+          )
         ) : null}
         {anchorUnavailable ? (
           <span

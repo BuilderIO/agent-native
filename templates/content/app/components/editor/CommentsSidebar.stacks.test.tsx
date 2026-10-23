@@ -152,10 +152,12 @@ function Owner({
   threads,
   scroll,
   presentation,
+  canComment,
 }: {
   threads: CommentThread[];
   scroll: HTMLDivElement;
   presentation: "inline" | "history";
+  canComment: boolean;
 }) {
   const replies = useCommentReplyDrafts("fixture", "reviewer@example.test");
   const pending = usePendingCommentDraft("fixture");
@@ -194,7 +196,7 @@ function Owner({
       onSelectedThreadChange={setSelected}
       onHoveredThreadChange={setHovered}
       currentUserEmail="reviewer@example.test"
-      canComment
+      canComment={canComment}
       canResolve
       alignToAnchors
       forceVisible
@@ -231,6 +233,7 @@ describe("comment stacks in the margin", () => {
   function render(
     threads: CommentThread[] = THREADS,
     presentation: "inline" | "history" = "inline",
+    canComment = true,
   ) {
     act(() => {
       root.render(
@@ -244,6 +247,7 @@ describe("comment stacks in the margin", () => {
                 threads={threads}
                 scroll={scroll}
                 presentation={presentation}
+                canComment={canComment}
               />
             </CommentDraftProvider>
           </TooltipProvider>
@@ -431,6 +435,22 @@ describe("comment stacks in the margin", () => {
       container.querySelector('[data-thread-card="a"] [data-comment-quote]')
         ?.textContent,
     ).toBe("quote a");
+  });
+
+  it("shows an open stack's quotes as text to a viewer who can't comment", () => {
+    render(THREADS, "inline", false);
+    act(() => harness.select("b"));
+    const quote = () =>
+      container.querySelector<HTMLElement>(
+        '[data-thread-card="a"] [data-comment-quote]',
+      )!;
+    expect(quote().textContent).toBe("quote a");
+    // A button here would do nothing for them.
+    expect(quote().closest("button")).toBeNull();
+
+    render();
+    act(() => quote().click());
+    expect(harness.selected).toBe("a");
   });
 
   it("moves focus and scroll to the opened card, and focus back on Collapse", async () => {
