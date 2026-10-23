@@ -56,6 +56,8 @@ let requiredInsertRunRows: Array<{
 let insertEventBehavior: () => void = () => {};
 let insertEventRowsAffected = 1;
 let abortRowsAffected = 1;
+let terminalReasonCasStatus = "completed";
+let terminalReasonCasValue: string | null = null;
 let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
 let staleRecoveryRows: Array<{
   thread_id: string;
@@ -80,6 +82,17 @@ const mockDb: any = {
     const rawSql = typeof sql === "string" ? sql : sql.sql;
     const args = typeof sql === "string" ? [] : (sql.args ?? []);
     execCalls.push({ sql: rawSql, args });
+
+    if (
+      /UPDATE agent_runs SET terminal_reason = \?/i.test(rawSql) &&
+      /WHERE id = \? AND status = \?/i.test(rawSql)
+    ) {
+      const matches =
+        terminalReasonCasStatus === args[2] &&
+        (terminalReasonCasValue === null || terminalReasonCasValue === "");
+      if (matches) terminalReasonCasValue = String(args[0]);
+      return { rows: [], rowsAffected: matches ? 1 : 0 };
+    }
 
     if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
       return { rows: [{ acquired: true }], rowsAffected: 0 };
@@ -468,6 +481,8 @@ describe("run store", () => {
     insertEventBehavior = () => {};
     insertEventRowsAffected = 1;
     abortRowsAffected = 1;
+    terminalReasonCasStatus = "completed";
+    terminalReasonCasValue = null;
     __resetNoRunningRunsProbeForTests();
     vi.clearAllMocks();
   });
@@ -2767,23 +2782,28 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
     }
   });
 
-  it("setRunTerminalReasonIfStatus only writes for the expected terminal row without a reason", async () => {
-    execCalls.length = 0;
+  it("setRunTerminalReasonIfStatus writes for a matching terminal row with a NULL or empty reason", async () => {
+    for (const existingReason of [null, ""] as const) {
+      execCalls.length = 0;
+      terminalReasonCasStatus = "completed";
+      terminalReasonCasValue = existingReason;
 
-    const matched = await setRunTerminalReasonIfStatus(
-      "run-final",
-      "completed",
-      "done",
-    );
+      const matched = await setRunTerminalReasonIfStatus(
+        "run-final",
+        "completed",
+        "done",
+      );
 
-    const update = execCalls.find((call) =>
-      /UPDATE agent_runs/i.test(call.sql),
-    );
-    expect(update?.sql).toContain(
-      "WHERE id = ? AND status = ? AND terminal_reason IS NULL",
-    );
-    expect(update?.args).toEqual(["done", "run-final", "completed"]);
-    expect(matched).toBe(true);
+      const update = execCalls.find((call) =>
+        /UPDATE agent_runs/i.test(call.sql),
+      );
+      expect(update?.sql).toContain(
+        "WHERE id = ? AND status = ? AND (terminal_reason IS NULL OR terminal_reason = '')",
+      );
+      expect(update?.args).toEqual(["done", "run-final", "completed"]);
+      expect(matched).toBe(true);
+      expect(terminalReasonCasValue).toBe("done");
+    }
   });
 });
 

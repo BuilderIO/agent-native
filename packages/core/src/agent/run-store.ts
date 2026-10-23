@@ -2091,7 +2091,7 @@ export async function setRunTerminalReasonIfStatus(
   const { rowsAffected } = await withFencedExecutionWrite(
     (tx) =>
       tx.execute({
-        sql: `UPDATE agent_runs SET terminal_reason = ? WHERE id = ? AND status = ? AND terminal_reason IS NULL`,
+        sql: `UPDATE agent_runs SET terminal_reason = ? WHERE id = ? AND status = ? AND (terminal_reason IS NULL OR terminal_reason = '')`,
         args: [terminalReason.slice(0, 200), runId, expectedStatus],
       }),
     { runId },

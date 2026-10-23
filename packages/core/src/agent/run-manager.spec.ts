@@ -4113,53 +4113,58 @@ describe("run manager soft timeout", () => {
     expect(run.abortReason).toBeUndefined();
   });
 
-  it("confirms an ambiguously committed terminal status after reconciliation fails", async () => {
-    let persistedTerminalReason: string | null = null;
-    vi.mocked(getRunById).mockImplementation(async (id) => ({
-      id,
-      threadId: "thread-ambiguous-terminal-write",
-      status: "completed",
-      startedAt: Date.now(),
-      errorCode: null,
-      errorDetail: null,
-      terminalReason: persistedTerminalReason,
-    }));
-    vi.mocked(setRunTerminalReasonIfStatus).mockImplementationOnce(
-      async (_id, expectedStatus, terminalReason) => {
-        expect(expectedStatus).toBe("completed");
-        persistedTerminalReason = terminalReason;
-        return true;
-      },
-    );
-    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
-      vi.mocked(getRunStatus).mockResolvedValue("completed");
-      throw new Error("terminal status write committed but its reply was lost");
-    });
-    vi.mocked(reconcileTerminalRunFromEvents).mockRejectedValueOnce(
-      new Error("terminal event reconciliation failed"),
-    );
+  it.each([null, ""] as const)(
+    "confirms an ambiguously committed terminal status after reconciliation fails with reason %s",
+    async (initialTerminalReason) => {
+      let persistedTerminalReason: string | null = initialTerminalReason;
+      vi.mocked(getRunById).mockImplementation(async (id) => ({
+        id,
+        threadId: "thread-ambiguous-terminal-write",
+        status: "completed",
+        startedAt: Date.now(),
+        errorCode: null,
+        errorDetail: null,
+        terminalReason: persistedTerminalReason,
+      }));
+      vi.mocked(setRunTerminalReasonIfStatus).mockImplementationOnce(
+        async (_id, expectedStatus, terminalReason) => {
+          expect(expectedStatus).toBe("completed");
+          persistedTerminalReason = terminalReason;
+          return true;
+        },
+      );
+      vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
+        vi.mocked(getRunStatus).mockResolvedValue("completed");
+        throw new Error(
+          "terminal status write committed but its reply was lost",
+        );
+      });
+      vi.mocked(reconcileTerminalRunFromEvents).mockRejectedValueOnce(
+        new Error("terminal event reconciliation failed"),
+      );
 
-    const run = startRun(
-      "run-ambiguous-terminal-write",
-      "thread-ambiguous-terminal-write",
-      async () => {},
-      undefined,
-      { softTimeoutMs: 0 },
-    );
+      const run = startRun(
+        "run-ambiguous-terminal-write",
+        "thread-ambiguous-terminal-write",
+        async () => {},
+        undefined,
+        { softTimeoutMs: 0 },
+      );
 
-    await vi.advanceTimersByTimeAsync(6_000);
-    await run.finalized;
+      await vi.advanceTimersByTimeAsync(6_000);
+      await run.finalized;
 
-    expect(run.status).toBe("completed");
-    expect(run.abortReason).toBeUndefined();
-    expect(getRunById).toHaveBeenCalledWith("run-ambiguous-terminal-write");
-    expect(setRunTerminalReasonIfStatus).toHaveBeenCalledWith(
-      "run-ambiguous-terminal-write",
-      "completed",
-      "done",
-    );
-    expect(persistedTerminalReason).toBe("done");
-  });
+      expect(run.status).toBe("completed");
+      expect(run.abortReason).toBeUndefined();
+      expect(getRunById).toHaveBeenCalledWith("run-ambiguous-terminal-write");
+      expect(setRunTerminalReasonIfStatus).toHaveBeenCalledWith(
+        "run-ambiguous-terminal-write",
+        "completed",
+        "done",
+      );
+      expect(persistedTerminalReason).toBe("done");
+    },
+  );
 
   it("does not confirm an ambiguous status when another writer wins before the reason write", async () => {
     let persistedStatus = "completed";
