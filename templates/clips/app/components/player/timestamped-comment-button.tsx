@@ -48,6 +48,7 @@ interface TimestampedCommentBarProps {
   ) => Promise<string | null | undefined>;
   recordingId: string;
   atMs: number;
+  open?: boolean;
   onClose: () => void;
   onAdded?: () => void;
   className?: string;
@@ -61,6 +62,7 @@ export function TimestampedCommentBar({
   getCommentAccessToken,
   recordingId,
   atMs,
+  open = true,
   onClose,
   onAdded,
   className,
@@ -123,8 +125,9 @@ export function TimestampedCommentBar({
     );
   };
 
-  // Moving into or out of the player remounts the fields, so the send stays
-  // out here where a pending one survives the move.
+  // Closing the composer, or moving it into or out of the player, remounts the
+  // fields, so the send stays out here where a pending one survives both.
+  if (!open) return null;
   const fields = (
     <TimestampedCommentFields
       draft={draft}

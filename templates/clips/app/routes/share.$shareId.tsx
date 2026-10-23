@@ -1843,42 +1843,41 @@ export default function ShareRoute() {
                     }
                     className="h-full w-full rounded-none sm:rounded-xl"
                   />
-                  {commentOpen && viewerCanComment ? (
-                    <TimestampedCommentBar
-                      commentAccessToken={
-                        recording.commentAccessToken ?? undefined
+                  <TimestampedCommentBar
+                    open={commentOpen && viewerCanComment}
+                    commentAccessToken={
+                      recording.commentAccessToken ?? undefined
+                    }
+                    getCommentAccessToken={
+                      recording.commentAccessToken
+                        ? getCommentAccessToken
+                        : undefined
+                    }
+                    recordingId={recording.id}
+                    atMs={commentAtMs}
+                    draft={commentDraft}
+                    onDraftChange={setCommentDraft}
+                    onClose={() => setCommentOpen(false)}
+                    onAdded={() => {
+                      void dataQ.refetch();
+                      if (resumedAccountActionRef.current === "comment") {
+                        resumedAccountActionRef.current = null;
+                        trackEvent("share_account_action_completed", {
+                          surface: "public_share",
+                          recording_id: recording.id,
+                          intent: "comment",
+                        });
                       }
-                      getCommentAccessToken={
-                        recording.commentAccessToken
-                          ? getCommentAccessToken
-                          : undefined
-                      }
-                      recordingId={recording.id}
-                      atMs={commentAtMs}
-                      draft={commentDraft}
-                      onDraftChange={setCommentDraft}
-                      onClose={() => setCommentOpen(false)}
-                      onAdded={() => {
-                        void dataQ.refetch();
-                        if (resumedAccountActionRef.current === "comment") {
-                          resumedAccountActionRef.current = null;
-                          trackEvent("share_account_action_completed", {
-                            surface: "public_share",
-                            recording_id: recording.id,
-                            intent: "comment",
-                          });
-                        }
-                      }}
-                      // The Fullscreen API only paints the player's own element,
-                      // so the composer moves there instead of exiting
-                      // fullscreen when it's open.
-                      portalContainer={
-                        isPlayerFullscreen
-                          ? playerRef.current?.container
-                          : undefined
-                      }
-                    />
-                  ) : null}
+                    }}
+                    // The Fullscreen API only paints the player's own element,
+                    // so the composer moves there instead of exiting
+                    // fullscreen when it's open.
+                    portalContainer={
+                      isPlayerFullscreen
+                        ? playerRef.current?.container
+                        : undefined
+                    }
+                  />
                 </div>
               )}
             </div>

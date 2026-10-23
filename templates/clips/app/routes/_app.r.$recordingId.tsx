@@ -3235,27 +3235,26 @@ export default function RecordingPage() {
                         }}
                         className="h-full w-full rounded-none sm:rounded-2xl"
                       />
-                      {commentOpen && canComment ? (
-                        <TimestampedCommentBar
-                          recordingId={recording.id}
-                          atMs={commentAtMs}
-                          draft={commentDraft}
-                          onDraftChange={setCommentDraft}
-                          onClose={() => setCommentOpen(false)}
-                          onAdded={() => {
-                            if (isCompactLayout) setPanel("comments");
-                            void playerDataQ.refetch();
-                          }}
-                          // The Fullscreen API only paints the player's own
-                          // element, so the composer moves there instead of
-                          // exiting fullscreen when it's open.
-                          portalContainer={
-                            isPlayerFullscreen
-                              ? playerRef.current?.container
-                              : undefined
-                          }
-                        />
-                      ) : null}
+                      <TimestampedCommentBar
+                        open={commentOpen && canComment}
+                        recordingId={recording.id}
+                        atMs={commentAtMs}
+                        draft={commentDraft}
+                        onDraftChange={setCommentDraft}
+                        onClose={() => setCommentOpen(false)}
+                        onAdded={() => {
+                          if (isCompactLayout) setPanel("comments");
+                          void playerDataQ.refetch();
+                        }}
+                        // The Fullscreen API only paints the player's own
+                        // element, so the composer moves there instead of
+                        // exiting fullscreen when it's open.
+                        portalContainer={
+                          isPlayerFullscreen
+                            ? playerRef.current?.container
+                            : undefined
+                        }
+                      />
                     </div>
                   )}
                 </div>

@@ -252,12 +252,14 @@ function ProofShare({
   );
 }
 
-// Like the share and recording routes: the page owns the draft, and the bar
-// paints inside the player only while the player is fullscreen.
+// Like the share and recording routes: the page owns the draft and whether the
+// bar is open, and the bar paints inside the player only while the player is
+// fullscreen.
 function FullscreenCommentPage({
   fullscreen,
   player,
   initialDraft = "",
+  onClose,
   ...bar
 }: Omit<
   React.ComponentProps<typeof TimestampedCommentBar>,
@@ -268,13 +270,24 @@ function FullscreenCommentPage({
   initialDraft?: string;
 }) {
   const [draft, setDraft] = React.useState(initialDraft);
+  const [open, setOpen] = React.useState(true);
   return (
-    <TimestampedCommentBar
-      {...bar}
-      draft={draft}
-      onDraftChange={setDraft}
-      portalContainer={fullscreen ? player : undefined}
-    />
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        commentsPanel.commentButton
+      </button>
+      <TimestampedCommentBar
+        {...bar}
+        open={open}
+        draft={draft}
+        onDraftChange={setDraft}
+        onClose={() => {
+          onClose();
+          setOpen(false);
+        }}
+        portalContainer={fullscreen ? player : undefined}
+      />
+    </>
   );
 }
 
@@ -388,7 +401,32 @@ describe("CommentsPanel reply composer", () => {
         alert: document.body.querySelector('[role="alert"]'),
       };
     };
-    return { player, setFullscreen, bar };
+    const isOpen = () => document.body.querySelector("textarea") !== null;
+    const close = (how: "Cancel" | "Escape") =>
+      act(() => {
+        if (how === "Escape") {
+          bar().composer.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+          return;
+        }
+        Array.from(document.body.querySelectorAll("button"))
+          .find((button) => button.textContent === "common.cancel")
+          ?.click();
+      });
+    const reopen = () =>
+      act(() => {
+        Array.from(document.body.querySelectorAll("button"))
+          .find(
+            (button) => button.textContent === "commentsPanel.commentButton",
+          )
+          ?.click();
+      });
+    return { player, setFullscreen, bar, isOpen, close, reopen };
   }
 
   it("supplies current password proof to every comment mutation after rotation", () => {
@@ -1083,7 +1121,7 @@ describe("CommentsPanel reply composer", () => {
     },
   );
 
-  it("keeps a fullscreen draft open with feedback when proof cannot renew, then sends it on retry after leaving fullscreen", async () => {
+  it("keeps a fullscreen draft with feedback when proof cannot renew, then sends it on retry after leaving fullscreen and reopening", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(
       async () =>
         new Response(JSON.stringify({ id: "comment-2" }), {
@@ -1098,15 +1136,16 @@ describe("CommentsPanel reply composer", () => {
       .mockResolvedValueOnce("fake-renewed-proof");
     const onAdded = vi.fn();
     const onClose = vi.fn();
-    const { player, setFullscreen, bar } = renderFullscreenCommentPage({
-      recordingId: "recording-1",
-      atMs: 12000,
-      initialDraft: "Fake fullscreen comment",
-      onAdded,
-      onClose,
-      commentAccessToken: "fake-stale-proof",
-      getCommentAccessToken,
-    });
+    const { player, setFullscreen, bar, isOpen, close, reopen } =
+      renderFullscreenCommentPage({
+        recordingId: "recording-1",
+        atMs: 12000,
+        initialDraft: "Fake fullscreen comment",
+        onAdded,
+        onClose,
+        commentAccessToken: "fake-stale-proof",
+        getCommentAccessToken,
+      });
     expect(player.contains(bar().composer)).toBe(true);
     await act(async () => {
       bar().send.click();
@@ -1119,6 +1158,12 @@ describe("CommentsPanel reply composer", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(bar().composer.value).toBe("Fake fullscreen comment");
     expect(bar().send.disabled).toBe(false);
+    close("Escape");
+    expect(isOpen()).toBe(false);
+    reopen();
+    expect(bar().alert?.textContent).toBe("notificationsRoute.sendFailed");
+    expect(bar().composer.value).toBe("Fake fullscreen comment");
+    expect(bar().send.disabled).toBe(false);
 
     await act(async () => {
       bar().send.click();
@@ -1129,13 +1174,14 @@ describe("CommentsPanel reply composer", () => {
     expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
       "fake-renewed-proof",
     );
+    expect(onAdded).toHaveBeenCalledTimes(1);
+    expect(isOpen()).toBe(false);
+    reopen();
     expect(bar().alert).toBeNull();
     expect(bar().composer.value).toBe("");
-    expect(onAdded).toHaveBeenCalledTimes(1);
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("sends a fullscreen comment once however often send repeats or the player leaves fullscreen before it settles", async () => {
+  it("sends a fullscreen comment once however often send repeats, the composer closes and reopens, or the player leaves fullscreen before it settles", async () => {
     let completeRenewal!: (token: string) => void;
     const renewal = new Promise<string>((resolve) => {
       completeRenewal = resolve;
@@ -1154,15 +1200,15 @@ describe("CommentsPanel reply composer", () => {
     });
     vi.stubGlobal("fetch", fetch);
     const onAdded = vi.fn();
-    const onClose = vi.fn();
-    const { player, setFullscreen, bar } = renderFullscreenCommentPage({
-      recordingId: "recording-1",
-      atMs: 12000,
-      onAdded,
-      onClose,
-      commentAccessToken: "fake-expired-proof",
-      getCommentAccessToken,
-    });
+    const { player, setFullscreen, bar, isOpen, close, reopen } =
+      renderFullscreenCommentPage({
+        recordingId: "recording-1",
+        atMs: 12000,
+        onAdded,
+        onClose: vi.fn(),
+        commentAccessToken: "fake-expired-proof",
+        getCommentAccessToken,
+      });
     const pressSend = (modifier: "ctrlKey" | "metaKey") =>
       bar().composer.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -1185,29 +1231,39 @@ describe("CommentsPanel reply composer", () => {
     await act(async () => {
       pressSend("ctrlKey");
     });
-    for (const fullscreen of [false, true]) {
-      setFullscreen(fullscreen);
-      expect(player.contains(bar().composer)).toBe(fullscreen);
+    const resend = async () => {
       expect(bar().composer.value).toBe("Fake fullscreen comment");
+      expect(bar().send.disabled).toBe(true);
       await act(async () => {
         pressSend("ctrlKey");
         bar().send.click();
+        pressSend("metaKey");
       });
+    };
+    for (const fullscreen of [false, true]) {
+      setFullscreen(fullscreen);
+      expect(player.contains(bar().composer)).toBe(fullscreen);
+      await resend();
+    }
+    for (const how of ["Cancel", "Escape"] as const) {
+      close(how);
+      expect(isOpen()).toBe(false);
+      reopen();
+      await resend();
     }
     expect(getCommentAccessToken).toHaveBeenCalledTimes(1);
     expect(fetch).not.toHaveBeenCalled();
-    expect(bar().send.disabled).toBe(true);
 
     await act(async () => {
       completeRenewal("fake-fresh-proof");
     });
     expect(fetch).toHaveBeenCalledTimes(1);
     setFullscreen(false);
-    await act(async () => {
-      pressSend("metaKey");
-    });
-    expect(bar().composer.value).toBe("Fake fullscreen comment");
-    expect(onClose).not.toHaveBeenCalled();
+    await resend();
+    close("Escape");
+    reopen();
+    await resend();
+    expect(isOpen()).toBe(true);
 
     await act(async () => {
       completeRequest();
@@ -1218,7 +1274,8 @@ describe("CommentsPanel reply composer", () => {
       new Headers(fetch.mock.calls[0][1]?.headers).get("x-clips-comment-token"),
     ).toBe("fake-fresh-proof");
     expect(onAdded).toHaveBeenCalledTimes(1);
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(isOpen()).toBe(false);
+    reopen();
     expect(bar().composer.value).toBe("");
     expect(bar().alert).toBeNull();
 
@@ -1234,6 +1291,59 @@ describe("CommentsPanel reply composer", () => {
     });
     expect(onAdded).toHaveBeenCalledTimes(2);
   });
+
+  it.each(["Cancel", "Escape"] as const)(
+    "finishes a comment closed with %s while it sends, and reopens without the posted draft",
+    async (how) => {
+      let completeRenewal!: (token: string) => void;
+      const renewal = new Promise<string>((resolve) => {
+        completeRenewal = resolve;
+      });
+      let completeRequest!: () => void;
+      const request = new Promise<void>((resolve) => {
+        completeRequest = resolve;
+      });
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+        await request;
+        return new Response(JSON.stringify({ id: "comment-2" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+      vi.stubGlobal("fetch", fetch);
+      const onAdded = vi.fn();
+      const { bar, isOpen, close, reopen } = renderFullscreenCommentPage({
+        recordingId: "recording-1",
+        atMs: 12000,
+        initialDraft: "Fake fullscreen comment",
+        onAdded,
+        onClose: vi.fn(),
+        commentAccessToken: "fake-expired-proof",
+        getCommentAccessToken: () => renewal,
+      });
+      await act(async () => {
+        bar().send.click();
+      });
+      close(how);
+      await act(async () => {
+        completeRenewal("fake-fresh-proof");
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        completeRequest();
+      });
+      expect(onAdded).toHaveBeenCalledTimes(1);
+      expect(isOpen()).toBe(false);
+
+      reopen();
+      expect(bar().composer.value).toBe("");
+      expect(bar().alert).toBeNull();
+      await act(async () => {
+        bar().send.click();
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it.each(["active", "resumed"])(
     "renews expired proof before a %s viewer submits",
