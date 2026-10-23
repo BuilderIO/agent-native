@@ -66,6 +66,7 @@ jobs:
             const repo = context.repo.repo;
             const apiVersion = "2026-03-10";
             const releaseType = process.env.RELEASE_TYPE;
+            const releasePhase = process.env.RELEASE_PHASE;
             const startedAt = Date.now();
             const coordinatorDeadline = startedAt + 350 * 60_000;
             const pollIntervalMs = 15_000;
@@ -172,7 +173,7 @@ jobs:
             }
 
             async function dispatch(workflow, ref, inputs) {
-              const coordinatorRunId = `${context.runId}-${context.runAttempt}-${++dispatchSequence}`;
+              const coordinatorRunId = `${context.runId}-${context.runAttempt}-${releasePhase}-${++dispatchSequence}`;
               const dispatchInputs = {
                 ...inputs,
                 coordinator_run_id: coordinatorRunId,
@@ -1357,4 +1358,3 @@ jobs:
               core.setOutput("error", error instanceof Error ? error.message : String(error));
               throw error;
             }
-

@@ -107,6 +107,7 @@ describe("release everything workflow", () => {
     assert.equal(job["timeout-minutes"], 360);
     assert.equal(coordinator["timeout-minutes"], 355);
     assert.match(String((job.env as Workflow).RELEASE_PHASE), /inputs\.phase/);
+    assert.match(source, /const releasePhase = process\.env\.RELEASE_PHASE/);
     assert.match(
       source,
       /const coordinatorDeadline = startedAt \+ 350 \* 60_000/,
@@ -141,6 +142,7 @@ describe("release everything workflow", () => {
       "core",
       "sleep",
       "pollIntervalMs",
+      "releasePhase",
       `${source.slice(start, end)}\nreturn dispatch;`,
     );
     const warnings: string[] = [];
@@ -184,7 +186,8 @@ describe("release everything workflow", () => {
                             "https://github.com/BuilderIO/agent-native/actions/runs/123",
                           event: "workflow_dispatch",
                           head_branch: "main",
-                          display_title: "Publish packages [release:456-1-1]",
+                          display_title:
+                            "Publish packages [release:456-1-prepare-1]",
                         },
                       ],
               },
@@ -202,6 +205,7 @@ describe("release everything workflow", () => {
       core,
       sleep,
       15_000,
+      "prepare",
     );
     const recovered = await acceptedDispatch("auto-publish.yml", "main", {
       releaseType: "patch",
@@ -212,8 +216,57 @@ describe("release everything workflow", () => {
     });
     assert.equal(postAttempts, 1);
     assert.equal(lookups, 3);
-    assert.equal(acceptedInputs?.coordinator_run_id, "456-1-1");
+    assert.equal(acceptedInputs?.coordinator_run_id, "456-1-prepare-1");
     assert.match(warnings[0] ?? "", /Recovered auto-publish\.yml/);
+
+    const staleDispatchInputs: Workflow[] = [];
+    const staleDispatchGithub = {
+      request: async (_route: string, options: Workflow) => {
+        staleDispatchInputs.push(options.inputs as Workflow);
+        throw Object.assign(new Error("GitHub dispatch response failed"), {
+          status: 500,
+        });
+      },
+      rest: {
+        actions: {
+          listWorkflowRuns: async () => ({
+            data: {
+              workflow_runs: [
+                {
+                  id: 123,
+                  html_url:
+                    "https://github.com/BuilderIO/agent-native/actions/runs/123",
+                  event: "workflow_dispatch",
+                  head_branch: "main",
+                  display_title: "Publish packages [release:456-1-prepare-1]",
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+    const postMergeDispatch = await createDispatch(
+      staleDispatchGithub,
+      { runId: 456, runAttempt: 1 },
+      "BuilderIO",
+      "agent-native",
+      "2026-03-10",
+      core,
+      sleep,
+      15_000,
+      "post-merge",
+    );
+    await assert.rejects(
+      postMergeDispatch("auto-publish.yml", "main", {
+        redispatchDownstream: "true",
+      }),
+      /No matching run appeared after 5 lookups/,
+    );
+    assert.deepEqual(
+      staleDispatchInputs.map((inputs) => inputs.coordinator_run_id),
+      ["456-1-post-merge-1"],
+    );
 
     const requestInputs: Workflow[] = [];
     let ambiguousPostAttempts = 0;
@@ -240,6 +293,7 @@ describe("release everything workflow", () => {
       core,
       sleep,
       15_000,
+      "post-merge",
     );
     await assert.rejects(
       ambiguousDispatch("deploy-docs-production.yml", "main", {
@@ -249,14 +303,14 @@ describe("release everything workflow", () => {
       (error: Error) => {
         assert.match(error.message, /GitHub is temporarily unavailable/);
         assert.match(error.message, /does not prove the dispatch was rejected/);
-        assert.match(error.message, /\[release:456-2-1\]/);
+        assert.match(error.message, /\[release:456-2-post-merge-1\]/);
         return true;
       },
     );
     assert.equal(ambiguousPostAttempts, 1);
     assert.deepEqual(
       requestInputs.map((inputs) => inputs.coordinator_run_id),
-      ["456-2-1"],
+      ["456-2-post-merge-1"],
     );
 
     let failedLookupCalls = 0;
