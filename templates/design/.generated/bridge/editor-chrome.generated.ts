@@ -10753,6 +10753,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         label.style.cssText = "position:absolute;margin:0;padding:0;border:0;background:transparent;max-width:" + placement.maxWidth + "px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:auto;cursor:default;text-align:left;font:500 " + fontSize + "px/" + labelHeight + "px ui-sans-serif,system-ui,-apple-system,sans-serif;left:" + placement.left + "px;top:" + placement.top + "px;height:" + labelHeight + "px;color:" + (placement.selected ? "var(--design-editor-accent-color)" : FRAME_LABEL_IDLE_COLOR);
         label.addEventListener("mousedown", function(event) {
           event.stopPropagation();
+          if (!isLayerInteractionBlocked(placement.frame)) {
+            beginPotentialShieldDrag(event, placement.frame);
+          }
         });
         label.addEventListener("click", function(event) {
           event.preventDefault();
@@ -21903,7 +21906,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var crossScreenClaimedByHost = false;
     var lastPointerDownTimestamp = 0;
-    function beginPotentialShieldDrag(e) {
+    function beginPotentialShieldDrag(e, labeledFrame) {
       if (readOnly) return;
       if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
         return;
@@ -21926,9 +21929,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (e.button !== 0) return;
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
       var events = dragEventNames(e);
-      var hit = elementFromEditorPoint(e.clientX, e.clientY);
-      var hitTarget = selectionTargetForHit(hit);
-      var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
+      var hit = labeledFrame || elementFromEditorPoint(e.clientX, e.clientY);
+      var hitTarget = labeledFrame || selectionTargetForHit(hit);
+      var startsOnContainerBackground = !labeledFrame && isContainerBackgroundHit(hitTarget, hit);
       if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || startsOnContainerBackground) {
         if (pressEndedTextEdit && !startsOnContainerBackground) {
           clearRuntimeSelection();
@@ -21939,7 +21942,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var selectedAlive = !!selectedEl && document.documentElement.contains(selectedEl);
       var selectedRect = selectedAlive && selectedEl.getBoundingClientRect ? selectedEl.getBoundingClientRect() : null;
-      var dragTarget = textBlockOwningRun(
+      var dragTarget = labeledFrame ? labeledFrame : textBlockOwningRun(
         dragTargetForPointerDown({
           selectedEl,
           selectedAlive,
@@ -22055,6 +22058,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!readOnly && !e.altKey) {
           postCrossScreenDrag("cancel");
         }
+        if (labeledFrame) return;
         if (ev) stopNativeInteraction(ev);
         var cycledEl = isModifierCycleClick ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
         var primaryClickTarget = !readOnly && (e.metaKey || e.ctrlKey) ? modifierClickSelectionTarget(hit) : (!readOnly && !e.shiftKey ? selectedContainerForPlainClick(hit, ev) || clickThroughSelectionTarget(hit, ev, repeatedMouseClick) : null) || containerFirstSelectionTarget(hit);

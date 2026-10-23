@@ -13358,6 +13358,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           : FRAME_LABEL_IDLE_COLOR);
       label.addEventListener("mousedown", function (event) {
         event.stopPropagation();
+        if (!isLayerInteractionBlocked(placement.frame)) {
+          beginPotentialShieldDrag(event, placement.frame);
+        }
       });
       label.addEventListener("click", function (event) {
         event.preventDefault();
@@ -28120,7 +28123,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   var crossScreenClaimedByHost = false;
   var lastPointerDownTimestamp = 0;
 
-  function beginPotentialShieldDrag(e) {
+  // A frame's name label sits outside the frame, so a press on it names the
+  // frame directly instead of hit testing the point.
+  function beginPotentialShieldDrag(e, labeledFrame?: Element) {
     if (readOnly) return;
     if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
       return;
@@ -28150,9 +28155,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (e.button !== 0) return;
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     var events = dragEventNames(e);
-    var hit = elementFromEditorPoint(e.clientX, e.clientY);
-    var hitTarget = selectionTargetForHit(hit);
-    var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
+    var hit = labeledFrame || elementFromEditorPoint(e.clientX, e.clientY);
+    var hitTarget = labeledFrame || selectionTargetForHit(hit);
+    var startsOnContainerBackground =
+      !labeledFrame && isContainerBackgroundHit(hitTarget, hit);
     if (
       !hit ||
       hit === document.body ||
@@ -28175,17 +28181,19 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       selectedAlive && selectedEl.getBoundingClientRect
         ? selectedEl.getBoundingClientRect()
         : null;
-    var dragTarget = textBlockOwningRun(
-      dragTargetForPointerDown({
-        selectedEl: selectedEl,
-        selectedAlive: selectedAlive,
-        selectedRect: selectedRect,
-        hitEl: hitTarget,
-        hitRaw: hit,
-        point: { x: e.clientX, y: e.clientY },
-        preferSelected: selectedLayerDragPriorityEnabled,
-      }),
-    );
+    var dragTarget = labeledFrame
+      ? labeledFrame
+      : textBlockOwningRun(
+          dragTargetForPointerDown({
+            selectedEl: selectedEl,
+            selectedAlive: selectedAlive,
+            selectedRect: selectedRect,
+            hitEl: hitTarget,
+            hitRaw: hit,
+            point: { x: e.clientX, y: e.clientY },
+            preferSelected: selectedLayerDragPriorityEnabled,
+          }),
+        );
     if ((window as any).__DND_DEBUG)
       dndLog("shield:down", {
         hit: getSelector(hit),
@@ -28333,6 +28341,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       if (!readOnly && !e.altKey) {
         postCrossScreenDrag("cancel");
       }
+      // The label's own click selects its frame.
+      if (labeledFrame) return;
       if (ev) stopNativeInteraction(ev);
       var cycledEl = isModifierCycleClick
         ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
