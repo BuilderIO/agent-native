@@ -55,6 +55,7 @@ const INITIAL_TOOL_NAMES = [
 ];
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  "clone-context-slide",
   "view-screen",
   "navigate",
   "list-decks",

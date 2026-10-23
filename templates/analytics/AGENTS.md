@@ -30,6 +30,12 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - For MCP, use allowlisted cataloged actions; use `ask_app` for interpretation, source selection, multi-step, or unsupported actions.
 - Replay-key MCP write: `update-analytics-public-key` appends origins; the first origin restricts replay.
 
+## Direct inline action
+
+| Action | Purpose |
+| --- | --- |
+| `open-traffic-dashboard` | Open the read-only first-party traffic dashboard inline |
+
 ## Sessions and state
 
 - `list-session-recordings` filters scoped replays. Use `paginated: true` for sorted pages with a real total and app counts. The Sessions triage Lab adds `didEvents`, `didNotEvents`, `slow`, and `unused` filters. Get names/counts from `list-session-event-names` and event health from `list-event-catalog`; Analytics' index covers sessions only since its coverage start. Never query BigQuery for these views.

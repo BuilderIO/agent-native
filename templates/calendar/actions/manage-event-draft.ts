@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, isOutsideAgentCall } from "@agent-native/core";
 import {
   readAppState,
   writeAppState,
@@ -59,6 +59,15 @@ function setIfPresent<T extends keyof CalendarEventDraft>(
 }
 
 export default defineAction({
+  mcpTool: true,
+  needsApproval: (args, ctx) =>
+    args.action === "delete-all" && isOutsideAgentCall(ctx),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   description:
     "Create, update, or delete an unsent calendar invite draft. Opening a draft shows a visible placeholder on the calendar with the event detail editor so the user can review it before creating/sending.",
   schema: z.object({

@@ -81,6 +81,12 @@ export function cloneableNativeSlide(context: ContextDetail): {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   description:
     "Clone one pinned Google Slides-native Creative Context item into an existing deck without regenerating or rewriting its editable HTML/CSS. Returns a link that opens the cloned slide in Slides.",
   schema: z.object({

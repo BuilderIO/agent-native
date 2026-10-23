@@ -54,6 +54,12 @@ Create and edit slide decks through Agent-Native chat and the visual editor, bac
 | `search-svgl-logos`, `import-svgl-logo` | Find a logo and import it as a slide asset. |
 | `export-pptx` | Export a deck as PowerPoint. |
 
+## External inline actions
+
+| Action | Purpose |
+| --- | --- |
+| `clone-context-slide` | Copy a pinned native library slide into an editable deck, preserving provenance |
+
 ## Application State
 
 - `navigation` identifies the current view, deck, and slide. Home also records `homeTab` (`recent` or `templates`), `deckSearch`, and `deckFilter` (`all`, `created-by-me`, or `shared`); the templates route uses `search`; the themes route can include `themeId`.

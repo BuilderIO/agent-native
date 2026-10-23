@@ -1,7 +1,6 @@
 # Design — Agent Guide
 
-Design agents build prototypes, systems, variants, and handoffs through
-actions against shared SQL state.
+Build prototypes, systems, variants, and handoffs with actions and shared SQL state.
 
 ## Skills
 
@@ -17,18 +16,17 @@ Read `.agents/skills/<name>/SKILL.md` before deeper work:
 - `native-effects` — WebGPU fills/effects, source edits, and PNG.
 - `journey-storyboards` — onboarding-journey storyboards.
 
-Also read `.agents/skills/<name>/SKILL.md` for shared guides: `actions`,
+Also read `.agents/skills/<name>/SKILL.md`: `actions`,
 `adding-a-feature`, `storing-data`, `security`, `secrets`, `sharing`,
 `frontend-design`, `shadcn-ui`, `real-time-sync`, `context-awareness`,
 `delegate-to-agent`, `agent-native-docs`, `agent-native-toolkit`,
 `customizing-agent-native`, `client-side-routing`, `reliable-mutations`,
 `performance`, `external-agents`, `portability`, `self-modifying-code`,
-`turn-into-skill`, and `workspace-conventions`. Each guide is at
-`.agents/skills/<name>/SKILL.md`.
+`turn-into-skill`, and `workspace-conventions`.
 
 ## Framework Docs
 
-Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug with `pnpm action docs-search --slug "<slug>"`.
+Find docs: `pnpm action docs-search --query "<topic>"`; read: `pnpm action docs-search --slug "<slug>"`.
 
 ## Actions
 
@@ -46,7 +44,7 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `add-session-replay-screenshots-to-board` | Add private Analytics replay screenshots to a Design board |
 | `stage-journey-canvas-frames` | Stage native PNGs in Design-owned private blob storage in batches |
 | `discard-journey-canvas-frame-import` | Discard staged import; queue its private blobs for cleanup |
-| `create-journey-canvas` | Create provenance-backed storyboard with stubs, same-recording links, and explicit recording-gap references; no cohort metrics |
+| `create-journey-canvas` | Create provenance-backed storyboards with stubs, same-recording links, and recording-gap references; no cohort metrics |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
@@ -54,13 +52,16 @@ Search local docs with `pnpm action docs-search --query "<topic>"`; read by slug
 | `create-design` / `generate-design` | Start empty design / generate a fresh screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
-| `get-view-settings` / `update-view-settings` | Read/update view toggles (grid, snap, rulers, cursors, hidden comments) |
+| `get-view-settings` / `update-view-settings` | Read/update view toggles |
 | `get-shader` / `edit-native-shader` | Inspect curated native effects; CAS-edit one inline scene |
 | `get-native-shader-approvals` | Read viewer-scoped exact effect approvals for accessible Design previews |
 | `prepare-native-scene-export` | Pin scene for PNG |
-| `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Request foreground native PNG and inspect attachment |
-| `export-png` | Export PNG |
-| `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
+| `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Request foreground native PNG; inspect attachment |
+| `generate-screens` | Plan screens |
+| `export-png` / `export-coding-handoff` | PNG/code; outside-agent handoff calls need approval (7-day bearer URLs) |
+| `export-html` | Export standalone HTML |
+| `export-zip` | Export ZIP |
+| `export-design-as-figma-svg` | Export Figma SVG |
 
 ## Core Rules
 

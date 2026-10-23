@@ -25,6 +25,7 @@ export const LOAD_TIMEOUT_MS = 600_000;
 
 export interface AdvertisedTool {
   name: string;
+  _meta?: Record<string, unknown>;
   annotations: {
     readOnlyHint?: boolean;
     destructiveHint?: boolean;
@@ -273,7 +274,11 @@ function createCloseHooks() {
 
 export async function listAdvertised(
   config: MCPConfig,
-  request: { fullCatalog: boolean; fullSurface: boolean },
+  request: {
+    fullCatalog: boolean;
+    fullSurface: boolean;
+    inlineMcpApps?: boolean;
+  },
 ): Promise<{ tools: AdvertisedTool[]; instructions: string }> {
   const server = await createMCPServerForRequest(
     config,
@@ -285,7 +290,7 @@ export async function listAdvertised(
     },
     {
       transport: "http",
-      inlineMcpApps: false,
+      inlineMcpApps: request.inlineMcpApps ?? false,
       ...(request.fullCatalog ? { fullCatalog: true } : {}),
       ...(request.fullSurface ? { fullSurface: true } : {}),
     },
@@ -300,6 +305,7 @@ export async function listAdvertised(
   const tools = (await client.listTools()).tools.map((tool) => ({
     name: tool.name,
     annotations: { ...(tool.annotations ?? {}) },
+    ...(request.inlineMcpApps ? { _meta: tool._meta } : {}),
   }));
   const instructions = client.getInstructions() ?? "";
   await client.close();
