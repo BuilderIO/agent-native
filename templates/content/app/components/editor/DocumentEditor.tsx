@@ -8696,6 +8696,7 @@ function PageEditorSessionBody({
       onActivateSuggestion={activateSuggestionOrThread}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
+      hoveredThreadId={hoveredThreadId}
       currentUserEmail={session?.email}
       currentUserName={session?.name}
       currentUserOrgId={session?.orgId}
