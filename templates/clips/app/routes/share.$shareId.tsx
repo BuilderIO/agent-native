@@ -834,7 +834,19 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
-  useCommentAccessRefresh(recording?.commentAccessToken, dataQ.refetch);
+  const refreshCommentAccess = useCallback(
+    () => dataQ.refetch({ cancelRefetch: false }),
+    [dataQ.refetch],
+  );
+  const getCommentAccessToken = useCallback(async () => {
+    const result = await refreshCommentAccess();
+    if (result.error) throw result.error;
+    if (!result.data?.ok) {
+      throw new Error(result.data?.data?.error ?? String(result.data?.status));
+    }
+    return result.data.data.recording?.commentAccessToken;
+  }, [refreshCommentAccess]);
+  useCommentAccessRefresh(recording?.commentAccessToken, refreshCommentAccess);
   const hostedFailureCode = (recording as any)?.failureCode;
   const localizedHostedFailure =
     hostedFailureCode === "global_storage_cap"
@@ -2118,6 +2130,11 @@ export default function ShareRoute() {
                     />
                   ) : (
                     <CommentsPanel
+                      getCommentAccessToken={
+                        recording.commentAccessToken
+                          ? getCommentAccessToken
+                          : undefined
+                      }
                       commentAccessToken={
                         recording.commentAccessToken ?? undefined
                       }

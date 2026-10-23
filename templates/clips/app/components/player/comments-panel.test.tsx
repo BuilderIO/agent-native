@@ -28,33 +28,40 @@ const actionMocks = vi.hoisted(() => ({
   otherMutation: vi.fn(),
   mutationOptions: new Map<string, any>(),
   requests: vi.fn(),
+  realMutations: false,
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
-  cn: (...classes: Array<string | false | null | undefined>) =>
-    classes.filter(Boolean).join(" "),
-  useActionMutation: (name: string, options?: any) => {
-    actionMocks.mutationOptions.set(name, options);
-    return {
-      mutate: (vars: any) => {
-        const headers =
-          typeof options?.headers === "function"
-            ? options.headers()
-            : options?.headers;
-        actionMocks.requests(name, vars, headers);
-        void options?.onMutate?.(vars);
-        return (
-          name === "add-comment"
-            ? actionMocks.addComment
-            : name === "update-comment"
-              ? actionMocks.updateComment
-              : actionMocks.otherMutation
-        )(vars);
-      },
-    };
-  },
-  useAvatarUrl: () => null,
-}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client/hooks")>();
+  return {
+    cn: (...classes: Array<string | false | null | undefined>) =>
+      classes.filter(Boolean).join(" "),
+    useActionMutation: (name: string, options?: any) => {
+      if (actionMocks.realMutations)
+        return actual.useActionMutation(name as any, options);
+      actionMocks.mutationOptions.set(name, options);
+      return {
+        mutate: (vars: any) => {
+          const headers =
+            typeof options?.headers === "function"
+              ? options.headers()
+              : options?.headers;
+          actionMocks.requests(name, vars, headers);
+          void options?.onMutate?.(vars);
+          return (
+            name === "add-comment"
+              ? actionMocks.addComment
+              : name === "update-comment"
+                ? actionMocks.updateComment
+                : actionMocks.otherMutation
+          )(vars);
+        },
+      };
+    },
+    useAvatarUrl: () => null,
+  };
+});
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -263,6 +270,90 @@ describe("CommentsPanel reply composer", () => {
         expect(headers?.["x-clips-comment-token"]).toBe(token);
       }
     }
+  });
+
+  it("waits for pending password renewal before cancelling queries or sending a mutation", async () => {
+    act(() => root.render(null));
+    actionMocks.realMutations = true;
+    onTestFinished(() => {
+      actionMocks.realMutations = false;
+    });
+    let completeRenewal!: (value: { token: string }) => void;
+    const deferred = new Promise<{ token: string }>((resolve) => {
+      completeRenewal = resolve;
+    });
+    const cancel = vi.spyOn(queryClient, "cancelQueries");
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "comment-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const renew = () =>
+      queryClient
+        .fetchQuery({
+          queryKey: ["recording", "recording-1"],
+          queryFn: () => deferred,
+        })
+        .catch(() => null);
+    function PendingShare() {
+      useCommentAccessRefresh("fake-expired-proof", renew);
+      return (
+        <CommentsPanel
+          recordingId="recording-1"
+          comments={[
+            {
+              ...rootComment,
+              emojiReactionsJson: JSON.stringify({
+                "👍": ["other@example.com"],
+              }),
+            },
+          ]}
+          currentMs={0}
+          currentUserEmail="viewer@example.com"
+          enableComments
+          canComment
+          onSeek={vi.fn()}
+          queryKey={["recording", "recording-1"]}
+          commentAccessToken="fake-expired-proof"
+          getCommentAccessToken={async () => (await renew())?.token}
+        />
+      );
+    }
+    act(() =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <PendingShare />
+        </QueryClientProvider>,
+      ),
+    );
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    const reaction = container.querySelector<HTMLButtonElement>(
+      "button[aria-pressed]",
+    );
+    expect(reaction).not.toBeNull();
+    await act(async () => {
+      reaction?.click();
+    });
+    expect(cancel).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => {
+      completeRenewal({ token: "fake-fresh-proof" });
+    });
+    expect(cancel).toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const init = fetch.mock.calls[0][1] as RequestInit;
+    expect(new Headers(init.headers).get("x-clips-comment-token")).toBe(
+      "fake-fresh-proof",
+    );
+    expect(JSON.parse(String(init.body))).toEqual({
+      commentId: "comment-1",
+      emoji: "👍",
+    });
   });
 
   it.each(["active", "resumed"])(

@@ -185,6 +185,7 @@ function updateReactionUsers(
 export interface CommentsPanelProps {
   recordingId: string;
   commentAccessToken?: string;
+  getCommentAccessToken?: () => Promise<string | null | undefined>;
   comments: Comment[];
   currentMs: number;
   getCurrentMs?: () => number;
@@ -217,6 +218,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
     applyComments = defaultLens.applyComments,
     presentation = "default",
   } = props;
+  const commentAccessTokenRef = useRef(props.commentAccessToken);
+  useEffect(() => {
+    commentAccessTokenRef.current = props.commentAccessToken;
+  }, [props.commentAccessToken]);
+  const commentHeaders = () =>
+    commentAccessTokenRef.current
+      ? { [COMMENT_ACCESS_TOKEN_HEADER]: commentAccessTokenRef.current }
+      : undefined;
   const isSignedIn = !!currentUserEmail;
   const isSharePresentation = presentation === "share";
   const isInlinePresentation = presentation === "inline";
@@ -406,10 +415,11 @@ export function CommentsPanel(props: CommentsPanelProps) {
   };
 
   const addComment = useActionMutation("add-comment", {
-    headers: props.commentAccessToken
-      ? { [COMMENT_ACCESS_TOKEN_HEADER]: props.commentAccessToken }
-      : undefined,
+    headers: commentHeaders,
     onMutate: async (vars: any) => {
+      if (props.getCommentAccessToken) {
+        commentAccessTokenRef.current = await props.getCommentAccessToken();
+      }
       await queryClient.cancelQueries({ queryKey });
       const tempId = makeTempId();
       const now = new Date().toISOString();
@@ -445,10 +455,11 @@ export function CommentsPanel(props: CommentsPanelProps) {
   });
 
   const reactToComment = useActionMutation("react-to-comment", {
-    headers: props.commentAccessToken
-      ? { [COMMENT_ACCESS_TOKEN_HEADER]: props.commentAccessToken }
-      : undefined,
+    headers: commentHeaders,
     onMutate: async (vars: any) => {
+      if (props.getCommentAccessToken) {
+        commentAccessTokenRef.current = await props.getCommentAccessToken();
+      }
       await queryClient.cancelQueries({ queryKey });
       const currentUser = currentUserEmail;
       if (!currentUser) {
@@ -521,10 +532,11 @@ export function CommentsPanel(props: CommentsPanelProps) {
   });
 
   const remove = useActionMutation("delete-comment", {
-    headers: props.commentAccessToken
-      ? { [COMMENT_ACCESS_TOKEN_HEADER]: props.commentAccessToken }
-      : undefined,
+    headers: commentHeaders,
     onMutate: async (vars: any) => {
+      if (props.getCommentAccessToken) {
+        commentAccessTokenRef.current = await props.getCommentAccessToken();
+      }
       await queryClient.cancelQueries({ queryKey });
       const current = visibleCommentsRef.current;
       const target = current.find((comment) => comment.id === vars.id);
@@ -559,10 +571,11 @@ export function CommentsPanel(props: CommentsPanelProps) {
   });
 
   const updateComment = useActionMutation("update-comment", {
-    headers: props.commentAccessToken
-      ? { [COMMENT_ACCESS_TOKEN_HEADER]: props.commentAccessToken }
-      : undefined,
+    headers: commentHeaders,
     onMutate: async (vars: any) => {
+      if (props.getCommentAccessToken) {
+        commentAccessTokenRef.current = await props.getCommentAccessToken();
+      }
       await queryClient.cancelQueries({ queryKey });
       const updatedAt = new Date().toISOString();
       const current = visibleCommentsRef.current.find(
