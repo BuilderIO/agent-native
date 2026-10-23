@@ -12,6 +12,8 @@ import { getRequestUserEmail } from "./request-context.js";
 export { isTextLikeFilename, isTextLikeMimeType };
 
 const DEFAULT_SLICE_LIMIT = 8_000;
+const MAX_SLICE_LIMIT = 50_000;
+const ATTACHMENT_RESOURCE_PATH = /^attachments\/[^/]+\/[^/]+$/;
 
 function attachmentResourcePath(
   threadId: string,
@@ -27,6 +29,7 @@ export async function persistTextAttachmentsAsResources(opts: {
     type?: string;
     name?: string;
     contentType?: string;
+    displayOnly?: boolean;
     text?: string;
     data?: string;
   }>;
@@ -38,6 +41,7 @@ export async function persistTextAttachmentsAsResources(opts: {
 
   for (let i = 0; i < opts.attachments.length; i++) {
     const att = opts.attachments[i];
+    if (att.displayOnly === true) continue;
     const decoded = decodeTextAttachmentData(att);
     const text =
       decoded.kind === "text"
@@ -61,18 +65,18 @@ export async function persistTextAttachmentsAsResources(opts: {
     );
 
     try {
-      const resource = await resourcePut(
-        owner,
-        path,
-        text,
-        att.contentType || "text/plain",
-        {
-          createdBy: "user",
-          visibility: "agent_scratch",
-          threadId: opts.threadId,
-          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-        },
-      );
+      // The resource store rejects non-URL content under an image/* type, so
+      // SVG source is stored as plain text.
+      const mimeType =
+        att.contentType && !/^image\//i.test(att.contentType)
+          ? att.contentType
+          : "text/plain";
+      const resource = await resourcePut(owner, path, text, mimeType, {
+        createdBy: "user",
+        visibility: "agent_scratch",
+        threadId: opts.threadId,
+        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      });
       result.set(i, {
         kind: "stored",
         resourceId: resource.id,
@@ -104,8 +108,9 @@ export function createCoreAttachmentActionEntries(): Record<
           "truncated in the conversation context. When a <chat-attachment-truncated> note names an",
           "attachment, call this until hasMore is false before you edit, summarize, or answer from it.",
           "",
-          "Identify the attachment by name (e.g. name='data.csv') exactly as shown in the",
-          "<attachment name='...'> tag in the conversation. Use offset and limit to page through it.",
+          "Identify the attachment by the path a <chat-attachment-truncated> note gives, or by name",
+          "(e.g. name='data.csv') as shown in the <attachment name='...'> tag. Use offset and limit to",
+          "page through it.",
           "",
           "Returns { content, offset, limit, totalChars, hasMore }.",
           "If totalChars is unknown (attachment not stored as a resource), returns a not-found message.",
@@ -113,6 +118,11 @@ export function createCoreAttachmentActionEntries(): Record<
         parameters: {
           type: "object" as const,
           properties: {
+            path: {
+              type: "string",
+              description:
+                "The stored attachment path from a <chat-attachment-truncated> note. Preferred over name.",
+            },
             name: {
               type: "string",
               description:
@@ -130,19 +140,19 @@ export function createCoreAttachmentActionEntries(): Record<
             },
             limit: {
               type: "string",
-              description: `Maximum characters to return. Default: ${DEFAULT_SLICE_LIMIT}.`,
+              description: `Maximum characters to return. Default: ${DEFAULT_SLICE_LIMIT}. Maximum: ${MAX_SLICE_LIMIT}.`,
             },
           },
-          required: ["name"],
         },
       },
       run: async (input: Record<string, string>, ctx) => {
         const ownerEmail =
           ctx?.userEmail || getRequestUserEmail() || "anonymous";
-        const name = String(input.name || "").trim();
+        const path = String(input.path || "").trim();
+        const name = String(input.name || "").trim() || path.split("/").pop()!;
         const offset = Math.max(0, parseInt(input.offset || "0", 10) || 0);
         const limit = Math.min(
-          50_000,
+          MAX_SLICE_LIMIT,
           Math.max(
             1,
             parseInt(input.limit || String(DEFAULT_SLICE_LIMIT), 10) ||
@@ -151,10 +161,15 @@ export function createCoreAttachmentActionEntries(): Record<
         );
 
         if (!name) {
-          return { error: "name is required" };
+          return { error: "name or path is required" };
+        }
+        if (path && !ATTACHMENT_RESOURCE_PATH.test(path)) {
+          return { error: `"${path}" is not a stored attachment path.` };
         }
 
-        let threadId = String(input.threadId || "").trim();
+        let threadId = path
+          ? path.split("/")[1]!
+          : String(input.threadId || "").trim();
         if (!threadId) {
           try {
             const { getRequestRunContext } =
@@ -180,10 +195,12 @@ export function createCoreAttachmentActionEntries(): Record<
           });
 
           const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-          const matching = metas.filter((m) => m.path.endsWith(`-${safeName}`));
+          const matching = path
+            ? metas.filter((m) => m.path === path)
+            : metas.filter((m) => m.path.endsWith(`-${safeName}`));
 
           const candidates =
-            matching.length > 0
+            matching.length > 0 || path
               ? matching
               : metas.filter((m) => {
                   const basename = m.path.split("/").pop() || "";

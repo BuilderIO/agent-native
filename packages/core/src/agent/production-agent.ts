@@ -2841,7 +2841,8 @@ function describeTruncatedTextAttachment(
   const attrs = `name="${name}" shownChars="${shownChars}" totalChars="${totalChars}"`;
   const shown = `${shownChars.toLocaleString()} of ${totalChars.toLocaleString()}`;
   if (storage?.kind === "stored") {
-    return `<chat-attachment-truncated ${attrs}>Only the first ${shown} characters of this attachment are shown. Before you edit, restyle, summarize, or answer from it, call \`read-attachment\` with name="${name}" and offset=${shownChars}, and keep calling it until hasMore is false. Do not tell the user the work is done until you have read the whole file. If read-attachment fails, tell the user which part you could not read before doing anything that depends on it.</chat-attachment-truncated>`;
+    const path = escapeAttachmentAttribute(storage.path);
+    return `<chat-attachment-truncated ${attrs} path="${path}">Only the first ${shown} characters of this attachment are shown. Before you edit, restyle, summarize, or answer from it, call \`read-attachment\` with path="${path}", offset=${shownChars} and limit=50000, and keep calling it until hasMore is false. If the file is too long to read in full, read the parts the request depends on and tell the user which parts you did not read. Do not tell the user the work on the whole file is done until you have read all of it. If read-attachment fails, tell the user which part you could not read before doing anything that depends on it.</chat-attachment-truncated>`;
   }
   return `<chat-attachment-processing-error code="truncated-remainder-unavailable" ${attrs}>Only the first ${shown} characters of this attachment reached you, and the rest could not be stored, so \`read-attachment\` cannot return it. Tell the user up front that you could read only the first ${shownChars.toLocaleString()} characters. Do not edit, summarize, or report finished work that depends on the rest of the file.</chat-attachment-processing-error>`;
 }

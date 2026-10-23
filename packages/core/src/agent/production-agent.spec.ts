@@ -2082,12 +2082,14 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain(markdown.slice(0, 60_000));
     expect(text).not.toContain(markdown.slice(0, 60_001));
     expect(text).toContain(
-      `<chat-attachment-truncated name="DESIGN.md" shownChars="60000" totalChars="${markdown.length}">`,
+      `<chat-attachment-truncated name="DESIGN.md" shownChars="60000" totalChars="${markdown.length}" path="attachments/thread-1/0-file">`,
     );
     expect(text).toContain(
-      'call `read-attachment` with name="DESIGN.md" and offset=60000',
+      'call `read-attachment` with path="attachments/thread-1/0-file", offset=60000 and limit=50000',
     );
-    expect(text).toContain("Do not tell the user the work is done");
+    expect(text).toContain(
+      "Do not tell the user the work on the whole file is done",
+    );
   });
 
   it("tells the model plainly when the truncated remainder could not be stored", () => {
@@ -2175,7 +2177,7 @@ describe("buildUserContentWithAttachments", () => {
       "[Attachment content omitted from the initial request; 10,000 characters available.",
     );
     expect(text).toContain(
-      'call `read-attachment` with name="third.md" and offset=0',
+      'call `read-attachment` with path="attachments/thread-1/0-file", offset=0',
     );
   });
 

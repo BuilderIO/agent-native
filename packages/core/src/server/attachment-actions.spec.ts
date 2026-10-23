@@ -251,10 +251,31 @@ describe("persistTextAttachmentsAsResources", () => {
       totalChars: markdown.length,
     });
     expect(result.get(1)).toMatchObject({ kind: "stored" });
-    expect(resourcePutMock.mock.calls.map((call) => call[2])).toEqual([
-      markdown,
-      svg,
+    expect(
+      resourcePutMock.mock.calls.map((call) => [call[2], call[3]]),
+    ).toEqual([
+      [markdown, "text/markdown"],
+      [svg, "text/plain"],
     ]);
+  });
+
+  it("does not store display-only attachments the prompt leaves out", async () => {
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          contentType: "text/plain",
+          displayOnly: true,
+          text: "not for the model",
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.size).toBe(0);
+    expect(resourcePutMock).not.toHaveBeenCalled();
   });
 });
 
@@ -320,6 +341,42 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     expect(result.hasMore).toBe(false);
   });
 
+  it("reads by stored path when names collide or need escaping", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-0", path: "attachments/thread-1/0-Q_A.md" },
+      { id: "res-1", path: "attachments/thread-1/1-Q_A.md" },
+    ]);
+    resourceGetMock.mockImplementation(async (id: string) =>
+      makeResource(id === "res-1" ? "second" : "first"),
+    );
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { path: "attachments/thread-1/1-Q_A.md" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "attachments/thread-1/",
+      { includeAgentScratch: true },
+    );
+    expect(result.content).toBe("second");
+  });
+
+  it("rejects a path outside stored attachments", async () => {
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { path: "notes/private.md" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.error).toContain("is not a stored attachment path");
+    expect(resourceListMock).not.toHaveBeenCalled();
+  });
+
   it("returns error when attachment is not found", async () => {
     resourceListMock.mockResolvedValue([]);
 
@@ -339,6 +396,6 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
       { caller: "tool", userEmail: "user@example.com" },
     );
 
-    expect(result.error).toContain("name is required");
+    expect(result.error).toContain("name or path is required");
   });
 });
