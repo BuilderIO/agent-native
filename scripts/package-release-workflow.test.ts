@@ -373,6 +373,24 @@ describe("npm package release workflow", () => {
         123,
       ),
     );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorStepActive(
+          [
+            {
+              jobs: [
+                {
+                  name: "Run the prepare release phase",
+                  status: "queued",
+                  steps: [],
+                },
+              ],
+            },
+          ],
+          123,
+        ),
+      /Expected one active release step/,
+    );
     const preparePhaseJob = {
       name: "Run the prepare release phase",
       status: "completed",

@@ -48,6 +48,10 @@ function phaseJobIsQueuedOrRunning(job: WorkflowJob): boolean {
   );
 }
 
+function phaseJobIsInProgress(job: WorkflowJob): boolean {
+  return job.conclusion == null && job.status === "in_progress";
+}
+
 function record(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`GitHub returned an invalid ${label}.`);
@@ -170,7 +174,7 @@ export function assertReleaseCoordinatorStepActive(
   const postMergeJobs = jobs.filter((job) =>
     isReleasePhaseJob(job as WorkflowJob, "post-merge"),
   ) as WorkflowJob[];
-  if (prepareJobs.some(phaseJobIsQueuedOrRunning)) return;
+  if (prepareJobs.some(phaseJobIsInProgress)) return;
   const prepareSucceeded = prepareJobs.some(
     (job) => job.status === "completed" && job.conclusion === "success",
   );
