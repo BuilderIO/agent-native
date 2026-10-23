@@ -127,8 +127,6 @@ const INITIAL_TOOL_NAMES = [
   "update-file",
   "rename-screen",
   "export-png",
-  "take-design-screenshot",
-  "export-hubspot-html",
   "navigate",
 ];
 

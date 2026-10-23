@@ -27,19 +27,16 @@ const HUBSPOT_EMAIL_URL_VARIABLES = new Set([
 function isLiteralLinkDestination(value: string | undefined): boolean {
   const destination = value?.trim();
   if (!destination) return false;
-  try {
-    const url = new URL(destination);
-    if (url.protocol === "http:" || url.protocol === "https:")
-      return (
-        /^https?:\/\//i.test(destination) &&
-        !!url.hostname &&
-        !url.username &&
-        !url.password
-      );
-    return ["mailto:", "tel:"].includes(url.protocol) && !!url.pathname.trim();
-  } catch {
-    return false;
-  }
+  if (!URL.canParse(destination)) return false;
+  const url = new URL(destination);
+  if (url.protocol === "http:" || url.protocol === "https:")
+    return (
+      /^https?:\/\//i.test(destination) &&
+      !!url.hostname &&
+      !url.username &&
+      !url.password
+    );
+  return ["mailto:", "tel:"].includes(url.protocol) && !!url.pathname.trim();
 }
 
 function validateContactInterpolation(token: string): void {

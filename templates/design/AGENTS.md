@@ -27,7 +27,7 @@ Shared guides: `actions`,
 
 ## Framework Docs
 
-Use `pnpm action docs-search --query "<topic>"` or `--slug "<slug>"`.
+Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --slug "<slug>"`.
 
 ## Actions
 
