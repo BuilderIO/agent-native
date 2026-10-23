@@ -30,7 +30,7 @@ import { packagesCoveredBy } from "./check-changeset.mjs";
 import { parseReleasePullRequestPackageFiles } from "./list-release-pr-package-files.ts";
 import {
   RELEASE_COORDINATOR_STEP_NAME,
-  assertReleaseCoordinatorStepActive,
+  assertReleaseCoordinatorPrepareStepActive,
   selectActiveReleaseCoordinator,
 } from "./release-coordinator.ts";
 import {
@@ -75,8 +75,8 @@ const publisherSource = readFileSync(
   "scripts/changeset-publish-sequential.ts",
   "utf8",
 );
-const releaseEverythingWorkflowSource = readFileSync(
-  ".github/workflows/release-everything.yml",
+const releasePhaseWorkflowSource = readFileSync(
+  ".github/workflows/release-everything-phase.yml",
   "utf8",
 );
 const ciLintJob = (
@@ -234,8 +234,8 @@ describe("npm package release workflow", () => {
 
   it("caps delayed required-check polling at the coordinator merge window", async () => {
     assert.match(
-      releaseEverythingWorkflowSource,
-      /phaseDeadline\(210 \* 60_000\),\s*coordinatorDeadline - postMergeReserveMs/,
+      releasePhaseWorkflowSource,
+      /const deadline = phaseDeadline\(210 \* 60_000\);/,
     );
     assert.equal(
       requiredCheckTimeoutForEvent("pull_request"),
@@ -336,12 +336,12 @@ describe("npm package release workflow", () => {
     );
   });
 
-  it("requires the coordinator release step to remain active", () => {
-    const activePages = [
+  it("requires the release coordinator prepare phase to remain active", () => {
+    const activePreparePages = [
       {
         jobs: [
           {
-            name: "Release packages, desktop apps, and production sites",
+            name: "Run the prepare release phase",
             status: "in_progress",
             steps: [
               {
@@ -355,11 +355,172 @@ describe("npm package release workflow", () => {
       },
     ];
     assert.doesNotThrow(() =>
-      assertReleaseCoordinatorStepActive(activePages, 123),
+      assertReleaseCoordinatorPrepareStepActive(activePreparePages, 123),
+    );
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorPrepareStepActive(
+        [
+          {
+            jobs: [
+              {
+                name: "Run the prepare release phase",
+                status: "in_progress",
+                steps: [],
+              },
+            ],
+          },
+        ],
+        123,
+      ),
     );
     assert.throws(
       () =>
-        assertReleaseCoordinatorStepActive(
+        assertReleaseCoordinatorPrepareStepActive(
+          [
+            {
+              jobs: [
+                {
+                  name: "Run the prepare release phase",
+                  status: "queued",
+                  steps: [],
+                },
+              ],
+            },
+          ],
+          123,
+        ),
+      /Expected one active prepare release step/,
+    );
+    const preparePhaseJob = {
+      name: "Run the prepare release phase",
+      status: "completed",
+      conclusion: "success",
+      steps: [
+        {
+          name: RELEASE_COORDINATOR_STEP_NAME,
+          status: "completed",
+          conclusion: "success",
+        },
+      ],
+    };
+    const postMergePhaseJob = {
+      name: "Run the post-merge release phase",
+      status: "in_progress",
+      steps: [
+        {
+          name: RELEASE_COORDINATOR_STEP_NAME,
+          status: "in_progress",
+          conclusion: null,
+        },
+      ],
+    };
+    const sequentialPhasePages = [
+      { jobs: [preparePhaseJob, postMergePhaseJob] },
+    ];
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorPrepareStepActive(
+        [
+          {
+            jobs: [
+              {
+                name: "Run the prepare release phase",
+                status: "in_progress",
+                steps: [
+                  {
+                    name: RELEASE_COORDINATOR_STEP_NAME,
+                    status: "in_progress",
+                    conclusion: null,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        123,
+      ),
+    );
+    assert.doesNotThrow(() =>
+      assertReleaseCoordinatorPrepareStepActive(
+        [
+          {
+            jobs: [
+              {
+                name: "Run the prepare release phase",
+                status: "in_progress",
+                steps: [],
+              },
+              {
+                ...postMergePhaseJob,
+                status: "queued",
+                steps: [],
+              },
+            ],
+          },
+        ],
+        123,
+      ),
+    );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorPrepareStepActive(sequentialPhasePages, 123),
+      /no longer performing the prepare release step/,
+    );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorPrepareStepActive(
+          [
+            {
+              jobs: [
+                preparePhaseJob,
+                { ...postMergePhaseJob, status: "queued", steps: [] },
+              ],
+            },
+          ],
+          123,
+        ),
+      /no longer performing the prepare release step/,
+    );
+    for (const conclusion of ["failure", "cancelled"]) {
+      assert.throws(
+        () =>
+          assertReleaseCoordinatorPrepareStepActive(
+            [
+              {
+                jobs: [
+                  preparePhaseJob,
+                  {
+                    ...postMergePhaseJob,
+                    steps: [
+                      {
+                        name: RELEASE_COORDINATOR_STEP_NAME,
+                        status: "completed",
+                        conclusion,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            123,
+          ),
+        /no longer performing the prepare release step/,
+      );
+    }
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorPrepareStepActive(
+          [
+            {
+              jobs: [postMergePhaseJob, postMergePhaseJob],
+            },
+          ],
+          123,
+        ),
+      /not in the prepare release phase/,
+    );
+    assert.throws(
+      () =>
+        assertReleaseCoordinatorPrepareStepActive(
           [
             {
               jobs: [
@@ -379,11 +540,37 @@ describe("npm package release workflow", () => {
           ],
           123,
         ),
-      /no longer performing the release step/,
+      /not in the prepare release phase/,
     );
+    for (const conclusion of ["failure", "cancelled"]) {
+      assert.throws(
+        () =>
+          assertReleaseCoordinatorPrepareStepActive(
+            [
+              {
+                jobs: [
+                  {
+                    name: "Run the prepare release phase",
+                    status: "in_progress",
+                    steps: [
+                      {
+                        name: RELEASE_COORDINATOR_STEP_NAME,
+                        status: "completed",
+                        conclusion,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            123,
+          ),
+        /no longer performing the prepare release step/,
+      );
+    }
     assert.throws(
-      () => assertReleaseCoordinatorStepActive([{ jobs: [] }], 123),
-      /Expected one active release step/,
+      () => assertReleaseCoordinatorPrepareStepActive([{ jobs: [] }], 123),
+      /Expected one active prepare release step/,
     );
   });
 
@@ -517,7 +704,7 @@ esac
     }
   });
 
-  it("waits only while the matching coordinator release step is active", () => {
+  it("waits only while the matching coordinator prepare phase is active", () => {
     const tempRoot = mkdtempSync(
       path.join(tmpdir(), "release-coordinator-wait-"),
     );
@@ -549,7 +736,7 @@ esac
     };
     const jobs = [
       {
-        name: "Release packages, desktop apps, and production sites",
+        name: "Run the prepare release phase",
         status: "in_progress",
         steps: [
           {
@@ -606,6 +793,66 @@ esac
         "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/runs/123/jobs?per_page=100",
         "workflow-token|api --paginate --slurp repos/BuilderIO/agent-native/rules/branches/main",
         "workflow-token|pr checks 8102 --repo BuilderIO/agent-native --required --json name,bucket",
+      ]);
+
+      writeFileSync(callsPath, "");
+      env.GH_JOB_PAGES = JSON.stringify([
+        {
+          jobs: [
+            {
+              name: "Prepare and merge the stable package release",
+              status: "completed",
+              conclusion: "success",
+              steps: [
+                {
+                  name: RELEASE_COORDINATOR_STEP_NAME,
+                  status: "completed",
+                  conclusion: "success",
+                },
+              ],
+            },
+            {
+              name: "Publish and deploy the merged stable release",
+              status: "in_progress",
+              steps: [
+                {
+                  name: RELEASE_COORDINATOR_STEP_NAME,
+                  status: "in_progress",
+                  conclusion: null,
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      env.RELEASE_EVENT_NAME = "pull_request";
+      env.EXPECTED_COORDINATOR_RUN_ID = "123";
+      assert.throws(
+        () =>
+          execFileSync(
+            process.execPath,
+            [
+              "--experimental-strip-types",
+              path.resolve("scripts/release-required-checks.ts"),
+              "verify",
+              "8102",
+              "BuilderIO/agent-native",
+            ],
+            { cwd: process.cwd(), encoding: "utf8", env },
+          ),
+        (error: unknown) => {
+          const commandError = error as { status?: number; stderr?: Buffer };
+          assert.equal(commandError.status, 1);
+          assert.match(
+            String(commandError.stderr),
+            /no longer performing the prepare release step/,
+          );
+          return true;
+        },
+      );
+      assert.deepEqual(readFileSync(callsPath, "utf8").trim().split("\n"), [
+        "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/workflows/release-everything.yml/runs?branch=main&status=in_progress&per_page=100",
+        "actions-read-token|api --paginate --slurp repos/BuilderIO/agent-native/actions/runs/123/jobs?per_page=100",
       ]);
 
       writeFileSync(callsPath, "");
