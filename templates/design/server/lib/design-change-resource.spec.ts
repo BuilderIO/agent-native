@@ -70,4 +70,15 @@ describe("changeResource after a failed call", () => {
       expect(action.changeResource({ id: "file-1" }, undefined)).toBeNull();
     },
   );
+
+  it("names the design a failed journey canvas replace was given", async () => {
+    const action = (await import("../../actions/create-journey-canvas.ts"))
+      .default as {
+      changeResource: (input: unknown, result: unknown) => unknown;
+    };
+    expect(action.changeResource({ designId: "d1" }, undefined)).toEqual({
+      resourceType: "design",
+      resourceId: "d1",
+    });
+  });
 });
