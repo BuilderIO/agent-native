@@ -217,7 +217,10 @@ function sanitizeSqlForInspection(
           "First-party record templates must not use $, ` or # outside strings.",
         );
       }
-      if (ch === "'" && /[\p{ID_Continue}$&\u0080-￿]/u.test(sql[i - 1] ?? "")) {
+      if (
+        ch === "'" &&
+        /[\p{ID_Continue}$&\u0080-\uffff]/u.test(sql[i - 1] ?? "")
+      ) {
         rejectSourceSql(
           "First-party record templates must use plain quoted strings: put a space between a prefix such as DATE and its quote, and don't use E, U&, B, X or N strings.",
         );
