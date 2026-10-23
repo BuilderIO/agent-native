@@ -188,7 +188,10 @@ function mentionsTool(text: string, name: string): boolean {
 
 describe("ChatGPT directory template profiles", () => {
   it.each(
-    [{ appId: "slides-2", profile: slides2Profile }].flatMap((template) =>
+    [
+      { appId: "slides-2", profile: slides2Profile },
+      { appId: "slides", profile: slidesProfile },
+    ].flatMap((template) =>
       [
         { mode: "generic", catalogMode: undefined },
         { mode: "directory", catalogMode: "directory" as const },
@@ -1846,11 +1849,16 @@ describe("Slides widget share grant", () => {
       expiresAtMs = Date.now() + fifteenMinutes,
     }: { userEmail?: string; orgId?: string; expiresAtMs?: number } = {},
   ) {
-    const target = slidesProfile.widgetTargets["create-deck"](
-      {},
-      { id: deckId },
-    );
-    if (!target) throw new Error("Slides create-deck target is missing.");
+    const target = {
+      targetPath: `/deck/${encodeURIComponent(deckId)}`,
+      resourceIds: { deckId, resourceType: "deck" } as Record<string, string>,
+      writeActions: [
+        "patch-deck",
+        "share-resource",
+        "unshare-resource",
+        "set-resource-visibility",
+      ],
+    };
     const materialize = (rules: ArgumentRules): ArgumentRules =>
       Object.fromEntries(
         Object.entries(rules).map(([name, rule]) => [
