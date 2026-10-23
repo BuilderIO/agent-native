@@ -488,6 +488,26 @@ describe("Filling while the collection is open", () => {
     expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
   });
 
+  it("measures a part after an error answer against the files left before it", async () => {
+    vi.useFakeTimers();
+    sync.mutateAsync
+      .mockResolvedValueOnce(
+        syncResult({ state: "error", problem: problem("unavailable") }),
+      )
+      .mockResolvedValueOnce(
+        syncResult({ state: "partial", updated: 0, remaining: 60 }),
+      )
+      .mockResolvedValueOnce(syncResult({ state: "synced" }));
+    // The status says 80 files are left.
+    renderLine(filling());
+    await settle();
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(1);
+    // The part after the wait only skipped files, but left 60 of the 80, so
+    // the next starts at once.
+    await after(60_000);
+    expect(sync.mutateAsync).toHaveBeenCalledTimes(3);
+  });
+
   it.each([
     [
       "a sync fails",

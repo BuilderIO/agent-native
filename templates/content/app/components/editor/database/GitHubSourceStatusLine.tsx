@@ -227,7 +227,8 @@ function useKeepFilling(
       // The background sync has it, and nothing changed to show.
       if (result?.state === "busy") return wait(FILL_BUSY_RETRY_MS);
       const further = result?.state === "partial" && gotFurther(result, left);
-      if (result) left = result.remaining;
+      // Only a part says how many files are left: an error answer counts none.
+      if (result?.state === "partial") left = result.remaining;
       // A sync that got no further changed nothing worth showing.
       if (further || result?.state !== "partial") {
         latest.current.refresh("sync-github-folder");
