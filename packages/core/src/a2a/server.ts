@@ -521,7 +521,7 @@ async function verifyA2ATokenInternal(
     return { payload: { email: null, orgDomain: null } };
   }
 
-  const verifyOptions: jose.JWTVerifyOptions = {};
+  const verifyOptions: jose.JWTVerifyOptions = { algorithms: ["HS256"] };
   if (hasAudience) {
     // Fail closed: the token was minted for a specific audience, but this
     // receiver can't derive its own expected audience (no APP_URL/URL and no
@@ -641,14 +641,10 @@ async function verifyA2ATokenInternal(
   }
   if (!organization) return { payload: { email: null, orgDomain: null } };
 
-  const orgVerifyOptions =
-    unverifiedPayload?.typ === A2A_ORG_MEMBER_DELEGATION_TYPE
-      ? { ...verifyOptions, algorithms: ["HS256"] }
-      : verifyOptions;
   const payload = await verifyJwtWithSecret(
     token,
     organization.secret,
-    orgVerifyOptions,
+    verifyOptions,
   );
   if (!payload) return { payload: { email: null, orgDomain: null } };
 
