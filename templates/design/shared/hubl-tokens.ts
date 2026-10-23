@@ -1,16 +1,24 @@
-type HubLInterpolationToken = { start: number; end: number; raw: string };
+type HubLToken = { start: number; end: number; raw: string };
 
-export function scanHubLInterpolations(content: string): {
-  tokens: HubLInterpolationToken[];
+function scanTokens(
+  content: string,
+  includeControlTags: boolean,
+): {
+  tokens: HubLToken[];
   unclosedAt?: number;
 } {
-  const tokens: HubLInterpolationToken[] = [];
+  const tokens: HubLToken[] = [];
   let cursor = 0;
   while (cursor < content.length) {
-    if (content[cursor] !== "{" || content[cursor + 1] !== "{") {
+    const next = content[cursor + 1];
+    if (
+      content[cursor] !== "{" ||
+      (next !== "{" && !(includeControlTags && next === "%"))
+    ) {
       cursor += 1;
       continue;
     }
+    const closing = next === "%" ? "%" : "}";
     const start = cursor;
     cursor += 2;
     let quote: string | undefined;
@@ -25,7 +33,7 @@ export function scanHubLInterpolations(content: string): {
         if (character === quote) quote = undefined;
       } else if (character === "'" || character === '"') {
         quote = character;
-      } else if (character === "}" && content[cursor + 1] === "}") {
+      } else if (character === closing && content[cursor + 1] === "}") {
         end = cursor + 2;
         break;
       }
@@ -36,4 +44,12 @@ export function scanHubLInterpolations(content: string): {
     cursor = end;
   }
   return { tokens };
+}
+
+export function scanHubLInterpolations(content: string) {
+  return scanTokens(content, false);
+}
+
+export function scanHubLTemplateTokens(content: string) {
+  return scanTokens(content, true);
 }

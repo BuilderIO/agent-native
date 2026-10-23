@@ -326,6 +326,14 @@ function validateDeclaration(declaration: Declaration): void {
       `CSS "${property}: ${declaration.value}" contains an invalid value.`,
     );
   if (
+    ["clip-path", "-webkit-clip-path", "-webkit-text-fill-color"].includes(
+      property,
+    )
+  )
+    invalid(
+      `CSS property "${property}" cannot be validated for email text visibility. Remove it before exporting.`,
+    );
+  if (
     property === "opacity" &&
     !/^(?:[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?%?|inherit|initial|unset)$/.test(
       value,
@@ -529,12 +537,11 @@ function visibleTextByElement(document: Node): Map<Node, string> {
   return result;
 }
 
-function assertResponsiveFooterVisibility(
+function assertFooterVisibility(
   visibleText: Map<Node, string>,
   rules: ConditionalStyleRule[],
   restoreTokens: (value: string) => string,
 ): void {
-  if (!rules.length) return;
   const candidates = new Map(
     [...REQUIRED_FOOTER_TOKENS, "unsubscribe_link"].map((name) => [
       name,
@@ -567,13 +574,15 @@ function assertResponsiveFooterVisibility(
   }
   const styles = new Map<Element, ReturnType<typeof inlineDeclarations>>();
   for (const [name, paths] of candidates) {
+    let clippingLayoutUncertain = false;
     const alwaysVisible = paths.some((path) => {
       let colorVisible = true;
+      const clipping: Declaration[] = [];
       for (const element of [...path].reverse()) {
         if (!styles.has(element))
           styles.set(element, inlineDeclarations(element));
         const inline = styles.get(element)!;
-        const clipping = [...inline.values()];
+        clipping.push(...inline.values());
         const parentColorVisible = colorVisible;
         colorVisible = textColorVisible(
           inline.get("color")?.value,
@@ -597,14 +606,22 @@ function assertResponsiveFooterVisibility(
             );
           }
         }
-        if (hasClippedText(clipping)) return false;
+        if (hasClippedText(clipping)) {
+          clippingLayoutUncertain = true;
+          return false;
+        }
       }
       return colorVisible;
     });
-    if (!alwaysVisible)
+    if (!alwaysVisible) {
+      if (clippingLayoutUncertain)
+        invalid(
+          `Footer visibility cannot be validated for zero-size content inside clipping ancestors (${name}). Keep the legal footer in normal document flow outside clipping containers.`,
+        );
       invalid(
         `Responsive CSS may hide required email footer content (${name}). Keep an always-visible footer and unsubscribe label outside conditional hide/show sections.`,
       );
+    }
   }
 }
 
@@ -880,7 +897,7 @@ export function prepareHubSpotEmailHtml(
     invalid(
       'The email needs a visible unsubscribe link with href="{{ unsubscribe_link }}" and a non-empty text label outside the preheader.',
     );
-  assertResponsiveFooterVisibility(
+  assertFooterVisibility(
     visibleText,
     conditionalVisibilityRules,
     restoreTokens,

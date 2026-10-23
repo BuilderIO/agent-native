@@ -2,7 +2,7 @@ import { fail } from "@agent-native/core/action";
 import { parse, serialize, type DefaultTreeAdapterTypes } from "parse5";
 import { z } from "zod";
 
-import { scanHubLInterpolations } from "../../shared/hubl-tokens.js";
+import { scanHubLTemplateTokens } from "../../shared/hubl-tokens.js";
 import { parseHubLInterpolation } from "./hubl-interpolation.js";
 import { protectHubLTokens } from "./protect-hubl-tokens.js";
 
@@ -68,6 +68,11 @@ export function createHubSpotEmailPreview(
     usedContactFields?: string[];
   };
 } {
+  if (source.length > 1_000_000)
+    fail("Email HTML must be smaller than 1 MB before creating a preview.", {
+      errorCode: "invalid_hubspot_email",
+      statusCode: 422,
+    });
   const validated = sampleContactValuesSchema.safeParse(
     sampleContactValues ?? [],
   );
@@ -80,29 +85,13 @@ export function createHubSpotEmailPreview(
   const samples = Object.fromEntries(
     validated.data.map(({ field, value }) => [field, value]),
   );
-  const scanned = scanHubLInterpolations(source);
+  const scanned = scanHubLTemplateTokens(source);
   if (scanned.unclosedAt !== undefined)
-    fail("The email contains an unclosed HubL interpolation.", {
+    fail("The email contains an unclosed HubL token.", {
       errorCode: "invalid_hubspot_email",
       statusCode: 422,
     });
-  const spans = [
-    ...scanned.tokens,
-    ...Array.from(source.matchAll(/\{%[\s\S]*?%\}/g), (match) => ({
-      start: match.index,
-      end: match.index + match[0].length,
-      raw: match[0],
-    })),
-  ].sort((a, b) => a.start - b.start);
-  let end = 0;
-  const protectedContent = protectHubLTokens(
-    source,
-    spans.filter((span) => {
-      if (span.start < end) return false;
-      end = span.end;
-      return true;
-    }),
-  );
+  const protectedContent = protectHubLTokens(source, scanned.tokens);
   const substitutedTokens = new Set<string>();
   const unresolvedTokens = new Set<string>();
   const restore = (value: string, substitute: boolean): string =>

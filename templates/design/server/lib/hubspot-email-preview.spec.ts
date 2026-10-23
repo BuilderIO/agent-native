@@ -34,6 +34,37 @@ describe("HubSpot sample email preview", () => {
     );
   });
 
+  it("rejects unclosed control tags without repeatedly scanning unmatched openers", () => {
+    const start = performance.now();
+    expect(() => createHubSpotEmailPreview("{%".repeat(40_000))).toThrowError(
+      expect.objectContaining({
+        errorCode: "invalid_hubspot_email",
+        statusCode: 422,
+      }),
+    );
+    expect(performance.now() - start).toBeLessThan(2_000);
+  });
+
+  it("bounds the source before rendering a sample preview", () => {
+    expect(() => createHubSpotEmailPreview("a".repeat(1_000_001))).toThrowError(
+      expect.objectContaining({
+        errorCode: "invalid_hubspot_email",
+        statusCode: 422,
+      }),
+    );
+  });
+
+  it("keeps delimiters inside quoted arguments within their containing token", () => {
+    const control = `{% if contact.name == 'Hi %} {{ there' %}`;
+    const result = createHubSpotEmailPreview(
+      `<p>${control}{{ personalization_token('contact.firstname', 'Hello {% there') }}{% endif %}</p>`,
+    );
+    expect(text(parse(result.html))).toBe(
+      `${control}Hello {% there{% endif %}`,
+    );
+    expect(result.preview.unresolvedTokens).toEqual([control, "{% endif %}"]);
+  });
+
   it("renders fake company values and literal contact defaults without interpreting HTML", () => {
     const source = `<p>{{ site_settings.company_name|escape_html }}</p><p>{{ contact.firstname|default('<strong>Friend</strong>', true)|escape_html }}</p><a title="{{ personalization_token('contact.company', 'A & B')|escape_attr }}">Open</a>`;
     const result = createHubSpotEmailPreview(source);

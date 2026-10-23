@@ -659,6 +659,20 @@ describe("HubSpot email HTML export", () => {
   });
 
   it.each([
+    "clip-path:inset(100%)",
+    "-webkit-clip-path:inset(100%)",
+    "-webkit-text-fill-color:transparent",
+  ])("rejects unsupported legal-text effects (%s)", (declaration) => {
+    for (const css of [
+      `.email-footer{${declaration}}`,
+      `@media(max-width:620px){.email-footer{${declaration}!important}}`,
+    ])
+      expect(() => prepareHubSpotEmailHtml(withContent("Hello", css))).toThrow(
+        "cannot be validated for email text visibility",
+      );
+  });
+
+  it.each([
     "height:0;overflow:hidden",
     "max-height:0;overflow-y:clip",
     "width:0;overflow:auto",
@@ -678,6 +692,19 @@ describe("HubSpot email HTML export", () => {
     expect(prepareHubSpotEmailHtml(html).html).toContain("height:0");
   });
 
+  it.each(["", "height:200px;"])(
+    "requires an unclipped normal-flow legal footer (%s)",
+    (parentSize) => {
+      const html = withContent("Hello").replace(
+        "{{ site_settings.company_name }}",
+        `<span style="display:block;${parentSize}overflow:hidden"><span style="display:block;height:0;overflow:visible">{{ site_settings.company_name }}</span></span>`,
+      );
+      expect(() => prepareHubSpotEmailHtml(html)).toThrow(
+        "Footer visibility cannot be validated for zero-size content inside clipping ancestors",
+      );
+    },
+  );
+
   it.each([
     ["height:0", "overflow:hidden"],
     ["overflow:hidden", "height:0"],
@@ -692,7 +719,7 @@ describe("HubSpot email HTML export", () => {
         '<span class="footer-name">{{ site_settings.company_name }}</span>',
       );
       expect(() => prepareHubSpotEmailHtml(html)).toThrow(
-        "Responsive CSS may hide required email footer content",
+        "Footer visibility cannot be validated for zero-size content inside clipping ancestors",
       );
     },
   );
