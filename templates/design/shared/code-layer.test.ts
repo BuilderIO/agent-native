@@ -4413,11 +4413,11 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("align-items: flex-start");
   });
 
-  it("replaces a min-height:0 that would let the container collapse anyway", () => {
+  it("fixes a hugging container at its rendered size so it can still be resized smaller", () => {
     const html =
-      `<div data-agent-native-node-id="container" style="display: flex; min-height: 0; overflow: hidden">` +
+      `<body><div data-agent-native-node-id="container" style="display: flex; min-height: 0; overflow: hidden">` +
       `<div data-agent-native-node-id="a">A</div>` +
-      `</div>`;
+      `</div></body>`;
     const patch = applyVisualEdit(html, {
       kind: "autoLayout",
       targetId: "container",
@@ -4425,7 +4425,35 @@ describe("autoLayout", () => {
       childRects: { a: { x: 0, y: 0, width: 120, height: 40 } },
       containerRect: { width: 120, height: 40 },
     });
-    expect(patch.content).toMatch(/min-height:\s*40px/);
+    const container =
+      /data-agent-native-node-id="container" style="([^"]*)"/.exec(
+        patch.content,
+      )?.[1];
+    expect(container).toMatch(/(?:^|;)\s*height:\s*40px/);
+    expect(container).not.toMatch(/min-height:\s*40px/);
+    // A block-level frame still fills its block parent's width.
+    expect(container).not.toMatch(/(?:^|;)\s*width:/);
+  });
+
+  it("fixes an absolutely placed frame's width too, since it never filled anything", () => {
+    const patch = applyVisualEdit(
+      `<body><div data-agent-native-node-id="row" style="position: absolute; left: 40px; top: 40px; display: flex; gap: 8px">` +
+        `<div data-agent-native-node-id="a" style="width: 60px; height: 40px"></div>` +
+        `</div></body>`,
+      {
+        kind: "autoLayout",
+        targetId: "row",
+        enabled: false,
+        childRects: { a: { x: 0, y: 0, width: 60, height: 40 } },
+        containerRect: { width: 60, height: 40 },
+      },
+    );
+    const row = /data-agent-native-node-id="row" style="([^"]*)"/.exec(
+      patch.content,
+    )?.[1];
+    expect(row).toMatch(/(?:^|;)\s*width:\s*60px/);
+    expect(row).toMatch(/(?:^|;)\s*height:\s*40px/);
+    expect(row).not.toMatch(/min-(?:width|height)/);
   });
 
   it("pins a padded child by its border box, not by its margin edge", () => {
@@ -5725,5 +5753,60 @@ describe("wrapBareTextLeavesInHtml", () => {
     expect(result.content).toContain(
       `<p class="p-4 bg-muted">Hi <b>there</b></p>`,
     );
+  });
+});
+
+describe("autoLayout keeps children's rendered geometry", () => {
+  const styleOf = (content: string, id: string) =>
+    new RegExp(`data-agent-native-node-id="${id}"[^>]*style="([^"]*)"`).exec(
+      content,
+    )?.[1] ?? "";
+
+  it("leaves an intentionally absolute child alone when an auto layout frame only changes direction", () => {
+    const html =
+      `<div data-agent-native-node-id="frame" style="display: flex; flex-direction: column; gap: 8px; position: relative">` +
+      `<div data-agent-native-node-id="a" style="width: 40px; height: 40px"></div>` +
+      `<div data-agent-native-node-id="badge" style="position: absolute; right: 4px; top: 4px; width: 12px; height: 12px"></div>` +
+      `</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "frame",
+      enabled: true,
+      containerStyles: { display: "flex", flexDirection: "row" },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(styleOf(patch.content, "frame")).toMatch(/flex-direction:\s*row/);
+    const badge = styleOf(patch.content, "badge");
+    expect(badge).toMatch(/position:\s*absolute/);
+    expect(badge).toMatch(/right:\s*4px/);
+  });
+
+  it("keeps an inset-sized child's rendered size when auto layout pulls it into flow", () => {
+    const html =
+      `<div data-agent-native-node-id="frame" style="position: relative; width: 320px; height: 200px">` +
+      `<div data-agent-native-node-id="panel" style="position: absolute; inset: 24px"></div>` +
+      `<div data-agent-native-node-id="bar" style="position: absolute; left: 0; right: 0; bottom: 0; height: 20px"></div>` +
+      `</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "frame",
+      enabled: true,
+      direction: "column",
+      gap: "8px",
+      childRects: {
+        panel: { x: 24, y: 24, width: 272, height: 152 },
+        bar: { x: 0, y: 180, width: 320, height: 20 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const panel = styleOf(patch.content, "panel");
+    expect(panel).not.toMatch(/position:\s*absolute/);
+    expect(panel).toMatch(/width:\s*272px/);
+    expect(panel).toMatch(/height:\s*152px/);
+    const bar = styleOf(patch.content, "bar");
+    expect(bar).toMatch(/width:\s*320px/);
+    expect(bar).toMatch(/height:\s*20px/);
   });
 });

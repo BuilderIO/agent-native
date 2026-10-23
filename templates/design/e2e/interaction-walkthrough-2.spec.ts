@@ -155,7 +155,7 @@ function boardNode(page: Page, nodeId: string) {
 async function clickCenter(
   app: App,
   nodeId: string,
-  modifiers: ("Shift" | "Alt")[] = [],
+  modifiers: ("Shift" | "Alt" | typeof MOD)[] = [],
 ) {
   const rect = await app.designRect(nodeId);
   const point = await app.pagePoint(
@@ -506,7 +506,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     await app.zoomToFit();
     const before = await app.savedNodes(id);
 
-    await clickCenter(app, "album-art");
+    await clickCenter(app, "album-art", [MOD]);
     await expect.poll(() => app.selectedLayers()).toEqual(["album-art"]);
     await chooseWidthMenuItem(page, /^Fill/i);
     await app.settled();
@@ -537,7 +537,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
     expectOnlyChanged(filled, end, ["card"]);
     expect(await app.designRect("card")).toEqual(card);
-    await expect(minWidth).toHaveValue("200px");
+    await expect(minWidth).toHaveValue("200");
     expect(
       await minWidth.evaluate(
         (input: HTMLInputElement) => input.scrollWidth <= input.clientWidth,

@@ -149,7 +149,6 @@ test.describe("moving by drag", () => {
     expect(childrenOf(after, "page")).toEqual(["box-a", copyId, "caption"]);
     const {
       "data-agent-native-node-id": _id,
-      "data-agent-native-clone-root": _cloneMarker,
       style: _copyStyle,
       ...copyAttrs
     } = after.get(copyId)!.attrs;
@@ -165,7 +164,7 @@ test.describe("moving by drag", () => {
       top: "300px",
       width: "120px",
       height: "80px",
-      background: "rgb(59, 130, 246)",
+      background: "#3b82f6",
     });
     expectOnlyChanged(before, after, [copyId]);
     expect(await app.designRect("box-a")).toEqual(BOX_A);

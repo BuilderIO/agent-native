@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { measureFreeformGeometry } from "./measure-child-rects";
+import { measureFrameElement } from "./measure-child-rects";
 
 function stubRect(element: Element, left: number, top: number) {
   element.getBoundingClientRect = () =>
@@ -15,7 +15,7 @@ function mountPreview(containerStyle: string) {
   iframe.setAttribute("data-design-preview-iframe", "");
   document.body.append(iframe);
   const doc = iframe.contentDocument!;
-  doc.body.innerHTML = `<div data-agent-native-node-id="box" style="${containerStyle}"><span data-agent-native-node-id="kid"></span></div>`;
+  doc.body.innerHTML = `<div data-agent-native-node-id="box" style="width:120px;height:80px;${containerStyle}"><span data-agent-native-node-id="kid"></span><i></i></div>`;
   const container = doc.querySelector('[data-agent-native-node-id="box"]')!;
   const child = doc.querySelector('[data-agent-native-node-id="kid"]')!;
   stubRect(container, 100, 50);
@@ -23,20 +23,26 @@ function mountPreview(containerStyle: string) {
   return { container, child };
 }
 
-describe("measureFreeformGeometry", () => {
+const kidRect = (container: Element) => {
+  const measured = measureFrameElement(container);
+  if (measured.status !== "measured") throw new Error(measured.reason);
+  return measured.children.find((child) => child.id === "kid")?.rect;
+};
+
+describe("measureFrameElement", () => {
   it("measures a child against an unbordered container's origin", () => {
-    mountPreview("position:relative");
-    expect(measureFreeformGeometry("box").children.kid).toMatchObject({
+    const { container } = mountPreview("position:relative");
+    expect(kidRect(container)).toMatchObject({
       x: 10,
       y: 20,
     });
   });
 
   it("measures from the padding box, which is where absolute offsets resolve", () => {
-    mountPreview(
+    const { container } = mountPreview(
       "position:relative;border-left-width:4px;border-top-width:6px;border-style:solid",
     );
-    expect(measureFreeformGeometry("box").children.kid).toMatchObject({
+    expect(kidRect(container)).toMatchObject({
       x: 6,
       y: 14,
     });
@@ -53,9 +59,25 @@ describe("measureFreeformGeometry", () => {
       writable: true,
     });
 
-    expect(measureFreeformGeometry("box").children.kid).toMatchObject({
+    expect(kidRect(container)).toMatchObject({
       x: 40,
       y: 35,
     });
+  });
+
+  it("counts children no edit can address instead of dropping them", () => {
+    const { container } = mountPreview("position:relative");
+    const measured = measureFrameElement(container);
+    expect(measured).toMatchObject({
+      status: "measured",
+      size: { width: 120, height: 80 },
+      unidentifiedChildren: 1,
+    });
+  });
+
+  it("refuses a frame that is not rendered", () => {
+    const { container } = mountPreview("display:none");
+    (container as HTMLElement).style.width = "auto";
+    expect(measureFrameElement(container).status).toBe("unmeasurable");
   });
 });

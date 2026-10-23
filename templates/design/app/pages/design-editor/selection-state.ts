@@ -339,6 +339,7 @@ export function getSelectedScreenGeometryForInspector(args: {
     y: geometry.y,
     width: geometry.width,
     height: geometry.height,
+    rotation: geometry.rotation ?? 0,
     heightMode: screen.heightMode,
     sizeConstraints: readScreenSizeConstraints(
       args.screenRootComputedStylesById?.[screenId],

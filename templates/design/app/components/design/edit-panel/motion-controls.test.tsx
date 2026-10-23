@@ -134,9 +134,14 @@ describe("motionControlsOffered", () => {
     ]);
   });
 
-  it("leaves a group's fill to its children", () => {
-    expect(motionControlsOffered(group())).not.toContain("background-color");
-    expect(motionControlsOffered(group())).toContain("border-color");
+  it("leaves a group's fill, stroke, and corners to its children", () => {
+    const offered = motionControlsOffered(group());
+    expect(offered).not.toContain("background-color");
+    expect(offered).not.toContain("border-color");
+    expect(offered).not.toContain("border-width");
+    expect(offered).not.toContain("border-radius");
+    expect(offered).toContain("opacity");
+    expect(offered).toContain("box-shadow");
   });
 });
 

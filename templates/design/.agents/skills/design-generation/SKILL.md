@@ -194,11 +194,17 @@ Pick a preset by `projectType`:
 ## Measurable rules (bake these in)
 
 - 8px spacing grid — all padding/margins/gaps are multiples of 4/8.
-- Absolute `left`/`top` are whole pixels, and multiples of the screen's
-  `layoutGrid.size` when `design-selection` reports one. A fractional or
-  off-grid position reads as a mistake to a designer and does not match what
+- Every px length is a whole number: position, width, height, padding, gap,
+  radius, font size, translate. Absolute `left`/`top` are also multiples of the
+  screen's `layoutGrid.size` when `design-selection` reports one. A fractional
+  or off-grid value reads as a mistake to a designer and does not match what
   dragging the same element produces. Set a screen's grid with
   `set-layout-grid`.
+- Flat layer tree. Every element is a layer the user selects, drags, and
+  resizes, so each one must earn its place: one flex or grid container per
+  visual group, content directly inside it, spacing from `gap` and `padding`.
+  A wrapper with a single child and no layout, paint, or spacing of its own is
+  a defect. Sections are usually three or four levels deep.
 - Body text ≥ 16px, labels ≥ 12px.
 - Big type-scale jumps for hierarchy (don't rely on tiny size deltas).
 - WCAG contrast: 4.5:1 normal text, 3:1 large text. Verify accent-on-background.
@@ -894,8 +900,10 @@ regeneration is slow, expensive, and regresses unrelated parts.
      --edits '[{"search":"<h1 class=\"text-4xl\">Hello</h1>","replace":"<h1 class=\"text-5xl\">Hello there</h1>"}]'
    ```
    Each `search` must match the file **exactly and uniquely** — include enough
-   surrounding context to be unambiguous. Wrapping an element in a new div is
-   just a search/replace whose `replace` adds the wrapper around the original.
+   surrounding context to be unambiguous. When a change needs a new container,
+   first try styling the existing parent; add a wrapper only when no existing
+   element can hold the layout, as a search/replace whose `replace` adds it
+   around the original.
 3. **Reserve `generate-design` for** net-new files. For large structural
    rewrites of an existing selected file, call `edit-design` with
    `mode: "replace-file"` and the exact `fileId` from `get-design-snapshot`.
@@ -947,6 +955,8 @@ read `references/code-layers.md`. For the VS Code-style source workbench
   chrome (icons, avatars-as-initials, decorative fills), never as a stand-in
   for a hero, product shot, or portrait that should be a generated image
 - Never set font-size below 16px for body text or 12px for labels
+- Never nest wrapper divs that add no layout, paint, or spacing, and never
+  write fractional px values such as `left: 256.96px`
 
 ## Multi-screen consistency contract
 

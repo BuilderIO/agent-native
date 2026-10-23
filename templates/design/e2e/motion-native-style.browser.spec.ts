@@ -166,7 +166,6 @@ test("native style states persist with the Motion inspector and timeline", async
   await gotoEditor(page, designId);
   await selectByText(page, "Motion Rectangle", {
     screenId: fileId,
-    deep: false,
   });
   await captureMotionState(page, "motion-native-style-before-selection");
 
@@ -1004,7 +1003,6 @@ test("a new motion preset applies to every selected target", async ({
   await selectByText(page, "Motion Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   await selectByText(page, "Motion Rectangle Two", {
     screenId: fileId,

@@ -216,7 +216,10 @@ async function selectOnCanvas(app: App, nodeId: string, layerName: string) {
   await expect(node).toBeVisible();
   const rect = await node.boundingBox();
   if (!rect) throw new Error(`Canvas node ${nodeId} has no rendered bounds`);
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down("ControlOrMeta");
   await app.page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await app.page.keyboard.up("ControlOrMeta");
   await expect(
     app.page.getByRole("button", { name: "More", exact: true }),
   ).not.toBeFocused();
@@ -482,6 +485,9 @@ test("unsupported managed Motion syntax is visible and does not block canvas tex
     const before = await app.savedNodes(id);
     const originalHeadline = before.get("headline");
     expect(originalHeadline).toBeDefined();
+    // Cmd+click on the layer already selected would step to the one below it.
+    await page.keyboard.press("Escape");
+    await expect.poll(() => app.selectedLayers()).toEqual([]);
     await selectOnCanvas(app, "headline", "Draft headline");
     await page.keyboard.press("Enter");
     const editable = page

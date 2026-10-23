@@ -1,12 +1,15 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it, vi } from "vitest";
 
 import type { AutoLayoutSizingAxis } from "../inspector";
-import type { ElementInfo } from "../types";
+import type { ElementChildLayout, ElementInfo } from "../types";
 import {
   availableSizingForElement,
   canHugContent,
   commitElementMinMax,
   commitElementSizing,
+  commitElementSizingForAxes,
   commitFixedElementSizes,
   componentNameForElementInfo,
   elementHasComponentAnnotation,
@@ -19,6 +22,36 @@ import {
   isTextElement,
   isVectorShapeElement,
 } from "./element-classification";
+
+function child(
+  overrides: Partial<ElementChildLayout> = {},
+): ElementChildLayout {
+  return {
+    nodeId: "child",
+    tagName: "div",
+    position: "static",
+    display: "block",
+    flexGrow: "0",
+    alignSelf: "auto",
+    justifySelf: "auto",
+    float: "none",
+    width: "auto",
+    height: "auto",
+    rect: { x: 0, y: 0, width: 40, height: 20 },
+    ...overrides,
+  };
+}
+
+function childLayouts(
+  children: ElementChildLayout[],
+  extra: { looseText?: boolean; complete?: boolean } = {},
+): ElementInfo["childLayouts"] {
+  return {
+    children,
+    looseText: extra.looseText ?? false,
+    complete: extra.complete ?? true,
+  };
+}
 
 function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {
@@ -302,14 +335,72 @@ describe("inspectorObjectTitle", () => {
   });
 });
 
+describe("inspectorObjectTitle — layer types", () => {
+  it("names drawn primitives by their shape, not their backing tag", () => {
+    const title = (overrides: Partial<ElementInfo>) =>
+      inspectorObjectTitle(makeElement(overrides));
+    expect(title({ tagName: "div", primitiveKind: "rectangle" })).toBe(
+      "Rectangle",
+    );
+    expect(title({ tagName: "div", primitiveKind: "rect" })).toBe("Rectangle");
+    expect(title({ tagName: "div", primitiveKind: "ellipse" })).toBe("Ellipse");
+    expect(title({ tagName: "svg", primitiveKind: "line" })).toBe("Line");
+    expect(title({ tagName: "svg", primitiveKind: "arrow" })).toBe("Arrow");
+    expect(title({ tagName: "svg", primitiveKind: "polygon" })).toBe("Polygon");
+    expect(title({ tagName: "svg", primitiveKind: "star" })).toBe("Star");
+    expect(title({ tagName: "svg", primitiveKind: "path" })).toBe("Vector");
+  });
+
+  it("names generated containers Frame, and Auto layout frame once they lay out children", () => {
+    expect(
+      inspectorObjectTitle(
+        makeElement({
+          tagName: "div",
+          childElementCount: 2,
+          computedStyles: { display: "block" },
+        }),
+      ),
+    ).toBe("Frame");
+    expect(
+      inspectorObjectTitle(
+        makeElement({
+          tagName: "section",
+          childElementCount: 2,
+          isFlexContainer: true,
+          computedStyles: { display: "flex" },
+        }),
+      ),
+    ).toBe("Auto layout frame");
+    expect(
+      inspectorObjectTitle(
+        makeElement({
+          tagName: "div",
+          primitiveKind: "frame",
+          computedStyles: { display: "grid" },
+          isGridContainer: true,
+        }),
+      ),
+    ).toBe("Auto layout frame");
+  });
+});
+
 describe("isContainerElement — primitive inspector layout semantics", () => {
-  it("treats empty rectangle and frame primitives as containers", () => {
+  it("treats a frame as a container even when empty, a rectangle only once it holds layers", () => {
     expect(
       isContainerElement(
         makeElement({
           primitiveKind: "rectangle",
           sourceId: "draft-rect-1",
           childElementCount: 0,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isContainerElement(
+        makeElement({
+          primitiveKind: "rectangle",
+          sourceId: "draft-rect-1",
+          childElementCount: 1,
         }),
       ),
     ).toBe(true);
@@ -892,12 +983,24 @@ describe("canHugContent — Hug availability", () => {
     expect(canHugContent(element)).toBe(false);
   });
 
-  it("offers hug to a rectangle that has children", () => {
+  it("offers hug to a rectangle whose children sit in flow", () => {
+    const element = makeElement({
+      primitiveKind: "rectangle",
+      childElementCount: 2,
+      childLayouts: childLayouts([
+        child({ tagName: "p" }),
+        child({ tagName: "p" }),
+      ]),
+    });
+    expect(canHugContent(element)).toBe(true);
+  });
+
+  it("withholds hug from a rectangle whose child layout is unreadable", () => {
     const element = makeElement({
       primitiveKind: "rectangle",
       childElementCount: 2,
     });
-    expect(canHugContent(element)).toBe(true);
+    expect(canHugContent(element)).toBe(false);
   });
 
   it("withholds hug from an empty plain container", () => {
@@ -1064,5 +1167,375 @@ describe("inline text style roots", () => {
 describe("isVectorShapeElement for imported svg", () => {
   it("keeps an unmarked svg out of vector classification", () => {
     expect(isVectorShapeElement(makeElement({ tagName: "svg" }))).toBe(false);
+  });
+});
+
+const absoluteChild = (nodeId: string) =>
+  child({
+    nodeId,
+    position: "absolute",
+    width: "40px",
+    height: "40px",
+    rect: { x: 12, y: 12, width: 40, height: 40 },
+  });
+
+describe("Hug needs content laid out in flow", () => {
+  const hugFor = (element: ElementInfo, axis: AutoLayoutSizingAxis) =>
+    availableSizingForElement(element)[axis]?.includes("hug") ?? false;
+
+  it("withholds Hug from a freeform frame whose children are all absolutely positioned", () => {
+    const element = makeElement({
+      primitiveKind: "frame",
+      childElementCount: 2,
+      childLayouts: childLayouts([absoluteChild("a"), absoluteChild("b")]),
+      computedStyles: { display: "block", position: "relative" },
+    });
+    expect(hugFor(element, "horizontal")).toBe(false);
+    expect(hugFor(element, "vertical")).toBe(false);
+  });
+
+  it("withholds Hug from a plain container whose children are all out of flow", () => {
+    const element = makeElement({
+      tagName: "div",
+      childElementCount: 2,
+      childLayouts: childLayouts([
+        absoluteChild("a"),
+        child({ nodeId: "overlay", tagName: "span", position: "fixed" }),
+      ]),
+      computedStyles: { display: "block", position: "relative" },
+    });
+    expect(hugFor(element, "horizontal")).toBe(false);
+  });
+
+  it("withholds Hug from a frame without auto layout when its children are not readable", () => {
+    const element = makeElement({
+      primitiveKind: "frame",
+      childElementCount: 2,
+      computedStyles: { display: "block" },
+    });
+    expect(hugFor(element, "horizontal")).toBe(false);
+  });
+
+  it("keeps Hug for a container with one child in flow beside absolute ones", () => {
+    const element = makeElement({
+      tagName: "div",
+      childElementCount: 2,
+      childLayouts: childLayouts([
+        absoluteChild("a"),
+        child({ nodeId: "caption", tagName: "p" }),
+      ]),
+    });
+    expect(hugFor(element, "horizontal")).toBe(true);
+  });
+
+  it("keeps Hug for a freeform frame that holds loose text", () => {
+    const element = makeElement({
+      primitiveKind: "frame",
+      childElementCount: 1,
+      childLayouts: childLayouts([absoluteChild("a")], { looseText: true }),
+    });
+    expect(hugFor(element, "horizontal")).toBe(true);
+  });
+
+  it("keeps Hug for an auto layout frame even when every child is absolute", () => {
+    const element = makeElement({
+      primitiveKind: "frame",
+      isFlexContainer: true,
+      childElementCount: 1,
+      childLayouts: childLayouts([absoluteChild("a")]),
+    });
+    expect(hugFor(element, "horizontal")).toBe(true);
+  });
+
+  it("does not trust a truncated child list to prove every child is out of flow", () => {
+    const element = makeElement({
+      tagName: "div",
+      childElementCount: 400,
+      childLayouts: childLayouts([absoluteChild("a")], { complete: false }),
+    });
+    expect(hugFor(element, "horizontal")).toBe(true);
+  });
+});
+
+describe("Fill needs an in-flow child", () => {
+  it.each(["absolute", "fixed"])(
+    "withholds fill from a %s child of a block parent",
+    (position) => {
+      const element = makeElement({
+        parentDisplay: "block",
+        computedStyles: { position, width: "120px" },
+      });
+      expect(availableSizingForElement(element).horizontal).not.toContain(
+        "fill",
+      );
+    },
+  );
+});
+
+describe("Hug on a parent freezes the children that fill that axis", () => {
+  const frame = (
+    children: ElementChildLayout[],
+    flexDirection = "row",
+  ): ElementInfo =>
+    makeElement({
+      sourceId: "frame",
+      isFlexContainer: true,
+      childElementCount: children.length,
+      childLayouts: childLayouts(children),
+      computedStyles: {
+        display: "flex",
+        flexDirection,
+        width: "320px",
+        height: "80px",
+      },
+      authoredSizeStyles: { width: "320px", height: "80px" },
+    });
+  const grower = child({
+    nodeId: "grow",
+    flexGrow: "1",
+    rect: { x: 0, y: 0, width: 212.4, height: 40 },
+  });
+
+  it("offers Hug on the main axis a child grows along", () => {
+    const sizing = availableSizingForElement(frame([grower, child()]));
+    expect(sizing.horizontal).toContain("hug");
+  });
+
+  it("writes the frame and the frozen child as one multi-node edit", () => {
+    const onStylesChange = vi.fn();
+    const onApplyLayoutFlow = vi.fn(() => "applied" as const);
+    commitElementSizing(
+      frame([grower, child({ nodeId: "fixed", width: "40px" })]),
+      "horizontal",
+      "hug",
+      vi.fn(),
+      onStylesChange,
+      onApplyLayoutFlow,
+    );
+    expect(onStylesChange).not.toHaveBeenCalled();
+    expect(onApplyLayoutFlow).toHaveBeenCalledTimes(1);
+    const [nodeId, containerStyles, patches] = onApplyLayoutFlow.mock
+      .calls[0] as unknown as [string, object, Map<string, object>];
+    expect(nodeId).toBe("frame");
+    expect(containerStyles).toEqual({});
+    expect(Object.fromEntries(patches)).toEqual({
+      frame: { width: "fit-content" },
+      grow: {
+        width: "212px",
+        flexGrow: "0",
+        flexShrink: "0",
+        flexBasis: "auto",
+      },
+    });
+  });
+
+  it("freezes a child sized 100% along a column's cross axis", () => {
+    const onApplyLayoutFlow = vi.fn(() => "applied" as const);
+    commitElementSizing(
+      frame(
+        [
+          child({
+            nodeId: "full",
+            width: "100%",
+            rect: { x: 0, y: 0, width: 320, height: 20 },
+          }),
+        ],
+        "column",
+      ),
+      "horizontal",
+      "hug",
+      vi.fn(),
+      vi.fn(),
+      onApplyLayoutFlow,
+    );
+    const patches = (onApplyLayoutFlow.mock.calls[0] as unknown[])[2] as Map<
+      string,
+      Record<string, string>
+    >;
+    expect(patches.get("full")).toEqual({
+      width: "320px",
+      alignSelf: "auto",
+    });
+  });
+
+  it("leaves a cross-axis stretch child alone: the line sizes before it stretches", () => {
+    const sizing = availableSizingForElement(
+      frame([child({ nodeId: "stretch", alignSelf: "stretch" }), child()]),
+    );
+    expect(sizing.vertical).toContain("hug");
+    const onStylesChange = vi.fn();
+    commitElementSizing(
+      frame([child({ nodeId: "stretch", alignSelf: "stretch" })]),
+      "vertical",
+      "hug",
+      vi.fn(),
+      onStylesChange,
+      vi.fn(),
+    );
+    expect(onStylesChange.mock.calls[0]?.[0]).toEqual({
+      height: "fit-content",
+    });
+  });
+
+  it("withholds Hug while a filling child cannot be frozen in place", () => {
+    const sizing = availableSizingForElement(
+      frame([child({ nodeId: undefined, flexGrow: "1" })]),
+    );
+    expect(sizing.horizontal).not.toContain("hug");
+    expect(sizing.vertical).toContain("hug");
+  });
+
+  it("ignores a filling child that is out of flow", () => {
+    const sizing = availableSizingForElement(
+      frame([
+        child({ nodeId: undefined, position: "absolute", width: "100%" }),
+        child(),
+      ]),
+    );
+    expect(sizing.horizontal).toContain("hug");
+  });
+});
+
+describe("inferElementSizing — the mode the layer is actually in", () => {
+  it("reads a column child that the parent stretches as Fill on the cross axis", () => {
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "normal",
+      },
+      computedStyles: { width: "320px", height: "40px", alignSelf: "auto" },
+      authoredSizeStyles: { width: "auto", height: "auto" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fill");
+    expect(inferElementSizing(element, "vertical")).toBe("hug");
+  });
+
+  it("keeps Hug when the parent aligns its children instead of stretching them", () => {
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+      },
+      computedStyles: { width: "120px", alignSelf: "auto" },
+      authoredSizeStyles: { width: "auto" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("hug");
+  });
+
+  it("reads a block child with auto width as filling its block parent", () => {
+    const element = makeElement({
+      parentDisplay: "block",
+      computedStyles: { display: "block", width: "600px", height: "48px" },
+      authoredSizeStyles: { width: "auto", height: "auto" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fill");
+    expect(inferElementSizing(element, "vertical")).toBe("hug");
+  });
+
+  it.each([
+    ["inline-block", "static", "none"],
+    ["block", "absolute", "none"],
+    ["block", "static", "left"],
+  ])(
+    "reads a %s / %s / float %s auto-width child of a block parent as Hug",
+    (display, position, float) => {
+      const element = makeElement({
+        parentDisplay: "block",
+        computedStyles: { display, position, float, width: "80px" },
+        authoredSizeStyles: { width: "auto" },
+      });
+      expect(inferElementSizing(element, "horizontal")).toBe("hug");
+    },
+  );
+
+  it("reads back the Fill the inspector writes for a grid child", () => {
+    const element = makeElement({
+      parentDisplay: "grid",
+      computedStyles: { width: "200px", justifySelf: "stretch" },
+      inlineStyles: { width: "auto", justifySelf: "stretch" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fill");
+  });
+
+  it("reports the same modes after a code-layer refresh drops the measured sizes", () => {
+    const parentLayout = {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "normal",
+    };
+    const live = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout,
+      computedStyles: {
+        display: "block",
+        width: "320px",
+        height: "40px",
+        alignSelf: "auto",
+      },
+      inlineStyles: { padding: "8px" },
+      authoredSizeStyles: { width: "auto", height: "auto" },
+    });
+    const refreshed = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout,
+      computedStyles: { padding: "8px" },
+      inlineStyles: { padding: "8px" },
+      authoredSizeStyles: undefined,
+    });
+    for (const axis of ["horizontal", "vertical"] as const) {
+      expect(inferElementSizing(refreshed, axis)).toBe(
+        inferElementSizing(live, axis),
+      );
+    }
+    expect(inferElementSizing(refreshed, "horizontal")).toBe("fill");
+    expect(inferElementSizing(refreshed, "vertical")).toBe("hug");
+  });
+
+  it("keeps a utility-sized layer Fixed after a refresh drops its measured size", () => {
+    const element = makeElement({
+      classes: ["w-64", "p-4"],
+      computedStyles: { padding: "16px" },
+      inlineStyles: {},
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fixed");
+    expect(inferElementSizing(element, "vertical")).toBe("hug");
+  });
+});
+
+describe("commitElementSizingForAxes — one patch for both axes", () => {
+  it("commits Resize to fit as a single Hug patch", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: { display: "flex", flexDirection: "row" },
+      isFlexContainer: true,
+      computedStyles: { width: "200px", height: "80px", flexGrow: "1" },
+    });
+    commitElementSizingForAxes(
+      element,
+      { horizontal: "hug", vertical: "hug" },
+      onStyleChange,
+      onStylesChange,
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+    expect(onStylesChange).toHaveBeenCalledTimes(1);
+    expect(onStylesChange.mock.calls[0]?.[0]).toEqual({
+      width: "fit-content",
+      height: "fit-content",
+      flexGrow: "0",
+      flexShrink: "0",
+      flexBasis: "auto",
+      alignSelf: "auto",
+    });
   });
 });
