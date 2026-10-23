@@ -31,7 +31,7 @@ writing the query is always faster than debugging a wrong result.
 
 Before writing SQL, use the highest-confidence source available:
 
-0. Owner-defined dbt metric question, even unnamed: follow the dbt path in `data-querying/SKILL.md`, including its status rules, retry, and warehouse conditions. Its definition outranks any table. If that path finds no exact name while dbt is connected, stop at the mapping gap for this metric; if dbt is not connected, continue with steps 1–3 and say so.
+0. Owner-defined dbt metric question, even unnamed: follow the dbt path in `data-querying/SKILL.md`, including its status rules, retry, and warehouse conditions. Its definition outranks any table. If that path finds no exact name while a dbt connection is ready, stop at the mapping gap for this metric. If `get-dbt-connection` lists no connections, continue with steps 1–3 and say so. If connections are listed but none is ready, name the missing step and stop.
 1. `find-data` with a focused metric or entity question.
 2. Existing dashboard SQL or saved analyses that already answer the same metric.
 3. `search-bigquery-schema` metadata for exact datasets, tables, and columns.
@@ -81,7 +81,7 @@ Never label a current partial-month snapshot as last month's completed usage.
 | `estimate-query-cost --sql "<sql>"`                       | Free dry run: bytes, $ per run, and $ per month for scheduled runs.  |
 | `bigquery --sql "<sql>"`                                  | Run a real warehouse query after table/column names are known.       |
 | `query-dbt-semantic-metric --metricName <exact dbt name>` | Run an owner-defined dbt Semantic Layer metric before warehouse SQL. |
-| `get-dbt-connection`                                      | Check dbt readiness (`readiness`) and the missing setup step.        |
+| `get-dbt-connection`                                      | Check each `connections[].readiness` and its missing setup step.        |
 
 ## Check Cost Before Big Queries
 

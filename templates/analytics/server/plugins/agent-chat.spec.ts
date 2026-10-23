@@ -683,10 +683,10 @@ describe("Analytics agent Plan mode policy", () => {
       "retry no-candidate searches once with owner terms",
     );
     expect(agentsGuide).toContain(
-      "If still unmatched and dbt is connected, report the gap",
+      "If still unmatched: no listed connection means normal sources, said",
     );
     expect(agentsGuide).toContain(
-      "If dbt is not connected, use normal sources and say so.",
+      "listed but none ready means name the missing step and stop",
     );
     expect(dataQueryingSkill).toContain("`metadata_truncated`");
     expect(dataQueryingSkill).toContain("`no_metrics_available`");
@@ -701,11 +701,11 @@ describe("Analytics agent Plan mode policy", () => {
       "follow the dbt path in `data-querying/SKILL.md`",
     );
     expect(bigquerySkill).toContain(
-      "stop at the mapping gap for this metric; if dbt is not connected, continue with steps 1–3 and say so.",
+      "stop at the mapping gap for this metric. If `get-dbt-connection` lists no connections, continue with steps 1–3 and say so.",
     );
     expect(ruleText("references")).toContain("only dbt routing searches again");
     expect(dataQueryingSkill).toContain(
-      "search `find-data` for the exact name once and retry the query",
+      "search `find-data` for the exact name once, and retry the query only if it returns a different exact name",
     );
     expect(dataQueryingSkill).toContain(
       "call again with its `metricName` and returned `nextPage`",
@@ -722,7 +722,13 @@ describe("Analytics agent Plan mode policy", () => {
     );
     expect(dataQueryingSkill).toContain("gets one resume");
     expect(dataQueryingSkill).toContain(
-      "If dbt is not connected, use normal source selection and say that dbt is not connected.",
+      "If `connections` is empty, use normal source selection and say that dbt has no connection.",
+    );
+    expect(dataQueryingSkill).toContain(
+      "If connections exist but none is `ready`, name the missing step from its `readiness`",
+    );
+    expect(dataQueryingSkill).toContain(
+      "stopping after five resumes in one turn or when a resume returns the same `nextPage` again",
     );
     expect(dataQueryingSkill).toContain(
       "resume first (above) so the answer covers the full result",
