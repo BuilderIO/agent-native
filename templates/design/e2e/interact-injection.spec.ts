@@ -4,9 +4,9 @@ import { e2eBaseURL } from "./base-url";
 import { designFrame, gotoEditor } from "./helpers";
 import { INTERACT_FRAME } from "./interact-helpers";
 
-// Interact runs the page as authored: a markup screen carries the theme bridge
-// and the links bridge and nothing else the editor owns, and a screen served
-// from a URL is a plain frame the editor puts nothing into.
+// Interact runs markup screens with the theme and links bridges; the shared
+// preview surface may also add the native shader runtime. URL screens get no
+// editor bridges.
 
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Plain</title></head><body style="margin:0;font:20px system-ui"><h1 id="title">Plain page</h1></body></html>`;
 
@@ -89,6 +89,7 @@ test("an Interact markup preview carries the theme and links bridges and no edit
     .poll(() => injected(interact))
     .toEqual([
       "data-agent-native-interact-links-bridge",
+      "data-agent-native-native-shader-runtime",
       "data-agent-native-preview-theme-bridge",
     ]);
 

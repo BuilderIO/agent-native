@@ -92,7 +92,7 @@ async function normalizeClonedResponsiveImages(
   sourceDocument: Document,
   clonedDocument: Document,
 ): Promise<void> {
-  const signal = AbortSignal.timeout(10_000);
+  const signal = AbortSignal.timeout(15_000);
   await Promise.all(
     Array.from(sourceDocument.querySelectorAll<HTMLImageElement>("img")).map(
       async (sourceImage) => {
@@ -660,14 +660,7 @@ export async function renderExportDocumentCanvas({
     doc.body?.scrollHeight ?? 0,
     iframe.clientHeight,
   );
-  const outputCropRect = cropRect
-    ? {
-        x: Math.max(0, cropRect.x),
-        y: Math.max(0, cropRect.y),
-        width: cropRect.width + Math.min(0, cropRect.x),
-        height: cropRect.height + Math.min(0, cropRect.y),
-      }
-    : null;
+  const outputCropRect = cropRect ?? null;
   const renderCropRect = outputCropRect
     ? intersectExportCropRect(outputCropRect, width, height)
     : null;
@@ -725,7 +718,15 @@ export async function renderExportDocumentCanvas({
     bitmap.close();
     throw new PngCaptureError("blob-failed");
   }
-  context.drawImage(bitmap, 0, 0);
+  context.drawImage(
+    bitmap,
+    renderCropRect && outputCropRect
+      ? (renderCropRect.x - outputCropRect.x) * effectiveScale
+      : 0,
+    renderCropRect && outputCropRect
+      ? (renderCropRect.y - outputCropRect.y) * effectiveScale
+      : 0,
+  );
   bitmap.close();
   return {
     canvas,

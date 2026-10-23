@@ -318,6 +318,93 @@ it.each([
   await browser.close();
 });
 
+it("preserves transparent padding for negative-origin element crops", async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ deviceScaleFactor: 1 });
+  await page.goto(base);
+  await page.addScriptTag({ url: `${base}/exporter.js` });
+  await page.evaluate(async () => {
+    const iframe = document.createElement("iframe");
+    iframe.width = "400";
+    iframe.height = "400";
+    iframe.style.border = "0";
+    const ready = new Promise<void>(
+      (resolve) => (iframe.onload = () => resolve()),
+    );
+    iframe.srcdoc = `<!doctype html><html><head><style>
+      html,body{margin:0}#probe{position:absolute;left:0;top:0;width:84px;height:52px;background:red}
+    </style></head><body><div id="probe"></div></body></html>`;
+    document.body.appendChild(iframe);
+    await ready;
+  });
+  await page.frames()[1]!.addScriptTag({ content: hydrateBridge(false) });
+  const result = await page.evaluate(async () => {
+    const iframe = document.querySelector("iframe")!;
+    const { canvas } = await (
+      window as any
+    ).exporter.renderExportDocumentCanvas({
+      doc: iframe.contentDocument,
+      iframe,
+      exportScale: 1,
+      cropRect: { x: -16, y: -8, width: 116, height: 68 },
+    });
+    const pixels = canvas
+      .getContext("2d")
+      .getImageData(0, 0, canvas.width, canvas.height).data;
+    let left = canvas.width,
+      top = canvas.height,
+      right = -1,
+      bottom = -1;
+    for (let y = 0; y < canvas.height; y++)
+      for (let x = 0; x < canvas.width; x++) {
+        const index = (y * canvas.width + x) * 4;
+        if (
+          pixels[index] > 200 &&
+          pixels[index + 1] < 80 &&
+          pixels[index + 2] < 80 &&
+          pixels[index + 3] > 200
+        ) {
+          left = Math.min(left, x);
+          top = Math.min(top, y);
+          right = Math.max(right, x);
+          bottom = Math.max(bottom, y);
+        }
+      }
+    return {
+      width: canvas.width,
+      height: canvas.height,
+      redLeft: left,
+      redTop: top,
+      redWidth: right - left + 1,
+      redHeight: bottom - top + 1,
+    };
+  });
+  expect(result).toEqual({
+    width: 116,
+    height: 68,
+    redLeft: 16,
+    redTop: 8,
+    redWidth: 84,
+    redHeight: 52,
+  });
+  const offscreenError = await page.evaluate(async () => {
+    const iframe = document.querySelector("iframe")!;
+    try {
+      await (window as any).exporter.renderExportDocumentCanvas({
+        doc: iframe.contentDocument,
+        iframe,
+        exportScale: 1,
+        cropRect: { x: 500, y: 500, width: 10, height: 10 },
+      });
+      return null;
+    } catch (error) {
+      return (error as { code?: string }).code ?? null;
+    }
+  });
+  expect(offscreenError).toBe("selection-unresolved");
+  await browser.close();
+});
+
 it("waits for a loading width-described image and refreshes its runtime snapshot", async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ deviceScaleFactor: 2 });
@@ -390,6 +477,7 @@ it("waits for a loading width-described image and refreshes its runtime snapshot
     }
     return red;
   });
+  await new Promise((resolve) => setTimeout(resolve, 10_500));
   slowReleased = true;
   for (const response of slowResponses) {
     response.writeHead(200, { "content-type": "image/svg+xml" });
@@ -422,4 +510,4 @@ it("waits for a loading width-described image and refreshes its runtime snapshot
   expect(width).toBe(100);
   expect(errors).toEqual([]);
   await browser.close();
-});
+}, 20_000);
