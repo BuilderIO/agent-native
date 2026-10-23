@@ -479,7 +479,13 @@ export function classifyToolCallJournal(
       if (entry) {
         if (event.outcomeUnknown === true) {
           entry.outcomeUnknown = true;
-          if (event.unknownCause) entry.unknownCause = event.unknownCause;
+          // Stored events are read back untyped.
+          if (
+            event.unknownCause === "rejection" ||
+            event.unknownCause === "interruption"
+          ) {
+            entry.unknownCause = event.unknownCause;
+          }
           if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
           queue!.push(entry);
           continue;

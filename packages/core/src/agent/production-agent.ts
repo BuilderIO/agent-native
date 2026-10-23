@@ -9849,11 +9849,13 @@ export async function runAgentLoop(opts: {
           errorCode: "write_tool_outcome_unknown",
           blockedTool: toolCall.name,
           blockedBy:
-            repeated
-              .map(([kind]) =>
-                unknownOutcomes.causes.get(`${kind}:${repeatKeys[kind]}`),
-              )
-              .find((cause) => cause !== undefined) ?? "interruption",
+            // The most specific key matched speaks for the call; a broader
+            // one can name a different call that shares it.
+            (repeated[0]
+              ? unknownOutcomes.causes.get(
+                  `${repeated[0][0]}:${repeatKeys[repeated[0][0]]}`,
+                )
+              : undefined) ?? "interruption",
         };
         return {
           type: "tool-result" as const,

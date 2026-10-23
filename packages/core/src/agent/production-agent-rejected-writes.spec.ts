@@ -538,6 +538,75 @@ describe("a write whose outcome is really unknown", () => {
     );
   });
 
+  async function repeatAfterStoredUnknowns(
+    stored: Array<{
+      id: string;
+      prepared: Record<string, unknown>;
+      cause?: unknown;
+    }>,
+    schema: z.ZodType,
+    input: Record<string, unknown>,
+  ) {
+    currentTurnEvents.mockResolvedValue(
+      stored.flatMap(({ id, prepared, cause }) => [
+        { type: "tool_start", id, tool: "send", input },
+        {
+          type: "tool_done",
+          id,
+          tool: "send",
+          input,
+          result: "Error running send: lost.",
+          isError: true,
+          outcomeUnknown: true,
+          ...(cause === undefined ? {} : { unknownCause: cause }),
+          argumentsHash: actionArgumentsHash(prepared),
+        },
+      ]),
+    );
+    const run = vi.fn(async () => "sent");
+    const action = defineAction({
+      description: "Send.",
+      schema,
+      run,
+    }) as unknown as ActionEntry;
+    const events = await runCalls({ send: action }, [{ name: "send", input }], {
+      threadId: `thread-${stored.map(({ id }) => id).join("-")}`,
+    });
+    expect(run).not.toHaveBeenCalled();
+    return events.find(
+      (event): event is Extract<AgentChatEvent, { type: "error" }> =>
+        event.type === "error",
+    );
+  }
+
+  it("reads a stored cause it does not recognise as an interruption", async () => {
+    const stop = await repeatAfterStoredUnknowns(
+      [{ id: "garbled", prepared: { body: "a" }, cause: "lost-in-transit" }],
+      z.object({ body: z.string() }),
+      { body: "a" },
+    );
+    expect(stop).toMatchObject({
+      errorCode: "write_tool_outcome_unknown",
+      blockedBy: "interruption",
+    });
+  });
+
+  it("takes the cause from the call it repeats, not one that shares its sent arguments", async () => {
+    // The same `{}` prepared as stamp 1 once, and as stamp 2 now.
+    const stop = await repeatAfterStoredUnknowns(
+      [
+        { id: "stamp-1", prepared: { stamp: 1 }, cause: "rejection" },
+        { id: "stamp-2", prepared: { stamp: 2 } },
+      ],
+      z.object({ stamp: z.number().default(2) }),
+      {},
+    );
+    expect(stop).toMatchObject({
+      errorCode: "write_tool_outcome_unknown",
+      blockedBy: "interruption",
+    });
+  });
+
   it("still reads a plain handler failure as possibly written", async () => {
     const run = vi.fn(async () => {
       fail("Upstream rejected the request.");
