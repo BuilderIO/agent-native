@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { diagnoseA2ATokenFailure } from "@agent-native/core/a2a";
 import { ActionContractError } from "@agent-native/core/action";
 import {
   CredentialStoreUnavailableError,
@@ -660,9 +661,38 @@ describe("listWorkspaceApps", () => {
     expect(payload).toMatchObject({
       sub: "dev@example.test",
       org_domain: "example.test",
-      aud: "https://agent-workspace.builder.io",
+      aud: "https://agent-workspace.builder.io/dispatch",
     });
     expect(() => verifyJwtWithSecret(token, "workspace-org-secret")).toThrow();
+  });
+
+  it("addresses a root-mounted Dispatch's gateway token to the workspace Dispatch mount", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([]), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "shared-deployment-secret");
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    await runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+      listWorkspaceApps({ includeAgentCards: false }),
+    );
+    const authorization = fetchMock.mock.calls[0]?.[1]?.headers
+      ?.Authorization as string;
+    const token = authorization.slice("Bearer ".length);
+
+    // The workspace's Dispatch is mounted at /dispatch and checks the audience
+    // against its own URL and base path.
+    vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+    vi.stubEnv("APP_BASE_PATH", "/dispatch");
+    await expect(diagnoseA2ATokenFailure(token, {})).resolves.not.toBe(
+      "audience",
+    );
   });
 
   it("reports a missing deployment secret instead of signing a member's request with the organization secret", async () => {
