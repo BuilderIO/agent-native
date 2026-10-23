@@ -402,7 +402,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop": "請開啟桌面版以使用這個聊天。",
   "composer.removeAttachment": "移除 {{name}}",
   "composer.attachmentReadFailed": "無法讀取此檔案",
-  "composer.attachmentTooLarge": "檔案超過 20 MB",
+  "composer.attachmentTooLarge": "檔案超過 8 MB",
   "composer.attachmentNotUtf8": "檔案不是 UTF-8 文字",
   "composer.scrollToBottom": "捲動到底部",
   "composer.suggestedPrompts": "建議提示",

@@ -421,7 +421,7 @@ const messages = {
   "composer.openDesktop": "Open Desktop to use this chat.",
   "composer.removeAttachment": "Remove {{name}}",
   "composer.attachmentReadFailed": "Couldn't read this file",
-  "composer.attachmentTooLarge": "File is over 20 MB",
+  "composer.attachmentTooLarge": "File is over 8 MB",
   "composer.attachmentNotUtf8": "File isn't UTF-8 text",
   "composer.scrollToBottom": "Scroll to bottom",
   "composer.suggestedPrompts": "Suggested prompts",

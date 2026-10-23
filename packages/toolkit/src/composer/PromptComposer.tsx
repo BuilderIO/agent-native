@@ -559,7 +559,7 @@ export function AttachmentChip({
     const message =
       readError === "too-large"
         ? t("agentChat.composer.attachmentTooLarge", {
-            defaultValue: "File is over 20 MB",
+            defaultValue: "File is over 8 MB",
           })
         : readError === "not-utf8"
           ? t("agentChat.composer.attachmentNotUtf8", {

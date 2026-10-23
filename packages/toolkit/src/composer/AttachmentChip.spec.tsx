@@ -71,7 +71,7 @@ describe("AttachmentChip", () => {
     await renderChip(file);
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("File is over 20 MB");
+      expect(container.textContent).toContain("File is over 8 MB");
     });
   });
 

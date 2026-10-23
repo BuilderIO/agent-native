@@ -441,7 +441,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop": "Öffne Desktop, um diesen Chat zu verwenden.",
   "composer.removeAttachment": "{{name}} entfernen",
   "composer.attachmentReadFailed": "Datei konnte nicht gelesen werden",
-  "composer.attachmentTooLarge": "Datei ist größer als 20 MB",
+  "composer.attachmentTooLarge": "Datei ist größer als 8 MB",
   "composer.attachmentNotUtf8": "Datei ist kein UTF-8-Text",
   "composer.scrollToBottom": "Nach unten scrollen",
   "composer.suggestedPrompts": "Vorgeschlagene Prompts",

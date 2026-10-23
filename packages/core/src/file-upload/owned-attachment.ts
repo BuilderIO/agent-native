@@ -4,6 +4,7 @@ import {
   reconcileImageBytes,
   reconcilePdfBytes,
 } from "./attachment-bytes.js";
+import { isTextLikeMimeType } from "./attachment-text.js";
 import {
   formatBase64CharBudget,
   isInlineReadableDocumentType,
@@ -81,6 +82,13 @@ export const MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES = 6;
 export const MAX_OWNED_IMAGE_HYDRATION_CANDIDATES =
   MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES;
 export const MAX_OWNED_ATTACHMENT_HYDRATION_BYTES = 8 * 1024 * 1024;
+/**
+ * Text and SVG are decoded and shown as a head plus a stored copy, never sent
+ * whole, so they can use the full request budget. The composer's
+ * AGENT_PROMPT_MAX_TEXT_FILE_BYTES must match, or its chip promises a read the
+ * server refuses.
+ */
+export const MAX_OWNED_TEXT_FILE_BYTES = MAX_OWNED_ATTACHMENT_HYDRATION_BYTES;
 export const MAX_OWNED_IMAGE_HYDRATION_BYTES =
   MAX_OWNED_ATTACHMENT_HYDRATION_BYTES;
 export const OWNED_ATTACHMENT_HYDRATION_TIMEOUT_MS = 20_000;
@@ -437,7 +445,9 @@ export async function hydrateOwnedFileUrl(
   const result = await readOwnedUrlBytes({
     value,
     budget: hydrationBudget,
-    maxInlineBytes: MAX_OWNED_INLINE_FILE_BYTES,
+    maxInlineBytes: isTextLikeMimeType(declaredMediaType)
+      ? MAX_OWNED_TEXT_FILE_BYTES
+      : MAX_OWNED_INLINE_FILE_BYTES,
     oversizedCode: "file-too-large",
     accept:
       "application/pdf, text/*, image/svg+xml, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel",

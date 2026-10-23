@@ -2320,6 +2320,53 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("Use this logo in the deck");
   });
 
+  it("hydrates an uploaded markdown file larger than the PDF inline cap", async () => {
+    const url = "https://storage.example.test/uploads/DESIGN.md";
+    const markdown = "# Design\n" + "x".repeat(1_000_000);
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(markdown, {
+            status: 200,
+            headers: { "content-type": "text/markdown" },
+          }),
+      ),
+    );
+
+    try {
+      const prepared = await preUploadAttachmentsModule.preUploadAttachments({
+        attachments: [
+          {
+            type: "file",
+            name: "DESIGN.md",
+            contentType: "text/markdown",
+            url,
+          },
+        ],
+        ownerEmail: "alice@example.com",
+        includeFiles: true,
+      });
+
+      expect(prepared.readFailures).toEqual([]);
+      const text = buildUserContentWithAttachments({
+        text: "Match this",
+        attachments: prepared.attachments,
+      })
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      expect(text).toContain(markdown.slice(0, 60_000));
+      expect(text).toContain(`totalChars="${markdown.length}"`);
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps an SVG linked from outside storage as a reference, not a read failure", async () => {
     const findProvider = vi
       .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")

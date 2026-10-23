@@ -419,7 +419,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop": "이 채팅을 사용하려면 데스크톱 앱을 여세요.",
   "composer.removeAttachment": "{{name}} 제거",
   "composer.attachmentReadFailed": "이 파일을 읽을 수 없습니다",
-  "composer.attachmentTooLarge": "파일이 20MB를 초과합니다",
+  "composer.attachmentTooLarge": "파일이 8MB를 초과합니다",
   "composer.attachmentNotUtf8": "파일이 UTF-8 텍스트가 아닙니다",
   "composer.scrollToBottom": "맨 아래로 스크롤",
   "composer.suggestedPrompts": "추천 프롬프트",
