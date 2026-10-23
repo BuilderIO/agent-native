@@ -970,9 +970,10 @@ const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+(?:(?:they|
 const PR_REVIEW_NO_FEEDBACK_ACTION = String.raw`(?:say|saying|write|writing|use|using|tell|telling|reply|replying|post|posting|send|sending|end|ending|close|closing)`;
 const PR_REVIEW_NO_FEEDBACK_BRIDGE = String.raw`(?:\s+(?:with|that|to|as|me|them|someone|anyone|the\s+author|the\s+contributor|saying))?`;
 const PR_REVIEW_NO_FEEDBACK_GAP = String.raw`(?:(?!\b(?:and|but|or|while)\b)[^.!?;\n])`;
-const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as|during)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)(?:\s+(?:comment|reply|response|review|thread))?\b(?!\s+templates?\b)`;
-const PR_REVIEW_DIRECT_REPLY_CONTEXT = String.raw`\b(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)\s+(?:comment|reply|response|review|thread)\b(?!\s+templates?\b)`;
-const PR_REVIEW_AUDIENCE_CONTEXT = String.raw`(?:\b(?:(?:the|a|an|your|our|this|my)\s+)?(?:PR\s+)?(?:authors?|contributors?)(?:['’]s)?(?:\s+(?:review\s+)?(?:comment|reply|response|thread))?\b|\b(?:comment|reply|response|thread)\s+(?:to|for)\s+(?:the\s+)?(?:author|contributor)\b|\b(?:(?:the|your)\s+)?review\s+thread\b)`;
+const PR_REVIEW_CONTEXT_KIND = String.raw`(?:comments?|repl(?:y|ies)|responses?|reviews?|threads?)`;
+const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as|during)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)(?:\s+${PR_REVIEW_CONTEXT_KIND})?\b(?!\s+templates?\b)`;
+const PR_REVIEW_DIRECT_REPLY_CONTEXT = String.raw`\b(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)\s+${PR_REVIEW_CONTEXT_KIND}\b(?!\s+templates?\b)`;
+const PR_REVIEW_AUDIENCE_CONTEXT = String.raw`(?:\b(?:PRs?|pull\s+requests?)\s+(?:authors?|contributors?)(?:['’]s)?\b|\bto\s+(?:the\s+)?(?:PR|pull\s+request)\s+(?:author|contributor)s?\b|\b(?:PRs?|pull\s+requests?)\s+${PR_REVIEW_CONTEXT_KIND}\s+(?:to|for)\s+(?:the\s+)?(?:author|contributor)s?\b|\b${PR_REVIEW_CONTEXT_KIND}\s+(?:to|for)\s+(?:the\s+)?(?:PR|pull\s+request)\s+(?:author|contributor)s?\b|\b(?:PR|pull\s+request)\s+(?:review\s+)?threads?\b)`;
 const PR_REVIEW_NO_FEEDBACK_CONTEXT = String.raw`(?:${PR_REVIEW_PR_CONTEXT}|${PR_REVIEW_DIRECT_REPLY_CONTEXT}|${PR_REVIEW_AUDIENCE_CONTEXT})`;
 const PR_REVIEW_NO_FEEDBACK_TEXT = String.raw`(?:I\s+have\s+)?no\s+(?:further|more)\s+(?:check\s+)?feedback`;
 const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
@@ -1117,22 +1118,37 @@ const PR_REVIEW_DISPOSITION_REGEX_CASES = [
   [true, "Don't say 'I have no more feedback' on your PR."],
   [
     true,
-    "Don't tell the author 'I have no further feedback'; tell them what to do next.",
+    "Don't tell the PR author 'I have no further feedback'; tell them what to do next.",
   ],
-  [true, "Don't reply with 'no further feedback' to the contributor."],
+  [true, "Don't say 'I have no further feedback' to the PR author."],
+  [
+    true,
+    "Don't say 'no further feedback' in PR replies; tell them what to do next.",
+  ],
+  [true, "Don't reply with 'no further feedback' to the PR contributor."],
+  [
+    false,
+    "Don't tell the author 'I have no further feedback' in the customer-support thread.",
+  ],
+  [false, "Don't reply with 'no further feedback' to the contributor."],
   [
     true,
     "Don't end the PR reply with 'no further feedback'; say what they should do next.",
   ],
   [
     true,
-    "Don't close the reply to the contributor with 'no further feedback'.",
+    "Don't close the reply to the PR contributor with 'no further feedback'.",
   ],
   [
     true,
-    "Don't close the review thread with 'no further feedback'; tell the author what to do next.",
+    "Don't close the PR review thread with 'no further feedback'; tell the author what to do next.",
   ],
   [false, "Don't close the Slack thread with 'no further feedback'."],
+  [
+    false,
+    "Don't close the reply to the contributor with 'no further feedback'.",
+  ],
+  [false, "Don't close the review thread with 'no further feedback'."],
   [
     false,
     "Don't reply on the PR thread; the implementation has no further feedback.",
@@ -1140,6 +1156,10 @@ const PR_REVIEW_DISPOSITION_REGEX_CASES = [
   [
     false,
     "Don't reply on the PR thread and say that the data loader has no further feedback.",
+  ],
+  [
+    false,
+    "Don't post the release notes on the PR; no further feedback is needed from you.",
   ],
   [
     true,
