@@ -8,6 +8,8 @@ import {
 const setResponseHeader = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
+  createError: (input: { statusCode: number; statusMessage: string }) =>
+    Object.assign(new Error(input.statusMessage), input),
   defineEventHandler: (handler: any) => handler,
   getHeader: (event: any, name: string) =>
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
@@ -109,72 +111,96 @@ describe("createEmbedStartRouteHandler", () => {
     expect(setEmbedSessionCookie).not.toHaveBeenCalled();
   });
 
-  it("still consumes valid tickets on GET and redirects to the embedded target", async () => {
-    consumeEmbedSessionTicket.mockResolvedValue({
-      ownerEmail: "steve@example.com",
-      orgId: "builder",
-      targetPath: "/inbox",
-      scope: "full",
-      expiresAt: Date.now() + 60_000,
-      ticketCreatedAtMs: Date.now() - 1,
-    });
+  it.each(["127.0.0.1", "203.0.113.20"])(
+    "consumes valid tickets behind a proxy and redirects to the embedded target (%s)",
+    async (ip) => {
+      if (ip !== "127.0.0.1")
+        vi.stubEnv(
+          "WORKSPACE_GATEWAY_URL",
+          "https://beta.calendar.agent-native.com",
+        );
+      consumeEmbedSessionTicket.mockResolvedValue({
+        ownerEmail: "steve@example.com",
+        orgId: "builder",
+        targetPath: "/inbox",
+        scope: "full",
+        expiresAt: Date.now() + 60_000,
+        ticketCreatedAtMs: Date.now() - 1,
+      });
 
-    const handler = createEmbedStartRouteHandler();
+      const handler = createEmbedStartRouteHandler();
 
-    const res: Response = await handler(
-      fakeEvent(
+      const event = fakeEvent(
         "GET",
         { ticket: "ticket-123" },
         {
           host: "internal.gateway:3000",
           "x-forwarded-host": "beta.calendar.agent-native.com",
         },
-      ),
-    );
+      );
+      event.ip = ip;
+      const res: Response = await handler(event);
 
-    expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
-      "ticket-123",
-      expect.objectContaining({
+      expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
+        "ticket-123",
+        expect.objectContaining({
+          audienceHost: "beta.calendar.agent-native.com",
+          expectedOwnerEmail: null,
+        }),
+      );
+      expect(setEmbedSessionCookie).toHaveBeenCalledTimes(1);
+      expect(signEmbedSessionToken).toHaveBeenCalledWith({
+        ownerEmail: "steve@example.com",
+        orgId: "builder",
+        targetPath: "/inbox",
         audienceHost: "beta.calendar.agent-native.com",
-        expectedOwnerEmail: null,
-      }),
-    );
-    expect(setEmbedSessionCookie).toHaveBeenCalledTimes(1);
-    expect(signEmbedSessionToken).toHaveBeenCalledWith({
-      ownerEmail: "steve@example.com",
-      orgId: "builder",
-      targetPath: "/inbox",
-      audienceHost: "beta.calendar.agent-native.com",
-      scope: "full",
-      ticketCreatedAtMs: expect.any(Number),
-    });
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(
-      "/inbox?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
-    );
-    expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
-      "require-corp",
-    );
-    expect(res.headers.get("Cross-Origin-Opener-Policy")).toBe("same-origin");
-    expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
-      "cross-origin",
-    );
-    expect(setResponseHeader).toHaveBeenCalledWith(
-      expect.anything(),
-      "Cross-Origin-Embedder-Policy",
-      "require-corp",
-    );
-    expect(setResponseHeader).toHaveBeenCalledWith(
-      expect.anything(),
-      "Cross-Origin-Opener-Policy",
-      "same-origin",
-    );
-    expect(setResponseHeader).toHaveBeenCalledWith(
-      expect.anything(),
-      "Cross-Origin-Resource-Policy",
-      "cross-origin",
-    );
-  });
+        scope: "full",
+        ticketCreatedAtMs: expect.any(Number),
+      });
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe(
+        "/inbox?embedded=1&__an_embed_token=signed-token&agentSidebar=closed",
+      );
+      expect(res.headers.get("Cross-Origin-Embedder-Policy")).toBe(
+        "require-corp",
+      );
+      expect(res.headers.get("Cross-Origin-Opener-Policy")).toBe("same-origin");
+      expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+        "cross-origin",
+      );
+      expect(setResponseHeader).toHaveBeenCalledWith(
+        expect.anything(),
+        "Cross-Origin-Embedder-Policy",
+        "require-corp",
+      );
+      expect(setResponseHeader).toHaveBeenCalledWith(
+        expect.anything(),
+        "Cross-Origin-Opener-Policy",
+        "same-origin",
+      );
+      expect(setResponseHeader).toHaveBeenCalledWith(
+        expect.anything(),
+        "Cross-Origin-Resource-Policy",
+        "cross-origin",
+      );
+    },
+  );
+
+  it.each([
+    { "x-forwarded-host": "mail.test/path" },
+    { "x-forwarded-host": "", "x-forwarded-proto": "https" },
+    { "x-forwarded-proto": "javascript" },
+  ])(
+    "refuses malformed forwarded authority before consuming a ticket: %j",
+    async (headers) => {
+      const handler = createEmbedStartRouteHandler();
+      await expect(
+        handler(fakeEvent("GET", { ticket: "ticket-123" }, headers)),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(consumeEmbedSessionTicket).not.toHaveBeenCalled();
+      expect(signEmbedSessionToken).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns a refreshable expired-session page for stale embed tickets", async () => {
     consumeEmbedSessionTicket.mockResolvedValue(null);

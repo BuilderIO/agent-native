@@ -15,10 +15,10 @@ import {
   type BearerCredentialRefusal,
 } from "../server/bearer-credential-refusal.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
+import { resolveEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
-import { getForwardedRequestOrigin } from "../server/request-origin.js";
 import {
   verifyAuth,
   McpIdentityVerificationUnavailableError,
@@ -64,7 +64,14 @@ export {
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
 
 function deriveRequestMeta(event: H3Event): MCPRequestMeta {
-  const origin = getForwardedRequestOrigin(event);
+  const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
+  const host =
+    getRequestHeader(event, "x-forwarded-host") ||
+    getRequestHeader(event, "host");
+  const proto =
+    forwardedProto?.split(",")[0]?.trim() ||
+    (host && /^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
+  const origin = host ? `${proto}://${host}` : undefined;
   const targetHeader = getRequestHeader(
     event,
     "x-agent-native-open-target",
@@ -149,9 +156,14 @@ function buildWebRequest(
     }
   }
 
-  const origin = getForwardedRequestOrigin(event);
+  const host =
+    headers.get("x-forwarded-host") || headers.get("host") || "localhost";
+  const forwardedProto = headers.get("x-forwarded-proto");
+  const proto =
+    forwardedProto?.split(",")[0]?.trim() ||
+    (/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
   const basePath = getConfiguredAppBasePath();
-  const url = `${origin}${basePath}${routePath}`;
+  const url = `${proto}://${host}${basePath}${routePath}`;
 
   return new Request(url, { method, headers });
 }
@@ -437,6 +449,7 @@ async function handleMcpRequestInternal(
 
   const serverRequestMeta: MCPRequestMeta = {
     ...requestMeta,
+    resolveEmbedRequestOrigin: () => resolveEmbedRequestOrigin(event),
     ...(requestConfig.createLocalAgentTaskClient
       ? {
           localAgentTaskClient: requestConfig.createLocalAgentTaskClient(event),

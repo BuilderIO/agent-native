@@ -36,9 +36,12 @@ import {
 } from "./app-base-path.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import {
+  getEmbedSessionOrigin,
+  resolveEmbedRequestOrigin,
+} from "./embed-request-origin.js";
 import { isHttpsRequest } from "./https-request.js";
 import { getRequestContext } from "./request-context.js";
-import { getForwardedRequestHostname } from "./request-origin.js";
 
 const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
@@ -660,12 +663,8 @@ function requestUrl(event: H3Event): URL | null {
   return event.url ?? null;
 }
 
-function requestHostname(event: H3Event): string | null {
-  try {
-    return getForwardedRequestHostname(event);
-  } catch {
-    return null;
-  }
+function requestHostname(event: H3Event): string {
+  return new URL(resolveEmbedRequestOrigin(event)).hostname;
 }
 
 function normalizedHostname(
@@ -683,7 +682,7 @@ interface EmbedTicketAudience {
 function ticketAudience(audienceHost?: string): EmbedTicketAudience | null {
   let hostname = audienceHost;
   if (hostname === undefined) {
-    const origin = getRequestContext()?.requestOrigin;
+    const origin = getEmbedSessionOrigin();
     if (!origin || !URL.canParse(origin)) return null;
     const url = new URL(origin);
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
@@ -1948,11 +1947,17 @@ export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {
   if (!cookie.ok || !embedTokenMatchesRequestAudience(event, cookie.claims)) {
     return false;
   }
-  // A live capability can restrict browser proof minting without authorizing it.
+  return embedSessionAllowsRequest(event, cookie.claims);
+}
+
+export function hasLiveEmbedCapabilityCookie(event: H3Event): boolean {
+  const cookie = verifyEmbedSessionToken(
+    getCookie(event, EMBED_SESSION_COOKIE),
+  );
   return (
-    embedSessionAllowsRequest(event, cookie.claims) ||
-    (isEmbedCapabilityScope(cookie.claims.scope) &&
-      requestPathname(event) === "/_agent-native/ui-capability")
+    cookie.ok &&
+    isEmbedCapabilityScope(cookie.claims.scope) &&
+    embedTokenMatchesRequestAudience(event, cookie.claims)
   );
 }
 

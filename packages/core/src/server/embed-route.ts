@@ -23,6 +23,7 @@ import {
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import type { AuthSession } from "./auth.js";
 import { readCorsAllowedOrigins } from "./cors-origins.js";
+import { resolveEmbedRequestOrigin } from "./embed-request-origin.js";
 import {
   consumeEmbedSessionTicket,
   type EmbedSessionTicketConsumeDiagnostic,
@@ -31,7 +32,6 @@ import {
   setEmbedSessionCookie,
   signEmbedSessionToken,
 } from "./embed-session.js";
-import { getForwardedRequestHostname } from "./request-origin.js";
 
 function withConfiguredBasePath(path: string): string {
   const base = getConfiguredAppBasePath();
@@ -336,8 +336,9 @@ export function createEmbedStartRouteHandler(
       .getExistingSession?.(event)
       .catch(() => null);
     let consumeDiagnostic: EmbedSessionTicketConsumeDiagnostic | null = null;
+    const audienceHost = new URL(resolveEmbedRequestOrigin(event)).hostname;
     const consumed = await consumeEmbedSessionTicket(ticket, {
-      audienceHost: getForwardedRequestHostname(event),
+      audienceHost,
       expectedOwnerEmail: existingSession?.email ?? null,
       allowCapabilityIdentityMismatch: true,
       onResult: (diagnostic) => {
@@ -363,7 +364,7 @@ export function createEmbedStartRouteHandler(
       ownerEmail: consumed.ownerEmail,
       orgId: consumed.orgId,
       targetPath: target,
-      audienceHost: getForwardedRequestHostname(event),
+      audienceHost,
       scope: consumed.scope,
       ...(consumed.ticketCreatedAtMs != null &&
       (!isEmbedCapabilityScope(consumed.scope) ||

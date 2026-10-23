@@ -54,6 +54,7 @@ import {
   toDesktopOpenUrl,
   toVsCodeOpenUrl,
 } from "../server/deep-link.js";
+import { getEmbedSessionOrigin } from "../server/embed-request-origin.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -318,6 +319,7 @@ export function actionApprovalError(message: string): CallToolResult {
 export interface MCPRequestMeta {
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   origin?: string;
+  resolveEmbedRequestOrigin?: () => string;
   basePath?: string;
   target?: "browser" | "desktop" | "terminal";
   clientName?: string;
@@ -1315,7 +1317,7 @@ export async function withServerMintedMcpAppEmbedStart(
   }
   const ctx = getRequestContext();
   const ownerEmail = ctx?.userEmail?.trim();
-  const requestOrigin = ctx?.requestOrigin;
+  const requestOrigin = getEmbedSessionOrigin();
   if (!ownerEmail || !requestOrigin) {
     return resultWithoutExistingEmbedTicket;
   }
@@ -1717,7 +1719,7 @@ async function renewMcpDirectoryWidgetEmbedSession(
   if (!hasVerifiedMcpUserIdentity(identity)) {
     throw new Error("Widget session renewal requires a verified user caller.");
   }
-  const requestOrigin = getRequestContext()?.requestOrigin;
+  const requestOrigin = getEmbedSessionOrigin();
   if (!requestOrigin) {
     throw new Error(
       "Widget session renewal requires a trusted request origin. Open the full app instead.",
@@ -3083,6 +3085,9 @@ export async function createMCPServerForRequest(
           ? { orgScope: "personal" as const }
           : {}),
         ...(requestMeta?.origin ? { requestOrigin: requestMeta.origin } : {}),
+        ...(requestMeta?.resolveEmbedRequestOrigin
+          ? { resolveEmbedRequestOrigin: requestMeta.resolveEmbedRequestOrigin }
+          : {}),
         ...(mcpRequestId ? { mcpRequestId } : {}),
         mcpCredentialIssuedAtMs:
           effectiveIdentity?.mcpCredentialIssuedAtMs ?? null,
