@@ -53,6 +53,7 @@ jobs:
             const releaseType = process.env.RELEASE_TYPE;
             const startedAt = Date.now();
             const coordinatorDeadline = startedAt + 350 * 60_000;
+            const postMergeReserveMs = 60 * 60_000;
             const pollIntervalMs = 15_000;
             const reservedTags = new Map();
             let downstreamNotificationFailureUrl;
@@ -741,7 +742,15 @@ jobs:
             }
 
             async function waitForReleaseMerge(pr) {
-              const deadline = phaseDeadline(210 * 60_000);
+              const deadline = Math.min(
+                phaseDeadline(210 * 60_000),
+                coordinatorDeadline - postMergeReserveMs,
+              );
+              if (deadline <= Date.now()) {
+                throw new Error(
+                  `Not enough coordinator time remains to wait for stable release PR #${pr.number} while preserving the post-merge release window.`,
+                );
+              }
               while (Date.now() < deadline) {
                 const current = (await github.rest.pulls.get({
                   owner,
@@ -840,6 +849,7 @@ jobs:
               ".github/workflows/deploy-docs-production.yml",
               ".github/workflows/deploy-netlify-prebuilt.yml",
             ];
+            const docsSourceFreshnessCache = new Map();
 
             function matchesDocsDeploymentPath(path) {
               if (typeof path !== "string") return false;
@@ -853,6 +863,10 @@ jobs:
             async function docsSourceHasCurrentInputs(sourceSha, mainSha) {
               if (!/^[0-9a-f]{40}$/.test(sourceSha || "")) return false;
               if (sourceSha === mainSha) return true;
+              const cacheKey = `${sourceSha}:${mainSha}`;
+              if (docsSourceFreshnessCache.has(cacheKey)) {
+                return docsSourceFreshnessCache.get(cacheKey);
+              }
 
               const firstPage = (await github.rest.repos.compareCommits({
                 owner,
@@ -918,14 +932,15 @@ jobs:
               }
               if (commitCount !== totalCommits) return false;
 
-              return !files.some((file) =>
+              const isCurrent = !files.some((file) =>
                 [file.filename, file.previous_filename].some(matchesDocsDeploymentPath),
               );
+              docsSourceFreshnessCache.set(cacheKey, isCurrent);
+              return isCurrent;
             }
 
             async function findSuccessfulDocsPushDeployment() {
               const deadline = phaseDeadline(60 * 60_000);
-              let emptyPolls = 0;
               while (Date.now() < deadline) {
                 const mainSha = (await github.rest.git.getRef({
                   owner,
@@ -945,7 +960,6 @@ jobs:
                   throw new Error("GitHub returned no docs push runs while reconciling the release.");
                 }
 
-                let freshRunPending = false;
                 for (const run of runs) {
                   if (
                     run.event !== "push" ||
@@ -958,7 +972,6 @@ jobs:
                     continue;
                   }
                   if (run.status !== "completed") {
-                    freshRunPending = true;
                     continue;
                   }
                   if (run.conclusion !== "success") continue;
@@ -994,12 +1007,6 @@ jobs:
                   }
                 }
 
-                if (freshRunPending) {
-                  emptyPolls = 0;
-                } else {
-                  emptyPolls += 1;
-                  if (emptyPolls >= dispatchReconciliationPolls) return null;
-                }
                 const remaining = deadline - Date.now();
                 if (remaining <= 0) break;
                 await sleep(Math.min(pollIntervalMs, remaining));

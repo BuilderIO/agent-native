@@ -191,6 +191,23 @@ describe("npm package release workflow", () => {
     );
   });
 
+  it("keeps waiting beyond the release merge window for delayed required checks", async () => {
+    let now = 0;
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => ["Build"],
+        readStatuses: async () => [],
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+        intervalMs: 60 * 60_000,
+      }),
+      /Timed out waiting for required release PR checks: Build \(not reported\)/,
+    );
+    assert.equal(now, 240 * 60_000);
+  });
+
   it("allows a modified private app manifest without a package version", () => {
     assert.equal(
       packageManifestVersionChange(

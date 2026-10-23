@@ -396,6 +396,7 @@ describe("release everything workflow", () => {
       source,
       /const coordinatorDeadline = startedAt \+ 350 \* 60_000/,
     );
+    assert.match(source, /const postMergeReserveMs = 60 \* 60_000/);
     assert.match(
       source,
       /Math\.min\(coordinatorDeadline, Date\.now\(\) \+ timeoutMs\)/,
@@ -434,7 +435,7 @@ describe("release everything workflow", () => {
     );
     assert.match(
       source,
-      /async function waitForReleaseMerge\(pr\)[\s\S]*?phaseDeadline\(210 \* 60_000\)/,
+      /async function waitForReleaseMerge\(pr\)[\s\S]*?phaseDeadline\(210 \* 60_000\)[\s\S]*?coordinatorDeadline - postMergeReserveMs/,
     );
     assert.match(source, /readJsonAt\(\s*releaseBaseSha,/);
     assert.match(
@@ -693,6 +694,8 @@ return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
       candidate: Workflow,
       jobs: Workflow[],
       comparison?: Workflow,
+      readRuns: () => Workflow[] = () => [candidate],
+      onCompare: () => void = () => {},
     ) =>
       ({
         rest: {
@@ -701,14 +704,17 @@ return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
           },
           actions: {
             listWorkflowRuns: async () => ({
-              data: { workflow_runs: [candidate] },
+              data: { workflow_runs: readRuns() },
             }),
             listJobsForWorkflowRun: async () => ({
               data: { jobs, total_count: jobs.length },
             }),
           },
           repos: {
-            compareCommits: async () => ({ data: comparison }),
+            compareCommits: async () => {
+              onCompare();
+              return { data: comparison };
+            },
           },
         },
       }) as Workflow;
@@ -716,17 +722,46 @@ return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
       candidate: Workflow,
       jobs: Workflow[],
       comparison?: Workflow,
+      readRuns?: () => Workflow[],
+      onCompare?: () => void,
     ) => {
-      const github = createGithub(candidate, jobs, comparison);
-      return createHelpers(
+      const github = createGithub(
+        candidate,
+        jobs,
+        comparison,
+        readRuns,
+        onCompare,
+      );
+      let now = 0;
+      const helpers = await createHelpers(
         github,
         "BuilderIO",
         "agent-native",
         (timeoutMs) => Date.now() + timeoutMs,
-        async () => {},
+        async (ms) => {
+          now += ms;
+        },
         15_000,
         5,
       );
+      const withFakeClock = async <T>(operation: () => Promise<T>) => {
+        const realNow = Date.now;
+        now = 0;
+        Date.now = () => now;
+        try {
+          return await operation();
+        } finally {
+          Date.now = realNow;
+        }
+      };
+      return {
+        docsSourceHasCurrentInputs: (sourceSha: string, mainSha: string) =>
+          withFakeClock(() =>
+            helpers.docsSourceHasCurrentInputs(sourceSha, mainSha),
+          ),
+        findSuccessfulDocsPushDeployment: () =>
+          withFakeClock(() => helpers.findSuccessfulDocsPushDeployment()),
+      };
     };
 
     const current = await runHelpers(run, [successfulDeploy]);
@@ -778,6 +813,44 @@ return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
       },
     );
 
+    let delayedRunPolls = 0;
+    const delayedRun = await runHelpers(
+      run,
+      [successfulDeploy],
+      undefined,
+      () => (++delayedRunPolls < 7 ? [] : [run]),
+    );
+    assert.deepEqual(await delayedRun.findSuccessfulDocsPushDeployment(), {
+      id: run.id,
+      url: run.html_url,
+    });
+    assert.equal(delayedRunPolls, 7);
+
+    let comparisons = 0;
+    const cachedFreshness = await runHelpers(
+      oldRun,
+      [successfulDeploy],
+      {
+        status: "ahead",
+        total_commits: 1,
+        commits: [{ sha: mainSha }],
+        files: [{ filename: "packages/core/docs/content/guide.md" }],
+      },
+      undefined,
+      () => {
+        comparisons += 1;
+      },
+    );
+    assert.equal(
+      await cachedFreshness.docsSourceHasCurrentInputs(oldSha, mainSha),
+      false,
+    );
+    assert.equal(
+      await cachedFreshness.docsSourceHasCurrentInputs(oldSha, mainSha),
+      false,
+    );
+    assert.equal(comparisons, 1);
+
     assert.match(source, /docsResult\.value\.error/);
     assert.match(source, /index === 3 && reconciledDocsRun/);
   });
@@ -800,6 +873,8 @@ return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
       "owner",
       "repo",
       "phaseDeadline",
+      "coordinatorDeadline",
+      "postMergeReserveMs",
       "sleep",
       "pollIntervalMs",
       "core",
@@ -810,6 +885,8 @@ return waitForReleaseMerge;`,
       owner: string,
       repo: string,
       phaseDeadline: (timeoutMs: number) => number,
+      coordinatorDeadline: number,
+      postMergeReserveMs: number,
       sleep: (ms: number) => Promise<void>,
       pollIntervalMs: number,
       core: Workflow,
@@ -835,7 +912,9 @@ return waitForReleaseMerge;`,
         github,
         "BuilderIO",
         "agent-native",
-        (timeoutMs) => Date.now() + timeoutMs,
+        (timeoutMs) => Math.min(350 * 60_000, Date.now() + timeoutMs),
+        350 * 60_000,
+        60 * 60_000,
         async (ms) => {
           now += ms;
         },
@@ -844,6 +923,33 @@ return waitForReleaseMerge;`,
       );
       assert.equal(await waitForReleaseMerge({ number: 8062 }), "a".repeat(40));
       assert(now < 210 * 60_000);
+
+      now = 160 * 60_000;
+      const noMergeGithub = {
+        rest: {
+          pulls: {
+            get: async () => ({ data: { merged: false, state: "open" } }),
+          },
+        },
+      } as Workflow;
+      const reserveBoundedWait = await createWaitForReleaseMerge(
+        noMergeGithub,
+        "BuilderIO",
+        "agent-native",
+        (timeoutMs) => Math.min(350 * 60_000, Date.now() + timeoutMs),
+        350 * 60_000,
+        60 * 60_000,
+        async (ms) => {
+          now += ms;
+        },
+        20 * 60_000,
+        { info: () => {} },
+      );
+      await assert.rejects(
+        reserveBoundedWait({ number: 8102 }),
+        /did not merge in time/,
+      );
+      assert.equal(now, 290 * 60_000);
     } finally {
       Date.now = realNow;
     }

@@ -118,7 +118,7 @@ export async function waitForRequiredChecks({
   readStatuses,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now = Date.now,
-  timeoutMs = 150 * 60_000,
+  timeoutMs = 240 * 60_000,
   intervalMs = 15_000,
 }: WaitForRequiredChecksOptions): Promise<void> {
   const requiredContexts = await readRequiredContexts();
