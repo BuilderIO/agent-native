@@ -8468,7 +8468,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (method === "POST" && isThreadSubroute("hide")) {
-              const thread = await resolveThreadAccess(
+              const thread = await resolveThreadAccessScope(
                 owner,
                 threadId,
                 "viewer",

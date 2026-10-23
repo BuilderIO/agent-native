@@ -316,8 +316,7 @@ export function useChatThreadList(
   const { threads, loading, loadingMore, error, hasMore } = state;
   const hideThread = useCallback(
     async (id: string, hidden: boolean): Promise<boolean> => {
-      const index = state.threads.findIndex((thread) => thread.id === id);
-      const previous = index >= 0 ? state.threads[index] : undefined;
+      const previous = state.threads.find((thread) => thread.id === id);
       update({
         threads: state.threads.flatMap((thread) => {
           if (thread.id !== id) return [thread];
@@ -331,26 +330,34 @@ export function useChatThreadList(
           scope: options.scope,
         });
       } catch (error) {
-        if (previous)
-          setState((current) => {
-            if (current.session !== session) return current;
-            if (current.threads.some((thread) => thread.id === id))
-              return {
-                ...current,
-                threads: current.threads.map((thread) =>
-                  thread.id === id
-                    ? { ...thread, hiddenAt: previous.hiddenAt }
-                    : thread,
-                ),
-              };
-            const threads = [...current.threads];
-            threads.splice(Math.min(index, threads.length), 0, previous);
-            return { ...current, threads };
-          });
+        // A newer refresh may have dropped a removed row because access was
+        // revoked, so the server decides whether it comes back.
+        if (hidden && !includeHidden) void refreshWithResult();
+        else if (previous)
+          setState((current) =>
+            current.session === session
+              ? {
+                  ...current,
+                  threads: current.threads.map((thread) =>
+                    thread.id === id
+                      ? { ...thread, hiddenAt: previous.hiddenAt }
+                      : thread,
+                  ),
+                }
+              : current,
+          );
         throw error;
       }
     },
-    [apiUrl, includeHidden, options.scope, session, state.threads, update],
+    [
+      apiUrl,
+      includeHidden,
+      options.scope,
+      refreshWithResult,
+      session,
+      state.threads,
+      update,
+    ],
   );
 
   return {
