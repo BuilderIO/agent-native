@@ -5,6 +5,7 @@ import {
   isTextLikeFilename,
   persistTextAttachmentsAsResources,
   createCoreAttachmentActionEntries,
+  clearAttachmentRereadCache,
 } from "./attachment-actions.js";
 
 describe("isTextLikeMimeType", () => {
@@ -385,6 +386,7 @@ describe("persistTextAttachmentsAsResources", () => {
 describe("createCoreAttachmentActionEntries / read-attachment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearAttachmentRereadCache();
   });
 
   const makeResource = (content: string) => ({
@@ -639,6 +641,7 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     );
     expect(result).toMatchObject({ content: "TAIL", totalChars: 14 });
 
+    clearAttachmentRereadCache();
     hydrateOwnedFileUrlMock.mockResolvedValue({
       kind: "failed",
       code: "fetch-failed",
@@ -649,6 +652,77 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     );
     expect(failed.error).toContain('Could not re-read "mfh2a1b2-0-DESIGN.md"');
     expect(failed.content).toBeUndefined();
+  });
+
+  it("downloads a referenced file once while paging through it", async () => {
+    const reference = {
+      ...makeResource(
+        JSON.stringify({
+          url: "https://storage.example.test/DESIGN.md",
+          contentType: "text/markdown",
+          name: "DESIGN.md",
+        }),
+      ),
+      id: "res-paged",
+      mimeType: "application/vnd.agent-native.attachment-reference+json",
+    };
+    resourceListMock.mockResolvedValue([
+      { id: "res-paged", path: "attachments/thread-1/mfh2a1b2-0-DESIGN.md" },
+    ]);
+    resourceGetMock.mockResolvedValue(reference);
+    hydrateOwnedFileUrlMock.mockResolvedValue({
+      kind: "hydrated",
+      dataUrl: `data:text/markdown;base64,${Buffer.from("AAAABBBB").toString("base64")}`,
+      mediaType: "text/markdown",
+      provider: "s3",
+    });
+
+    const entries = createCoreAttachmentActionEntries();
+    const path = "attachments/thread-1/mfh2a1b2-0-DESIGN.md";
+    const first = await entries["read-attachment"].run(
+      { path, offset: "0", limit: "4" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    const second = await entries["read-attachment"].run(
+      { path, offset: "4", limit: "4" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect([first.content, second.content]).toEqual(["AAAA", "BBBB"]);
+    expect(hydrateOwnedFileUrlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads a referenced upload verbatim when it only looks like a pasted-text envelope", async () => {
+    const envelopeShaped = "<attachment name=x>\nbody\n</attachment>";
+    resourceListMock.mockResolvedValue([
+      { id: "res-doc", path: "attachments/thread-1/mfh2a1b2-0-doc.md" },
+    ]);
+    resourceGetMock.mockResolvedValue({
+      ...makeResource(
+        JSON.stringify({
+          url: "https://storage.example.test/doc.md",
+          contentType: "text/markdown",
+          name: "doc.md",
+        }),
+      ),
+      id: "res-doc",
+      mimeType: "application/vnd.agent-native.attachment-reference+json",
+    });
+    hydrateOwnedFileUrlMock.mockResolvedValue({
+      kind: "hydrated",
+      dataUrl: `data:text/markdown;base64,${Buffer.from(envelopeShaped).toString("base64")}`,
+      mediaType: "text/markdown",
+      provider: "s3",
+    });
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-doc.md" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result.content).toBe(envelopeShaped);
   });
 
   it("rejects a path outside stored attachments", async () => {

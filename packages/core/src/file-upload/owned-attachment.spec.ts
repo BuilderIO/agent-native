@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  hydrateOwnedFileUrl,
   hydrateOwnedImageUrl,
   MAX_OWNED_INLINE_IMAGE_BYTES,
 } from "./owned-attachment.js";
@@ -11,6 +12,35 @@ const findProviderMock = vi.hoisted(() => vi.fn());
 vi.mock("./registry.js", () => ({
   findFileUploadProviderOwningUrl: findProviderMock,
 }));
+
+describe("hydrateOwnedFileUrl", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("keeps a declared text type when storage reports a non-text one", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("#!/bin/sh\necho hi\n", {
+            status: 200,
+            headers: { "content-type": "application/x-sh" },
+          }),
+      ),
+    );
+
+    await expect(
+      hydrateOwnedFileUrl(
+        "https://storage.example/deploy.sh",
+        "text/plain",
+        "deploy.sh",
+      ),
+    ).resolves.toMatchObject({ kind: "hydrated", mediaType: "text/plain" });
+  });
+});
 
 describe("hydrateOwnedImageUrl", () => {
   afterEach(() => {

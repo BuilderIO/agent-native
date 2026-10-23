@@ -469,8 +469,12 @@ export async function hydrateOwnedFileUrl(
     result.responseContentType?.split(";", 1)[0]?.trim().toLowerCase() ||
     undefined;
   const declared = declaredMediaType?.split(";", 1)[0]?.trim().toLowerCase();
+  // The size cap above was picked from the declared text type, so a
+  // provider's own guess (application/x-sh for a .sh file) must not turn that
+  // text into an unreadable document.
   const mediaType =
-    responseMediaType === "application/octet-stream"
+    responseMediaType === "application/octet-stream" ||
+    (isTextLikeMimeType(declared) && !isTextLikeMimeType(responseMediaType))
       ? declared
       : (responseMediaType ?? declared);
   if (!mediaType || !isInlineReadableDocumentType(mediaType, fileName)) {

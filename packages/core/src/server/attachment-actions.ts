@@ -68,17 +68,61 @@ interface StoredAttachmentReference {
   url: string;
   contentType?: string;
   name?: string;
+  /** Set when the stored file is pasted text inside its prompt envelope. */
+  unwrapEnvelope?: true;
+}
+
+// Paging re-reads the file from storage, so a file being read page by page
+// is kept for a short while; the total size bound keeps one instance from
+// holding many large files at once.
+const REREAD_CACHE_TTL_MS = 10 * 60 * 1000;
+const REREAD_CACHE_MAX_CHARS = 16_000_000;
+const rereadCache = new Map<string, { text: string; expiresAt: number }>();
+
+function cachedReread(key: string): string | undefined {
+  const entry = rereadCache.get(key);
+  if (!entry) return undefined;
+  rereadCache.delete(key);
+  if (entry.expiresAt <= Date.now()) return undefined;
+  rereadCache.set(key, entry);
+  return entry.text;
+}
+
+function cacheReread(key: string, text: string): void {
+  rereadCache.delete(key);
+  if (text.length > REREAD_CACHE_MAX_CHARS) return;
+  rereadCache.set(key, { text, expiresAt: Date.now() + REREAD_CACHE_TTL_MS });
+  let total = 0;
+  for (const entry of rereadCache.values()) total += entry.text.length;
+  for (const [oldest, entry] of rereadCache) {
+    if (total <= REREAD_CACHE_MAX_CHARS) break;
+    rereadCache.delete(oldest);
+    total -= entry.text.length;
+  }
+}
+
+/** @internal exported for unit tests only */
+export function clearAttachmentRereadCache(): void {
+  rereadCache.clear();
 }
 
 /** An upload already lives in file storage, so SQL keeps only where it is. */
-function storedAttachmentReference(att: {
-  url?: string;
-  uploadProvider?: string;
-  contentType?: string;
-  name?: string;
-}): StoredAttachmentReference | null {
+function storedAttachmentReference(
+  att: {
+    url?: string;
+    uploadProvider?: string;
+    contentType?: string;
+    name?: string;
+  },
+  unwrapEnvelope: boolean,
+): StoredAttachmentReference | null {
   if (!att.uploadProvider || !att.url?.startsWith("https://")) return null;
-  return { url: att.url, contentType: att.contentType, name: att.name };
+  return {
+    url: att.url,
+    contentType: att.contentType,
+    name: att.name,
+    ...(unwrapEnvelope ? { unwrapEnvelope: true as const } : {}),
+  };
 }
 
 async function readStoredAttachmentReference(
@@ -112,7 +156,11 @@ async function readStoredAttachmentReference(
           : "the stored file is no longer a text file",
     };
   }
-  return { text: unwrapTextAttachmentEnvelope(decoded.text) };
+  return {
+    text: reference.unwrapEnvelope
+      ? unwrapTextAttachmentEnvelope(decoded.text)
+      : decoded.text,
+  };
 }
 
 export async function persistTextAttachmentsAsResources(opts: {
@@ -147,7 +195,7 @@ export async function persistTextAttachmentsAsResources(opts: {
           : undefined;
     if (!text) continue;
 
-    const reference = storedAttachmentReference(att);
+    const reference = storedAttachmentReference(att, decoded.kind !== "text");
     // A partial copy would let read-attachment report "End of attachment"
     // for a file whose tail was never stored.
     if (!reference && text.length > MAX_ATTACHMENT_RESOURCE_BODY_CHARS) {
@@ -344,13 +392,20 @@ export function createCoreAttachmentActionEntries(): Record<
 
           let content = resource.content;
           if (resource.mimeType === ATTACHMENT_REFERENCE_MIME_TYPE) {
-            const read = await readStoredAttachmentReference(content);
-            if ("error" in read) {
-              return {
-                error: `Could not re-read "${name}" from file storage: ${read.error}. Tell the user which part of the file you could not read before doing anything that depends on it.`,
-              };
+            const cacheKey = `${resource.id}:${resource.content}`;
+            const cached = cachedReread(cacheKey);
+            if (cached !== undefined) {
+              content = cached;
+            } else {
+              const read = await readStoredAttachmentReference(content);
+              if ("error" in read) {
+                return {
+                  error: `Could not re-read "${name}" from file storage: ${read.error}. Tell the user which part of the file you could not read before doing anything that depends on it.`,
+                };
+              }
+              cacheReread(cacheKey, read.text);
+              content = read.text;
             }
-            content = read.text;
           }
           const totalChars = content.length;
           const slice = content.slice(offset, offset + limit);
