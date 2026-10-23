@@ -1,11 +1,19 @@
-name: Ensure the Slides authoring CI image
+name: Resolve the Slides authoring CI image
 description: >-
-  Publish the image the Slides authoring jobs run in, unless its tag already
-  exists, and output the reference. The tag is the hash of the Dockerfile, so
-  the image is rebuilt only when the Dockerfile changes. The caller checks out
-  docker/ci-slides-authoring and needs `packages: write`; a fork PR token
-  cannot push, so a fork that edits the Dockerfile fails here instead of
-  running against a stale image.
+  Output the reference of the image the Slides authoring jobs run in, tagged
+  with the hash of its Dockerfile, and fail unless it is published. With
+  `publish: "true"` a missing image is built and pushed instead. Pushing needs
+  `packages: write`, which only slides-authoring-image.yml grants and only on
+  main, so PR and nightly runs can read the image but never overwrite it. The
+  caller checks out docker/ci-slides-authoring.
+
+inputs:
+  publish:
+    description: >-
+      `true` builds and pushes a missing image. Only the main-only publisher
+      workflow sets it.
+    required: false
+    default: "false"
 
 outputs:
   image:
@@ -19,15 +27,19 @@ runs:
       shell: bash
       run: echo "name=ghcr.io/builderio/agent-native-ci-slides-authoring:${{ hashFiles('docker/ci-slides-authoring/Dockerfile') }}" >> "$GITHUB_OUTPUT"
 
-    - name: Build and push the image when its tag is missing
+    - name: Check the image is published
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
         echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
         if docker manifest inspect "${{ steps.image.outputs.name }}" >/dev/null 2>&1; then
-          echo "Image already published; skipping the build."
+          echo "Image already published."
           exit 0
+        fi
+        if [ "${{ inputs.publish }}" != true ]; then
+          echo "::error::${{ steps.image.outputs.name }} is not published. It is published from main when docker/ci-slides-authoring changes (slides-authoring-image.yml); merge the Dockerfile change, or dispatch that workflow on main, then rerun this job."
+          exit 1
         fi
         docker build -t "${{ steps.image.outputs.name }}" docker/ci-slides-authoring
         docker push "${{ steps.image.outputs.name }}"

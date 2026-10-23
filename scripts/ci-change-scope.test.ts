@@ -386,8 +386,30 @@ test("Slides authoring jobs run in the image keyed on its Dockerfile", () => {
       workflow,
       /image: \$\{\{ needs\.slides-authoring-image\.outputs\.image \}\}/u,
     );
-    assert.match(workflow, /packages: write/u);
+    // A job that can write the registry would let a PR overwrite the image.
+    assert.doesNotMatch(workflow, /packages: write/u);
+    assert.match(workflow, /packages: read/u);
   }
+
+  const publisher = readFileSync(
+    ".github/workflows/slides-authoring-image.yml",
+    "utf8",
+  );
+  assert.match(publisher, /packages: write/u);
+  assert.match(publisher, /publish: "true"/u);
+  assert.match(publisher, /if: github\.ref == 'refs\/heads\/main'/u);
+  assert.match(publisher, /branches: \[main\]/u);
+  assert.doesNotMatch(publisher, /^\s+pull_request(_target)?:/mu);
+
+  // The nightly is the backstop for shared-package PRs, so its failures email.
+  const notifier = readFileSync(
+    ".github/workflows/email-workflow-failures.yml",
+    "utf8",
+  );
+  const nightlyName = /^name: (.+)$/mu.exec(nightly)?.[1];
+  assert.ok(nightlyName);
+  assert.match(notifier, new RegExp(`^\\s+- ${nightlyName}$`, "mu"));
+  assert.match(nightly, /cancel-in-progress: false/u);
   assert.match(
     readFileSync(".github/actions/slides-authoring-image/action.yml", "utf8"),
     /hashFiles\('docker\/ci-slides-authoring\/Dockerfile'\)/u,
@@ -3807,6 +3829,8 @@ test(
         ".github/workflows/slides-authoring-nightly.yml",
         ".github/actions/slides-authoring-shard/action.yml",
         ".github/actions/slides-authoring-image/action.yml",
+        ".github/workflows/slides-authoring-image.yml",
+        ".github/workflows/email-workflow-failures.yml",
         "docker/ci-slides-authoring/Dockerfile",
         "pnpm-workspace.yaml",
         "templates/design/e2e/global-setup.ts",

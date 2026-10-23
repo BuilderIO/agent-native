@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: slides-authoring-nightly
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -19,10 +19,10 @@ jobs:
   slides-authoring-image:
     name: Slides authoring image
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 5
     permissions:
       contents: read
-      packages: write
+      packages: read
     outputs:
       image: ${{ steps.image.outputs.image }}
     steps:
