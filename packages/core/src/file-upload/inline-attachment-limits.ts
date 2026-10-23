@@ -1,6 +1,7 @@
 import { isSpreadsheetDocument } from "../ingestion/spreadsheet.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { normalizeImageMediaType } from "./attachment-bytes.js";
+import { decodeTextAttachmentData } from "./attachment-text.js";
 
 export const MAX_INLINE_FILE_BASE64_CHARS = 1_000_000;
 
@@ -33,6 +34,7 @@ export function isInlineReadableDocumentType(
   const normalized = mediaType.split(";")[0]!.trim().toLowerCase();
   if (normalized === "application/pdf") return true;
   if (normalized.startsWith("text/")) return true;
+  if (normalized === "image/svg+xml") return true;
   return isSpreadsheetDocument(fileName ?? "", normalized);
 }
 
@@ -65,6 +67,7 @@ export function classifyInlineAttachment(att: {
   contentType?: string;
   referenceOnly?: boolean;
 }): InlineAttachmentBlockReason | null {
+  if (decodeTextAttachmentData(att).kind === "text") return null;
   if (att.referenceOnly === true) return { kind: "no-data" };
   if (typeof att.text === "string" && att.text.length > 0) return null;
 

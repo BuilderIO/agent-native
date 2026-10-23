@@ -1,8 +1,16 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  decodeTextAttachmentData,
+  isTextLikeFilename,
+  isTextLikeMimeType,
+  MAX_ATTACHMENT_RESOURCE_CHARS,
+  type TextAttachmentStorage,
+} from "../file-upload/attachment-text.js";
 import { resourceGet, resourcePut, resourceList } from "../resources/store.js";
 import { getRequestUserEmail } from "./request-context.js";
 
-const MAX_ATTACHMENT_RESOURCE_BYTES = 20 * 1024 * 1024;
+export { isTextLikeFilename, isTextLikeMimeType };
+
 const DEFAULT_SLICE_LIMIT = 8_000;
 
 function attachmentResourcePath(
@@ -14,54 +22,37 @@ function attachmentResourcePath(
   return `attachments/${threadId}/${index}-${safe}`;
 }
 
-export function isTextLikeMimeType(contentType: string | undefined): boolean {
-  if (!contentType) return false;
-  const ct = contentType.toLowerCase().split(";")[0].trim();
-  if (ct.startsWith("text/")) return true;
-  if (ct === "application/json") return true;
-  if (ct === "application/javascript") return true;
-  if (ct === "application/typescript") return true;
-  if (ct === "application/x-yaml") return true;
-  if (ct === "message/rfc822") return true;
-  return false;
-}
-
-export function isTextLikeFilename(name: string | undefined): boolean {
-  if (!name) return false;
-  return /\.(txt|md|markdown|csv|json|jsonl|yaml|yml|ts|tsx|js|jsx|py|rb|go|rs|java|c|cpp|h|cs|swift|kt|sh|bash|zsh|fish|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|sql|graphql|gql|eml)$/i.test(
-    name,
-  );
-}
-
 export async function persistTextAttachmentsAsResources(opts: {
   attachments: Array<{
     type?: string;
     name?: string;
     contentType?: string;
     text?: string;
+    data?: string;
   }>;
   threadId: string;
   ownerEmail: string | null | undefined;
-}): Promise<
-  Map<number, { resourceId: string; path: string; totalChars: number }>
-> {
-  const result = new Map<
-    number,
-    { resourceId: string; path: string; totalChars: number }
-  >();
+}): Promise<Map<number, TextAttachmentStorage>> {
+  const result = new Map<number, TextAttachmentStorage>();
   const owner = opts.ownerEmail || "anonymous";
 
   for (let i = 0; i < opts.attachments.length; i++) {
     const att = opts.attachments[i];
-    if (!att.text || att.text.length === 0) continue;
-    if (!isTextLikeMimeType(att.contentType) && !isTextLikeFilename(att.name)) {
+    const decoded = decodeTextAttachmentData(att);
+    const text =
+      decoded.kind === "text"
+        ? decoded.text
+        : isTextLikeMimeType(att.contentType) || isTextLikeFilename(att.name)
+          ? att.text
+          : undefined;
+    if (!text) continue;
+
+    // A partial copy would let read-attachment report "End of attachment"
+    // for a file whose tail was never stored.
+    if (text.length > MAX_ATTACHMENT_RESOURCE_CHARS) {
+      result.set(i, { kind: "failed", reason: "too-large" });
       continue;
     }
-
-    const text =
-      att.text.length > MAX_ATTACHMENT_RESOURCE_BYTES
-        ? att.text.slice(0, MAX_ATTACHMENT_RESOURCE_BYTES)
-        : att.text;
 
     const path = attachmentResourcePath(
       opts.threadId,
@@ -83,15 +74,18 @@ export async function persistTextAttachmentsAsResources(opts: {
         },
       );
       result.set(i, {
+        kind: "stored",
         resourceId: resource.id,
         path,
         totalChars: text.length,
       });
     } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
       console.warn(
         "[agent-native] persistTextAttachmentsAsResources failed:",
-        err instanceof Error ? err.message : String(err),
+        error,
       );
+      result.set(i, { kind: "failed", reason: "write-failed", error });
     }
   }
 
@@ -106,9 +100,9 @@ export function createCoreAttachmentActionEntries(): Record<
     "read-attachment": {
       tool: {
         description: [
-          "Read a slice of a large text attachment (CSV, code, JSON, markdown, plain text) that was",
-          "truncated in the conversation context. Use this when the initial context showed a truncated",
-          "attachment and you need to read more of it.",
+          "Read a slice of a large text attachment (CSV, code, JSON, markdown, SVG, plain text) that was",
+          "truncated in the conversation context. When a <chat-attachment-truncated> note names an",
+          "attachment, call this until hasMore is false before you edit, summarize, or answer from it.",
           "",
           "Identify the attachment by name (e.g. name='data.csv') exactly as shown in the",
           "<attachment name='...'> tag in the conversation. Use offset and limit to page through it.",

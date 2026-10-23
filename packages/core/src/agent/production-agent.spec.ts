@@ -28,6 +28,7 @@ import {
 } from "../app-config/run-lifecycle-invariants.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import * as dbClient from "../db/client.js";
+import type { TextAttachmentStorage } from "../file-upload/attachment-text.js";
 import {
   createOwnedAttachmentHydrationBudget,
   MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
@@ -1393,6 +1394,15 @@ describe("readAdmittedQueuedMessagePromotion", () => {
   });
 });
 
+function storedText(totalChars: number): TextAttachmentStorage {
+  return {
+    kind: "stored",
+    resourceId: "resource-1",
+    path: "attachments/thread-1/0-file",
+    totalChars,
+  };
+}
+
 describe("buildUserContentWithAttachments", () => {
   it.each([
     ["Groq Llama 4 Scout", "meta-llama/llama-4-scout-17b-16e-instruct"],
@@ -2028,49 +2038,133 @@ describe("buildUserContentWithAttachments", () => {
 
   it("keeps long pasted text readable when it also has a storage URL", () => {
     const longBody = "A".repeat(60_010);
+    const attachment: AgentChatAttachment = {
+      type: "file",
+      name: "pasted-text-1718000000000-ab12cd.txt",
+      contentType: "text/plain",
+      text: `<attachment name=pasted-text.txt>\n${longBody}\n</attachment>`,
+      url: "https://files.example.test/pasted-text.txt",
+    };
     const content = buildUserContentWithAttachments({
       text: "Summarize the pasted text",
-      attachments: [
-        {
-          type: "file",
-          name: "pasted-text-1718000000000-ab12cd.txt",
-          contentType: "text/plain",
-          text: `<attachment name=pasted-text.txt>\n${longBody}\n</attachment>`,
-          url: "https://files.example.test/pasted-text.txt",
-        },
-      ],
+      attachments: [attachment],
+      textAttachmentStorage: new Map([[attachment, storedText(60_010)]]),
     });
 
     const text = content[0]?.type === "text" ? content[0].text : "";
     expect(text).toContain("A".repeat(60_000));
     expect(text).toContain("Attachment truncated after 60,000 characters");
+    expect(text).toContain("<chat-attachment-truncated");
     expect(text).toContain("Summarize the pasted text");
     expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
-  it("caps the aggregate text from multiple attachments", () => {
+  it("sends a 70 KB hydrated markdown file as an inline head plus a required read of the rest", () => {
+    const markdown = `# Design system\n${"token: value;\n".repeat(5_000)}`;
+    expect(markdown.length).toBeGreaterThan(70_000);
+    const attachment: AgentChatAttachment = {
+      type: "file",
+      name: "DESIGN.md",
+      contentType: "text/markdown",
+      data: `data:text/markdown;base64,${Buffer.from(markdown).toString("base64")}`,
+      url: "https://files.example.test/DESIGN.md",
+    };
     const content = buildUserContentWithAttachments({
-      text: "Compare these files",
+      text: "Restyle the app to match this",
+      attachments: [attachment],
+      textAttachmentStorage: new Map([
+        [attachment, storedText(markdown.length)],
+      ]),
+    });
+
+    expect(content.some((part) => part.type === "file")).toBe(false);
+    const text = content[0]?.type === "text" ? content[0].text : "";
+    expect(text).toContain(markdown.slice(0, 60_000));
+    expect(text).not.toContain(markdown.slice(0, 60_001));
+    expect(text).toContain(
+      `<chat-attachment-truncated name="DESIGN.md" shownChars="60000" totalChars="${markdown.length}">`,
+    );
+    expect(text).toContain(
+      'call `read-attachment` with name="DESIGN.md" and offset=60000',
+    );
+    expect(text).toContain("Do not tell the user the work is done");
+  });
+
+  it("tells the model plainly when the truncated remainder could not be stored", () => {
+    const markdown = "B".repeat(70_000);
+    const attachment: AgentChatAttachment = {
+      type: "file",
+      name: "DESIGN.md",
+      contentType: "text/markdown",
+      text: markdown,
+    };
+    const content = buildUserContentWithAttachments({
+      text: "Restyle the app to match this",
+      attachments: [attachment],
+      textAttachmentStorage: new Map([
+        [attachment, { kind: "failed", reason: "write-failed" }],
+      ]),
+    });
+
+    const text = content[0]?.type === "text" ? content[0].text : "";
+    expect(text).toContain("B".repeat(60_000));
+    expect(text).toContain(
+      '<chat-attachment-processing-error code="truncated-remainder-unavailable" name="DESIGN.md" shownChars="60000" totalChars="70000">',
+    );
+    expect(text).toContain("Tell the user up front");
+    expect(text).not.toContain("call `read-attachment`");
+    expect(text).not.toContain("<chat-attachment-truncated");
+  });
+
+  it("reports a text file that is not valid UTF-8 as unreadable", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Use this",
       attachments: [
         {
           type: "file",
-          name: "first.md",
+          name: "notes.md",
           contentType: "text/markdown",
-          text: "A".repeat(60_000),
-        },
-        {
-          type: "file",
-          name: "second.md",
-          contentType: "text/markdown",
-          text: "B".repeat(60_000),
-        },
-        {
-          type: "file",
-          name: "third.md",
-          contentType: "text/markdown",
-          text: "C".repeat(10_000),
+          data: `data:text/markdown;base64,${Buffer.from([0xff, 0xfe, 0xfd]).toString("base64")}`,
         },
       ],
+    });
+
+    const text = content[0]?.type === "text" ? content[0].text : "";
+    expect(text).toContain(
+      '<chat-attachment-processing-error code="undecodable-text" name="notes.md"',
+    );
+  });
+
+  it("caps the aggregate text from multiple attachments", () => {
+    const attachments: AgentChatAttachment[] = [
+      {
+        type: "file",
+        name: "first.md",
+        contentType: "text/markdown",
+        text: "A".repeat(60_000),
+      },
+      {
+        type: "file",
+        name: "second.md",
+        contentType: "text/markdown",
+        text: "B".repeat(60_000),
+      },
+      {
+        type: "file",
+        name: "third.md",
+        contentType: "text/markdown",
+        text: "C".repeat(10_000),
+      },
+    ];
+    const content = buildUserContentWithAttachments({
+      text: "Compare these files",
+      attachments,
+      textAttachmentStorage: new Map(
+        attachments.map((attachment) => [
+          attachment,
+          storedText(attachment.text!.length),
+        ]),
+      ),
     });
 
     const text = content[0].type === "text" ? content[0].text : "";
@@ -2081,7 +2175,7 @@ describe("buildUserContentWithAttachments", () => {
       "[Attachment content omitted from the initial request; 10,000 characters available.",
     );
     expect(text).toContain(
-      'Use the `read-attachment` tool with name="third.md" to read the rest.',
+      'call `read-attachment` with name="third.md" and offset=0',
     );
   });
 
@@ -2109,7 +2203,7 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  it("injects a text placeholder for unsupported image media types instead of silently dropping them", () => {
+  it("sends SVG image attachments to the model as source text", () => {
     const result = buildUserContentWithAttachments({
       text: "Can you read this SVG?",
       attachments: [
@@ -2124,9 +2218,10 @@ describe("buildUserContentWithAttachments", () => {
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe("text");
     const text = (result[0] as { type: "text"; text: string }).text;
-    expect(text).toContain('"icon.svg"');
-    expect(text).toContain("image/svg+xml");
-    expect(text).toContain("unsupported image format");
+    expect(text).toContain('<attachment name="icon.svg"');
+    expect(text).toContain("<svg></svg>");
+    expect(text).toContain("Untrusted SVG source");
+    expect(text).not.toContain("unsupported image format");
     expect(text).toContain("Can you read this SVG?");
   });
 
@@ -2148,7 +2243,7 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("unsupported image format");
   });
 
-  it("keeps uploaded SVGs as text references instead of vision image parts", () => {
+  it("sends uploaded SVG source as text with its reference URL", () => {
     const att = {
       type: "image",
       name: "logo.svg",
@@ -2165,16 +2260,15 @@ describe("buildUserContentWithAttachments", () => {
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe("text");
     const text = (result[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("logo.svg");
-    expect(text).toContain("https://cdn.example.com/logo.svg");
-    expect(text).toContain("SVG reference");
-    expect(text).toContain("reference-only vector files");
+    expect(text).toContain('<attachment name="logo.svg"');
+    expect(text).toContain('url="https://cdn.example.com/logo.svg"');
+    expect(text).toContain("<svg></svg>");
     expect(text).not.toContain("unsupported image format");
     expect(text).not.toContain("ask them to convert");
     expect(text).toContain("Use this logo in the deck");
   });
 
-  it("does not send reference-only uploaded SVGs as raw file parts", () => {
+  it("sends reference-only uploaded SVG source as text, not a raw file part", () => {
     const att = {
       type: "file",
       name: "logo.svg",
@@ -2192,9 +2286,58 @@ describe("buildUserContentWithAttachments", () => {
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe("text");
     const text = (result[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("reference-only file");
-    expect(text).toContain("https://cdn.example.com/logo.svg");
+    expect(text).toContain("<svg></svg>");
+    expect(text).toContain('url="https://cdn.example.com/logo.svg"');
+    expect(text).toContain("Untrusted SVG source");
     expect(text).toContain("Use this logo in the deck");
+  });
+
+  it("hydrates a URL-only SVG upload into source text", async () => {
+    const url = "https://storage.example.test/uploads/logo.svg";
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>';
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(svg, {
+            status: 200,
+            headers: { "content-type": "image/svg+xml" },
+          }),
+      ),
+    );
+
+    try {
+      const prepared = await preUploadAttachmentsModule.preUploadAttachments({
+        attachments: [
+          {
+            type: "image",
+            name: "logo.svg",
+            contentType: "image/svg+xml",
+            url,
+          },
+        ],
+        ownerEmail: "alice@example.com",
+        includeFiles: true,
+      });
+      const content = buildUserContentWithAttachments({
+        text: "Make the circle bigger",
+        attachments: prepared.attachments,
+      });
+
+      const text = content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      expect(text).toContain(svg);
+      expect(text).not.toContain("reference-only");
+      expect(prepared.readFailures).toEqual([]);
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("hydrates an earlier image reference into a later text-only turn", async () => {

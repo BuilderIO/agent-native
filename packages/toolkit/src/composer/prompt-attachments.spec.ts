@@ -3,9 +3,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AGENT_PROMPT_MAX_TEXT_FILE_BYTES,
   escapePromptAttachmentAttribute,
   formatPromptWithAttachments,
   isInlineableAgentPromptFile,
+  probeAgentPromptAttachment,
   readAgentPromptAttachment,
 } from "./prompt-attachments.js";
 
@@ -84,20 +86,72 @@ describe("prompt attachment helpers", () => {
     });
   });
 
-  it("falls back to filename metadata for oversized text files", async () => {
-    const file = new File(["hello"], "notes.md", {
-      type: "text/markdown",
+  it("keeps the head of a long text file and records its full length", async () => {
+    const markdown = "# Design\n" + "x".repeat(70_000);
+    const file = new File([markdown], "DESIGN.md", { type: "text/markdown" });
+
+    const attachment = await readAgentPromptAttachment(file);
+
+    expect(attachment.text).toBe(markdown.slice(0, 60_000));
+    expect(attachment.totalChars).toBe(markdown.length);
+    const prompt = formatPromptWithAttachments("Match this", [attachment]);
+    expect(prompt).toContain(
+      `Only the first 60,000 of ${markdown.length.toLocaleString()} characters`,
+    );
+    expect(prompt).toContain("Tell the user up front");
+  });
+
+  it("reads SVG files as source text", async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>';
+    const file = new File([svg], "logo.svg", { type: "image/svg+xml" });
+
+    const attachment = await readAgentPromptAttachment(file);
+
+    expect(isInlineableAgentPromptFile(file)).toBe(true);
+    expect(attachment.text).toBe(svg);
+    expect(attachment.dataUrl).toBeUndefined();
+  });
+
+  it("marks a text file the browser cannot read instead of sending its name alone", async () => {
+    const file = new File(["hello"], "notes.md", { type: "text/markdown" });
+    vi.spyOn(file, "text").mockRejectedValue(new Error("NotReadableError"));
+
+    const attachment = await readAgentPromptAttachment(file);
+
+    expect(attachment.readError).toBe("read-failed");
+    expect(attachment.text).toBeUndefined();
+    const prompt = formatPromptWithAttachments("Use this", [attachment]);
+    expect(prompt).toContain(
+      '<attached-file-error name="notes.md" code="read-failed"',
+    );
+    expect(prompt).toContain("Tell the user it could not be read");
+  });
+
+  it("marks text files over the read limit as too large", async () => {
+    const file = new File(["hello"], "huge.md", { type: "text/markdown" });
+    Object.defineProperty(file, "size", {
+      value: AGENT_PROMPT_MAX_TEXT_FILE_BYTES + 1,
     });
 
-    const attachment = await readAgentPromptAttachment(file, {
-      maxInlineTextChars: 2,
+    await expect(readAgentPromptAttachment(file)).resolves.toMatchObject({
+      readError: "too-large",
     });
+    await expect(probeAgentPromptAttachment(file)).resolves.toBe("too-large");
+  });
 
-    expect(attachment).toEqual({
-      name: "notes.md",
+  it("probes readable files for the composer chip", async () => {
+    const readable = new File(["hello"], "notes.md", { type: "text/markdown" });
+    const unreadable = new File(["hello"], "notes.md", {
       type: "text/markdown",
-      size: 5,
     });
+    vi.spyOn(unreadable, "slice").mockReturnValue({
+      arrayBuffer: () => Promise.reject(new Error("NotReadableError")),
+    } as unknown as Blob);
+
+    await expect(probeAgentPromptAttachment(readable)).resolves.toBeNull();
+    await expect(probeAgentPromptAttachment(unreadable)).resolves.toBe(
+      "read-failed",
+    );
   });
 
   it("inlines small image files as data URLs", async () => {

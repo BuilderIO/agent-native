@@ -2150,6 +2150,12 @@ function promptAttachmentsFromMetadata(
       ...(typeof item.type === "string" ? { type: item.type } : {}),
       ...(typeof item.size === "number" ? { size: item.size } : {}),
       ...(typeof item.text === "string" ? { text: item.text } : {}),
+      ...(typeof item.totalChars === "number"
+        ? { totalChars: item.totalChars }
+        : {}),
+      ...(item.readError === "read-failed" || item.readError === "too-large"
+        ? { readError: item.readError }
+        : {}),
       ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),
     }));
 }

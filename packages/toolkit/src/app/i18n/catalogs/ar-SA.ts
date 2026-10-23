@@ -413,6 +413,8 @@ const messages: ToolkitAgentChatTranslation = {
     "تعذّرت إضافة الملف الذي تم إفلاته. جرّب تنسيقًا آخر.",
   "composer.openDesktop": "افتح تطبيق سطح المكتب لاستخدام هذه المحادثة.",
   "composer.removeAttachment": "إزالة {{name}}",
+  "composer.attachmentReadFailed": "تعذّرت قراءة هذا الملف",
+  "composer.attachmentTooLarge": "حجم الملف أكبر من 20 ميغابايت",
   "composer.scrollToBottom": "التمرير إلى الأسفل",
   "composer.suggestedPrompts": "اقتراحات المطالبات",
   "composer.stopResponse": "إيقاف الرد",

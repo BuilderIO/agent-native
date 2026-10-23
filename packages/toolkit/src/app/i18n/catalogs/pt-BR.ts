@@ -433,6 +433,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Não foi possível adicionar o arquivo solto. Tente outro formato.",
   "composer.openDesktop": "Abra o aplicativo para desktop para usar este chat.",
   "composer.removeAttachment": "Remover {{name}}",
+  "composer.attachmentReadFailed": "Não foi possível ler este arquivo",
+  "composer.attachmentTooLarge": "O arquivo tem mais de 20 MB",
   "composer.scrollToBottom": "Rolar até o final",
   "composer.suggestedPrompts": "Prompts sugeridos",
   "composer.stopResponse": "Parar resposta",

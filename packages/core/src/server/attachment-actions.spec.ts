@@ -99,6 +99,7 @@ describe("persistTextAttachmentsAsResources", () => {
 
     expect(result.size).toBe(1);
     expect(result.get(0)).toMatchObject({
+      kind: "stored",
       path: "attachments/thread-1/0-data.csv",
       totalChars: "id,name\n1,Alice".length,
     });
@@ -126,7 +127,10 @@ describe("persistTextAttachmentsAsResources", () => {
       ownerEmail: "user@example.com",
     });
 
-    expect(stored.get(0)?.totalChars).toBe(content.length);
+    expect(stored.get(0)).toMatchObject({
+      kind: "stored",
+      totalChars: content.length,
+    });
     resourceListMock.mockResolvedValue([
       { id: "resource-message", path: "attachments/thread-1/0-message.eml" },
     ]);
@@ -191,11 +195,13 @@ describe("persistTextAttachmentsAsResources", () => {
       ownerEmail: "user@example.com",
     });
 
-    expect(result.size).toBe(1);
-    expect(result.get(0)?.path).toBe("attachments/thread-1/0-script.py");
+    expect(result.get(0)).toMatchObject({
+      kind: "stored",
+      path: "attachments/thread-1/0-script.py",
+    });
   });
 
-  it("does not throw when resourcePut fails — returns empty map entry", async () => {
+  it("reports a failed write as a typed failure instead of a missing entry", async () => {
     resourcePutMock.mockRejectedValue(new Error("DB unavailable"));
 
     const result = await persistTextAttachmentsAsResources({
@@ -211,7 +217,44 @@ describe("persistTextAttachmentsAsResources", () => {
       ownerEmail: "user@example.com",
     });
 
-    expect(result.size).toBe(0);
+    expect(result.get(0)).toEqual({
+      kind: "failed",
+      reason: "write-failed",
+      error: "DB unavailable",
+    });
+  });
+
+  it("stores hydrated markdown and SVG data URLs as text", async () => {
+    const markdown = "# Design\n" + "x".repeat(70_000);
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>';
+    const result = await persistTextAttachmentsAsResources({
+      attachments: [
+        {
+          type: "file",
+          name: "DESIGN.md",
+          contentType: "text/markdown",
+          data: `data:text/markdown;base64,${Buffer.from(markdown).toString("base64")}`,
+        },
+        {
+          type: "file",
+          name: "logo.svg",
+          contentType: "image/svg+xml",
+          data: `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`,
+        },
+      ],
+      threadId: "thread-1",
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.get(0)).toMatchObject({
+      kind: "stored",
+      totalChars: markdown.length,
+    });
+    expect(result.get(1)).toMatchObject({ kind: "stored" });
+    expect(resourcePutMock.mock.calls.map((call) => call[2])).toEqual([
+      markdown,
+      svg,
+    ]);
   });
 });
 

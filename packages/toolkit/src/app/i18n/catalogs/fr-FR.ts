@@ -438,6 +438,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop":
     "Ouvrez l’application de bureau pour utiliser ce chat.",
   "composer.removeAttachment": "Supprimer {{name}}",
+  "composer.attachmentReadFailed": "Impossible de lire ce fichier",
+  "composer.attachmentTooLarge": "Le fichier dépasse 20 Mo",
   "composer.scrollToBottom": "Faire défiler jusqu’en bas",
   "composer.suggestedPrompts": "Prompts suggérés",
   "composer.stopResponse": "Arrêter la réponse",

@@ -440,7 +440,7 @@ export async function hydrateOwnedFileUrl(
     maxInlineBytes: MAX_OWNED_INLINE_FILE_BYTES,
     oversizedCode: "file-too-large",
     accept:
-      "application/pdf, text/*, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel",
+      "application/pdf, text/*, image/svg+xml, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel",
   });
   if (result.kind !== "read") return result;
 

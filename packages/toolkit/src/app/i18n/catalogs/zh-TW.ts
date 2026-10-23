@@ -401,6 +401,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.droppedFileError": "無法加入拖放的檔案。請嘗試其他格式。",
   "composer.openDesktop": "請開啟桌面版以使用這個聊天。",
   "composer.removeAttachment": "移除 {{name}}",
+  "composer.attachmentReadFailed": "無法讀取此檔案",
+  "composer.attachmentTooLarge": "檔案超過 20 MB",
   "composer.scrollToBottom": "捲動到底部",
   "composer.suggestedPrompts": "建議提示",
   "composer.stopResponse": "停止回應",

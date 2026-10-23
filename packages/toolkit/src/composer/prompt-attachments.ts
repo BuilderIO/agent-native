@@ -1,8 +1,13 @@
+export type AgentPromptAttachmentReadError = "read-failed" | "too-large";
+
 export interface AgentPromptAttachment {
   name: string;
   type?: string;
   size?: number;
   text?: string;
+  /** Length of the whole file when `text` holds only its head. */
+  totalChars?: number;
+  readError?: AgentPromptAttachmentReadError;
   dataUrl?: string;
 }
 
@@ -24,16 +29,32 @@ export function formatPromptWithAttachments(
       if (attachment.dataUrl) {
         return `<attached-image name="${escapePromptAttachmentAttribute(attachment.name)}"${type}${size}>\n${attachment.dataUrl}\n</attached-image>`;
       }
+      if (attachment.readError) {
+        return `<attached-file-error name="${escapePromptAttachmentAttribute(attachment.name)}" code="${attachment.readError}"${type}${size}>\n${describeAgentPromptAttachmentReadError(attachment.readError)}\n</attached-file-error>`;
+      }
       const body =
         attachment.text?.trim() ||
         "Selected in the UI. If this file is needed, inspect it from the workspace or ask for a readable copy.";
-      return `<attached-file name="${escapePromptAttachmentAttribute(attachment.name)}"${type}${size}>\n${body}\n</attached-file>`;
+      const truncation =
+        attachment.text && attachment.totalChars
+          ? `\n\n[Only the first ${attachment.text.length.toLocaleString()} of ${attachment.totalChars.toLocaleString()} characters of this file were attached, and the rest is not available to you. Tell the user up front that you could read only part of it, and do not report finished work that depends on the rest.]`
+          : "";
+      return `<attached-file name="${escapePromptAttachmentAttribute(attachment.name)}"${type}${size}>\n${body}${truncation}\n</attached-file>`;
     })
     .join("\n\n");
   return `${prompt.trimEnd()}\n\nAttached context:\n${attachmentText}`;
 }
 
+function describeAgentPromptAttachmentReadError(
+  code: AgentPromptAttachmentReadError,
+): string {
+  return code === "too-large"
+    ? "This file is over the 20 MB limit for reading attachments, so its contents were not sent. Do not infer its contents. Tell the user it is too large to read and ask for a smaller file."
+    : "The browser could not read this file, so its contents were not sent. Do not infer its contents. Tell the user it could not be read and ask them to attach it again.";
+}
+
 export const AGENT_PROMPT_MAX_INLINE_TEXT_CHARS = 60_000;
+export const AGENT_PROMPT_MAX_TEXT_FILE_BYTES = 20 * 1024 * 1024;
 export const AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
 
 export interface ReadAgentPromptAttachmentOptions {
@@ -61,12 +82,20 @@ export async function readAgentPromptAttachment(
     size: file.size,
   };
 
-  if (isInlineableAgentPromptFile(file) && file.size <= maxInlineTextChars) {
-    try {
-      attachment.text = await file.text();
-    } catch {
-      // Keep the filename-only attachment if the browser cannot read it.
+  if (isInlineableAgentPromptFile(file)) {
+    if (file.size > AGENT_PROMPT_MAX_TEXT_FILE_BYTES) {
+      attachment.readError = "too-large";
+      return attachment;
     }
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      attachment.readError = "read-failed";
+      return attachment;
+    }
+    attachment.text = text.slice(0, maxInlineTextChars);
+    if (text.length > maxInlineTextChars) attachment.totalChars = text.length;
   } else if (file.type.startsWith("image/")) {
     try {
       if (file.size <= maxInlineImageBytes) {
@@ -91,9 +120,24 @@ export async function readAgentPromptAttachment(
 
 export function isInlineableAgentPromptFile(file: File): boolean {
   if (file.type.startsWith("text/")) return true;
-  return /\.(cjs|css|csv|html|js|json|jsx|md|mdx|mjs|sql|tsx?|txt|xml|yaml|yml)$/i.test(
+  if (file.type === "image/svg+xml") return true;
+  return /\.(cjs|css|csv|html|js|json|jsx|md|mdx|mjs|sql|svg|tsx?|txt|xml|yaml|yml)$/i.test(
     file.name,
   );
+}
+
+/** What the composer chip shows before send, using the same limits as the read. */
+export async function probeAgentPromptAttachment(
+  file: File,
+): Promise<AgentPromptAttachmentReadError | null> {
+  if (!isInlineableAgentPromptFile(file)) return null;
+  if (file.size > AGENT_PROMPT_MAX_TEXT_FILE_BYTES) return "too-large";
+  try {
+    await file.slice(0, 1).arrayBuffer();
+    return null;
+  } catch {
+    return "read-failed";
+  }
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {

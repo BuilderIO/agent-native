@@ -391,10 +391,15 @@ export async function preUploadAttachments(opts: {
       if (isReferenceOnlySvg) {
         markReferenceOnlySvgAttachment(att, att.contentType);
       }
-      const fileMediaType =
-        isFile && includeFiles && !isReferenceOnlySvg
-          ? readableDocumentMediaType(att)
-          : undefined;
+      // SVG stays a reference for embedding, but its markup is still read:
+      // a user who attaches one usually wants it edited.
+      const fileMediaType = !includeFiles
+        ? undefined
+        : isReferenceOnlySvg
+          ? "image/svg+xml"
+          : isFile
+            ? readableDocumentMediaType(att)
+            : undefined;
       if (fileMediaType && !parseBase64DataUrl(data ?? "")) {
         let hydration:
           | Awaited<ReturnType<typeof hydrateOwnedFileUrl>>

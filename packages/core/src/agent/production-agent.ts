@@ -96,6 +96,11 @@ import {
   reconcilePdfBytes,
 } from "../file-upload/attachment-bytes.js";
 import {
+  decodeTextAttachmentData,
+  isSvgTextAttachment,
+  type TextAttachmentStorage,
+} from "../file-upload/attachment-text.js";
+import {
   formatBase64CharBudget,
   MAX_INLINE_FILE_BASE64_CHARS,
   MAX_INLINE_IMAGE_BASE64_CHARS,
@@ -2818,43 +2823,56 @@ function unwrapTextAttachmentEnvelope(text: string): string {
   return match ? match[1] : text;
 }
 
-function truncateTextAttachment(
-  text: string,
-  attachmentName?: string,
-  maxChars = MAX_TEXT_ATTACHMENT_CHARS,
-): string {
-  if (text.length <= maxChars) return text;
-
+function truncateTextAttachment(text: string, maxChars: number): string {
   const omitted = text.length - maxChars;
-  const readHint = attachmentName
-    ? ` Use the \`read-attachment\` tool with name="${escapeAttachmentAttribute(attachmentName)}" to read the rest.`
-    : "";
   if (maxChars === 0) {
-    return `[Attachment content omitted from the initial request; ${omitted.toLocaleString()} characters available.${readHint}]`;
+    return `[Attachment content omitted from the initial request; ${omitted.toLocaleString()} characters available.]`;
   }
-  return `${text.slice(0, maxChars)}\n\n[Attachment truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted.${readHint}]`;
+  return `${text.slice(0, maxChars)}\n\n[Attachment truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted.]`;
+}
+
+function describeTruncatedTextAttachment(
+  att: AgentChatAttachment,
+  shownChars: number,
+  totalChars: number,
+  storage: TextAttachmentStorage | undefined,
+): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const attrs = `name="${name}" shownChars="${shownChars}" totalChars="${totalChars}"`;
+  const shown = `${shownChars.toLocaleString()} of ${totalChars.toLocaleString()}`;
+  if (storage?.kind === "stored") {
+    return `<chat-attachment-truncated ${attrs}>Only the first ${shown} characters of this attachment are shown. Before you edit, restyle, summarize, or answer from it, call \`read-attachment\` with name="${name}" and offset=${shownChars}, and keep calling it until hasMore is false. Do not tell the user the work is done until you have read the whole file. If read-attachment fails, tell the user which part you could not read before doing anything that depends on it.</chat-attachment-truncated>`;
+  }
+  return `<chat-attachment-processing-error code="truncated-remainder-unavailable" ${attrs}>Only the first ${shown} characters of this attachment reached you, and the rest could not be stored, so \`read-attachment\` cannot return it. Tell the user up front that you could read only the first ${shownChars.toLocaleString()} characters. Do not edit, summarize, or report finished work that depends on the rest of the file.</chat-attachment-processing-error>`;
 }
 
 function formatTextAttachment(
   att: AgentChatAttachment,
-  maxChars = MAX_TEXT_ATTACHMENT_CHARS,
+  text: string,
+  maxChars: number,
+  storage: TextAttachmentStorage | undefined,
 ): string | null {
-  if (typeof att.text !== "string" || att.text.length === 0) return null;
-  const text = truncateTextAttachment(
-    unwrapTextAttachmentEnvelope(att.text),
-    att.name,
-    maxChars,
-  );
-
+  if (text.length === 0) return null;
+  const svg = isSvgTextAttachment(att);
   const attrs = [
     `name="${escapeAttachmentAttribute(att.name || "attachment")}"`,
     att.contentType
       ? `contentType="${escapeAttachmentAttribute(att.contentType)}"`
       : null,
     att.type ? `type="${escapeAttachmentAttribute(att.type)}"` : null,
+    svg && att.url ? `url="${escapeAttachmentAttribute(att.url)}"` : null,
+    svg
+      ? 'note="Untrusted SVG source. Read and edit it as text; sanitize it before embedding it in HTML or outbound content."'
+      : null,
   ].filter(Boolean);
 
-  return `<attachment ${attrs.join(" ")}>\n${text}\n</attachment>`;
+  if (text.length <= maxChars) {
+    return `<attachment ${attrs.join(" ")}>\n${text}\n</attachment>`;
+  }
+  return (
+    `<attachment ${attrs.join(" ")}>\n${truncateTextAttachment(text, maxChars)}\n</attachment>\n` +
+    describeTruncatedTextAttachment(att, maxChars, text.length, storage)
+  );
 }
 
 function dataUrlToFilePart(
@@ -2902,6 +2920,14 @@ function describeMissingAttachmentPayload(att: AgentChatAttachment): string {
   return `<chat-attachment-processing-error code="missing-payload" name="${name}"${contentType}>The attachment arrived without readable file contents or a reference. Do not infer or describe its contents. Tell the user it could not be read and ask them to attach it again.</chat-attachment-processing-error>`;
 }
 
+function describeUndecodableTextAttachment(
+  att: AgentChatAttachment,
+  mediaType: string,
+): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  return `<chat-attachment-processing-error code="undecodable-text" name="${name}" contentType="${escapeAttachmentAttribute(mediaType)}">The attachment is a text file, but its bytes are not valid UTF-8, so its contents were not sent to the model. Do not infer or describe its contents. Tell the user it could not be read and ask them to save it as UTF-8 and attach it again.</chat-attachment-processing-error>`;
+}
+
 function describeUnsupportedVisionAttachment(att: AgentChatAttachment): string {
   const name = escapeAttachmentAttribute(att.name || "attachment");
   const contentType = att.contentType
@@ -2946,6 +2972,11 @@ export function buildUserContentWithAttachments(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
   vision?: boolean;
+  /** Where each attachment's full text was stored for `read-attachment`. */
+  textAttachmentStorage?: ReadonlyMap<
+    AgentChatAttachment,
+    TextAttachmentStorage
+  >;
 }): EngineContentPart[] {
   const userContent: EngineContentPart[] = [];
   const textAttachments: string[] = [];
@@ -2954,7 +2985,15 @@ export function buildUserContentWithAttachments(opts: {
   for (const att of opts.attachments ?? []) {
     if (att.displayOnly === true) continue;
     const uploadedUrl = (att as any).url as string | undefined;
-    if ((att as any).referenceOnly === true && uploadedUrl) {
+    const decodedText = decodeTextAttachmentData(att);
+    if (decodedText.kind === "undecodable") {
+      textAttachments.push(
+        describeUndecodableTextAttachment(att, decodedText.mediaType),
+      );
+      continue;
+    }
+    const isText = decodedText.kind === "text";
+    if (!isText && (att as any).referenceOnly === true && uploadedUrl) {
       const label = att.name ? `"${att.name}"` : "A file";
       const contentType = att.contentType ? ` (${att.contentType})` : "";
       textAttachments.push(
@@ -2963,7 +3002,7 @@ export function buildUserContentWithAttachments(opts: {
       continue;
     }
 
-    if (att.type === "image") {
+    if (!isText && att.type === "image") {
       if (opts.vision === false) {
         textAttachments.push(describeUnsupportedVisionAttachment(att));
         continue;
@@ -3047,7 +3086,7 @@ export function buildUserContentWithAttachments(opts: {
       continue;
     }
 
-    const filePart = dataUrlToFilePart(att);
+    const filePart = isText ? null : dataUrlToFilePart(att);
     if (filePart) {
       if (filePart.data.length > MAX_INLINE_ATTACHMENT_BASE64_CHARS) {
         const label = att.name ? `"${att.name}"` : "A file";
@@ -3085,15 +3124,21 @@ export function buildUserContentWithAttachments(opts: {
       continue;
     }
 
-    const rawTextAttachment =
-      typeof att.text === "string"
+    const rawTextAttachment = isText
+      ? decodedText.text
+      : typeof att.text === "string"
         ? unwrapTextAttachmentEnvelope(att.text)
         : "";
     const attachmentCharBudget = Math.min(
       MAX_TEXT_ATTACHMENT_CHARS,
       remainingTextAttachmentChars,
     );
-    const textAttachment = formatTextAttachment(att, attachmentCharBudget);
+    const textAttachment = formatTextAttachment(
+      att,
+      rawTextAttachment,
+      attachmentCharBudget,
+      opts.textAttachmentStorage?.get(att),
+    );
     if (textAttachment) {
       textAttachments.push(textAttachment);
       remainingTextAttachmentChars -= Math.min(
@@ -3101,6 +3146,7 @@ export function buildUserContentWithAttachments(opts: {
         attachmentCharBudget,
       );
     }
+    if (isText) continue;
     if (!textAttachment && typeof att.data === "string") {
       textAttachments.push(describeUnprocessedAttachment(att));
     } else if (!textAttachment && typeof uploadedUrl === "string") {
@@ -3202,13 +3248,20 @@ function engineStopError(
 export function appendRequestAttachmentContextToResumedHistory(
   messages: EngineMessage[],
   attachments: AgentChatAttachment[] | undefined,
-  options: { vision?: boolean } = {},
+  options: {
+    vision?: boolean;
+    textAttachmentStorage?: ReadonlyMap<
+      AgentChatAttachment,
+      TextAttachmentStorage
+    >;
+  } = {},
 ): void {
   if (!attachments?.length) return;
   const attachmentContent = buildUserContentWithAttachments({
     text: "",
     attachments,
     vision: options.vision,
+    textAttachmentStorage: options.textAttachmentStorage,
   }).filter((part) => part.type !== "text" || part.text.trim());
   if (!attachmentContent.length) return;
 
@@ -13908,9 +13961,11 @@ export function createProductionAgentHandler(
       }
     }
 
-    const textAttachmentResourceMap = new Map<
-      number,
-      { resourceId: string; path: string; totalChars: number }
+    // An attachment missing from this map has no stored copy, so its prompt
+    // note must not offer `read-attachment` for the truncated remainder.
+    const textAttachmentStorage = new Map<
+      AgentChatAttachment,
+      TextAttachmentStorage
     >();
     if (hasAttachments && threadId) {
       try {
@@ -13921,8 +13976,9 @@ export function createProductionAgentHandler(
           threadId,
           ownerEmail,
         });
-        for (const [k, v] of stored) {
-          textAttachmentResourceMap.set(k, v);
+        for (const [index, storage] of stored) {
+          const attachment = requestAttachments[index];
+          if (attachment) textAttachmentStorage.set(attachment, storage);
         }
       } catch (err) {
         console.warn(
@@ -14756,6 +14812,7 @@ export function createProductionAgentHandler(
         (requestContextNote ? `\n\n${requestContextNote}` : ""),
       attachments: [...requestContextAttachments, ...requestAttachments],
       vision: modelSupportsVision,
+      textAttachmentStorage,
     });
 
     const historyMessages =
@@ -15102,6 +15159,7 @@ export function createProductionAgentHandler(
                 effectiveModel,
                 engine.capabilities.vision === true,
               ),
+              textAttachmentStorage,
             },
           );
           const context = buildTurnResumeContext({

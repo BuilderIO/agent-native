@@ -413,6 +413,8 @@ const messages: ToolkitAgentChatTranslation = {
     "छोड़ी गई फ़ाइल जोड़ी नहीं जा सकी। कोई दूसरा फ़ॉर्मैट आज़माएँ।",
   "composer.openDesktop": "इस चैट का उपयोग करने के लिए Desktop खोलें।",
   "composer.removeAttachment": "{{name}} हटाएँ",
+  "composer.attachmentReadFailed": "यह फ़ाइल पढ़ी नहीं जा सकी",
+  "composer.attachmentTooLarge": "फ़ाइल 20 MB से बड़ी है",
   "composer.scrollToBottom": "सबसे नीचे जाएँ",
   "composer.suggestedPrompts": "सुझाए गए प्रॉम्प्ट",
   "composer.stopResponse": "जवाब रोकें",

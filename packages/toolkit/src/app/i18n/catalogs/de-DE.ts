@@ -440,6 +440,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Die abgelegte Datei konnte nicht hinzugefügt werden. Versuche ein anderes Format.",
   "composer.openDesktop": "Öffne Desktop, um diesen Chat zu verwenden.",
   "composer.removeAttachment": "{{name}} entfernen",
+  "composer.attachmentReadFailed": "Datei konnte nicht gelesen werden",
+  "composer.attachmentTooLarge": "Datei ist größer als 20 MB",
   "composer.scrollToBottom": "Nach unten scrollen",
   "composer.suggestedPrompts": "Vorgeschlagene Prompts",
   "composer.stopResponse": "Antwort stoppen",
