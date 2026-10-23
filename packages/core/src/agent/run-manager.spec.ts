@@ -4109,16 +4109,28 @@ describe("run manager soft timeout", () => {
     expect(run.abortReason).toBeUndefined();
   });
 
-  it("confirms an ambiguously committed terminal status after a no-op reconciliation", async () => {
+  it("confirms an ambiguously committed terminal status after reconciliation fails", async () => {
+    let persistedTerminalReason: string | null = null;
+    vi.mocked(getRunById).mockImplementation(async (id) => ({
+      id,
+      threadId: "thread-ambiguous-terminal-write",
+      status: "completed",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: persistedTerminalReason,
+    }));
+    vi.mocked(setRunTerminalReason).mockImplementationOnce(
+      async (_id, terminalReason) => {
+        persistedTerminalReason = terminalReason ?? null;
+      },
+    );
     vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
       vi.mocked(getRunStatus).mockResolvedValue("completed");
       throw new Error("terminal status write committed but its reply was lost");
     });
-    vi.mocked(reconcileTerminalRunFromEvents).mockImplementationOnce(
-      async () => {
-        await new Promise((resolve) => setTimeout(resolve, 5_000));
-        return false;
-      },
+    vi.mocked(reconcileTerminalRunFromEvents).mockRejectedValueOnce(
+      new Error("terminal event reconciliation failed"),
     );
 
     const run = startRun(
@@ -4134,8 +4146,141 @@ describe("run manager soft timeout", () => {
 
     expect(run.status).toBe("completed");
     expect(run.abortReason).toBeUndefined();
+    expect(getRunById).toHaveBeenCalledWith("run-ambiguous-terminal-write");
     expect(setRunTerminalReason).toHaveBeenCalledWith(
       "run-ambiguous-terminal-write",
+      "done",
+    );
+    expect(persistedTerminalReason).toBe("done");
+  });
+
+  it("confirms the checkpoint reason on an ambiguously committed truncated status", async () => {
+    let persistedStatus = "running";
+    let persistedTerminalReason: string | null = null;
+    vi.mocked(getRunById).mockImplementation(async (id) => ({
+      id,
+      threadId: "thread-ambiguous-checkpoint-status",
+      status: persistedStatus,
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: persistedTerminalReason,
+    }));
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(
+      async (_id, status, options) => {
+        persistedStatus = status;
+        persistedTerminalReason = options?.terminalReason ?? null;
+        throw new Error("checkpoint status reply was lost");
+      },
+    );
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(false);
+
+    const run = startRun(
+      "run-ambiguous-checkpoint-status",
+      "thread-ambiguous-checkpoint-status",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+
+    await vi.advanceTimersByTimeAsync(11);
+    await run.finalized;
+
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-ambiguous-checkpoint-status",
+      "truncated",
+      expect.objectContaining({ terminalReason: "run_timeout" }),
+    );
+    expect(persistedStatus).toBe("truncated");
+    expect(persistedTerminalReason).toBe("run_timeout");
+    expect(setRunTerminalReason).not.toHaveBeenCalledWith(
+      "run-ambiguous-checkpoint-status",
+      "run_timeout",
+    );
+  });
+
+  it("does not report a rejected ambiguous status write as an abort-check failure", async () => {
+    const provider = vi.fn(() => "evt_terminal_status_write");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-terminal-status-abort-check-test",
+      provider,
+    );
+    const statusWrite = Promise.withResolvers<boolean>();
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-ambiguous-terminal-abort-check",
+      threadId: "thread-ambiguous-terminal-abort-check",
+      status: "completed",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: "done",
+    });
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(() => {
+      vi.mocked(getRunStatus).mockResolvedValue("completed");
+      return statusWrite.promise;
+    });
+
+    try {
+      const run = startRun(
+        "run-ambiguous-terminal-abort-check",
+        "thread-ambiguous-terminal-abort-check",
+        async () => {},
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(7_501);
+      statusWrite.reject(new Error("terminal status response was lost"));
+      await run.finalized;
+
+      expect(provider).not.toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            source: "agent-run-manager",
+            phase: "abort-check",
+          }),
+        }),
+      );
+    } finally {
+      unregister();
+    }
+  });
+
+  it("does not confirm an ambiguous terminal write when the persisted status differs", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-ambiguous-terminal-mismatch",
+      threadId: "thread-ambiguous-terminal-mismatch",
+      status: "errored",
+      startedAt: Date.now(),
+      errorCode: "other_worker_failed",
+      errorDetail: null,
+      terminalReason: "error:other_worker_failed",
+    });
+    vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
+      new Error("terminal status write outcome is unknown"),
+    );
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(false);
+
+    const run = startRun(
+      "run-ambiguous-terminal-mismatch",
+      "thread-ambiguous-terminal-mismatch",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await run.finalized;
+
+    expect(run.status).toBe("completed");
+    expect(getRunById).toHaveBeenCalledWith("run-ambiguous-terminal-mismatch");
+    expect(setRunTerminalReason).not.toHaveBeenCalledWith(
+      "run-ambiguous-terminal-mismatch",
       "done",
     );
   });

@@ -1671,7 +1671,14 @@ export function startRun(
           const status = await getRunStatus(runId);
           if (status !== null && status !== "running") {
             const pendingStatusWrite = terminalStatusWrite;
-            if (pendingStatusWrite) await pendingStatusWrite;
+            if (pendingStatusWrite) {
+              try {
+                await pendingStatusWrite;
+              } catch (error) {
+                if (!terminalStatusWriteOutcomeUnknown) throw error;
+                return;
+              }
+            }
             if (terminalStatusWriteOutcomeUnknown) return;
           }
           if (
@@ -2274,21 +2281,42 @@ export function startRun(
         const write = withWorkerFence(() => {
           writeStarted = true;
           return persist();
+        }).catch((error) => {
+          if (writeStarted) terminalStatusWriteOutcomeUnknown = true;
+          throw error;
         });
         terminalStatusWrite = write;
         try {
           const established = await write;
-          if (established) ownTerminalStatusEstablished = true;
+          if (established && !terminalStatusWriteOutcomeUnknown) {
+            ownTerminalStatusEstablished = true;
+          }
           return established;
-        } catch (error) {
-          if (writeStarted) terminalStatusWriteOutcomeUnknown = true;
-          throw error;
         } finally {
           if (terminalStatusWrite === write) terminalStatusWrite = null;
         }
       };
       const persistOwnTerminalStatus = () =>
         persistOwnTerminalState(persistTerminalStatus);
+      const confirmAmbiguousTerminalStatus = async () => {
+        const persistedRun = await getRunById(runId);
+        if (persistedRun?.status !== persistedStatus) return false;
+
+        const expectedTerminalReason = terminalReason.slice(0, 200);
+        if (persistedRun.terminalReason === expectedTerminalReason) {
+          return true;
+        }
+        if (persistedRun.terminalReason) return false;
+
+        await withWorkerFence(() =>
+          setRunTerminalReason(runId, terminalReason),
+        );
+        const confirmedRun = await getRunById(runId);
+        return (
+          confirmedRun?.status === persistedStatus &&
+          confirmedRun.terminalReason === expectedTerminalReason
+        );
+      };
       const reconcileTerminalRun = async () => {
         let reconciled = false;
         try {
@@ -2302,17 +2330,13 @@ export function startRun(
         } catch (error) {
           if (!terminalStatusWriteOutcomeUnknown) throw error;
         }
-        if (reconciled) {
-          terminalStatusWriteOutcomeUnknown = false;
-          return true;
-        }
         if (!terminalStatusWriteOutcomeUnknown) {
           return reconciled;
         }
-        const status = await getRunStatus(runId);
+        const confirmed = await confirmAmbiguousTerminalStatus();
         terminalStatusWriteOutcomeUnknown = false;
-        if (status === persistedStatus) ownTerminalStatusEstablished = true;
-        return ownTerminalStatusEstablished;
+        if (confirmed) ownTerminalStatusEstablished = true;
+        return confirmed;
       };
       const reportTerminalStatusPersistenceError = (error: unknown) => {
         captureError(error, {
@@ -2483,17 +2507,6 @@ export function startRun(
               terminalPersistenceEstablished = !terminalPersistenceError;
             } else {
               terminalPersistenceEstablished = await reconcileTerminalRun();
-              // An ambiguous write can commit its status without the reason the
-              // success path records after it. A confirmed status gets that same
-              // reason; setRunTerminalReason never overwrites one already set.
-              if (
-                terminalPersistenceEstablished &&
-                !checkpointBoundaryStarted
-              ) {
-                await withWorkerFence(() =>
-                  setRunTerminalReason(runId, terminalReason),
-                );
-              }
             }
           }
         } catch (error) {
