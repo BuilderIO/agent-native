@@ -956,10 +956,11 @@ const PR_REVIEW_LINKED_COMMENT_URL = String.raw`(?:\[\s*)?(?:https?:\/\/)?github
 const PR_REVIEW_NEXT_ACTION_CUE = String.raw`(?:next\s+action|what\s+(?:(?:they|the\s+author|the\s+contributor)\s+)?(?:(?:should\s+)?do|to\s+do)(?:\s+next)?|what\s+happens\s+next)`;
 const PR_REVIEW_NO_FEEDBACK_ACTION = String.raw`(?:say|saying|write|writing|use|using|tell|telling|reply|replying|post|posting|send|sending)`;
 const PR_REVIEW_NO_FEEDBACK_BRIDGE = String.raw`(?:\s+(?:with|that|to|as|me|them|someone|anyone|the\s+author|the\s+contributor|saying))?`;
-const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)(?:\s+(?:comment|reply|response|review|thread))?\b(?!\s+templates?\b)`;
-const PR_REVIEW_NO_FEEDBACK_TEXT = String.raw`(?:I\s+have\s+)?no\s+further\s+(?:check\s+)?feedback`;
+const PR_REVIEW_NO_FEEDBACK_GAP = String.raw`(?:(?!\b(?:and|but|or|while)\b)[^.!?;\n])`;
+const PR_REVIEW_PR_CONTEXT = String.raw`\b(?:in|on|for|as|during)\s+(?:(?:the|a|an|your|our|this|my)\s+)?(?:PRs?|pull\s+requests?)(?:\s+(?:comment|reply|response|review|thread))?\b(?!\s+templates?\b)`;
+const PR_REVIEW_NO_FEEDBACK_TEXT = String.raw`(?:I\s+have\s+)?no\s+(?:further|more)\s+(?:check\s+)?feedback`;
 const PR_REVIEW_NO_FEEDBACK_RE = new RegExp(
-  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_BRIDGE}\s+['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b(?:[^.!?\n]{0,80}${PR_REVIEW_PR_CONTEXT}|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b[^.!?\n]{0,20}${PR_REVIEW_PR_CONTEXT}[^.!?\n]{0,50}\b${PR_REVIEW_NO_FEEDBACK_TEXT}\b)`,
+  String.raw`(?:\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_BRIDGE}\s+['"“‘]?${PR_REVIEW_NO_FEEDBACK_TEXT}\b(?:${PR_REVIEW_NO_FEEDBACK_GAP}{0,80}${PR_REVIEW_PR_CONTEXT}|[^.!?\n]{0,120}\b${PR_REVIEW_NEXT_ACTION_CUE}\b\s*[.!?]?\s*${PR_REVIEW_LINKED_COMMENT_URL})|\b(?:don['’]t|do\s+not|never|avoid|stop)\b(?:\s+\w+){0,3}\s+\b${PR_REVIEW_NO_FEEDBACK_ACTION}\b${PR_REVIEW_NO_FEEDBACK_GAP}{0,20}${PR_REVIEW_PR_CONTEXT}${PR_REVIEW_NO_FEEDBACK_GAP}{0,50}\b${PR_REVIEW_NO_FEEDBACK_TEXT}\b)`,
   "i",
 );
 const PR_REVIEW_AMBIGUOUS_COMMENT_CORE = String.raw`(?:\b(?:I|you|we)\b[^.!?\n]{0,30}\b(?:should|must|need to)\s+(?:never|not)\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b|\b(?:don['’]t|do\s+not|never|avoid)\b(?:\s+\w+){0,3}\s+leave\s+the\s+(?:PR|pull\s+request)\s+(?:comment|reply|response|review|thread)\s+(?:ambiguous|vague|unclear)\b)`;
@@ -1093,6 +1094,19 @@ const PR_REVIEW_DISPOSITION_MATCHER = {
 
 const PR_REVIEW_DISPOSITION_REGEX_CASES = [
   [true, "Stop saying 'I have no further feedback' on PRs."],
+  [
+    true,
+    "Don't say 'no further feedback' during PR review; tell them what to do next.",
+  ],
+  [true, "Don't say 'I have no more feedback' on your PR."],
+  [
+    false,
+    "Don't reply on the PR thread; the implementation has no further feedback.",
+  ],
+  [
+    false,
+    "Don't reply on the PR thread and say that the data loader has no further feedback.",
+  ],
   [
     true,
     "Don't ever say 'I have no further feedback' in a PR comment; state what they should do next.",
