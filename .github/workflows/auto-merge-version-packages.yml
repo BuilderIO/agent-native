@@ -101,14 +101,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          gh pr checks "$PR_NUMBER" --repo "$REPO" --required --watch --fail-fast --interval 15
-          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
-          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
-            echo "::error::Required release PR checks are missing or not green; refusing admin-merge." >&2
-            exit 1
-          fi
+        run: node --experimental-strip-types scripts/release-required-checks.ts wait "$PR_NUMBER" "$REPO"
 
       - name: Verify release-only diff
         env:
@@ -249,11 +242,7 @@ jobs:
             echo "::error::Release PR changed during validation; refusing admin-merge." >&2
             exit 1
           fi
-          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
-          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
-            echo "::error::Required release PR checks are no longer green; refusing admin-merge." >&2
-            exit 1
-          fi
+          node --experimental-strip-types scripts/release-required-checks.ts verify "$PR_NUMBER" "$REPO"
 
       - name: Force-merge with admin bypass
         env:
@@ -283,9 +272,5 @@ jobs:
             echo "::error::Main advanced after validation; refusing to merge against an unvalidated base." >&2
             exit 1
           fi
-          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
-          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
-            echo "::error::Required release PR checks are no longer green; refusing admin-merge." >&2
-            exit 1
-          fi
+          node --experimental-strip-types scripts/release-required-checks.ts verify "$PR_NUMBER" "$REPO"
           gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"

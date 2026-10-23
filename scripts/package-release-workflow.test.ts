@@ -30,6 +30,11 @@ import {
   packageManifestVersionChange,
 } from "./release-package-version-policy.ts";
 import {
+  evaluateRequiredChecks,
+  requiredContextsFromRules,
+  waitForRequiredChecks,
+} from "./release-required-checks.ts";
+import {
   gitBlobSha,
   syncCommunityQrBlobPins,
   syncCommunityQrCoreLock,
@@ -76,6 +81,116 @@ const autoMergeWorkflow = parse(
 ) as Workflow;
 
 describe("npm package release workflow", () => {
+  it("waits for every active main ruleset check before auto-merging a release PR", async () => {
+    const required = ["Build", "Fast tests", "Lint & format"];
+    const contexts = requiredContextsFromRules([
+      {
+        type: "required_status_checks",
+        parameters: {
+          required_status_checks: required.map((context) => ({ context })),
+        },
+      },
+      {
+        type: "required_status_checks",
+        parameters: {
+          required_status_checks: [{ context: "Build" }],
+        },
+      },
+    ]);
+    assert.deepEqual(contexts, required);
+
+    assert.deepEqual(evaluateRequiredChecks(required, []), {
+      status: "pending",
+      missing: required,
+      pending: [],
+    });
+    assert.deepEqual(
+      evaluateRequiredChecks(required, [
+        { name: "Build", bucket: "pass" },
+        { name: "Fast tests", bucket: "pass" },
+      ]),
+      {
+        status: "pending",
+        missing: ["Lint & format"],
+        pending: [],
+      },
+    );
+
+    let now = 0;
+    let reads = 0;
+    await waitForRequiredChecks({
+      readRequiredContexts: async () => required,
+      readStatuses: async () => {
+        reads += 1;
+        if (reads === 1) return [];
+        if (reads === 2) {
+          return [
+            { name: "Build", bucket: "pass" },
+            { name: "Fast tests", bucket: "pass" },
+          ];
+        }
+        return required.map((name) => ({ name, bucket: "pass" }));
+      },
+      sleep: async (ms) => {
+        now += ms;
+      },
+      now: () => now,
+      timeoutMs: 60_000,
+      intervalMs: 15_000,
+    });
+    assert.equal(reads, 3);
+    assert.deepEqual(
+      evaluateRequiredChecks(
+        required,
+        required.map((name) => ({ name, bucket: "pass" })),
+      ),
+      { status: "passed" },
+    );
+  });
+
+  it("fails closed when required checks fail, remain partial, or are unconfigured", async () => {
+    const required = ["Build", "Fast tests"];
+    assert.deepEqual(
+      evaluateRequiredChecks(required, [
+        { name: "Build", bucket: "fail" },
+        { name: "Fast tests", bucket: "pending" },
+      ]),
+      {
+        status: "failed",
+        reason: "Required release PR checks are not green: Build.",
+      },
+    );
+    assert.throws(
+      () => requiredContextsFromRules([]),
+      /No required status checks are configured for main/,
+    );
+    assert.throws(
+      () =>
+        requiredContextsFromRules([
+          {
+            type: "required_status_checks",
+            parameters: { required_status_checks: [{ context: " " }] },
+          },
+        ]),
+      /without a context name/,
+    );
+
+    let now = 0;
+    await assert.rejects(
+      waitForRequiredChecks({
+        readRequiredContexts: async () => required,
+        readStatuses: async () => [{ name: "Build", bucket: "pass" }],
+        sleep: async (ms) => {
+          now += ms;
+        },
+        now: () => now,
+        timeoutMs: 30_000,
+        intervalMs: 15_000,
+      }),
+      /Timed out waiting for required release PR checks: Fast tests \(not reported\)/,
+    );
+  });
+
   it("allows a modified private app manifest without a package version", () => {
     assert.equal(
       packageManifestVersionChange(
@@ -1170,8 +1285,11 @@ fi
     assert.match(String(releasePrContext.run), /\.head\.sha == \$head/);
     assert.match(String(releasePrContext.run), /\.base\.sha == \$base/);
     assert(requiredChecks);
-    assert.match(String(requiredChecks.run), /--required --watch/);
-    assert.match(String(requiredChecks.run), /all\(\.\[\]; \.bucket == "pass"/);
+    assert.match(
+      String(requiredChecks.run),
+      /release-required-checks\.ts wait "\$PR_NUMBER" "\$REPO"/,
+    );
+    assert.doesNotMatch(String(requiredChecks.run), /gh pr checks/);
     assert(releaseDiff);
     assert.match(String(releaseDiff.run), /verify-release-package-files\.ts/);
     assert(majorPromotionGuard);
@@ -1209,14 +1327,17 @@ fi
     );
     assert.match(String(releasePrRecheck.run), /\.head\.sha == \$head/);
     assert.match(String(releasePrRecheck.run), /\.base\.sha == \$base/);
-    assert.match(String(releasePrRecheck.run), /--required --json name,bucket/);
+    assert.match(
+      String(releasePrRecheck.run),
+      /release-required-checks\.ts verify "\$PR_NUMBER" "\$REPO"/,
+    );
     assert(forceMerge);
     assert.match(String(forceMerge.run), /branches\/main/);
     assert.match(String(forceMerge.run), /current_main.*BASE_SHA/s);
     assert.match(String(forceMerge.run), /--match-head-commit "\$HEAD_SHA"/);
     assert.match(
       String(forceMerge.run),
-      /Required release PR checks are no longer green/,
+      /release-required-checks\.ts verify "\$PR_NUMBER" "\$REPO"/,
     );
   });
 
