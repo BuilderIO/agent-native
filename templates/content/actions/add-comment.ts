@@ -305,14 +305,6 @@ export async function addCommentWithGuard(
     }
     throw error;
   });
-  // A new thread that quotes nothing is a comment on the whole page, which
-  // belongs to no tab.
-  if (!args.threadId && fieldTarget.fieldId && !args.quotedText?.trim()) {
-    fail(
-      "A thread in a Blocks field tab quotes text from that tab; pass quotedText, or omit fieldId to comment on the whole page",
-      { statusCode: 400, errorCode: "comment_field_quote_required" },
-    );
-  }
 
   const values = {
     id,
@@ -380,6 +372,15 @@ export async function addCommentWithGuard(
       (await existingReceipt())
     )
       return false;
+    // A new thread that quotes nothing is a comment on the whole page, which
+    // belongs to no tab. Checked after the receipt, so a retry of one saved
+    // before this rule still replays.
+    if (!args.threadId && fieldTarget.fieldId && !args.quotedText?.trim()) {
+      fail(
+        "A thread in a Blocks field tab quotes text from that tab; pass quotedText, or omit fieldId to comment on the whole page",
+        { statusCode: 400, errorCode: "comment_field_quote_required" },
+      );
+    }
     await assertAccess("document", documentId, "commenter", {
       userEmail: email,
       orgId: ctx?.orgId ?? undefined,

@@ -328,6 +328,26 @@ describe("add-comment with fieldId", () => {
     expect(second).toMatchObject({ id: first.id, replayed: true });
   });
 
+  it("replays a retry of a tab thread saved with no quote before quotes were required", async () => {
+    const fixture = await seedCollection("retry-legacy");
+    const args = {
+      documentId: fixture.row,
+      content: "Lorem",
+      fieldId: fixture.notesId,
+      idempotencyKey: "retry-legacy-field-comment",
+    };
+    const first = await add({ ...args, quotedText: "dolor" });
+    // As a save from before the rule stored it.
+    await getDb()
+      .update(schema.documentComments)
+      .set({ quotedText: null })
+      .where(eq(schema.documentComments.id, first.id));
+    await expect(add(args)).resolves.toMatchObject({
+      id: first.id,
+      replayed: true,
+    });
+  });
+
   it("replays a retried submission after its tab was deleted", async () => {
     const fixture = await seedCollection("retry-deleted");
     const args = {
