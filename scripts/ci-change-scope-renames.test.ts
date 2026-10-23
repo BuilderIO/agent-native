@@ -78,7 +78,7 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     assert.deepEqual(pureRename.scope.designCanvasE2eSpecs, [pureRenamePath]);
     assert.deepEqual(pureRename.scope.designCanvasE2eDiagnosticSpecs, []);
     assert.deepEqual(pureRename.changedPaths, [pureRenamePath]);
-    assert.equal(pureRename.scope.checks.design_canvas_core_regression, true);
+    assert.equal(pureRename.scope.checks.design_canvas_core_regression, false);
 
     const editedRenamePath = "templates/design/e2e/renamed-title.spec.ts";
     const editedRenameHead = commitFromBase(
@@ -188,8 +188,8 @@ test("classification retains the path but excludes supplied pure renames", () =>
   );
   assert.equal(
     pureRenameScope.checks.design_canvas_core_regression,
-    true,
-    "the required Design regression gate must still run for a renamed spec",
+    false,
+    "a pure spec rename should not launch the broad Design regression suite",
   );
   assert.equal(
     pureRenameScope.checks.design_canvas_broad_workflows,

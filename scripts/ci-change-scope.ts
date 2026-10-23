@@ -119,6 +119,36 @@ const DESIGN_CANVAS_E2E_FILES = new Set([
 ]);
 
 const DESIGN_CANVAS_E2E_ROOT = "templates/design/e2e";
+const DESIGN_CANVAS_IMPORT_GRAPH_ROOTS = [
+  DESIGN_CANVAS_E2E_ROOT,
+  "templates/design/app/pages",
+  "templates/design/app/components/design",
+  "templates/design/shared",
+  "templates/design/actions",
+  "templates/design/server",
+] as const;
+const DESIGN_BROAD_WORKFLOW_SHARDS = new Map([
+  [
+    "templates/design/e2e/ai-sidebar-reporter-path.spec.ts",
+    "ai-sidebar-loopback",
+  ],
+  [
+    "templates/design/e2e/interaction-responsive-music-app.spec.ts",
+    "music-app-workflow",
+  ],
+  [
+    "templates/design/e2e/home-system-selection.spec.ts",
+    "home-system-selection",
+  ],
+  [
+    "templates/design/e2e/interaction-landing-page-build.spec.ts",
+    "landing-page-build",
+  ],
+  [
+    "templates/design/e2e/autolayout-drag-drop-matrix.spec.ts",
+    "autolayout-vertical-center-trailing",
+  ],
+]);
 const DESIGN_CANVAS_E2E_SOURCE_RE = /\.[cm]?[jt]sx?$/u;
 const DESIGN_CANVAS_E2E_SOURCE_EXTENSIONS = [
   ".ts",
@@ -148,6 +178,7 @@ const DESIGN_CANVAS_CONFIG_FILES = new Set([
   "templates/design/agent-native.config.ts",
   "templates/design/agent-native.json",
   "templates/design/package.json",
+  "templates/design/playwright.config.ts",
   "templates/design/react-router.config.ts",
   "templates/design/vite.config.ts",
 ]);
@@ -209,8 +240,10 @@ const CONTENT_CONVERGENCE_FILES = new Set([
 const CONTENT_CONVERGENCE_CORE_FILES = new Set([
   "packages/core/src/appearance/theme-family.ts",
   "packages/core/src/application-state/emitter.ts",
+  "packages/core/src/client/application-state.ts",
   "packages/core/src/collab/client.ts",
   "packages/core/src/client/client-status-requests.ts",
+  "packages/core/src/client/hooks/index.ts",
   "packages/core/src/client/theme.ts",
   "packages/core/src/client/use-db-sync.ts",
   "packages/core/src/client/use-session.ts",
@@ -224,6 +257,7 @@ const CONTENT_CONVERGENCE_CORE_FILES = new Set([
   "packages/core/src/server/collab-plugin.ts",
   "packages/core/src/server/core-routes-plugin.ts",
   "packages/core/src/server/auth.ts",
+  "packages/core/src/server/action-discovery.ts",
   "packages/core/src/server/embed-route.ts",
   "packages/core/src/server/embed-session.ts",
   "packages/core/src/server/http-route.ts",
@@ -240,6 +274,272 @@ const CONTENT_CONVERGENCE_CORE_FILES = new Set([
 const CONTENT_CONVERGENCE_CORE_PATH_PREFIXES = [
   "packages/core/src/collab/",
 ] as const;
+
+const SLIDES_TEXT_AUTHORING_FILES = new Set([
+  "templates/slides/actions/create-deck.ts",
+  "templates/slides/actions/delete-deck.ts",
+  "templates/slides/actions/get-deck.ts",
+  "templates/slides/actions/patch-deck.ts",
+  "templates/slides/actions/save-deck.ts",
+  "templates/slides/actions/update-slide.ts",
+  "templates/slides/app/components/deck/SlideRenderer.tsx",
+  "templates/slides/app/components/editor/BlockBubbleMenu.tsx",
+  "templates/slides/app/components/editor/SlideContextToolbar.tsx",
+  "templates/slides/app/components/editor/SlideEditor.tsx",
+  "templates/slides/app/components/editor/SlideSlashCommandMenu.tsx",
+  "templates/slides/app/components/editor/bullet-editing.ts",
+  "templates/slides/app/components/editor/commit-active-edit.ts",
+  "templates/slides/app/components/editor/editor-command-model.ts",
+  "templates/slides/app/components/editor/inline-edit-session.ts",
+  "templates/slides/app/components/editor/in-place-text-session.ts",
+  "templates/slides/app/components/editor/list-editing.ts",
+  "templates/slides/app/components/editor/rich-text-selection.ts",
+  "templates/slides/app/components/editor/slide-escape-arbiter.ts",
+  "templates/slides/app/components/editor/slide-object-interactions.ts",
+  "templates/slides/app/components/editor/slide-pointer-target.ts",
+  "templates/slides/app/components/editor/slide-text-targets.ts",
+  "templates/slides/app/context/DeckContext.tsx",
+  "templates/slides/app/pages/DeckEditor.tsx",
+  "templates/slides/app/routes/deck.$id.tsx",
+  "templates/slides/shared/client-compatibility.ts",
+  "templates/slides/shared/deck-content.ts",
+  "templates/slides/shared/deck-write.ts",
+]);
+
+const SLIDES_CARET_APP_FILES = new Set([
+  "templates/slides/app/components/deck/SlideRenderer.tsx",
+  "templates/slides/app/components/editor/SlideEditor.tsx",
+  "templates/slides/app/components/editor/in-place-text-session.ts",
+  "templates/slides/app/components/editor/rich-text-selection.ts",
+  "templates/slides/app/components/editor/slide-pointer-target.ts",
+  "templates/slides/app/components/editor/slide-text-targets.ts",
+  "templates/slides/app/context/DeckContext.tsx",
+  "templates/slides/app/pages/DeckEditor.tsx",
+  "templates/slides/app/routes/deck.$id.tsx",
+]);
+
+const SLIDES_MOBILE_IMPORT_FILES = new Set([
+  "templates/slides/app/components/editor/ImportDeckButton.tsx",
+  "templates/slides/app/components/editor/use-prompt-import.ts",
+  "templates/slides/app/hooks/use-slide-file-storage-status.ts",
+  "templates/slides/app/pages/Index.tsx",
+  "templates/slides/app/lib/prompt-file-uploads.ts",
+  "templates/slides/shared/upload-types.ts",
+  "packages/creative-context/src/eval/fixtures/launch-system-v1.pptx",
+]);
+
+const SLIDES_MOBILE_IMPORT_TOOLKIT_FILES = new Set([
+  "packages/toolkit/src/ui/button.tsx",
+  "packages/toolkit/src/ui/dropdown-menu.tsx",
+  "packages/toolkit/src/ui/popover.tsx",
+]);
+
+const SLIDES_MOBILE_IMPORT_CORE_FILES = new Set([
+  "packages/core/src/client/hooks/index.ts",
+  "packages/core/src/client/use-action.ts",
+]);
+
+const SLIDES_TEXT_SURFACE_FILES = new Set([
+  "templates/slides/actions/add-slide-comment.ts",
+  "templates/slides/actions/delete-slide-comment.ts",
+  "templates/slides/actions/update-slide-comment.ts",
+  "templates/slides/actions/update-slide.ts",
+  "templates/slides/app/components/comments/SlideCommentPins.tsx",
+  "templates/slides/app/components/comments/SlideCommentsPanel.tsx",
+  "templates/slides/app/components/deck/DeckCard.tsx",
+  "templates/slides/app/components/editor/EditorToolbar.tsx",
+  "templates/slides/app/components/editor/SlideEditor.tsx",
+  "templates/slides/app/components/editor/SpeakerNotesPanel.tsx",
+  "templates/slides/app/pages/DeckEditor.tsx",
+  "templates/slides/app/pages/Index.tsx",
+  "templates/slides/app/routes/deck.$id.tsx",
+  "templates/slides/app/hooks/use-slide-comments.ts",
+]);
+
+const SLIDES_TEXT_SURFACE_TOOLKIT_FILES = new Set([
+  "packages/toolkit/src/ui/avatar.tsx",
+  "packages/toolkit/src/ui/button.tsx",
+  "packages/toolkit/src/ui/dropdown-menu.tsx",
+  "packages/toolkit/src/ui/input.tsx",
+  "packages/toolkit/src/ui/popover.tsx",
+  "packages/toolkit/src/ui/textarea.tsx",
+  "packages/toolkit/src/ui/tooltip.tsx",
+]);
+
+const SLIDES_TEXT_SURFACE_CORE_FILES = new Set([
+  "packages/core/src/client/api-surface.ts",
+  "packages/core/src/client/hooks/index.ts",
+  "packages/core/src/client/use-action.ts",
+  "packages/core/src/client/use-avatar.ts",
+  "packages/core/src/collab/types.ts",
+]);
+
+const SLIDES_TYPING_CHAT_FILES = new Set([
+  "templates/slides/actions/create-deck.ts",
+  "templates/slides/app/components/editor/SlideEditor.tsx",
+  "templates/slides/app/components/editor/SlidesComposerContext.tsx",
+  "templates/slides/app/components/editor/SlidesComposerContextProvider.tsx",
+  "templates/slides/app/context/DeckContext.tsx",
+  "templates/slides/app/pages/DeckEditor.tsx",
+  "templates/slides/app/routes/deck.$id.tsx",
+  "templates/slides/app/components/layout/Layout.tsx",
+]);
+
+const SLIDES_TYPING_CHAT_CORE_FILES = new Set([
+  "packages/core/package.json",
+  "packages/core/src/client/agent-chat.ts",
+  "packages/core/src/client/agent-chat/index.ts",
+  "packages/core/src/client/app-config.ts",
+  "packages/core/src/client/api-path.ts",
+  "packages/core/src/client/application-state.ts",
+  "packages/core/src/client/agent-engine-readiness.ts",
+  "packages/core/src/client/agent-sidebar-state.ts",
+  "packages/core/src/client/browser-tab-id.ts",
+  "packages/core/src/client/chat-view-transition.ts",
+  "packages/core/src/client/chat/agentkit-agent-native.ts",
+  "packages/core/src/client/chat/agentkit-protocol.ts",
+  "packages/core/src/client/chat/assistant-chat-history-version.ts",
+  "packages/core/src/client/chat/composer-draft.ts",
+  "packages/core/src/client/chat/runtime.ts",
+  "packages/core/src/client/dynamic-suggestions.ts",
+  "packages/core/src/client/host/index.ts",
+  "packages/core/src/client/hooks/index.ts",
+  "packages/core/src/client/onboarding/index.ts",
+  "packages/core/src/client/use-active-agent-chat-run.ts",
+  "packages/core/src/client/use-agent-chat-context.ts",
+  "packages/core/src/client/use-agent-chat-running-threads.ts",
+  "packages/core/src/client/use-agent-chat.ts",
+  "packages/core/src/client/use-action.ts",
+  "packages/core/src/client/use-change-version.ts",
+  "packages/core/src/client/use-chat-models.ts",
+  "packages/core/src/client/use-chat-threads.ts",
+  "packages/core/src/client/use-send-to-agent-chat.ts",
+  "packages/core/src/client/use-session.ts",
+]);
+
+const SLIDES_TYPING_CHAT_AGENTKIT_FILES = new Set([
+  "packages/agentkit/package.json",
+  "packages/agentkit/src/client/client.ts",
+  "packages/agentkit/src/client/index.ts",
+  "packages/agentkit/src/client/state.ts",
+  "packages/agentkit/src/index.ts",
+  "packages/agentkit/src/protocol/index.ts",
+]);
+
+const SLIDES_TYPING_CHAT_TOOLKIT_FILES = new Set([
+  "packages/toolkit/package.json",
+  "packages/toolkit/src/app/agentkit/react/chat.tsx",
+  "packages/toolkit/src/app/agentkit/react/components.tsx",
+  "packages/toolkit/src/app/agentkit/react/composer-submission.ts",
+  "packages/toolkit/src/app/agentkit/react/context.tsx",
+  "packages/toolkit/src/app/agentkit/react/index.ts",
+  "packages/toolkit/src/app/agentkit/react/root.tsx",
+  "packages/toolkit/src/app/chat/AgentKitAssistantChat.tsx",
+  "packages/toolkit/src/app/chat/AgentPanel.tsx",
+  "packages/toolkit/src/app/chat/AgentSidebar.tsx",
+  "packages/toolkit/src/app/chat/AgentSidebarPanel.tsx",
+  "packages/toolkit/src/app/chat/MultiTabAssistantChat.tsx",
+  "packages/toolkit/src/app/chat/agent-sidebar-context.ts",
+  "packages/toolkit/src/app/chat/agent-sidebar-events.ts",
+  "packages/toolkit/src/app/chat/agent-sidebar-url-sync.tsx",
+  "packages/toolkit/src/app/chat/agentkit-chat/history.tsx",
+  "packages/toolkit/src/app/chat/agentkit-chat/index.ts",
+  "packages/toolkit/src/app/chat/agentkit-chat/parity-renderers.tsx",
+  "packages/toolkit/src/app/chat/agentkit-chat/root.tsx",
+  "packages/toolkit/src/app/chat/chat/agent-approval-card.tsx",
+  "packages/toolkit/src/app/chat/chat/markdown-renderer.tsx",
+  "packages/toolkit/src/app/chat/chat/run-recovery.tsx",
+  "packages/toolkit/src/app/chat/chat/surface-types.ts",
+  "packages/toolkit/src/app/chat/chat/tool-call-display.tsx",
+  "packages/toolkit/src/app/chat/chat/tool-integration.tsx",
+  "packages/toolkit/src/app/chat/composer/assistant-ui-recovery.tsx",
+  "packages/toolkit/src/composer/AgentComposerFrame.tsx",
+  "packages/toolkit/src/composer/PromptComposer.tsx",
+  "packages/toolkit/src/composer/TiptapComposer.tsx",
+  "packages/toolkit/src/composer/attachment-accept.ts",
+  "packages/toolkit/src/composer/context-items.ts",
+  "packages/toolkit/src/composer/draft-key.ts",
+  "packages/toolkit/src/composer/index.ts",
+  "packages/toolkit/src/composer/pasted-text.ts",
+  "packages/toolkit/src/composer/prompt-attachments.ts",
+  "packages/toolkit/src/composer/runtime-adapters.tsx",
+  "packages/toolkit/src/composer/types.ts",
+]);
+
+const CONTENT_DB_ACTION_RUNTIME_FILES = new Set([
+  "templates/content/actions/_document-edit-mutation.ts",
+  "templates/content/actions/_comment-write-pool.test-fixture.ts",
+  "templates/content/actions/_blocks-field-identity.ts",
+  "templates/content/actions/_content-database-mutation-lock.ts",
+  "templates/content/actions/_content-favorites.ts",
+  "templates/content/actions/_content-files.ts",
+  "templates/content/actions/_database-membership-lock.ts",
+  "templates/content/actions/_database-setup-mutation.ts",
+  "templates/content/actions/_database-source-utils.ts",
+  "templates/content/actions/_document-save-locks.ts",
+  "templates/content/actions/_row-lock-order.ts",
+  "templates/content/actions/_position-utils.ts",
+  "templates/content/actions/bind-content-database-source-field.ts",
+  "templates/content/actions/cancel-prepared-builder-source-update.ts",
+  "templates/content/actions/export-document.ts",
+  "templates/content/actions/get-trashed-document.ts",
+  "templates/content/actions/import-content-source.ts",
+  "templates/content/actions/import-content.ts",
+  "templates/content/actions/list-content-databases.ts",
+  "templates/content/actions/list-content-trash.ts",
+  "templates/content/actions/migrate-content-database-rows.ts",
+  "templates/content/actions/move-database-item.ts",
+  "templates/content/actions/move-document.ts",
+  "templates/content/actions/patch-database-items.ts",
+  "templates/content/actions/react-to-comment.ts",
+  "templates/content/actions/record-live-body-parity.ts",
+  "templates/content/actions/resolve-content-landing.ts",
+  "templates/content/actions/resolve-content-links.ts",
+  "templates/content/actions/restore-document.ts",
+  "templates/content/actions/stage-builder-source-bulk-update.ts",
+  "templates/content/actions/submit-content-database-form.ts",
+  "templates/content/actions/suggest-document-edit.ts",
+  "templates/content/actions/undo-comment-ai-request.ts",
+  "templates/content/actions/update-document.ts",
+  "templates/content/actions/upsert-database-item-by-key.ts",
+  "scripts/test-content-database-lock-pglite.mjs",
+]);
+
+const CONTENT_CONVERGENCE_ACTION_FILES = new Set([
+  "templates/content/actions/add-comment.ts",
+  "templates/content/actions/create-document.ts",
+  "templates/content/actions/delete-document.ts",
+  "templates/content/actions/edit-document.ts",
+  "templates/content/actions/get-document.ts",
+  "templates/content/actions/get-trashed-document.ts",
+  "templates/content/actions/import-content.ts",
+  "templates/content/actions/list-comments.ts",
+  "templates/content/actions/list-document-history.ts",
+  "templates/content/actions/list-document-versions.ts",
+  "templates/content/actions/list-documents.ts",
+  "templates/content/actions/move-document.ts",
+  "templates/content/actions/permanently-delete-document.ts",
+  "templates/content/actions/plan-content-trash-purge.ts",
+  "templates/content/actions/pull-document.ts",
+  "templates/content/actions/react-to-comment.ts",
+  "templates/content/actions/restore-document.ts",
+  "templates/content/actions/restore-document-version.ts",
+  "templates/content/actions/suggest-document-edit.ts",
+  "templates/content/actions/update-comment.ts",
+  "templates/content/actions/update-document.ts",
+  "templates/content/server/lib/chatgpt-directory-tools.ts",
+]);
+
+const CONTENT_CONVERGENCE_SHARED_FILES = new Set([
+  "templates/content/shared/api.ts",
+  "templates/content/shared/builder-mdx.ts",
+  "templates/content/shared/content-source.ts",
+  "templates/content/shared/labs.ts",
+  "templates/content/shared/nfm-registry.ts",
+  "templates/content/shared/nfm.ts",
+  "templates/content/shared/suggestion-rebase.ts",
+  "templates/content/shared/suggestion-text.ts",
+]);
 
 const CHECK_NAMES = [
   "lint",
@@ -265,15 +565,158 @@ const CHECK_NAMES = [
   "design_canvas_core_regression",
   "design_canvas_broad_workflows",
   "pre_auth_session_replay_e2e",
-  "slides_chat_e2e",
+  "slides_caret_e2e",
+  "slides_typing_chat_e2e",
+  "slides_mobile_import_e2e",
+  "slides_text_surface_e2e",
   "slides_authoring_e2e",
   "slides_oracle",
   "changeset",
 ] as const;
 
+const SLOW_APP_CHECKS = [
+  "content",
+  "content_db",
+  "content_convergence",
+  "core_integration",
+  "plan_e2e",
+  "brain_evals",
+  "trusted_acceptance",
+  "scaffold",
+  "builder_code_starter_scaffold",
+  "deploy_paths",
+  "ssr_boot",
+  "agentkit_acceptance",
+  "neon_query_budget",
+  "neon_connection_budget",
+  "design_canvas_core_regression",
+  "design_canvas_broad_workflows",
+  "pre_auth_session_replay_e2e",
+  "slides_caret_e2e",
+  "slides_typing_chat_e2e",
+  "slides_mobile_import_e2e",
+  "slides_text_surface_e2e",
+  "slides_authoring_e2e",
+  "slides_oracle",
+] as const;
+
 const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
   "scripts/agent-friction-report.mjs",
   "scripts/ci-change-scope.test.ts",
+]);
+
+const CORE_BUILDER_CODE_SCAFFOLD_FILES = new Set([
+  "packages/core/src/cli/create.ts",
+  "packages/core/src/cli/create-workspace.ts",
+  "packages/core/src/cli/create-tui.tsx",
+  "packages/core/src/cli/index.ts",
+]);
+
+const CORE_BRAIN_EVAL_PATHS = [
+  "packages/core/src/action.ts",
+  "packages/core/src/action-",
+  "packages/core/src/application-state/",
+  "packages/core/src/cli/index.ts",
+  "packages/core/src/db/",
+  "packages/core/src/embeddings/",
+  "packages/core/src/private-blob/",
+  "packages/core/src/provider-api/",
+  "packages/core/src/resources/",
+  "packages/core/src/scripts/runner.ts",
+  "packages/core/src/search/",
+  "packages/core/src/search-utils/",
+  "packages/core/src/server/agent-discovery.ts",
+  "packages/core/src/server/index.ts",
+  "packages/core/src/server/request-context.ts",
+  "packages/core/src/settings/",
+  "packages/core/src/sharing/",
+  "packages/core/src/tracking/",
+  "packages/core/src/workspace-connections/",
+] as const;
+
+const BRAIN_EVAL_RUNTIME_PATHS = [
+  "templates/brain/actions/run-demo-eval.ts",
+  "templates/brain/actions/run-retrieval-eval.ts",
+  "templates/brain/actions/seed-demo-data.ts",
+  "templates/brain/agent-native.config.ts",
+  "templates/brain/agent-native.json",
+  "templates/brain/package.json",
+  "templates/brain/server/db/index.ts",
+  "templates/brain/server/db/schema.ts",
+  "templates/brain/server/lib/brain-health.ts",
+  "templates/brain/server/lib/brain.ts",
+  "templates/brain/server/lib/demo.ts",
+  "templates/brain/server/lib/search.ts",
+  "templates/brain/shared/types.ts",
+  "templates/brain/vitest.config.ts",
+] as const;
+
+const PLAN_E2E_RUNTIME_PATHS = [
+  "templates/plan/actions/create-visual-recap.ts",
+  "templates/plan/actions/create-visual-recap.e2e.spec.ts",
+  "templates/plan/actions/import-visual-plan-source.ts",
+  "templates/plan/package.json",
+  "templates/plan/server/db/index.ts",
+  "templates/plan/server/db/schema.ts",
+  "templates/plan/server/lib/local-identity.ts",
+  "templates/plan/server/lib/plan-org-context.ts",
+  "templates/plan/server/plan-mdx.ts",
+  "templates/plan/server/plans.ts",
+  "templates/plan/server/test-support/plans-test-schema.ts",
+  "templates/plan/vitest.config.ts",
+] as const;
+
+const CORE_AGENTKIT_ACCEPTANCE_PATHS = [
+  "packages/core/src/agent/",
+  "packages/core/src/client/agent-chat/",
+  "packages/core/src/client/auth/",
+  "packages/core/src/client/chat/",
+  "packages/core/src/server/action-routes.ts",
+  "packages/core/src/server/agent-chat-plugin.ts",
+  "packages/core/src/server/agent-chat/",
+  "packages/core/src/server/app-base-path.ts",
+  "packages/core/src/server/auth.ts",
+  "packages/core/src/server/framework-request-handler.ts",
+  "packages/core/src/server/index.ts",
+  "packages/core/src/server/onboarding-html.ts",
+  "packages/core/src/server/poll-events.ts",
+  "packages/core/src/server/poll.ts",
+  "packages/core/src/scripts/runner.ts",
+  "packages/core/src/templates/",
+  "packages/core/src/server/request-context.ts",
+] as const;
+
+const CORE_INTEGRATION_PATH_PREFIXES = [
+  "packages/core/src/agent/",
+  "packages/core/src/db/",
+  "packages/core/src/scripts/db/",
+] as const;
+
+const CORE_INTEGRATION_RUNTIME_FILES = new Set([
+  "packages/core/src/client/session-replay-iframe.e2e-host.tsx",
+  "packages/core/src/extensions/session-replay-iframe.ts",
+  "packages/core/src/secrets/crypto.ts",
+  "packages/core/src/server/action-routes.ts",
+  "packages/core/src/server/core-routes-plugin.ts",
+  "packages/core/src/server/embedded.ts",
+  "packages/core/src/server/framework-request-handler.ts",
+  "packages/core/src/server/request-context.ts",
+  "packages/core/src/session-replay-iframe-protocol.ts",
+  "templates/analytics/scripts/journey-capture-iframe-audit.ts",
+  "templates/design/app/components/templates/TemplatePreview.tsx",
+  "templates/design/shared/design-template-presets/social-story.ts",
+  "packages/toolkit/src/app/extensions/AgentNativeExtensionFrame.tsx",
+]);
+
+const CORE_INTEGRATION_TEST_FILES = new Set([
+  "packages/core/src/agent/engine/translate-ai-sdk.integration.spec.ts",
+  "packages/core/src/agent/run-loop-with-resume.integration.spec.ts",
+  "packages/core/src/agent/run-store.fencing.postgres.integration.spec.ts",
+  "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
+  "packages/core/src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts",
+  "packages/core/src/scripts/db/scope-isolation.e2e.spec.ts",
+  "packages/core/src/server/csrf-plugin-ordering.integration.spec.ts",
+  "packages/core/src/server/embedded.integration.spec.ts",
 ]);
 
 // Every first-party template the cold-request query budget builds and
@@ -317,6 +760,81 @@ export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
 
 type CheckName = (typeof CHECK_NAMES)[number];
 
+const GLOBAL_RUNTIME_INPUTS = new Set([
+  ".github/actions/setup-pnpm/action.yml",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]);
+
+const CORE_DEPLOY_PATHS = [
+  "packages/core/package.json",
+  "packages/core/src/action.ts",
+  "packages/core/src/action-",
+  "packages/core/src/db/",
+  "packages/core/src/server/action-routes.ts",
+  "packages/core/src/server/auth.ts",
+  "packages/core/src/server/core-routes-plugin.ts",
+  "packages/core/src/server/framework-request-handler.ts",
+  "packages/core/src/server/request-context.ts",
+] as const;
+
+const TOOLKIT_CHAT_RUNTIME_PATHS = [
+  "packages/toolkit/src/app/auth/",
+  "packages/toolkit/src/app/chat/agentkit-chat/",
+  "packages/toolkit/src/app/chat/chat/",
+  "packages/toolkit/src/app/chat/composer/",
+  "packages/toolkit/src/app/chat/conversation/",
+  "packages/toolkit/src/app/providers/",
+  "packages/toolkit/src/composer/",
+] as const;
+
+const AGENTKIT_PACKAGE_RUNTIME_PATHS = [
+  "packages/agentkit/src/adapters/",
+  "packages/agentkit/src/client/",
+  "packages/agentkit/src/conformance/",
+  "packages/agentkit/src/protocol/",
+  "packages/agentkit/src/chat-context.ts",
+  "packages/agentkit/src/index.ts",
+] as const;
+
+const TOOLKIT_AGENTKIT_RUNTIME_PATHS = [
+  "packages/toolkit/src/app/agentkit/",
+  "packages/toolkit/src/app/chat/AgentKitAssistantChat.tsx",
+  "packages/toolkit/src/app/chat/agentkit-chat/",
+  "packages/toolkit/src/app/chat/composer/",
+  "packages/toolkit/src/composer/",
+] as const;
+
+const TOOLKIT_SSR_BOOT_RUNTIME_PATHS = [
+  "packages/toolkit/src/app/agentkit/",
+  "packages/toolkit/src/app/auth/",
+  "packages/toolkit/src/app/blocks/",
+  "packages/toolkit/src/app/chat/",
+  "packages/toolkit/src/app/db-admin/",
+  "packages/toolkit/src/app/dev-overlay/",
+  "packages/toolkit/src/app/extensions/",
+  "packages/toolkit/src/app/feedback/",
+  "packages/toolkit/src/app/i18n/",
+  "packages/toolkit/src/app/org/",
+  "packages/toolkit/src/app/providers/",
+  "packages/toolkit/src/app/review/",
+  "packages/toolkit/src/app/settings/",
+  "packages/toolkit/src/app/shared/",
+  "packages/toolkit/src/app-shell/",
+  "packages/toolkit/src/clipboard/",
+  "packages/toolkit/src/collab-ui/",
+  "packages/toolkit/src/composer/",
+  "packages/toolkit/src/data-grid/",
+  "packages/toolkit/src/design-system/",
+  "packages/toolkit/src/editor/",
+  "packages/toolkit/src/hooks/use-mobile.ts",
+  "packages/toolkit/src/icons/",
+  "packages/toolkit/src/sharing/",
+  "packages/toolkit/src/ui/",
+  "packages/toolkit/src/utils/",
+] as const;
+
 export type CheckSelection = Record<CheckName, boolean>;
 
 export type ChangeScope = {
@@ -324,6 +842,7 @@ export type ChangeScope = {
   designCanvasE2eSpecs: string[];
   designCanvasE2eDiagnosticSpecs: string[];
   designCanvasE2eSpecCount: number;
+  designCanvasBroadWorkflowShards: string[];
   docsOnly: boolean;
   full: boolean;
   nonDocsPaths: string[];
@@ -333,7 +852,11 @@ export type ChangeScope = {
   scriptTests: string[];
   queryBudgetApps: string[];
   queryBudgetShards: QueryBudgetShard[];
+  scaffoldCli: boolean;
+  scaffoldWorkspace: boolean;
+  scaffoldWorkspaceApps: string[];
   ssrBootApps: string[];
+  trustedAcceptanceApps: string[];
 };
 
 export type QueryBudgetShard = { shard: string; apps: string[] };
@@ -613,6 +1136,34 @@ function isDeployGuidePath(path: string): boolean {
   return DEPLOY_GUIDE_PATHS.includes(normalizeChangedPath(path));
 }
 
+function isKnownFullPath(path: string): boolean {
+  return (
+    isWorkspacePath(path) ||
+    isDocsPath(path) ||
+    isInstructionPath(path) ||
+    isGuardScopedScriptPath(path) ||
+    isReadmePath(path) ||
+    FULL_CHECK_FILES.has(path) ||
+    path.startsWith(".github/") ||
+    path.startsWith("scripts/")
+  );
+}
+
+function hasUnknownFullPath(paths: readonly string[]): boolean {
+  return (
+    paths.length === 0 ||
+    paths.some((path) => !isKnownFullPath(normalizeChangedPath(path))) ||
+    (paths.some(isWorkspacePath) &&
+      workspaceFiltersForPaths(paths).length === 0)
+  );
+}
+
+function hasGlobalRuntimeInput(paths: readonly string[]): boolean {
+  return paths.some((path) =>
+    GLOBAL_RUNTIME_INPUTS.has(normalizeChangedPath(path)),
+  );
+}
+
 function isDesignCanvasE2eSpecPath(path: string): boolean {
   return (
     path.startsWith("templates/design/e2e/") &&
@@ -639,6 +1190,17 @@ function isDesignCanvasE2eSupportPath(path: string): boolean {
     ) &&
     !/\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path) &&
     !DESIGN_CANVAS_PIN_ATTESTATION_FILES.has(path)
+  );
+}
+
+function isDesignCanvasDependencyPath(path: string): boolean {
+  return (
+    DESIGN_CANVAS_IMPORT_GRAPH_ROOTS.some((root) =>
+      path.startsWith(`${root}/`),
+    ) &&
+    DESIGN_CANVAS_E2E_SOURCE_RE.test(path) &&
+    !DESIGN_CANVAS_PIN_ATTESTATION_FILES.has(path) &&
+    !/\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
   );
 }
 
@@ -806,7 +1368,6 @@ function moduleSpecifiersInE2eSource(source: string): {
 }
 
 function designCanvasE2eSourcePaths(repositoryRoot: string): string[] {
-  const root = join(repositoryRoot, DESIGN_CANVAS_E2E_ROOT);
   const paths: string[] = [];
   const visit = (directory: string) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -824,7 +1385,10 @@ function designCanvasE2eSourcePaths(repositoryRoot: string): string[] {
     }
   };
 
-  visit(root);
+  for (const rootPath of DESIGN_CANVAS_IMPORT_GRAPH_ROOTS) {
+    const root = join(repositoryRoot, rootPath);
+    if (existsSync(root)) visit(root);
+  }
   return paths.sort();
 }
 
@@ -837,7 +1401,7 @@ function designCanvasE2ePathsFromGit(repositoryRoot: string): string[] {
       "--others",
       "--exclude-standard",
       "--",
-      DESIGN_CANVAS_E2E_ROOT,
+      ...DESIGN_CANVAS_IMPORT_GRAPH_ROOTS,
     ],
     { encoding: "utf8", cwd: repositoryRoot },
   );
@@ -912,7 +1476,10 @@ export function designCanvasE2eSpecsForPaths(
   const isTargetSpec = (path: string) =>
     isEligibleDesignCanvasE2eSpecPath(path, includePreAuthSessionReplay);
   const directSpecs = changedPaths.filter(isTargetSpec);
-  const changedHelpers = changedPaths.filter(isDesignCanvasE2eSupportPath);
+  const changedHelpers = changedPaths.filter(
+    (path) =>
+      isDesignCanvasE2eSupportPath(path) || isDesignCanvasDependencyPath(path),
+  );
   if (changedHelpers.length === 0) return [...new Set(directSpecs)].sort();
 
   let sourcePaths: string[];
@@ -942,7 +1509,9 @@ export function designCanvasE2eSpecsForPaths(
       const modules = moduleSpecifiersInE2eSource(
         readFileSync(join(repositoryRoot, sourcePath), "utf8"),
       );
-      uncertainDependency ||= modules.uncertain;
+      if (sourcePath.startsWith(`${DESIGN_CANVAS_E2E_ROOT}/`)) {
+        uncertainDependency ||= modules.uncertain;
+      }
       for (const specifier of modules.specifiers) {
         for (const importedPath of relativeE2eImportTargets(
           sourcePath,
@@ -983,9 +1552,9 @@ export function designCanvasE2eSpecsForPaths(
       }
     }
 
-    if (consumers.size === 0) {
+    if (consumers.size === 0 && isDesignCanvasE2eSupportPath(helperPath)) {
       for (const spec of allEligibleSpecs()) selectedSpecs.add(spec);
-    } else {
+    } else if (consumers.size > 0) {
       for (const spec of consumers) selectedSpecs.add(spec);
     }
   }
@@ -996,27 +1565,254 @@ export function designCanvasE2eSpecsForPaths(
 function isDesignDndRuntimePath(path: string): boolean {
   if (
     DESIGN_CANVAS_E2E_FILES.has(path) ||
-    DESIGN_CANVAS_CONFIG_FILES.has(path) ||
-    isDesignCanvasE2eSpecPath(path) ||
-    isDesignCanvasE2eSupportPath(path)
+    DESIGN_CANVAS_CONFIG_FILES.has(path)
   ) {
     return true;
   }
 
-  const designAppSource =
-    path.startsWith("templates/design/app/") &&
-    !path.startsWith("templates/design/app/i18n/") &&
-    !path.startsWith("templates/design/app/assets/") &&
-    !/\/i18n-[^/]+\.ts$/u.test(path) &&
-    /\.(?:[cm]?[jt]sx?|css)$/u.test(path);
-  const designSharedRuntimeSource =
-    (path.startsWith("templates/design/actions/") ||
-      path.startsWith("templates/design/server/") ||
-      path.startsWith("templates/design/shared/") ||
-      path.startsWith("templates/design/.generated/bridge/")) &&
-    /\.(?:[cm]?[jt]sx?)$/u.test(path);
+  if (isSsrBootSourcePath(path)) {
+    return (
+      [
+        "templates/design/app/components/design/design-canvas/",
+        "templates/design/app/components/design/multi-screen/",
+        "templates/design/app/pages/design-editor/",
+      ].some((prefix) => path.startsWith(prefix)) ||
+      [
+        "templates/design/app/pages/DesignEditor.tsx",
+        "templates/design/app/components/MultiScreenCanvas.tsx",
+        "templates/design/actions/edit-design.ts",
+        "templates/design/actions/update-file.ts",
+        "templates/design/actions/update-design.ts",
+        "templates/design/actions/update-screen-source.ts",
+        "templates/design/server/handlers/design.ts",
+        "templates/design/server/db/index.ts",
+        "templates/design/server/db/schema.ts",
+        "templates/design/shared/canvas-frames.ts",
+        "templates/design/shared/canvas-math.ts",
+        "templates/design/shared/code-layer.ts",
+        "templates/design/shared/pen-path.ts",
+        "templates/design/shared/responsive-frame-layout.ts",
+        "templates/design/.generated/bridge/editor-chrome.generated.ts",
+      ].includes(path)
+    );
+  }
 
-  return designAppSource || designSharedRuntimeSource;
+  return false;
+}
+
+function isSlidesEditFidelityHarnessPath(path: string): boolean {
+  if (!path.startsWith("templates/slides/scripts/edit-fidelity/")) {
+    return false;
+  }
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    /\.[cm]?[jt]sx?$/u.test(path) ||
+    (path.startsWith("templates/slides/scripts/edit-fidelity/corpus/") &&
+      path.endsWith(".json"))
+  );
+}
+
+function isSlidesAuthoringPath(path: string): boolean {
+  return (
+    SLIDES_TEXT_AUTHORING_FILES.has(path) ||
+    isSlidesEditFidelityHarnessPath(path) ||
+    [
+      "templates/slides/agent-native.config.ts",
+      "templates/slides/agent-native.json",
+      "templates/slides/package.json",
+      "templates/slides/react-router.config.ts",
+      "templates/slides/vite.config.ts",
+    ].includes(path)
+  );
+}
+
+function isSlidesEditFidelityHarnessCodePath(path: string): boolean {
+  return isSlidesEditFidelityHarnessPath(path) && !path.includes("/corpus/");
+}
+
+function isSlidesCaretPath(path: string): boolean {
+  if (SLIDES_CARET_APP_FILES.has(path)) return true;
+  return isSlidesEditFidelityHarnessCodePath(path);
+}
+
+function isSlidesMobileImportPath(path: string): boolean {
+  return (
+    SLIDES_MOBILE_IMPORT_FILES.has(path) ||
+    isSlidesMobileImportSharedRuntimePath(path) ||
+    isSlidesEditFidelityHarnessCodePath(path)
+  );
+}
+
+function isSlidesTextSurfacePath(path: string): boolean {
+  return (
+    SLIDES_TEXT_SURFACE_FILES.has(path) ||
+    isSlidesTextSurfaceSharedRuntimePath(path) ||
+    isSlidesEditFidelityHarnessCodePath(path)
+  );
+}
+
+function isSlidesTypingChatPath(path: string): boolean {
+  return (
+    SLIDES_TYPING_CHAT_FILES.has(path) ||
+    isSlidesEditFidelityHarnessCodePath(path)
+  );
+}
+
+function isSlidesCaretSharedRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return ["packages/toolkit/src/canvas-interactions/"].some((prefix) =>
+    path.startsWith(prefix),
+  );
+}
+
+function isSlidesMobileImportSharedRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    SLIDES_MOBILE_IMPORT_TOOLKIT_FILES.has(path) ||
+    SLIDES_MOBILE_IMPORT_CORE_FILES.has(path)
+  );
+}
+
+function isSlidesTextSurfaceSharedRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    SLIDES_TEXT_SURFACE_TOOLKIT_FILES.has(path) ||
+    SLIDES_TEXT_SURFACE_CORE_FILES.has(path)
+  );
+}
+
+function isSlidesTypingChatSharedRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    SLIDES_TYPING_CHAT_CORE_FILES.has(path) ||
+    SLIDES_TYPING_CHAT_AGENTKIT_FILES.has(path) ||
+    SLIDES_TYPING_CHAT_TOOLKIT_FILES.has(path)
+  );
+}
+
+function isCoreScaffoldRuntimePath(path: string): boolean {
+  return (
+    CORE_BUILDER_CODE_SCAFFOLD_FILES.has(path) ||
+    path.startsWith("packages/core/src/templates/") ||
+    path === "packages/core/package.json"
+  );
+}
+
+function isCorePlanE2eRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    path === "packages/core/package.json" ||
+    path === "packages/core/src/index.ts" ||
+    path === "packages/core/src/action.ts" ||
+    path === "packages/core/src/blocks/server.ts" ||
+    path === "packages/core/src/server/request-context.ts" ||
+    path.startsWith("packages/core/src/sharing/")
+  );
+}
+
+function isCoreBrainEvalRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  if (path === "packages/core/package.json") return true;
+  return CORE_BRAIN_EVAL_PATHS.some((prefix) =>
+    prefix.endsWith("/") || prefix.endsWith("-")
+      ? path.startsWith(prefix)
+      : path === prefix,
+  );
+}
+
+function isBrainEvalRuntimePath(path: string): boolean {
+  return BRAIN_EVAL_RUNTIME_PATHS.some((candidate) => candidate === path);
+}
+
+function isPlanE2eRuntimePath(path: string): boolean {
+  return PLAN_E2E_RUNTIME_PATHS.some((candidate) => candidate === path);
+}
+
+function isCoreAgentkitAcceptanceRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    path === "packages/core/package.json" ||
+    path === "packages/core/src/action.ts" ||
+    path === "packages/core/src/cli/index.ts" ||
+    path === "packages/core/src/client/use-action.ts" ||
+    path === "packages/core/src/index.ts" ||
+    CORE_BUILDER_CODE_SCAFFOLD_FILES.has(path) ||
+    CORE_AGENTKIT_ACCEPTANCE_PATHS.some((prefix) => path.startsWith(prefix))
+  );
+}
+
+function isCoreContentParityRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    path === "packages/core/package.json" ||
+    path === "packages/core/src/action.ts" ||
+    path.startsWith("packages/core/src/action-") ||
+    path.startsWith("packages/core/src/eval/") ||
+    path.startsWith("packages/core/src/private-blob/") ||
+    isContentDbCoreRuntimePath(path)
+  );
+}
+
+function isCoreDeployRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    CORE_BUILDER_CODE_SCAFFOLD_FILES.has(path) ||
+    CORE_DEPLOY_PATHS.some((prefix) =>
+      prefix.endsWith("/") || prefix.endsWith("-")
+        ? path.startsWith(prefix)
+        : path === prefix,
+    ) ||
+    path.startsWith("packages/core/src/templates/")
+  );
+}
+
+function isDeployPathsRuntimePath(path: string): boolean {
+  return (
+    isCoreDeployRuntimePath(path) ||
+    isAgentKitPackageAcceptanceRuntimePath(path) ||
+    isToolkitChatRuntimePath(path) ||
+    path === "packages/agentkit/package.json" ||
+    path === "packages/toolkit/package.json" ||
+    path === "packages/otel/package.json" ||
+    path.startsWith("packages/otel/src/") ||
+    path.startsWith("packages/shared-app-config/") ||
+    path.startsWith("templates/chat/") ||
+    /^scripts\/qa-deploy-paths(?:\.ts|-lib\.ts|-cloud\.ts)$/u.test(path) ||
+    isDeployGuidePath(path)
+  );
+}
+
+function isToolkitChatRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return TOOLKIT_CHAT_RUNTIME_PATHS.some((prefix) => path.startsWith(prefix));
+}
+
+function isToolkitAgentKitAcceptanceRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    TOOLKIT_AGENTKIT_RUNTIME_PATHS.some((prefix) => path.startsWith(prefix)) ||
+    path === "packages/toolkit/package.json"
+  );
+}
+
+function isAgentKitPackageAcceptanceRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    path === "packages/agentkit/package.json" ||
+    AGENTKIT_PACKAGE_RUNTIME_PATHS.some((prefix) =>
+      prefix.endsWith("/") ? path.startsWith(prefix) : path === prefix,
+    )
+  );
+}
+
+function isCoreIntegrationRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) {
+    return CORE_INTEGRATION_TEST_FILES.has(path);
+  }
+  return (
+    CORE_INTEGRATION_RUNTIME_FILES.has(path) ||
+    CORE_INTEGRATION_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
 }
 
 function isContentConvergenceRuntimePath(path: string): boolean {
@@ -1036,22 +1832,26 @@ function isContentConvergenceRuntimePath(path: string): boolean {
 
   // Most Toolkit changes are chat and shell UI that cannot lose page text.
   const toolkitEditorSource =
-    path.startsWith("packages/toolkit/src/editor/") ||
-    path.startsWith("packages/toolkit/src/collab-ui/") ||
-    path === "packages/toolkit/package.json";
+    ["packages/toolkit/src/editor/", "packages/toolkit/src/collab-ui/"].some(
+      (prefix) => path.startsWith(prefix),
+    ) || path === "packages/toolkit/package.json";
+  const contentEditorSource =
+    path === "templates/content/app/routes/page.$id.tsx" ||
+    path === "templates/content/app/root.tsx" ||
+    path === "templates/content/app/hooks/use-db-sync.ts" ||
+    path.startsWith("templates/content/app/components/editor/");
+  const contentDbRuntimeSource =
+    path.startsWith("templates/content/server/db/") ||
+    [
+      "templates/content/server/plugins/auth.ts",
+      "templates/content/server/plugins/db.ts",
+      "templates/content/shared/content-editor-structural-schema.generated.json",
+      "templates/content/shared/document-intent-merge.ts",
+    ].includes(path) ||
+    CONTENT_CONVERGENCE_ACTION_FILES.has(path) ||
+    CONTENT_CONVERGENCE_SHARED_FILES.has(path);
 
-  const contentAppSource =
-    path.startsWith("templates/content/app/") &&
-    !path.startsWith("templates/content/app/i18n/") &&
-    !/\/i18n-[^/]+\.ts$/u.test(path) &&
-    /\.(?:[cm]?[jt]sx?|css)$/u.test(path);
-  const contentSharedRuntimeSource =
-    (path.startsWith("templates/content/actions/") ||
-      path.startsWith("templates/content/server/") ||
-      path.startsWith("templates/content/shared/")) &&
-    /\.(?:[cm]?[jt]sx?|json)$/u.test(path);
-
-  return toolkitEditorSource || contentAppSource || contentSharedRuntimeSource;
+  return toolkitEditorSource || contentEditorSource || contentDbRuntimeSource;
 }
 
 function isContentDbCoreRuntimePath(path: string): boolean {
@@ -1059,6 +1859,50 @@ function isContentDbCoreRuntimePath(path: string): boolean {
   return (
     CONTENT_DB_CORE_FILES.has(path) ||
     CONTENT_DB_CORE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  );
+}
+
+function isContentDbRuntimePath(path: string): boolean {
+  if (
+    CONTENT_DB_ACTION_RUNTIME_FILES.has(path) ||
+    path === "templates/content/vitest.config.ts" ||
+    path === "templates/content/package.json" ||
+    path === "templates/content/actions/_comment-write-pool.test-fixture.ts" ||
+    path === "templates/content/server/plugins/db.ts" ||
+    path === "templates/content/server/db/index.ts" ||
+    path === "templates/content/server/db/schema.ts" ||
+    [
+      "templates/content/server/lib/document-history.ts",
+      "templates/content/server/lib/private-icon-references.ts",
+      "templates/content/server/lib/startup-maintenance.ts",
+      "templates/content/server/lib/suggested-edits.ts",
+    ].includes(path) ||
+    (path.startsWith("templates/content/acceptance/") &&
+      /(?:\.db\.test\.[cm]?[jt]sx?|\.(?:ts|tsx|json))$/u.test(path)) ||
+    (path.startsWith("templates/content/actions/") &&
+      /\.(?:db|postgres\.integration)\.test\.[cm]?[jt]sx?$/u.test(path))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isTemplatePackageBuildRuntimePath(path: string, pkg: string): boolean {
+  if (
+    [
+      `packages/${pkg}/package.json`,
+      `packages/${pkg}/tsconfig.json`,
+      `packages/${pkg}/tsup.config.ts`,
+      `packages/${pkg}/vite.config.ts`,
+    ].includes(path)
+  ) {
+    return true;
+  }
+  if (!path.startsWith(`packages/${pkg}/src/`)) return false;
+  if (!/\.[cm]?[jt]sx?$/u.test(path)) return false;
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return !/(?:^|\/)(?:__tests__|tests?|fixtures?|__fixtures__|e2e|docs)(?:\/|$)/u.test(
+    path.slice(`packages/${pkg}/`.length),
   );
 }
 
@@ -1073,13 +1917,43 @@ function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
 
 function measuresEveryQueryBudgetApp(paths: readonly string[]): boolean {
   return (
-    hasPath(paths, "packages/core/") ||
-    hasPath(paths, "scripts/neon-query-budget")
+    paths.some(isCoreQueryBudgetRuntimePath) ||
+    paths.some(isQueryBudgetRuntimePath)
+  );
+}
+
+function isQueryBudgetRuntimePath(path: string): boolean {
+  return (
+    path === "scripts/neon-query-budget.ts" ||
+    path === "scripts/neon-query-budgets.json"
+  );
+}
+
+function isCoreQueryBudgetRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    isCoreDatabaseRuntimePath(path) ||
+    path === "packages/core/src/action.ts" ||
+    path.startsWith("packages/core/src/action-") ||
+    path.startsWith("packages/core/src/server/action-")
+  );
+}
+
+function isCoreDatabaseRuntimePath(path: string): boolean {
+  return (
+    path.startsWith("packages/core/src/db/") &&
+    /\.[cm]?[jt]sx?$/u.test(path) &&
+    !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)
   );
 }
 
 function changedQueryBudgetApps(paths: readonly string[]): string[] {
-  return QUERY_BUDGET_APPS.filter((app) => hasPath(paths, `templates/${app}/`));
+  return QUERY_BUDGET_APPS.filter((app) =>
+    paths.some(
+      (path) =>
+        !/\.(?:css|svg)$/u.test(path) && isTemplateRuntimePath(path, app),
+    ),
+  );
 }
 
 function queryBudgetAppsFor(
@@ -1092,12 +1966,20 @@ function queryBudgetAppsFor(
     return [...QUERY_BUDGET_APPS];
   }
   const selectedApps = new Set(changedQueryBudgetApps(changedPaths));
-  if (hasPath(changedPaths, "packages/creative-context/")) {
+  if (changedPaths.some(isCreativeContextQueryBudgetRuntimePath)) {
     for (const app of CREATIVE_CONTEXT_QUERY_BUDGET_APPS) {
       selectedApps.add(app);
     }
   }
   return QUERY_BUDGET_APPS.filter((app) => selectedApps.has(app));
+}
+
+function isCreativeContextQueryBudgetRuntimePath(path: string): boolean {
+  return (
+    path === "packages/creative-context/package.json" ||
+    (path.startsWith("packages/creative-context/src/") &&
+      isSsrBootSourcePath(path))
+  );
 }
 
 export function shardQueryBudgetApps(
@@ -1115,14 +1997,78 @@ export function shardQueryBudgetApps(
 }
 
 function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
+  return (
+    paths.some(isCoreSsrBootRuntimePath) ||
+    paths.some(isToolkitSsrBootRuntimePath) ||
+    paths.some(isSsrBootAuxiliaryPackageRuntimePath) ||
+    paths.includes("scripts/ssr-boot-smoke.mjs")
+  );
+}
+
+function isToolkitSsrBootRuntimePath(path: string): boolean {
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+  return (
+    path === "packages/toolkit/package.json" ||
+    (isSsrBootSourcePath(path) &&
+      TOOLKIT_SSR_BOOT_RUNTIME_PATHS.some((prefix) => path.startsWith(prefix)))
+  );
+}
+
+function isCoreSsrBootRuntimePath(path: string): boolean {
+  if (!isSsrBootSourcePath(path)) return false;
   return [
-    "packages/core/",
+    "packages/core/package.json",
+    "packages/core/src/app-config/",
+    "packages/core/src/db/",
+    "packages/core/src/server/",
+    "packages/core/src/vite/",
+  ].some((prefix) => path === prefix || path.startsWith(prefix));
+}
+
+function isSsrBootAuxiliaryPackageRuntimePath(path: string): boolean {
+  if (!isSsrBootSourcePath(path)) return false;
+  return [
     "packages/otel/",
-    "packages/toolkit/",
     "packages/recap-cli/",
     "packages/creative-context/",
-    "packages/otel/",
-  ].some((prefix) => hasPath(paths, prefix));
+  ].some(
+    (prefix) =>
+      path === `${prefix}package.json` || path.startsWith(`${prefix}src/`),
+  );
+}
+
+function isSsrBootSourcePath(path: string): boolean {
+  return (
+    !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path) &&
+    /\.(?:[cm]?[jt]sx?|css|json|svg)$/u.test(path)
+  );
+}
+
+function isSsrBootTemplateRuntimePath(path: string, app: string): boolean {
+  return isTemplateRuntimePath(path, app);
+}
+
+function isTemplateRuntimePath(path: string, app: string): boolean {
+  const root = `templates/${app}/`;
+  if (!path.startsWith(root)) return false;
+  const relativePath = path.slice(root.length);
+  if (
+    relativePath === "package.json" ||
+    TEMPLATE_RUNTIME_ENTRYPOINTS.has(relativePath)
+  ) {
+    return true;
+  }
+  if (!isSsrBootSourcePath(path)) return false;
+  if (
+    /(?:^|\/)(?:__tests__|tests?|fixtures?|__fixtures__|__snapshots__|__mocks__|e2e|evals|docs)(?:\/|$)/u.test(
+      relativePath,
+    )
+  ) {
+    return false;
+  }
+  return ["app/", "actions/", "server/", "shared/", ".generated/bridge/"].some(
+    (prefix) => relativePath.startsWith(prefix),
+  );
 }
 
 function ssrBootAppsFor(
@@ -1135,13 +2081,136 @@ function ssrBootAppsFor(
     return [...SSR_BOOT_APPS];
   }
   return SSR_BOOT_APPS.filter((app) =>
-    hasPath(changedPaths, `templates/${app}/`),
+    changedPaths.some((path) => isSsrBootTemplateRuntimePath(path, app)),
   );
+}
+
+function trustedAcceptanceAppsFor(
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): string[] {
+  if (!checks.trusted_acceptance) return [];
+  const apps = ["calendar", "content"];
+  if (full) return apps;
+  return apps.filter((app) =>
+    changedPaths.some((path) => isTemplateRuntimePath(path, app)),
+  );
+}
+
+function designCanvasBroadWorkflowShardsFor(
+  specs: readonly string[],
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): string[] {
+  if (!checks.design_canvas_broad_workflows) return [];
+  if (full) return [...DESIGN_BROAD_WORKFLOW_SHARDS.values()];
+  if (
+    changedPaths.some((path) =>
+      DESIGN_CANVAS_CONFIG_FILES.has(normalizeChangedPath(path)),
+    )
+  ) {
+    return [...DESIGN_BROAD_WORKFLOW_SHARDS.values()];
+  }
+  return [
+    ...new Set(
+      specs.flatMap((path) => {
+        const shard = DESIGN_BROAD_WORKFLOW_SHARDS.get(path);
+        return shard ? [shard] : [];
+      }),
+    ),
+  ];
+}
+
+function scaffoldCliFor(
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): boolean {
+  if (!checks.scaffold) return false;
+  if (full) return true;
+  return (
+    changedPaths.some((path) => CORE_BUILDER_CODE_SCAFFOLD_FILES.has(path)) ||
+    changedPaths.some((path) =>
+      path.startsWith("packages/core/src/templates/headless/"),
+    ) ||
+    changedPaths.some((path) => isTemplateRuntimePath(path, "chat"))
+  );
+}
+
+function scaffoldWorkspaceFor(
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): boolean {
+  if (!checks.scaffold) return false;
+  if (full) return true;
+  return (
+    changedPaths.some((path) => CORE_BUILDER_CODE_SCAFFOLD_FILES.has(path)) ||
+    changedPaths.some((path) => path === "packages/core/package.json") ||
+    changedPaths.some((path) =>
+      [
+        "packages/core/src/templates/workspace-root/",
+        "packages/core/src/templates/workspace-core/",
+      ].some((prefix) => path.startsWith(prefix)),
+    ) ||
+    changedPaths.some((path) => isTemplateRuntimePath(path, "chat")) ||
+    changedPaths.some((path) => isTemplateRuntimePath(path, "calendar")) ||
+    changedPaths.some((path) => isTemplateRuntimePath(path, "dispatch")) ||
+    changedPaths.some((path) =>
+      isTemplatePackageBuildRuntimePath(path, "dispatch"),
+    ) ||
+    changedPaths.some((path) =>
+      isTemplatePackageBuildRuntimePath(path, "scheduling"),
+    )
+  );
+}
+
+function scaffoldWorkspaceAppsFor(
+  changedPaths: readonly string[],
+  full: boolean,
+  checks: CheckSelection,
+): string[] {
+  if (!scaffoldWorkspaceFor(changedPaths, full, checks)) return [];
+  if (
+    full ||
+    changedPaths.some((path) => CORE_BUILDER_CODE_SCAFFOLD_FILES.has(path)) ||
+    changedPaths.some((path) => path === "packages/core/package.json") ||
+    changedPaths.some((path) =>
+      [
+        "packages/core/src/templates/workspace-root/",
+        "packages/core/src/templates/workspace-core/",
+      ].some((prefix) => path.startsWith(prefix)),
+    )
+  ) {
+    return ["calendar", "dispatch"];
+  }
+
+  const apps: string[] = [];
+  if (
+    changedPaths.some((path) => isTemplateRuntimePath(path, "calendar")) ||
+    changedPaths.some((path) =>
+      isTemplatePackageBuildRuntimePath(path, "scheduling"),
+    )
+  ) {
+    apps.push("calendar");
+  }
+  if (
+    changedPaths.some((path) => isTemplateRuntimePath(path, "dispatch")) ||
+    changedPaths.some((path) =>
+      isTemplatePackageBuildRuntimePath(path, "dispatch"),
+    )
+  ) {
+    apps.push("dispatch");
+  }
+  return apps;
 }
 
 function buildChecks(
   changedPaths: readonly string[],
   full: boolean,
+  repositoryRoot = process.cwd(),
 ): CheckSelection {
   if (full) {
     const checks = Object.fromEntries(
@@ -1154,6 +2223,15 @@ function buildChecks(
       checks.neon_query_budget = false;
       checks.neon_connection_budget = false;
     }
+    if (
+      !hasUnknownFullPath(changedPaths) &&
+      !hasGlobalRuntimeInput(changedPaths)
+    ) {
+      const scopedChecks = buildChecks(changedPaths, false, repositoryRoot);
+      for (const name of SLOW_APP_CHECKS) {
+        checks[name] = scopedChecks[name];
+      }
+    }
     return checks;
   }
 
@@ -1161,89 +2239,102 @@ function buildChecks(
   const instructionsChanged = changedPaths.some(isInstructionPath);
   const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
   const readmeChanged = changedPaths.some(isReadmePath);
-  const coreChanged = hasPath(changedPaths, "packages/core/");
-  const toolkitChanged = hasPath(changedPaths, "packages/toolkit/");
-  const agentkitChanged = hasPath(changedPaths, "packages/agentkit/");
-  const sharedAppConfigChanged = hasPath(
-    changedPaths,
-    "packages/shared-app-config/",
+  const chatRuntimeChanged = changedPaths.some((path) =>
+    isTemplateRuntimePath(path, "chat"),
   );
-  const chatChanged = hasPath(changedPaths, "templates/chat/");
   const schedulingChanged = hasPath(changedPaths, "packages/scheduling/");
-  const dispatchChanged = hasPath(changedPaths, "packages/dispatch/");
+  const schedulingRuntimeChanged = changedPaths.some((path) =>
+    isTemplatePackageBuildRuntimePath(path, "scheduling"),
+  );
+  const dispatchPackageRuntimeChanged = changedPaths.some((path) =>
+    isTemplatePackageBuildRuntimePath(path, "dispatch"),
+  );
   const contentChanged = hasPath(changedPaths, "templates/content/");
-  const calendarChanged = hasPath(changedPaths, "templates/calendar/");
+  const contentRuntimeChanged = changedPaths.some((path) =>
+    isTemplateRuntimePath(path, "content"),
+  );
+  const calendarRuntimeChanged = changedPaths.some((path) =>
+    isTemplateRuntimePath(path, "calendar"),
+  );
+  const dispatchTemplateRuntimeChanged = changedPaths.some((path) =>
+    isTemplateRuntimePath(path, "dispatch"),
+  );
   const templateChanged = hasPath(changedPaths, "templates/");
   const planChanged = hasPath(changedPaths, "templates/plan/");
-  const brainChanged = hasPath(changedPaths, "templates/brain/");
   const clipsChanged = hasPath(changedPaths, "templates/clips/");
   const assetsChanged = hasPath(changedPaths, "templates/assets/");
   const neonQueryBudgetChanged =
     measuresEveryQueryBudgetApp(changedPaths) ||
-    hasPath(changedPaths, "packages/creative-context/") ||
+    changedPaths.some(isCreativeContextQueryBudgetRuntimePath) ||
     changedQueryBudgetApps(changedPaths).length > 0;
-  const slidesE2eChanged =
-    hasPath(changedPaths, "templates/slides/") ||
-    coreChanged ||
-    toolkitChanged ||
-    hasPath(changedPaths, "packages/creative-context/");
-  const slidesChatE2eChanged = slidesE2eChanged || agentkitChanged;
-  const designCanvasInteractionE2eChanged =
-    changedPaths.some(isDesignDndRuntimePath) ||
-    coreChanged ||
-    toolkitChanged ||
-    agentkitChanged ||
-    hasPath(changedPaths, "packages/creative-context/");
+  const slidesCaretE2eChanged =
+    changedPaths.some(isSlidesCaretPath) ||
+    changedPaths.some(isSlidesCaretSharedRuntimePath);
+  const slidesTypingChatE2eChanged =
+    changedPaths.some(isSlidesTypingChatPath) ||
+    changedPaths.some(isSlidesTypingChatSharedRuntimePath);
+  const designCanvasInteractionE2eChanged = changedPaths.some(
+    isDesignDndRuntimePath,
+  );
   const designCanvasPinAttestationChanged = changedPaths.some((path) =>
     DESIGN_CANVAS_PIN_ATTESTATION_FILES.has(path),
   );
   const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
     PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),
   );
+  const slidesMobileImportE2eChanged = changedPaths.some(
+    isSlidesMobileImportPath,
+  );
+  const slidesTextSurfaceE2eChanged = changedPaths.some(
+    isSlidesTextSurfacePath,
+  );
   const contentConvergenceChanged = changedPaths.some(
     isContentConvergenceRuntimePath,
   );
   const contentDbCoreChanged = changedPaths.some(isContentDbCoreRuntimePath);
+  const contentDbChanged =
+    contentDbCoreChanged || changedPaths.some(isContentDbRuntimePath);
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
     fast_tests: workspaceChanged || instructionsChanged,
-    content: contentChanged || coreChanged || schedulingChanged,
-    content_db: contentChanged || contentDbCoreChanged,
-    content_convergence: contentConvergenceChanged,
-    core_integration: coreChanged || toolkitChanged,
-    plan_e2e: coreChanged || planChanged,
-    brain_evals: coreChanged || brainChanged,
-    build: workspaceChanged || instructionsChanged,
-    trusted_acceptance:
-      coreChanged || contentChanged || calendarChanged || dispatchChanged,
-    scaffold:
-      coreChanged ||
-      dispatchChanged ||
+    content:
+      contentChanged ||
       schedulingChanged ||
-      chatChanged ||
-      calendarChanged ||
-      hasPath(changedPaths, "templates/dispatch/"),
+      changedPaths.some(isCoreContentParityRuntimePath),
+    content_db: contentDbChanged,
+    content_convergence: contentConvergenceChanged,
+    core_integration: changedPaths.some(isCoreIntegrationRuntimePath),
+    plan_e2e:
+      changedPaths.some(isPlanE2eRuntimePath) ||
+      changedPaths.some(isCorePlanE2eRuntimePath),
+    brain_evals:
+      changedPaths.some(isBrainEvalRuntimePath) ||
+      changedPaths.some(isCoreBrainEvalRuntimePath),
+    build: workspaceChanged || instructionsChanged,
+    trusted_acceptance: contentRuntimeChanged || calendarRuntimeChanged,
+    scaffold:
+      changedPaths.some(isCoreScaffoldRuntimePath) ||
+      chatRuntimeChanged ||
+      calendarRuntimeChanged ||
+      dispatchTemplateRuntimeChanged ||
+      schedulingRuntimeChanged ||
+      dispatchPackageRuntimeChanged,
     // The bundled Builder Code starter is a layer in core over templates/chat.
-    builder_code_starter_scaffold: coreChanged || chatChanged,
-    // Installs the packages a standalone Chat app depends on, so a change to
-    // any of them can break a deploy path.
-    deploy_paths:
-      coreChanged ||
-      toolkitChanged ||
-      agentkitChanged ||
-      sharedAppConfigChanged ||
-      hasPath(changedPaths, "packages/otel/") ||
-      hasPath(changedPaths, "packages/recap-cli/") ||
-      chatChanged ||
-      changedPaths.some(isDeployGuidePath),
+    builder_code_starter_scaffold:
+      changedPaths.some((path) => CORE_BUILDER_CODE_SCAFFOLD_FILES.has(path)) ||
+      hasPath(
+        changedPaths,
+        "packages/core/src/templates/builder-code-starter/",
+      ) ||
+      chatRuntimeChanged,
+    deploy_paths: changedPaths.some(isDeployPathsRuntimePath),
     ssr_boot:
       ssrBootSharedPackageChanged(changedPaths) ||
-      contentChanged ||
-      planChanged ||
-      clipsChanged ||
-      assetsChanged,
+      SSR_BOOT_APPS.some((app) =>
+        changedPaths.some((path) => isSsrBootTemplateRuntimePath(path, app)),
+      ),
     guards:
       workspaceChanged ||
       instructionsChanged ||
@@ -1251,21 +2342,35 @@ function buildChecks(
       readmeChanged,
     qa_static: templateChanged,
     agentkit_acceptance:
-      coreChanged ||
-      toolkitChanged ||
-      agentkitChanged ||
-      sharedAppConfigChanged ||
-      chatChanged,
+      changedPaths.some(isCoreAgentkitAcceptanceRuntimePath) ||
+      changedPaths.some(isToolkitAgentKitAcceptanceRuntimePath) ||
+      changedPaths.some(isAgentKitPackageAcceptanceRuntimePath) ||
+      hasPath(changedPaths, "packages/shared-app-config/") ||
+      changedPaths.some(
+        (path) =>
+          path === ".github/actions/standalone-chat-acceptance/action.yml",
+      ) ||
+      changedPaths.some((path) =>
+        [
+          "scripts/qa-agentkit-packages.ts",
+          "scripts/qa-sign-in-matrix-smoke.ts",
+          "scripts/qa-standalone-chat-dev-smoke.ts",
+        ].includes(path),
+      ) ||
+      chatRuntimeChanged,
     neon_query_budget: neonQueryBudgetChanged,
     // The probe imports only core's database client, so templates cannot
     // move it.
-    neon_connection_budget: coreChanged,
+    neon_connection_budget: changedPaths.some(isCoreDatabaseRuntimePath),
     design_canvas_core_regression:
       designCanvasInteractionE2eChanged || designCanvasPinAttestationChanged,
     design_canvas_broad_workflows: designCanvasInteractionE2eChanged,
     pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
-    slides_chat_e2e: slidesChatE2eChanged,
-    slides_authoring_e2e: slidesE2eChanged,
+    slides_caret_e2e: slidesCaretE2eChanged,
+    slides_typing_chat_e2e: slidesTypingChatE2eChanged,
+    slides_mobile_import_e2e: slidesMobileImportE2eChanged,
+    slides_text_surface_e2e: slidesTextSurfaceE2eChanged,
+    slides_authoring_e2e: changedPaths.some(isSlidesAuthoringPath),
     slides_oracle: changedPaths.some(isSlidesOraclePath),
     changeset: changedPaths.some(isChangesetPath),
   };
@@ -1310,10 +2415,23 @@ export function classifyChangedPaths(
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),
       ) as CheckSelection)
-    : buildChecks(changedPaths, full);
+    : buildChecks(changedPaths, full, repositoryRoot);
   if (preAuthSessionReplayE2eChanged) {
     checks.pre_auth_session_replay_e2e = true;
   }
+  if (
+    designCanvasE2eSpecs.some((path) => DESIGN_BROAD_WORKFLOW_SHARDS.has(path))
+  ) {
+    checks.design_canvas_broad_workflows = true;
+  }
+  const designCanvasBroadWorkflowShards = designCanvasBroadWorkflowShardsFor(
+    designCanvasE2eSpecs,
+    changedPaths,
+    full,
+    checks,
+  );
+  checks.design_canvas_broad_workflows =
+    designCanvasBroadWorkflowShards.length > 0;
   const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
   const changedDesignDiagnosticSpecs = designCanvasE2eSpecs.filter(
     (path) => !sameDirectoryPureDesignSpecRenameSet.has(path),
@@ -1324,6 +2442,7 @@ export function classifyChangedPaths(
     designCanvasE2eSpecs,
     designCanvasE2eDiagnosticSpecs: changedDesignDiagnosticSpecs,
     designCanvasE2eSpecCount: designCanvasE2eSpecs.length,
+    designCanvasBroadWorkflowShards,
     docsOnly,
     full,
     nonDocsPaths,
@@ -1333,7 +2452,11 @@ export function classifyChangedPaths(
     scriptTests: scriptTestsForPaths(changedPaths),
     queryBudgetApps,
     queryBudgetShards: shardQueryBudgetApps(queryBudgetApps),
+    scaffoldCli: scaffoldCliFor(changedPaths, full, checks),
+    scaffoldWorkspace: scaffoldWorkspaceFor(changedPaths, full, checks),
+    scaffoldWorkspaceApps: scaffoldWorkspaceAppsFor(changedPaths, full, checks),
     ssrBootApps: ssrBootAppsFor(changedPaths, full, checks),
+    trustedAcceptanceApps: trustedAcceptanceAppsFor(changedPaths, full, checks),
   };
 }
 
@@ -1431,10 +2554,15 @@ function writeOutputs(scope: ChangeScope): void {
       `changed_count=${scope.changedPaths.length}`,
       `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
       `design_canvas_e2e_diagnostic_specs=${JSON.stringify(scope.designCanvasE2eDiagnosticSpecs)}`,
+      `design_canvas_broad_workflow_shards=${JSON.stringify(scope.designCanvasBroadWorkflowShards)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
+      `scaffold_cli=${scope.scaffoldCli ? "true" : "false"}`,
+      `scaffold_workspace=${scope.scaffoldWorkspace ? "true" : "false"}`,
+      `scaffold_workspace_apps=${JSON.stringify(scope.scaffoldWorkspaceApps)}`,
       `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
+      `trusted_acceptance_apps=${JSON.stringify(scope.trustedAcceptanceApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(
         ([name, enabled]) => `${name}=${enabled ? "true" : "false"}`,
