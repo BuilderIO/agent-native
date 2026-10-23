@@ -2434,6 +2434,42 @@ describe("durable execution step replay", () => {
     );
   });
 
+  it("lets a recovered retry correct and re-run a retry-safe write", async () => {
+    durableStep.priorEvents = [crashedWriteBeforeRetry];
+    const actionRun = vi.fn(async () => "Deck saved");
+
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("call-corrected", { title: "Q3 planning deck" })],
+            [text("The deck is ready.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: {
+          "create-deck": {
+            ...neverReplayDeckAction(actionRun),
+            retrySafe: true,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        recoverCompletedExecutionSteps: true,
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+  });
+
   it("runs the write on a turn that is not a recovered retry", async () => {
     durableStep.priorEvents = [crashedWriteBeforeRetry];
     const actionRun = vi.fn(async () => "Deck saved");
@@ -2442,7 +2478,7 @@ describe("durable execution step replay", () => {
       runAgentLoop({
         engine: engineFor(
           [
-            [toolCall("call-after-approval", { title: "Q3 planning deck" })],
+            [toolCall("call-on-fresh-turn", { title: "Q3 planning deck" })],
             [text("The deck is ready.")],
           ],
           [],
