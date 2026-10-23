@@ -515,6 +515,65 @@ describe("comment stacks in the margin", () => {
     expect(collapseButton()).not.toBeNull();
   });
 
+  it("keeps a stack open when its selected thread is resolved", async () => {
+    const three = THREADS.filter((item) => item.threadId !== "d");
+    render(three);
+    act(() => harness.select("b"));
+    const resolve = (item: CommentThread) =>
+      item.threadId === "b" ? { ...item, resolved: true } : item;
+    // The margin measures again only after the editor drops the highlight.
+    render(three.map(resolve));
+    expect(collapseButton()).not.toBeNull();
+    act(() =>
+      scroll
+        .querySelector('[data-comment-thread="b"]')!
+        .removeAttribute("data-comment-thread"),
+    );
+    await wait(60);
+    expect(margin()).toEqual(
+      expect.arrayContaining(["a", "c", "solo", "stack:l2", "l3"]),
+    );
+    expect(foldedStacks()).toHaveLength(1);
+    expect(collapseButton()).not.toBeNull();
+  });
+
+  it("keeps a stack opened before measurement open when that thread is resolved", async () => {
+    const highlight = scroll.querySelector('[data-comment-thread="b"]')!;
+    highlight.removeAttribute("data-comment-thread");
+    render();
+    act(() => harness.select("b"));
+    act(() => highlight.setAttribute("data-comment-thread", "b"));
+    await wait(60);
+    render(
+      THREADS.map((item) =>
+        item.threadId === "b" ? { ...item, resolved: true } : item,
+      ),
+    );
+    act(() => highlight.removeAttribute("data-comment-thread"));
+    await wait(60);
+    expect(collapseButton()).not.toBeNull();
+    expect(margin()).toEqual(expect.arrayContaining(["a", "c", "d"]));
+  });
+
+  it("forgets a stack resolved down to one thread", async () => {
+    render();
+    act(() => harness.select("l1"));
+    const resolved = THREADS.map((item) =>
+      item.threadId === "l1" ? { ...item, resolved: true } : item,
+    );
+    render(resolved);
+    const highlight = scroll.querySelector('[data-comment-thread="l1"]')!;
+    act(() => highlight.removeAttribute("data-comment-thread"));
+    await wait(60);
+    expect(collapseButton()).toBeNull();
+    // A thread arriving later makes a new stack, which nobody has opened.
+    act(() => highlight.setAttribute("data-comment-thread", "l4"));
+    render([...resolved, thread("l4", ["2026-10-20T16:00:00Z"])]);
+    await wait(60);
+    expect(margin()).toContain("stack:l4");
+    expect(collapseButton()).toBeNull();
+  });
+
   it("ignores hovering while its stack is open", async () => {
     render();
     act(() => harness.select("b"));

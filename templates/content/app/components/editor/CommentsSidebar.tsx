@@ -1181,20 +1181,16 @@ export function CommentsSidebar({
     alignToAnchors &&
     !visibleThreadId;
   const [threadBlocks, setThreadBlocks] = useState(NO_BLOCKS);
-  const threadBlocksRef = useRef(threadBlocks);
-  threadBlocksRef.current = threadBlocks;
   // The block a new comment's text is in, once measured; `key` is null for
   // text in no block, such as a Property.
   const [pendingBlock, setPendingBlock] = useState<{
     id: symbol;
     key: string | null;
   } | null>(null);
-  // The open stack is the one holding `anchorId`'s block. `key` holds that
-  // block while the thread has no highlight, as once it is resolved.
-  const [openStack, setOpenStack] = useState<{
-    anchorId: string;
-    key: string | null;
-  } | null>(null);
+  // The open stack's threads, as last laid out. Whichever stack still holds
+  // one of them is open, so it outlasts its block key shifting and the thread
+  // it was opened on being resolved.
+  const [openStack, setOpenStack] = useState<ReadonlySet<string> | null>(null);
   // When each thread was last touched, so a folded stack shows that one.
   // Thread ids are unique across tabs, so a touch never crosses tabs.
   const [stackTouches, setStackTouches] = useState(NO_TOUCHES);
@@ -1224,17 +1220,20 @@ export function CommentsSidebar({
     displayedPendingComment && pendingBlock?.id === displayedPendingComment.id
       ? pendingBlock.key
       : undefined;
-  const openStackBlock = openStack
-    ? (threadBlocks.get(openStack.anchorId)?.key ?? openStack.key)
+  const openedStack = openStack
+    ? (commentStacks.find((stack) =>
+        stack.threads.some((member) => openStack.has(member.threadId)),
+      ) ?? null)
     : null;
   // A new comment outside the open stack folds it, as does leaving it with
   // nothing selected.
   const pendingFoldsOpenStack =
-    pendingStackKey !== undefined && pendingStackKey !== openStackBlock;
+    pendingStackKey !== undefined &&
+    pendingStackKey !== (openedStack?.key ?? null);
   const expandedStack =
     pendingFoldsOpenStack || (!selectedThreadId && !pendingComment)
       ? null
-      : (commentStacks.find((stack) => stack.key === openStackBlock) ?? null);
+      : openedStack;
   // A new comment on a folded stack opens on top of it.
   const composingStack =
     pendingStackKey == null || pendingStackKey === expandedStack?.key
@@ -1242,10 +1241,12 @@ export function CommentsSidebar({
       : (commentStacks.find((stack) => stack.key === pendingStackKey) ?? null);
 
   const openStackOn = useCallback((threadId: string) => {
-    setOpenStack({
-      anchorId: threadId,
-      key: threadBlocksRef.current.get(threadId)?.key ?? null,
-    });
+    const stack = stackOfThreadRef.current.get(threadId);
+    setOpenStack(
+      new Set(
+        stack ? stack.threads.map((member) => member.threadId) : [threadId],
+      ),
+    );
   }, []);
   const previousSelectionRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1260,24 +1261,35 @@ export function CommentsSidebar({
   }, [openStackOn, selectedThreadId, stacksEnabled, touchThread]);
   useEffect(() => {
     if (!openStack) return;
-    if (
-      (!selectedThreadId && !pendingComment) ||
-      pendingFoldsOpenStack ||
-      !openThreads.some((thread) => thread.threadId === openStack.anchorId) ||
-      // A thread measured alone holds nothing open, or a stack its block
-      // forms later would open by itself. One not measured yet, as when it is
-      // selected before the margin first lays out, keeps its anchor until it is.
-      (threadBlocks.has(openStack.anchorId) &&
-        !stackOfThread.has(openStack.anchorId))
-    )
+    if ((!selectedThreadId && !pendingComment) || pendingFoldsOpenStack) {
       setOpenStack(null);
+    } else if (openedStack) {
+      const members = openedStack.threads;
+      if (
+        members.length !== openStack.size ||
+        members.some((member) => !openStack.has(member.threadId))
+      )
+        setOpenStack(new Set(members.map((member) => member.threadId)));
+    } else if (
+      // A thread selected before the margin measured its block may still
+      // turn out to stack. Otherwise none of them does, and keeping them
+      // would open a stack their block forms later by itself.
+      !openThreads.some(
+        (thread) =>
+          !thread.resolved &&
+          openStack.has(thread.threadId) &&
+          !threadBlocks.has(thread.threadId),
+      )
+    ) {
+      setOpenStack(null);
+    }
   }, [
     openStack,
     openThreads,
+    openedStack,
     pendingComment,
     pendingFoldsOpenStack,
     selectedThreadId,
-    stackOfThread,
     threadBlocks,
   ]);
   // A highlight click opens its stack and touches its thread, even one already
