@@ -118,6 +118,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCommentAccessRefresh } from "@/hooks/use-comment-access-refresh";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -833,6 +834,7 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  useCommentAccessRefresh(recording?.commentAccessToken, dataQ.refetch);
   const hostedFailureCode = (recording as any)?.failureCode;
   const localizedHostedFailure =
     hostedFailureCode === "global_storage_cap"
