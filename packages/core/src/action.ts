@@ -962,12 +962,20 @@ interface DefineActionWithSchema<
    * agent loop then lets the model correct its arguments and retry instead of
    * ending the run as `write_tool_outcome_unknown`. Pass a predicate when only
    * some inputs qualify. Do not set it on an action that appends, sends, or
-   * charges. It covers this action's own write: once a write nested in it
-   * entered its handler, a failure stays an unknown outcome.
+   * charges, except for inputs carrying an idempotency key the action answers
+   * with its first result. It covers this action's own write: once a write
+   * nested in it entered its handler, a failure stays an unknown outcome. MCP
+   * approval reads it too: a call it covers gets no "already ran" warning.
    */
   retrySafe?:
     | boolean
     | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
+  /**
+   * How the action reads an ISO date-time argument that names no zone, so an
+   * approval summary can say so: `"calendar"` means in the calendar's own
+   * time zone. Unset, the summary shows such a time as having no zone given.
+   */
+  zonelessTimes?: "calendar";
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -1053,6 +1061,8 @@ interface DefineActionWithParams<
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: InferParams<TParams>) => boolean);
+  /** See `ActionDefinition.zonelessTimes`. */
+  zonelessTimes?: "calendar";
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -1102,6 +1112,7 @@ export interface ActionDefinition<TInput, TReturn> {
   ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly retrySafe?: boolean | ((input: TInput) => boolean);
+  readonly zonelessTimes?: "calendar";
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
@@ -1379,6 +1390,8 @@ export function defineAction(options: any) {
       : undefined;
   const endsTurn: boolean | undefined =
     typeof options.endsTurn === "boolean" ? options.endsTurn : undefined;
+  const zonelessTimes =
+    options.zonelessTimes === "calendar" ? options.zonelessTimes : undefined;
   const dedupe: boolean | undefined =
     typeof options.dedupe === "boolean" ? options.dedupe : undefined;
   const publicAgent: PublicAgentActionConfig | undefined =
@@ -1480,6 +1493,7 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(retrySafe !== undefined ? { retrySafe } : {}),
+    ...(zonelessTimes !== undefined ? { zonelessTimes } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),

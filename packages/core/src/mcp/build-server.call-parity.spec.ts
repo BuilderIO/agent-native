@@ -58,25 +58,64 @@ vi.mock("../audit/store.js", async (importOriginal) => ({
 
 const approvalGrants = vi.hoisted(() => new Map<string, any>());
 
-vi.mock("./approval-store.js", () => ({
-  createMcpApprovalGrant: vi.fn(async (grant: any) => {
-    trace.push({ grantCreate: grant });
-    approvalGrants.set(grant.nonce, { ...grant, consumed: false });
-  }),
-  consumeMcpApprovalGrant: vi.fn(async (grant: any) => {
+vi.mock("./approval-store.js", async () => {
+  const actual = await vi.importActual<typeof import("./approval-store.js")>(
+    "./approval-store.js",
+  );
+  // A grant the client has not answered and nobody has used, before it expires.
+  const open = (grant: any) => {
     const existing = approvalGrants.get(grant.nonce);
-    const consumed = Boolean(
-      existing &&
+    return existing &&
       !existing.consumed &&
+      existing.answer === undefined &&
       existing.expiresAt >= Date.now() &&
+      existing.appId === grant.appId &&
       existing.callerKey === grant.callerKey &&
       existing.actionName === grant.actionName &&
-      existing.argumentsHash === grant.argumentsHash,
-    );
-    if (consumed) existing.consumed = true;
-    trace.push({ grantConsume: { ...grant, consumed } });
-    return consumed;
-  }),
+      existing.argumentsHash === grant.argumentsHash
+      ? existing
+      : undefined;
+  };
+  return {
+    mcpApprovalAppId: actual.mcpApprovalAppId,
+    storedApprovalArguments: actual.storedApprovalArguments,
+    normalizeApprovalEmail: actual.normalizeApprovalEmail,
+    createMcpApprovalGrant: vi.fn(async (grant: any) => {
+      trace.push({ grantCreate: grant });
+      approvalGrants.set(grant.nonce, { ...grant, consumed: false });
+    }),
+    consumeMcpApprovalGrant: vi.fn(async (grant: any) => {
+      const existing = open(grant);
+      if (existing) existing.consumed = true;
+      trace.push({ grantConsume: { ...grant, consumed: Boolean(existing) } });
+      return Boolean(existing);
+    }),
+    answerMcpApprovalPrompt: vi.fn(async (grant: any, answer: string) => {
+      const existing = open(grant);
+      if (existing) existing.answer = answer;
+      trace.push({
+        grantAnswer: { ...grant, answer, answered: Boolean(existing) },
+      });
+      return Boolean(existing);
+    }),
+    // Nothing here approves a grant on its review page.
+    consumeReviewedMcpApprovalGrant: vi.fn(
+      async (call: any, nonce?: string) => {
+        trace.push({ grantReviewedConsume: { ...call, nonce, found: false } });
+        return null;
+      },
+    ),
+    findRecentMcpApprovalRun: vi.fn(async () => null),
+    recordMcpApprovalRun: vi.fn(async (nonce: string, status: string) => {
+      trace.push({ grantRun: { nonce, status } });
+    }),
+  };
+});
+
+// No saved localization: approval prompts are in the default locale.
+vi.mock("../settings/user-settings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
+  getUserSetting: vi.fn(async () => null),
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -492,6 +531,8 @@ const PER_RUN_KEYS: Record<string, string> = {
   nonce: "nonce",
   operation_id: "operation",
 };
+// A review page link carries its grant's nonce.
+const APPROVAL_REVIEW_PATH = /(\/mcp\/approvals\/)([0-9a-f-]{36})/g;
 
 // Replaces only values that differ per run. Random ones get a stable alias in
 // order of first appearance, so the same nonce or request state reused across
@@ -517,7 +558,10 @@ function stabilize(value: unknown): unknown {
     if (key === "id" && this && "actorKind" in this) {
       return alias("auditId", val);
     }
-    return val;
+    return val.replace(
+      APPROVAL_REVIEW_PATH,
+      (_match, path: string, nonce: string) => path + alias("nonce", nonce),
+    );
   });
 }
 
@@ -634,6 +678,7 @@ function approvedResume(
 
 describe("direct tools/call wire output", () => {
   beforeEach(() => {
+    vi.stubEnv("APP_URL", ORIGIN);
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     process.env.ACCESS_TOKEN = "test-access-token";
@@ -646,6 +691,7 @@ describe("direct tools/call wire output", () => {
     trace.length = 0;
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.useRealTimers();
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
@@ -798,7 +844,7 @@ describe("direct tools/call wire output", () => {
     expect(snapshot(wire)).toMatchSnapshot();
   });
 
-  it("approval: a client without elicitation cannot be asked", async () => {
+  it("approval: a client without elicitation gets the review page link", async () => {
     const { client, wire } = await connect({
       ...(await oauthHeaders()),
       "x-agent-native-mcp-full-catalog": "1",

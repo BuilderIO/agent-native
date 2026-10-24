@@ -15,6 +15,12 @@ const SENSITIVE_KEY =
   /(?:pass(?:word|phrase)?|secret|token|api[_-]?key|apikey|authorization|bearer|credential|cookie|session[_-]?(?:id|token)|private[_-]?key|client[_-]?secret|signing[_-]?secret|access[_-]?key|refresh[_-]?token|webhook[_-]?(?:url|secret))/i;
 
 const REDACTED = "[redacted]";
+// What a cut leaves behind. `redactedArgsWereCut` reads these back.
+const DEPTH_CUT = "[…]";
+const KEYS_CUT_KEY = "…";
+const KEYS_CUT = "(truncated)";
+const STRING_CUT = /…\(\d+ more chars\)$/;
+const ARRAY_CUT = /^…\(\d+ more\)$/;
 const MAX_STRING = 2000;
 const MAX_DEPTH = 6;
 const MAX_KEYS = 100;
@@ -40,26 +46,61 @@ function looksSecret(value: string): boolean {
 
 function redactString(value: string, maxString: number): string {
   if (looksSecret(value)) return REDACTED;
-  if (value.length > maxString) {
-    return `${value.slice(0, maxString)}…(${value.length - maxString} more chars)`;
+  // A credential can sit inside ordinary text: `Authorization: Bearer …`.
+  const scrubbed = redactEmbeddedSecrets(value);
+  if (scrubbed.length > maxString) {
+    return `${scrubbed.slice(0, maxString)}…(${scrubbed.length - maxString} more chars)`;
   }
-  return value;
+  return scrubbed;
+}
+
+const QUOTED_CREDENTIAL = String.raw`"(?:\\[\s\S]|[^"\\])*(?:"|\\?$)|'(?:\\[\s\S]|[^'\\])*(?:'|\\?$)`;
+const EMBEDDED_BEARER = new RegExp(
+  String.raw`\b(bearer\s+)(${QUOTED_CREDENTIAL}|[^\s"',}]+)`,
+  "gi",
+);
+// A line that opens another field, such as `Body: visible`.
+const FIELD_LINE = String.raw`[ \t]*["']?[\w-]+["']?[ \t]*:(?:\s|$)`;
+// What can follow a scheme as its credentials (RFC 7235): one token alone on
+// its line, quoted or not, or `name=value` parameters.
+const CREDENTIAL_LINE = String.raw`[ \t]*(?:["']?[^\s"']+["']?[ \t]*(?:\r?\n|$)|[\w!#$%&*+.^|~-]+[ \t]*=)`;
+// A word alone on its line (`Bearer`, `"Api-Key"`) takes the credential on
+// the next one. It can be a scheme no list names, and stopping at the newline
+// would leave the credential bare. A next line of prose, or one that opens
+// another field, is content a reviewer must still see. Only that one line is
+// taken, so a quote it leaves open can't carry the match into later fields.
+const EMBEDDED_AUTHORIZATION = new RegExp(
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(["']?[^\s"']+["']?[ \t]*\r?\n\s*(?!${FIELD_LINE})(?=${CREDENTIAL_LINE})[^\r\n]+|${QUOTED_CREDENTIAL}|[^\r\n]+)`,
+  "gi",
+);
+const EMBEDDED_CREDENTIAL_FIELD = new RegExp(
+  String.raw`(["']?\b${SENSITIVE_KEY.source}\b["']?\s*[:=]\s*)((?:bearer\s+)?(?:${QUOTED_CREDENTIAL}|[^"'\s,}]+))`,
+  "gi",
+);
+
+function redactEmbeddedField(
+  _match: string,
+  prefix: string,
+  value: string,
+): string {
+  const quote = value[0] === '"' || value[0] === "'" ? value[0] : "";
+  return `${prefix}${quote}${REDACTED}${quote}`;
 }
 
 function redactEmbeddedSecrets(value: string): string {
-  const bearer = value.replace(/\b(bearer\s+)([^\s"',}]+)/gi, `$1${REDACTED}`);
-  const credentialField = new RegExp(
-    `(["']?\\b${SENSITIVE_KEY.source}\\b["']?\\s*[:=]\\s*)(["']?)(?!bearer\\b)([^"'\\s,}]+)\\2`,
-    "gi",
-  );
-  return bearer.replace(credentialField, `$1$2${REDACTED}$2`);
+  // Token matching can consume an escape that belongs to a quoted field,
+  // so complete field values must be redacted first.
+  return value
+    .replace(EMBEDDED_AUTHORIZATION, redactEmbeddedField)
+    .replace(EMBEDDED_CREDENTIAL_FIELD, redactEmbeddedField)
+    .replace(EMBEDDED_BEARER, `$1${REDACTED}`);
 }
 
 function redact(value: unknown, depth: number, maxString: number): unknown {
   if (value == null) return value;
   if (typeof value === "string") return redactString(value, maxString);
   if (typeof value === "number" || typeof value === "boolean") return value;
-  if (depth >= MAX_DEPTH) return "[…]";
+  if (depth >= MAX_DEPTH) return DEPTH_CUT;
   if (Array.isArray(value)) {
     const out = value
       .slice(0, MAX_ARRAY)
@@ -73,7 +114,7 @@ function redact(value: unknown, depth: number, maxString: number): unknown {
     let n = 0;
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (n >= MAX_KEYS) {
-        out["…"] = "(truncated)";
+        out[KEYS_CUT_KEY] = KEYS_CUT;
         break;
       }
       n += 1;
@@ -120,6 +161,35 @@ export function redactArgsToJson(
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether `value`, parsed from `redactArgsToJson`, lost part of the
+ * arguments to its limits: a shortened string or array, dropped keys, depth,
+ * or the whole payload replaced by its `_auditTruncated` preview. A redacted
+ * secret is not a cut. Text that only looks like a marker reads as cut,
+ * which errs toward telling a reader something is missing.
+ */
+export function redactedArgsWereCut(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value === DEPTH_CUT || STRING_CUT.test(value);
+  }
+  if (Array.isArray(value)) {
+    const last = value[value.length - 1];
+    return (
+      (typeof last === "string" && ARRAY_CUT.test(last)) ||
+      value.some(redactedArgsWereCut)
+    );
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return (
+      record._auditTruncated === true ||
+      record[KEYS_CUT_KEY] === KEYS_CUT ||
+      Object.values(record).some(redactedArgsWereCut)
+    );
+  }
+  return false;
 }
 
 export function redactArgsToValue(

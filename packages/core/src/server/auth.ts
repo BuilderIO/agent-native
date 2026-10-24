@@ -398,6 +398,11 @@ export interface AuthOptions {
   maxAge?: number;
   getSession?: (event: H3Event) => Promise<AuthSession | null>;
   /**
+   * With custom authentication, resolve browser identity from cookies only.
+   * Never accept bearer tokens, query tokens, or other request headers here.
+   */
+  getBrowserSession?: (event: H3Event) => Promise<AuthSession | null>;
+  /**
    * Set only when the custom provider independently verifies email ownership.
    * Without this opt-in, an omitted `emailVerified` value remains unknown.
    */
@@ -2323,6 +2328,8 @@ async function mapLegacySession(
 
 let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
   null;
+let customGetBrowserSession: AuthOptions["getBrowserSession"] | null = null;
+let warnedMissingBrowserSession = false;
 let trustCustomEmailVerification = false;
 
 interface AuthGuardConfig {
@@ -2408,7 +2415,10 @@ const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
  * Allow framework routes with their own non-cookie authentication to reach
  * the handler. The handler remains responsible for verifying the credential.
  *
- * Registered paths are exact matches. This is registered separately from
+ * Registered paths are exact matches, where a `:name` segment stands for any
+ * one segment: `/x/:id` admits `/x/abc`, never `/x` or `/x/abc/more`.
+ * `/x/:id(uuidv4)` restricts that segment to a lowercase UUID v4.
+ * These are registered separately from
  * template auth options because framework routes can be mounted after the auth
  * plugin and must also work in custom workspace deployments that do not own a
  * template auth file.
@@ -3900,7 +3910,7 @@ function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
 
-function getAuthGuardPath(event: H3Event): string | null {
+export function getAuthGuardPath(event: H3Event): string | null {
   const rawUrl = event.node?.req?.url;
   if (rawUrl !== undefined) {
     const rawPath = rawUrl.split("?")[0]!;
@@ -4819,6 +4829,81 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   return ctx.__anSessionCache;
 }
 
+/**
+ * The browser's signed-in user, read only from the session cookies sign-in
+ * sets: Better Auth's and the framework's own. No other credential counts:
+ * not a bearer or embed token, a query token, a generic custom resolver, or the
+ * desktop fallback, nor any credential `getSession` accepts in future. For
+ * pages whose decisions only the person may make. An app with a custom
+ * resolver must supply the explicit cookie-only `getBrowserSession` hook,
+ * since the framework can't tell which credentials `getSession` reads.
+ * The framework cookie takes a raw login
+ * token, so a desktop or mobile app can present its own login here; that app
+ * is the user. With AUTH_DISABLED every request is the dev account, here too.
+ */
+export async function getBrowserCookieSession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  const session = await resolveBrowserCookieSession(event);
+  if (!session?.email) return null;
+  const resolved = await backfillSessionOrg(session, event);
+  await resumeIdentityRekeyForSession(resolved.email);
+  return resolved;
+}
+
+export function getBrowserSessionConfigurationError(): string | undefined {
+  if (customGetSession && !customGetBrowserSession) {
+    return "Custom authentication requires AuthOptions.getBrowserSession for browser UI capabilities and approvals.";
+  }
+  return undefined;
+}
+
+async function resolveBrowserCookieSession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  if (customGetSession) {
+    if (!customGetBrowserSession) {
+      if (!warnedMissingBrowserSession) {
+        console.warn(`[auth] ${getBrowserSessionConfigurationError()}`);
+        warnedMissingBrowserSession = true;
+      }
+      return null;
+    }
+    if (!getHeader(event, "cookie")) return null;
+    const session = await customGetBrowserSession(event);
+    return session ? normalizeCustomSession(session) : null;
+  }
+  const cookie = getHeader(event, "cookie");
+  if (cookie) {
+    try {
+      const ba = getBetterAuthSync() ?? (await getBetterAuth());
+      if (ba) {
+        const baSession = await ba.api.getSession({
+          headers: new Headers({ cookie: decodeCookieHeader(cookie) }),
+        });
+        if (baSession?.user?.email) return mapBetterAuthSession(baSession);
+      }
+    } catch (e) {
+      console.error("[auth] ba.api.getSession error:", e);
+      (event.context as Record<string, unknown>)[
+        SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+      ] = true;
+    }
+    const cookieSession = await getLegacyCookieSessionSafely(event);
+    if (cookieSession) return cookieSession;
+  }
+  return getAuthDisabledSession(event);
+}
+
+function normalizeCustomSession(session: AuthSession): AuthSession {
+  const safeSession = { ...session };
+  delete safeSession.authUserId;
+  if (trustCustomEmailVerification && session.emailVerified === undefined) {
+    return { ...safeSession, emailVerified: true };
+  }
+  return safeSession;
+}
+
 async function resolveSessionUncached(
   event: H3Event,
   options: { ignoreEmbedSession?: boolean } = {},
@@ -4852,12 +4937,7 @@ async function resolveSessionUncached(
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) {
-      const safeSession = { ...session };
-      delete safeSession.authUserId;
-      if (trustCustomEmailVerification && session.emailVerified === undefined) {
-        return { ...safeSession, emailVerified: true };
-      }
-      return safeSession;
+      return normalizeCustomSession(session);
     }
 
     const bearerSession = await getBearerSession(event);
@@ -5078,15 +5158,40 @@ export function redirectWithStagedCookies(
 export { isHttpsRequest };
 
 function isPublicPath(
-  url: string,
+  path: string,
   publicPaths: string[],
   exactPublicPaths: string[] = [],
 ): boolean {
-  const p = url.split("?")[0];
-  if (exactPublicPaths.some((candidate) => normalizePath(candidate) === p)) {
+  if (
+    exactPublicPaths.some((candidate) => matchesPathPattern(path, candidate))
+  ) {
     return true;
   }
-  return matchesPathList(p, publicPaths);
+  return matchesPathList(path, publicPaths);
+}
+
+/** `path` is `pattern`, where a `:name` segment stands for any one segment. */
+function matchesPathPattern(path: string, pattern: string): boolean {
+  const expectedSegments = normalizePath(pattern).split("/");
+  const actualSegments = path.split("/");
+  return (
+    expectedSegments.length === actualSegments.length &&
+    expectedSegments.every((segment, index) => {
+      const parameter = /^:[A-Za-z][A-Za-z0-9_]*(\(uuidv4\))?$/.exec(segment);
+      if (parameter) {
+        const value = actualSegments[index];
+        return (
+          value !== undefined &&
+          (parameter[1]
+            ? /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+                value,
+              )
+            : value.length > 0)
+        );
+      }
+      return segment === actualSegments[index];
+    })
+  );
 }
 
 function normalizePath(path: string): string {
@@ -5096,19 +5201,7 @@ function normalizePath(path: string): string {
 function matchesPathList(path: string, paths: string[]): boolean {
   return paths.some((candidate) => {
     const normalized = normalizePath(candidate);
-    if (normalized.includes("/:")) {
-      const expectedSegments = normalized.split("/");
-      const actualSegments = path.split("/");
-      return (
-        expectedSegments.length === actualSegments.length &&
-        expectedSegments.every((segment, index) => {
-          if (/^:[A-Za-z][A-Za-z0-9_]*$/.test(segment)) {
-            return Boolean(actualSegments[index]);
-          }
-          return segment === actualSegments[index];
-        })
-      );
-    }
+    if (normalized.includes("/:")) return matchesPathPattern(path, normalized);
     return path === normalized || path.startsWith(normalized + "/");
   });
 }
@@ -7253,6 +7346,7 @@ export async function autoMountAuth(
     }
     if (options.getSession) {
       customGetSession = options.getSession;
+      customGetBrowserSession = options.getBrowserSession ?? null;
       trustCustomEmailVerification =
         options.trustCustomEmailVerification === true;
     }
@@ -7318,6 +7412,7 @@ export async function autoMountAuth(
   if (!app) {
     if (isDevEnvironment()) {
       customGetSession = null;
+      customGetBrowserSession = null;
       trustCustomEmailVerification = false;
       return false;
     }
@@ -7327,6 +7422,7 @@ export async function autoMountAuth(
   }
 
   customGetSession = null;
+  customGetBrowserSession = null;
   trustCustomEmailVerification = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = resolveAuthPublicPaths(options.publicPaths);
@@ -7348,6 +7444,7 @@ export async function autoMountAuth(
 
   if (options.getSession) {
     customGetSession = options.getSession;
+    customGetBrowserSession = options.getBrowserSession ?? null;
     trustCustomEmailVerification =
       options.trustCustomEmailVerification === true;
   }

@@ -42,7 +42,7 @@ No wiring needed — the capture hooks into `defineAction` transparently. 로그
 - **주체**: `actor_email`은 호출이 실행되는 계정입니다. 누군가 호출을 승인했다는 증거가 아닙니다.
 - **실행 출처**: `caller`는 호출 표면을 나타냅니다. `mcp`, `webmcp`, `a2a`를 통한 호출의 `actor_kind`는 `agent`이며, 조직 자체의 서비스 프린시펄이면 `service`입니다.
 - **클라이언트**: `mcp` 호출에서 `reported_client_name`과 `reported_client_version`에는 해당 `tools/call` 요청과 함께 클라이언트가 MCP `clientInfo`로 보낸 값이 들어갑니다. 이 값은 클라이언트가 정하므로 자기 신고 값으로 취급하세요. `oauth_client_id`는 자격 증명이 발급된 OAuth 클라이언트이며, 있는 경우에만 기록됩니다. 이전 `initialize` 메시지에서만 보낸 값은 이어서 사용하지 않습니다.
-- **권한 부여 신호**: `approval`은 해당 호출과 관련된 권한 부여 신호를 기록합니다. `agent-chat`은 에이전트 채팅에서 사람의 승인을 기록합니다. `a2a-review`는 일시 중지된 A2A 호출을 소유자가 검토 페이지에서 승인했음을 기록합니다. `mcp-client-accepted`는 MCP 클라이언트가 요청을 수락했음을 기록하며, 서버는 누가 응답했는지 확인할 수 없습니다. 승인이 필요하지 않았던 호출은 `approval`이 비어 있습니다.
+- **권한 부여 신호**: `approval`은 해당 호출과 관련된 권한 부여 신호를 기록합니다. `agent-chat`은 에이전트 채팅에서 사람의 승인을 기록합니다. `a2a-review`는 일시 중지된 A2A 호출을 소유자가 검토 페이지에서 승인했음을 기록합니다. `mcp-review`는 로그인한 소유자가 직접 MCP 호출을 검토 페이지에서 승인했음을 기록합니다. `mcp-client-accepted`는 MCP 클라이언트가 요청을 수락했음을 기록하며, 서버는 누가 응답했는지 확인할 수 없습니다. 승인이 필요하지 않았던 호출은 `approval`이 비어 있습니다.
 
 오래된 행은 다시 쓰지 않습니다. 이 열이 생기기 전에 기록된 행은 호출이 승인되었더라도 클라이언트와 승인 필드가 비어 있습니다. `human` 또는 `system`으로 저장된 오래된 `mcp`, `webmcp`, `a2a` 행은 `agent`로 읽히므로 필터와 내보내기에서 새 행과 똑같이 다뤄집니다.
 

@@ -109,6 +109,42 @@ export function getAppDeclaredOrigins(): string[] {
   return [...collectConfiguredOrigins({ includePlatform: false })];
 }
 
+/**
+ * The origin for a link the server hands out, given the request's. That
+ * origin comes from Host or a forwarded header any caller can set, so once
+ * the app declares where it lives, a request keeps its origin only if the
+ * app trusts it, platform hostnames included, as sign-in redirects do. Any
+ * other request gets the first declared origin, then a platform URL.
+ * Loopback requests are local only without a public origin, and a loopback
+ * origin is never handed to a request from elsewhere. With no origin left,
+ * links remain relative.
+ */
+export function declaredLinkOrigin(
+  requestOrigin: string | undefined,
+): string | undefined {
+  const inbound = normalizeOrigin(requestOrigin);
+  const configured = getConfiguredOriginAllowlist();
+  const declared = getAppDeclaredOrigins().filter(
+    (origin) => !isLoopbackOrigin(origin),
+  );
+  const publicOrigins = [...configured].filter(
+    (origin) => !isLoopbackOrigin(origin),
+  );
+  if (
+    inbound &&
+    (isLoopbackOrigin(inbound)
+      ? publicOrigins.length === 0
+      : declared.length > 0 && configured.has(inbound))
+  ) {
+    return inbound;
+  }
+  return (
+    declared[0] ??
+    publicOrigins[0] ??
+    (requestOrigin ? undefined : [...configured][0])
+  );
+}
+
 export function requestForwardedOrigin(
   request: Request | undefined,
 ): string | undefined {
