@@ -102,7 +102,11 @@ export default defineAction({
         connections: await readGraphConnections(graph, scoped),
         job: summarizeWorkflowJob(definition, {
           enabled: workflow.enabled,
-          schedule: planWorkflowJob(workflow.graph).plan?.schedule,
+          // Only the schedule is read; whether a Sentry Source can run is
+          // judged where a graph is saved, enabled or restored.
+          schedule: planWorkflowJob(workflow.graph, {
+            sentryFallbackConfigured: true,
+          }).plan?.schedule,
         }),
       };
       const read = { ...summary, graph };

@@ -90,6 +90,13 @@ export interface AgentChatPluginOptions {
         | Record<string, MentionProvider>
         | Promise<Record<string, MentionProvider>>);
   appId?: string;
+  /**
+   * Job `appId` values this app's scheduler runs besides `appId`. The scheduler
+   * lease, run history and health rows stay under `appId`, so the extra values
+   * only widen which job files this app picks up; a build that does not list
+   * them skips those files.
+   */
+  additionalJobAppIds?: string[];
   clientCompatibilityVersion?: string;
   connectApps?: boolean;
   backgroundMcpTools?: "requested" | "all";

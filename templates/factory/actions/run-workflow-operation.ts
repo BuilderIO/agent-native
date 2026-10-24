@@ -25,6 +25,7 @@ import {
   PROVIDER_PAYLOAD_BUDGET_CHARS,
   ProviderOperationError,
   buildProviderRequest,
+  emptyRangeBody,
   parseProviderResponse,
   type BuiltProviderRequest,
   type ParsedOperationResponse,
@@ -582,14 +583,19 @@ export default defineAction({
     }
 
     noteResponseCredential(def, result);
-    const { response, sentPath } = readResponse(result);
-    if (!response) {
+    const { response: received, sentPath } = readResponse(result);
+    if (!received) {
       watch.reportShape({ reason: "answer_unreadable", body: result });
       return failUnexpected(
         def,
         `${def.id} got an answer from ${def.credential.provider} that Factory could not read.`,
       );
     }
+    const emptied = received.ok ? undefined : emptyRangeBody(def, received);
+    const response =
+      emptied === undefined
+        ? received
+        : { ...received, ok: true, json: emptied };
     if (!response.ok) return failFromHttp(def, response, watch);
 
     const pathOnly = sentPath.split("?")[0].toLowerCase();

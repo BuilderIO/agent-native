@@ -9915,6 +9915,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           apiKey: options?.apiKey,
           model: resolveConfiguredAgentModel(options),
           appId: options?.appId,
+          additionalJobAppIds: options?.additionalJobAppIds,
         };
         runNowSchedulerDeps = schedulerDeps;
         const processFailureAlertRetries = async () => {

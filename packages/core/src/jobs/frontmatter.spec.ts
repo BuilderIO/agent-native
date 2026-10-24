@@ -386,6 +386,30 @@ Run the job.`),
     expect(jobBelongsToApp({}, "mail")).toBe(true);
   });
 
+  it("claims a job under an additional app id only for the app that lists it", () => {
+    const workflowJob = { orgId: "org-1", appId: "factory-workflows" };
+    expect(jobBelongsToApp(workflowJob, "factory")).toBe(false);
+    expect(jobBelongsToApp(workflowJob, "factory", ["factory-workflows"])).toBe(
+      true,
+    );
+    expect(
+      jobBelongsToApp(workflowJob, "factory", [" factory-workflows "]),
+    ).toBe(true);
+    expect(jobBelongsToApp(workflowJob, "factory", ["calendar"])).toBe(false);
+    expect(jobBelongsToApp(workflowJob, null, ["factory-workflows"])).toBe(
+      false,
+    );
+    expect(
+      jobBelongsToApp({ orgId: "org-1", appId: "factory" }, "factory", [
+        "factory-workflows",
+      ]),
+    ).toBe(true);
+    expect(
+      jobBelongsToApp({ orgId: "org-1" }, "factory", ["factory-workflows"]),
+    ).toBe(false);
+    expect(jobBelongsToApp({}, "mail", ["factory-workflows"])).toBe(true);
+  });
+
   it("recovers Factory-folder org jobs that lost appId for Factory only", () => {
     const path = "jobs/factories/demo-factory/factory-slack-feedback.md";
     const orgOwner = "__organization__:org-1";
