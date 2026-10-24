@@ -988,7 +988,8 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     }
     if (!screenId) throw new Error("HTML Motion screen is not registered");
 
-    await postAction(request, "grant-localhost-write-consent", {
+    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });

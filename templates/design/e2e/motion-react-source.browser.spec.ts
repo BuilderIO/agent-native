@@ -1139,7 +1139,8 @@ test.describe.serial("React Motion source browser writeback", () => {
     if (!screenId) throw new Error("React Motion screen is not registered");
 
     const nativeNodeId = "motion-native-target";
-    await postAction(request, "grant-localhost-write-consent", {
+    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });
@@ -1346,7 +1347,8 @@ test.describe.serial("React Motion source browser writeback", () => {
     }
     if (!screenId) throw new Error("React Motion screen is not registered");
 
-    await postAction(request, "grant-localhost-write-consent", {
+    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });
