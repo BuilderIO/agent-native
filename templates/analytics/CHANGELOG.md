@@ -3,6 +3,32 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-24
+
+### Improved
+
+- Organization roster searches now find row-level dbt membership data more reliably.
+
+### Fixed
+
+- Analytics avoids showing partial warehouse results when a metric or plan request is ambiguous.
+- Analytics preserves verified results from successful time ranges when another requested range is unavailable.
+- Analytics uses a warehouse fallback for a failed metric only when requested and supported by a complete metric definition and result.
+- Analytics respects requested time periods without mistaking metric names for time breakdowns.
+
+## 2026-10-23
+
+### Fixed
+
+- Analytics figures require complete, scope-matched warehouse evidence
+- Analytics keeps malformed metric values out of verified summaries
+- Analytics keeps verified metrics available when another requested dbt metric is unavailable
+- Analytics now rejects partial or constant warehouse results as verified metric figures
+- Analytics only shows warehouse fallback figures when a complete matching query supports them
+- Analytics only shows warehouse figures when each value matches the named metric, scope, and result row.
+- Analytics withholds warehouse figures when an owner-defined dbt metric query fails.
+- Warehouse figures stay hidden when a failed dbt query cannot verify the calculation.
+
 ## 2026-10-21
 
 ### Improved

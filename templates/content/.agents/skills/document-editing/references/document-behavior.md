@@ -32,16 +32,27 @@ agent over MCP/A2A, an A2A peer). `get-document` returns whatever is in the
 `documents.content` SQL column, which can lag behind a live editing session:
 the open editor holds the authoritative Y.Doc in memory and only debounces it
 back to SQL. `pull-document` closes that gap with a flush handshake — if a
-live Yjs collab session exists for the document it writes a one-shot
-`flush-request-<id>` application-state key (scoped to the browser session,
-just like `navigate`); the open editor sees that key, serializes its current
-document to markdown through its own existing serializer, calls
-`update-document`, and writes an explicit request-id-matched success/error
-acknowledgement. `pull-document` waits for that acknowledgement and fails
-closed if the open editor cannot save; when no active human editor is
-present, the SQL column is authoritative and the handshake is skipped. It is
+live Yjs collab session exists for the document it writes a request to each
+editing browser session's `flush-request-<id>` application-state key
+(scoped to the session, just like `navigate`), naming the editors it asks.
+In the prepare phase each editor saves its document through
+`update-document` and answers under its own request-matched key with
+`prepared` and a claim of what it saved, or `changed` or `error`. Once
+SQL holds every claim, a verify phase with a fresh token confirms each editor
+answers `verified`, unchanged across that read. `pull-document` waits up
+to 20 seconds and fails closed if an open editor cannot save; when no active
+human editor is present, the SQL column is authoritative and the handshake
+is skipped. On a page that takes body writes through its live copy, the tabs
+already wrote the body, so the request carries `scope: "title"` and goes
+only to editors that advertise `canFlushTitle`. Each marks its prepare
+answer `taken`, saves its title alone, then replaces the mark with
+`prepared` and the title it saved; the server prepares again until SQL holds
+that title, then verifies. With no such editor open, the handshake is
+skipped. A missing or failed answer fails with
+`OPEN_EDITOR_TITLE_NOT_SAVED`. `pull-document` is
 GET + read-only + public-agent exposed (`requiresAuth: true`), returns
-`{ id, title, content, format, deepLink }`, and surfaces an "Open document"
+`{ id, title, content, format, deepLink }`, plus `editorFlush.titleFlush` when
+such editors were asked, and surfaces an "Open document"
 deep link for external agents. Use `--format text` for a plain-text strip of
 the markdown.
 

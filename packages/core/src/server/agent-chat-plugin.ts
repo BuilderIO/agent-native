@@ -114,6 +114,8 @@ import {
   type AgentActionSurfaceDetails,
   type AgentActionSurfaceResolution,
   type AgentLoopOutcome,
+  mergeAgentLoopUsage,
+  type AgentLoopUsage,
   type ResolvedOwnerApiKey,
   type PreparedAgentRequest,
 } from "../agent/production-agent.js";
@@ -1023,6 +1025,75 @@ export async function runA2AAgentLoopWithRunManager(
   return result;
 }
 
+export async function runA2AWithUsageLedger<T>(
+  run: Promise<T>,
+  input: {
+    usage: AgentLoopUsage;
+    ownerEmail: string;
+    orgId: string | null;
+    appId?: string;
+    taskId: string;
+    processingAttemptId?: string;
+    persistUsage?: (
+      record: import("../usage/store.js").UsageRecord,
+    ) => Promise<void>;
+  },
+): Promise<T> {
+  const outcome = await run.then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+
+  let usageError: unknown;
+  let usageFailed = false;
+  if (input.usage.usageReported) {
+    try {
+      const record = {
+        ownerEmail: input.ownerEmail,
+        inputTokens: input.usage.inputTokens,
+        outputTokens: input.usage.outputTokens,
+        cacheReadTokens: input.usage.cacheReadTokens,
+        cacheWriteTokens: input.usage.cacheWriteTokens,
+        builderCreditsUsed: input.usage.builderCreditsUsed,
+        engineName: input.usage.engineName,
+        model: input.usage.model,
+        app: input.appId,
+        orgId: input.orgId ?? undefined,
+        label: "a2a",
+        // A replay in the same lease replaces its receipt; later leases
+        // retain their own usage segments under a different ref.
+        refId: input.processingAttemptId
+          ? `${input.taskId}:${input.processingAttemptId}`
+          : input.taskId,
+        runId: input.taskId,
+        threadId: input.taskId,
+        taskId: input.taskId,
+      };
+      if (input.persistUsage) {
+        await input.persistUsage(record);
+      } else {
+        const { recordUsage } = await import("../usage/store.js");
+        await recordUsage(record);
+      }
+    } catch (error) {
+      usageFailed = true;
+      usageError = error;
+    }
+  }
+
+  if (!outcome.ok) {
+    if (usageFailed) {
+      throw new AggregateError(
+        [outcome.error, usageError],
+        "A2A run and usage persistence both failed.",
+      );
+    }
+    throw outcome.error;
+  }
+  if (usageFailed) throw usageError;
+  return outcome.value;
+}
+
 const A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS = 2_000;
 
 export async function resolveA2ARecoverableArtifactSecret(
@@ -1442,13 +1513,13 @@ export function createAgentChatPlugin(
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
 
-      const appProfileAppId =
+      const runtimeAppId =
         options?.appId ??
         getAppConfig().app.id ??
         getAppConfig().app.template ??
         getAppConfig().app.workspaceId ??
-        getAppConfig().app.packageName ??
-        "app";
+        getAppConfig().app.packageName;
+      const appProfileAppId = runtimeAppId ?? "app";
 
       // Never make route readiness wait on an org-global stale-run sweep.
       // `/runs/active` reaps the requested run on demand, and the periodic
@@ -3027,6 +3098,14 @@ export function createAgentChatPlugin(
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
           let a2aOutcome: AgentLoopOutcome | undefined;
+          const a2aUsage: AgentLoopUsage = {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            engineName: a2aEngine.name,
+            model,
+          };
           let lastRecoverableArtifactText = "";
           let activityState = createA2AAgentActivityState();
           let lastActivityCheckpointAt = 0;
@@ -3081,7 +3160,7 @@ export function createAgentChatPlugin(
             `[A2A] Starting agent loop: ${a2aToolSurface.tools.length}/${a2aToolSurface.availableTools.length} initial tools, prompt ${systemPrompt.length} chars`,
           );
 
-          await runA2AAgentLoopWithRunManager(
+          const a2aRun = runA2AAgentLoopWithRunManager(
             {
               engine: a2aEngine,
               model,
@@ -3098,7 +3177,7 @@ export function createAgentChatPlugin(
               orgId: getRequestOrgId() ?? null,
               // Without it, every action with an `access` policy is refused
               // for lack of an application identity.
-              appId: options?.appId,
+              appId: runtimeAppId,
               executionMode: "act",
               runId: context.taskId,
               networkProtocol: "a2a",
@@ -3112,6 +3191,12 @@ export function createAgentChatPlugin(
               turnId: context.taskId,
               onOutcome: (outcome) => {
                 a2aOutcome = outcome;
+              },
+              onUsage: (usage) => {
+                mergeAgentLoopUsage(a2aUsage, {
+                  ...usage,
+                  usageReported: true,
+                });
               },
               send: (event) => {
                 a2aEvents.push(event);
@@ -3207,6 +3292,14 @@ export function createAgentChatPlugin(
             },
             context.signal,
           );
+          await runA2AWithUsageLedger(a2aRun, {
+            usage: a2aUsage,
+            ownerEmail: userEmail,
+            orgId: getRequestOrgId() ?? null,
+            appId: runtimeAppId,
+            taskId: context.taskId,
+            processingAttemptId: context.processingAttemptId,
+          });
 
           // The continuation can observe terminal output immediately, so make
           // its latest mutation checkpoint durable first.
