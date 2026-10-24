@@ -1,6 +1,7 @@
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import {
   MAX_AWARENESS_CLIENT_SEQUENCE,
   MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE,
@@ -15,8 +16,6 @@ const ACTOR_RESERVATION_TTL_MS = ROW_TTL_MS * 2;
 const WRITE_THROTTLE_MS = 2_000;
 
 const PURGE_INTERVAL_MS = 30_000;
-
-const PURGE_WAIT_TIMEOUT_MS = 250;
 
 export const collabAwarenessStore = defineStore({
   id: "collab_awareness",
@@ -99,7 +98,6 @@ export function ensureTable(): Promise<void> {
 }
 
 const _lastWrites = new Map<string, { state: string; writtenAt: number }>();
-// Throttle failed attempts too, or each awareness request retries the purge.
 let _lastPurgeAttemptAt = 0;
 let _purgeInFlight: Promise<void> | undefined;
 
@@ -265,7 +263,6 @@ export async function writeAwarenessRow(
     const applied = rows.length > 0;
     if (applied) {
       _lastWrites.delete(writeKey(docId, clientId));
-      await maybePurgeBestEffort(lastSeen);
     }
     return applied;
   }
@@ -357,7 +354,6 @@ export async function writeAwarenessRow(
   const applied = rows.length > 0;
   if (applied) {
     _lastWrites.delete(writeKey(docId, clientId));
-    await maybePurgeBestEffort(lastSeen);
   }
   return applied;
 }
@@ -396,7 +392,6 @@ export async function loadAwarenessRowsStrict(
   now: number = Date.now(),
 ): Promise<AwarenessRow[]> {
   await ensureTable();
-  await maybePurgeBestEffort(now);
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT client_id, state, last_seen, client_sequence,
@@ -470,31 +465,9 @@ export async function loadAwarenessClientSequence(
   };
 }
 
-async function waitForPurge(purge: Promise<void>): Promise<void> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      purge,
-      new Promise<void>((_, reject) => {
-        timeout = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Collaboration awareness purge exceeded ${PURGE_WAIT_TIMEOUT_MS}ms`,
-              ),
-            ),
-          PURGE_WAIT_TIMEOUT_MS,
-        );
-      }),
-    ]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
-}
-
-async function maybePurge(now: number): Promise<void> {
+async function purgeExpiredRows(now: number): Promise<void> {
   if (now - _lastPurgeAttemptAt < PURGE_INTERVAL_MS) return;
-  if (_purgeInFlight) return waitForPurge(_purgeInFlight);
+  if (_purgeInFlight) return _purgeInFlight;
   _lastPurgeAttemptAt = now;
   const client = getDbExec();
   const expiredBefore = now - ROW_TTL_MS * 2;
@@ -530,19 +503,13 @@ async function maybePurge(now: number): Promise<void> {
       if (_purgeInFlight === purge) _purgeInFlight = undefined;
     },
   );
-  await waitForPurge(purge);
+  await purge;
 }
 
-async function maybePurgeBestEffort(now: number): Promise<void> {
-  try {
-    await maybePurge(now);
-  } catch (error) {
-    console.error(
-      "Failed to purge expired collaboration awareness rows",
-      error,
-    );
-  }
-}
+registerRecurringSweepHandler("collaboration-awareness-expiry", async () => {
+  await ensureTable();
+  await purgeExpiredRows(Date.now());
+});
 
 export function _resetAwarenessStoreForTests(): void {
   _lastWrites.clear();

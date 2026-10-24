@@ -183,6 +183,8 @@ const _awarenessClearTombstones = new Map<
   string,
   { clearedAt: number; clientSequence?: number; actorEmail?: string | null }
 >();
+const _unsyncedAwarenessWrites = new Map<string, number>();
+let _awarenessWriteAttemptOrder = 0;
 
 function awarenessKey(docId: string, clientId: number): string {
   return `${docId}\0${clientId}`;
@@ -192,6 +194,7 @@ function pruneAwarenessClearTombstones(now: number): void {
   for (const [key, clear] of _awarenessClearTombstones) {
     if (now - clear.clearedAt > CLEAR_TOMBSTONE_TTL) {
       _awarenessClearTombstones.delete(key);
+      _unsyncedAwarenessWrites.delete(key);
     }
   }
 }
@@ -258,11 +261,18 @@ export function getDocAwareness(docId: string): Map<number, AwarenessEntry> {
   return map;
 }
 
-export function cleanExpired(map: Map<number, AwarenessEntry>): void {
+export function cleanExpired(
+  map: Map<number, AwarenessEntry>,
+  docId?: string,
+): void {
   const now = Date.now();
+  pruneAwarenessClearTombstones(now);
   for (const [clientId, entry] of map) {
     if (now - entry.lastSeen > AWARENESS_TIMEOUT) {
       map.delete(clientId);
+      if (docId) {
+        _unsyncedAwarenessWrites.delete(awarenessKey(docId, clientId));
+      }
     }
   }
 }
@@ -529,6 +539,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
 
   const sequence = clientSequence ?? 0;
   const lastSeen = Date.now();
+  const attemptOrder = ++_awarenessWriteAttemptOrder;
   let writeOutcome:
     | { kind: "completed"; applied: boolean }
     | { kind: "unavailable"; errorType: string };
@@ -554,7 +565,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   }
   if (writeOutcome.kind === "unavailable") {
     const map = getDocAwareness(docId);
-    cleanExpired(map);
+    cleanExpired(map, docId);
     let ownershipVerified = false;
     let stored:
       | Awaited<ReturnType<typeof loadAwarenessClientSequence>>
@@ -571,7 +582,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         ownershipVerified = false;
       }
     }
-    cleanExpired(map);
+    cleanExpired(map, docId);
     const existing = map.get(clientId);
     const storedEntry: AwarenessEntry | undefined = stored
       ? {
@@ -621,6 +632,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         sequence || undefined,
         actorEmail,
       );
+      _unsyncedAwarenessWrites.set(awarenessKey(docId, clientId), attemptOrder);
     }
     if (
       (existing !== undefined || ownershipVerified) &&
@@ -649,8 +661,9 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         clearTokenHash,
         storedEntry,
       );
+      _unsyncedAwarenessWrites.set(awarenessKey(docId, clientId), attemptOrder);
     }
-    cleanExpired(map);
+    cleanExpired(map, docId);
     pruneIfEmpty(docId, map);
     const { allStates } = awarenessSnapshots(map, clientId);
     emitAwarenessChange(
@@ -696,14 +709,18 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   }
 
   const map = getDocAwareness(docId);
-  cleanExpired(map);
+  cleanExpired(map, docId);
   const localEntry = map.get(clientId);
+  const localKey = awarenessKey(docId, clientId);
+  const unsyncedAttemptOrder = _unsyncedAwarenessWrites.get(localKey);
+  const reconcilesUnsyncedLocalWrite =
+    unsyncedAttemptOrder !== undefined && attemptOrder > unsyncedAttemptOrder;
   const hasLocalOrderingState =
-    localEntry !== undefined ||
-    _awarenessClearTombstones.has(awarenessKey(docId, clientId));
+    localEntry !== undefined || _awarenessClearTombstones.has(localKey);
   if (
     applied &&
-    (!hasLocalOrderingState ||
+    (reconcilesUnsyncedLocalWrite ||
+      !hasLocalOrderingState ||
       canApplyLocalAwarenessWrite(
         docId,
         localEntry,
@@ -715,6 +732,11 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         clearTokenHash,
       ))
   ) {
+    if (reconcilesUnsyncedLocalWrite) {
+      map.delete(clientId);
+      forgetAwarenessClear(docId, clientId);
+      _unsyncedAwarenessWrites.delete(localKey);
+    }
     applyLocalAwarenessWrite(
       docId,
       map,
@@ -731,7 +753,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     await mergeStoredAwareness(docId, map);
   } catch (error) {
     if (applied) {
-      cleanExpired(map);
+      cleanExpired(map, docId);
       pruneIfEmpty(docId, map);
       const { allStates } = awarenessSnapshots(map, clientId);
       emitAwarenessChange(
@@ -750,7 +772,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     };
   }
 
-  cleanExpired(map);
+  cleanExpired(map, docId);
   pruneIfEmpty(docId, map);
 
   const { allStates, otherStates } = awarenessSnapshots(map, clientId);
@@ -784,7 +806,7 @@ export const getActiveUsers = defineEventHandler(async (event: H3Event) => {
       failureType: error instanceof Error ? error.name : typeof error,
     };
   }
-  cleanExpired(map);
+  cleanExpired(map, docId);
   pruneIfEmpty(docId, map);
 
   const users: Array<{ clientId: number; lastSeen: number }> = [];

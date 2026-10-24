@@ -231,6 +231,7 @@ describe("postAwareness handler", () => {
       ["post-doc-outage-delayed-write", 74],
       ["post-doc-outage-sequence-cap", 66],
       ["post-doc-outage-local-stale-sequence", 75],
+      ["post-doc-outage-local-resync", 76],
     ] as const) {
       docAwareness(docId).clear();
       forgetAwarenessClear(scopedDocId(docId), clientId);
@@ -569,6 +570,41 @@ describe("postAwareness handler", () => {
 
     expect(newerEvent._status).toBe(503);
     expect(docAwareness(docId).get(72)?.clientSequence).toBe(12);
+  });
+
+  it("reconciles outage-only local state when persistence accepts a resync", async () => {
+    const docId = "post-doc-outage-local-resync";
+    mockReadBody
+      .mockResolvedValueOnce({
+        clientId: 76,
+        clientSequence: 10,
+        state: postedAwarenessState("outage-state"),
+      })
+      .mockResolvedValueOnce({
+        clientId: 76,
+        clientSequence: 6,
+        state: postedAwarenessState("recovered-state"),
+      });
+    mockWriteAwarenessRow
+      .mockRejectedValueOnce(new Error("db unavailable"))
+      .mockResolvedValueOnce(true);
+    mockLoadAwarenessClientSequence.mockResolvedValueOnce(undefined);
+    mockLoadAwarenessRows.mockResolvedValueOnce([]);
+
+    await postAwareness(event({ docId }));
+    expect(docAwareness(docId).get(76)?.state).toBe(
+      authenticatedAwarenessState("outage-state"),
+    );
+
+    const resyncEvent = event({ docId });
+    const result = await postAwareness(resyncEvent);
+
+    expect(resyncEvent._status).toBe(200);
+    expect(result).toMatchObject({ states: [] });
+    expect(docAwareness(docId).get(76)).toMatchObject({
+      state: authenticatedAwarenessState("recovered-state"),
+      clientSequence: 6,
+    });
   });
 
   it("does not let an older local map override a newer persisted sequence", async () => {

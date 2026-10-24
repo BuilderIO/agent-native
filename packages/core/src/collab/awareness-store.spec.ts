@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { runRecurringSweepHandlers } from "../jobs/sweep-hooks.js";
 import {
   MAX_AWARENESS_CLIENT_SEQUENCE,
   MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE,
@@ -499,6 +500,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   _resetAwarenessStoreForTests();
 });
@@ -528,10 +530,7 @@ describe("awareness-store", () => {
     expect(rows.map((r) => r.clientId)).toEqual([2]);
   });
 
-  it("returns rows when best-effort expiry cleanup fails", async () => {
-    const cleanupFailure = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
+  it("keeps reads off the scheduled expiry purge", async () => {
     dbRows.set(rowKey("doc-purge-read", 3), {
       state: "active-state",
       last_seen: 60_000,
@@ -547,16 +546,10 @@ describe("awareness-store", () => {
       loadAwarenessRows("doc-purge-read", 60_000),
     ).resolves.toMatchObject([{ clientId: 3, state: "active-state" }]);
 
-    expect(cleanupFailure).toHaveBeenCalledWith(
-      "Failed to purge expired collaboration awareness rows",
-      expect.objectContaining({ message: "purge unavailable" }),
-    );
+    expect(purgeCalls.count).toBe(0);
   });
 
-  it("keeps an applied presence write successful when expiry cleanup fails", async () => {
-    const cleanupFailure = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
+  it("keeps writes off the scheduled expiry purge", async () => {
     purgeFails.value = true;
 
     await expect(
@@ -568,37 +561,34 @@ describe("awareness-store", () => {
       client_sequence: 1,
       cleared: false,
     });
-    expect(cleanupFailure).toHaveBeenCalledWith(
-      "Failed to purge expired collaboration awareness rows",
-      expect.objectContaining({ message: "purge unavailable" }),
-    );
+    expect(purgeCalls.count).toBe(0);
   });
 
-  it("purges expired tombstones across documents on unrelated reads", async () => {
+  it("purges expired tombstones in the recurring sweep, not on unrelated reads", async () => {
     await writeAwarenessRow("abandoned-doc", 7, "", 1_000, 10, true);
 
     await expect(
       loadAwarenessRowsStrict("active-doc", 70_000),
     ).resolves.toEqual([]);
+    expect(dbRows.has(rowKey("abandoned-doc", 7))).toBe(true);
+    expect(purgeCalls.count).toBe(0);
+
+    await runRecurringSweepHandlers({ deadlineAt: Date.now() + 60_000 });
 
     expect(dbRows.has(rowKey("abandoned-doc", 7))).toBe(false);
+    expect(purgeCalls.count).toBe(1);
   });
 
-  it("shares a global purge across concurrent document reads", async () => {
+  it("shares a global purge across concurrent recurring sweeps", async () => {
     await Promise.all([
-      loadAwarenessRowsStrict("doc-a", 70_000),
-      loadAwarenessRowsStrict("doc-b", 70_000),
+      runRecurringSweepHandlers({ deadlineAt: Date.now() + 60_000 }),
+      runRecurringSweepHandlers({ deadlineAt: Date.now() + 60_000 }),
     ]);
 
     expect(purgeCalls.count).toBe(1);
   });
 
-  it("does not let a stalled global purge block awareness reads and writes", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(40_000);
-    const cleanupFailure = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
+  it("does not let a stalled scheduled purge block awareness reads and writes", async () => {
     let releasePurge!: () => void;
     purgeHang.promise = new Promise<void>((resolve) => {
       releasePurge = resolve;
@@ -610,7 +600,9 @@ describe("awareness-store", () => {
     purgeStarted.signal = markPurgeStarted;
 
     try {
-      const pendingRead = loadAwarenessRowsStrict("slow-doc", 40_000);
+      const pendingSweep = runRecurringSweepHandlers({
+        deadlineAt: Date.now() + 60_000,
+      });
       await didStartPurge;
       const otherRead = loadAwarenessRowsStrict("other-doc", 40_000);
       const otherWrite = writeAwarenessRow(
@@ -621,40 +613,19 @@ describe("awareness-store", () => {
         1,
         false,
       );
-      await vi.advanceTimersByTimeAsync(250);
-      await expect(
-        Promise.all([pendingRead, otherRead, otherWrite]),
-      ).resolves.toEqual([[], [], true]);
-      expect(cleanupFailure).toHaveBeenCalledWith(
-        "Failed to purge expired collaboration awareness rows",
-        expect.objectContaining({
-          message: expect.stringContaining("exceeded"),
-        }),
-      );
-      expect(purgeCalls.count).toBe(1);
-
-      const retryRead = loadAwarenessRowsStrict("retry-doc", 70_000);
-      await vi.advanceTimersByTimeAsync(250);
-      await expect(retryRead).resolves.toEqual([]);
+      await expect(Promise.all([otherRead, otherWrite])).resolves.toEqual([
+        [],
+        true,
+      ]);
       expect(purgeCalls.count).toBe(1);
 
       releasePurge();
       purgeHang.promise = undefined;
-      await Promise.resolve();
-      await Promise.resolve();
-
-      await expect(
-        loadAwarenessRowsStrict("after-purge-doc", 70_001),
-      ).resolves.toEqual([]);
-      expect(purgeCalls.count).toBe(2);
+      await pendingSweep;
     } finally {
       releasePurge();
       purgeHang.promise = undefined;
       purgeStarted.signal = undefined;
-      cleanupFailure.mockRestore();
-      await Promise.resolve();
-      await Promise.resolve();
-      vi.useRealTimers();
     }
   });
 
@@ -885,6 +856,8 @@ describe("awareness-store", () => {
   });
 
   it("retains actor ownership after clearing expired presence state", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(59_000);
     await writeAwarenessRow(
       "doc-expired-owner",
       9,
@@ -898,6 +871,7 @@ describe("awareness-store", () => {
     await expect(
       loadAwarenessRowsStrict("doc-expired-owner", 59_000),
     ).resolves.toEqual([]);
+    await runRecurringSweepHandlers({ deadlineAt: Date.now() + 60_000 });
     expect(dbRows.get(rowKey("doc-expired-owner", 9))).toMatchObject({
       state: "",
       cleared: false,
@@ -934,6 +908,8 @@ describe("awareness-store", () => {
   });
 
   it("reclaims actor reservations after the stale-request window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(62_000);
     await writeAwarenessRow(
       "doc-expired-reservation",
       9,
@@ -947,6 +923,7 @@ describe("awareness-store", () => {
     await expect(
       loadAwarenessRowsStrict("doc-expired-reservation", 62_000),
     ).resolves.toEqual([]);
+    await runRecurringSweepHandlers({ deadlineAt: Date.now() + 60_000 });
     expect(dbRows.has(rowKey("doc-expired-reservation", 9))).toBe(false);
 
     await expect(
@@ -1084,11 +1061,21 @@ describe("awareness-store", () => {
     });
   });
 
-  it("serves awareness when the best-effort expiry purge fails", async () => {
+  it("reports scheduled expiry purge failures without blocking awareness requests", async () => {
     const cleanupFailure = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     purgeFails.value = true;
+
+    const sweep = await runRecurringSweepHandlers({
+      deadlineAt: Date.now() + 60_000,
+    });
+
+    expect(sweep.failed).toContain("collaboration-awareness-expiry");
+    expect(cleanupFailure).toHaveBeenCalledWith(
+      "[recurring-sweep] handler collaboration-awareness-expiry failed:",
+      expect.any(Error),
+    );
 
     await expect(
       writeAwarenessRow(
@@ -1104,21 +1091,8 @@ describe("awareness-store", () => {
     await expect(
       loadAwarenessRowsStrict("doc-purge-failure", 40_000),
     ).resolves.toMatchObject([{ clientId: 9, state: "visible-state" }]);
-    await expect(
-      loadAwarenessRowsStrict("doc-purge-failure", 69_999),
-    ).resolves.toMatchObject([{ clientId: 9, state: "visible-state" }]);
-    expect(cleanupFailure).toHaveBeenCalledWith(
-      "Failed to purge expired collaboration awareness rows",
-      expect.any(Error),
-    );
     expect(cleanupFailure).toHaveBeenCalledTimes(1);
     expect(purgeCalls.count).toBe(1);
-
-    await expect(
-      loadAwarenessRowsStrict("doc-purge-failure", 70_000),
-    ).resolves.toMatchObject([{ clientId: 9, state: "visible-state" }]);
-    expect(cleanupFailure).toHaveBeenCalledTimes(2);
-    expect(purgeCalls.count).toBe(2);
 
     cleanupFailure.mockRestore();
   });

@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Keep timed-out collaboration awareness purges single-flight until the database operation settles.
+Run collaboration awareness expiry purges in the recurring sweep so requests do not wait on table-wide cleanup.
