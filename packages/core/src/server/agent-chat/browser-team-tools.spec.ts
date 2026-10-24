@@ -298,10 +298,45 @@ describe("Builder sign-in without a legacy key pair", () => {
       wsUrl: "wss://browser.example.test/session",
       sessionId: "session-1",
     });
+    expect(mocks.resolveBuilderRequestAuthorization).toHaveBeenCalledWith({
+      requiredScope: "builder:browser:connect",
+    });
     expect(mocks.requestBuilderBrowserConnection).toHaveBeenCalledWith({
       sessionId: "session-1",
     });
     expect(reconfigure).toHaveBeenCalledTimes(1);
+  });
+
+  it("activate-browser asks to reconnect a sign-in without the browser scope", async () => {
+    mocks.resolveBuilderRequestAuthorization.mockImplementation(
+      async ({ requiredScope }: { requiredScope: string }) => {
+        if (requiredScope === BUILDER_OAUTH_SCOPE) {
+          return {
+            token: "oauth-test-token",
+            authorization: "Bearer oauth-test-token",
+            source: "oauth",
+            oauthScope: "user",
+            oauthResource: "general",
+          };
+        }
+        throw new ActionContractError(
+          `Builder.io access needs re-authorizing to grant ${requiredScope}. Open Settings and authorize Builder.io again.`,
+          {
+            errorCode: "builder_oauth_reauthorization_required",
+            statusCode: 400,
+            details: { reason: "missing_scope", scope: requiredScope },
+          },
+        );
+      },
+    );
+
+    await expect(
+      runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
+    ).resolves.toMatchObject({ configured: true });
+    await expect(
+      runBuilderTool("activate-browser", { sessionId: "session-1" }),
+    ).resolves.toMatchObject({ error: "builder-not-connected" });
+    expect(mocks.requestBuilderBrowserConnection).not.toHaveBeenCalled();
   });
 
   it("does not fall back to a deploy key pair when the sign-in needs re-authorizing", async () => {

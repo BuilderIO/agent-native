@@ -22,6 +22,7 @@ import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "../builder-browser.js";
+import type { BuilderOAuthPermissionScope } from "../builder-oauth.js";
 import { getRequestOrgId, getRequestUserEmail } from "../request-context.js";
 import { getMcpManagerForCurrentRequest } from "./mcp-glue.js";
 
@@ -158,20 +159,22 @@ function buildExtensionPromotionPrompt(
 /**
  * New Builder connections store only an OAuth grant, so a missing legacy key
  * pair does not mean Builder is disconnected. An unusable grant must not fall
- * back to a deploy-level key the user never authorized.
+ * back to a deploy-level key the user never authorized. `requiredScope` is
+ * the scope of the Builder call the tool makes next, so a grant without it
+ * gets the reconnect path instead of failing later.
  */
-async function isBuilderConnectedForRequest(creds: {
-  privateKey: string | null;
-  publicKey: string | null;
-}): Promise<boolean> {
-  const [{ resolveBuilderRequestAuthorization }, { BUILDER_OAUTH_SCOPE }] =
-    await Promise.all([
-      import("../builder-api-auth.js"),
-      import("../builder-oauth.js"),
-    ]);
+async function isBuilderConnectedForRequest(
+  creds: {
+    privateKey: string | null;
+    publicKey: string | null;
+  },
+  requiredScope: BuilderOAuthPermissionScope,
+): Promise<boolean> {
+  const { resolveBuilderRequestAuthorization } =
+    await import("../builder-api-auth.js");
   try {
     const authorization = await resolveBuilderRequestAuthorization({
-      requiredScope: BUILDER_OAUTH_SCOPE,
+      requiredScope,
     });
     if (authorization?.source === "oauth") return true;
   } catch (error) {
@@ -263,10 +266,17 @@ export function createBuilderBrowserTool(deps: {
         },
       },
       run: async (args) => {
-        const { resolveBuilderCredentials } =
-          await import("../credential-provider.js");
+        const [{ resolveBuilderCredentials }, { BUILDER_OAUTH_SCOPE }] =
+          await Promise.all([
+            import("../credential-provider.js"),
+            import("../builder-oauth.js"),
+          ]);
         const creds = await resolveBuilderCredentials();
-        const configured = await isBuilderConnectedForRequest(creds);
+        // The same scope the Builder status route checks.
+        const configured = await isBuilderConnectedForRequest(
+          creds,
+          BUILDER_OAUTH_SCOPE,
+        );
         const branchProjectId = await resolveBuilderBranchProjectId();
         let prompt = typeof args?.prompt === "string" ? args.prompt : "";
         const extensionId =
@@ -443,7 +453,13 @@ export function createBuilderBrowserTool(deps: {
         const { resolveBuilderCredentials } =
           await import("../credential-provider.js");
         const creds = await resolveBuilderCredentials();
-        if (!(await isBuilderConnectedForRequest(creds))) {
+        // requestBuilderBrowserConnection authorizes with this scope.
+        if (
+          !(await isBuilderConnectedForRequest(
+            creds,
+            "builder:browser:connect",
+          ))
+        ) {
           return JSON.stringify({
             error: "builder-not-connected",
             message:
