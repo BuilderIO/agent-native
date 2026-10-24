@@ -195,6 +195,7 @@ describe("background workspace app context", () => {
 
     await runBackgroundAutomation(runOptions(automation), {
       ...standardDeps,
+      appId: "calendar",
       getActions: () => ({ "call-agent": {} as any }),
       getWorkspaceAppContext,
     });
@@ -203,9 +204,13 @@ describe("background workspace app context", () => {
       request: "Send the reminders.",
       ownerEmail: "alice@agent-native.test",
       orgId: undefined,
-      appId: undefined,
+      appId: "calendar",
       workspaceAppsEnabled: true,
     });
+    expect(createThreadMock).toHaveBeenCalledWith(
+      "alice@agent-native.test",
+      expect.objectContaining({ source: { appId: "calendar" } }),
+    );
     expect(capturedSystemPrompt).toContain(appContext);
   });
 });

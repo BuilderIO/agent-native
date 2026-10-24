@@ -3056,6 +3056,7 @@ describe("run() — asynchronous layout fit metadata", () => {
         expect(result).toMatchObject({
           message: expect.stringContaining("Nothing was written"),
         });
+        expect(isNoWriteError(result)).toBe(true);
       } else {
         expect(result).toMatchObject({
           ok: true,

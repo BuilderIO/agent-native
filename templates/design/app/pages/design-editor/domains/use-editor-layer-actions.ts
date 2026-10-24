@@ -245,8 +245,8 @@ export function useEditorLayerActions({
   } = editorHistory;
   const {
     lastMarqueeSelectionSignatureRef,
-    recordSelectionHistoryAroundChange,
-    recordMarqueeSelectionHistoryAroundChange,
+    applySelectionChange,
+    applyMarqueeSelectionChange,
     design,
     canEditDesign,
     canEditLiveScreens,
@@ -301,21 +301,14 @@ export function useEditorLayerActions({
     applyLinkedComponentEdit,
     getFreshActiveContent,
     handleStyleChange,
+    canvasContextMenuRef,
   } = editorSelectionAndStyles;
-  const {
-    handleCopySelection,
-    handleDuplicateSelection,
-    handleDeleteSelection,
-  } = editorClipboard;
   const { setRuntimeStructureDeleteRequest, getActiveFileSelectedNodeIds } =
     editorLayoutAndStructure;
   const {
     setRuntimeStructureMoveRequest,
     runtimeStructureMoveRevisionRef,
     setRuntimeLayerRenameRequest,
-    handleFlipHorizontal,
-    handleFlipVertical,
-    changeSelectedZIndex,
   } = editorEditCommands;
   const {
     codeLayerOwnerByNodeId,
@@ -1102,7 +1095,7 @@ export function useEditorLayerActions({
       if (!sameStringIds(selectedLayerIdsStateRef.current, ids)) {
         selectionRevisionRef.current += 1;
       }
-      recordSelectionHistoryAroundChange(() => {
+      applySelectionChange(() => {
         explicitOverviewScreenSelectionRef.current = [];
         const effectiveIds = runLayerSelectionChange(
           {
@@ -1145,7 +1138,7 @@ export function useEditorLayerActions({
       getScreenContent,
       activeBreakpointWidthStateRef,
       overviewSelectedScreenIds,
-      recordSelectionHistoryAroundChange,
+      applySelectionChange,
       selectedElement,
       layerSelectionHydrationRevisionRef,
       hydrateRenderedLayerInfoForIds,
@@ -1163,7 +1156,7 @@ export function useEditorLayerActions({
       } = {},
     ) => {
       if (!intent.cancelled) selectionRevisionRef.current += 1;
-      recordMarqueeSelectionHistoryAroundChange(() => {
+      applyMarqueeSelectionChange(() => {
         if (
           !intent.cancelled &&
           (intent.source !== "marquee" || options.clearExplicitScreenSelection)
@@ -1224,7 +1217,7 @@ export function useEditorLayerActions({
     [
       clearPendingOverviewLayerSelectionTimer,
       getCodeLayerProjectionForScreen,
-      recordMarqueeSelectionHistoryAroundChange,
+      applyMarqueeSelectionChange,
     ],
   );
 
@@ -1491,13 +1484,6 @@ export function useEditorLayerActions({
     onMoveLayer: handleLayerMove,
     canMoveLayer,
     onSelectionChange: handleLayerSelectionChange,
-    onCopyLayer: handleCopySelection,
-    onCopyLink: handleCopyLayerLink,
-    onDuplicateLayer: handleDuplicateSelection,
-    onDeleteLayer: handleDeleteSelection,
-    onReorderLayer: changeSelectedZIndex,
-    onFlipHorizontal: handleFlipHorizontal,
-    onFlipVertical: handleFlipVertical,
   };
   const layerPanelHandlersRef = useRef(layerPanelHandlers);
   layerPanelHandlersRef.current = layerPanelHandlers;
@@ -1519,18 +1505,11 @@ export function useEditorLayerActions({
       onSelectionChange: (
         ...args: Parameters<typeof handleLayerSelectionChange>
       ) => latest().onSelectionChange(...args),
-      onCopyLayer: () => latest().onCopyLayer(),
-      onCopyLink: (nodeId: string) => latest().onCopyLink(nodeId),
-      onDuplicateLayer: () => latest().onDuplicateLayer(),
-      onDeleteLayer: () => latest().onDeleteLayer(),
-      onReorderLayer: (
-        _ids: string[],
-        direction: Parameters<typeof changeSelectedZIndex>[0],
-      ) => latest().onReorderLayer(direction),
-      onFlipHorizontal: () => latest().onFlipHorizontal(),
-      onFlipVertical: () => latest().onFlipVertical(),
+      // Layer rows open the canvas menu so both offer the same commands.
+      onOpenContextMenu: (point: { clientX: number; clientY: number }) =>
+        canvasContextMenuRef.current?.openAt(point),
     };
-  }, []);
+  }, [canvasContextMenuRef]);
 
   const handleToggleHiddenForSelection = useCallback(() => {
     if (!canEditDesign && !canEditLiveScreens) return;

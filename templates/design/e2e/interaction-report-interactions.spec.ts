@@ -1109,7 +1109,6 @@ test("report path: a fixed 60×30 board frame dropped between auto-layout childr
     "data-agent-native-node-id": "board-source",
     "data-agent-native-layer-name": "Board source",
     "data-an-primitive": "frame",
-    "data-agent-native-clone-root": "true",
     "data-agent-native-preserve-styles": "true",
   });
   expectOnlyChanged(screenBefore, after, subtree(after, "board-source"));
@@ -1185,7 +1184,6 @@ test("report path: Option-dragging a selected root board frame duplicates into a
     "data-agent-native-node-id": copyId,
     "data-agent-native-layer-name": "Board source",
     "data-an-primitive": "frame",
-    "data-agent-native-clone-root": "true",
     "data-agent-native-preserve-styles": "true",
   });
   const landed = await expectLandedCentredInNestedFrame(app, after, copyId);

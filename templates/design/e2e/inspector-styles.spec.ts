@@ -426,7 +426,7 @@ test("typography edits update size and spacing inputs", async ({ app }) => {
 
   for (const [typed, saved, shown] of [
     ["2%", "0.02em", "2%"],
-    ["0.64px", "0.64px", "0.64px"],
+    ["0.64px", "0.64px", "0.64"],
     ["0.01%", "0.0001em", "0.01%"],
     ["0.005em", "0.005em", "0.5%"],
     ["2pxpx", "0.005em", "0.5%"],
@@ -533,7 +533,7 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   const before = await app.savedNodes(id);
   await select(app, "card");
   const input = page.locator('input[aria-label="X-position" i]');
-  await expect(input).toHaveValue("40px");
+  await expect(input).toHaveValue("40");
   const label = page.locator(`label[for="${await input.getAttribute("id")}"]`);
   await label.hover();
   await expect(page.getByRole("tooltip")).toHaveText("X-position");
@@ -550,7 +550,7 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   await expect(
     input,
     "16px in 2px steps scrubs +14: the first step is under the 3px drag threshold",
-  ).toHaveValue("54px");
+  ).toHaveValue("54");
   await app.settled();
   const after = await app.savedNodes(id);
   expect(styleOf(after.get("card"))).toEqual({
@@ -589,25 +589,25 @@ test("numeric input applies arithmetic expressions and starts an Option scrub dr
   const before = await app.savedNodes(id);
   await select(app, "card");
   const input = page.locator('input[aria-label="X-position" i]');
-  await expect(input).toHaveValue("40px");
+  await expect(input).toHaveValue("40");
 
-  for (const [typed, left] of [
-    ["-5", "-5px"],
-    ["+5", "5px"],
-    ["*2", "5px"],
-    ["(10+5)*2", "30px"],
-    ["2^3", "8px"],
-    ["10", "10px"],
+  for (const [typed, left, shown] of [
+    ["-5", "-5px", "-5"],
+    ["+5", "5px", "5"],
+    ["*2", "5px", "5"],
+    ["(10+5)*2", "30px", "30"],
+    ["2^3", "8px", "8"],
+    ["10", "10px", "10"],
   ] as const) {
     await input.fill(typed);
     await input.press("Enter");
     await expect.poll(() => liveStyle(app, "card", "left"), typed).toBe(left);
-    await expect(input).toHaveValue(left);
+    await expect(input).toHaveValue(shown);
   }
   await input.click();
   await input.press("ArrowRight");
   await input.pressSequentially("*2");
-  await expect(input).toHaveValue("10px*2");
+  await expect(input).toHaveValue("10*2");
   await input.press("Enter");
   await expect.poll(() => liveStyle(app, "card", "left")).toBe("20px");
 
@@ -620,7 +620,7 @@ test("numeric input applies arithmetic expressions and starts an Option scrub dr
   await page.mouse.move(x + 5, y);
   await page.mouse.up();
   await page.keyboard.up("Alt");
-  await expect(input).toHaveValue("25px");
+  await expect(input).toHaveValue("25");
   await expect.poll(() => liveStyle(app, "card", "left")).toBe("25px");
 
   await app.settled();
@@ -666,7 +666,7 @@ test("appearance controls use droplet blend menu and inline independent corners"
   await setScrubInput(appearance, "Corner radius", "12");
   await expect(
     appearance.locator('input[aria-label="Corner radius" i]'),
-  ).toHaveValue("12px");
+  ).toHaveValue("12");
   await appearance.getByRole("button", { name: "Independent corners" }).click();
   await setScrubInput(appearance, "Top left", "4");
   await expect
@@ -774,10 +774,10 @@ test("pointercancel restores a scrubbed value without adding a history step", as
   const id = await openInspector(app);
   await select(app, "card");
   const input = page.locator('input[aria-label="X-position" i]');
-  await expect(input).toHaveValue("40px");
+  await expect(input).toHaveValue("40");
   await input.fill("80");
   await input.press("Enter");
-  await expect(input).toHaveValue("80px");
+  await expect(input).toHaveValue("80");
   await app.settled();
   expect((await savedStyle(app, id, "card")).left).toBe("80px");
   const committed = await app.savedNodes(id);
@@ -807,7 +807,7 @@ test("pointercancel restores a scrubbed value without adding a history step", as
   await expect(
     input,
     "precondition: the scrub moved the value",
-  ).not.toHaveValue("80px");
+  ).not.toHaveValue("80");
 
   // Playwright's mouse cannot produce pointercancel, so the scrub label receives one directly.
   await page.evaluate((labelFor) => {
@@ -824,21 +824,21 @@ test("pointercancel restores a scrubbed value without adding a history step", as
       }),
     );
   }, inputId);
-  await expect(input).toHaveValue("80px");
+  await expect(input).toHaveValue("80");
   await expect.poll(() => liveStyle(app, "card", "left")).toBe("80px");
   await page.mouse.up();
   await app.settled();
   expectOnlyChanged(committed, await app.savedNodes(id), []);
 
   await page.keyboard.press(`${MOD}+z`);
-  await expect(input).toHaveValue("40px");
+  await expect(input).toHaveValue("40");
   await app.settled();
   expect(
     (await savedStyle(app, id, "card")).left,
     "the cancelled scrub added no history step, so one undo reverts the typed 80",
   ).toBe("40px");
   await page.keyboard.press(`${MOD}+Shift+z`);
-  await expect(input).toHaveValue("80px");
+  await expect(input).toHaveValue("80");
   await app.settled();
   expectOnlyChanged(committed, await app.savedNodes(id), []);
 });

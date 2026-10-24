@@ -79,7 +79,7 @@ import {
   getScreenPreviewViewport,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
-import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { annotateAgentScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 import { withGenerationAttempt } from "./_generation-tracking.js";
 
@@ -456,7 +456,7 @@ const generateDesignAgentParameters = {
     files: {
       type: "string",
       description:
-        "JSON array of files to save. Pass one compact, complete, renderable index.html first, e.g. " +
+        "JSON array of files to save. Pass one compact, complete, renderable index.html first, with a flat layer tree (no single-child wrapper divs) and whole-pixel lengths, e.g. " +
         '[{"filename":"index.html","fileType":"html","content":"<!doctype html>..."}]. ' +
         'For HubSpot email HTML author email-safe tables; optional frameType:"hubspot-email" requires its internal meta marker but is not required for export. ' +
         "Do not use generate-design to replace a selected variant screen after a variant pick; snapshot that fileId and use edit-design instead.",
@@ -638,7 +638,12 @@ const generateDesignAction = defineAction({
                 y: z.number().optional(),
                 width: z.number().optional(),
                 height: z.number().optional(),
-                rotation: z.number().optional(),
+                rotation: z
+                  .number()
+                  .optional()
+                  .describe(
+                    "Degrees. Omit unless the user asked for a rotated screen.",
+                  ),
                 z: z.number().optional(),
               })
               .refine((frame) => frame.fileId || frame.filename, {
@@ -864,7 +869,7 @@ const generateDesignAction = defineAction({
 
     const annotatedFiles = files.map((file) => ({
       ...file,
-      content: annotateScreenHtmlForPersist(file.content, file.fileType),
+      content: annotateAgentScreenHtmlForPersist(file.content, file.fileType),
     }));
 
     const integrityWarnings: Array<{ filename: string; message: string }> = [];
