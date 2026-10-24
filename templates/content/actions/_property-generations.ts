@@ -43,6 +43,7 @@ export function generationNumber(value: unknown): number {
   if (value === null || value === undefined) return 0;
   const generation = Number(value);
   if (!Number.isSafeInteger(generation)) {
+    // guard:allow-bare-error — invariant: a trigger fills this column from a sequence
     throw new Error(
       `Stored property generation ${generation} is not a safe integer.`,
     );
