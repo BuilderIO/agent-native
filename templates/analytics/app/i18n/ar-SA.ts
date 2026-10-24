@@ -1425,6 +1425,7 @@ export default {
     columnFormatCurrency: "عملة",
     columnFormatPercent: "نسبة مئوية",
     columnFormatDate: "تاريخ",
+    columnFormatDuration: "المدة (بالثواني)",
     columnRename: "إعادة تسمية العمود",
     columnHide: "إخفاء العمود",
     columnShow: 'إظهار "{{name}}"',

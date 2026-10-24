@@ -1029,6 +1029,7 @@ export default {
     columnFormatCurrency: "Currency",
     columnFormatPercent: "Percent",
     columnFormatDate: "Date",
+    columnFormatDuration: "Duration (seconds)",
     columnRename: "Rename column",
     columnHide: "Hide column",
     columnShow: 'Show "{{name}}"',

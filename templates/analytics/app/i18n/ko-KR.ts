@@ -1429,6 +1429,7 @@ export default {
     columnFormatCurrency: "통화",
     columnFormatPercent: "백분율",
     columnFormatDate: "날짜",
+    columnFormatDuration: "소요 시간(초)",
     columnRename: "열 이름 바꾸기",
     columnHide: "열 숨기기",
     columnShow: '"{{name}}" 표시',

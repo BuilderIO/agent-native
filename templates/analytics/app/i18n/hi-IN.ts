@@ -1412,6 +1412,7 @@ export default {
     columnFormatCurrency: "मुद्रा",
     columnFormatPercent: "प्रतिशत",
     columnFormatDate: "तारीख",
+    columnFormatDuration: "अवधि (सेकंड)",
     columnRename: "कॉलम का नाम बदलें",
     columnHide: "कॉलम छिपाएँ",
     columnShow: '"{{name}}" दिखाएँ',

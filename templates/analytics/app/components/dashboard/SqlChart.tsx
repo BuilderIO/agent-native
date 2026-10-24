@@ -20,6 +20,12 @@ import {
 } from "@shared/dashboard-funnel";
 import { formatDollars } from "@shared/format-dollars";
 import {
+  EMPTY_DURATION,
+  durationTicks,
+  formatDuration,
+  isEmptyDuration,
+} from "@shared/format-duration";
+import {
   isNumericLikeValue,
   limitChartRows,
   planPanelRender,
@@ -280,15 +286,13 @@ function stringifyValue(value: unknown): string {
     : JSON.stringify(value);
 }
 
-function formatYValue(
-  value: number,
-  formatter?: "number" | "currency" | "percent",
-): string {
+function formatYValue(value: number, formatter?: ChartValueFormatter): string {
   if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
   }
+  if (formatter === "duration") return formatDuration(value);
   return value.toLocaleString();
 }
 
@@ -313,25 +317,76 @@ function axisLabelProps(value: string, side: ChartAxisSide) {
   };
 }
 
+/** The rows and visible series a chart draws, for sizing its value axes. */
+type ChartAxisValues = {
+  rows: Record<string, unknown>[];
+  keys: string[];
+  stacked?: boolean;
+};
+
+// Duration axes step in clean units ("6 hours") rather than the decimal
+// seconds Recharts picks, and size to their labels so "36 hours" fits on one
+// line.
+function durationAxisProps(values: ChartAxisValues, keys: string[]) {
+  let min = 0;
+  let max = 0;
+  for (const row of values.rows) {
+    let below = 0;
+    let above = 0;
+    for (const key of keys) {
+      const value = Number(row[key]);
+      if (!Number.isFinite(value)) continue;
+      if (values.stacked) {
+        if (value < 0) below += value;
+        else above += value;
+      } else {
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+      }
+    }
+    min = Math.min(min, below);
+    max = Math.max(max, above);
+  }
+  const ticks = durationTicks(min, max);
+  return {
+    ticks,
+    domain: [ticks[0], ticks[ticks.length - 1]],
+    width: "auto" as const,
+  };
+}
+
+function valueAxisProps(
+  formatter: ChartValueFormatter | undefined,
+  values: ChartAxisValues,
+  keys: string[],
+) {
+  return formatter === "duration" ? durationAxisProps(values, keys) : {};
+}
+
 function renderChartYAxes(
   plan: DualAxisPlan,
-  yFormatter?: ChartValueFormatter,
+  yFormatter: ChartValueFormatter | undefined,
+  values: ChartAxisValues,
 ): ReactNode[] {
   if (!plan.enabled) {
     return [
       <YAxis
         key="y"
         {...Y_AXIS_BASE_PROPS}
+        {...valueAxisProps(yFormatter, values, values.keys)}
         tickFormatter={(v) => formatYValue(v, yFormatter)}
       />,
     ];
   }
+  const keysOn = (side: ChartAxisSide) =>
+    values.keys.filter((key) => plan.sideFor(key) === side);
 
   return [
     <YAxis
       key="y-left"
       yAxisId="left"
       {...Y_AXIS_BASE_PROPS}
+      {...valueAxisProps(plan.leftFormatter, values, keysOn("left"))}
       tickFormatter={(v) => formatYValue(v, plan.leftFormatter)}
       label={
         plan.leftLabel ? axisLabelProps(plan.leftLabel, "left") : undefined
@@ -342,6 +397,7 @@ function renderChartYAxes(
       yAxisId="right"
       orientation="right"
       {...Y_AXIS_BASE_PROPS}
+      {...valueAxisProps(plan.rightFormatter, values, keysOn("right"))}
       tickFormatter={(v) => formatYValue(v, plan.rightFormatter)}
       label={
         plan.rightLabel ? axisLabelProps(plan.rightLabel, "right") : undefined
@@ -382,11 +438,12 @@ export function seriesValueFormatter(
 
 export function formatMetricValue(
   raw: unknown,
-  formatter?: "number" | "currency" | "percent",
+  formatter?: ChartValueFormatter,
   valueLabels?: Record<string, string>,
 ): string {
   const valueLabel = valueLabels?.[String(raw)];
   if (valueLabel !== undefined) return valueLabel;
+  if (formatter === "duration" && isEmptyDuration(raw)) return EMPTY_DURATION;
   const numericRaw =
     typeof raw === "number"
       ? raw
@@ -2285,8 +2342,15 @@ export type TableSort = {
 export function sortTableRows(
   rows: Record<string, unknown>[],
   sorts: TableSort[],
+  columns: TableColumnConfig[] = [],
 ): Record<string, unknown>[] {
   if (sorts.length === 0) return rows;
+
+  // Empty cells sort last both ways: nulls, and in a duration column every
+  // value it shows as a dash.
+  const formats = new Map(columns.map((col) => [col.key, col.format]));
+  const isEmpty = (key: string, value: unknown) =>
+    formats.get(key) === "duration" ? isEmptyDuration(value) : value == null;
 
   return rows
     .map((row, index) => ({ row, index }))
@@ -2294,9 +2358,11 @@ export function sortTableRows(
       for (const sort of sorts) {
         const av = a.row[sort.key];
         const bv = b.row[sort.key];
-        if (av == null && bv == null) continue;
-        if (av == null) return 1;
-        if (bv == null) return -1;
+        const aEmpty = isEmpty(sort.key, av);
+        const bEmpty = isEmpty(sort.key, bv);
+        if (aEmpty && bEmpty) continue;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
 
         const an = numericTableValue(av);
         const bn = numericTableValue(bv);
@@ -2353,6 +2419,7 @@ export function formatCell(
   value: unknown,
   format: ColumnFormat | undefined,
 ): string {
+  if (format === "duration" && isEmptyDuration(value)) return EMPTY_DURATION;
   if (value == null) return "";
   const numeric = numericTableValue(value);
   if (format === "number" && numeric !== null) {
@@ -2368,6 +2435,9 @@ export function formatCell(
   if (format === "delta" && numeric !== null) {
     const sign = numeric > 0 ? "+" : "";
     return `${sign}${numeric.toFixed(1)}%`;
+  }
+  if (format === "duration" && numeric !== null) {
+    return formatDuration(numeric);
   }
   if (format === "date") {
     const d = new Date(stringifyValue(value));
@@ -2466,7 +2536,8 @@ export function isNumericColumnFormat(
     format === "number" ||
     format === "currency" ||
     format === "percent" ||
-    format === "delta"
+    format === "delta" ||
+    format === "duration"
   );
 }
 
@@ -2839,6 +2910,9 @@ function TableRenderer({
                 <ContextMenuRadioItem value="date">
                   {t("sqlDashboard.columnFormatDate")}
                 </ContextMenuRadioItem>
+                <ContextMenuRadioItem value="duration">
+                  {t("sqlDashboard.columnFormatDuration")}
+                </ContextMenuRadioItem>
               </ContextMenuRadioGroup>
             </ContextMenuSubContent>
           </ContextMenuSub>
@@ -2864,8 +2938,10 @@ function TableRenderer({
   const [pageSize, setPageSize] = useState(10);
 
   const sortedRows = useMemo(() => {
-    return sortable ? sortTableRows(limitedRows, sortColumns) : limitedRows;
-  }, [limitedRows, sortColumns, sortable]);
+    return sortable
+      ? sortTableRows(limitedRows, sortColumns, savedColumns)
+      : limitedRows;
+  }, [limitedRows, sortColumns, sortable, savedColumns]);
 
   const pageCount = Math.ceil(sortedRows.length / pageSize);
   const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
@@ -3398,7 +3474,7 @@ function BarRenderer({
   xKey: string;
   yKeys: string[];
   colors: string[];
-  yFormatter?: "number" | "currency" | "percent";
+  yFormatter?: ChartValueFormatter;
   stacked?: boolean;
   panel: SqlPanel;
   onDatumClick?: DatumClickHandler;
@@ -3494,7 +3570,11 @@ function BarRenderer({
               padding={xPadding}
             />
           )}
-          {renderChartYAxes(dualAxis, yFormatter)}
+          {renderChartYAxes(dualAxis, yFormatter, {
+            rows,
+            keys: yKeys.filter((key) => !hiddenKeys.has(key)),
+            stacked,
+          })}
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="hsl(var(--border))"
@@ -3571,7 +3651,7 @@ function ComboRenderer({
   xKey: string;
   yKeys: string[];
   colors: string[];
-  yFormatter?: "number" | "currency" | "percent";
+  yFormatter?: ChartValueFormatter;
   barKeys: string[];
   panel: SqlPanel;
   onDatumClick?: DatumClickHandler;
@@ -3668,7 +3748,10 @@ function ComboRenderer({
               padding={xPadding}
             />
           )}
-          {renderChartYAxes(dualAxis, yFormatter)}
+          {renderChartYAxes(dualAxis, yFormatter, {
+            rows,
+            keys: yKeys.filter((key) => !hiddenKeys.has(key)),
+          })}
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="hsl(var(--border))"
@@ -3763,7 +3846,7 @@ function TimeSeriesRenderer({
   xKey: string;
   yKeys: string[];
   colors: string[];
-  yFormatter?: "number" | "currency" | "percent";
+  yFormatter?: ChartValueFormatter;
   chartType: "line" | "area";
   stacked?: boolean;
   panel: SqlPanel;
@@ -3861,7 +3944,10 @@ function TimeSeriesRenderer({
               tickFormatter={xLabelFormatter}
               padding={xPadding}
             />
-            {renderChartYAxes(dualAxis, yFormatter)}
+            {renderChartYAxes(dualAxis, yFormatter, {
+              rows,
+              keys: visibleKeys,
+            })}
             <CartesianGrid
               strokeDasharray="3 3"
               stroke="hsl(var(--border))"
@@ -4003,7 +4089,11 @@ function TimeSeriesRenderer({
             tickFormatter={xLabelFormatter}
             padding={xPadding}
           />
-          {renderChartYAxes(dualAxis, yFormatter)}
+          {renderChartYAxes(dualAxis, yFormatter, {
+            rows,
+            keys: visibleKeys,
+            stacked,
+          })}
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="hsl(var(--border))"
@@ -4315,7 +4405,7 @@ function OutcomeFunnelStage({
   outcomes: DashboardFunnelOutcomes;
   segments: FunnelOutcomeSegment[];
   shown: string;
-  formatter?: "number" | "currency" | "percent";
+  formatter?: ChartValueFormatter;
   onDatumClick?: DatumClickHandler;
 }) {
   const t = useT();
