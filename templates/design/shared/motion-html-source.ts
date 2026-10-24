@@ -1815,7 +1815,8 @@ function selectorPseudoMatchesNode(
           (child) => child.tagName || child.nodeName === "#text",
         ),
         dynamic:
-          hasAlpineContentReplacement(node) ||
+          hasRuntimeContentReplacement(node) ||
+          hasRemoteAlpineTeleportTo(node) ||
           hasRuntimeStructuralMutationInSubtree(node),
       };
     }
@@ -2061,10 +2062,15 @@ function hasAlpineStructuralSibling(node: HtmlNode): boolean {
   );
 }
 
-function hasAlpineContentReplacement(node: HtmlNode): boolean {
+function isVueStructuralDirective(name: string): boolean {
+  const directive = name.toLowerCase().split(/[.:]/, 1)[0]!;
+  return ["v-if", "v-else", "v-else-if", "v-for"].includes(directive);
+}
+
+function hasRuntimeContentReplacement(node: HtmlNode): boolean {
   return (
     node.attrs?.some(({ name, value }) =>
-      isAlpineContentReplacement(name, value),
+      isRuntimeContentReplacement(name, value),
     ) ?? false
   );
 }
@@ -2093,6 +2099,7 @@ function hasRuntimeStructuralMutation(node: HtmlNode): boolean {
       const directive = normalized.split(/[.:]/, 1)[0]!;
       return (
         isEventHandlerAttribute(name) ||
+        isVueStructuralDirective(name) ||
         directive === "x-init" ||
         directive === "x-effect" ||
         (isRuntimeStyleMutationScope(directive) &&
@@ -2113,7 +2120,11 @@ function hasRemoteAlpineTeleportToParent(node: HtmlNode): boolean {
   const parent = node.parentNode;
   if (!parent?.tagName) return false;
 
-  let root = node;
+  return hasRemoteAlpineTeleportTo(parent);
+}
+
+function hasRemoteAlpineTeleportTo(target: HtmlNode): boolean {
+  let root = target;
   while (root.parentNode) root = root.parentNode;
 
   return descendants(root).some((candidate) => {
@@ -2127,7 +2138,7 @@ function hasRemoteAlpineTeleportToParent(node: HtmlNode): boolean {
     );
     if (!selector) return true;
 
-    const matchesParent = matchesHtmlSelector(parent, selector);
+    const matchesTarget = matchesHtmlSelector(target, selector);
     const selectorAttribute =
       selector.kind === "id"
         ? "id"
@@ -2136,13 +2147,13 @@ function hasRemoteAlpineTeleportToParent(node: HtmlNode): boolean {
           : selector.kind === "attribute"
             ? selector.name
             : null;
-    const canMatchParentLater =
+    const canMatchTargetLater =
       selectorAttribute !== null &&
-      (parent.attrs ?? []).some(({ name, value }) =>
+      (target.attrs ?? []).some(({ name, value }) =>
         isDynamicHtmlAttribute(name, selectorAttribute, value),
       );
 
-    return matchesParent || canMatchParentLater;
+    return matchesTarget || canMatchTargetLater;
   });
 }
 
@@ -2485,10 +2496,10 @@ function isAlpineMarkupInjection(name: string, value = ""): boolean {
   );
 }
 
-function isAlpineContentReplacement(name: string, value = ""): boolean {
+function isRuntimeContentReplacement(name: string, value = ""): boolean {
   const directive = name.toLowerCase().split(".", 1)[0]!;
   return (
-    directive === "x-text" ||
+    ["x-text", "v-text"].includes(directive) ||
     isAlpineMarkupInjection(directive, value) ||
     ["textcontent", "innertext"].includes(
       dynamicBoundAttributeName(directive) ?? "",
@@ -2511,7 +2522,7 @@ function findContentReplacement(
     const attribute = current.attrs?.find(({ name, value }) =>
       current === target
         ? isAlpineMarkupInjection(name, value)
-        : isAlpineContentReplacement(name, value),
+        : isRuntimeContentReplacement(name, value),
     );
     if (attribute) return { attribute, onTarget: current === target };
   }

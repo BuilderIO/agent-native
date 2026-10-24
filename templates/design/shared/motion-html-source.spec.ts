@@ -1680,6 +1680,23 @@ describe("HTML Motion source adapter", () => {
   });
 
   it.each([
+    ["Vue v-if", 'v-if="active"'],
+    ["Vue v-for", 'v-for="item in items"'],
+  ])(
+    "rejects positional selectors when %s can change sibling positions",
+    (_label, directive) => {
+      const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><i ${directive}></i><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    },
+  );
+
+  it.each([
     ["a matching remote destination", ".card", "unsupported"],
     ["an unresolved remote destination", "getPortal()", "unsupported"],
     ["a different static destination", "#portal", "supported"],
@@ -1979,6 +1996,39 @@ describe("HTML Motion source adapter", () => {
     });
     expect(() => apply(source)).toThrow(MotionHtmlSourceError);
   });
+
+  it("rejects v-text that can make a Motion target match :empty", () => {
+    const source = `<!doctype html><html><head><style>#hero-title:empty { opacity: 0 !important; }</style></head><body><h1 id="hero-title" data-agent-native-node-id="hero-title" v-scope="{ label: '' }" v-text="label">Hello</h1></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
+  it.each([
+    ["the target", "#hero-title", "unsupported"],
+    ["an unresolved target", "getTarget()", "unsupported"],
+    ["a different static target", "#portal", "supported"],
+  ])(
+    "accounts for remote teleports and :empty when they target %s",
+    (_label, destination, status) => {
+      const source = `<!doctype html><html><head><style>#hero-title:not(:empty) { opacity: 0 !important; }</style></head><body><h1 id="hero-title" data-agent-native-node-id="hero-title"></h1><aside id="portal"></aside><div x-data><template x-teleport="${destination}"><i></i></template></div>${ALPINE_CDN}</body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject(
+        status === "supported"
+          ? { status: "supported", targetNodeIds: ["hero-title"] }
+          : { status: "unsupported", code: "unsupported-target" },
+      );
+    },
+  );
 
   it("rejects :empty when a child runtime handler can remove the last child", () => {
     const source = html
