@@ -546,6 +546,7 @@
     "./client/integrations/webhook-url": "./dist/client/integrations/webhook-url.js",
     "./client/labs/use-lab": "./dist/client/labs/use-lab.js",
     "./client/mcp-app-host": "./dist/client/mcp-app-host.js",
+    "./client/mcp-approval": "./dist/client/mcp-approval.js",
     "./client/motion-text": "./dist/client/motion-text.js",
     "./client/motion-text.css": "./dist/client/motion-text.css",
     "./client/onboarding/first-run-enabled": "./dist/client/onboarding/first-run-enabled.js",

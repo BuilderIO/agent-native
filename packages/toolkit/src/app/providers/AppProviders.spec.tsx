@@ -735,3 +735,95 @@ describe("AppProviders session gate", () => {
     await vi.waitFor(() => expect(document.title).toBe("Manage agent"));
   });
 });
+
+describe("AppProviders MCP approval review", () => {
+  const ID = "0b7f4c1e-2f4a-4d1c-9a43-5f1e8f0d2c6b";
+
+  beforeEach(() => {
+    (window.location as { hash: string }).hash = `#mcpApproval=${ID}`;
+  });
+
+  function reviewShown() {
+    return vi
+      .mocked(window.fetch)
+      .mock.calls.some(([url]) => url === `/_agent-native/mcp/approvals/${ID}`);
+  }
+
+  it("shows the review the URL names in place of the app", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ disableWebMcp: true });
+
+    expect(reviewShown()).toBe(true);
+    expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
+  });
+
+  it("sends a signed-out reader to sign in and back to the same review", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({});
+
+    expect(replaceMock).toHaveBeenCalledWith(
+      `/sign-in?c=${encodeContinuation(`/inbox#mcpApproval=${ID}`)}`,
+    );
+  });
+
+  it("lets a phone decide, where the app itself hands off to a larger screen", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    const matchMedia = window.matchMedia;
+    const screen = Object.getOwnPropertyDescriptors(window.screen);
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    Object.defineProperty(window.screen, "width", {
+      value: 390,
+      configurable: true,
+    });
+    Object.defineProperty(window.screen, "height", {
+      value: 844,
+      configurable: true,
+    });
+    try {
+      act(() => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            i18n={false}
+            toaster={null}
+            disableWebMcp
+            unsupportedDevice={{ appName: "Slides" }}
+          >
+            <div data-testid="app-content">content</div>
+          </AppProviders>,
+        );
+      });
+
+      expect(reviewShown()).toBe(true);
+    } finally {
+      window.matchMedia = matchMedia;
+      for (const key of ["width", "height"] as const) {
+        if (screen[key]) Object.defineProperty(window.screen, key, screen[key]);
+        else delete (window.screen as unknown as Record<string, unknown>)[key];
+      }
+    }
+  });
+
+  it.each([
+    ["a token-authenticated surface", { sessionBypass: true }],
+    ["a public page", { isPublicPath: true }],
+  ])("never shows a review on %s", (_label, props) => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ ...props, disableWebMcp: true });
+
+    expect(reviewShown()).toBe(false);
+    expect(
+      container.querySelector('[data-testid="app-content"]'),
+    ).not.toBeNull();
+  });
+});

@@ -540,6 +540,11 @@ export function mountMCP(
       ? [...MCP_ROUTE_PREFIXES]
       : [joinMcpRoute(routePrefix, "/mcp")];
   if (config.directoryProfile) routePaths.unshift(MCP_DIRECTORY_ROUTE_PREFIX);
+  if (config.appApprovalPage && routePrefix !== "/_agent-native") {
+    throw new Error(
+      `appApprovalPage needs MCP mounted under /_agent-native, where the app's review page reads approvals, not under ${routePrefix}.`,
+    );
+  }
 
   mountMcpApprovalRoute(
     nitroApp,
@@ -548,6 +553,7 @@ export function mountMCP(
       // Only a signed-in caller makes a grant, and MCP runs its calls from
       // `productionActions` when there is one (`selectMcpActionSurface`).
       actions: config.productionActions ?? config.actions,
+      appPage: config.appApprovalPage === true,
     },
     routePrefix,
   );
