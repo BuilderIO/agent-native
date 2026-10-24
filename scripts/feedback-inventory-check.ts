@@ -5406,9 +5406,14 @@ function userRequestAuthorizesExactRoot(
   );
   const authorizationLimit =
     /\b(?:not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|only|just|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
+  const directlyAttachedQualifier =
+    /^\s*(?:only|just|not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?))\b/i;
+  const workAuthorizationLanguage =
+    /\b(?:work|handle|reconcile|take over|follow up|claim(?:ing)?|reply(?:ing)?|read|inspect|authorize|permission)\b/i;
   const unquotedRequest = withoutQuotedScopeContext(userRequest);
+  const statements = unquotedRequest.split(/;|\n+|(?<=[.!?])\s+/);
   let searchOffset = 0;
-  return unquotedRequest.split(/;|\n+|(?<=[.!?])\s+/).some((statement) => {
+  return statements.some((statement, statementIndex) => {
     const statementStart = unquotedRequest.indexOf(statement, searchOffset);
     if (statementStart < 0) return false;
     searchOffset = statementStart + statement.length;
@@ -5421,7 +5426,15 @@ function userRequestAuthorizesExactRoot(
     ) {
       return false;
     }
-    return !authorizationLimit.test(unquotedRequest.slice(statementStart));
+    if (authorizationLimit.test(statement)) return false;
+    return !statements
+      .slice(statementIndex + 1)
+      .some(
+        (followingStatement) =>
+          directlyAttachedQualifier.test(followingStatement) ||
+          (authorizationLimit.test(followingStatement) &&
+            workAuthorizationLanguage.test(followingStatement)),
+      );
   });
 }
 
@@ -17175,6 +17188,12 @@ if (args[0] === "--self-test" && args.length === 1) {
     directWorkAuthorization.scope.narrowingJudgment!.instruction =
       directWorkAuthorization.scope.userRequest;
     validateTestInventory(directWorkAuthorization);
+    const unrelatedFollowUpAuthorization = structuredClone(authorizedMagRoot);
+    unrelatedFollowUpAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000. Let me know if you have questions.";
+    unrelatedFollowUpAuthorization.scope.narrowingJudgment!.instruction =
+      unrelatedFollowUpAuthorization.scope.userRequest;
+    validateTestInventory(unrelatedFollowUpAuthorization);
 
     const deniedAuthorization = structuredClone(authorizedMagRoot);
     deniedAuthorization.scope.userRequest =
