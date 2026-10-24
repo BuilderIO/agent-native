@@ -99,10 +99,9 @@ const MAX_BODY_BYTES = 64 * 1024;
 const viewerEmailSchema = z.string().email().max(320);
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
-// Also how often a reader may miss on one page: name a recording that doesn't
-// open there. A real page misses only on a Clip that has since gone, once per
-// view, so its signed-out readers, who share one key, reach this only at the
-// traffic where a Clip of theirs also reaches its own limit.
+// Also how often a reader may name, on one page, a Clip that doesn't open for
+// them there. Each Clip keeps its own count, so made-up ids can't spend a real
+// Clip's, and a Clip that opened once and then went away stays bounded.
 const RATE_LIMITS = { read: 600, write: 30 } as const;
 const RATE_LIMIT_MAX_BUCKETS = 5000;
 let rateBucketLimit = RATE_LIMIT_MAX_BUCKETS;
@@ -110,7 +109,7 @@ let missLimitForTests: number | null = null;
 type RateBucket = { count: number; reset: number };
 /** One per reader, page and Clip that opened. */
 const rateBuckets = new Map<string, RateBucket>();
-/** One per reader and page, for requests whose Clip didn't open. */
+/** One per reader, page and Clip that didn't open. */
 const missBuckets = new Map<string, RateBucket>();
 
 function json(body: unknown, status = 200): Response {
@@ -242,17 +241,18 @@ function pruneExpired(buckets: Map<string, RateBucket>, now: number): void {
 
 type RateKind = keyof typeof RATE_LIMITS;
 
-function readerKey(peer: ContentClipPeer, kind: RateKind): string {
+function clipKey(peer: ContentClipPeer, kind: RateKind): string {
   return [
     kind,
     peer.contentApp,
     peer.documentId,
     peer.viewerEmail ?? CONTENT_CLIP_PUBLIC_READER,
+    peer.recordingId,
   ].join("\n");
 }
 
-function clipKey(peer: ContentClipPeer, kind: RateKind): string {
-  return `${readerKey(peer, kind)}\n${peer.recordingId}`;
+function isFull(bucket: RateBucket | undefined, limit: number, now: number) {
+  return Boolean(bucket && bucket.reset >= now && bucket.count >= limit);
 }
 
 function missLimit(kind: RateKind): number {
@@ -264,21 +264,14 @@ function tooManyRequests(): Response {
 }
 
 /**
- * Refuses before Clips reads anything: a reader whose bucket for this Clip is
- * full, or whose misses on this page are spent, for a Clip that hasn't opened
- * for them there. Any bucket for the Clip counts, live or not yet pruned, so a
- * Clip they are watching keeps playing as its window rolls over.
+ * Refuses before Clips reads anything: a reader who has used up this Clip's
+ * requests on this page, either those that opened it or those that didn't.
  */
 function overRateLimit(peer: ContentClipPeer, kind: RateKind) {
+  const key = clipKey(peer, kind);
   const now = Date.now();
-  const clip = rateBuckets.get(clipKey(peer, kind));
-  if (clip) {
-    return clip.reset >= now && clip.count >= RATE_LIMITS[kind]
-      ? tooManyRequests()
-      : null;
-  }
-  const misses = missBuckets.get(readerKey(peer, kind));
-  return misses && misses.reset >= now && misses.count >= missLimit(kind)
+  return isFull(rateBuckets.get(key), RATE_LIMITS[kind], now) ||
+    isFull(missBuckets.get(key), missLimit(kind), now)
     ? tooManyRequests()
     : null;
 }
@@ -310,9 +303,9 @@ function rateLimited(peer: ContentClipPeer, kind: RateKind) {
   return null;
 }
 
-/** Counts a request whose Clip didn't open against the reader's page. */
+/** Counts a request whose Clip didn't open against that Clip's misses. */
 function countMiss(peer: ContentClipPeer, kind: RateKind): void {
-  const key = readerKey(peer, kind);
+  const key = clipKey(peer, kind);
   const now = Date.now();
   const existing = missBuckets.get(key);
   if (existing && existing.reset >= now) {

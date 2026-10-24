@@ -1677,28 +1677,63 @@ describe("token checks", () => {
     ).toBe(429);
   });
 
-  it("refuses a reader's made-up ids once their misses are spent, and still plays a Clip that opened", async () => {
+  it("refuses a made-up id once its misses are spent, and nothing else", async () => {
     __resetContentClipRateLimitsForTests({ misses: 2 });
     const reader = await token();
+    const madeUp = await token({ recordingId: "made-up-1" });
     expect((await playback("rec-upload", reader)).status).toBe(200);
-    for (const recordingId of ["made-up-1", "made-up-2"]) {
-      expect(
-        (await playback(recordingId, await token({ recordingId }))).status,
-      ).toBe(404);
-    }
+    expect((await playback("made-up-1", madeUp)).status).toBe(404);
+    expect((await playback("made-up-1", madeUp)).status).toBe(404);
+    expect((await playback("made-up-1", madeUp)).status).toBe(429);
     expect(
-      (await playback("made-up-3", await token({ recordingId: "made-up-3" })))
+      (await playback("made-up-2", await token({ recordingId: "made-up-2" })))
         .status,
-    ).toBe(429);
+    ).toBe(404);
     expect((await playback("rec-upload", reader)).status).toBe(200);
-    // Misses are one reader's on one page.
     expect(
       (
         await playback(
-          "made-up-4",
-          await token({ recordingId: "made-up-4", sub: OTHER_READER }),
+          "made-up-1",
+          await token({ recordingId: "made-up-1", sub: OTHER_READER }),
         )
       ).status,
     ).toBe(404);
+  });
+
+  it("refuses a Clip that opened and then went away once its misses are spent", async () => {
+    __resetContentClipRateLimitsForTests({ misses: 2 });
+    const reader = await token();
+    expect((await playback("rec-upload", reader)).status).toBe(200);
+    await setBindingState("binding-doc-1", "trashed");
+    expect((await playback("rec-upload", reader)).status).toBe(404);
+    expect((await playback("rec-upload", reader)).status).toBe(404);
+    expect((await playback("rec-upload", reader)).status).toBe(429);
+  });
+
+  it("lets no signed-out reader's misses stop another's first open on the page", async () => {
+    __resetContentClipRateLimitsForTests({ misses: 1 });
+    for (const recordingId of ["made-up-1", "made-up-2", "made-up-3"]) {
+      const madeUp = await publicReaderToken({ recordingId });
+      expect((await playback(recordingId, madeUp)).status).toBe(404);
+      expect((await playback(recordingId, madeUp)).status).toBe(429);
+    }
+    expect(
+      (await playback("rec-upload", await publicReaderToken())).status,
+    ).toBe(200);
+  });
+
+  it("forgets the oldest misses when the map is full, locking no one out", async () => {
+    __resetContentClipRateLimitsForTests({ buckets: 2, misses: 1 });
+    const first = await token({ recordingId: "made-up-1" });
+    const second = await token({ recordingId: "made-up-2" });
+    expect((await playback("made-up-1", first)).status).toBe(404);
+    expect((await playback("made-up-1", first)).status).toBe(429);
+    expect((await playback("made-up-2", second)).status).toBe(404);
+    expect(
+      (await playback("made-up-3", await token({ recordingId: "made-up-3" })))
+        .status,
+    ).toBe(404);
+    expect((await playback("made-up-2", second)).status).toBe(429);
+    expect((await playback("made-up-1", first)).status).toBe(404);
   });
 });
