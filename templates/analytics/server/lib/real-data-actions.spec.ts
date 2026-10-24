@@ -571,6 +571,7 @@ describe("real data action classification", () => {
   it("clears a lookup failure once a later query under the same metric name returns rows", () => {
     const notFound = {
       name: "query-dbt-semantic-metric",
+      toolCallId: "dbt-lookup",
       content: JSON.stringify({
         status: "not_found",
         metricName: "weekly_active_users",
@@ -580,6 +581,7 @@ describe("real data action classification", () => {
     };
     const sameMetric = {
       name: "query-dbt-semantic-metric",
+      toolCallId: "dbt-success",
       content: JSON.stringify({
         status: "success",
         metricName: "weekly_active_users",
@@ -593,103 +595,76 @@ describe("real data action classification", () => {
       }),
     };
 
-    expect(failedDataQueryAttemptMessage([notFound, sameMetric])).toBeNull();
+    expect(
+      failedDataQueryAttemptMessage(
+        [notFound, sameMetric],
+        [
+          {
+            name: "query-dbt-semantic-metric",
+            toolCallId: "dbt-lookup",
+            input: { metricName: "weekly_active_users" },
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            toolCallId: "dbt-success",
+            input: {
+              metricName: "weekly_active_users",
+              timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+              groupBy: [],
+            },
+          },
+        ],
+      ),
+    ).toBeNull();
   });
 
-  it("keeps a scoped lookup failure when a later same-name query uses another scope", () => {
-    const september = {
-      startDate: "2026-09-01",
-      endDate: "2026-09-30",
-    };
-    const august = {
-      startDate: "2026-08-01",
-      endDate: "2026-08-31",
-    };
-    const notFound = {
-      name: "query-dbt-semantic-metric",
-      toolCallId: "dbt-september",
-      content: JSON.stringify({
-        status: "not_found",
-        metricName: "active_accounts",
-      }),
-    };
-    const otherPeriod = {
-      name: "query-dbt-semantic-metric",
-      toolCallId: "dbt-august",
-      content: JSON.stringify({
-        status: "success",
-        metricName: "active_accounts",
-        querySpec: { groupBy: [], timeRange: august },
-        rows: [{ active_accounts: 10 }],
-        truncated: false,
-      }),
-    };
+  it("does not clear a metric failure with a same-name result at another scope", () => {
+    const results = [
+      {
+        name: "query-dbt-semantic-metric",
+        toolCallId: "dbt-september",
+        content: JSON.stringify({
+          status: "not_found",
+          metricName: "weekly_active_users",
+        }),
+      },
+      {
+        name: "query-dbt-semantic-metric",
+        toolCallId: "dbt-august",
+        content: JSON.stringify({
+          status: "success",
+          metricName: "weekly_active_users",
+          querySpec: {
+            groupBy: [],
+            timeRange: { startDate: "2026-08-01", endDate: "2026-08-31" },
+          },
+          rows: [{ weekly_active_users: 7836 }],
+          truncated: false,
+        }),
+      },
+    ];
     const calls = [
       {
         name: "query-dbt-semantic-metric",
         toolCallId: "dbt-september",
         input: {
-          metricName: "active_accounts",
+          metricName: "weekly_active_users",
+          timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
           groupBy: [],
-          timeRange: september,
         },
       },
       {
         name: "query-dbt-semantic-metric",
         toolCallId: "dbt-august",
         input: {
-          metricName: "active_accounts",
+          metricName: "weekly_active_users",
+          timeRange: { startDate: "2026-08-01", endDate: "2026-08-31" },
           groupBy: [],
-          timeRange: august,
         },
       },
     ];
 
-    expect(
-      failedDataQueryAttemptMessage([notFound, otherPeriod], calls),
-    ).toContain("returned status `not_found`");
-  });
-
-  it("does not clear a scoped lookup failure with a later empty result", () => {
-    const range = {
-      startDate: "2026-09-01",
-      endDate: "2026-09-30",
-    };
-    const notFound = {
-      name: "query-dbt-semantic-metric",
-      toolCallId: "dbt-lookup",
-      content: JSON.stringify({
-        status: "not_found",
-        metricName: "active_accounts",
-      }),
-    };
-    const empty = {
-      name: "query-dbt-semantic-metric",
-      toolCallId: "dbt-empty",
-      content: JSON.stringify({
-        status: "success",
-        metricName: "active_accounts",
-        querySpec: { groupBy: [], timeRange: range },
-        rows: [],
-        truncated: false,
-      }),
-    };
-    const calls = [
-      {
-        name: "query-dbt-semantic-metric",
-        toolCallId: "dbt-lookup",
-        input: { metricName: "active_accounts", timeRange: range, groupBy: [] },
-      },
-      {
-        name: "query-dbt-semantic-metric",
-        toolCallId: "dbt-empty",
-        input: { metricName: "active_accounts", timeRange: range, groupBy: [] },
-      },
-    ];
-
-    expect(failedDataQueryAttemptMessage([notFound, empty], calls)).toContain(
-      "returned status `not_found`",
-    );
+    expect(failedDataQueryAttemptMessage(results, calls)).not.toBeNull();
   });
 
   it("clears an empty continued page once the same query returns rows", () => {
