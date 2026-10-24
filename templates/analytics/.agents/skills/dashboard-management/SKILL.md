@@ -156,13 +156,16 @@ over the cap, and runs the join with that cap as BigQuery's billing limit.
 
 The catalog's "Content" dashboard (`content-view`) is the reference for these
 tables: start from its panels before writing new content SQL. Its Missing
-data callout has no `tab`, so it shows on every tab, and names each source
-whose latest run in the last 30 days failed, hit the cost cap or isn't
-connected, or says none ran; keep that pattern rather than letting a blank read
-as zero. The
+data callout has no `tab`, so it shows on every tab. It joins the expected
+sources to their latest run in the last 30 days, so it names each source whose
+run failed, hit the cost cap or isn't connected, and each one with no run in
+that window; keep that pattern rather than letting a missing row read as
+"nothing missing". The
 first-party SQL policy rejects functions outside its allow-list (for example
 `concat_ws`) and reads `CASE (` as a function call, so join a status column
-instead of a scalar subquery inside `CASE`. Its daily signups chart uses wide
+instead of a scalar subquery inside `CASE`. Its parser also rejects `VALUES`
+lists and `IS DISTINCT FROM`: list fixed rows with `SELECT … UNION ALL` and
+compare with `COALESCE(x, '') <> …`. Its daily signups chart uses wide
 rows (`yKeys`), not `pivot`: a pivot fills a missing series with 0, so an
 uncollected day would draw as a zero instead of a gap. Pivot only where a
 missing row is a real zero, like an author's week without signups. Content is a

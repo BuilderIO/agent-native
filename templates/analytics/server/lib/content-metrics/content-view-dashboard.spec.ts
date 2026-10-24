@@ -169,6 +169,8 @@ describe("Content view dashboard", () => {
           (name) =>
             ![
               "latest",
+              "sources",
+              "runs",
               "totals",
               "dates",
               "per_article",
@@ -202,6 +204,31 @@ describe("Content view dashboard", () => {
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
+  it("keeps a source with no run in 30 days, with its last run from this organization", async () => {
+    await client.exec(
+      `UPDATE analytics_content_collection_runs SET started_at = '${daysAgo(40)}T07:00:01.000Z' WHERE id = 'r2'`,
+    );
+    expect(await runPanel("collection-status")).toEqual([
+      expect.objectContaining({ source: "Blog articles", status: "Collected" }),
+      expect.objectContaining({
+        source: "GA4 pageviews",
+        status: "No run in 30 days",
+        last_run: `${daysAgo(40)}T07:00:01.000Z`,
+        data_through: daysAgo(2),
+      }),
+      expect.objectContaining({ source: "Search Console" }),
+      expect.objectContaining({ source: "Signups" }),
+    ]);
+    expect(await runPanel("missing-data")).toEqual([
+      {
+        severity: "warning",
+        message: "**Pageviews haven't been collected in the last 30 days**.",
+      },
+      expect.objectContaining({ severity: "warning" }),
+      expect.objectContaining({ severity: "critical" }),
+    ]);
+  });
+
   it("names each source that failed, hit the cost cap or isn't connected in one notice", async () => {
     expect(await runPanel("missing-data")).toEqual([
       {
@@ -217,7 +244,7 @@ describe("Content view dashboard", () => {
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
-  it("says nothing is missing only after a recent run, and only from this organization's runs", async () => {
+  it("says nothing is missing only when every source collected recently, and only from this organization's runs", async () => {
     await client.exec(
       "UPDATE analytics_content_collection_runs SET status = 'succeeded' WHERE id IN ('r4', 'r5')",
     );
@@ -231,12 +258,14 @@ describe("Content view dashboard", () => {
     await client.exec(
       `UPDATE analytics_content_collection_runs SET started_at = '${daysAgo(40)}T07:00:00.000Z' WHERE tenant_key = 'org:org_a'`,
     );
-    expect(await runPanel("missing-data")).toEqual([
-      {
-        severity: "info",
-        message: "No collection has run in the last 30 days.",
-      },
-    ]);
+    expect(await runPanel("missing-data")).toEqual(
+      ["Articles", "Pageviews", "Search clicks and impressions", "Signups"].map(
+        (label) => ({
+          severity: "warning",
+          message: `**${label} haven't been collected in the last 30 days**.`,
+        }),
+      ),
+    );
   });
 
   it("ranks articles by signups and leaves an article with none in the window blank", async () => {
@@ -315,7 +344,7 @@ describe("Content view dashboard", () => {
       { author: "Grace", articles: 1, with_signups: 0, signups: null },
     ]);
     expect(await runPanel("author-weeks")).toEqual([
-      { author: "Ada", week: await yesterday("Mon FMDD"), signups: 2 },
+      { author: "Ada", week: await yesterday("YYYY-MM-DD"), signups: 2 },
     ]);
     expect((await runPanel("author-articles")).map((row) => row.title)).toEqual(
       ["Post one", "Post two"],
