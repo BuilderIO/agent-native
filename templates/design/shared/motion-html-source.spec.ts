@@ -1621,6 +1621,39 @@ describe("HTML Motion source adapter", () => {
     expect(() => apply(source)).toThrow(MotionHtmlSourceError);
   });
 
+  it("rejects an important mask shorthand that resets an animated mask property", () => {
+    const authored = apply(
+      html.replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+      ),
+      {
+        timeline: makePropertyTimeline("mask-position", "0% 0%", "100% 100%"),
+      },
+    ).source;
+    expect(readMotionHtmlSource(authored)).toMatchObject({
+      status: "valid",
+      document: {
+        tracks: [expect.objectContaining({ property: "mask-position" })],
+      },
+    });
+    const source = authored.replace(
+      "<head>",
+      '<head><style>#hero-title { mask: url("mask.svg") center / cover !important; }</style>',
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+    expect(readMotionHtmlSource(source)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+  });
+
   it("inspects stylesheet rules inside Alpine structural templates", () => {
     const withTemplateStyle = (source: string) =>
       source
@@ -2560,6 +2593,28 @@ describe("HTML Motion source adapter", () => {
     expect(readMotionHtmlSource(apply(source).source)).toMatchObject({
       status: "valid",
       targetNodeIds: ["hero-title"],
+    });
+  });
+
+  it("rejects sibling Vue markup injection while Motion targets exist", () => {
+    const source = apply(html).source.replace(
+      "</body>",
+      '<aside v-html="content"></aside>\n</body>',
+    );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining("v-html may inject a stylesheet"),
+    });
+    expect(readMotionHtmlSource(source)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
     });
   });
 

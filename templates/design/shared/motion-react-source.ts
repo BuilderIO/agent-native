@@ -2974,16 +2974,17 @@ function hasDynamicCodeExecution(sourceFile: TypeScript.SourceFile): boolean {
   let found = false;
   const visit = (node: TypeScript.Node): void => {
     if (found) return;
-    const functionConstructorReference =
+    const dynamicCodeReference =
       ts.isIdentifier(node) &&
-      node.text === "Function" &&
-      isFunctionConstructorReference(node);
-    const functionConstructorProperty =
-      (ts.isPropertyAccessExpression(node) && node.name.text === "Function") ||
+      (node.text === "Function" || node.text === "eval") &&
+      isDynamicCodeExecutionReference(node);
+    const dynamicCodeProperty =
+      (ts.isPropertyAccessExpression(node) &&
+        ["Function", "eval"].includes(node.name.text)) ||
       (ts.isElementAccessExpression(node) &&
         node.argumentExpression &&
         ts.isStringLiteralLike(node.argumentExpression) &&
-        node.argumentExpression.text === "Function");
+        ["Function", "eval"].includes(node.argumentExpression.text));
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const directEval = ts.isIdentifier(callee) && callee.text === "eval";
@@ -2994,25 +2995,23 @@ function hasDynamicCodeExecution(sourceFile: TypeScript.SourceFile): boolean {
         : ts.isPropertyAccessExpression(callee)
           ? callee.name.text
           : null;
+      const timerCode = node.arguments[0];
       const dynamicTimer =
         ["setTimeout", "setInterval"].includes(timerName ?? "") &&
-        node.arguments.some(
-          (argument) =>
-            ts.isStringLiteral(argument) ||
-            ts.isNoSubstitutionTemplateLiteral(argument),
-        );
+        timerCode !== undefined &&
+        isStaticallyStringExpression(timerCode, sourceFile);
       if (
         directEval ||
         functionConstructor ||
-        functionConstructorReference ||
-        functionConstructorProperty ||
+        dynamicCodeReference ||
+        dynamicCodeProperty ||
         dynamicTimer
       ) {
         found = true;
         return;
       }
     }
-    if (functionConstructorReference || functionConstructorProperty) {
+    if (dynamicCodeReference || dynamicCodeProperty) {
       found = true;
       return;
     }
@@ -3030,7 +3029,7 @@ function hasDynamicCodeExecution(sourceFile: TypeScript.SourceFile): boolean {
   return found;
 }
 
-function isFunctionConstructorReference(node: TypeScript.Identifier): boolean {
+function isDynamicCodeExecutionReference(node: TypeScript.Identifier): boolean {
   let child: TypeScript.Node = node;
   for (
     let parent = node.parent;
@@ -3052,6 +3051,56 @@ function isFunctionConstructorReference(node: TypeScript.Identifier): boolean {
     }
   }
   return true;
+}
+
+function isStaticallyStringExpression(
+  expression: TypeScript.Expression,
+  sourceFile: TypeScript.SourceFile,
+  resolving = new Set<string>(),
+): boolean {
+  if (ts.isStringLiteralLike(expression)) return true;
+  if (ts.isParenthesizedExpression(expression)) {
+    return isStaticallyStringExpression(
+      expression.expression,
+      sourceFile,
+      resolving,
+    );
+  }
+  if (
+    ts.isAsExpression(expression) ||
+    ts.isTypeAssertionExpression(expression)
+  ) {
+    return isStaticallyStringExpression(
+      expression.expression,
+      sourceFile,
+      resolving,
+    );
+  }
+  if (!ts.isIdentifier(expression) || resolving.has(expression.text)) {
+    return false;
+  }
+
+  const nextResolving = new Set(resolving).add(expression.text);
+  let found = false;
+  const visit = (node: TypeScript.Node): void => {
+    if (found) return;
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === expression.text &&
+      node.initializer
+    ) {
+      found = isStaticallyStringExpression(
+        node.initializer,
+        sourceFile,
+        nextResolving,
+      );
+      if (found) return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
 }
 
 function resolveReactStyleExpression(

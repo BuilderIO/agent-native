@@ -943,6 +943,14 @@ const CSS_ALL_BORDER_LONGHANDS = [
   ...cssBorderLonghands(CSS_BORDER_SIDES),
   ...cssBorderLonghands(CSS_LOGICAL_BORDER_SIDES),
 ];
+const CSS_MASK_BORDER_LONGHANDS = [
+  "mask-border-mode",
+  "mask-border-outset",
+  "mask-border-repeat",
+  "mask-border-slice",
+  "mask-border-source",
+  "mask-border-width",
+];
 const CSS_SHORTHAND_LONGHANDS: Readonly<Record<string, readonly string[]>> = {
   background: [
     "background-attachment",
@@ -1109,6 +1117,32 @@ const CSS_SHORTHAND_LONGHANDS: Readonly<Record<string, readonly string[]>> = {
     "top",
   ],
   "list-style": ["list-style-image", "list-style-position", "list-style-type"],
+  mask: [
+    "mask-image",
+    "mask-mode",
+    "mask-position",
+    "mask-size",
+    "mask-repeat",
+    "mask-origin",
+    "mask-clip",
+    "mask-composite",
+    ...CSS_MASK_BORDER_LONGHANDS,
+  ],
+  "-webkit-mask": [
+    "-webkit-mask-image",
+    "-webkit-mask-position",
+    "-webkit-mask-size",
+    "-webkit-mask-repeat",
+    "-webkit-mask-origin",
+    "-webkit-mask-clip",
+    "-webkit-mask-composite",
+    "mask-image",
+    "mask-position",
+    "mask-size",
+    "mask-repeat",
+    "mask-origin",
+    "mask-clip",
+  ],
   margin: [
     ...CSS_BORDER_SIDES.map((side) => `margin-${side}`),
     "margin-block-end",
@@ -2081,6 +2115,7 @@ function isAlpineMarkupInjection(name: string): boolean {
   const directive = name.toLowerCase().split(".", 1)[0]!;
   return (
     directive === "x-html" ||
+    directive === "v-html" ||
     ["innerhtml", "outerhtml"].includes(
       dynamicBoundAttributeName(directive) ?? "",
     )

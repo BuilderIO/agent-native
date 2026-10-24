@@ -1094,8 +1094,24 @@ function Card(style = { animationName: "fade" }) {
       "const motionStyles = { color: \"red\" }; eval(\"motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'\");",
     ],
     [
+      "an eval alias that mutates the style alias",
+      `const motionStyles = { color: "red" }; const run = eval; run("motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'");`,
+    ],
+    [
+      "a global eval call that mutates the style alias",
+      `const motionStyles = { color: "red" }; window.eval("motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'");`,
+    ],
+    [
       "a string timer that mutates the style alias",
       "const motionStyles = { color: \"red\" }; setTimeout(\"motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'\", 0);",
+    ],
+    [
+      "a string timer variable that mutates the style alias",
+      `const motionStyles = { color: "red" }; const timerCode = "motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'"; setTimeout(timerCode, 0);`,
+    ],
+    [
+      "a mutable string timer variable that mutates the style alias",
+      `const motionStyles = { color: "red" }; let timerCode = "motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'"; setTimeout(timerCode, 0);`,
     ],
     [
       "a dynamic Function constructor alias",

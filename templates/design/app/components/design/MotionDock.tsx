@@ -624,7 +624,7 @@ export function MotionDock({
     useState<MotionNativeStyleIdentity | null>(() =>
       resolveMotionNativeStyleIdentity(
         nativeStyles,
-        selectedTarget?.nodeId,
+        selectedTarget?.nodeId ?? nativeStyles.at(-1)?.targetNodeId,
         null,
       ),
     );
