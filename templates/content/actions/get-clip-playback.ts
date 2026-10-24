@@ -49,6 +49,8 @@ export default defineAction({
   readOnly: true,
   requiresAuth: false,
   agentTool: false,
+  // Its URLs stop working within minutes and carry the reader's access.
+  persistInBrowser: false,
   run: async ({ documentId, recordingId }): Promise<ClipPlayback> => {
     const reader = await authorizeClipReader(documentId);
     const result = await requestClips({

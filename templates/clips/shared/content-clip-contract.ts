@@ -63,6 +63,13 @@ export const CONTENT_CLIP_MAX_TOKEN_SECONDS = 5 * 60;
  */
 export const CONTENT_CLIP_PLAYBACK_GRANT_SECONDS = 5 * 60;
 
+/**
+ * The most comment threads one comment-list call returns. Content asks with
+ * `?limit=<n>`, n from 1 to this, and gets the first n thread starts by video
+ * time, with `truncated: true` when there are more. Replies never come back.
+ */
+export const CONTENT_CLIP_MAX_COMMENT_THREADS = 500;
+
 /** The `code` of a 403 media response refused only because its grant expired. */
 export const CONTENT_CLIP_GRANT_EXPIRED = "content_grant_expired";
 

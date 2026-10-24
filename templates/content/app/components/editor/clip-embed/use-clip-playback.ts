@@ -130,7 +130,8 @@ export function useClipPlayback(
 
 export type ClipMarkersState =
   | { status: "loading" }
-  | { status: "ready"; markers: ClipCommentMarker[] }
+  /** `truncated`: Clips has more threads than the first ones listed. */
+  | { status: "ready"; markers: ClipCommentMarker[]; truncated: boolean }
   | { status: "off" }
   /** Markers from an earlier answer may still be there to show. */
   | { status: "failed"; markers: ClipCommentMarker[] };
@@ -159,6 +160,12 @@ export function useClipMarkers(
       ? { status: "off" }
       : { status: "failed", markers: query.data?.markers ?? [] };
   }
-  if (query.data) return { status: "ready", markers: query.data.markers };
+  if (query.data) {
+    return {
+      status: "ready",
+      markers: query.data.markers,
+      truncated: query.data.truncated,
+    };
+  }
   return { status: "loading" };
 }

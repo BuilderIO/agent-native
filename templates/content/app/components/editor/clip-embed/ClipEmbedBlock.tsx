@@ -245,6 +245,12 @@ export function ClipEmbed({
             <span className="shrink-0 text-xs">
               {t("clipEmbed.commentsFailed")}
             </span>
+          ) : markers.status === "ready" && markers.truncated ? (
+            <span className="shrink-0 text-xs">
+              {t("clipEmbed.commentsTruncated", {
+                count: markers.markers.length,
+              })}
+            </span>
           ) : null
         }
       />

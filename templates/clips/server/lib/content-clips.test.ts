@@ -336,10 +336,17 @@ function playback(recordingId: string, bearer?: string) {
   );
 }
 
-function listComments(recordingId: string, bearer?: string) {
+function listComments(
+  recordingId: string,
+  bearer?: string,
+  limit: string | null = "500",
+) {
+  const query = limit === null ? "" : `?limit=${limit}`;
   return respond(
     listCommentsRoute,
-    peerEvent(`/api/content-clips/${recordingId}/comments`, { bearer }),
+    peerEvent(`/api/content-clips/${recordingId}/comments${query}`, {
+      bearer,
+    }),
   );
 }
 
@@ -1033,6 +1040,47 @@ describe("video comments through a doc", () => {
     expect(
       (await storedComments()).some((comment) => comment.id === addedId),
     ).toBe(false);
+  });
+
+  it("lists thread starts only, at most as many as asked, and says when there are more", async () => {
+    await seedComment("late", { videoTimestampMs: 9_000 });
+    await seedComment("early", { videoTimestampMs: 1_000 });
+    await seedComment("middle", { videoTimestampMs: 5_000 });
+    await seedComment("reply", {
+      parentId: "early",
+      threadId: "early",
+      videoTimestampMs: 1_000,
+      createdAt: "2026-10-02T00:00:00.000Z",
+    });
+    const bearer = await token();
+
+    const first = await listComments("rec-upload", bearer, "2");
+    expect(first.status).toBe(200);
+    expect(first.body).toEqual({
+      comments: [
+        expect.objectContaining({ id: "early", videoTimestampMs: 1_000 }),
+        expect.objectContaining({ id: "middle", videoTimestampMs: 5_000 }),
+      ],
+      truncated: true,
+    });
+
+    const all = await listComments("rec-upload", bearer, "3");
+    expect(all.body.truncated).toBe(false);
+    expect(all.body.comments.map((c: { id: string }) => c.id)).toEqual([
+      "early",
+      "middle",
+      "late",
+    ]);
+  });
+
+  it("refuses a list without a bound it can honor", async () => {
+    await seedComment("owner-comment");
+    const bearer = await token();
+    for (const limit of [null, "", "0", "-1", "1.5", "abc", "501"]) {
+      const result = await listComments("rec-upload", bearer, limit);
+      expect(result.status).toBe(400);
+      expect(JSON.stringify(result.body)).not.toContain("owner-comment");
+    }
   });
 
   it("refuses to change another person's comment", async () => {

@@ -184,6 +184,7 @@ export async function requestClips(input: {
   documentId: string;
   recordingId: string;
   resource: "playback" | "comments";
+  query?: Record<string, string>;
 }): Promise<ClipsResult> {
   const clipsAppUrl = resolveClipsAppUrl();
   const secret = readPeerSecret();
@@ -200,10 +201,11 @@ export async function requestClips(input: {
     secret,
   });
 
+  const search = input.query ? `?${new URLSearchParams(input.query)}` : "";
   let response: Response;
   try {
     response = await fetch(
-      `${clipsAppUrl}/api/content-clips/${encodeURIComponent(input.recordingId)}/${input.resource}`,
+      `${clipsAppUrl}/api/content-clips/${encodeURIComponent(input.recordingId)}/${input.resource}${search}`,
       {
         headers: {
           authorization: `Bearer ${token}`,

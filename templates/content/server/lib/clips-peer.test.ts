@@ -183,6 +183,24 @@ describe("requestClips", () => {
       resource: "playback",
     });
 
+  it("sends the caller's bound on the query string", async () => {
+    const fetchMock = vi.fn(async () =>
+      clipsResponse(200, { comments: [], truncated: false }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await requestClips({
+      reader: signedIn,
+      documentId: "doc_1",
+      recordingId: "rec_1",
+      resource: "comments",
+      query: { limit: "500" },
+    });
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
+      `${CLIPS_URL}/api/content-clips/rec_1/comments?limit=500`,
+    );
+  });
+
   it("asks Clips' playback route with a token scoped to the reader", async () => {
     const fetchMock = vi.fn(async () => clipsResponse(200, playbackBody));
     vi.stubGlobal("fetch", fetchMock);

@@ -109,7 +109,7 @@ function render() {
 beforeEach(() => {
   queries.byName = {
     "get-clip-playback": fakeQuery(playback()),
-    "list-clip-comments": fakeQuery({ markers }),
+    "list-clip-comments": fakeQuery({ markers, truncated: false }),
     "get-clips-links": fakeQuery({
       appUrl: "https://clips.example.test",
       linkOrigins: ["https://clips.example.test"],
@@ -184,6 +184,23 @@ describe("ClipEmbed", () => {
     render();
     expect(container.querySelector("video")).not.toBeNull();
     expect(container.textContent).toContain("clipEmbed.commentsFailed");
+  });
+
+  it("says it shows only the first threads when Clips held the rest back", () => {
+    render();
+    expect(container.textContent).not.toContain("clipEmbed.commentsTruncated");
+
+    queries.byName["list-clip-comments"] = fakeQuery({
+      markers,
+      truncated: true,
+    });
+    render();
+    expect(
+      container.querySelectorAll("[data-player-comment-marker]"),
+    ).toHaveLength(2);
+    expect(container.textContent).toContain(
+      'clipEmbed.commentsTruncated {"count":2}',
+    );
   });
 
   it("keeps the markers it had when a later comment read fails, and says so", () => {

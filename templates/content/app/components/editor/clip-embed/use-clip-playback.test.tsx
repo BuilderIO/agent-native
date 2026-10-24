@@ -282,9 +282,29 @@ describe("useClipMarkers", () => {
     const markers = [
       { id: "c1", videoTimestampMs: 4_000, content: "Hi", authorName: "Ada" },
     ];
-    queries.byName["list-clip-comments"] = fakeQuery({ markers });
+    queries.byName["list-clip-comments"] = fakeQuery({
+      markers,
+      truncated: false,
+    });
     render();
-    expect(latestMarkers).toEqual({ status: "ready", markers });
+    expect(latestMarkers).toEqual({
+      status: "ready",
+      markers,
+      truncated: false,
+    });
+  });
+
+  it("says when the list stops short of every thread", () => {
+    queries.byName["list-clip-comments"] = fakeQuery({
+      markers: [],
+      truncated: true,
+    });
+    render();
+    expect(latestMarkers).toEqual({
+      status: "ready",
+      markers: [],
+      truncated: true,
+    });
   });
 
   it("treats comments turned off since the grant as off, not as a failure", () => {

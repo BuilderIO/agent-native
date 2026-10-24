@@ -227,33 +227,29 @@ describe("list-clip-comments", () => {
   const comments = [
     {
       id: "c1",
-      parentId: null,
       authorEmail: "ada@example.test",
       authorName: "Ada Example",
       content: "Look here",
       videoTimestampMs: 4_000,
     },
     {
-      id: "c2",
-      parentId: "c1",
-      authorEmail: "bo@example.test",
-      authorName: null,
-      content: "A reply",
-      videoTimestampMs: 4_000,
-    },
-    {
       id: "c3",
-      parentId: null,
       authorEmail: "bo@example.test",
       authorName: null,
       content: "And here",
       videoTimestampMs: 9_500,
     },
   ];
+  const complete = { comments, truncated: false };
+
+  function thread(index: number) {
+    return { ...comments[0]!, id: `c${index}`, videoTimestampMs: index };
+  }
 
   it("returns one marker per thread, after the same page check", async () => {
-    mocks.requestClips.mockResolvedValue({ ok: true, body: { comments } });
+    mocks.requestClips.mockResolvedValue({ ok: true, body: complete });
     await expect(listClipComments.run(args)).resolves.toEqual({
+      truncated: false,
       markers: [
         {
           id: "c1",
@@ -270,14 +266,44 @@ describe("list-clip-comments", () => {
       ],
     });
     expect(mocks.requestClips).toHaveBeenCalledWith(
-      expect.objectContaining({ resource: "comments" }),
+      expect.objectContaining({
+        resource: "comments",
+        query: { limit: "500" },
+      }),
     );
+  });
+
+  it("says when Clips has more threads than the 500 it asked for", async () => {
+    const first = Array.from({ length: 500 }, (_, index) => thread(index));
+    mocks.requestClips.mockResolvedValue({
+      ok: true,
+      body: { comments: first, truncated: true },
+    });
+    const result = await listClipComments.run(args);
+    expect(result.truncated).toBe(true);
+    expect(result.markers).toHaveLength(500);
+  });
+
+  it("refuses an answer longer than it asked for, or that doesn't say whether it's complete", async () => {
+    for (const body of [
+      {
+        comments: Array.from({ length: 501 }, (_, index) => thread(index)),
+        truncated: false,
+      },
+      { comments },
+    ]) {
+      mocks.requestClips.mockResolvedValue({ ok: true, body });
+      await expect(failureOf(listClipComments.run(args))).resolves.toEqual({
+        errorCode: "clips_unreachable",
+        statusCode: 502,
+      });
+    }
   });
 
   it("never hands a signed-out reader a commenter's email", async () => {
     mocks.userEmail = undefined;
     mocks.documentRows = [{ visibility: "public", trashedAt: null }];
-    mocks.requestClips.mockResolvedValue({ ok: true, body: { comments } });
+    mocks.requestClips.mockResolvedValue({ ok: true, body: complete });
     const { markers } = await listClipComments.run(args);
     expect(markers.map((marker) => marker.authorName)).toEqual([
       "Ada Example",
@@ -286,8 +312,14 @@ describe("list-clip-comments", () => {
   });
 
   it("tells comments turned off apart from a Clip with no comments", async () => {
-    mocks.requestClips.mockResolvedValue({ ok: true, body: { comments: [] } });
-    await expect(listClipComments.run(args)).resolves.toEqual({ markers: [] });
+    mocks.requestClips.mockResolvedValue({
+      ok: true,
+      body: { comments: [], truncated: false },
+    });
+    await expect(listClipComments.run(args)).resolves.toEqual({
+      markers: [],
+      truncated: false,
+    });
 
     mocks.requestClips.mockResolvedValue({
       ok: false,
@@ -306,5 +338,12 @@ describe("list-clip-comments", () => {
       statusCode: 404,
     });
     expect(mocks.requestClips).not.toHaveBeenCalled();
+  });
+});
+
+describe("Clip reads in the browser", () => {
+  it("keep grants and comments out of the browser's saved query cache", () => {
+    expect(getClipPlayback.persistInBrowser).toBe(false);
+    expect(listClipComments.persistInBrowser).toBe(false);
   });
 });

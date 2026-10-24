@@ -12,13 +12,12 @@ import {
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
-import { getRequestHeader, getRouterParam, type H3Event } from "h3";
+import { and, asc, eq, isNull } from "drizzle-orm";
+import { getQuery, getRequestHeader, getRouterParam, type H3Event } from "h3";
 import { z } from "zod";
 
 import addComment from "../../actions/add-comment.js";
 import deleteComment from "../../actions/delete-comment.js";
-import listComments from "../../actions/list-comments.js";
 import reactToComment from "../../actions/react-to-comment.js";
 import replyToComment from "../../actions/reply-to-comment.js";
 import resolveComment from "../../actions/resolve-comment.js";
@@ -27,6 +26,7 @@ import { canReadRecordingComments } from "../../shared/comment-access.js";
 import {
   CONTENT_CLIP_AUDIENCE_PATH,
   CONTENT_CLIP_CLAIMS,
+  CONTENT_CLIP_MAX_COMMENT_THREADS,
   CONTENT_CLIP_MAX_TOKEN_SECONDS,
   CONTENT_CLIP_PUBLIC_READER,
   CONTENT_CLIP_SCOPES,
@@ -34,6 +34,7 @@ import {
 } from "../../shared/content-clip-contract.js";
 import { recordingEmbedProvider } from "../../shared/embed-provider.js";
 import { getDb, schema } from "../db/index.js";
+import { assertCommentAccess } from "./comment-access.js";
 import {
   contentDocGrantFor,
   findContentBinding,
@@ -57,6 +58,7 @@ import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
 } from "./recording-page-access.js";
+import { hydrateCommentAuthorNames } from "./user-identities.js";
 
 type Recording = typeof schema.recordings.$inferSelect;
 
@@ -394,6 +396,41 @@ export async function handleContentClipPlayback(
   });
 }
 
+const commentListQuerySchema = z.object({
+  limit: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(CONTENT_CLIP_MAX_COMMENT_THREADS)),
+});
+
+/**
+ * The first `limit` thread starts by video time, as `list-comments` orders
+ * them, reading one more to tell a full page from the whole list.
+ */
+async function listCommentThreads(recordingId: string, limit: number) {
+  await assertCommentAccess(recordingId, "read");
+  const comments = schema.recordingComments;
+  const rows = await getDb()
+    .select({
+      id: comments.id,
+      authorEmail: comments.authorEmail,
+      authorName: comments.authorName,
+      content: comments.content,
+      videoTimestampMs: comments.videoTimestampMs,
+    })
+    .from(comments)
+    .where(
+      and(eq(comments.recordingId, recordingId), isNull(comments.parentId)),
+    )
+    .orderBy(asc(comments.videoTimestampMs), asc(comments.createdAt))
+    .limit(limit + 1);
+  return {
+    comments: await hydrateCommentAuthorNames(rows.slice(0, limit)),
+    truncated: rows.length > limit,
+  };
+}
+
 export async function handleContentClipComments(
   event: H3Event,
 ): Promise<Response> {
@@ -403,6 +440,8 @@ export async function handleContentClipComments(
     "read",
   );
   if (peer instanceof Response) return peer;
+  const query = commentListQuerySchema.safeParse(getQuery(event));
+  if (!query.success) return errorResponse(400, "Invalid comment request");
 
   return withOpenedClip(peer, async ({ recording, role }) => {
     if (
@@ -418,10 +457,7 @@ export async function handleContentClipComments(
       );
     }
     try {
-      const { comments } = await listComments.run({
-        recordingId: peer.recordingId,
-      });
-      return json({ comments });
+      return json(await listCommentThreads(peer.recordingId, query.data.limit));
     } catch (error) {
       return forbiddenResponse(error);
     }
