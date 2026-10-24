@@ -293,11 +293,7 @@ export const agentHarnessSessionsStore = defineStore({
                 END $$`,
         });
         await exec.execute({
-          sql: `DROP TRIGGER IF EXISTS agent_harness_session_events_transcript_order
-                ON agent_harness_session_events`,
-        });
-        await exec.execute({
-          sql: `CREATE TRIGGER agent_harness_session_events_transcript_order
+          sql: `CREATE OR REPLACE TRIGGER agent_harness_session_events_transcript_order
                 BEFORE INSERT ON agent_harness_session_events
                 FOR EACH ROW EXECUTE FUNCTION agent_harness_session_events_assign_transcript_order()`,
         });
