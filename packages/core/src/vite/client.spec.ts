@@ -2835,6 +2835,54 @@ describe("app changelog raw imports", () => {
     }
   });
 
+  it("reloads with CHANGELOG.md once it is created after the first load", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const changelogPath = path.join(tmpDir, "CHANGELOG.md");
+    const rawId = `${changelogPath}?raw`;
+
+    try {
+      const plugin = findPlugin("agent-native-app-changelog-raw");
+      const watched: string[] = [];
+      const context = { addWatchFile: (file: string) => watched.push(file) };
+      expect(await plugin.load.call(context, rawId)).toBe('export default "";');
+
+      fs.writeFileSync(
+        changelogPath,
+        "# Changelog\n\n## 2026-07-01\n\n### Added\n\n- First release.\n",
+      );
+      // Vite sends a created file through the same hot-update hook as an edit.
+      const rawModule = { id: rawId };
+      const invalidateModule = vi.fn();
+      const send = vi.fn();
+      const updated = plugin.handleHotUpdate({
+        file: changelogPath,
+        server: {
+          moduleGraph: {
+            idToModuleMap: new Map([[rawId, rawModule]]),
+            invalidateModule,
+          },
+          ws: { send },
+        },
+      });
+
+      expect(updated).toEqual([]);
+      expect(invalidateModule).toHaveBeenCalledWith(rawModule);
+      expect(send).toHaveBeenCalledWith({ type: "full-reload" });
+      const entries = parseChangelog(
+        JSON.parse(
+          String(await plugin.load.call(context, rawId))
+            .replace(/^export default /, "")
+            .replace(/;$/, ""),
+        ),
+      );
+      expect(watched).toEqual([changelogPath]);
+      expect(entries.map((entry) => entry.title)).toEqual(["2026-07-01"]);
+      expect(entries[0].body).toContain("First release.");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("watches pending changelog entries when CHANGELOG.md is missing", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
     const pendingDir = path.join(tmpDir, "changelog");
