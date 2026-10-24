@@ -586,8 +586,13 @@ export function reconcileMotionCodeDocument(
         const expectedComposition =
           candidate.property === "translate" && siblingCount > 1
             ? "add"
-            : undefined;
-        if (candidate.composition !== expectedComposition) {
+            : "replace";
+        const compositionMatches =
+          expectedComposition === "add"
+            ? candidate.composition === "add"
+            : candidate.composition === undefined ||
+              candidate.composition === "replace";
+        if (!compositionMatches) {
           throw invalidMotionCss(
             `The ${style.styleKey} source animation changes composition the native style metadata cannot represent. Repair its CSS before editing it in Motion.`,
           );

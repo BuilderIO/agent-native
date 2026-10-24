@@ -477,6 +477,7 @@ function runtimeObjectBindingMayWriteAttribute(
       );
     if (!property) return true;
     const name = property[1] ?? property[2] ?? property[3];
+    if (name === undefined || name.includes("\\")) return true;
     return name?.toLowerCase() === attributeName.toLowerCase();
   });
 }
@@ -912,7 +913,7 @@ function writesClasses(name: string, value: string): boolean {
   );
 }
 
-function hasRuntimeAffectedInlineCssRule(
+function hasUnsafeMotionCssRule(
   nodes: readonly HtmlNode[],
   targetNodeIds: readonly string[],
   generatedIds: Map<number | undefined, string>,
@@ -921,7 +922,7 @@ function hasRuntimeAffectedInlineCssRule(
   for (const node of nodes) {
     if (
       node.tagName !== "style" ||
-      node.insideTemplate ||
+      (node.insideTemplate && !isRenderedByAlpine(node)) ||
       !isPotentialCssStyle(node)
     ) {
       continue;
@@ -940,9 +941,26 @@ function hasRuntimeAffectedInlineCssRule(
           const declarations = cssTreeChildren(rule.block).filter(
             (child) => child.type === "Declaration",
           );
+          const relevantDeclarations = declarations.filter((declaration) => {
+            const property = declaration.property
+              ? decodeMotionCssIdentifier(declaration.property).toLowerCase()
+              : undefined;
+            return (
+              property === "all" ||
+              targetNodeIds.some(
+                (targetNodeId) =>
+                  property !== undefined &&
+                  motionPropertiesByTarget.get(targetNodeId)?.has(property),
+              )
+            );
+          });
+          if (relevantDeclarations.length === 0) return;
+          const hasImportantDeclaration = relevantDeclarations.some(
+            (declaration) => declaration.important === true,
+          );
           const affectedTargets = targetNodeIds.filter((targetNodeId) => {
             const targetProperties = motionPropertiesByTarget.get(targetNodeId);
-            return declarations.some((declaration) => {
+            return relevantDeclarations.some((declaration) => {
               const property = declaration.property
                 ? decodeMotionCssIdentifier(declaration.property).toLowerCase()
                 : undefined;
@@ -966,15 +984,15 @@ function hasRuntimeAffectedInlineCssRule(
                     generatedIds,
                   ),
                 );
-                const canChange = Boolean(
-                  target &&
-                  selectorMayDynamicallyAffectTarget(
-                    selector,
-                    target,
-                    targetNodeId,
-                  ),
+                if (!target) return false;
+                const effect = selectorEffectOnTarget(
+                  selector,
+                  target,
+                  targetNodeId,
                 );
-                return canChange;
+                return (
+                  effect.matches && (effect.dynamic || hasImportantDeclaration)
+                );
               })
             ) {
               affected = true;
@@ -985,7 +1003,7 @@ function hasRuntimeAffectedInlineCssRule(
       );
       if (affected) return true;
     } catch {
-      if (nodes.some(hasRuntimeHtmlMutation)) return true;
+      return true;
     }
   }
 
@@ -1012,6 +1030,7 @@ type CssTreeSelectorNode = {
   type: string;
   name?: string;
   property?: string;
+  important?: boolean;
   children?: { toArray(): CssTreeSelectorNode[] };
   prelude?: CssTreeSelectorNode;
   block?: CssTreeSelectorNode;
@@ -1074,11 +1093,11 @@ const STRUCTURAL_BROWSER_PSEUDO_CLASSES = new Set([
   "only-of-type",
 ]);
 
-function selectorMayDynamicallyAffectTarget(
+function selectorEffectOnTarget(
   selector: CssTreeSelectorNode,
   target: HtmlNode,
   targetNodeId: string,
-): boolean {
+): SelectorMatch {
   const compounds: CssTreeSelectorNode[][] = [[]];
   const combinators: string[] = [];
   for (const child of cssTreeChildren(selector)) {
@@ -1089,7 +1108,9 @@ function selectorMayDynamicallyAffectTarget(
       compounds[compounds.length - 1]!.push(child);
     }
   }
-  if (compounds.some((compound) => compound.length === 0)) return false;
+  if (compounds.some((compound) => compound.length === 0)) {
+    return { matches: false, dynamic: false };
+  }
 
   let currentNodes = [target];
   let dynamic = false;
@@ -1102,15 +1123,15 @@ function selectorMayDynamicallyAffectTarget(
       );
       return match.matches ? [{ candidate, match }] : [];
     });
-    if (matches.length === 0) return false;
+    if (matches.length === 0) return { matches: false, dynamic: false };
     dynamic ||= matches.some(({ match }) => match.dynamic);
-    if (index === 0) return dynamic;
+    if (index === 0) return { matches: true, dynamic };
     const combinator = combinators[index - 1] ?? " ";
     currentNodes = matches.flatMap(({ candidate }) =>
       selectorRelationCandidates(candidate, combinator),
     );
   }
-  return false;
+  return { matches: false, dynamic: false };
 }
 
 function selectorCompoundMatches(
@@ -1205,8 +1226,22 @@ function selectorPseudoMatchesNode(
   }
 
   if (STRUCTURAL_BROWSER_PSEUDO_CLASSES.has(name)) {
+    const siblings = htmlElementSiblings(node);
+    const siblingIndex = siblings.indexOf(node);
+    const matches =
+      name === "empty"
+        ? !(node.childNodes ?? []).some(
+            (child) => child.tagName || child.nodeName === "#text",
+          )
+        : name === "first-child"
+          ? siblingIndex === 0
+          : name === "last-child"
+            ? siblingIndex === siblings.length - 1
+            : name === "only-child"
+              ? siblings.length === 1
+              : true;
     return {
-      matches: true,
+      matches,
       dynamic:
         name === "empty"
           ? hasAlpineContentReplacement(node)
@@ -1246,13 +1281,26 @@ function selectorPseudoMatchesNode(
           (isAlpineStructuralTemplate(sibling) ||
             hasRuntimeAttributeMutationInSubtree(sibling)),
       );
+    const staticNestedMatch = nestedSelectors.some((selector) => {
+      const compound = cssTreeChildren(selector);
+      if (compound.some((child) => child.type === "Combinator")) return true;
+      return descendants(node).some((candidate) => {
+        const match = selectorCompoundMatches(
+          candidate,
+          compound,
+          targetNodeId,
+        );
+        return match.matches && !match.dynamic;
+      });
+    });
+    const dynamic =
+      !selectorList ||
+      dynamicNestedMatch ||
+      dynamicSibling ||
+      hasRuntimeMutationOnSelectorPath(node);
     return {
-      matches: true,
-      dynamic:
-        !selectorList ||
-        dynamicNestedMatch ||
-        dynamicSibling ||
-        hasRuntimeMutationOnSelectorPath(node),
+      matches: dynamic || staticNestedMatch,
+      dynamic,
     };
   }
 
@@ -1572,7 +1620,7 @@ function assertExecutableScriptsSafe(
   const compilesClassesAtRuntime =
     targetNodeIds.length > 0 && nodes.some(isTailwindBrowserRuntime);
   if (
-    hasRuntimeAffectedInlineCssRule(
+    hasUnsafeMotionCssRule(
       nodes,
       targetNodeIds,
       generatedIds,
@@ -4077,7 +4125,12 @@ export function inspectMotionHtmlSourceWriteCapability(args: {
       undefined,
       true,
       true,
-      read.status === "valid" ? (read.document?.tracks ?? []) : [],
+      read.status === "valid"
+        ? [
+            ...(read.document?.tracks ?? []),
+            ...motionNativeStylesToTracks(read.document?.nativeStyles ?? []),
+          ]
+        : [],
       true,
     );
     return { status: "supported", targetNodeIds };

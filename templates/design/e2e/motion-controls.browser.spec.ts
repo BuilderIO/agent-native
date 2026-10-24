@@ -744,13 +744,15 @@ test("Motion inspector states match the editable timeline", async ({
   ).toHaveText("Slide in");
 
   await dockRotation.click();
-  await expect(inspectorPosition).toHaveAttribute("aria-pressed", "false");
-  await expect(inspectorRotation).toHaveAttribute("aria-pressed", "true");
   await expect(dockPosition).toHaveAttribute("aria-pressed", "false");
   await expect(dockRotation).toHaveAttribute("aria-pressed", "true");
+  await expect(inspectorPosition).toHaveAttribute("aria-pressed", "false");
+  await expect(inspectorRotation).toHaveAttribute("aria-pressed", "true");
   const rotationSettings = page.locator(
     '[data-motion-native-style-settings="Rotation"][data-state="open"]',
   );
+  await expect(rotationSettings).toHaveCount(0);
+  await inspectorRotation.click();
   await expect(rotationSettings).toHaveCount(1);
   await expect(
     rotationSettings.getByRole("combobox", { name: "Type" }),

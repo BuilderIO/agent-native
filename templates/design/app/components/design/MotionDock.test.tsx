@@ -1594,6 +1594,56 @@ describe("MotionDock — timeline body anatomy", () => {
     expect(scaleRow.getAttribute("aria-selected")).toBe("true");
   });
 
+  it("keeps the selected native style when an earlier duplicate row is removed", async () => {
+    const first: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      timelineOffset: 0,
+    };
+    const second: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      timelineOffset: 0.4,
+    };
+    const nativeStyles = [first, second];
+    const onNativeStyleSelectionChange = vi.fn();
+
+    await renderInteractive({
+      nativeStyles,
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-motion-native-style-row="Position"]',
+      ),
+    );
+    await act(async () => {
+      rows[1]!
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    await act(async () => {
+      rows[0]!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Remove animation Position"]',
+        )!
+        .click();
+    });
+    await renderInteractive({
+      nativeStyles: [second],
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+
+    expect(
+      container
+        .querySelector('[data-motion-native-style-row="Position"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(onNativeStyleSelectionChange).toHaveBeenLastCalledWith(
+      createMotionNativeStyleIdentity(second, 0),
+    );
+  });
+
   it("shows native style visibility/removal actions and preserves source props", async () => {
     const onNativeStyleChange = vi.fn();
     const onNativeStyleRemove = vi.fn();

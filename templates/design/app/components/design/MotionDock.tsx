@@ -693,6 +693,48 @@ export function MotionDock({
     },
     [nativeStyles, onNativeStyleSelectionChange],
   );
+  const handleNativeStyleRemove = useCallback(
+    (instance: MotionNativeStyleInstance, index: number) => {
+      const nextStyles = nativeStyles.filter(
+        (_style, currentIndex) => currentIndex !== index,
+      );
+      const selected = selectedNativeStyleIdentity;
+      let nextSelection: MotionNativeStyleIdentity | null = null;
+      if (selected && selected.index !== index) {
+        const nextIndex =
+          selected.index > index ? selected.index - 1 : selected.index;
+        const nextInstance = nextStyles[nextIndex];
+        if (
+          nextInstance?.styleKey === selected.styleKey &&
+          nextInstance.targetNodeId === selected.targetNodeId &&
+          (!selected.sourceInstanceId ||
+            nextInstance.sourceInstanceId === selected.sourceInstanceId)
+        ) {
+          nextSelection = createMotionNativeStyleIdentity(
+            nextInstance,
+            nextIndex,
+          );
+        }
+      }
+      if (!nextSelection) {
+        nextSelection = resolveMotionNativeStyleIdentity(
+          nextStyles,
+          selected?.targetNodeId ?? selectedTarget?.nodeId,
+          null,
+        );
+      }
+      setSelectedNativeStyleIdentity(nextSelection);
+      if (nextSelection) onNativeStyleSelectionChange?.(nextSelection);
+      onNativeStyleRemove?.(instance, index);
+    },
+    [
+      nativeStyles,
+      onNativeStyleRemove,
+      onNativeStyleSelectionChange,
+      selectedNativeStyleIdentity,
+      selectedTarget?.nodeId,
+    ],
+  );
   const selectedTrack =
     tracks.find((track) => trackKey(track) === selectedTrackKey) ?? null;
   useEffect(() => {
@@ -2586,7 +2628,7 @@ export function MotionDock({
                   selectedNativeStyleKey={selectedNativeStyleKey}
                   onSelectNativeStyle={handleNativeStyleSelection}
                   onNativeStyleChange={onNativeStyleChange}
-                  onNativeStyleRemove={onNativeStyleRemove}
+                  onNativeStyleRemove={handleNativeStyleRemove}
                 />
               ))
             ) : null}

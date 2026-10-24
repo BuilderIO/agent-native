@@ -148,7 +148,7 @@ interface ReactAuthoredHost {
   element: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement;
   ordinal: number;
   tagName: string;
-  isInsideDynamicJsxExpression: boolean;
+  isInsideConditionalOrMappedExpression: boolean;
 }
 
 interface ManagedTextAnimation {
@@ -3448,7 +3448,8 @@ function findReactAuthoredHosts(
           element: node,
           ordinal,
           tagName: tag.text.toLowerCase(),
-          isInsideDynamicJsxExpression: isInsideDynamicJsxExpression(node),
+          isInsideConditionalOrMappedExpression:
+            isInsideConditionalOrMappedExpression(node),
         });
         ordinal += 1;
       }
@@ -3500,7 +3501,7 @@ function resolveAuthoredReactTarget(
     }
     if (hasDynamicSelectorAttribute) return { status: "ambiguous" };
     if (!matchesSelector) continue;
-    if (host.isInsideDynamicJsxExpression) {
+    if (host.isInsideConditionalOrMappedExpression) {
       return {
         status: "unsupported",
         reason:
@@ -3632,7 +3633,7 @@ function findStaticTargets(
     Array<{
       element: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement;
       needsAuthoredNodeId: boolean;
-      isInsideDynamicJsxExpression: boolean;
+      isInsideConditionalOrMappedExpression: boolean;
     }>
   >();
   let hostElementOrdinal = 0;
@@ -3663,8 +3664,9 @@ function findStaticTargets(
         const nodeId = hasStaticId
           ? (idAttributes[0].initializer as TypeScript.StringLiteral).text
           : generatedMotionNodeId(modulePath, ordinal);
-        const dynamicJsxExpression = isInsideDynamicJsxExpression(node);
-        if (dynamicJsxExpression && requestedNodeIds.has(nodeId)) {
+        const conditionalOrMappedExpression =
+          isInsideConditionalOrMappedExpression(node);
+        if (conditionalOrMappedExpression && requestedNodeIds.has(nodeId)) {
           throw new MotionReactSourceError(
             "unsupported-authored-motion",
             "React Motion targets inside conditional or mapped JSX expressions are unsupported.",
@@ -3674,7 +3676,7 @@ function findStaticTargets(
         matches.push({
           element: node,
           needsAuthoredNodeId: !hasStaticId,
-          isInsideDynamicJsxExpression: dynamicJsxExpression,
+          isInsideConditionalOrMappedExpression: conditionalOrMappedExpression,
         });
         elements.set(nodeId, matches);
       }
@@ -3703,9 +3705,12 @@ function findStaticTargets(
         `React source contains ${matches.length} elements with ${NODE_ID_ATTRIBUTE}="${nodeId}".`,
       );
     }
-    const { element, needsAuthoredNodeId, isInsideDynamicJsxExpression } =
-      matches[0];
-    if (isInsideDynamicJsxExpression) {
+    const {
+      element,
+      needsAuthoredNodeId,
+      isInsideConditionalOrMappedExpression,
+    } = matches[0];
+    if (isInsideConditionalOrMappedExpression) {
       throw new MotionReactSourceError(
         "unsupported-authored-motion",
         "React Motion targets inside conditional or mapped JSX expressions are unsupported.",
@@ -3719,21 +3724,25 @@ function findStaticTargets(
   });
 }
 
-function isInsideDynamicJsxExpression(node: TypeScript.Node): boolean {
+function isInsideConditionalOrMappedExpression(node: TypeScript.Node): boolean {
   for (
     let current: TypeScript.Node | undefined = node.parent;
     current;
     current = current.parent
   ) {
-    if (!ts.isJsxExpression(current) || !current.expression) continue;
-    let expression = current.expression;
-    while (ts.isParenthesizedExpression(expression)) {
-      expression = expression.expression;
+    if (ts.isConditionalExpression(current)) return true;
+    if (
+      ts.isBinaryExpression(current) &&
+      (current.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+        current.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+        current.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
+    ) {
+      return true;
     }
     if (
-      !ts.isJsxElement(expression) &&
-      !ts.isJsxSelfClosingElement(expression) &&
-      !ts.isJsxFragment(expression)
+      ts.isCallExpression(current) &&
+      ts.isPropertyAccessExpression(current.expression) &&
+      current.expression.name.text === "map"
     ) {
       return true;
     }

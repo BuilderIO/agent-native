@@ -515,6 +515,53 @@ describe("Motion source document CSS codec", () => {
     ]);
   });
 
+  it.each(["Scale", "Size"] as const)(
+    "keeps %s native styles when shared CSS declares default replace composition",
+    (styleKey) => {
+      const style = createMotionNativeStyleInstance({
+        styleKey,
+        targetNodeId: "hero-title",
+      });
+      const sourceTimeline: MotionTimeline = {
+        ...timeline,
+        tracks: [
+          {
+            id: "position-x",
+            targetNodeId: "hero-title",
+            property: "translate",
+            keyframes: [
+              { t: 0, value: "0px 0px" },
+              { t: 1, value: "100px 0px" },
+            ],
+          },
+          {
+            id: "position-y",
+            targetNodeId: "hero-title",
+            property: "translate",
+            keyframes: [
+              { t: 0, value: "0px 0px" },
+              { t: 1, value: "0px 60px" },
+            ],
+          },
+        ],
+        nativeStyles: [style],
+      };
+      const compiled = compileMotionCode(sourceTimeline);
+
+      expect(compiled.css).toContain(
+        styleKey === "Scale"
+          ? "animation-composition: replace, add, add"
+          : "animation-composition: replace, add, add, replace",
+      );
+      expect(
+        reconcileMotionCodeDocument(
+          compiled.css,
+          motionCodeDocumentFromTimeline(sourceTimeline),
+        ).nativeStyles,
+      ).toEqual([style]);
+    },
+  );
+
   it("keeps an unsuffixed duplicate from reusing a matched track id", () => {
     const existingTracks: MotionTimeline["tracks"] = [
       {

@@ -517,6 +517,49 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("round-trips a static Motion target in a JSX prop expression", () => {
+    const modulePath = "src/components/Card.tsx";
+    const authored = source.replace(
+      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+      '<Panel fallback={<h1 data-agent-native-node-id="hero-title">Hello</h1>} />',
+    );
+
+    const initialWrite = apply(authored);
+    expect(
+      readMotionReactSource(initialWrite.source, modulePath),
+    ).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+      document: { tracks: makeTimeline().tracks },
+    });
+
+    const nextDuration = 950;
+    const updated = applyMotionReactSourceEdit({
+      currentSource: initialWrite.source,
+      expectedSource: initialWrite.source,
+      preview: previewFor(initialWrite.source),
+      modulePath,
+      timeline: { ...makeTimeline(), durationMs: nextDuration },
+    });
+    expect(updated.source).toContain(
+      '<Panel fallback={<h1 data-agent-native-node-id="hero-title">Hello</h1>} />',
+    );
+    expect(readMotionReactSource(updated.source, modulePath)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+      document: { durationMs: nextDuration, tracks: makeTimeline().tracks },
+    });
+
+    const removed = removeMotionReactSource(updated.source, modulePath);
+    expect(removed.changed).toBe(true);
+    expect(removed.source).toContain(
+      '<Panel fallback={<h1 data-agent-native-node-id="hero-title">Hello</h1>} />',
+    );
+    expect(readMotionReactSource(removed.source, modulePath)).toEqual({
+      status: "absent",
+    });
+  });
+
   it("round-trips one authored JSX CSS animation with multiple properties", () => {
     const modulePath = "src/components/Card.tsx";
     const authored = `function Card() {
@@ -2922,26 +2965,6 @@ function Card() {
       code: "unsupported-authored-motion",
     });
     expect(() => apply(dynamic)).toThrow(MotionReactSourceError);
-  });
-
-  it("writes motion for a static JSX expression child", () => {
-    const staticChild = source.replace(
-      '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
-      '{<span data-agent-native-node-id="hero-title" />}',
-    );
-    const edit = apply(staticChild);
-
-    expect(edit.source).toContain(
-      '{<span data-agent-native-node-id="hero-title" />}',
-    );
-    expect(
-      readMotionReactSource(edit.source, "src/components/Card.tsx"),
-    ).toMatchObject({
-      status: "valid",
-      document: {
-        tracks: [{ targetNodeId: "hero-title", property: "opacity" }],
-      },
-    });
   });
 
   it("allows metadata-only React capability only for an existing source style library", () => {

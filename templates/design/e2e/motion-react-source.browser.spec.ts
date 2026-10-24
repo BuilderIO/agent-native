@@ -430,11 +430,25 @@ test.describe.serial("React Motion source browser writeback", () => {
       .contentFrame();
     const reloadedTarget = reloadedFrame.locator(`#${nodeId}`);
     await expect(reloadedTarget).toBeVisible({ timeout: 30_000 });
+    await expect(reloadedTarget).toHaveText("Motion target", {
+      timeout: 30_000,
+    });
+    await expect(reloadedTarget).toHaveAttribute(
+      "data-agent-native-motion-source-file",
+      sourcePath,
+      { timeout: 30_000 },
+    );
     await expect(reloadedTarget).toHaveAttribute(
       "data-agent-native-motion-source-hash",
       directSourceHash,
       { timeout: 30_000 },
     );
+    const reloadedTimeline = await getAction(request, "get-motion-timeline", {
+      designId,
+      sourceRef: screenId,
+    });
+    expect(reloadedTimeline.timelines).toHaveLength(1);
+    expect(reloadedTimeline.timelines[0].filePath).toBe(sourcePath);
     await expect(
       reloadedFrame.locator("style[data-agent-native-motion]"),
     ).toHaveAttribute("data-agent-native-motion", "true");
