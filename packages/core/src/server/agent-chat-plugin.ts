@@ -7150,12 +7150,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               threadId,
               turnId,
               reason,
-            );
+            ).finally(() => scheduleStoppedThreadInboxDrain(threadId));
             if (outcome === "already_terminal") {
               setResponseStatus(event, 409);
               return { error: "Turn is already terminal" };
             }
-            scheduleStoppedThreadInboxDrain(threadId);
             return { ok: true };
           }
 
@@ -7254,36 +7253,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // Empty/invalid body — keep the default user abort reason.
             }
             const isUserStop = USER_STOP_ABORT_REASONS.has(reason);
+            const stoppedRun = isUserStop ? await getRunById(runId) : null;
             let aborted = false;
-            if (safeBoundary) {
-              aborted = isUserStop
-                ? await abortRunAndTurnDurably(runId, reason, {
-                    safeBoundary: true,
-                  })
-                : await abortRunAtSafeBoundaryDurably(runId, reason);
-              if (isUserStop && !aborted) {
-                const latest = await getRunById(runId);
-                if (latest?.status === "aborted") {
-                  await abortTurnDurably(runId, reason);
+            try {
+              if (safeBoundary) {
+                aborted = isUserStop
+                  ? await abortRunAndTurnDurably(runId, reason, {
+                      safeBoundary: true,
+                    })
+                  : await abortRunAtSafeBoundaryDurably(runId, reason);
+                if (isUserStop && !aborted) {
+                  const latest = await getRunById(runId);
+                  if (latest && latest.status !== "running") {
+                    await abortTurnDurably(runId, reason);
+                  }
+                }
+              } else {
+                // Recovery starts as soon as this response resolves, so wait for
+                // the cross-isolate abort + terminal event to be durable. Returning
+                // early lets Retry collide with the still-running row.
+                if (isUserStop) {
+                  await abortRunAndTurnDurably(runId, reason);
+                } else {
+                  await abortRunDurably(runId, reason);
                 }
               }
-            } else {
-              // Recovery starts as soon as this response resolves, so wait for
-              // the cross-isolate abort + terminal event to be durable. Returning
-              // early lets Retry collide with the still-running row.
-              if (isUserStop) {
-                await abortRunAndTurnDurably(runId, reason);
-              } else {
-                await abortRunDurably(runId, reason);
-              }
-            }
-            if (isUserStop) {
-              const stoppedRun = await getRunById(runId);
-              if (stoppedRun?.threadId) {
+              return safeBoundary ? { ok: true, aborted } : { ok: true };
+            } finally {
+              if (stoppedRun?.threadId)
                 scheduleStoppedThreadInboxDrain(stoppedRun.threadId);
-              }
             }
-            return safeBoundary ? { ok: true, aborted } : { ok: true };
           }
 
           // Route: GET /runs/:id/background-events

@@ -430,7 +430,6 @@ import {
   consumeAgentToolApproval,
   createAgentToolApproval,
   ensureAgentToolApprovalTable,
-  hasPendingAgentToolApproval,
   hasPendingCurrentTurnApproval,
   isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
@@ -15298,13 +15297,7 @@ export function createProductionAgentHandler(
           admittedQueuedMessage?.interruptActiveRun !== true
             ? {
                 hasPendingApproval: (tx) =>
-                  admittedQueuedMessage
-                    ? hasPendingCurrentTurnApproval(runThreadId, tx)
-                    : hasPendingAgentToolApproval(tx, {
-                        ownerEmail,
-                        orgId: getRequestOrgId() ?? null,
-                        threadId: runThreadId,
-                      }),
+                  hasPendingCurrentTurnApproval(runThreadId, tx),
               }
             : {}),
         });

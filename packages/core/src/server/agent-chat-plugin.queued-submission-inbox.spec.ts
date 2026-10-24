@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
-import { createApp } from "h3";
+import { createApp, mockEvent } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sweepHarness = vi.hoisted(() => ({
@@ -1270,8 +1270,14 @@ describe("queued submission inbox recurring sweep", () => {
     },
   );
 
-  it.each(["turn", "run"] as const)(
-    "drains queued follow-ups immediately after stopping a completed approval pause by %s",
+  it.each([
+    "turn",
+    "run",
+    "safe-run",
+    "run-flush-error",
+    "run-stop-failure",
+  ] as const)(
+    "keeps queued admission consistent with the durable Stop outcome (%s)",
     async (target) => {
       const threadId = `thread-${randomUUID()}`;
       const turnId = `turn-${randomUUID()}`;
@@ -1301,6 +1307,19 @@ describe("queued submission inbox recurring sweep", () => {
         typeof import("../agent/run-store.js")
       >("../agent/run-store.js");
       vi.mocked(getRunById).mockImplementation(actual.getRunById);
+      if (target === "safe-run") {
+        inboxHarness.safeAbort = async () => false;
+        inboxHarness.turnAbort = async () => {
+          await markTurnAborted(threadId, turnId);
+        };
+      }
+      if (target === "run-flush-error" || target === "run-stop-failure") {
+        inboxHarness.durableAbort = async () => {
+          if (target === "run-flush-error")
+            await markTurnAborted(threadId, turnId);
+          throw new Error("stop persistence or event flush failed");
+        };
+      }
       inboxHarness.admit = async () => {
         const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
         if (!receipt)
@@ -1318,7 +1337,11 @@ describe("queued submission inbox recurring sweep", () => {
               message: receipt.message,
             }),
         });
-        expect(slot.claimed).toBe(true);
+        if (!slot.claimed)
+          return {
+            status: 409,
+            response: { code: "run_slot_busy", retryable: true },
+          };
         return "queued-run";
       };
       const app = await mountAgentChatRoutes();
@@ -1335,14 +1358,29 @@ describe("queued submission inbox recurring sweep", () => {
               {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ threadId, reason: "user" }),
+                body: JSON.stringify({
+                  threadId,
+                  reason: "user",
+                  safeBoundary: target === "safe-run",
+                }),
               },
             ),
           ),
       );
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(
+        target === "run-flush-error" || target === "run-stop-failure"
+          ? 500
+          : 200,
+      );
       expect(drains).toHaveLength(1);
       await Promise.all(drains);
+      if (target === "run-stop-failure") {
+        expect(inboxHarness.admissionAttempts).toEqual([messageId]);
+        await expect(
+          getQueuedSubmissionReceipt(threadId, messageId),
+        ).resolves.toMatchObject({ state: "queued", retryCount: 0 });
+        return;
+      }
       expect(inboxHarness.admissionAttempts).toEqual([messageId]);
       await expect(
         getQueuedSubmissionReceipt(threadId, messageId),
@@ -1350,6 +1388,96 @@ describe("queued submission inbox recurring sweep", () => {
         state: "submitted",
         submittedRunId: "queued-run",
       });
+    },
+  );
+
+  it.each([false, true])(
+    "admits a fresh send only after the approval pause is stopped (%s)",
+    async (stopped) => {
+      const threadId = `thread-${randomUUID()}`;
+      const turnId = `turn-${randomUUID()}`;
+      const runId = `paused-${randomUUID()}`;
+      const freshTurn = `fresh-${randomUUID()}`;
+      const messageId = `message-${randomUUID()}`;
+      const ownerEmail = "user@example.com";
+      await createThread(ownerEmail, { id: threadId });
+      await insertRun(runId, threadId, turnId);
+      await createAgentToolApproval({
+        ownerEmail,
+        threadId,
+        turnId,
+        toolName: "release",
+        callId: "release-call",
+        approvalKey: "release-approval",
+      });
+      await updateRunStatus(runId, "completed");
+      if (stopped) await markTurnAborted(threadId, turnId);
+      const { createProductionAgentHandler } = await vi.importActual<
+        typeof import("../agent/production-agent.js")
+      >("../agent/production-agent.js");
+      const stream = vi.fn(async function* () {
+        yield {
+          type: "assistant-content" as const,
+          parts: [{ type: "text" as const, text: "Done." }],
+        };
+        yield { type: "stop" as const, reason: "end_turn" as const };
+      });
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        actions: {},
+        assertAiSetupReady: async () => {},
+        durableBackgroundRuns: false,
+        engine: {
+          name: "test",
+          label: "Test",
+          defaultModel: "test-model",
+          supportedModels: ["test-model"],
+          capabilities: {
+            thinking: false,
+            promptCaching: false,
+            vision: false,
+            computerUse: false,
+            parallelToolCalls: false,
+          },
+          stream,
+        },
+      });
+      const event = mockEvent(
+        new Request("http://example.test/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "New work",
+            threadId,
+            turnId: freshTurn,
+            agentKitMessageId: messageId,
+            submissionPayload: { id: messageId, threadId, text: "New work" },
+          }),
+        }),
+      );
+      const result = await runWithRequestContext(
+        { userEmail: ownerEmail, run: {} },
+        () => handler(event),
+      );
+      if (!stopped) {
+        expect(event.res.status).toBe(202);
+        await expect(
+          getQueuedSubmissionReceipt(threadId, messageId),
+        ).resolves.toMatchObject({ state: "queued" });
+        expect(stream).not.toHaveBeenCalled();
+        return;
+      }
+      expect(event.res.status).not.toBe(202);
+      expect(result).toBeInstanceOf(ReadableStream);
+      await new Response(result as ReadableStream).text();
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toBeNull();
+      const fresh = await getDbExec().execute({
+        sql: `SELECT status FROM agent_runs WHERE thread_id = ? AND turn_id = ?`,
+        args: [threadId, freshTurn],
+      });
+      expect(fresh.rows).toEqual([{ status: "completed" }]);
     },
   );
 
