@@ -1,14 +1,11 @@
 import { getDbExec } from "../db/client.js";
-import {
-  startIntervalJob,
-  type IntervalJobHandle,
-} from "../server/interval-job.js";
 import { hasActiveIntegrationCampaign } from "./integration-campaigns-store.js";
 import {
   configuredIntegrationDurableDispatchScopes,
   dispatchPendingIntegrationTask,
   isIntegrationDurableDispatchEnabledForTask,
 } from "./integration-durable-dispatch.js";
+import { startIntervalJob, type IntervalJobHandle } from "./interval-job.js";
 import {
   ensurePendingTasksTable,
   MAX_PENDING_TASK_ATTEMPTS,
@@ -323,12 +320,18 @@ export function startPendingTasksRetryJob(options?: {
   }
 }
 
-export function stopPendingTasksRetryJob(): void {
+export async function stopPendingTasksRetryJob(): Promise<void> {
   if (startupTimer) {
     clearTimeout(startupTimer);
     startupTimer = null;
   }
-  job?.stop();
-  job = null;
-  activeWebhookBaseUrl = undefined;
+  const stoppingJob = job;
+  try {
+    if (stoppingJob) await stoppingJob.stop();
+  } finally {
+    if (job === stoppingJob) {
+      job = null;
+      activeWebhookBaseUrl = undefined;
+    }
+  }
 }

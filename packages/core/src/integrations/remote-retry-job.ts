@@ -1,7 +1,4 @@
-import {
-  startIntervalJob,
-  type IntervalJobHandle,
-} from "../server/interval-job.js";
+import { startIntervalJob, type IntervalJobHandle } from "./interval-job.js";
 import { retryStaleRemoteCommands } from "./remote-commands-store.js";
 
 const RETRY_INTERVAL_MS = 60_000;
@@ -45,11 +42,15 @@ export function startRemoteCommandsRetryJob(): void {
   startupTimer.unref?.();
 }
 
-export function stopRemoteCommandsRetryJob(): void {
+export async function stopRemoteCommandsRetryJob(): Promise<void> {
   if (startupTimer) {
     clearTimeout(startupTimer);
     startupTimer = null;
   }
-  job?.stop();
-  job = null;
+  const stoppingJob = job;
+  try {
+    if (stoppingJob) await stoppingJob.stop();
+  } finally {
+    if (job === stoppingJob) job = null;
+  }
 }

@@ -1,7 +1,4 @@
-import {
-  startIntervalJob,
-  type IntervalJobHandle,
-} from "../server/interval-job.js";
+import { startIntervalJob, type IntervalJobHandle } from "./interval-job.js";
 import { deliverPendingRemotePushNotifications } from "./remote-push-delivery.js";
 
 const DELIVERY_INTERVAL_MS = 60_000;
@@ -30,11 +27,15 @@ export function startRemotePushDeliveryJob(): void {
   startupTimer.unref?.();
 }
 
-export function stopRemotePushDeliveryJob(): void {
+export async function stopRemotePushDeliveryJob(): Promise<void> {
   if (startupTimer) {
     clearTimeout(startupTimer);
     startupTimer = null;
   }
-  job?.stop();
-  job = null;
+  const stoppingJob = job;
+  try {
+    if (stoppingJob) await stoppingJob.stop();
+  } finally {
+    if (job === stoppingJob) job = null;
+  }
 }

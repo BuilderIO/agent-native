@@ -131,6 +131,7 @@ vi.mock("./config-store.js", () => ({
 vi.mock("./pending-tasks-retry-job.js", () => ({
   startPendingTasksRetryJob: startPendingTasksRetryJobMock,
   retryStuckPendingTasks: retryStuckPendingTasksMock,
+  stopPendingTasksRetryJob: vi.fn(async () => {}),
 }));
 
 vi.mock("./integration-campaign-recovery.js", () => ({
@@ -187,6 +188,7 @@ vi.mock("./integration-durable-dispatch.js", async () => {
 vi.mock("./google-docs-poller.js", () => ({
   startGoogleDocsPoller: startGoogleDocsPollerMock,
   stopGoogleDocsPoller: stopGoogleDocsPollerMock,
+  shutdownGoogleDocsPoller: vi.fn(async () => {}),
   handlePushNotification: handlePushNotificationMock,
   verifyGoogleDocsPushNotification: verifyGoogleDocsPushNotificationMock,
 }));
@@ -257,6 +259,23 @@ vi.mock("./identity.js", async () => {
       resolveDefaultExecutionContextMock,
   };
 });
+
+function createLifecycleApp() {
+  const callbacks = new Map<string, Array<() => void | Promise<void>>>();
+  return {
+    h3: { "~middleware": [] as any[] },
+    hooks: {
+      hook(name: string, callback: () => void | Promise<void>) {
+        const entries = callbacks.get(name) ?? [];
+        entries.push(callback);
+        callbacks.set(name, entries);
+      },
+      async callHook(name: string) {
+        for (const callback of callbacks.get(name) ?? []) await callback();
+      },
+    },
+  };
+}
 
 function createNitroApp() {
   return { h3: { "~middleware": [] as any[] } };
@@ -440,6 +459,129 @@ describe("integrations plugin routes", () => {
       dispatchFailed: 0,
     });
     resourceGetByPathMock.mockImplementation(async () => null);
+  });
+
+  describe("service close", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("cancels delayed Google Docs startup before it reads configuration", async () => {
+      vi.useFakeTimers();
+      const app = createLifecycleApp();
+      await createIntegrationsPlugin({
+        adapters: [{ ...adapter, platform: "google-docs" }],
+        callAgent: false,
+      })(app);
+      await app.hooks.callHook("close");
+      getIntegrationConfigMock.mockClear();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(getIntegrationConfigMock).not.toHaveBeenCalled();
+      expect(startGoogleDocsPollerMock).not.toHaveBeenCalled();
+      expect(processDueA2AContinuationsMock).not.toHaveBeenCalled();
+    });
+
+    it("does not start background work when close races async plugin initialization", async () => {
+      vi.useFakeTimers();
+      const app = createLifecycleApp();
+      const initializing = createIntegrationsPlugin({
+        adapters: [{ ...adapter, platform: "google-docs" }],
+      })(app);
+      await app.hooks.callHook("close");
+      await initializing;
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(startPendingTasksRetryJobMock).not.toHaveBeenCalled();
+      expect(getIntegrationConfigMock).not.toHaveBeenCalled();
+      expect(startGoogleDocsPollerMock).not.toHaveBeenCalled();
+    });
+
+    it("waits for an admitted startup read and never starts the poller after close", async () => {
+      vi.useFakeTimers();
+      let resolveConfig!: (value: any) => void;
+      const config = new Promise<any>((resolve) => {
+        resolveConfig = resolve;
+      });
+      getIntegrationConfigMock.mockReturnValueOnce(config);
+      const app = createLifecycleApp();
+      await createIntegrationsPlugin({
+        adapters: [{ ...adapter, platform: "google-docs" }],
+        callAgent: false,
+      })(app);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(getIntegrationConfigMock).toHaveBeenCalledTimes(1);
+      let closed = false;
+      const closing = app.hooks.callHook("close").then(() => {
+        closed = true;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(closed).toBe(false);
+      resolveConfig({
+        configData: { enabled: true },
+        owner: "owner@example.test",
+      });
+      await closing;
+      expect(startGoogleDocsPollerMock).not.toHaveBeenCalled();
+      await app.hooks.callHook("close");
+    });
+
+    it("reports a late continuation failure on close and permits a fresh service start", async () => {
+      vi.useFakeTimers();
+      let fail!: (error: Error) => void;
+      processDueA2AContinuationsMock.mockReturnValueOnce(
+        new Promise<void>((_resolve, reject) => {
+          fail = reject;
+        }),
+      );
+      const app = createLifecycleApp();
+      await createIntegrationsPlugin({ adapters: [adapter], callAgent: false })(
+        app,
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      const error = new Error("continuation failed during close");
+      const closing = app.hooks.callHook("close");
+      const failedClose = expect(closing).rejects.toMatchObject({
+        message: "Integration shutdown failed",
+        errors: [error],
+      });
+      fail(error);
+      await failedClose;
+
+      const restarted = createLifecycleApp();
+      await createIntegrationsPlugin({ adapters: [adapter], callAgent: false })(
+        restarted,
+      );
+      try {
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(processDueA2AContinuationsMock).toHaveBeenCalledTimes(2);
+      } finally {
+        await restarted.hooks.callHook("close");
+      }
+    });
+
+    it("keeps recurring work running without clients and drains an admitted continuation on close", async () => {
+      vi.useFakeTimers();
+      let finish!: () => void;
+      const work = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      processDueA2AContinuationsMock.mockReturnValueOnce(work);
+      const app = createLifecycleApp();
+      await createIntegrationsPlugin({ adapters: [adapter], callAgent: false })(
+        app,
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(processDueA2AContinuationsMock).toHaveBeenCalledTimes(1);
+      let closed = false;
+      const closing = app.hooks.callHook("close").then(() => {
+        closed = true;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(closed).toBe(false);
+      finish();
+      await closing;
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(processDueA2AContinuationsMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   it.each([
