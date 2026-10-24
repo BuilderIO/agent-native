@@ -268,10 +268,12 @@ export function ClipEmbedRead({ data, ctx }: BlockReadProps<ClipEmbedData>) {
       </ClipFrame>
     );
   }
-  // A new recording is a new player: nothing of the old grant carries over.
+  // A grant answers one page's access check for one recording, and a node
+  // view can outlive a page change, so a new page or recording is a new
+  // player: nothing of the old grant carries over.
   return (
     <ClipEmbed
-      key={data.recordingId}
+      key={`${documentId}\u0000${data.recordingId}`}
       documentId={documentId}
       recordingId={data.recordingId}
     />

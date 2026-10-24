@@ -330,6 +330,34 @@ describe("RegistryBlockNode clipboard", () => {
     }
   });
 
+  it("drops a pasted block with no source when the app reads sources", () => {
+    const readPastedSource = vi.fn(() => ({
+      source: raw,
+      title: null,
+      summary: null,
+    }));
+    const editor = createEditor(
+      createRegistryBlockNode({
+        nodeName: "planBlock",
+        dataTag: "data-plan-block",
+        mintId: (blockType) => `${blockType}-fresh`,
+        readPastedSource,
+      }),
+    );
+
+    try {
+      expect(
+        pasteAtEnd(
+          editor,
+          '<div data-plan-block="" data-block-type="diagram" data-block-id="diagram-2"></div>',
+        ),
+      ).toHaveLength(1);
+      expect(readPastedSource).not.toHaveBeenCalled();
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("drops a malformed block type and replaces malformed ids", () => {
     const editor = createEditor();
 

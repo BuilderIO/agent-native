@@ -66,6 +66,8 @@ const { signA2AToken } = await import("@agent-native/core/a2a");
 const { withDbExec } = await import("@agent-native/core/db");
 const { schema } = await import("../db/index.js");
 const {
+  CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
+  CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
   CONTENT_CLIP_GRANT_EXPIRED,
   CONTENT_CLIP_NOT_CONFIGURED,
   CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
@@ -1042,6 +1044,23 @@ describe("video comments through a doc", () => {
     ).toBe(false);
   });
 
+  it("cuts a listed comment's text and author to the contract's lengths", async () => {
+    await seedComment("long", {
+      authorEmail: `${"e".repeat(400)}@example.test`,
+      authorName: "N".repeat(400),
+      content: "C".repeat(5_000),
+    });
+    const listed = await listComments("rec-upload", await token());
+    expect(listed.status).toBe(200);
+    expect(listed.body.comments[0]).toEqual({
+      id: "long",
+      authorEmail: "e".repeat(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+      authorName: "N".repeat(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+      content: "C".repeat(CONTENT_CLIP_COMMENT_PREVIEW_CHARS),
+      videoTimestampMs: 1_000,
+    });
+  });
+
   it("lists thread starts only, at most as many as asked, and says when there are more", async () => {
     await seedComment("late", { videoTimestampMs: 9_000 });
     await seedComment("early", { videoTimestampMs: 1_000 });
@@ -1603,5 +1622,23 @@ describe("token checks", () => {
     }
     expect(statuses.slice(0, 30).every((status) => status === 200)).toBe(true);
     expect(statuses[30]).toBe(429);
+  });
+
+  it("counts only reads of a Clip it opened, so made-up ids can't fill the limiter", async () => {
+    __resetContentClipRateLimitsForTests(2);
+    for (const recordingId of ["made-up-1", "made-up-2", "made-up-3"]) {
+      expect(
+        (await playback(recordingId, await token({ recordingId }))).status,
+      ).toBe(404);
+    }
+    expect((await playback("rec-upload", await token())).status).toBe(200);
+    expect(
+      (await listComments("rec-upload", await token({ sub: OTHER_READER })))
+        .status,
+    ).toBe(200);
+    // Real readers still fill it.
+    expect(
+      (await playback("rec-upload", await publicReaderToken())).status,
+    ).toBe(429);
   });
 });

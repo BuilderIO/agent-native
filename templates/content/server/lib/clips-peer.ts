@@ -9,6 +9,7 @@ import {
   signA2AToken,
 } from "@agent-native/core/a2a";
 import { AppConfigurationError } from "@agent-native/core/app-config";
+import { readBoundedResponseBytes } from "@agent-native/core/ingestion";
 import {
   getAppConfig,
   resolveContentClipsPeerSecret,
@@ -23,6 +24,9 @@ import {
   CLIP_PLAYBACK_ERRORS,
   CONTENT_CLIP_AUDIENCE_PATH,
   CONTENT_CLIP_CLAIMS,
+  CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
+  CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
+  CONTENT_CLIP_MAX_COMMENT_THREADS,
   CONTENT_CLIP_NOT_CONFIGURED,
   CONTENT_CLIP_PUBLIC_READER,
   CONTENT_CLIP_SCOPES,
@@ -40,6 +44,26 @@ export type ClipsResult =
   | { ok: false; code: ClipPlaybackErrorCode };
 
 const CLIPS_REQUEST_TIMEOUT_MS = 10_000;
+
+// The longest thread start Clips sends: its cut fields with every character
+// escaped to six bytes (`\u0001`), an id at the 128 characters Clips takes
+// for one, and room for the keys and timestamp.
+const MAX_COMMENT_THREAD_BYTES =
+  6 *
+    (CONTENT_CLIP_COMMENT_PREVIEW_CHARS +
+      2 * CONTENT_CLIP_COMMENT_AUTHOR_CHARS) +
+  128 +
+  256;
+
+/**
+ * The most Content reads of each answer: the longest one the contract allows,
+ * with margin. A playback answer is a title, two URLs and a few short fields.
+ */
+export const CLIPS_ANSWER_MAX_BYTES = {
+  playback: 64 * 1024,
+  comments:
+    CONTENT_CLIP_MAX_COMMENT_THREADS * MAX_COMMENT_THREAD_BYTES + 64 * 1024,
+} as const;
 
 function hostnameOf(url: string | undefined): string | undefined {
   return url && URL.canParse(url) ? new URL(url).hostname : undefined;
@@ -163,14 +187,25 @@ function failureFor(status: number, code: unknown): ClipPlaybackErrorCode {
 
 type ClipsBody = { readable: true; value: unknown } | { readable: false };
 
-async function readJson(response: Response): Promise<ClipsBody> {
+async function readJson(
+  response: Response,
+  maxBytes: number,
+): Promise<ClipsBody> {
   try {
-    return { readable: true, value: await response.json() };
+    const bytes = await readBoundedResponseBytes(response, maxBytes);
+    return {
+      readable: true,
+      value: JSON.parse(new TextDecoder().decode(bytes)),
+    };
   } catch (error) {
-    console.warn("[content-clips] Clips answered with a body that isn't JSON", {
-      status: response.status,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    console.warn(
+      "[content-clips] Clips answered with a body Content can't read",
+      {
+        status: response.status,
+        maxBytes,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
     return { readable: false };
   }
 }
@@ -223,7 +258,7 @@ export async function requestClips(input: {
     return { ok: false, code: CLIP_PLAYBACK_ERRORS.unreachable };
   }
 
-  const body = await readJson(response);
+  const body = await readJson(response, CLIPS_ANSWER_MAX_BYTES[input.resource]);
   if (response.status !== 200) {
     const code =
       body.readable && body.value && typeof body.value === "object"

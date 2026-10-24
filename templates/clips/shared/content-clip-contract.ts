@@ -70,6 +70,14 @@ export const CONTENT_CLIP_PLAYBACK_GRANT_SECONDS = 5 * 60;
  */
 export const CONTENT_CLIP_MAX_COMMENT_THREADS = 500;
 
+/**
+ * A listed thread start's text is cut to this many characters, and its
+ * author's name and email to `CONTENT_CLIP_COMMENT_AUTHOR_CHARS`, so Content
+ * can cap how much of a comment list it reads. A marker shows no more.
+ */
+export const CONTENT_CLIP_COMMENT_PREVIEW_CHARS = 280;
+export const CONTENT_CLIP_COMMENT_AUTHOR_CHARS = 320;
+
 /** The `code` of a 403 media response refused only because its grant expired. */
 export const CONTENT_CLIP_GRANT_EXPIRED = "content_grant_expired";
 

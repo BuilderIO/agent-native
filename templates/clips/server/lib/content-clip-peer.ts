@@ -12,7 +12,7 @@ import {
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { getQuery, getRequestHeader, getRouterParam, type H3Event } from "h3";
 import { z } from "zod";
 
@@ -26,6 +26,8 @@ import { canReadRecordingComments } from "../../shared/comment-access.js";
 import {
   CONTENT_CLIP_AUDIENCE_PATH,
   CONTENT_CLIP_CLAIMS,
+  CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
+  CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
   CONTENT_CLIP_MAX_COMMENT_THREADS,
   CONTENT_CLIP_MAX_TOKEN_SECONDS,
   CONTENT_CLIP_PUBLIC_READER,
@@ -98,6 +100,7 @@ const viewerEmailSchema = z.string().email().max(320);
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMITS = { read: 600, write: 30 } as const;
 const RATE_LIMIT_MAX_BUCKETS = 5000;
+let rateBucketLimit = RATE_LIMIT_MAX_BUCKETS;
 const rateBuckets = new Map<string, { count: number; reset: number }>();
 
 function json(body: unknown, status = 200): Response {
@@ -227,22 +230,43 @@ function pruneExpiredRateBuckets(now: number): void {
   }
 }
 
-function rateLimited(peer: ContentClipPeer, kind: "read" | "write") {
-  const key = [
+type RateKind = keyof typeof RATE_LIMITS;
+
+function rateBucketKey(peer: ContentClipPeer, kind: RateKind): string {
+  return [
     kind,
     peer.contentApp,
     peer.documentId,
     peer.recordingId,
     peer.viewerEmail ?? CONTENT_CLIP_PUBLIC_READER,
   ].join("\n");
+}
+
+/** Refuses a reader whose bucket is full, before Clips reads anything. */
+function overRateLimit(peer: ContentClipPeer, kind: RateKind) {
+  const bucket = rateBuckets.get(rateBucketKey(peer, kind));
+  return bucket &&
+    bucket.reset >= Date.now() &&
+    bucket.count >= RATE_LIMITS[kind]
+    ? errorResponse(429, "Too many requests")
+    : null;
+}
+
+/**
+ * Counts a request against a Clip it opened. Content mints a token for any
+ * recording id a page reader names, so a bucket made before the Clip opened
+ * would let made-up ids fill the map and lock every reader out.
+ */
+function rateLimited(peer: ContentClipPeer, kind: RateKind) {
+  const key = rateBucketKey(peer, kind);
   const now = Date.now();
   const existing = rateBuckets.get(key);
   if (!existing || existing.reset < now) {
     if (existing) rateBuckets.delete(key);
-    if (rateBuckets.size >= RATE_LIMIT_MAX_BUCKETS) {
+    if (rateBuckets.size >= rateBucketLimit) {
       pruneExpiredRateBuckets(now);
     }
-    if (rateBuckets.size >= RATE_LIMIT_MAX_BUCKETS) {
+    if (rateBuckets.size >= rateBucketLimit) {
       return errorResponse(429, "Too many requests");
     }
     rateBuckets.set(key, { count: 1, reset: now + RATE_LIMIT_WINDOW_MS });
@@ -255,20 +279,23 @@ function rateLimited(peer: ContentClipPeer, kind: "read" | "write") {
   return null;
 }
 
-export function __resetContentClipRateLimitsForTests(): void {
+export function __resetContentClipRateLimitsForTests(
+  maxBuckets = RATE_LIMIT_MAX_BUCKETS,
+): void {
   rateBuckets.clear();
+  rateBucketLimit = maxBuckets;
 }
 
 async function authorize(
   event: H3Event,
   scopes: readonly ContentClipScope[],
-  kind: "read" | "write",
+  kind: RateKind,
 ): Promise<ContentClipPeer | Response> {
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) return notFound();
   const peer = await verifyPeer(event, recordingId, scopes);
   if (peer instanceof Response) return peer;
-  return rateLimited(peer, kind) ?? peer;
+  return overRateLimit(peer, kind) ?? peer;
 }
 
 /**
@@ -279,6 +306,7 @@ async function authorize(
  */
 async function withOpenedClip(
   peer: ContentClipPeer,
+  kind: RateKind,
   fn: (opened: OpenedClip) => Promise<Response>,
 ): Promise<Response> {
   // Earlier-screen-time footage plays only through the Clip it is attached
@@ -323,7 +351,10 @@ async function withOpenedClip(
             "password_required",
           );
         }
-        return fn({ recording, role: access.role, binding });
+        return (
+          rateLimited(peer, kind) ??
+          fn({ recording, role: access.role, binding })
+        );
       },
     );
   return binding
@@ -351,7 +382,7 @@ export async function handleContentClipPlayback(
   );
   if (peer instanceof Response) return peer;
 
-  return withOpenedClip(peer, async ({ recording, role, binding }) => {
+  return withOpenedClip(peer, "read", async ({ recording, role, binding }) => {
     if (isHeldForRedaction(recording.editsJson, role)) {
       return errorResponse(409, REDACTION_HOLD_MESSAGE, "redaction_pending");
     }
@@ -406,7 +437,8 @@ const commentListQuerySchema = z.object({
 
 /**
  * The first `limit` thread starts by video time, as `list-comments` orders
- * them, reading one more to tell a full page from the whole list.
+ * them, reading one more to tell a full page from the whole list. Text and
+ * names are cut to the contract's lengths.
  */
 async function listCommentThreads(recordingId: string, limit: number) {
   await assertCommentAccess(recordingId, "read");
@@ -416,7 +448,7 @@ async function listCommentThreads(recordingId: string, limit: number) {
       id: comments.id,
       authorEmail: comments.authorEmail,
       authorName: comments.authorName,
-      content: comments.content,
+      content: sql<string>`left(${comments.content}, ${CONTENT_CLIP_COMMENT_PREVIEW_CHARS})`,
       videoTimestampMs: comments.videoTimestampMs,
     })
     .from(comments)
@@ -425,8 +457,17 @@ async function listCommentThreads(recordingId: string, limit: number) {
     )
     .orderBy(asc(comments.videoTimestampMs), asc(comments.createdAt))
     .limit(limit + 1);
+  const threads = await hydrateCommentAuthorNames(rows.slice(0, limit));
   return {
-    comments: await hydrateCommentAuthorNames(rows.slice(0, limit)),
+    comments: threads.map((thread) => ({
+      ...thread,
+      authorEmail: thread.authorEmail.slice(
+        0,
+        CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
+      ),
+      authorName:
+        thread.authorName?.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS) ?? null,
+    })),
     truncated: rows.length > limit,
   };
 }
@@ -443,7 +484,7 @@ export async function handleContentClipComments(
   const query = commentListQuerySchema.safeParse(getQuery(event));
   if (!query.success) return errorResponse(400, "Invalid comment request");
 
-  return withOpenedClip(peer, async ({ recording, role }) => {
+  return withOpenedClip(peer, "read", async ({ recording, role }) => {
     if (
       !canReadRecordingComments({
         enableComments: Boolean(recording.enableComments),
@@ -580,7 +621,7 @@ export async function handleContentClipCommentWrite(
   if (!parsed.success) return errorResponse(400, "Invalid comment request");
   const write = parsed.data;
 
-  return withOpenedClip(peer, async ({ recording }) => {
+  return withOpenedClip(peer, "write", async ({ recording }) => {
     // Stricter than Clips' own `delete-comment`, which lets an author delete
     // with comments off: through a document, comments off means no writes.
     if (!recording.enableComments) {

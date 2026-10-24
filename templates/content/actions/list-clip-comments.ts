@@ -4,6 +4,8 @@ import { z } from "zod";
 import { requestClips } from "../server/lib/clips-peer.js";
 import {
   CLIP_PLAYBACK_ERRORS,
+  CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
+  CONTENT_CLIP_MAX_COMMENT_THREADS,
   type ClipCommentMarker,
 } from "../shared/clips-peer-contract.js";
 import {
@@ -11,10 +13,6 @@ import {
   clipEmbedArgsSchema,
   failClip,
 } from "./_clip-embed-access.js";
-
-// Clips' CONTENT_CLIP_MAX_COMMENT_THREADS: the most it returns per call.
-const MAX_MARKERS = 500;
-const MAX_PREVIEW_CHARS = 280;
 
 // Clips returns thread starts only, never more than asked, and says whether
 // it held any back.
@@ -29,7 +27,7 @@ const commentsSchema = z.object({
         videoTimestampMs: z.number().min(0),
       }),
     )
-    .max(MAX_MARKERS),
+    .max(CONTENT_CLIP_MAX_COMMENT_THREADS),
   truncated: z.boolean(),
 });
 
@@ -53,7 +51,7 @@ export default defineAction({
       documentId,
       recordingId,
       resource: "comments",
-      query: { limit: String(MAX_MARKERS) },
+      query: { limit: String(CONTENT_CLIP_MAX_COMMENT_THREADS) },
     });
     if (!result.ok) failClip(result.code);
 
@@ -67,7 +65,7 @@ export default defineAction({
     const markers = parsed.data.comments.map((comment) => ({
       id: comment.id,
       videoTimestampMs: comment.videoTimestampMs,
-      content: comment.content.slice(0, MAX_PREVIEW_CHARS),
+      content: comment.content.slice(0, CONTENT_CLIP_COMMENT_PREVIEW_CHARS),
       // A signed-out reader sees names, never commenters' emails.
       authorName:
         comment.authorName?.trim() ||

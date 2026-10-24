@@ -442,7 +442,8 @@ export interface CreateRegistryBlockNodeOptions {
    * Reads a pasted block back from the source its clipboard HTML carries.
    * Return the block as the app parsed it, or null when the source isn't
    * exactly one block of the declared type and id; the paste then drops the
-   * block. Without it, a pasted block keeps no source.
+   * block, as it drops one pasted with no source. Without it, a pasted block
+   * keeps no source.
    */
   readPastedSource?: (
     pasted: PastedRegistryBlock,
@@ -577,8 +578,7 @@ export function createRegistryBlockNode(
             const sourceBlockId = pastedBlockId(
               node.getAttribute("data-source-block-id"),
             );
-            const source = node.getAttribute("data-block-source");
-            if (!source || !readPastedSource) {
+            if (!readPastedSource) {
               return {
                 blockType,
                 blockId,
@@ -588,6 +588,9 @@ export function createRegistryBlockNode(
                 __raw: null,
               };
             }
+            // Without a source the block would save as nothing.
+            const source = node.getAttribute("data-block-source");
+            if (!source) return false;
             const pasted = readPastedSource({
               blockType,
               blockId,

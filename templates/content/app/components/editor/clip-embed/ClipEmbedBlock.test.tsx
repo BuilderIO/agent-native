@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { ClipEmbed } from "./ClipEmbedBlock";
+import { ClipEmbed, ClipEmbedRead } from "./ClipEmbedBlock";
 
 type FakeQuery = {
   data: unknown;
@@ -223,6 +223,7 @@ describe("ClipEmbed", () => {
     ["clip_password_required", "clipEmbed.passwordRequired"],
     ["clip_redaction_pending", "clipEmbed.redactionPending"],
     ["clips_unreachable", "clipEmbed.unreachable"],
+    ["clip_rate_limited", "clipEmbed.rateLimited"],
     ["clip_embed_disabled", "clipEmbed.disabled"],
     [undefined, "clipEmbed.failed"],
   ])("tells %s apart with its own message", (code, message) => {
@@ -282,6 +283,33 @@ describe("ClipEmbed", () => {
       "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0",
     );
     expect(queries.options["list-clip-comments"]?.enabled).toBe(false);
+  });
+
+  it("drops one page's grant when the same Clip's block moves to another page", () => {
+    const renderOn = (documentId: string) =>
+      act(() =>
+        root!.render(
+          <TooltipProvider>
+            <ClipEmbedRead
+              data={{ recordingId: "rec_1", origin: "link" }}
+              blockId="clip-1"
+              ctx={{ documentId } as never}
+            />
+          </TooltipProvider>,
+        ),
+      );
+    renderOn("doc_1");
+    expect(container.querySelector("video")).not.toBeNull();
+
+    queries.byName["get-clip-playback"] = fakeQuery(
+      undefined,
+      refusal("document_not_found"),
+    );
+    renderOn("doc_2");
+    expect(container.querySelector("video")).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "clipEmbed.notFound",
+    );
   });
 
   it("declines a Clip another service plays, and links to Clips", () => {

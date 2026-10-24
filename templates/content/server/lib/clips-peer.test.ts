@@ -23,6 +23,12 @@ const coreRequire = createRequire(
 const jose = await import(pathToFileURL(coreRequire.resolve("jose")).href);
 const { resetAppConfigForTests } = await import("@agent-native/core/server");
 const {
+  CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
+  CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
+  CONTENT_CLIP_MAX_COMMENT_THREADS,
+} = await import("../../shared/clips-peer-contract.js");
+const {
+  CLIPS_ANSWER_MAX_BYTES,
   clipsLinkOrigins,
   mintContentClipToken,
   requestClips,
@@ -305,4 +311,76 @@ describe("requestClips", () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+});
+
+describe("a Clips answer's size", () => {
+  const request = (resource: "playback" | "comments") =>
+    requestClips({
+      reader: signedIn,
+      documentId: "doc_1",
+      recordingId: "rec_1",
+      resource,
+      query: resource === "comments" ? { limit: "500" } : undefined,
+    });
+
+  // Sent in two chunks with no length header, so only the stream says how
+  // big it is.
+  function streamed(text: string) {
+    const bytes = new TextEncoder().encode(text);
+    const half = Math.floor(bytes.byteLength / 2);
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes.slice(0, half));
+          controller.enqueue(bytes.slice(half));
+          controller.close();
+        },
+      }),
+      { status: 200 },
+    );
+  }
+
+  it("reads the longest comment list Clips' contract allows", async () => {
+    // Every field at its cut length, each character escaped to six bytes.
+    const escaped = (length: number) => "\u0001".repeat(length);
+    const body = JSON.stringify({
+      comments: Array.from(
+        { length: CONTENT_CLIP_MAX_COMMENT_THREADS },
+        (_, index) => ({
+          id: String(index).padEnd(128, "x"),
+          authorEmail: escaped(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+          authorName: escaped(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+          content: escaped(CONTENT_CLIP_COMMENT_PREVIEW_CHARS),
+          videoTimestampMs: Number.MAX_SAFE_INTEGER,
+        }),
+      ),
+      truncated: true,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => streamed(body)),
+    );
+    await expect(request("comments")).resolves.toMatchObject({ ok: true });
+  });
+
+  it.each(["playback", "comments"] as const)(
+    "reads a %s answer at its cap and refuses one a byte over",
+    async (resource) => {
+      const cap = CLIPS_ANSWER_MAX_BYTES[resource];
+      const padded = (bytes: number) =>
+        `{"pad":"${"x".repeat(bytes - '{"pad":""}'.length)}"}`;
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(streamed(padded(cap)))
+          .mockResolvedValueOnce(streamed(padded(cap + 1))),
+      );
+      await expect(request(resource)).resolves.toMatchObject({ ok: true });
+      await expect(request(resource)).resolves.toEqual({
+        ok: false,
+        code: "clips_unreachable",
+      });
+    },
+  );
 });
