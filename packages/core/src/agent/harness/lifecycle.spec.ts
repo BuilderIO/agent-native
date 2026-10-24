@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { StoredAgentHarnessSession } from "./store.js";
 import type {
@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   updateIfFollowUpClaim: vi.fn(),
   updateAtGeneration: vi.fn(),
   claimFollowUp: vi.fn(),
+  admitFollowUpDispatch: vi.fn(),
   markStopped: vi.fn(),
   markStoppedIfUnclaimed: vi.fn(),
   resolveAdapter: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock("./store.js", () => ({
   updateAgentHarnessSessionIfFollowUpClaim: mocks.updateIfFollowUpClaim,
   updateAgentHarnessSessionAtGeneration: mocks.updateAtGeneration,
   claimAgentHarnessSessionFollowUp: mocks.claimFollowUp,
+  admitAgentHarnessSessionFollowUpDispatch: mocks.admitFollowUpDispatch,
   markAgentHarnessSessionStopped: mocks.markStopped,
   markAgentHarnessSessionStoppedIfUnclaimed: mocks.markStoppedIfUnclaimed,
 }));
@@ -44,6 +46,7 @@ vi.mock("./registry.js", () => ({
 
 const {
   registerLiveAgentHarnessSession,
+  releaseLiveAgentHarnessSession,
   resolveAgentHarnessApproval,
   sendAgentHarnessFollowUp,
   stopLiveAgentHarnessSession,
@@ -124,6 +127,23 @@ describe("agent harness lifecycle", () => {
       };
       return stored;
     });
+    mocks.admitFollowUpDispatch.mockImplementation(
+      async (_id, expectedGeneration, claimId) => {
+        if (
+          stored.status !== "running" ||
+          stored.followUpClaimId !== claimId ||
+          stored.generation !== expectedGeneration
+        ) {
+          return null;
+        }
+        stored = {
+          ...stored,
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        return stored;
+      },
+    );
     mocks.markStoppedIfUnclaimed.mockImplementation(
       async (_id, expectedStatus, expectedGeneration, status) => {
         if (
@@ -141,6 +161,10 @@ describe("agent harness lifecycle", () => {
         });
       },
     );
+  });
+
+  afterEach(() => {
+    releaseLiveAgentHarnessSession(stored.id);
   });
 
   it.each([
@@ -251,14 +275,14 @@ describe("agent harness lifecycle", () => {
   it("does not start provider work after its follow-up claim is lost", async () => {
     const session = fakeSession([{ type: "done" }]);
     register(stored, session);
-    mocks.getById.mockImplementationOnce(async () => {
+    mocks.admitFollowUpDispatch.mockImplementationOnce(async () => {
       stored = {
         ...stored,
         status: "stopped",
         followUpClaimId: null,
         generation: stored.generation + 1,
       };
-      return stored;
+      return null;
     });
 
     const result = await sendAgentHarnessFollowUp({
@@ -323,6 +347,123 @@ describe("agent harness lifecycle", () => {
       sessionId: stored.id,
       scope: ownerScope(),
     });
+  });
+
+  it("does not stop an idle session after another process advances its generation", async () => {
+    const session = fakeSession();
+    register(stored, session);
+    stored = { ...stored, generation: stored.generation + 1 };
+
+    const removed = await sweepExpiredAgentHarnessSessions(
+      Date.now() + 25 * 60 * 60 * 1_000,
+    );
+
+    expect(removed).toBe(0);
+    expect(mocks.markStoppedIfUnclaimed).toHaveBeenCalledWith(
+      stored.id,
+      "idle",
+      0,
+      "stopped",
+    );
+    expect(session.stop).not.toHaveBeenCalled();
+    expect(stored.status).toBe("idle");
+    await stopLiveAgentHarnessSession({
+      sessionId: stored.id,
+      scope: ownerScope(),
+    });
+  });
+
+  it("refreshes the owned generation after a local approval update before expiry cleanup", async () => {
+    const session = fakeSession();
+    stored.pendingApproval = approvalEvent("approval-expiry");
+    register(stored, session);
+
+    await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: "approval-expiry", approved: true },
+      scope: ownerScope(),
+    });
+    const ownedGeneration = stored.generation;
+    const removed = await sweepExpiredAgentHarnessSessions(
+      Date.now() + 25 * 60 * 60 * 1_000,
+    );
+
+    expect(removed).toBe(1);
+    expect(mocks.markStoppedIfUnclaimed).toHaveBeenCalledWith(
+      stored.id,
+      "idle",
+      ownedGeneration,
+      "stopped",
+    );
+    expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a missing-row native session registered until teardown succeeds", async () => {
+    const session = fakeSession();
+    session.stop.mockRejectedValueOnce(new Error("provider stop failed"));
+    register(stored, session);
+    mocks.getById.mockResolvedValue(null);
+
+    await expect(
+      sweepExpiredAgentHarnessSessions(Date.now() + 25 * 60 * 60 * 1_000),
+    ).resolves.toBe(0);
+    expect(session.stop).toHaveBeenCalledOnce();
+
+    await expect(
+      sweepExpiredAgentHarnessSessions(Date.now() + 25 * 60 * 60 * 1_000),
+    ).resolves.toBe(1);
+    expect(session.stop).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not dispatch a follow-up when stop wins durable admission", async () => {
+    const session = fakeSession();
+    register(stored, session);
+    let reachAdmission!: () => void;
+    let releaseAdmission!: () => void;
+    const admissionReached = new Promise<void>((resolve) => {
+      reachAdmission = resolve;
+    });
+    const admissionGate = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    mocks.admitFollowUpDispatch.mockImplementationOnce(
+      async (_id, expectedGeneration, claimId) => {
+        reachAdmission();
+        await admissionGate;
+        if (
+          stored.status !== "running" ||
+          stored.followUpClaimId !== claimId ||
+          stored.generation !== expectedGeneration
+        ) {
+          return null;
+        }
+        stored = {
+          ...stored,
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        return stored;
+      },
+    );
+
+    const followUp = sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+    await admissionReached;
+    stored = {
+      ...stored,
+      status: "stopped",
+      followUpClaimId: null,
+      generation: stored.generation + 1,
+    };
+    releaseAdmission();
+    const result = await followUp;
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(session.streamTurn).not.toHaveBeenCalled();
+    expect(session.stop).toHaveBeenCalledOnce();
   });
 
   it("retains an expired claimed session so a failed follow-up can stop it", async () => {
@@ -1200,6 +1341,7 @@ function register(
     session,
     ownerEmail: stored.ownerEmail,
     orgId: stored.orgId,
+    generation: stored.generation,
   });
 }
 

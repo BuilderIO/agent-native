@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { resolveAgentHarness } from "./registry.js";
 import {
+  admitAgentHarnessSessionFollowUpDispatch,
   AgentHarnessSessionConflictError,
   claimAgentHarnessSessionFollowUp,
   getAgentHarnessSession,
@@ -33,6 +34,7 @@ interface LiveAgentHarnessSession {
   createSession: AgentHarnessCreateSessionOptions;
   ownerEmail: string | null;
   orgId: string | null;
+  generation: number;
   expiresAt: number;
 }
 
@@ -71,6 +73,7 @@ export function registerLiveAgentHarnessSession(input: {
   createSession?: AgentHarnessCreateSessionOptions;
   ownerEmail?: string | null;
   orgId?: string | null;
+  generation: number;
 }): void {
   liveSessions.set(input.sessionId, {
     adapter: input.adapter,
@@ -78,9 +81,21 @@ export function registerLiveAgentHarnessSession(input: {
     createSession: withoutSignal(input.createSession ?? {}),
     ownerEmail: input.ownerEmail ?? null,
     orgId: input.orgId ?? null,
+    generation: input.generation,
     expiresAt: Date.now() + LIVE_SESSION_TTL_MS,
   });
   scheduleCleanup();
+}
+
+export function refreshLiveAgentHarnessSessionGeneration(
+  sessionId: string,
+  session: AgentHarnessSession,
+  generation: number,
+): void {
+  const live = liveSessions.get(sessionId);
+  if (live?.session === session) {
+    live.generation = Math.max(live.generation, generation);
+  }
 }
 
 export function releaseLiveAgentHarnessSession(
@@ -147,6 +162,7 @@ export async function resolveAgentHarnessApproval(input: {
         session.id,
         {
           followUpClaimId: session.followUpClaimId ?? undefined,
+          liveSession: live.session,
         },
       );
     } else {
@@ -180,6 +196,7 @@ export async function resolveAgentHarnessApproval(input: {
         approvalId: input.approval.id,
         nextPending,
         detachedResumeState,
+        liveSession: live.session,
       });
     } catch (error) {
       if (!isAgentHarnessSessionConflictError(error)) throw error;
@@ -230,6 +247,7 @@ async function persistResolvedApproval(input: {
   approvalId: string;
   nextPending?: Extract<AgentHarnessEvent, { type: "approval-request" }>;
   detachedResumeState?: unknown;
+  liveSession: AgentHarnessSession;
 }): Promise<StoredAgentHarnessSession | null> {
   let conflict: AgentHarnessSessionConflictError | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -273,7 +291,14 @@ async function persistResolvedApproval(input: {
         },
         latest.followUpClaimId ?? undefined,
       );
-      if (updated) return updated;
+      if (updated) {
+        refreshLiveAgentHarnessSessionGeneration(
+          latest.id,
+          input.liveSession,
+          updated.generation,
+        );
+        return updated;
+      }
       return null;
     } catch (error) {
       if (!isAgentHarnessSessionConflictError(error) || attempt === 2) {
@@ -385,13 +410,19 @@ export async function sendAgentHarnessFollowUp(input: {
       () => finalizing,
     );
     try {
-      const beforeDispatch = await getAgentHarnessSession(session.id);
-      if (
-        beforeDispatch?.status !== "running" ||
-        beforeDispatch.followUpClaimId !== claimId
-      ) {
+      const dispatchAdmission = await admitAgentHarnessSessionFollowUpDispatch(
+        session.id,
+        claimed.generation,
+        claimId,
+      );
+      if (!dispatchAdmission) {
         throw new AgentHarnessSessionConflictError(session.id);
       }
+      refreshLiveAgentHarnessSessionGeneration(
+        session.id,
+        acquired.live.session,
+        dispatchAdmission.generation,
+      );
 
       await consumeEvents(
         acquired.live.session.streamTurn({
@@ -402,7 +433,11 @@ export async function sendAgentHarnessFollowUp(input: {
         events,
         input.onHarnessEvent,
         session.id,
-        { followUpClaimId: claimId, abortSignal: followUpAbort.signal },
+        {
+          followUpClaimId: claimId,
+          abortSignal: followUpAbort.signal,
+          liveSession: acquired.live.session,
+        },
       );
       if (followUpAbort.signal.aborted) {
         throw (
@@ -468,6 +503,13 @@ export async function sendAgentHarnessFollowUp(input: {
                 };
               },
             );
+            if (updatedSession) {
+              refreshLiveAgentHarnessSessionGeneration(
+                session.id,
+                acquired.live.session,
+                updatedSession.generation,
+              );
+            }
             break;
           } catch (error) {
             if (!isAgentHarnessSessionConflictError(error)) throw error;
@@ -558,7 +600,11 @@ export async function sendAgentHarnessFollowUp(input: {
         const failures: unknown[] = [reason ?? error];
         let failedSession: StoredAgentHarnessSession | null = null;
         try {
-          failedSession = await markOwnedFollowUpErrored(session.id, claimId);
+          failedSession = await markOwnedFollowUpErrored(
+            session.id,
+            claimId,
+            acquired.live.session,
+          );
         } catch (persistError) {
           failures.push(persistError);
         }
@@ -592,7 +638,11 @@ export async function sendAgentHarnessFollowUp(input: {
         ) {
           let failedSession: StoredAgentHarnessSession | null;
           try {
-            failedSession = await markOwnedFollowUpErrored(session.id, claimId);
+            failedSession = await markOwnedFollowUpErrored(
+              session.id,
+              claimId,
+              acquired.live.session,
+            );
           } catch (cleanupError) {
             const failures: unknown[] = [error, cleanupError];
             throw new AggregateError(
@@ -640,7 +690,11 @@ export async function sendAgentHarnessFollowUp(input: {
       const failures: unknown[] = [error];
       let failedSession: StoredAgentHarnessSession | null = null;
       try {
-        failedSession = await markOwnedFollowUpErrored(session.id, claimId);
+        failedSession = await markOwnedFollowUpErrored(
+          session.id,
+          claimId,
+          acquired.live.session,
+        );
       } catch (persistError) {
         failures.push(persistError);
       }
@@ -682,35 +736,48 @@ export async function sweepExpiredAgentHarnessSessions(
   let removed = 0;
   for (const [sessionId, live] of liveSessions) {
     if (live.expiresAt > now) continue;
-    let stoppedGeneration: number | undefined;
+    let stopped: StoredAgentHarnessSession | null = null;
     try {
       const current = await getAgentHarnessSession(sessionId);
       if (!current) {
-        liveSessions.delete(sessionId);
+        if (live.session.stop) await live.session.stop();
+        else await live.session.destroy?.();
+        releaseLiveAgentHarnessSession(sessionId, live.session);
         removed += 1;
         continue;
       }
       if (current.followUpClaimId != null) continue;
-      const stopped = await markAgentHarnessSessionStoppedIfUnclaimed(
+      stopped = await markAgentHarnessSessionStoppedIfUnclaimed(
         sessionId,
         current.status,
-        current.generation,
+        live.generation,
         "stopped",
       );
       if (!stopped) continue;
-      stoppedGeneration = stopped.generation;
-      liveSessions.delete(sessionId);
-      removed += 1;
+      refreshLiveAgentHarnessSessionGeneration(
+        sessionId,
+        live.session,
+        stopped.generation,
+      );
       if (live.session.stop) await live.session.stop();
       else await live.session.destroy?.();
+      releaseLiveAgentHarnessSession(sessionId, live.session);
+      removed += 1;
     } catch {
-      if (stoppedGeneration !== undefined) {
-        await markAgentHarnessSessionStoppedIfUnclaimed(
+      if (stopped) {
+        const errored = await markAgentHarnessSessionStoppedIfUnclaimed(
           sessionId,
           "stopped",
-          stoppedGeneration,
+          stopped.generation,
           "errored",
         ).catch(() => {});
+        if (errored) {
+          refreshLiveAgentHarnessSessionGeneration(
+            sessionId,
+            live.session,
+            errored.generation,
+          );
+        }
       }
     }
   }
@@ -726,6 +793,7 @@ async function acquireSession(
 > {
   const existing = ownedLiveSession(stored.id, scope);
   if (existing) {
+    existing.generation = Math.max(existing.generation, stored.generation);
     existing.expiresAt = Date.now() + LIVE_SESSION_TTL_MS;
     return { ok: true, live: existing, rehydrated: false };
   }
@@ -782,6 +850,7 @@ async function acquireSession(
       createSession: { resumeState: stored.resumeState },
       ownerEmail: stored.ownerEmail,
       orgId: stored.orgId,
+      generation: stored.generation,
     });
     return {
       ok: true,
@@ -811,6 +880,7 @@ async function consumeEvents(
   options?: {
     abortSignal?: AbortSignal;
     followUpClaimId?: string;
+    liveSession?: AgentHarnessSession;
   },
 ): Promise<void> {
   const iterator = stream[Symbol.asyncIterator]();
@@ -831,6 +901,13 @@ async function consumeEvents(
           });
       if (options?.followUpClaimId && !updated) {
         throw new AgentHarnessSessionConflictError(sessionId);
+      }
+      if (updated && options?.liveSession) {
+        refreshLiveAgentHarnessSessionGeneration(
+          sessionId,
+          options.liveSession,
+          updated.generation,
+        );
       }
     }
     await onHarnessEvent?.(event);
@@ -948,18 +1025,25 @@ async function stopAcquiredHarnessSession(
 async function markOwnedFollowUpErrored(
   sessionId: string,
   claimId: string,
+  liveSession: AgentHarnessSession,
 ): Promise<StoredAgentHarnessSession | null> {
-  return updateOwnedFollowUpClaim(sessionId, claimId, {
-    status: "errored",
-    pendingApproval: null,
-    followUpClaimId: null,
-  });
+  return updateOwnedFollowUpClaim(
+    sessionId,
+    claimId,
+    {
+      status: "errored",
+      pendingApproval: null,
+      followUpClaimId: null,
+    },
+    liveSession,
+  );
 }
 
 async function updateOwnedFollowUpClaim(
   sessionId: string,
   claimId: string,
   patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
+  liveSession?: AgentHarnessSession,
 ): Promise<StoredAgentHarnessSession | null> {
   let conflict: AgentHarnessSessionConflictError | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -969,7 +1053,16 @@ async function updateOwnedFollowUpClaim(
         claimId,
         patch,
       );
-      if (updated) return updated;
+      if (updated) {
+        if (liveSession) {
+          refreshLiveAgentHarnessSessionGeneration(
+            sessionId,
+            liveSession,
+            updated.generation,
+          );
+        }
+        return updated;
+      }
     } catch (error) {
       if (!isAgentHarnessSessionConflictError(error)) throw error;
       conflict = error;

@@ -388,6 +388,23 @@ export async function claimAgentHarnessSessionFollowUp(
     : null;
 }
 
+export async function admitAgentHarnessSessionFollowUpDispatch(
+  id: string,
+  expectedGeneration: number,
+  claimId: string,
+): Promise<StoredAgentHarnessSession | null> {
+  await ensureAgentHarnessSessionTables();
+  const { rows } = await getDbExec().execute({
+    sql: `UPDATE agent_harness_sessions
+          SET generation = generation + 1, updated_at = ?
+          WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
+            AND generation = ?
+          RETURNING *`,
+    args: [Date.now(), id, claimId, expectedGeneration],
+  });
+  return rowToHarnessSession(rows[0]);
+}
+
 async function updateAgentHarnessSessionWithStatus(
   id: string,
   patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,

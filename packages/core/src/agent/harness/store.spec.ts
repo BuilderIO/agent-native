@@ -32,6 +32,7 @@ vi.mock("../../db/client.js", () => ({
 }));
 
 const {
+  admitAgentHarnessSessionFollowUpDispatch,
   claimAgentHarnessSessionFollowUp,
   getAgentHarnessSession,
   markAgentHarnessSessionStopped,
@@ -129,6 +130,49 @@ describe("agent harness session store", () => {
       status: "running",
       followUpClaimId: "retryable-claim",
       generation: before!.generation + 1,
+    });
+  });
+
+  it("linearizes follow-up dispatch admission before a durable stop", async () => {
+    const id = "session-follow-up-dispatch-admission";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-dispatch-admission",
+      runId: "run-follow-up-dispatch-admission",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      "dispatch-claim",
+    );
+
+    const admitted = await admitAgentHarnessSessionFollowUpDispatch(
+      id,
+      claimed!.generation,
+      "dispatch-claim",
+    );
+    expect(admitted).toMatchObject({
+      status: "running",
+      followUpClaimId: "dispatch-claim",
+      generation: claimed!.generation + 1,
+    });
+
+    await markAgentHarnessSessionStopped(id, "stopped");
+    await expect(
+      admitAgentHarnessSessionFollowUpDispatch(
+        id,
+        claimed!.generation,
+        "dispatch-claim",
+      ),
+    ).resolves.toBeNull();
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "stopped",
+      followUpClaimId: null,
     });
   });
 
