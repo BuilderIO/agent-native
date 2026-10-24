@@ -177,6 +177,28 @@ describe("collab awareness identity", () => {
     },
   );
 
+  it.each([
+    ["without a user", {}],
+    ["with a null user", { user: null }],
+    ["with a user that isn't an object", { user: "Editor" }],
+  ])(
+    "names an editor's state %s after the session, so a save can reach it",
+    async (_case, user) => {
+      mocks.getSession.mockResolvedValue({ email: "editor@example.com" });
+      mocks.resolveAccess.mockResolvedValue({ role: "editor", resource: {} });
+
+      await post(PAGE, "editor-no-user", {
+        clientId: 11,
+        state: JSON.stringify({ ...user, canFlushDocument: true }),
+      });
+
+      expect(storedState()).toEqual({
+        user: { email: "editor@example.com" },
+        canFlushDocument: true,
+      });
+    },
+  );
+
   it("keeps the save capabilities of any signed-in session when every session can edit", async () => {
     mocks.getSession.mockResolvedValue({ email: "member@example.com" });
 

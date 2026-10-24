@@ -171,7 +171,10 @@ describe("postAwareness handler", () => {
       states: Array<{ clientId: number; state: string }>;
     };
 
-    expect(map.get(5)?.state).toBe(state);
+    expect(JSON.parse(map.get(5)?.state ?? "null")).toEqual({
+      cursor: { anchor: 3 },
+      user: { email: "me@example.com" },
+    });
     expect(res.states).toEqual([{ clientId: 99, state: "other-state" }]);
   });
 
