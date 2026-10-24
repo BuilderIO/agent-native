@@ -308,6 +308,13 @@ describe("Content Files membership reconciliation", () => {
     );
     expect(values.get("files_parent")).toBe("system-property-parent");
     expect(values.get("files_source")).toEqual(["system-property-source"]);
+    // Projected from the page, not stored, so neither has a generation or a
+    // change ID that could go stale.
+    for (const role of ["files_parent", "files_source"] as const) {
+      const propertyId = definitions.get(role)!.definition.id;
+      expect(Object.keys(child.propertyGenerations!)).not.toContain(propertyId);
+      expect(Object.keys(child.propertyChangeIds!)).not.toContain(propertyId);
+    }
     expect(
       definitions
         .get("files_parent")

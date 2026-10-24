@@ -196,12 +196,23 @@ export async function readPropertyGenerations(
   );
 }
 
-type ReadProperty = { definition: { id: string; type: DocumentPropertyType } };
+type ReadProperty = {
+  definition: {
+    id: string;
+    type: DocumentPropertyType;
+    systemRole?: string | null;
+  };
+};
 
-/** Blocks and computed fields take no guarded writes, so they're left out. */
+/**
+ * Blocks fields, computed fields and the Files view's system fields, whose
+ * values are projected from the page rather than stored, take no guarded
+ * writes and have no value row, so they're left out.
+ */
 function storedValueProperties(properties: ReadProperty[]) {
   return properties.filter(
     ({ definition }) =>
+      !definition.systemRole &&
       !isBlocksPropertyType(definition.type) &&
       !isComputedPropertyType(definition.type),
   );
