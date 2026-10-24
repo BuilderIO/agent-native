@@ -1,14 +1,8 @@
 // @vitest-environment happy-dom
 
-import { clearAgentChatContext } from "@agent-native/core/client/agent-chat";
-import {
-  listAgentSelection,
-  selectAgentSelectable,
-} from "@agent-native/toolkit/app/agent-select";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  releaseSlidePicks,
   slideElements,
   slideObjectSelectable,
 } from "./use-slides-agent-select";
@@ -38,18 +32,8 @@ function renderDeck() {
 
 const slideNumberOf = (slideId: string) => (slideId === "s1" ? 1 : null);
 
-// Staging a pick persists the composer context.
-beforeEach(() => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response("{}", { status: 200 })),
-  );
-});
-
 afterEach(() => {
   document.body.innerHTML = "";
-  clearAgentChatContext();
-  vi.unstubAllGlobals();
 });
 
 describe("Slides Select adapter", () => {
@@ -68,6 +52,7 @@ describe("Slides Select adapter", () => {
     expect(selectable).toMatchObject({
       kind: "element",
       id: "s1/path:div:nth-child(1) > h1:nth-child(1)",
+      parent: { kind: "slide", id: "s1" },
       title: "Quarterly results",
     });
     expect(selectable?.getElement()).toBe(document.querySelector("main h1"));
@@ -120,18 +105,5 @@ describe("Slides Select adapter", () => {
         document.querySelector("main [data-slide-content-scope]")!,
       ),
     ).toBeNull();
-  });
-
-  it("releases a deck's slide and element picks and nothing else", () => {
-    const pick = (kind: string, id: string) =>
-      selectAgentSelectable({ kind, id, title: id, getContext: () => id });
-    pick("slide", "s1");
-    pick("element", "s1/path:div:nth-child(1)");
-    pick("slide", "other-deck-slide");
-
-    releaseSlidePicks(["s1", "s2"]);
-    expect(listAgentSelection().map(({ id }) => id)).toEqual([
-      "other-deck-slide",
-    ]);
   });
 });

@@ -152,10 +152,11 @@ useAgentSelectableSource((target) => resolveObject(target));
 
 The Select button appears in the composer only while something is registered.
 `selectAgentSelectable(target, { exclusive: true })` stages an object from a
-plain click outside pick mode. When a surface unmounts or switches documents,
-call `releaseAgentSelection(match)` for its picks so they never point into a
-screen the user left. Keep `getContext` to ids, a short label, and the action
-to use; mark chrome pick mode must skip with `data-agent-select-ignore`.
+plain click outside pick mode. A pick is released when its object unregisters
+and does not remount, so leaving a screen or deleting an object needs no
+cleanup; give a source-resolved object a `parent` so it goes with it. Keep
+`getContext` to ids, a short label, and the action to use; mark chrome pick
+mode must skip with `data-agent-select-ignore`.
 
 ### 2. Current URL (`__url__` key)
 

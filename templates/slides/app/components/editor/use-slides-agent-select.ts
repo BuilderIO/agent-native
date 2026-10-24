@@ -1,11 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   registerAgentSelectable,
-  releaseAgentSelection,
   useAgentSelectableSource,
   type AgentSelectable,
 } from "@agent-native/toolkit/app/agent-select";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 
 import { isLayoutSpacer } from "./slide-object-interactions";
 
@@ -37,21 +36,39 @@ interface SlideRef {
   id: string;
 }
 
-function escapeAttribute(value: string): string {
-  return typeof CSS !== "undefined" && CSS.escape
-    ? CSS.escape(value)
-    : value.replace(/["\\]/g, "\\$&");
+let slideElementIndex: Map<string, Element[]> | null = null;
+
+/**
+ * Every rendered slide's canvas and thumbnail, from one document query.
+ * Hit testing asks for each slide's elements on every pointer frame, so the
+ * index is shared until the next frame instead of querying per slide.
+ */
+function indexSlideElements(): Map<string, Element[]> {
+  if (slideElementIndex) return slideElementIndex;
+  const index = new Map<string, Element[]>();
+  for (const canvas of document.querySelectorAll("[data-slide-canvas]")) {
+    const slideId = canvas.getAttribute("data-slide-canvas");
+    if (!slideId) continue;
+    const element = canvas.closest(THUMBNAIL_SELECTOR) ?? canvas;
+    const elements = index.get(slideId) ?? [];
+    if (!elements.includes(element)) elements.push(element);
+    index.set(slideId, elements);
+  }
+  slideElementIndex = index;
+  const invalidate = () => {
+    slideElementIndex = null;
+  };
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(invalidate);
+  } else {
+    setTimeout(invalidate, 0);
+  }
+  return index;
 }
 
 /** The slide's main canvas and its thumbnail, whichever are rendered. */
 export function slideElements(slideId: string): Element[] {
-  const elements = new Set<Element>();
-  for (const canvas of document.querySelectorAll(
-    `[data-slide-canvas="${escapeAttribute(slideId)}"]`,
-  )) {
-    elements.add(canvas.closest(THUMBNAIL_SELECTOR) ?? canvas);
-  }
-  return [...elements];
+  return indexSlideElements().get(slideId) ?? [];
 }
 
 /** The block-level slide object a pointer target belongs to, or null. */
@@ -124,6 +141,7 @@ export function slideObjectSelectable(
   return {
     kind: "element",
     id: `${slideId}/${objectId ? `object:${objectId}` : `path:${path}`}`,
+    parent: { kind: "slide", id: slideId },
     title: excerpt(text || alt || tag, TITLE_LIMIT),
     getContext: () =>
       [
@@ -154,12 +172,10 @@ export function useSlidesAgentSelect(
 ): void {
   const t = useT();
   const slideIds = slides?.map((slide) => slide.id).join("\n") ?? "";
-  const registeredSlideIdsRef = useRef<readonly string[]>([]);
 
   useEffect(() => {
     if (!deckId || !slideIds) return;
     const ids = slideIds.split("\n");
-    registeredSlideIdsRef.current = ids;
     const unregister = ids.map((slideId, index) =>
       registerAgentSelectable({
         kind: "slide",
@@ -177,13 +193,6 @@ export function useSlidesAgentSelect(
     return () => unregister.forEach((release) => release());
   }, [deckId, slideIds, t]);
 
-  // Effect cleanups run before the next render's setups, so the ref still
-  // names the deck being left when this cleanup reads it.
-  useEffect(() => {
-    if (!deckId) return;
-    return () => releaseSlidePicks(registeredSlideIdsRef.current);
-  }, [deckId]);
-
   const slideNumberOf = useCallback(
     (slideId: string) => {
       const index = slideIds.split("\n").indexOf(slideId);
@@ -195,15 +204,5 @@ export function useSlidesAgentSelect(
     deckId && slideIds
       ? (target) => slideObjectSelectable(deckId, slideNumberOf, target)
       : null,
-  );
-}
-
-/** Release picked slides of a deck and the objects picked on them. */
-export function releaseSlidePicks(slideIds: readonly string[]): void {
-  const ids = new Set(slideIds);
-  releaseAgentSelection(({ kind, id }) =>
-    kind === "slide"
-      ? ids.has(id)
-      : kind === "element" && ids.has(id.slice(0, id.indexOf("/"))),
   );
 }

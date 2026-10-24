@@ -351,7 +351,6 @@ export function useDashboardChatContext(
         key: DASHBOARD_CONTEXT_KEY,
         openSidebar: false,
       });
-      removePickedPanels(id);
       void clearSelectedDashboardObjectIfOwned(publishedSelectionRef.current);
     };
   }, [id]);
@@ -381,9 +380,8 @@ function pickedPanelIdsIn(
 }
 
 /**
- * Release this dashboard's picked panels. Reads the live context rather than
- * a render's snapshot: a dashboard switch renders the next dashboard before
- * the previous one's cleanup runs.
+ * Release this dashboard's picked panels on a fresh chat. Leaving the
+ * dashboard needs no call: its panels unregister and Select releases them.
  */
 function removePickedPanels(dashboardId: string): void {
   for (const panelId of pickedPanelIdsIn(listAgentChatContext(), dashboardId)) {

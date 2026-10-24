@@ -23,7 +23,6 @@ import {
   listAgentSelection,
   registerAgentSelectable,
   registerAgentSelectableSource,
-  releaseAgentSelection,
   selectAgentSelectable,
   setAgentSelectMode,
   subscribeAgentSelectRejections,
@@ -200,16 +199,35 @@ describe("context-item round trip", () => {
     );
   });
 
-  it("releases the picks an adapter matches", () => {
-    registerAgentSelectable(selectable("slide", "s1", null));
-    registerAgentSelectable(selectable("slide", "s2", null));
-    registerAgentSelectable(selectable("panel", "p1", null));
-    toggleAgentSelectable("slide", "s1");
-    toggleAgentSelectable("slide", "s2");
-    toggleAgentSelectable("panel", "p1");
+  it("releases a pick once its object unregisters for good", async () => {
+    vi.useFakeTimers();
+    try {
+      const unregister = registerAgentSelectable(
+        selectable("slide", "s1", null),
+      );
+      toggleAgentSelectable("slide", "s1");
+      unregister();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(listAgentSelection()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-    releaseAgentSelection(({ kind }) => kind === "slide");
-    expect(listAgentSelection().map(({ id }) => id)).toEqual(["p1"]);
+  it("keeps a pick when its object remounts in the same task", async () => {
+    vi.useFakeTimers();
+    try {
+      const unregister = registerAgentSelectable(
+        selectable("slide", "s1", null),
+      );
+      toggleAgentSelectable("slide", "s1");
+      unregister();
+      registerAgentSelectable(selectable("slide", "s1", null));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(isAgentSelectableSelected("slide", "s1")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("can still release a pick whose object is no longer registered", () => {
@@ -372,6 +390,32 @@ describe("pick mode", () => {
     ]);
     // Picked source objects stay toggleable after the pointer moves on.
     press(60, 110, bullet);
+    expect(listAgentSelection()).toEqual([]);
+  });
+
+  it("releases picks resolved inside an object when it goes away", async () => {
+    const slide = placedElement(box(0, 0, 400, 300));
+    const bullet = placedElement(box(40, 100, 200, 20), slide);
+    stubHitTesting([slide, bullet]);
+    const unregisterSlide = registerAgentSelectable(
+      selectable("slide", "s1", slide),
+    );
+    registerAgentSelectableSource({
+      resolve: (target) =>
+        target === bullet
+          ? {
+              ...selectable("element", "s1/bullet", bullet),
+              parent: { kind: "slide", id: "s1" },
+            }
+          : null,
+    });
+    setAgentSelectMode(true);
+    press(60, 110, bullet);
+    setAgentSelectMode(false);
+    expect(listAgentSelection().map(({ id }) => id)).toEqual(["s1/bullet"]);
+
+    unregisterSlide();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(listAgentSelection()).toEqual([]);
   });
 

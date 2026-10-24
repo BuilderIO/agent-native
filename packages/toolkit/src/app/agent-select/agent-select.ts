@@ -39,6 +39,11 @@ export interface AgentSelectable {
    * iframe; it is then measured through the frame.
    */
   getElement(): Element | readonly Element[] | null;
+  /**
+   * The registered object this one lives inside, such as a layer's screen.
+   * Its pick is released with the parent's.
+   */
+  parent?: { kind: string; id: string };
 }
 
 /**
@@ -175,7 +180,33 @@ export function registerAgentSelectable(
     if (latest.selectables.get(key) !== selectable) return;
     latest.selectables.delete(key);
     released(latest);
+    releasePickIfGone(latest, key);
   };
+}
+
+/**
+ * Once an object unregisters and does not come back in the same task (a
+ * remount or a list re-render registers it again first), the object is gone:
+ * release its pick, and the picks of objects resolved inside it, so the agent
+ * is never told to target something no longer on screen.
+ */
+function releasePickIfGone(owner: AgentSelectStore, key: string): void {
+  setTimeout(() => {
+    if (store() !== owner || owner.selectables.has(key)) return;
+    const picked = new Set(
+      getAgentChatContextState().items.map((item) => item.key),
+    );
+    if (picked.has(key)) removeAgentChatContextItem(key);
+    for (const [childKey, child] of owner.resolved) {
+      if (
+        child.parent &&
+        picked.has(childKey) &&
+        agentSelectionContextKey(child.parent.kind, child.parent.id) === key
+      ) {
+        removeAgentChatContextItem(childKey);
+      }
+    }
+  }, 0);
 }
 
 export function registerAgentSelectableSource(
@@ -312,18 +343,6 @@ export function selectAgentSelectable(
 
 export function deselectAgentSelectable(kind: string, id: string): void {
   removeAgentChatContextItem(agentSelectionContextKey(kind, id));
-}
-
-/**
- * Release every picked object `match` accepts. Adapters call this when their
- * surface unmounts so picks never outlive the screen they point into.
- */
-export function releaseAgentSelection(
-  match: (reference: AgentSelectionStateItem) => boolean,
-): void {
-  for (const picked of listAgentSelection()) {
-    if (match(picked)) deselectAgentSelectable(picked.kind, picked.id);
-  }
 }
 
 export function setAgentSelectMode(active: boolean): void {
@@ -489,6 +508,7 @@ function elementsUnderPoint(x: number, y: number): Element[] {
       (x - box.left) / scaleX - frame.clientLeft,
       (y - box.top) / scaleY - frame.clientTop,
     );
+    if (inner[0]?.closest(IGNORE_SELECTOR)) return [];
     return inner.length > 0 ? inner : [top];
   }
   return [top];

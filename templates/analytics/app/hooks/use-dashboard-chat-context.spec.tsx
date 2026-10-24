@@ -474,27 +474,6 @@ describe("useDashboardChatContext", () => {
     ).toBe("true");
   });
 
-  it("releases the previous dashboard's picks when the dashboard changes", async () => {
-    clientMocks.agentContextItems = [
-      {
-        key: agentSelectionContextKey("panel", "dash-1/panel-1"),
-        title: "ARR by month",
-        context: "Panel id: panel-1",
-      },
-    ];
-    await act(async () => {
-      root.render(<Harness id="dash-1" />);
-    });
-    await act(async () => {
-      root.render(<Harness id="dash-2" />);
-    });
-
-    expect(clientMocks.removeAgentChatContextItem).toHaveBeenCalledWith({
-      key: "agent-select:panel:dash-1%2Fpanel-1",
-      openSidebar: false,
-    });
-  });
-
   it("does not report a panel picked on another dashboard", async () => {
     clientMocks.agentContextItems = [
       {

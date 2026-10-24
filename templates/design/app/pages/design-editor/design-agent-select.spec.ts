@@ -1,15 +1,9 @@
 // @vitest-environment happy-dom
 
-import { clearAgentChatContext } from "@agent-native/core/client/agent-chat";
-import {
-  listAgentSelection,
-  selectAgentSelectable,
-} from "@agent-native/toolkit/app/agent-select";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   designElementSelectable,
-  releaseScreenPicks,
   designScreenElement,
   designScreenSelectable,
 } from "./design-agent-select";
@@ -36,18 +30,8 @@ function renderScreen() {
   return frameDocument;
 }
 
-// Staging a pick persists the composer context.
-beforeEach(() => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => new Response("{}", { status: 200 })),
-  );
-});
-
 afterEach(() => {
   document.body.innerHTML = "";
-  clearAgentChatContext();
-  vi.unstubAllGlobals();
 });
 
 describe("Design Select adapter", () => {
@@ -79,6 +63,7 @@ describe("Design Select adapter", () => {
     expect(selectable).toMatchObject({
       kind: "element",
       id: "file-1/hero",
+      parent: { kind: "screen", id: "file-1" },
       title: "Ship faster",
     });
     expect(selectable?.getElement()).toBe(
@@ -118,18 +103,5 @@ describe("Design Select adapter", () => {
     expect(
       designElementSelectable("design-1", "Launch", screens, overlay),
     ).toBeNull();
-  });
-
-  it("releases a design's screen and layer picks and nothing else", () => {
-    const pick = (kind: string, id: string) =>
-      selectAgentSelectable({ kind, id, title: id, getContext: () => id });
-    pick("screen", "file-1");
-    pick("element", "file-1/hero");
-    pick("panel", "dash-1/panel-1");
-
-    releaseScreenPicks(["file-1"]);
-    expect(listAgentSelection().map(({ id }) => id)).toEqual([
-      "dash-1/panel-1",
-    ]);
   });
 });
