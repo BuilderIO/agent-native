@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("./_document-flush.js", () => ({
   flushOpenDocumentEditorToSql: vi.fn(async () => undefined),
+  saveOpenEditorTitles: vi.fn(async () => undefined),
 }));
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal<

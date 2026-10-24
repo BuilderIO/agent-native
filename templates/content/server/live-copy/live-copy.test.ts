@@ -2970,6 +2970,61 @@ describe("a version restore on a switched page", () => {
     });
   });
 
+  it("restores through main's path from the page as its tab's title save left it, when the flags go off meanwhile", async () => {
+    await switchedPage("restore-tab-off", "First draft");
+    await serverEdit("restore-tab-off", "Second draft");
+    const versionId = await versionHolding("restore-tab-off", "First draft");
+    const before = await metadata("restore-tab-off");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-off", OWNER, {
+      canFlushTitle: true,
+    });
+    // The tab saves its title and closes, and the flags go off, before the
+    // restore commits.
+    const answered = tabs.answerTitleRequest("restore-tab-off", OWNER, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ title: "Tab title", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, "restore-tab-off"));
+        await getDbExec().execute({
+          sql: "DELETE FROM _collab_awareness WHERE doc_id = ?",
+          args: ["restore-tab-off"],
+        });
+        await setFlags(false);
+      },
+    });
+
+    const restored = await restore(
+      "restore-tab-off",
+      versionId,
+      before.updatedAt,
+    );
+
+    await answered;
+    expect(restored).toMatchObject({
+      content: "First draft",
+      titleFlush: {
+        pages: [{ documentId: "restore-tab-off", editors: [{ clientId: 7 }] }],
+      },
+    });
+    expect((await page("restore-tab-off")).content).toBe("First draft");
+    expect(await gateFor("restore-tab-off")).not.toEqual({
+      writePath: "live_copy",
+    });
+    const versions = await getDb()
+      .select({
+        title: schema.documentVersions.title,
+        content: schema.documentVersions.content,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "restore-tab-off"));
+    expect(versions).toContainEqual({
+      title: "Tab title",
+      content: "Second draft",
+    });
+  });
+
   it("refuses a restore whose tab couldn't save its title, and changes nothing", async () => {
     await switchedPage("restore-tab-error", "First draft");
     await serverEdit("restore-tab-error", "Second draft");

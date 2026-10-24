@@ -348,6 +348,10 @@ export default defineAction({
       return current;
     };
     let titleFlush: OpenEditorTitleFlush | undefined;
+    // The page as the caller prepared the restore, or as the title save the
+    // restore asked for left it. Main's path below must not read that save
+    // as a conflicting edit when the page leaves its live copy first.
+    let preparedUpdatedAt = args.expectedUpdatedAt;
     if (await isLiveBodyWriterPage(documentId)) {
       let current = await readCurrent();
       if (current.updatedAt !== args.expectedUpdatedAt) {
@@ -364,7 +368,10 @@ export default defineAction({
       // the live copy. The save it asks for moves the page on, which is no
       // conflict.
       titleFlush = await saveOpenEditorTitles([documentId]);
-      if (titleFlush) current = await readCurrent();
+      if (titleFlush) {
+        current = await readCurrent();
+        preparedUpdatedAt = current.updatedAt;
+      }
       const restored = await restoreThroughLiveCopy({
         ctx,
         documentId,
@@ -405,9 +412,9 @@ export default defineAction({
       )
       .limit(1);
     assertEditableDocument(beforeFlush);
-    if (beforeFlush.updatedAt !== args.expectedUpdatedAt) {
+    if (beforeFlush.updatedAt !== preparedUpdatedAt) {
       restoreConflict("The document changed after this restore was prepared.", {
-        expectedUpdatedAt: args.expectedUpdatedAt,
+        expectedUpdatedAt: preparedUpdatedAt,
         currentUpdatedAt: beforeFlush.updatedAt,
       });
     }
@@ -528,7 +535,7 @@ export default defineAction({
           and(
             eq(schema.documents.id, documentId),
             eq(schema.documents.ownerEmail, ownerEmail),
-            eq(schema.documents.updatedAt, args.expectedUpdatedAt),
+            eq(schema.documents.updatedAt, preparedUpdatedAt),
           ),
         )
         .returning();
