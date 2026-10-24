@@ -20,8 +20,11 @@ describe("comment anchor blocks", () => {
       ),
     );
     expect([...blocks]).toEqual([
-      ["video-saved01", "video"],
-      [derivedVideoBlockId("https://example.com/b.mp4", 0), "video"],
+      ["video-saved01", { blockType: "video", saved: true }],
+      [
+        derivedVideoBlockId("https://example.com/b.mp4", 0),
+        { blockType: "video", saved: false },
+      ],
     ]);
   });
 
@@ -55,7 +58,9 @@ describe("comment anchor blocks", () => {
         ),
       ),
     );
-    expect([...blocks]).toEqual([["video-same0001", "video"]]);
+    expect([...blocks]).toEqual([
+      ["video-same0001", { blockType: "video", saved: true }],
+    ]);
   });
 
   it("finds a video inside a toggle or a list item", () => {

@@ -118,6 +118,94 @@ describe("document_comments migration", () => {
   });
 });
 
+describe("add-comment with a quote and no context", () => {
+  async function seedNotes(id: string) {
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id,
+        ownerEmail: OWNER,
+        title: "Notes",
+        content: `Video notes\n<video src="${SAVED}" id="video-saved001"></video>\nOutro`,
+      });
+    return id;
+  }
+
+  it("keeps the text around the quote, as the editor counts it", async () => {
+    const page = await seedNotes("quote-context");
+    const first = await byAgent({
+      documentId: page,
+      content: "Which video?",
+      quotedText: "Video",
+    });
+    expect(await storedComment(first.id)).toMatchObject({
+      quotedText: "Video",
+      anchorPrefix: "",
+      anchorSuffix: " notesOutro",
+      anchorStartOffset: 0,
+      blockId: null,
+    });
+    const second = await byAgent({
+      documentId: page,
+      content: "Plural?",
+      quotedText: "notes",
+    });
+    expect(await storedComment(second.id)).toMatchObject({
+      anchorPrefix: "Video ",
+      anchorSuffix: "Outro",
+      anchorStartOffset: 6,
+    });
+  });
+
+  it("keeps the context a caller sends", async () => {
+    const page = await seedNotes("quote-given");
+    const created = await byAgent({
+      documentId: page,
+      content: "Here",
+      quotedText: "Video",
+      anchorSuffix: " notes",
+    });
+    expect(await storedComment(created.id)).toMatchObject({
+      anchorPrefix: null,
+      anchorSuffix: " notes",
+      anchorStartOffset: null,
+    });
+  });
+
+  it("leaves a quote the page doesn't have without context", async () => {
+    const page = await seedNotes("quote-missing");
+    const created = await byAgent({
+      documentId: page,
+      content: "Gone?",
+      quotedText: "Intro",
+    });
+    expect(await storedComment(created.id)).toMatchObject({
+      anchorPrefix: null,
+      anchorSuffix: null,
+      anchorStartOffset: null,
+    });
+  });
+
+  it("replays a retried submission after the text around its quote changed", async () => {
+    const page = await seedNotes("quote-retry");
+    const args = {
+      documentId: page,
+      content: "Retry me",
+      quotedText: "notes",
+      idempotencyKey: "quote-retry",
+    };
+    const created = await byAgent(args);
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Some notes" })
+      .where(eq(schema.documents.id, page));
+    expect(await byAgent(args)).toMatchObject({
+      id: created.id,
+      replayed: true,
+    });
+  });
+});
+
 describe("add-comment with blockId", () => {
   it("starts a thread on a video an agent read from the page", async () => {
     const page = await seedPage("block-agent");
@@ -146,9 +234,22 @@ describe("add-comment with blockId", () => {
     ]);
   });
 
-  it("finds a video saved without an id by the id every reader derives", async () => {
+  it("tells an agent to save an id on a video that goes by a derived one", async () => {
     const page = await seedPage("block-derived");
-    const created = await byAgent({
+    expect(
+      await rejection(
+        byAgent({
+          documentId: page,
+          content: "Louder",
+          blockId: derivedVideoBlockId(LEGACY, 0),
+        }),
+      ),
+    ).toEqual({ statusCode: 400, errorCode: "comment_block_id_unsaved" });
+  });
+
+  it("finds a video saved without an id for a person, by the id every reader derives", async () => {
+    const page = await seedPage("block-derived-person");
+    const created = await byPerson({
       documentId: page,
       content: "Louder",
       blockId: derivedVideoBlockId(LEGACY, 0),
@@ -271,9 +372,22 @@ describe("add-comment with blockId", () => {
         documentId: row,
         databaseId,
         propertyId: notesId,
-        value: `<video src="${SAVED}" id="video-innotes"></video>`,
+        value: `Tab notes\n<video src="${SAVED}" id="video-innotes"></video>`,
       }),
     );
+
+    const quoted = await byAgent({
+      documentId: row,
+      content: "Rename",
+      fieldId: notesId,
+      quotedText: "notes",
+    });
+    expect(await storedComment(quoted.id)).toMatchObject({
+      fieldId: notesId,
+      anchorPrefix: "Tab ",
+      anchorSuffix: "",
+      anchorStartOffset: 4,
+    });
 
     const created = await byAgent({
       documentId: row,

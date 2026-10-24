@@ -82,6 +82,7 @@ import {
 } from "./blockFieldTabs";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
+  commentThreadAt,
   commentThreadMarkSelector,
   commentThreadQuote,
 } from "./comment-block-anchors";
@@ -1374,6 +1375,8 @@ export function CommentsSidebar({
   }, [commentStacks]);
   const stackOfThreadRef = useRef(stackOfThread);
   stackOfThreadRef.current = stackOfThread;
+  const openThreadIdRef = useRef(hoveredThreadId ?? selectedThreadId);
+  openThreadIdRef.current = hoveredThreadId ?? selectedThreadId;
   const pendingStackKey =
     displayedPendingComment && pendingBlock?.id === displayedPendingComment.id
       ? pendingBlock.key
@@ -1456,9 +1459,7 @@ export function CommentsSidebar({
     const container = scrollContainerRef?.current;
     if (!stacksEnabled || !container) return;
     const openFromHighlight = (event: MouseEvent) => {
-      const threadId = (event.target as Element | null)
-        ?.closest?.("[data-comment-thread]")
-        ?.getAttribute("data-comment-thread");
+      const threadId = commentThreadAt(event.target, openThreadIdRef.current);
       if (!threadId || !stackOfThreadRef.current.has(threadId)) return;
       touchThread(threadId);
       openStackOn(threadId);

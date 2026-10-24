@@ -324,6 +324,31 @@ describe("VisualEditor comment highlights", () => {
       expect(element?.className).toContain("comment-highlight--block");
     });
 
+    it("opens a video's thread when the video is clicked, keeping the open one", async () => {
+      const onActivateThread = vi.fn();
+      const content = `Intro.\n<video src="${VIDEO}" id="video-demo0001"></video>`;
+      const threads = [
+        onVideo("v1", "video-demo0001"),
+        onVideo("v2", "video-demo0001"),
+      ];
+      await act(async () =>
+        render(content, threads, "seed", true, { onActivateThread }),
+      );
+      await settle();
+      await act(async () => marked("v1")!.querySelector("video")!.click());
+      expect(onActivateThread).toHaveBeenLastCalledWith("v1");
+
+      await act(async () =>
+        render(content, threads, "seed", true, {
+          onActivateThread,
+          activeThreadId: "v2",
+        }),
+      );
+      await settle();
+      await act(async () => marked("v2")!.querySelector("video")!.click());
+      expect(onActivateThread).toHaveBeenLastCalledWith("v2");
+    });
+
     it("writes down the id a new comment names on a video saved without one", async () => {
       const onBlockComment = vi.fn();
       await act(async () =>

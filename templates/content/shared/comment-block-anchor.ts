@@ -155,14 +155,24 @@ export function keepVideoBlockIds(
   return docToNfm(doc, { keepTrailingEmptyBlock: true });
 }
 
-/** Each anchorable block in a saved document, by the id comments use. */
+/**
+ * Each anchorable block in a saved document, by the id comments use, and
+ * whether the page saves that id or it is derived.
+ */
 export function nfmCommentAnchorBlocks(root: PMNode) {
-  const blocks = new Map<string, CommentAnchorBlockType>();
+  const blocks = new Map<
+    string,
+    { blockType: CommentAnchorBlockType; saved: boolean }
+  >();
   const name = commentAnchorBlockNamer();
   const walk = (node: PMNode) => {
     if (isCommentAnchorBlockType(node.type)) {
       const id = name(node.type, node.attrs);
-      if (id) blocks.set(id, node.type);
+      if (id)
+        blocks.set(id, {
+          blockType: node.type,
+          saved: node.attrs?.blockId === id,
+        });
     }
     node.content?.forEach(walk);
   };

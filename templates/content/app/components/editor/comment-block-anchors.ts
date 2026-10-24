@@ -131,3 +131,52 @@ export function commentThreadMarkSelector(threadId: string) {
   const id = cssEscape(threadId);
   return `[data-comment-thread="${id}"], [data-comment-block-threads~="${id}"]`;
 }
+
+/**
+ * The thread a pointer on `target` is on: a text highlight's, or on a block,
+ * `current` when it is one of the block's threads and the first otherwise, so
+ * clicking or resting on the block keeps the thread already open.
+ */
+export function commentThreadAt(
+  target: EventTarget | null,
+  current?: string | null,
+) {
+  const mark = (target as Element | null)?.closest?.(
+    "[data-comment-thread], [data-comment-block-threads]",
+  );
+  if (!mark) return null;
+  const threadId = mark.getAttribute("data-comment-thread");
+  if (threadId) return threadId;
+  const threadIds =
+    mark.getAttribute("data-comment-block-threads")?.split(" ") ?? [];
+  return current && threadIds.includes(current)
+    ? current
+    : (threadIds[0] ?? null);
+}
+
+/**
+ * Reports the thread under the pointer as it rests on a mark, and null once it
+ * leaves for anything but another mark of that thread.
+ */
+export function commentThreadHoverHandlers(
+  current: string | null,
+  onHover: (threadId: string | null) => void,
+) {
+  return {
+    onPointerOverCapture(event: { target: EventTarget | null }) {
+      const threadId = commentThreadAt(event.target, current);
+      if (threadId) onHover(threadId);
+    },
+    onPointerOutCapture(event: {
+      target: EventTarget | null;
+      relatedTarget: EventTarget | null;
+    }) {
+      const threadId = commentThreadAt(event.target, current);
+      if (
+        threadId &&
+        commentThreadAt(event.relatedTarget, current) !== threadId
+      )
+        onHover(null);
+    },
+  };
+}

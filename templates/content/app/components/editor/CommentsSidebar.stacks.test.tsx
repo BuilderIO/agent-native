@@ -429,6 +429,60 @@ describe("comment stacks in the margin", () => {
     expect(foldedStacks()[1].textContent).toContain("editor.media.video");
   });
 
+  it("opens a video's stack from the video, though its new thread is selected", async () => {
+    const onVideo = (threadId: string, at: string) => {
+      const item = thread(threadId, [at]);
+      item.quotedText = null;
+      item.comments[0].quoted_text = null;
+      item.block = { blockId: "video-1", blockType: "video" };
+      return item;
+    };
+    const clip = onVideo("clip", "2026-10-21T06:00:00Z");
+    scroll
+      .querySelector(".ProseMirror")!
+      .insertAdjacentHTML(
+        "beforeend",
+        '<div data-comment-block-threads="clip"><video></video></div>',
+      );
+    render([THREADS[5], clip]);
+    const ring = scroll.querySelector("[data-comment-block-threads]")!;
+    ring.classList.add("comment-highlight", "comment-highlight--pending");
+    act(() =>
+      harness.comment({
+        quotedText: "",
+        offsetTop: 0,
+        range: { from: 0, to: 1, blockId: "video-1" },
+        block: { blockId: "video-1", blockType: "video" },
+      }),
+    );
+    await wait(60);
+    actions.create.mockImplementation(async () => {
+      ring.className = "";
+      ring.setAttribute("data-comment-block-threads", "clip new");
+      render([
+        THREADS[5],
+        clip,
+        onVideo("new", new Date().toISOString()),
+      ]);
+      return { id: "new-0", threadId: "new" };
+    });
+    await setRichEditorValue(
+      richEditor(container.querySelector("[data-comment-pending]")!)!,
+      "Louder",
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')!
+        .click(),
+    );
+    expect(harness.selected).toBe("new");
+    expect(margin()).toEqual(["solo", "stack:new"]);
+
+    act(() => scroll.querySelector("video")!.click());
+    expect(margin()).toEqual(expect.arrayContaining(["clip", "new"]));
+    expect(collapseButton()).not.toBeNull();
+  });
+
   it("brings a highlight's thread to the front once the pointer rests on it", async () => {
     render();
     act(() => harness.hover("b"));

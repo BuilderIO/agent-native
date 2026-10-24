@@ -121,6 +121,7 @@ import {
 } from "./comment-anchors";
 import {
   commentAnchorBlockAt,
+  commentThreadAt,
   threadCommentBlock,
   type CommentBlockTarget,
 } from "./comment-block-anchors";
@@ -3322,6 +3323,8 @@ export function VisualEditor({
   onSaveContentRef.current = onSaveContent;
   const onActivateThreadRef = useRef(onActivateThread);
   onActivateThreadRef.current = onActivateThread;
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
   const onActivateSuggestionRef = useRef(onActivateSuggestion);
   onActivateSuggestionRef.current = onActivateSuggestion;
   const onHoverSuggestionRef = useRef(onHoverSuggestion);
@@ -5048,10 +5051,8 @@ export function VisualEditor({
         onActivateSuggestionRef.current?.(suggestion.dataset.suggestionId);
         return;
       }
-      const comment = target?.closest<HTMLElement>("[data-comment-thread]");
-      if (comment?.dataset.commentThread) {
-        onActivateThreadRef.current?.(comment.dataset.commentThread);
-      }
+      const threadId = commentThreadAt(target, activeThreadIdRef.current);
+      if (threadId) onActivateThreadRef.current?.(threadId);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter" && event.key !== " ") return;

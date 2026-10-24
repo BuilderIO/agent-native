@@ -1,3 +1,7 @@
+// @vitest-environment happy-dom
+
+import { nfmQuoteAnchor } from "@shared/comment-quote-anchor";
+import { nfmToDoc } from "@shared/nfm";
 import { Schema } from "@tiptap/pm/model";
 import { describe, expect, it } from "vitest";
 
@@ -13,7 +17,10 @@ import ptBR from "@/i18n/pt-BR";
 import zhCN from "@/i18n/zh-CN";
 import zhTW from "@/i18n/zh-TW";
 
+import { resolveAnchor } from "./comment-anchors";
 import {
+  commentThreadAt,
+  commentThreadHoverHandlers,
   LEGACY_VIDEO_COMMENT_QUOTES,
   threadCommentBlock,
 } from "./comment-block-anchors";
@@ -74,5 +81,51 @@ describe("the block a thread is on", () => {
 
   it("leaves a thread on the word Video in the text where it is", () => {
     expect(threadCommentBlock(page, { ...legacy, startOffset: 0 })).toBeNull();
+  });
+
+  it("keeps a thread add-comment starts on the word Video on that word", () => {
+    const saved = nfmToDoc(
+      'Video notes\n<video src="https://example.com/a.mp4" id="video-only001"></video>',
+    );
+    const thread = { quotedText: "Video", ...nfmQuoteAnchor(saved, "Video")! };
+    expect(threadCommentBlock(page, thread)).toBeNull();
+    expect(resolveAnchor(page, thread)).toEqual({ from: 1, to: 6 });
+  });
+});
+
+describe("the thread under the pointer", () => {
+  function page() {
+    document.body.innerHTML = [
+      '<p><span data-comment-thread="text">quoted</span> plain</p>',
+      '<div data-comment-block-threads="first second"><video></video></div>',
+    ].join("");
+    return {
+      quoted: document.querySelector("span")!,
+      plain: document.querySelector("p")!,
+      ring: document.querySelector("div")!,
+      video: document.querySelector("video")!,
+    };
+  }
+
+  it("is a highlight's thread, or on a video the open one of its threads", () => {
+    const { quoted, plain, video } = page();
+    expect(commentThreadAt(quoted)).toBe("text");
+    expect(commentThreadAt(plain)).toBeNull();
+    expect(commentThreadAt(video)).toBe("first");
+    expect(commentThreadAt(video, "second")).toBe("second");
+    expect(commentThreadAt(video, "text")).toBe("first");
+  });
+
+  it("fronts a video's thread while the pointer rests on the video", () => {
+    const { plain, ring, video } = page();
+    const hovered: Array<string | null> = [];
+    const hover = commentThreadHoverHandlers("second", (threadId) =>
+      hovered.push(threadId),
+    );
+    hover.onPointerOverCapture({ target: video });
+    // Moving from the video onto its outline stays on the thread.
+    hover.onPointerOutCapture({ target: video, relatedTarget: ring });
+    hover.onPointerOutCapture({ target: ring, relatedTarget: plain });
+    expect(hovered).toEqual(["second", null]);
   });
 });

@@ -208,6 +208,8 @@ import { flushBeforeSave } from "./collab-flush-before-save";
 import { isCommentAiWorkingOn, useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
+  commentThreadAt,
+  commentThreadHoverHandlers,
   commentThreadMarkSelector,
   type CommentBlockTarget,
 } from "./comment-block-anchors";
@@ -9208,9 +9210,9 @@ function PageEditorSessionBody({
           // through this tree even though they render outside it. Those are
           // interactions with an open comment, not clicks on the page.
           if (target && !event.currentTarget.contains(target)) return;
-          const commentHighlight = target?.closest("[data-comment-thread]");
-          const threadId = commentHighlight?.getAttribute(
-            "data-comment-thread",
+          const threadId = commentThreadAt(
+            target,
+            hoveredThreadId ?? selectedThreadId,
           );
           if (threadId) {
             activateCommentThread(threadId);
@@ -9225,24 +9227,10 @@ function PageEditorSessionBody({
           }
           dismissCommentFocus();
         }}
-        onPointerOverCapture={(event) => {
-          const target = event.target as HTMLElement | null;
-          const threadId = target
-            ?.closest("[data-comment-thread]")
-            ?.getAttribute("data-comment-thread");
-          if (threadId) setHoveredThreadId(threadId);
-        }}
-        onPointerOutCapture={(event) => {
-          const target = event.target as HTMLElement | null;
-          const highlight = target?.closest("[data-comment-thread]");
-          if (!highlight) return;
-          const nextHighlight = (event.relatedTarget as HTMLElement | null)
-            ?.closest("[data-comment-thread]")
-            ?.getAttribute("data-comment-thread");
-          if (nextHighlight !== highlight.getAttribute("data-comment-thread")) {
-            setHoveredThreadId(null);
-          }
-        }}
+        {...commentThreadHoverHandlers(
+          hoveredThreadId ?? selectedThreadId,
+          setHoveredThreadId,
+        )}
       >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <DocumentToolbar

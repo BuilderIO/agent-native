@@ -35,7 +35,8 @@ import {
   serializeStoredCommentMentions,
 } from "../shared/comment-mentions.js";
 import { commentPropertyTarget } from "../shared/comment-property-target.js";
-import { nfmToDoc } from "../shared/nfm.js";
+import { nfmQuoteAnchor } from "../shared/comment-quote-anchor.js";
+import { nfmToDoc, type PMNode } from "../shared/nfm.js";
 import {
   listPropertiesForAllDocumentDatabases,
   listPropertiesForDocument,
@@ -76,7 +77,12 @@ const commentSchema = z.object({
     .min(1)
     .optional()
     .describe("Parent comment ID; provide with threadId when replying"),
-  quotedText: z.string().optional().describe("Quoted text for the thread"),
+  quotedText: z
+    .string()
+    .optional()
+    .describe(
+      "Quoted text for the thread. Without the anchor fields, they are read from the saved page around the quote's first copy; send them to comment on a later copy.",
+    ),
   anchorPrefix: z
     .string()
     .optional()
@@ -158,35 +164,55 @@ const RETRY_VARIABLE_KEYS = new Set([
   "fieldName",
 ]);
 
+// Context read from the page around a quote that came without any; a retry
+// after the page changed reads different context.
+const READ_QUOTE_ANCHOR_KEYS = new Set([
+  "anchorPrefix",
+  "anchorSuffix",
+  "anchorStartOffset",
+]);
+
+/** The saved text a new thread is in: the page body, or a Blocks field tab's. */
+async function commentTargetDoc(
+  document: Parameters<typeof listPropertiesForAllDocumentDatabases>[0],
+  fieldId: string | null,
+) {
+  let markdown = document.content as string | null | undefined;
+  if (fieldId) {
+    const properties = await listPropertiesForAllDocumentDatabases(document, {
+      requireDatabaseAccess: false,
+    });
+    const field = properties.find(
+      (property) => property.definition.id === fieldId,
+    );
+    markdown = typeof field?.value === "string" ? field.value : null;
+  }
+  return nfmToDoc(markdown ?? "");
+}
+
 /**
  * The type of the block a new thread is on. An agent names a block it read
- * from the saved page, so a block that isn't there is a mistake to report. A
+ * from the saved page, so a block that isn't there is a mistake to report, and
+ * so is a video known only by its derived id: that id passes to another video
+ * when videos with its source are added or reordered outside an editor. A
  * person's editor can be ahead of the save, so their thread is kept as they
  * started it, and shows as unanchored if the block never arrives.
  */
 async function resolveCommentBlockType(args: {
-  document: Parameters<typeof listPropertiesForAllDocumentDatabases>[0];
-  fieldId: string | null;
+  target: PMNode;
   blockId: string;
   blockType: CommentAnchorBlockType | undefined;
   strict: boolean;
 }): Promise<CommentAnchorBlockType> {
-  let markdown = args.document.content as string | null | undefined;
-  if (args.fieldId) {
-    const properties = await listPropertiesForAllDocumentDatabases(
-      args.document,
-      { requireDatabaseAccess: false },
-    );
-    const field = properties.find(
-      (property) => property.definition.id === args.fieldId,
-    );
-    markdown = typeof field?.value === "string" ? field.value : null;
-  }
-  const found = nfmCommentAnchorBlocks(nfmToDoc(markdown ?? "")).get(
-    args.blockId,
-  );
-  if (found) return found;
+  const found = nfmCommentAnchorBlocks(args.target).get(args.blockId);
+  if (found && (found.saved || !args.strict)) return found.blockType;
   if (!args.strict && args.blockType) return args.blockType;
+  if (found) {
+    fail(
+      "That video has no id saved in the page yet; give its <video> tag a new unique id with edit-document, then comment with that id",
+      { statusCode: 400, errorCode: "comment_block_id_unsaved" },
+    );
+  }
   fail(
     "No block with that ID is on this Page; read its id from get-document's content",
     { statusCode: 400, errorCode: "comment_block_not_found" },
@@ -397,12 +423,31 @@ export async function addCommentWithGuard(
     throw error;
   });
   const blockId = args.blockId;
+  // A new thread on text the page has always carries context, as one started
+  // in the editor does, so it can't be taken for a comment on a video from
+  // before videos had ids, which quoted the video's label with none.
+  const readsQuoteAnchor =
+    !args.threadId &&
+    !!args.quotedText &&
+    args.anchorPrefix === undefined &&
+    args.anchorSuffix === undefined &&
+    args.anchorStartOffset === undefined;
+  const target =
+    blockId || readsQuoteAnchor
+      ? await commentTargetDoc(
+          access.resource as Parameters<
+            typeof listPropertiesForAllDocumentDatabases
+          >[0],
+          fieldTarget.fieldId,
+        )
+      : null;
+  const quoteAnchor =
+    readsQuoteAnchor && target
+      ? nfmQuoteAnchor(target, args.quotedText!)
+      : null;
   const blockType = blockId
     ? await resolveCommentBlockType({
-        document: access.resource as Parameters<
-          typeof listPropertiesForAllDocumentDatabases
-        >[0],
-        fieldId: fieldTarget.fieldId,
+        target: target!,
         blockId,
         blockType: args.blockType,
         strict: actorKind === "agent",
@@ -423,9 +468,10 @@ export async function addCommentWithGuard(
     parentId,
     content,
     quotedText: args.quotedText ?? null,
-    anchorPrefix: args.anchorPrefix ?? null,
-    anchorSuffix: args.anchorSuffix ?? null,
-    anchorStartOffset: args.anchorStartOffset ?? null,
+    anchorPrefix: args.anchorPrefix ?? quoteAnchor?.prefix ?? null,
+    anchorSuffix: args.anchorSuffix ?? quoteAnchor?.suffix ?? null,
+    anchorStartOffset:
+      args.anchorStartOffset ?? quoteAnchor?.startOffset ?? null,
     propertyId: propertyTarget?.propertyId ?? null,
     propertyName: propertyTarget?.propertyName ?? null,
     propertyValue: propertyTarget?.propertyValue ?? null,
@@ -460,7 +506,11 @@ export async function addCommentWithGuard(
       if (!existing) return false;
       if (
         Object.entries(values).some(([key, value]) => {
-          if (RETRY_VARIABLE_KEYS.has(key)) return false;
+          if (
+            RETRY_VARIABLE_KEYS.has(key) ||
+            (readsQuoteAnchor && READ_QUOTE_ANCHOR_KEYS.has(key))
+          )
+            return false;
           if (key === "mentionsJson") {
             return (
               serializeStoredCommentMentions(
