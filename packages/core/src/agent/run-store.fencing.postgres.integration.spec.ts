@@ -394,6 +394,7 @@ interface HarnessSessionUpdateGate {
   gateKey: number;
   trigger: string;
   functionName: string;
+  lockSql: postgres.Sql;
 }
 
 async function installHarnessSessionUpdateGate(
@@ -405,37 +406,46 @@ async function installHarnessSessionUpdateGate(
   const trigger = `harness_session_gate_${suffix}`;
   const functionName = `harness_session_gate_fn_${suffix}`;
   const escapedSessionId = sessionId.replaceAll("'", "''");
+  const lockSql = postgres(databaseUrl!, { max: 1 });
 
-  await sql.unsafe(`CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN
-      IF NEW.id = '${escapedSessionId}' THEN
-        PERFORM pg_advisory_xact_lock(${gateKey});
-      END IF;
-      RETURN NEW;
-    END $$`);
-  await sql.unsafe(`CREATE TRIGGER ${trigger}
-    BEFORE UPDATE ON agent_harness_sessions
-    FOR EACH ROW EXECUTE FUNCTION ${functionName}()`);
-  await sql`SELECT pg_advisory_lock(${gateKey})`;
+  try {
+    await lockSql`SELECT pg_advisory_lock(${gateKey})`;
+    await sql.unsafe(`CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.id = '${escapedSessionId}' THEN
+          PERFORM pg_advisory_xact_lock(${gateKey});
+        END IF;
+        RETURN NEW;
+      END $$`);
+    await sql.unsafe(`CREATE TRIGGER ${trigger}
+      BEFORE UPDATE ON agent_harness_sessions
+      FOR EACH ROW EXECUTE FUNCTION ${functionName}()`);
+  } catch (error) {
+    await lockSql.end();
+    throw error;
+  }
 
-  return { gateKey, trigger, functionName };
+  return { gateKey, trigger, functionName, lockSql };
 }
 
 async function releaseHarnessSessionUpdateGate(
-  sql: postgres.Sql,
-  gate: Pick<HarnessSessionUpdateGate, "gateKey">,
+  gate: HarnessSessionUpdateGate,
 ): Promise<void> {
-  await sql`SELECT pg_advisory_unlock(${gate.gateKey})`;
+  await gate.lockSql`SELECT pg_advisory_unlock(${gate.gateKey})`;
 }
 
 async function removeHarnessSessionUpdateGate(
   sql: postgres.Sql,
   gate: HarnessSessionUpdateGate,
 ): Promise<void> {
-  await sql.unsafe(
-    `DROP TRIGGER IF EXISTS ${gate.trigger} ON agent_harness_sessions`,
-  );
-  await sql.unsafe(`DROP FUNCTION IF EXISTS ${gate.functionName}()`);
+  try {
+    await sql.unsafe(
+      `DROP TRIGGER IF EXISTS ${gate.trigger} ON agent_harness_sessions`,
+    );
+    await sql.unsafe(`DROP FUNCTION IF EXISTS ${gate.functionName}()`);
+  } finally {
+    await gate.lockSql.end();
+  }
 }
 
 describe.skipIf(!databaseUrl)(
@@ -558,7 +568,7 @@ describe.skipIf(!databaseUrl)(
             })
             .toBe(true);
 
-          await releaseHarnessSessionUpdateGate(sql, gate);
+          await releaseHarnessSessionUpdateGate(gate);
           const [cleanupResult, claimResult] = await Promise.all([
             cleanupWorker.closed,
             claimWorker.closed,
@@ -575,7 +585,7 @@ describe.skipIf(!databaseUrl)(
             claimed: false,
           });
         } finally {
-          await releaseHarnessSessionUpdateGate(sql, gate);
+          await releaseHarnessSessionUpdateGate(gate);
           await Promise.all(
             [cleanupWorker, claimWorker]
               .filter((worker): worker is BarrierWorker => worker !== undefined)
@@ -657,7 +667,7 @@ describe.skipIf(!databaseUrl)(
             })
             .toBe(true);
 
-          await releaseHarnessSessionUpdateGate(sql, gate);
+          await releaseHarnessSessionUpdateGate(gate);
           const [approvalResult, stopResult] = await Promise.all([
             approvalWorker.closed,
             stopWorker.closed,
@@ -672,7 +682,7 @@ describe.skipIf(!databaseUrl)(
             status: "stopped",
           });
         } finally {
-          await releaseHarnessSessionUpdateGate(sql, gate);
+          await releaseHarnessSessionUpdateGate(gate);
           await Promise.all(
             [approvalWorker, stopWorker]
               .filter((worker): worker is BarrierWorker => worker !== undefined)
