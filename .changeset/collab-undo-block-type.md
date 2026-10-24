@@ -1,0 +1,5 @@
+---
+"@agent-native/toolkit": patch
+---
+
+Keep text and the caret in place when collaborative undo or redo crosses a block type change. Yjs merges the text it restores when a block's type change is undone, so a later undo of typing in that block deleted the rest of the block too; each undo now removes only what it inserted, including when it passes over an edit to a block a collaborator has since removed. The caret stays in its block instead of jumping to another heading, goes back to where it was when an undo replaces its block, and keeps its offsets, or a selected range, when a redo does, even when another plugin answers the undo or redo. A collaborator's edit right after an undo no longer moves the caret. What plugins add in answer to a change from Yjs, such as the empty paragraph after a page's last heading, no longer becomes an undoable edit, so the undo stack is empty when a page opens and redo survives undoing past it.

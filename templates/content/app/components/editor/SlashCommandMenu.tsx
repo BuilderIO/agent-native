@@ -1324,7 +1324,17 @@ export function SlashCommandMenu({
           ? { from: slashPosRef.current, to: editor.state.selection.from }
           : null);
       if (slashRange && !cmd.preserveSlashRange) {
-        editor.chain().focus().deleteRange(slashRange).run();
+        // Undoing the command returns the block as it was before the slash,
+        // so the typed query must not come back as a separate undo step.
+        editor
+          .chain()
+          .focus()
+          .command(({ tr }) => {
+            tr.setMeta("addToHistory", false);
+            return true;
+          })
+          .deleteRange(slashRange)
+          .run();
       }
       setIsOpen(false);
       setIsTurnInto(false);
