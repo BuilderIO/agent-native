@@ -6,6 +6,7 @@ import { Editor } from "@tiptap/core";
 import { prosemirrorToYDoc, ySyncPluginKey } from "@tiptap/y-tiptap";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { assertNoNewlySharedVideoIds } from "../../../../server/lib/video-block-ids";
 import { commentAnchorBlockList } from "../comment-block-anchors";
 import { createVisualEditorExtensions } from "../VisualEditor";
 
@@ -139,6 +140,43 @@ describe("video block ids", () => {
 Intro`,
     );
     typeAtEnd(target, "!");
+    expect(videoIds(target)).toEqual(["video-shared", "video-shared"]);
+  });
+
+  it("gives a copy of a video that shares an id a new one, and leaves the pair theirs", () => {
+    const pair = `<video src="${B}" id="video-shared"></video>
+<video src="${A}" id="video-shared"></video>
+Intro`;
+    const target = open(pair);
+    const copy = target.state.doc.nodeAt(videoPos(target, 1))!.toJSON();
+    target.commands.insertContentAt(target.state.doc.content.size, copy);
+    target.commands.insertContentAt(0, copy);
+    expect(
+      () =>
+        assertNoNewlySharedVideoIds(pair, docToNfm(target.getJSON() as never)),
+      "the page still saves",
+    ).not.toThrow();
+    const ids = videoIds(target);
+    expect(ids.slice(1, 3)).toEqual(["video-shared", "video-shared"]);
+    expect(ids[0]).toMatch(/^video-/);
+    expect(ids[3]).toMatch(/^video-/);
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it("keeps a pair's id on the one moved or resized", () => {
+    const target = open(`<video src="${B}" id="video-shared"></video>
+<video src="${A}" id="video-shared"></video>
+Intro`);
+    const moved = target.state.doc.nodeAt(videoPos(target, 0))!;
+    const tr = target.state.tr.delete(0, moved.nodeSize);
+    target.view.dispatch(tr.insert(tr.doc.content.size, moved));
+    expect(videoIds(target)).toEqual(["video-shared", "video-shared"]);
+
+    const pos = videoPos(target, 1);
+    const { attrs } = target.state.doc.nodeAt(pos)!;
+    target.view.dispatch(
+      target.state.tr.setNodeMarkup(pos, undefined, { ...attrs, width: 320 }),
+    );
     expect(videoIds(target)).toEqual(["video-shared", "video-shared"]);
   });
 

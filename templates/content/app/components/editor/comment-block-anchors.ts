@@ -23,6 +23,8 @@ export type CommentBlockTarget = {
 };
 
 type AnchorBlocks = {
+  /** Every block that goes by an id, each of several sharing one included. */
+  list: CommentAnchorBlock[];
   byId: Map<string, CommentAnchorBlock>;
   byPos: Map<number, CommentAnchorBlock>;
   /** Ids more than one block goes by, which name none of them. */
@@ -36,6 +38,7 @@ function anchorBlocks(doc: ProseMirrorNode): AnchorBlocks {
   const known = anchorBlocksByDoc.get(doc);
   if (known) return known;
   const blocks: AnchorBlocks = {
+    list: [],
     byId: new Map(),
     byPos: new Map(),
     shared: new Set(),
@@ -55,12 +58,13 @@ function anchorBlocks(doc: ProseMirrorNode): AnchorBlocks {
   });
   commentAnchorBlockNames(found).forEach(({ id, holders }, index) => {
     if (!id) return;
-    if (holders > 1) return void blocks.shared.add(id);
     const block = {
       blockId: id,
       blockType: found[index].type,
       pos: found[index].pos,
     };
+    blocks.list.push(block);
+    if (holders > 1) return void blocks.shared.add(id);
     blocks.byId.set(id, block);
     blocks.byPos.set(block.pos, block);
   });
@@ -77,8 +81,12 @@ export function commentAnchorBlockById(doc: ProseMirrorNode, blockId: string) {
   return anchorBlocks(doc).byId.get(blockId) ?? null;
 }
 
+/**
+ * Every anchorable block that goes by an id, in document order, including
+ * each of several that share one.
+ */
 export function commentAnchorBlockList(doc: ProseMirrorNode) {
-  return [...anchorBlocks(doc).byId.values()];
+  return [...anchorBlocks(doc).list];
 }
 
 export function sharedCommentAnchorBlockIds(
