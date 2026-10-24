@@ -5,7 +5,10 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
-import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
+import {
+  registerRecurringSweepHandler,
+  type RecurringSweepContext,
+} from "../jobs/sweep-hooks.js";
 import {
   MAX_AWARENESS_CLIENT_SEQUENCE,
   MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE,
@@ -22,6 +25,8 @@ const WRITE_THROTTLE_MS = 2_000;
 const PURGE_INTERVAL_MS = 30_000;
 
 const PURGE_BATCH_SIZE = 100;
+
+const PURGE_SWEEP_FINALIZATION_MS = 1_000;
 export const collabAwarenessStore = defineStore({
   id: "collab_awareness",
   migrations: [
@@ -504,15 +509,17 @@ export async function loadAwarenessClientSequence(
   };
 }
 
-async function purgeExpiredRows(now: number): Promise<void> {
+async function purgeExpiredRows(
+  now: number,
+  context: RecurringSweepContext,
+): Promise<void> {
   if (now - _lastPurgeAttemptAt < PURGE_INTERVAL_MS) return;
   if (_purgeInFlight) return _purgeInFlight;
   _lastPurgeAttemptAt = now;
   const client = getDbExec();
-  const expiredBefore = now - ROW_TTL_MS * 2;
   // Keep actor-bound IDs reserved after their transient presence state expires.
-  const purge = client
-    .execute({
+  const batchesAt = (purgeAt: number) => [
+    {
       sql: `WITH batch AS MATERIALIZED (
               SELECT doc_id, client_id
               FROM _collab_awareness
@@ -528,11 +535,10 @@ async function purgeExpiredRows(now: number): Promise<void> {
             FROM batch
             WHERE awareness.doc_id = batch.doc_id
               AND awareness.client_id = batch.client_id`,
-      args: [now - ROW_TTL_MS],
-    })
-    .then(() =>
-      client.execute({
-        sql: `WITH batch AS MATERIALIZED (
+      args: [purgeAt - ROW_TTL_MS],
+    },
+    {
+      sql: `WITH batch AS MATERIALIZED (
                 SELECT doc_id, client_id
                 FROM _collab_awareness
                 WHERE actor_email IS NOT NULL
@@ -551,12 +557,10 @@ async function purgeExpiredRows(now: number): Promise<void> {
               USING batch
               WHERE awareness.doc_id = batch.doc_id
                 AND awareness.client_id = batch.client_id`,
-        args: [now],
-      }),
-    )
-    .then(() =>
-      client.execute({
-        sql: `WITH batch AS MATERIALIZED (
+      args: [purgeAt],
+    },
+    {
+      sql: `WITH batch AS MATERIALIZED (
                 SELECT doc_id, client_id
                 FROM _collab_awareness
                 WHERE actor_email IS NULL AND last_seen < ?
@@ -568,10 +572,28 @@ async function purgeExpiredRows(now: number): Promise<void> {
               USING batch
               WHERE awareness.doc_id = batch.doc_id
                 AND awareness.client_id = batch.client_id`,
-        args: [expiredBefore],
-      }),
-    )
-    .then(() => undefined);
+      args: [purgeAt - ROW_TTL_MS * 2],
+    },
+  ];
+  const purge = (async () => {
+    while (
+      !context.signal?.aborted &&
+      Date.now() < context.deadlineAt - PURGE_SWEEP_FINALIZATION_MS
+    ) {
+      let hasFullBatch = false;
+      for (const batch of batchesAt(Date.now())) {
+        if (
+          context.signal?.aborted ||
+          Date.now() >= context.deadlineAt - PURGE_SWEEP_FINALIZATION_MS
+        ) {
+          return;
+        }
+        const { rowsAffected } = await client.execute(batch);
+        hasFullBatch ||= rowsAffected >= PURGE_BATCH_SIZE;
+      }
+      if (!hasFullBatch) return;
+    }
+  })();
   _purgeInFlight = purge;
   void purge.then(
     () => {
@@ -584,10 +606,13 @@ async function purgeExpiredRows(now: number): Promise<void> {
   await purge;
 }
 
-registerRecurringSweepHandler("collaboration-awareness-expiry", async () => {
-  await ensureTable();
-  await purgeExpiredRows(Date.now());
-});
+registerRecurringSweepHandler(
+  "collaboration-awareness-expiry",
+  async (context) => {
+    await ensureTable();
+    await purgeExpiredRows(Date.now(), context);
+  },
+);
 
 export function _resetAwarenessStoreForTests(): void {
   _lastWrites.clear();

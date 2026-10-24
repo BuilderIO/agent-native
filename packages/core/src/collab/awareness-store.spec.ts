@@ -670,10 +670,10 @@ describe("awareness-store", () => {
     expect(purgeCalls.count).toBe(1);
   });
 
-  it("drains bounded expiry batches through indexed plans", async () => {
+  it("drains expiry backlogs in bounded indexed sweep batches", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(100_000);
-    for (let clientId = 0; clientId < 150; clientId++) {
+    for (let clientId = 0; clientId < 250; clientId++) {
       dbRows.set(rowKey(`actor-${clientId}`, clientId), {
         state: "presence",
         last_seen: 5_000,
@@ -708,19 +708,14 @@ describe("awareness-store", () => {
     const remainingLegacyRows = [...dbRows.values()].filter(
       (row) => row.actor_email === null,
     );
-    expect(remainingActorRows).toHaveLength(50);
-    expect(remainingActorRows.every((row) => row.state !== "")).toBe(true);
-    expect(remainingLegacyRows).toHaveLength(50);
+    expect(remainingActorRows).toHaveLength(0);
+    expect(remainingLegacyRows).toHaveLength(0);
     expect(purgeQueries.value.slice(0, 3).map((query) => query.kind)).toEqual([
       "update",
       "actor-delete",
       "legacy-delete",
     ]);
-
-    vi.setSystemTime(130_000);
-    await runRecurringSweepHandlers({ deadlineAt: Date.now() + 60_000 });
-    expect(dbRows.size).toBe(0);
-    expect(purgeQueries.value).toHaveLength(6);
+    expect(purgeQueries.value).toHaveLength(9);
     for (const { sql } of purgeQueries.value) {
       expect(sql).toMatch(/WITH batch AS MATERIALIZED/i);
       expect(sql).toMatch(/ORDER BY/i);

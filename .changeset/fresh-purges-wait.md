@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Run collaboration awareness expiry purges in the recurring sweep so requests do not wait on table-wide cleanup.
+Drain collaboration awareness expiry batches in the recurring sweep without making requests wait on table-wide cleanup.
