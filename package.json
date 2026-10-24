@@ -268,8 +268,8 @@
       "react-dom": "19.2.7",
       "@tanstack/react-query": "5.101.2",
       "@radix-ui/react-dismissable-layer": "^1.1.19",
-      "@types/react": "^19.2.14",
-      "@types/react-dom": "^19.2.3",
+      "@types/react": "19.2.17",
+      "@types/react-dom": "19.2.3",
       "rollup": ">=4.59.0",
       "multer": ">=2.1.1",
       "minimatch": ">=9.0.7",
@@ -284,6 +284,10 @@
       "@anthropic-ai/sdk": ">=0.90.0",
       "hono": ">=4.12.4",
       "@expo/dom-webview": "57.0.1",
+      "@agent-native/mobile-app>react": "19.3.0",
+      "@agent-native/mobile-app>react-dom": "19.3.0",
+      "@agent-native/mobile-app>@types/react": "~19.3.0",
+      "@agent-native/mobile-app>@expo/dom-webview": "58.0.2",
       "shell-quote": "1.9.0",
       "@electric-sql/pglite": "0.5.9"
     }
