@@ -435,6 +435,67 @@ export async function startAgentHarnessSessionFollowUpDispatch<T>(
   });
 }
 
+export async function startAgentHarnessSessionApprovalDispatch<T>(
+  id: string,
+  expectedStatus: AgentHarnessSessionStatus,
+  expectedGeneration: number,
+  approvalId: string,
+  start: () => T,
+): Promise<{ session: StoredAgentHarnessSession; started: T } | null> {
+  await ensureAgentHarnessSessionTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error(
+      "Agent harness approval dispatch requires database transactions.",
+    );
+  }
+  return client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `UPDATE agent_harness_sessions
+            SET generation = generation + 1, updated_at = ?
+            WHERE id = ? AND status = ? AND approval_resolution_id = ?
+              AND generation = ?
+            RETURNING *`,
+      args: [Date.now(), id, expectedStatus, approvalId, expectedGeneration],
+    });
+    const session = rowToHarnessSession(rows[0]);
+    if (!session) return null;
+
+    const started = start();
+    return { session, started };
+  });
+}
+
+export async function startAgentHarnessSessionExpiryCleanup<T>(
+  id: string,
+  expectedStatus: AgentHarnessSessionStatus,
+  expectedGeneration: number,
+  start: () => T,
+): Promise<{ session: StoredAgentHarnessSession; started: T } | null> {
+  await ensureAgentHarnessSessionTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error(
+      "Agent harness expiry cleanup requires database transactions.",
+    );
+  }
+  return client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `UPDATE agent_harness_sessions
+            SET generation = generation + 1, updated_at = ?
+            WHERE id = ? AND status = ? AND generation = ?
+              AND follow_up_claim_id IS NULL
+            RETURNING *`,
+      args: [Date.now(), id, expectedStatus, expectedGeneration],
+    });
+    const session = rowToHarnessSession(rows[0]);
+    if (!session) return null;
+
+    const started = start();
+    return { session, started };
+  });
+}
+
 async function updateAgentHarnessSessionWithStatus(
   id: string,
   patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
@@ -640,7 +701,8 @@ export async function markAgentHarnessSessionStoppedIfUnclaimed(
   const { rows } = await getDbExec().execute({
     sql: `UPDATE agent_harness_sessions
           SET status = ?, stopped_at = ?, pending_approval = NULL,
-              follow_up_claim_id = NULL, generation = generation + 1,
+              follow_up_claim_id = NULL, approval_resolution_id = NULL,
+              generation = generation + 1,
               updated_at = ?
           WHERE id = ? AND status = ? AND generation = ?
             AND follow_up_claim_id IS NULL

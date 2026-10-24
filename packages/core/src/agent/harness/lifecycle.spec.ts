@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   startFollowUpDispatch: vi.fn(),
   markStopped: vi.fn(),
   markStoppedIfUnclaimed: vi.fn(),
+  startApprovalDispatch: vi.fn(),
+  startExpiryCleanup: vi.fn(),
   resolveAdapter: vi.fn(),
 }));
 
@@ -38,6 +40,8 @@ vi.mock("./store.js", () => ({
   startAgentHarnessSessionFollowUpDispatch: mocks.startFollowUpDispatch,
   markAgentHarnessSessionStopped: mocks.markStopped,
   markAgentHarnessSessionStoppedIfUnclaimed: mocks.markStoppedIfUnclaimed,
+  startAgentHarnessSessionApprovalDispatch: mocks.startApprovalDispatch,
+  startAgentHarnessSessionExpiryCleanup: mocks.startExpiryCleanup,
 }));
 
 vi.mock("./registry.js", () => ({
@@ -152,6 +156,7 @@ describe("agent harness lifecycle", () => {
         status,
         pendingApproval: null,
         followUpClaimId: null,
+        approvalResolutionId: null,
         stoppedAt: Date.now(),
         generation: stored.generation + 1,
         updatedAt: Date.now(),
@@ -174,6 +179,40 @@ describe("agent harness lifecycle", () => {
           approvalResolutionId: null,
           stoppedAt: Date.now(),
         });
+      },
+    );
+    mocks.startApprovalDispatch.mockImplementation(
+      async (_id, expectedStatus, expectedGeneration, approvalId, start) => {
+        if (
+          stored.status !== expectedStatus ||
+          stored.generation !== expectedGeneration ||
+          stored.approvalResolutionId !== approvalId
+        ) {
+          return null;
+        }
+        stored = {
+          ...stored,
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        return { session: stored, started: start() };
+      },
+    );
+    mocks.startExpiryCleanup.mockImplementation(
+      async (_id, expectedStatus, expectedGeneration, start) => {
+        if (
+          stored.status !== expectedStatus ||
+          stored.generation !== expectedGeneration ||
+          stored.followUpClaimId != null
+        ) {
+          return null;
+        }
+        stored = {
+          ...stored,
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        return { session: stored, started: start() };
       },
     );
   });
@@ -552,6 +591,83 @@ describe("agent harness lifecycle", () => {
         scope: ownerScope(),
       }),
     ).resolves.toBe(false);
+  });
+
+  it("does not start approval while expiry is detaching a stale live session", async () => {
+    const approvalId = "approval-expiry-detach-race";
+    const session = fakeSession();
+    stored.pendingApproval = approvalEvent(approvalId);
+    register(stored, session);
+    stored = { ...stored, generation: stored.generation + 1 };
+
+    let detachStarted!: () => void;
+    let finishDetach!: () => void;
+    const started = new Promise<void>((resolve) => {
+      detachStarted = resolve;
+    });
+    const detachGate = new Promise<void>((resolve) => {
+      finishDetach = resolve;
+    });
+    session.detach.mockImplementation(async () => {
+      detachStarted();
+      await detachGate;
+      return { token: "detached" };
+    });
+
+    const cleanup = sweepExpiredAgentHarnessSessions(
+      Date.now() + 25 * 60 * 60 * 1_000,
+    );
+    await started;
+
+    await expect(
+      resolveAgentHarnessApproval({
+        runId: stored.runId!,
+        approval: { id: approvalId, approved: true },
+        scope: ownerScope(),
+      }),
+    ).resolves.toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(session.approve).not.toHaveBeenCalled();
+    expect(mocks.updateAtGeneration).not.toHaveBeenCalled();
+
+    finishDetach();
+    await expect(cleanup).resolves.toBe(1);
+  });
+
+  it("does not reuse a stale live session for a follow-up during expiry detach", async () => {
+    const session = fakeSession();
+    register(stored, session);
+    stored = { ...stored, generation: stored.generation + 1 };
+
+    let detachStarted!: () => void;
+    let finishDetach!: () => void;
+    const started = new Promise<void>((resolve) => {
+      detachStarted = resolve;
+    });
+    const detachGate = new Promise<void>((resolve) => {
+      finishDetach = resolve;
+    });
+    session.detach.mockImplementation(async () => {
+      detachStarted();
+      await detachGate;
+      return { token: "detached" };
+    });
+
+    const cleanup = sweepExpiredAgentHarnessSessions(
+      Date.now() + 25 * 60 * 60 * 1_000,
+    );
+    await started;
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      }),
+    ).resolves.toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(session.streamTurn).not.toHaveBeenCalled();
+
+    finishDetach();
+    await expect(cleanup).resolves.toBe(1);
   });
 
   it("releases an active stale entry without stopping it when detach is unavailable", async () => {

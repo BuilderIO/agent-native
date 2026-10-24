@@ -9,6 +9,8 @@ import {
   isAgentHarnessSessionConflictError,
   markAgentHarnessSessionStopped,
   markAgentHarnessSessionStoppedIfUnclaimed,
+  startAgentHarnessSessionApprovalDispatch,
+  startAgentHarnessSessionExpiryCleanup,
   startAgentHarnessSessionFollowUpDispatch,
   updateAgentHarnessSession,
   updateAgentHarnessSessionAtGeneration,
@@ -39,6 +41,7 @@ interface LiveAgentHarnessSession {
   generation: number;
   expiresAt: number;
   approvalResolutionInProgress: boolean;
+  expiryCleanupInProgress: boolean;
 }
 
 const liveSessions = new Map<string, LiveAgentHarnessSession>();
@@ -87,6 +90,7 @@ export function registerLiveAgentHarnessSession(input: {
     generation: input.generation,
     expiresAt: Date.now() + LIVE_SESSION_TTL_MS,
     approvalResolutionInProgress: false,
+    expiryCleanupInProgress: false,
   });
   scheduleCleanup();
 }
@@ -186,6 +190,14 @@ export async function resolveAgentHarnessApproval(input: {
         `Harness ${session.harnessName} does not expose approval continuation.`,
       );
     }
+    if (live.expiryCleanupInProgress) {
+      return failure(
+        input.runId,
+        session,
+        "unavailable",
+        "The live harness session is being cleaned up and cannot resolve approval.",
+      );
+    }
 
     live.approvalResolutionInProgress = true;
     try {
@@ -204,19 +216,63 @@ export async function resolveAgentHarnessApproval(input: {
         );
       }
 
+      const dispatch = await startAgentHarnessSessionApprovalDispatch(
+        session.id,
+        resolutionStarted.status,
+        resolutionStarted.generation,
+        input.approval.id,
+        () => {
+          if (live.session.approve) {
+            const result = live.session.approve(input.approval);
+            void result.catch(() => {});
+            return {
+              kind: "approve" as const,
+              result,
+            };
+          }
+          const stream = live.session.continueTurn!({
+            approval: input.approval,
+          });
+          const iterator = stream[Symbol.asyncIterator]();
+          const firstNext = nextHarnessEvent(iterator);
+          void firstNext.catch(() => {});
+          return {
+            kind: "continue" as const,
+            stream,
+            iterator,
+            firstNext,
+          };
+        },
+      );
+      if (!dispatch) {
+        const latest = await getAgentHarnessSessionByRunId(input.runId);
+        return failure(
+          input.runId,
+          latest ?? session,
+          "unavailable",
+          "The harness session changed before approval dispatch; its latest state was preserved.",
+        );
+      }
+      refreshLiveAgentHarnessSessionGeneration(
+        session.id,
+        live.session,
+        dispatch.session.generation,
+      );
+
       const events: AgentHarnessEvent[] = [];
-      let continued = false;
-      if (live.session.approve) {
-        await live.session.approve(input.approval);
-      } else if (live.session.continueTurn) {
-        continued = true;
+      const continued = dispatch.started.kind === "continue";
+      if (dispatch.started.kind === "approve") {
+        await dispatch.started.result;
+      } else {
         await consumeEvents(
-          live.session.continueTurn({ approval: input.approval }),
+          dispatch.started.stream,
           events,
           input.onHarnessEvent,
           session.id,
           {
             followUpClaimId: session.followUpClaimId ?? undefined,
+            firstNext: dispatch.started.firstNext,
+            iterator: dispatch.started.iterator,
             liveSession: live.session,
           },
         );
@@ -907,7 +963,13 @@ export async function sweepExpiredAgentHarnessSessions(
   let removed = 0;
   const failures: unknown[] = [];
   for (const [sessionId, live] of liveSessions) {
-    if (live.expiresAt > now || live.approvalResolutionInProgress) continue;
+    if (
+      live.expiresAt > now ||
+      live.approvalResolutionInProgress ||
+      live.expiryCleanupInProgress
+    ) {
+      continue;
+    }
     let stopped: StoredAgentHarnessSession | null = null;
     try {
       const current = await getAgentHarnessSession(sessionId);
@@ -922,7 +984,16 @@ export async function sweepExpiredAgentHarnessSessions(
       }
       if (current.followUpClaimId != null) continue;
       if (current.generation !== live.generation) {
-        await detachStaleLiveSession(live, current.status);
+        if (
+          !(await detachStaleLiveSession(
+            sessionId,
+            live,
+            current.status,
+            current.generation,
+          ))
+        ) {
+          continue;
+        }
         releaseLiveAgentHarnessSession(sessionId, live.session);
         removed += 1;
         continue;
@@ -945,7 +1016,16 @@ export async function sweepExpiredAgentHarnessSessions(
         }
         if (latest.followUpClaimId != null) continue;
         if (latest.generation !== live.generation) {
-          await detachStaleLiveSession(live, latest.status);
+          if (
+            !(await detachStaleLiveSession(
+              sessionId,
+              live,
+              latest.status,
+              latest.generation,
+            ))
+          ) {
+            continue;
+          }
           releaseLiveAgentHarnessSession(sessionId, live.session);
           removed += 1;
           continue;
@@ -1026,6 +1106,17 @@ async function acquireSession(
 > {
   const existing = ownedLiveSession(stored.id, scope);
   if (existing) {
+    if (existing.expiryCleanupInProgress) {
+      return {
+        ok: false,
+        result: failure(
+          stored.runId ?? stored.id,
+          stored,
+          "unavailable",
+          "The live harness session is being cleaned up and cannot accept a follow-up.",
+        ),
+      };
+    }
     existing.generation = Math.max(existing.generation, stored.generation);
     existing.expiresAt = Date.now() + LIVE_SESSION_TTL_MS;
     return { ok: true, live: existing, rehydrated: false };
@@ -1409,19 +1500,48 @@ function ownedLiveSession(
 }
 
 async function detachStaleLiveSession(
+  sessionId: string,
   live: LiveAgentHarnessSession,
   durableStatus: AgentHarnessSessionStatus,
-): Promise<void> {
-  if (
-    durableStatus === "stopped" ||
-    durableStatus === "errored" ||
-    durableStatus === "destroyed"
-  ) {
-    if (live.session.stop) await live.session.stop();
-    else await live.session.destroy?.();
-    return;
+  expectedGeneration: number,
+): Promise<boolean> {
+  if (live.approvalResolutionInProgress || live.expiryCleanupInProgress) {
+    return false;
   }
-  await live.session.detach?.();
+  live.expiryCleanupInProgress = true;
+  try {
+    const cleanup = await startAgentHarnessSessionExpiryCleanup(
+      sessionId,
+      durableStatus,
+      expectedGeneration,
+      () => {
+        if (
+          durableStatus === "stopped" ||
+          durableStatus === "errored" ||
+          durableStatus === "destroyed"
+        ) {
+          const stopped = live.session.stop
+            ? live.session.stop()
+            : live.session.destroy?.();
+          if (stopped) void stopped.catch(() => {});
+          return stopped;
+        }
+        const detached = live.session.detach?.();
+        if (detached) void detached.catch(() => {});
+        return detached;
+      },
+    );
+    if (!cleanup) return false;
+    refreshLiveAgentHarnessSessionGeneration(
+      sessionId,
+      live.session,
+      cleanup.session.generation,
+    );
+    await cleanup.started;
+    return true;
+  } finally {
+    live.expiryCleanupInProgress = false;
+  }
 }
 
 function asPendingApproval(
