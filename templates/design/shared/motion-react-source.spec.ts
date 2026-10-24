@@ -532,6 +532,28 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it.each([
+    "*",
+    "body *",
+    '[data-agent-native-node-id="hero-title"]:hover',
+    ":is(.hero)",
+  ])("fails closed on complex important selector %s", (selector) => {
+    const generated = apply(source)
+      .source.replace(
+        '<main className="card">',
+        `<main className="card"><style>{\`${selector} { opacity: 0 !important; }\`}</style>`,
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 id="hero-title" className="hero" data-agent-native-node-id="hero-title">',
+      );
+
+    expect(readMotionReactSource(generated, "src/Card.tsx")).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-authored-motion" },
+    });
+  });
+
   it("decodes escaped CSS property names before checking important overrides", () => {
     const css =
       "#hero { op" + String.fromCharCode(92) + "61 city: 0 !important; }";
@@ -848,6 +870,19 @@ describe("React Motion source adapter", () => {
       });
     },
   );
+
+  it("allows ordinary constructor property comparisons in React Motion sources", () => {
+    const authored = source.replace(
+      "function Card() {",
+      "function Card() { const value = []; const isArray = value.constructor === Array;",
+    );
+    const generated = apply(authored).source;
+
+    expect(readMotionReactSource(generated, "src/Card.tsx")).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero-title"],
+    });
+  });
 
   it.each([
     ["side-effect CSS import", 'import "./motion.css";'],

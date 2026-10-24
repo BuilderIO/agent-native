@@ -1288,10 +1288,9 @@ function cssDeclarationAffectsMotionProperty(
   property: string,
   motionProperties: ReadonlySet<string> | undefined,
 ): boolean {
-  const normalizedProperty = property.replace(
-    /^-webkit-(mask(?:-.*)?)$/i,
-    "$1",
-  );
+  const normalizedProperty = decodeMotionCssIdentifier(property)
+    .toLowerCase()
+    .replace(/^-(?:webkit|moz|ms|o)-/i, "");
   if (
     normalizedProperty === "all" ||
     MOTION_CONTROL_CSS_PROPERTY.test(normalizedProperty) ||

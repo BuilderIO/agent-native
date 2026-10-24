@@ -1685,11 +1685,19 @@ function reactCssSelectorMayMatchTarget(
   ) {
     return true;
   }
-  return Boolean(
+  if (
     tagName &&
     new RegExp(
       `(?:^|[\\s>+~,(])${tagName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[.#:[\\s>+~,])`,
-    ).test(selector),
+    ).test(selector)
+  ) {
+    return true;
+  }
+  return (
+    selector.includes("*") ||
+    selector.includes("[") ||
+    selector.includes(":") ||
+    selector.includes("\\")
   );
 }
 
@@ -3542,21 +3550,85 @@ function hasDynamicCodeExecution(
   if (cachedResult !== undefined) return cachedResult;
 
   let found = false;
+  const dynamicCodeAliases = new Set<string>();
+  const isDynamicCodeFunctionValue = (
+    expression: TypeScript.Expression,
+  ): boolean => {
+    while (
+      ts.isParenthesizedExpression(expression) ||
+      ts.isAsExpression(expression) ||
+      ts.isTypeAssertionExpression(expression) ||
+      ts.isSatisfiesExpression(expression)
+    ) {
+      expression = expression.expression;
+    }
+    if (
+      ts.isIdentifier(expression) &&
+      (dynamicCodeAliases.has(expression.text) ||
+        ((expression.text === "Function" || expression.text === "eval") &&
+          isDynamicCodeExecutionReference(expression)))
+    ) {
+      return true;
+    }
+    if (
+      (ts.isPropertyAccessExpression(expression) &&
+        ["Function", "eval", "constructor"].includes(expression.name.text)) ||
+      (ts.isElementAccessExpression(expression) &&
+        expression.argumentExpression &&
+        ts.isStringLiteralLike(expression.argumentExpression) &&
+        ["Function", "eval", "constructor"].includes(
+          expression.argumentExpression.text,
+        ))
+    ) {
+      return true;
+    }
+    return (
+      ts.isCallExpression(expression) &&
+      ts.isPropertyAccessExpression(expression.expression) &&
+      expression.expression.name.text === "bind" &&
+      isDynamicCodeFunctionValue(expression.expression.expression)
+    );
+  };
+  let foundDynamicCodeAlias = true;
+  while (foundDynamicCodeAlias) {
+    foundDynamicCodeAlias = false;
+    const collectAliases = (node: TypeScript.Node): void => {
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer &&
+        !dynamicCodeAliases.has(node.name.text) &&
+        isDynamicCodeFunctionValue(node.initializer)
+      ) {
+        dynamicCodeAliases.add(node.name.text);
+        foundDynamicCodeAlias = true;
+      }
+      ts.forEachChild(node, collectAliases);
+    };
+    collectAliases(scope);
+  }
+
+  const isDynamicCodeInvocation = (
+    expression: TypeScript.Expression,
+  ): boolean => {
+    if (isDynamicCodeFunctionValue(expression)) return true;
+    return (
+      ((ts.isPropertyAccessExpression(expression) &&
+        ["call", "apply"].includes(expression.name.text)) ||
+        (ts.isElementAccessExpression(expression) &&
+          expression.argumentExpression &&
+          ts.isStringLiteralLike(expression.argumentExpression) &&
+          ["call", "apply"].includes(expression.argumentExpression.text))) &&
+      isDynamicCodeFunctionValue(expression.expression)
+    );
+  };
+
   const visit = (node: TypeScript.Node): void => {
     if (found) return;
     const dynamicCodeReference =
       ts.isIdentifier(node) &&
       (node.text === "Function" || node.text === "eval") &&
       isDynamicCodeExecutionReference(node);
-    const dynamicCodeProperty =
-      (ts.isPropertyAccessExpression(node) &&
-        ["Function", "eval", "constructor"].includes(node.name.text)) ||
-      (ts.isElementAccessExpression(node) &&
-        node.argumentExpression &&
-        ts.isStringLiteralLike(node.argumentExpression) &&
-        ["Function", "eval", "constructor"].includes(
-          node.argumentExpression.text,
-        ));
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const directEval = ts.isIdentifier(callee) && callee.text === "eval";
@@ -3578,21 +3650,22 @@ function hasDynamicCodeExecution(
         directEval ||
         functionConstructor ||
         dynamicCodeReference ||
-        dynamicCodeProperty ||
+        isDynamicCodeInvocation(callee) ||
         dynamicTimer
       ) {
         found = true;
         return;
       }
     }
-    if (dynamicCodeReference || dynamicCodeProperty) {
+    if (dynamicCodeReference) {
       found = true;
       return;
     }
     if (
       ts.isNewExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "Function"
+      ((ts.isIdentifier(node.expression) &&
+        node.expression.text === "Function") ||
+        isDynamicCodeInvocation(node.expression))
     ) {
       found = true;
       return;

@@ -1671,6 +1671,31 @@ describe("HTML Motion source adapter", () => {
     });
   });
 
+  it("rejects vendor-prefixed important declarations for Motion properties", () => {
+    const authored = apply(html, {
+      timeline: makePropertyTimeline("transform", "none", "translateX(10px)"),
+    })
+      .source.replace(
+        "<head>",
+        "<head><style>#hero-title { -webkit-transform: none !important; }</style>",
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+      );
+
+    expect(readMotionHtmlSource(authored)).toMatchObject({
+      status: "invalid",
+      error: { code: "unsupported-target" },
+    });
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
+
   it("inspects stylesheet rules inside Alpine structural templates", () => {
     const withTemplateStyle = (source: string) =>
       source

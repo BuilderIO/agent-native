@@ -134,6 +134,9 @@ async function getAction(
 
 test.describe.serial("React Motion source browser writeback", () => {
   test.beforeEach(async ({ page }) => {
+    await page.context().grantPermissions(["local-network-access"], {
+      origin: new URL(baseURL).origin,
+    });
     restoreMotionLab = await enableLab(page, DESIGN_MOTION_LAB.key);
   });
 
