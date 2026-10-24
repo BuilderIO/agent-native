@@ -55,8 +55,7 @@ describe("VisualEditor read-only mode", () => {
     expect(source).toContain(
       'session.sourceBlock.classList.add("notion-block--dragging");',
     );
-    expect(source).toContain(
-      "session.view.dispatch(markUserAction(tr).scrollIntoView());",
-    );
+    // source-read-ok: Retain the shared drag-handle editability and user-action boundary contract.
+    expect(source).toContain("session.view.dispatch(markUserAction(tr));");
   });
 });
