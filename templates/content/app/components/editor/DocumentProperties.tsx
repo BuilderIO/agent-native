@@ -1187,7 +1187,8 @@ function PropertyRow({
 
 /**
  * Builder status stays a read-only system property; picking Published or
- * Draft stages a publish or unpublish that the source review sends.
+ * Draft stages a publish or unpublish that the source review sends. Picking
+ * the entry's Builder status, Unpublished changes included, clears it.
  */
 function BuilderStatusPicker({
   property,
@@ -1233,7 +1234,9 @@ function BuilderStatusPicker({
       <DropdownMenuContent align="start" className="w-56" container={container}>
         {(property.definition.options.options ?? []).map((option) => {
           const status =
-            option.id === "published" || option.id === "draft"
+            option.id === "published" ||
+            option.id === "draft" ||
+            option.id === "unpublished_changes"
               ? option.id
               : null;
           const item = (

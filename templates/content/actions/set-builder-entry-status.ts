@@ -9,6 +9,7 @@ import type {
   SetBuilderEntryStatusResponse,
 } from "../shared/api.js";
 import { withBuilderCmsPublicationIntent } from "./_builder-cms-unpublished-changes.js";
+import { builderCmsWriteSettingsFromJson } from "./_builder-cms-write-settings.js";
 import {
   builderEntryStatusLockedReason,
   builderEntryStatusPick,
@@ -28,11 +29,13 @@ const LOCKED_MESSAGES = {
     "This page's Builder values can't be read. Refresh the source first.",
   unknown_state:
     "Builder hasn't reported this entry as published or draft. Refresh the source first.",
+  not_builder_status:
+    "Unpublished changes can only be picked while Builder reports them, to clear a staged change.",
 } as const;
 
 export default defineAction({
   description:
-    "Stage a publish or unpublish for one collection page's Builder entry by picking its Builder status. Nothing is sent to Builder: the change waits in the source review, where the push still has to select the publish or unpublish (unpublish also needs confirmUnpublish). Picking the entry's current Builder status clears a staged change. Needs a Builder source in publish updates mode with publication transitions allowed. Published can't be picked while Builder's editor holds unpublished changes Content can't see.",
+    "Stage a publish or unpublish for one collection page's Builder entry by picking its Builder status. Nothing is sent to Builder: the change waits in the source review, where the push still has to select the publish or unpublish (unpublish also needs confirmUnpublish). Picking the entry's current Builder status, including unpublished_changes, clears a staged change. Needs a Builder source in publish updates mode with publication transitions allowed. Published can't be picked while Builder's editor holds changes Content can't see.",
   schema: z.object({
     databaseId: z.string().describe("Collection ID"),
     documentId: z
@@ -41,8 +44,10 @@ export default defineAction({
         "Document ID of the collection page whose Builder entry changes",
       ),
     status: z
-      .enum(["published", "draft"])
-      .describe("Builder status to stage for the entry"),
+      .enum(["published", "draft", "unpublished_changes"])
+      .describe(
+        "Builder status to stage for the entry; unpublished_changes only while Builder reports it",
+      ),
     sourceId: z
       .string()
       .optional()
@@ -104,6 +109,26 @@ export default defineAction({
       // Refreshes and pushes rewrite the row under this lock, so the staged
       // change is applied to the values they last stored.
       await lockDatabaseMemberships(tx, [target.row.databaseItemId]);
+      // Turning publication changes off saves the setting before it clears
+      // staged picks, so a pick checked earlier could land after the clear.
+      // The share lock waits for that save.
+      const [source] = await tx
+        .select({
+          capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
+          metadataJson: schema.contentDatabaseSources.metadataJson,
+        })
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.id, target.source.id))
+        .for("share");
+      if (
+        !source ||
+        !builderCmsWriteSettingsFromJson(source).allowPublicationTransitions
+      ) {
+        fail(LOCKED_MESSAGES.publication_transitions_off, {
+          errorCode: "builder_status_publication_transitions_off",
+          statusCode: 409,
+        });
+      }
       const [row] = await tx
         .select({
           sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
@@ -129,7 +154,7 @@ export default defineAction({
         fail(
           pick.reason === "builder_editor_changes"
             ? "This entry has unpublished changes saved in Builder's editor, which Content can't see. Publish it from Builder."
-            : LOCKED_MESSAGES.unknown_state,
+            : LOCKED_MESSAGES[pick.reason],
           { errorCode: `builder_status_${pick.reason}`, statusCode: 409 },
         );
       }

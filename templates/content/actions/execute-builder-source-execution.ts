@@ -754,11 +754,8 @@ function livePreflightBlockMessage(args: {
   }
   // An autosave in Builder's editor can leave the entry's update time alone,
   // so the timestamp check above doesn't catch one made after the review.
-  if (
-    args.effect === "publish" &&
-    args.liveState.hasAutosaves === true &&
-    !savedOver
-  ) {
+  // Content's own unpublished save doesn't account for it either.
+  if (args.effect === "publish" && args.liveState.hasAutosaves === true) {
     return "This entry has unpublished changes saved in Builder's editor, which Content can't see. Publish it from Builder.";
   }
   return null;

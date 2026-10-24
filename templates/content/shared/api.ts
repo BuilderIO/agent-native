@@ -323,12 +323,21 @@ export interface DocumentProperty {
   builderStatusChoices?: BuilderEntryStatusChoice[];
 }
 
-/** A status that can be picked for a Builder entry from Content. */
-export type BuilderEntryStatusPick = "published" | "draft";
+/**
+ * A status that can be picked for a Builder entry from Content. Unpublished
+ * changes can be picked only while Builder reports it, to clear a staged change.
+ */
+export type BuilderEntryStatusPick =
+  | "published"
+  | "draft"
+  | "unpublished_changes";
 
 export interface BuilderEntryStatusChoice {
   status: BuilderEntryStatusPick;
-  /** False when Builder's editor holds changes Content can't publish. */
+  /**
+   * False for Published while Builder's editor holds changes Content can't
+   * see, and for Unpublished changes while Builder doesn't report them.
+   */
   available: boolean;
 }
 

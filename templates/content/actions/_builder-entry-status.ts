@@ -8,7 +8,10 @@ import type {
   DocumentPropertyValue,
 } from "../shared/api.js";
 import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
-import { builderCmsSourceRowIdentityState } from "./_builder-cms-source-adapter.js";
+import {
+  BUILDER_CMS_HAS_AUTOSAVES_KEY,
+  builderCmsSourceRowIdentityState,
+} from "./_builder-cms-source-adapter.js";
 import {
   BUILDER_CMS_PUBLICATION_INTENT_KEY,
   builderCmsEntryStatus,
@@ -28,7 +31,10 @@ export type BuilderEntryStatusTarget = Awaited<
 
 export type BuilderEntryStatusPickResult =
   | { ok: true; transition: BuilderCmsPublicationTransitionIntent | null }
-  | { ok: false; reason: "unknown_state" | "builder_editor_changes" };
+  | {
+      ok: false;
+      reason: "unknown_state" | "builder_editor_changes" | "not_builder_status";
+    };
 
 export function parseBuilderEntrySourceValues(
   sourceValuesJson: string,
@@ -46,9 +52,9 @@ export function parseBuilderEntrySourceValues(
 
 /**
  * What picking a status for a Builder entry stages. Picking Builder's own
- * status clears a staged change. Published isn't offered over unpublished
- * changes Content can't see: they were saved in Builder's editor, and a
- * publish from Content sends only Content's values.
+ * status clears a staged change. Published isn't offered while Builder's
+ * editor holds changes, even alongside Content's own: Content can't see them,
+ * so it can't review what a publish would do with them.
  */
 export function builderEntryStatusPick(
   sourceValues: Record<string, DocumentPropertyValue>,
@@ -56,13 +62,19 @@ export function builderEntryStatusPick(
 ): BuilderEntryStatusPickResult {
   const current = builderCmsEntryStatus(sourceValues);
   if (!current) return { ok: false, reason: "unknown_state" };
+  if (status === "unpublished_changes") {
+    return current === "unpublished_changes"
+      ? { ok: true, transition: null }
+      : { ok: false, reason: "not_builder_status" };
+  }
   if (status === "draft") {
     return { ok: true, transition: current === "draft" ? null : "unpublish" };
   }
   if (current === "published") return { ok: true, transition: null };
   if (
-    current === "unpublished_changes" &&
-    readBuilderCmsUnpublishedChanges(sourceValues).state !== "pending"
+    sourceValues[BUILDER_CMS_HAS_AUTOSAVES_KEY] === true ||
+    (current === "unpublished_changes" &&
+      readBuilderCmsUnpublishedChanges(sourceValues).state !== "pending")
   ) {
     return { ok: false, reason: "builder_editor_changes" };
   }
@@ -150,10 +162,12 @@ export function builderEntryStatusChoices(
     target.row.sourceValuesJson,
   );
   if (!sourceValues) return null;
-  return (["published", "draft"] as const).map((status) => ({
-    status,
-    available: builderEntryStatusPick(sourceValues, status).ok,
-  }));
+  return (["published", "draft", "unpublished_changes"] as const).map(
+    (status) => ({
+      status,
+      available: builderEntryStatusPick(sourceValues, status).ok,
+    }),
+  );
 }
 
 /**

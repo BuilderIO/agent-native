@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 
 import type { BuilderCmsSourceEntry, ContentDatabaseItem } from "../shared/api";
 import type { ExistingBuilderSourceRowIdentity } from "./_builder-cms-source-adapter";
@@ -13,6 +13,24 @@ import {
   BUILDER_CMS_PUBLICATION_INTENT_KEY,
   withBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes";
+
+const membershipLock = vi.hoisted(() => ({
+  beforeNextLock: null as null | ((tx: any) => Promise<void>),
+}));
+
+vi.mock("./_database-membership-lock.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_database-membership-lock.js")>();
+  return {
+    ...actual,
+    async lockDatabaseMemberships(tx: any, itemIds: string[]) {
+      const beforeLock = membershipLock.beforeNextLock;
+      membershipLock.beforeNextLock = null;
+      await beforeLock?.(tx);
+      return actual.lockDatabaseMemberships(tx, itemIds);
+    },
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -143,7 +161,10 @@ async function statusChoices(documentId: string) {
   );
 }
 
-function pick(documentId: string, status: "published" | "draft") {
+function pick(
+  documentId: string,
+  status: "published" | "draft" | "unpublished_changes",
+) {
   return asOwner(() =>
     setStatus.run({ databaseId: DATABASE_ID, documentId, status }),
   );
@@ -292,20 +313,55 @@ it("offers Published only where Content can see every unpublished change", async
   expect(await statusChoices("doc_entry_draft")).toEqual([
     { status: "published", available: true },
     { status: "draft", available: true },
+    { status: "unpublished_changes", available: false },
   ]);
   expect(await statusChoices("doc_entry_saved")).toEqual([
     { status: "published", available: true },
     { status: "draft", available: true },
+    { status: "unpublished_changes", available: true },
   ]);
   expect(await statusChoices("doc_entry_editor")).toEqual([
     { status: "published", available: false },
     { status: "draft", available: true },
+    { status: "unpublished_changes", available: true },
   ]);
   await expect(pick("doc_entry_editor", "published")).rejects.toMatchObject({
     errorCode: "builder_status_builder_editor_changes",
     statusCode: 409,
   });
   expect(await stagedIntent("doc_entry_editor")).toBeUndefined();
+});
+
+it("offers no Published over editor changes beside Content's own", async () => {
+  const [row] = await getDb()
+    .select({
+      id: schema.contentDatabaseSourceRows.id,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.documentId, "doc_entry_saved"));
+  const setRow = (sourceValuesJson: string) =>
+    getDb()
+      .update(schema.contentDatabaseSourceRows)
+      .set({ sourceValuesJson })
+      .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+  await setRow(
+    JSON.stringify({
+      ...JSON.parse(row.sourceValuesJson),
+      "__builder.meta.hasAutosaves": true,
+    }),
+  );
+  try {
+    expect((await statusChoices("doc_entry_saved"))?.[0]).toEqual({
+      status: "published",
+      available: false,
+    });
+    await expect(pick("doc_entry_saved", "published")).rejects.toMatchObject({
+      errorCode: "builder_status_builder_editor_changes",
+    });
+  } finally {
+    await setRow(row.sourceValuesJson);
+  }
 });
 
 it("stages a publish or unpublish and shows the status it will have", async () => {
@@ -448,6 +504,30 @@ it("clears a staged change when the entry's own status is picked", async () => {
   expect((await statuses()).doc_entry_draft).toBe("draft");
 });
 
+it("clears a staged change over unpublished changes when they're picked", async () => {
+  await pick("doc_entry_saved", "published");
+  expect((await statuses()).doc_entry_saved).toBe("published");
+  await expect(
+    pick("doc_entry_saved", "unpublished_changes"),
+  ).resolves.toMatchObject({ stagedPublicationTransition: null });
+  expect(await stagedIntent("doc_entry_saved")).toBeUndefined();
+  expect((await statuses()).doc_entry_saved).toBe("unpublished_changes");
+
+  await pick("doc_entry_editor", "draft");
+  expect((await statuses()).doc_entry_editor).toBe("draft");
+  await pick("doc_entry_editor", "unpublished_changes");
+  expect(await stagedIntent("doc_entry_editor")).toBeUndefined();
+  expect((await statuses()).doc_entry_editor).toBe("unpublished_changes");
+
+  await expect(
+    pick("doc_entry_draft", "unpublished_changes"),
+  ).rejects.toMatchObject({
+    errorCode: "builder_status_not_builder_status",
+    statusCode: 409,
+  });
+  await pick("doc_entry_saved", "published");
+});
+
 it("drops staged changes when the source stops allowing them", async () => {
   await pick("doc_entry_draft", "published");
   expect((await statuses()).doc_entry_draft).toBe("published");
@@ -484,6 +564,36 @@ it("drops staged changes when the source stops allowing them", async () => {
   );
   expect(await stagedIntent("doc_entry_draft")).toBeUndefined();
   expect((await statuses()).doc_entry_draft).toBe("draft");
+});
+
+it("refuses a pick when publication changes go off while it waits for the row", async () => {
+  const [{ metadataJson }] = await getDb()
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+  membershipLock.beforeNextLock = (tx) =>
+    tx
+      .update(schema.contentDatabaseSources)
+      .set({
+        metadataJson: JSON.stringify({
+          writeMode: "publish_updates",
+          allowPublicationTransitions: false,
+        }),
+      })
+      .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+  try {
+    await expect(pick("doc_entry_draft", "published")).rejects.toMatchObject({
+      errorCode: "builder_status_publication_transitions_off",
+      statusCode: 409,
+    });
+    expect(await stagedIntent("doc_entry_draft")).toBeUndefined();
+  } finally {
+    membershipLock.beforeNextLock = null;
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ metadataJson })
+      .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+  }
 });
 
 it("keeps the status read-only for a page in two Builder sources", async () => {

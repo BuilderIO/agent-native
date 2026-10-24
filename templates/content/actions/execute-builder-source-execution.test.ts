@@ -1201,7 +1201,7 @@ describe("execute Builder source execution", () => {
     await expect(clean.result).resolves.toMatchObject(RESPONSE);
     expect(clean.deps.executeWrite).toHaveBeenCalledTimes(1);
 
-    // The status picker lets Content publish the unpublished changes it saved.
+    // Content's own unpublished save doesn't account for the editor's.
     const contentSaved = run(true, [
       row({
         sourceValues: withBuilderCmsUnpublishedChanges(
@@ -1210,8 +1210,10 @@ describe("execute Builder source execution", () => {
         ),
       }),
     ]);
-    await expect(contentSaved.result).resolves.toMatchObject(RESPONSE);
-    expect(contentSaved.deps.executeWrite).toHaveBeenCalledTimes(1);
+    await expect(contentSaved.result).rejects.toThrow(
+      "This entry has unpublished changes saved in Builder's editor, which Content can't see. Publish it from Builder.",
+    );
+    expect(contentSaved.deps.executeWrite).not.toHaveBeenCalled();
   });
 
   it("unpublishes published entries when explicitly confirmed", async () => {
