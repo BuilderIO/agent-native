@@ -1373,14 +1373,17 @@ test.describe.serial("React Motion source browser writeback", () => {
       '[data-design-chrome-region="right-panel"]',
     );
     const rightPanelBounds = await rightPanel.boundingBox();
-    const rightPanelScrollbarWidth = await rightPanel.evaluate((element) => {
-      const panel = element as HTMLElement;
-      const style = window.getComputedStyle(panel);
-      const borders =
-        (Number.parseFloat(style.borderLeftWidth) || 0) +
-        (Number.parseFloat(style.borderRightWidth) || 0);
-      return panel.offsetWidth - panel.clientWidth - borders;
-    });
+    const rightPanelScroller = rightPanel.locator(".design-inspector-scroll");
+    const inspectorScrollGutter = await rightPanelScroller.evaluate(
+      (element) => {
+        const scroller = element as HTMLElement;
+        const style = window.getComputedStyle(scroller);
+        const borders =
+          (Number.parseFloat(style.borderLeftWidth) || 0) +
+          (Number.parseFloat(style.borderRightWidth) || 0);
+        return scroller.offsetWidth - scroller.clientWidth - borders;
+      },
+    );
     if (!positionPanelBounds || !positionRowBounds || !rightPanelBounds) {
       throw new Error("Motion Position editor geometry is unavailable");
     }
@@ -1396,12 +1399,12 @@ test.describe.serial("React Motion source browser writeback", () => {
     expect(
       Math.abs(
         positionRowBounds.width -
-          (rightPanelBounds.width - rightPanelScrollbarWidth),
+          (rightPanelBounds.width - inspectorScrollGutter),
       ),
       JSON.stringify({
         positionRowBounds,
         rightPanelBounds,
-        rightPanelScrollbarWidth,
+        inspectorScrollGutter,
       }),
     ).toBeLessThanOrEqual(1);
     expect(

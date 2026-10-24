@@ -439,13 +439,14 @@ test("Motion inspector states match the editable timeline", async ({
     .boundingBox();
   const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
   const rightPanelBounds = await rightPanel.boundingBox();
-  const rightPanelScrollbarWidth = await rightPanel.evaluate((element) => {
-    const panel = element as HTMLElement;
-    const style = window.getComputedStyle(panel);
+  const rightPanelScroller = rightPanel.locator(".design-inspector-scroll");
+  const inspectorScrollGutter = await rightPanelScroller.evaluate((element) => {
+    const scroller = element as HTMLElement;
+    const style = window.getComputedStyle(scroller);
     const borders =
       (Number.parseFloat(style.borderLeftWidth) || 0) +
       (Number.parseFloat(style.borderRightWidth) || 0);
-    return panel.offsetWidth - panel.clientWidth - borders;
+    return scroller.offsetWidth - scroller.clientWidth - borders;
   });
   expect(positionEditorRect).not.toBeNull();
   expect(positionStyleTriggerRect).not.toBeNull();
@@ -479,12 +480,13 @@ test("Motion inspector states match the editable timeline", async ({
   expect(
     Math.abs(
       positionStyleRowRect!.width -
-        (rightPanelBounds!.width - rightPanelScrollbarWidth),
+        (rightPanelBounds!.width - inspectorScrollGutter),
     ),
   ).toBeLessThanOrEqual(1);
-  expect(
-    positionStyleTriggerRect!.width + rightPanelScrollbarWidth,
-  ).toBeCloseTo(148, 0);
+  expect(positionStyleTriggerRect!.width + inspectorScrollGutter).toBeCloseTo(
+    148,
+    0,
+  );
   expect(
     visibilityButtonRect!.x -
       (positionStyleTriggerRect!.x + positionStyleTriggerRect!.width),
