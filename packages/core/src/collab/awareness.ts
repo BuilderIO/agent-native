@@ -327,6 +327,34 @@ function localSequenceForWrite(
     : currentSequence + 1;
 }
 
+function applyLocalAwarenessWrite(
+  docId: string,
+  map: Map<number, AwarenessEntry>,
+  clientId: number,
+  state: string,
+  lastSeen: number,
+  clientSequence: number,
+  cleared: boolean,
+  actorEmail: string,
+): void {
+  const existing = map.get(clientId);
+  const sequence = localSequenceForWrite(existing, clientSequence);
+  if (cleared) {
+    rememberAwarenessClear(docId, clientId, lastSeen, sequence || undefined);
+    map.delete(clientId);
+    return;
+  }
+  map.set(clientId, {
+    clientId,
+    state,
+    lastSeen,
+    clientSequence: sequence,
+    clientSequenceRaw:
+      clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE ? clientSequence : 0,
+    actorEmail,
+  });
+}
+
 function canApplyLocalAwarenessWrite(
   docId: string,
   existing: AwarenessEntry | undefined,
@@ -481,25 +509,16 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         actorEmail,
       )
     ) {
-      if (cleared) {
-        rememberAwarenessClear(
-          docId,
-          clientId,
-          lastSeen,
-          localSequenceForWrite(existing, sequence) || undefined,
-        );
-        map.delete(clientId);
-      } else {
-        map.set(clientId, {
-          clientId,
-          state: serializedState,
-          lastSeen,
-          clientSequence: localSequenceForWrite(existing, sequence),
-          clientSequenceRaw:
-            sequence > MAX_AWARENESS_CLIENT_SEQUENCE ? sequence : 0,
-          actorEmail,
-        });
-      }
+      applyLocalAwarenessWrite(
+        docId,
+        map,
+        clientId,
+        serializedState,
+        lastSeen,
+        sequence,
+        cleared,
+        actorEmail,
+      );
     }
     cleanExpired(map);
     pruneIfEmpty(docId, map);
@@ -536,7 +555,40 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   }
 
   const map = getDocAwareness(docId);
-  await mergeStoredAwareness(docId, map);
+  if (applied) {
+    applyLocalAwarenessWrite(
+      docId,
+      map,
+      clientId,
+      serializedState,
+      lastSeen,
+      sequence,
+      state === null,
+      actorEmail,
+    );
+  }
+  try {
+    await mergeStoredAwareness(docId, map);
+  } catch (error) {
+    if (applied) {
+      cleanExpired(map);
+      pruneIfEmpty(docId, map);
+      const { allStates } = awarenessSnapshots(map, clientId);
+      emitAwarenessChange(
+        docId,
+        allStates,
+        contextScope ?? {
+          ...(session?.email ? { owner: session.email } : {}),
+          ...(session?.orgId ? { orgId: session.orgId } : {}),
+        },
+      );
+    }
+    setResponseStatus(event, 503);
+    return {
+      error: "Awareness read unavailable",
+      failureType: error instanceof Error ? error.name : typeof error,
+    };
+  }
 
   cleanExpired(map);
   pruneIfEmpty(docId, map);

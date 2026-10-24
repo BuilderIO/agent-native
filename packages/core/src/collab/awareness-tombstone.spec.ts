@@ -88,7 +88,7 @@ vi.mock("./awareness-store.js", () => ({
 }));
 
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
-import { writeAwarenessRow } from "./awareness-store.js";
+import { loadAwarenessRows, writeAwarenessRow } from "./awareness-store.js";
 import {
   forgetAwarenessClear,
   getAwarenessEmitter,
@@ -123,6 +123,7 @@ describe("awareness clear tombstones", () => {
     forgetAwarenessClear("tombstone-doc", AGENT_CLIENT_ID);
     forgetAwarenessClear("tombstone-doc", 7);
     forgetAwarenessClear("awareness-store-outage-clear", 44);
+    forgetAwarenessClear("awareness-read-outage-clear", 45);
   });
 
   it("does not resurrect a stored agent row older than the clear", async () => {
@@ -342,6 +343,53 @@ describe("awareness clear tombstones", () => {
 
       expect(ev._status).toBe(503);
       expect(map.has(44)).toBe(false);
+      expect(changes).toHaveLength(1);
+      expect(changes[0]).toMatchObject({ docId, states: [] });
+    } finally {
+      getAwarenessEmitter().off("awareness-change", onChange);
+      map.clear();
+    }
+  });
+
+  it("clears local presence before the follow-up store read", async () => {
+    const docId = "awareness-read-outage-clear";
+    const map = getDocAwareness(docId);
+    map.set(45, {
+      clientId: 45,
+      state: JSON.stringify({ user: { email: "collaborator@example.com" } }),
+      lastSeen: 10_000,
+      clientSequence: 1,
+      clientSequenceRaw: 0,
+      actorEmail: "collaborator@example.com",
+    });
+    const changes: Array<{
+      docId: string;
+      states: Array<{ clientId: number; state: string }>;
+    }> = [];
+    const onChange = (change: (typeof changes)[number]) => changes.push(change);
+    getAwarenessEmitter().on("awareness-change", onChange);
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 45,
+      clientSequence: 2,
+      state: null,
+    });
+    vi.mocked(loadAwarenessRows).mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    try {
+      const ev = event(docId);
+      await expect(postAwareness(ev)).resolves.toEqual({
+        error: "Awareness read unavailable",
+        failureType: "Error",
+      });
+
+      expect(ev._status).toBe(503);
+      expect(map.has(45)).toBe(false);
+      expect(storedRows.get(rowKey(docId, 45))).toMatchObject({
+        clientSequence: 2,
+        cleared: true,
+      });
       expect(changes).toHaveLength(1);
       expect(changes[0]).toMatchObject({ docId, states: [] });
     } finally {

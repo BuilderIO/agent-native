@@ -304,6 +304,7 @@ class CollabDocConnection {
   constructor(
     readonly docId: string,
     private readonly baseUrl: string,
+    private readonly actorIdentity: string,
     readonly detached = false,
   ) {
     this.ydoc = new Y.Doc();
@@ -323,7 +324,7 @@ class CollabDocConnection {
   }
 
   private get registryKey(): string {
-    return collabRegistryKey(this.docId, this.baseUrl);
+    return collabRegistryKey(this.docId, this.baseUrl, this.actorIdentity);
   }
 
   private get retiredUpdatesKey(): string | null {
@@ -1335,18 +1336,23 @@ const collabConnectionRegistry = new Map<string, CollabDocConnection>();
 // outbox if offline reload recovery becomes supported. No retired retry loop.
 const retiredCollabUpdates = new Map<string, Uint8Array[]>();
 
-function collabRegistryKey(docId: string, baseUrl: string): string {
-  return `${baseUrl}\0${docId}`;
+function collabRegistryKey(
+  docId: string,
+  baseUrl: string,
+  actorIdentity: string,
+): string {
+  return `${baseUrl}\0${docId}\0${actorIdentity}`;
 }
 
 function getOrCreateCollabConnection(
   docId: string,
   baseUrl: string,
+  actorIdentity: string,
 ): CollabDocConnection {
-  const key = collabRegistryKey(docId, baseUrl);
+  const key = collabRegistryKey(docId, baseUrl, actorIdentity);
   let conn = collabConnectionRegistry.get(key);
   if (!conn || conn.disposed) {
-    conn = new CollabDocConnection(docId, baseUrl);
+    conn = new CollabDocConnection(docId, baseUrl, actorIdentity);
     collabConnectionRegistry.set(key, conn);
   }
   return conn;
@@ -1396,6 +1402,7 @@ export function useCollaborativeDoc(
     }
     return { ...user, avatarUrl: storedAvatarUrl };
   }, [storedAvatarUrl, user]);
+  const actorIdentity = resolvedUser?.email.trim().toLowerCase() ?? "";
 
   const [generation, setGeneration] = useState(0);
 
@@ -1403,10 +1410,10 @@ export function useCollaborativeDoc(
     void generation;
     if (!docId) return null;
     if (typeof window === "undefined") {
-      return new CollabDocConnection(docId, baseUrl, true);
+      return new CollabDocConnection(docId, baseUrl, actorIdentity, true);
     }
-    return getOrCreateCollabConnection(docId, baseUrl);
-  }, [docId, baseUrl, generation]);
+    return getOrCreateCollabConnection(docId, baseUrl, actorIdentity);
+  }, [docId, baseUrl, actorIdentity, generation]);
 
   const [snapshot, setSnapshot] = useState<CollabDocSnapshot>(() =>
     conn ? conn.snapshot : EMPTY_SNAPSHOT,

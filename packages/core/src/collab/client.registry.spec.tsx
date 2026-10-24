@@ -432,6 +432,76 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(b?.isSynced).toBe(true);
   });
 
+  it("creates a new awareness client identity when the authenticated user changes", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    const firstUser = {
+      name: "First editor",
+      email: "first@example.test",
+      color: "blue",
+    };
+    const secondUser = {
+      name: "Second editor",
+      email: "second@example.test",
+      color: "green",
+    };
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="account-switch"
+        user={firstUser}
+        onResult={(next) => (result = next)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    const firstClientId = result!.ydoc!.clientID;
+    const awarenessPosts = () =>
+      mock.mock.calls
+        .filter(
+          ([input, init]) =>
+            String(input).includes("/account-switch/awareness") &&
+            (init as RequestInit | undefined)?.method === "POST",
+        )
+        .map(
+          ([, init]) =>
+            JSON.parse(String(init?.body)) as {
+              clientId: number;
+              state: string;
+            },
+        );
+    expect(awarenessPosts()).toHaveLength(1);
+    expect(awarenessPosts()[0]).toMatchObject({ clientId: firstClientId });
+    expect(JSON.parse(awarenessPosts()[0]!.state).user.email).toBe(
+      firstUser.email,
+    );
+
+    act(() => {
+      root.render(
+        <Probe
+          docId="account-switch"
+          user={secondUser}
+          onResult={(next) => (result = next)}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    const secondClientId = result!.ydoc!.clientID;
+    expect(secondClientId).not.toBe(firstClientId);
+    expect(awarenessPosts()).toHaveLength(2);
+    expect(awarenessPosts()[1]).toMatchObject({ clientId: secondClientId });
+    expect(JSON.parse(awarenessPosts()[1]!.state).user.email).toBe(
+      secondUser.email,
+    );
+    expect(_collabDocRegistrySizeForTests()).toBe(2);
+  });
+
   it("reconciles state before accepting the first poll watermark without a baseline", async () => {
     const server = new Y.Doc();
     server.getText("content").insert(0, "seed");
