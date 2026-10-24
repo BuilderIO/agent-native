@@ -566,10 +566,11 @@ export default defineAction({
         classifyPlans(transactionSnapshot);
         // The pages' Files memberships, then the pages, each by id, as a save
         // takes them: the writes below update pages before the memberships.
+        // A conflict page is locked too, since its plan can change below.
         const existingPageIds = plans
-          .filter((plan) => !plan.conflict && plan.existing)
+          .filter((plan) => plan.existing)
           .map((plan) => plan.id);
-        const writtenPageIds = [
+        const lockedPageIds = [
           ...existingPageIds,
           ...missingRows.map((row) => row.documentId),
         ];
@@ -578,25 +579,27 @@ export default defineAction({
         // it, a concurrent insert waits on this one; if it were added after
         // the pages, the later membership lock would wait on its writer.
         await ensureDocumentsFilesMembership(tx, existingPageIds, now);
-        if (writtenPageIds.length > 0) {
+        if (lockedPageIds.length > 0) {
           const memberships = await tx
             .select({ id: schema.contentDatabaseItems.id })
             .from(schema.contentDatabaseItems)
             .where(
               and(
                 eq(schema.contentDatabaseItems.databaseId, target.database.id),
-                inArray(schema.contentDatabaseItems.documentId, writtenPageIds),
+                inArray(schema.contentDatabaseItems.documentId, lockedPageIds),
               ),
             );
           await lockExistingDatabaseMemberships(tx, [
             ...memberships.map((membership: { id: string }) => membership.id),
             ...missingRows.map((row) => row.databaseItemId),
           ]);
-          await lockDocumentRows(tx, writtenPageIds);
+          await lockDocumentRows(tx, lockedPageIds);
         }
-        // The snapshot read these pages before their locks, and a save that
-        // committed in between would be written over without a conflict.
-        // Planning them again from the pages as locked turns it into one.
+        // The snapshot read these pages before their locks. A save that
+        // committed in between would be written over without a conflict, or
+        // leave a conflict proposal for Content as it was before the save,
+        // which can't be accepted. Planning them again from the pages as
+        // locked records the save.
         if (existingPageIds.length > 0) {
           const lockedPages = (await tx
             .select()

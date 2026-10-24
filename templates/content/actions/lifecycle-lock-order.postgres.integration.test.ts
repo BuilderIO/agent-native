@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { runWithRequestContext } from "@agent-native/core/server";
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -3063,6 +3065,65 @@ Folder edit.
       );
       await expect(action).resolves.toMatchObject({
         conflicts: [expect.objectContaining({ id: page })],
+      });
+      expect((await readPage(page)).content).toBe(saved);
+    });
+
+    it("proposes a folder conflict from its page as locked, so a save that lands while the sync waits is the Content side", async () => {
+      const seed = await seedLocalFolderPage();
+      const page = seed.ids.page;
+      const unchanged = `${page}_unchanged`;
+      const sync = (body: string) =>
+        asOwner(() =>
+          syncLocalFolder.run({
+            sourceId: seed.ids.source,
+            files: {
+              "page.md": `---
+id: "${page}"
+title: "Folder page"
+---
+${body}
+`,
+              "unchanged.md": `---
+id: "${unchanged}"
+title: "Unchanged page"
+---
+Unchanged body.
+`,
+            },
+          }),
+        );
+      // Under the seed's database_primary policy, a folder edit to a linked
+      // page is a conflict.
+      await sync("New body.");
+      const saved = "Saved while the sync waited for the page.";
+      const { action } = await raceAgainst(
+        // A save to the conflict page. Holding the unchanged page as well
+        // keeps a sync that locks only the pages it writes waiting too.
+        async (tx) => {
+          await lockDocumentRows(tx, [page, unchanged]);
+          await tx
+            .update(schema.documents)
+            .set({ content: saved, updatedAt: new Date().toISOString() })
+            .where(eq(schema.documents.id, page));
+        },
+        () => sync("Folder edit."),
+      );
+      await expect(action).resolves.toMatchObject({
+        conflicts: [expect.objectContaining({ id: page })],
+      });
+      // The same folder again: a proposal built before the save would be
+      // joined by one built after it.
+      await sync("Folder edit.");
+      const proposals = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(eq(schema.contentDatabaseSourceChangeSets.documentId, page));
+      expect(proposals).toEqual([
+        expect.objectContaining({ direction: "incoming", state: "proposed" }),
+      ]);
+      expect(JSON.parse(proposals[0]!.bodyChangeJson)).toMatchObject({
+        currentHash: createHash("sha256").update(saved).digest("hex"),
       });
       expect((await readPage(page)).content).toBe(saved);
     });
