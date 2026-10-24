@@ -809,6 +809,83 @@ describe("property generations", () => {
     );
   });
 
+  it("a cleared value can't make an old generation current again", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const configured = await asOwner(() =>
+      configureProperty.run({
+        documentId: ids.databaseDocumentId,
+        databaseId: ids.databaseId,
+        name: "Owner",
+        type: "text",
+      }),
+    );
+    const owner = configured.properties.find(
+      (candidate) => candidate.definition.name === "Owner",
+    )!.definition.id;
+    const empty = await readItem(ids.databaseId, row.itemId);
+    expect(empty.propertyGenerations![owner]).toBe(0);
+    const notesBefore = empty.propertyGenerations![ids.properties.notes];
+
+    const filled = await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: owner,
+        value: "Ada",
+      }),
+    );
+    // Clearing a field outright, as a type change or source binding does,
+    // deletes the value row and its generation with it.
+    await getDb()
+      .delete(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, row.documentId),
+          eq(schema.documentPropertyValues.propertyId, owner),
+        ),
+      );
+
+    const cleared = await readItem(ids.databaseId, row.itemId);
+    expect(await storedValue(row.documentId, owner)).toBeUndefined();
+    expect(cleared.propertyGenerations![owner]).toBeGreaterThan(
+      filled.generation,
+    );
+    // The page's other properties move once too: a spare conflict, never a
+    // missed one.
+    expect(cleared.propertyGenerations![ids.properties.notes]).not.toBe(
+      notesBefore,
+    );
+    await expect(
+      asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: owner,
+          value: "Grace",
+          expectedGeneration: 0,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PROPERTY_GENERATION_CONFLICT" });
+    expect(await storedValue(row.documentId, owner)).toBeUndefined();
+
+    const written = await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: owner,
+        value: "Grace",
+        expectedGeneration: cleared.propertyGenerations![owner],
+      }),
+    );
+    expect(written.generation).toBeGreaterThan(
+      cleared.propertyGenerations![owner],
+    );
+    expect(
+      (await readItem(ids.databaseId, row.itemId)).propertyGenerations![owner],
+    ).toBe(written.generation);
+  });
+
   it("update-database-item and patch-database-items refuse a stale generation the row revision misses", async () => {
     const ids = await fixture(2);
     const [first, second] = ids.rows;

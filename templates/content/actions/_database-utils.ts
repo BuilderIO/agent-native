@@ -1105,6 +1105,8 @@ export async function getContentDatabasePageResponse(
       )!,
     );
   }
+  // Before the values: see readPropertyGenerations.
+  const storedGenerations = await readPropertyGenerations(db, documentIds);
   const [
     favorites,
     shareRows,
@@ -1113,7 +1115,6 @@ export async function getContentDatabasePageResponse(
     queuedBodyHydrationItemIds,
     workspaceMemberships,
     commentSummaries,
-    storedGenerations,
   ] = await Promise.all([
     database.systemRole === "favorites"
       ? new Set(documentIds)
@@ -1182,7 +1183,6 @@ export async function getContentDatabasePageResponse(
           )
       : [],
     readOpenCommentSummaries(documentIds),
-    readPropertyGenerations(db, documentIds),
   ]);
   const shareRoleByDocumentId = new Map<string, ShareRole>();
   for (const row of shareRows) {
@@ -1244,8 +1244,9 @@ export async function getContentDatabasePageResponse(
       }),
       properties: propertiesByDocumentId.get(document.id) ?? [],
       propertyGenerations: propertyGenerationsFor(
+        document.id,
         propertiesByDocumentId.get(document.id) ?? [],
-        storedGenerations.get(document.id),
+        storedGenerations,
       ),
       rowRevision: databaseRowRevision({
         itemId: item.id,

@@ -12,14 +12,25 @@ import {
 type Db = ReturnType<typeof getDb>;
 
 /**
- * A property value's generation goes up on every committed change to it,
- * A → B → A included, so a writer can tell "still the value I read" from
- * "changed, then changed back". A database trigger stamps it from one shared
- * sequence, so compare generations for equality only: the steps between them
- * are not +1. A value that has never changed since generations began reads as
- * 0, and a property with no stored value is 0 too.
+ * A property's generation goes up on every committed change to it, A → B → A
+ * included, so a writer can tell "still the value I read" from "changed, then
+ * changed back". Database triggers stamp it from one shared sequence, so
+ * compare generations for equality only: the steps between them are not +1.
+ *
+ * It is the larger of the value row's own generation and the page's deletion
+ * generation, which goes up whenever any value on the page is deleted. A
+ * deleted value takes its own generation with it, so without the page's, a
+ * property that was empty, then filled, then cleared would read 0 again and an
+ * old token would pass. A deletion can make other properties on the page
+ * conflict once; it never lets a stale write through. A value that hasn't
+ * changed since generations began, on a page with no deletions, is 0.
  */
 export type PropertyGenerations = Record<string, number>;
+
+export interface StoredPropertyGenerations {
+  /** The generation of one property on one page that was read. */
+  of(documentId: string, propertyId: string): number;
+}
 
 export interface PropertyGenerationConflict {
   propertyId: string;
@@ -33,26 +44,41 @@ export function generationNumber(value: unknown): number {
   const generation = Number(value);
   if (!Number.isSafeInteger(generation)) {
     throw new Error(
-      `Stored property generation ${String(value)} is not an integer.`,
+      `Stored property generation ${generation} is not a safe integer.`,
     );
   }
   return generation;
 }
 
 /**
- * Generations of every stored value on these pages, keyed by page then
- * property. `lock` holds the value rows until the transaction ends, so a
- * guarded write can compare and write without another writer in between.
+ * Reads the generations of these pages' properties. `lock` holds the value
+ * rows and the pages' deletion rows until the transaction ends, so a guarded
+ * write can compare and write without another writer in between.
+ *
+ * A read that returns values alongside generations must read generations
+ * first. A change that lands between the two reads then shows the newer value
+ * with the older generation, which only makes the next guarded write conflict
+ * and reread. The other order would pair an older value with a newer
+ * generation and let a write based on the stale value through.
  */
 export async function readPropertyGenerations(
   db: Db,
   documentIds: string[],
   options: { propertyIds?: string[]; lock?: boolean } = {},
-): Promise<Map<string, PropertyGenerations>> {
-  const result = new Map<string, PropertyGenerations>();
-  if (!documentIds.length || options.propertyIds?.length === 0) return result;
+): Promise<StoredPropertyGenerations> {
+  const pageIds = [...new Set(documentIds)];
+  const byValue = new Map<string, Map<string, number>>();
+  const byPage = new Map<string, number>();
+  const stored: StoredPropertyGenerations = {
+    of: (documentId, propertyId) =>
+      Math.max(
+        byValue.get(documentId)?.get(propertyId) ?? 0,
+        byPage.get(documentId) ?? 0,
+      ),
+  };
+  if (!pageIds.length || options.propertyIds?.length === 0) return stored;
   const values = schema.documentPropertyValues;
-  const query = db
+  const valueQuery = db
     .select({
       documentId: values.documentId,
       propertyId: values.propertyId,
@@ -61,32 +87,52 @@ export async function readPropertyGenerations(
     .from(values)
     .where(
       and(
-        inArray(values.documentId, [...new Set(documentIds)]),
+        inArray(values.documentId, pageIds),
         options.propertyIds
           ? inArray(values.propertyId, [...new Set(options.propertyIds)])
           : undefined,
       ),
     );
-  const rows = options.lock ? await query.for("update") : await query;
-  for (const row of rows) {
-    const forDocument = result.get(row.documentId) ?? {};
-    forDocument[row.propertyId] = Math.max(
-      forDocument[row.propertyId] ?? 0,
-      generationNumber(row.generation),
+  const deletions = schema.documentPropertyValueDeletions;
+  const deletionQuery = db
+    .select({
+      documentId: deletions.documentId,
+      generation: deletions.generation,
+    })
+    .from(deletions)
+    .where(inArray(deletions.documentId, pageIds));
+  const valueRows = options.lock
+    ? await valueQuery.for("update")
+    : await valueQuery;
+  const deletionRows = options.lock
+    ? await deletionQuery.for("update")
+    : await deletionQuery;
+  for (const row of valueRows) {
+    const forPage = byValue.get(row.documentId) ?? new Map<string, number>();
+    forPage.set(
+      row.propertyId,
+      Math.max(
+        forPage.get(row.propertyId) ?? 0,
+        generationNumber(row.generation),
+      ),
     );
-    result.set(row.documentId, forDocument);
+    byValue.set(row.documentId, forPage);
   }
-  return result;
+  for (const row of deletionRows) {
+    byPage.set(row.documentId, generationNumber(row.generation));
+  }
+  return stored;
 }
 
 /**
- * One generation for each property a read returns, 0 where it has no value
- * yet, so a caller can guard a write to an empty property too. Blocks and
- * computed fields take no guarded writes, so they're left out.
+ * One generation for each property a read returns, including ones with no
+ * value yet, so a caller can guard a write to an empty property too. Blocks
+ * and computed fields take no guarded writes, so they're left out.
  */
 export function propertyGenerationsFor(
+  documentId: string,
   properties: Array<{ definition: { id: string; type: DocumentPropertyType } }>,
-  stored: PropertyGenerations | undefined,
+  stored: StoredPropertyGenerations,
 ): PropertyGenerations {
   return Object.fromEntries(
     properties
@@ -95,7 +141,10 @@ export function propertyGenerationsFor(
           !isBlocksPropertyType(definition.type) &&
           !isComputedPropertyType(definition.type),
       )
-      .map(({ definition }) => [definition.id, stored?.[definition.id] ?? 0]),
+      .map(({ definition }) => [
+        definition.id,
+        stored.of(documentId, definition.id),
+      ]),
   );
 }
 
@@ -125,7 +174,7 @@ export async function propertyGenerationConflicts(
       .map(([propertyId, generation]) => ({
         propertyId,
         expected: generation,
-        current: current.get(documentId)?.[propertyId] ?? 0,
+        current: current.of(documentId, propertyId),
       }))
       .filter((entry) => entry.expected !== entry.current);
     if (found.length) conflicts.set(documentId, found);
@@ -164,5 +213,5 @@ export const expectedPropertyGenerationsSchema = z
   .record(z.string(), z.number().int().nonnegative())
   .optional()
   .describe(
-    "Write only if each named property's generation still equals this one, from the item's propertyGenerations in get-content-database (0 when the property has no value). A mismatch writes nothing and fails with PROPERTY_GENERATION_CONFLICT. Use it to act on a value only while it is still the one you read.",
+    "Write only if each named property's generation still equals this one, from the item's propertyGenerations in get-content-database. A mismatch writes nothing and fails with PROPERTY_GENERATION_CONFLICT. Use it to act on a value only while it is still the one you read.",
   );

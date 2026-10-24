@@ -643,9 +643,9 @@ export interface ContentDatabaseItem {
   sourceOverlays?: ContentDatabaseSourceOverlay[];
   rowRevision?: string;
   /**
-   * Generation of each property value, by property ID. It goes up on every
-   * change, A to B to A included; compare for equality only. 0 means no value
-   * or no change since generations began.
+   * Generation of each property, by property ID. It goes up on every change,
+   * A to B to A included; compare for equality only. Pass it back as
+   * expectedPropertyGenerations to write only while the value is unchanged.
    */
   propertyGenerations?: Record<string, number>;
   /** Open Comment threads on this row, when it has any the viewer can read. */

@@ -352,7 +352,9 @@ export default defineAction({
             }),
           );
     const bodyHydrationAccess = await readBodyHydrationAccess();
-    const [properties, , storedGenerations] = await Promise.all([
+    // Before the values: see readPropertyGenerations.
+    const storedGenerations = await readPropertyGenerations(db, [doc.id]);
+    const [properties] = await Promise.all([
       listPropertiesForDocument(doc, selectedDatabaseId, {
         // A share authorizes the exact page and its membership-local fields,
         // not the private database document that owns those definitions.
@@ -370,7 +372,6 @@ export default defineAction({
             { skipResourceBody: true },
           )
         : undefined,
-      readPropertyGenerations(db, [doc.id]),
     ]);
     const contextPath = readContextPath ? await readContextPath() : [];
     let isExternallyLinked = false;
@@ -500,8 +501,9 @@ export default defineAction({
             definition: { ...property.definition, databaseId: null },
           })),
       propertyGenerations: propertyGenerationsFor(
+        doc.id,
         properties,
-        storedGenerations.get(doc.id),
+        storedGenerations,
       ),
       contextPath,
       // The same answer get-preview-document-draft gives, so a page open

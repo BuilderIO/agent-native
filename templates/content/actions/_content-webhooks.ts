@@ -353,8 +353,7 @@ export async function enqueuePropertyChangeWebhooks(
                   newValue,
                   oldLabel: optionLabel(change.definition, oldValue),
                   newLabel: optionLabel(change.definition, newValue),
-                  generation:
-                    generations.get(documentId)?.[change.definition.id] ?? 0,
+                  generation: generations.of(documentId, change.definition.id),
                 },
               },
             };
