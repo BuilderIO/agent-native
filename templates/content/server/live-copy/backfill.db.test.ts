@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
   deleteSetting,
+  getSetting,
   putOrgSetting,
   putSetting,
 } from "@agent-native/core/settings";
@@ -52,6 +53,47 @@ vi.mock("./eligibility.js", async (importOriginal) => {
   };
 });
 
+// Stands in for the Notion API. `midway` runs once, inside the first Notion
+// request a link makes: after the link's own check, before it writes.
+const notionApi = vi.hoisted(() => ({
+  linkedPageId: "0123456789abcdef0123456789abcdef",
+  createdPageId: "fedcba9876543210fedcba9876543210",
+  remoteContent: "Notion's copy of the page.",
+  remoteEditedAt: "2026-10-01T00:00:00.000Z",
+  midway: undefined as (() => Promise<void>) | undefined,
+}));
+
+vi.mock("../lib/notion.js", async (importOriginal) => {
+  const notion = await importOriginal<typeof import("../lib/notion.js")>();
+  const midway = async () => {
+    const run = notionApi.midway;
+    notionApi.midway = undefined;
+    await run?.();
+  };
+  return {
+    ...notion,
+    requireNotionConnectionForOwner: async () => ({
+      accessToken: "notion-test-token",
+    }),
+    fetchNotionPage: async (_accessToken: string, pageId: string) => {
+      await midway();
+      return { id: pageId, last_edited_time: notionApi.remoteEditedAt };
+    },
+    createNotionPageWithMarkdown: async () => {
+      await midway();
+      return { id: notionApi.createdPageId };
+    },
+    readNotionPageAsDocument: async (_accessToken: string, pageId: string) => ({
+      pageId,
+      title: "Legacy page",
+      icon: null,
+      content: notionApi.remoteContent,
+      lastEditedTime: notionApi.remoteEditedAt,
+      warnings: [],
+    }),
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-live-body-backfill-${process.pid}-${Date.now()}.pglite`,
@@ -67,10 +109,14 @@ let switching: typeof import("./switch.js");
 let persist: typeof import("./persist.js");
 let setSwitch: typeof import("../../actions/set-live-body-switch.js").default;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
+let convertAction: typeof import("../../actions/convert-page-to-live-copy-if-due.js").default;
+let notionSync: typeof import("../lib/notion-sync.js");
 
 const ownerEmail = "backfill-owner@example.com";
 // Has both of the writer's flags, but not the backfill's.
 const writerOnlyEmail = "backfill-writer-only@example.com";
+// Has none of the flags, so its pages take every write as main does.
+const gateOffEmail = "backfill-gate-off@example.com";
 const ctx = { caller: "frontend" as const, userEmail: ownerEmail };
 const editorSchema = createContentEditorStructuralSchema();
 const BACKFILL = "content.live-body-backfill";
@@ -123,6 +169,10 @@ beforeAll(async () => {
   persist = await import("./persist.js");
   setSwitch = (await import("../../actions/set-live-body-switch.js")).default;
   getDocumentAction = (await import("../../actions/get-document.js")).default;
+  convertAction = (
+    await import("../../actions/convert-page-to-live-copy-if-due.js")
+  ).default;
+  notionSync = await import("../lib/notion-sync.js");
 }, 120_000);
 
 afterAll(() => {
@@ -192,15 +242,7 @@ async function page(id: string) {
 }
 
 async function collabVersion(id: string) {
-  const { rows } = await (
-    await import("@agent-native/core/db")
-  )
-    .getDbExec()
-    .execute({
-      sql: "SELECT version FROM _collab_docs WHERE doc_id = ?",
-      args: [id],
-    });
-  return rows[0] === undefined ? undefined : Number(rows[0].version);
+  return (await collab.loadYDocVersion(id)) ?? undefined;
 }
 
 async function historyOperations(id: string) {
@@ -235,8 +277,8 @@ async function openInTab(id: string, content: string, typed?: string) {
   await as(ownerEmail, () => collab.applyUpdate(id, update));
 }
 
-/** The editor's open of a page, as DocumentEditor asks for it. */
-function openInEditor(id: string, email = ownerEmail) {
+/** The editor's read of a page as it opens, as DocumentEditor asks for it. */
+function readInEditor(id: string, email = ownerEmail) {
   return as(email, () =>
     getDocumentAction.run(
       { id, includePreviewDraft: true },
@@ -245,15 +287,41 @@ function openInEditor(id: string, email = ownerEmail) {
   );
 }
 
-describe("an editor's first open", () => {
-  it("switches the page before the editor binds, and serves the body the live copy writes", async () => {
+/** What the editor asks once it has loaded a page it can edit. */
+function convertOnOpen(id: string, email = ownerEmail) {
+  return as(email, () =>
+    convertAction.run({ id }, { caller: "frontend", userEmail: email }),
+  );
+}
+
+describe("an editor's open", () => {
+  it("reads a due page without switching it: get-document commits nothing", async () => {
     const id = await insertPage(stored);
 
-    const opened = await openInEditor(id);
+    const opened = await readInEditor(id);
+
+    expect(opened).toMatchObject({ content: stored, writePath: "legacy" });
+    expect(await page(id)).toMatchObject({
+      content: stored,
+      bodyRevision: 1,
+      liveBodySwitchedAt: null,
+    });
+    expect(await collabVersion(id)).toBeUndefined();
+    expect(await historyOperations(id)).toEqual([]);
+  });
+
+  it("switches the page when the editor asks, and its next read serves the body the live copy writes", async () => {
+    const id = await insertPage(stored);
+    await readInEditor(id);
+
+    await expect(convertOnOpen(id)).resolves.toEqual({
+      id,
+      status: "converted",
+    });
 
     const canonical = canonicalizeNfm(stored);
     expect(canonical).not.toBe(stored);
-    expect(opened).toMatchObject({
+    await expect(readInEditor(id)).resolves.toMatchObject({
       content: canonical,
       writePath: "live_copy",
     });
@@ -265,52 +333,80 @@ describe("an editor's first open", () => {
     expect(row.liveCopyVersion).toBe(await collabVersion(id));
     expect(await historyOperations(id)).toContain("switch-live-body");
     // A second open finds it switched.
-    await expect(
-      backfill.convertPageToLiveCopyIfDue(id, { ctx }),
-    ).resolves.toEqual({ status: "current" });
+    await expect(convertOnOpen(id)).resolves.toEqual({
+      id,
+      status: "current",
+    });
   });
 
-  it("leaves the page alone on a read that isn't the editor's open", async () => {
+  it("opens the page and reports a typed, logged failure when the switch throws", async () => {
+    const orgId = "backfill-open-broken-org";
+    await putOrgSetting(orgId, `feature-flag:${BACKFILL}`, { version: 99 });
+    const id = await insertPage(stored, { orgId });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const refusal = await convertOnOpen(id).catch((error: unknown) => error);
+
+      expect(refusal).toMatchObject({
+        errorCode: "LIVE_BODY_BACKFILL_FAILED",
+        statusCode: 500,
+        details: { documentId: id },
+      });
+      expect(logged).toHaveBeenCalledWith(
+        `[convert-page-to-live-copy-if-due] page ${id} failed:`,
+        expect.any(Error),
+      );
+    } finally {
+      logged.mockRestore();
+    }
+    await expect(readInEditor(id)).resolves.toMatchObject({
+      id,
+      content: stored,
+      writePath: "legacy",
+    });
+    expect(await page(id)).toMatchObject({ liveBodySwitchedAt: null });
+  });
+
+  it("refuses someone who can't edit the page, and changes nothing", async () => {
     const id = await insertPage(stored);
 
-    const read = await as(ownerEmail, () =>
-      getDocumentAction.run({ id }, { caller: "mcp", userEmail: ownerEmail }),
-    );
-
-    expect(read).toMatchObject({ content: stored, writePath: "legacy" });
+    await expect(
+      convertOnOpen(id, "backfill-stranger@example.com"),
+    ).rejects.toThrow();
     expect(await page(id)).toMatchObject({
-      content: stored,
       bodyRevision: 1,
       liveBodySwitchedAt: null,
     });
-    expect(await collabVersion(id)).toBeUndefined();
   });
 
   it("leaves the page alone while its owner lacks the backfill flag, as main does (SF-11)", async () => {
     const id = await insertPage(stored, { ownerEmail: writerOnlyEmail });
 
-    const opened = await openInEditor(id, writerOnlyEmail);
-
-    expect(opened).toMatchObject({ content: stored, writePath: "legacy" });
+    await expect(convertOnOpen(id, writerOnlyEmail)).resolves.toEqual({
+      id,
+      status: "skipped",
+      reason: "flag_off",
+    });
     expect(await page(id)).toMatchObject({
       content: stored,
       liveBodySwitchedAt: null,
     });
-    await expect(
-      as(writerOnlyEmail, () => backfill.convertPageToLiveCopyIfDue(id)),
-    ).resolves.toEqual({ status: "skipped", reason: "flag_off" });
   });
 
-  it("opens a page some source owns as before, without trying to switch it", async () => {
+  it("leaves a page some source owns on its writer", async () => {
     const id = await insertPage(stored, {
       sourceMode: "github",
       sourceRootPath: "github:example/docs@main",
       sourcePath: "docs/page.md",
     });
 
-    const opened = await openInEditor(id);
-
-    expect(opened).toMatchObject({ content: stored, writePath: "legacy" });
+    await expect(convertOnOpen(id)).resolves.toEqual({
+      id,
+      status: "skipped",
+      reason: "ineligible",
+      blockers: ["source_owned"],
+    });
     expect(await page(id)).toMatchObject({ liveBodySwitchedAt: null });
   });
 });
@@ -480,6 +576,111 @@ describe("a page whose live copy a tab already opened", () => {
   });
 });
 
+describe("a Notion link racing a switch", () => {
+  async function linkRow(id: string) {
+    const [row] = await getDb()
+      .select()
+      .from(schema.documentSyncLinks)
+      .where(eq(schema.documentSyncLinks.documentId, id));
+    return row;
+  }
+
+  function switchMidway(id: string) {
+    notionApi.midway = async () => {
+      await switching.switchPageToLiveCopy(id, { ctx });
+    };
+  }
+
+  it("refuses a link whose page switched after the link's own check, and installs no link", async () => {
+    const id = await insertPage(stored);
+    switchMidway(id);
+
+    const refusal = await as(ownerEmail, () =>
+      notionSync.linkDocumentToNotionPage(
+        ownerEmail,
+        id,
+        notionApi.linkedPageId,
+      ),
+    ).catch((error: unknown) => error);
+
+    expect(notionApi.midway).toBeUndefined();
+    expect(refusal).toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: id, operation: "Notion link" },
+    });
+    expect(await linkRow(id)).toBeUndefined();
+    expect((await page(id)).liveBodySwitchedAt).not.toBeNull();
+  });
+
+  it("names the Notion page it made when its page switched meanwhile, and links nothing", async () => {
+    const id = await insertPage(stored);
+    switchMidway(id);
+
+    const refusal = await as(ownerEmail, () =>
+      notionSync.createAndLinkNotionPage(
+        ownerEmail,
+        id,
+        notionApi.linkedPageId,
+      ),
+    ).catch((error: unknown) => error);
+
+    expect(notionApi.midway).toBeUndefined();
+    expect(refusal).toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: {
+        documentId: id,
+        operation: "Notion link",
+        remotePageId: notionApi.createdPageId,
+      },
+    });
+    expect(await linkRow(id)).toBeUndefined();
+  });
+
+  it("refuses the next pull and push, typed, on a switched page that has a link anyway", async () => {
+    const id = await insertPage(stored);
+    await as(ownerEmail, () => switching.switchPageToLiveCopy(id, { ctx }));
+    await getDb().insert(schema.documentSyncLinks).values({
+      documentId: id,
+      ownerEmail,
+      remotePageId: notionApi.linkedPageId,
+    });
+    const switched = await page(id);
+
+    for (const write of [
+      () => notionSync.pullDocumentFromNotion(ownerEmail, id, true),
+      () => notionSync.pushDocumentToNotion(ownerEmail, id, true),
+    ]) {
+      await expect(as(ownerEmail, write)).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+        statusCode: 409,
+      });
+    }
+    expect(await page(id)).toMatchObject({
+      content: switched.content,
+      bodyRevision: switched.bodyRevision,
+    });
+  });
+
+  it("links and pulls as before for an owner without the writer's flags", async () => {
+    const id = await insertPage(stored, { ownerEmail: gateOffEmail });
+
+    await as(gateOffEmail, () =>
+      notionSync.linkDocumentToNotionPage(
+        gateOffEmail,
+        id,
+        notionApi.linkedPageId,
+      ),
+    );
+
+    expect(await linkRow(id)).toMatchObject({
+      remotePageId: notionApi.linkedPageId,
+    });
+    expect((await page(id)).content).toBe(notionApi.remoteContent);
+  });
+});
+
 describe("the backfill sweep", () => {
   beforeEach(async () => {
     await getDb().delete(schema.documentSyncLinks);
@@ -495,6 +696,143 @@ describe("the backfill sweep", () => {
       now,
     });
   }
+
+  async function sweepState() {
+    return (await getSetting("content-live-body-backfill-sweep")) as {
+      after: string | null;
+      inFlight: { documentId: string } | null;
+      held: Record<
+        string,
+        { reason: string; attempts: number; retryAfter: string }
+      >;
+    } | null;
+  }
+
+  it("resumes after the last page it finished when a sweep dies mid-batch, and holds the page it died on", async () => {
+    const [first, second, dying, last] = [
+      await insertPage(stored, { id: "interrupt-1" }),
+      await insertPage(stored, { id: "interrupt-2" }),
+      await insertPage(stored, { id: "interrupt-3" }),
+      await insertPage(stored, { id: "interrupt-4" }),
+    ];
+    let reachedDying!: () => void;
+    const dyingReached = new Promise<void>((resolve) => {
+      reachedDying = resolve;
+    });
+    const tried: string[] = [];
+    // Never awaited: this sweep's process is killed while it converts `dying`.
+    void backfill.runLiveBodyBackfillSweep({
+      deadlineAt: Date.now() + 90_000,
+      convert: (id, options) => {
+        tried.push(id);
+        if (id !== dying)
+          return backfill.convertPageToLiveCopyIfDue(id, options);
+        reachedDying();
+        return new Promise(() => {});
+      },
+    });
+    await dyingReached;
+    expect(await sweepState()).toMatchObject({
+      after: second,
+      inFlight: { documentId: dying },
+    });
+
+    // Its lease still runs, so another sweep stays off the pass.
+    await expect(sweep()).resolves.toMatchObject({ status: "busy" });
+
+    const later = Date.now() + 2 * 60_000;
+    const report = await sweep(later);
+
+    expect(report).toMatchObject({
+      status: "ran",
+      scanned: 2,
+      held: 1,
+      interrupted: dying,
+      outcomes: { converted: 1 },
+      failed: [],
+      passComplete: true,
+    });
+    expect(tried).toEqual([first, second, dying]);
+    for (const id of [first, second, last]) {
+      expect((await page(id)).liveBodySwitchedAt).not.toBeNull();
+    }
+    expect(await page(dying)).toMatchObject({ liveBodySwitchedAt: null });
+    expect((await sweepState())?.held).toEqual({
+      [dying]: {
+        reason: "interrupted",
+        error: null,
+        attempts: 1,
+        retryAfter: new Date(later + 60 * 60_000).toISOString(),
+      },
+    });
+  });
+
+  it("holds a page that keeps failing until its retry time, and the pass goes on without it", async () => {
+    const failing = await insertPage(stored, { id: "keeps-failing-1" });
+    const fine = await insertPage(stored, { id: "keeps-failing-2" });
+    const tried: string[] = [];
+    const convert: typeof backfill.convertPageToLiveCopyIfDue = (
+      id,
+      options,
+    ) => {
+      tried.push(id);
+      if (id === failing) throw new Error("The conversion broke.");
+      return backfill.convertPageToLiveCopyIfDue(id, options);
+    };
+    const run = (now: number) =>
+      backfill.runLiveBodyBackfillSweep({
+        deadlineAt: Date.now() + 90_000,
+        now,
+        convert,
+      });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const start = Date.now();
+      await expect(run(start)).resolves.toMatchObject({
+        outcomes: { converted: 1 },
+        failed: [{ documentId: failing, error: "The conversion broke." }],
+        held: 0,
+        passComplete: true,
+      });
+      expect((await sweepState())?.held[failing]).toEqual({
+        reason: "failed",
+        error: "The conversion broke.",
+        attempts: 1,
+        retryAfter: new Date(start + 60 * 60_000).toISOString(),
+      });
+
+      // Its hour is up by the next pass, so that pass tries it again, and
+      // waits two hours after this failure.
+      const nextPass = start + 61 * 60_000;
+      await expect(run(nextPass)).resolves.toMatchObject({
+        failed: [{ documentId: failing }],
+        held: 0,
+        passComplete: true,
+      });
+      expect((await sweepState())?.held[failing]).toMatchObject({
+        attempts: 2,
+        retryAfter: new Date(nextPass + 2 * 60 * 60_000).toISOString(),
+      });
+
+      // The pass after that passes over it.
+      await expect(run(nextPass + 61 * 60_000)).resolves.toMatchObject({
+        failed: [],
+        held: 1,
+        passComplete: true,
+      });
+      expect(tried).toEqual([failing, fine, failing]);
+      expect(
+        logged.mock.calls.filter(([message]) =>
+          String(message).startsWith("[content-live-body-backfill] page"),
+        ),
+      ).toHaveLength(2);
+    } finally {
+      logged.mockRestore();
+    }
+    expect((await page(fine)).liveBodySwitchedAt).not.toBeNull();
+    expect(await page(failing)).toMatchObject({ liveBodySwitchedAt: null });
+  });
 
   it("reads no pages while no one has the backfill flag on", async () => {
     const id = await insertPage(stored);
@@ -525,6 +863,8 @@ describe("the backfill sweep", () => {
       status: "ran",
       scanned: 6,
       passedOver: 3,
+      held: 0,
+      interrupted: null,
       outcomes: {
         converted: 1,
         "skipped:flag_off": 1,
@@ -618,14 +958,21 @@ describe("the backfill sweep", () => {
       passComplete: true,
     });
     expect(await page(broken)).toMatchObject({ liveBodySwitchedAt: null });
+    expect((await sweepState())?.held[broken]).toMatchObject({
+      reason: "failed",
+      attempts: 1,
+    });
     expect((await page(fine)).liveBodySwitchedAt).not.toBeNull();
   });
 
   it("throws on sweep state it can't read rather than starting the pass over", async () => {
     await putSetting("content-live-body-backfill-sweep", {
-      version: 1,
+      version: 2,
       after: 42,
       passCompletedAt: null,
+      run: null,
+      inFlight: null,
+      held: {},
     });
 
     await expect(sweep()).rejects.toThrow(/sweep state is unreadable/);

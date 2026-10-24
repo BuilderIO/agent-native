@@ -436,9 +436,9 @@ function syncLinkValues(args: SyncLinkArgs) {
   };
 }
 
-async function upsertSyncLink(args: SyncLinkArgs) {
+async function upsertSyncLink(args: SyncLinkArgs, db = getDb()) {
   const values = syncLinkValues(args);
-  await getDb()
+  await db
     .insert(schema.documentSyncLinks)
     .values({ ...values, createdAt: nowIso() })
     .onConflictDoUpdate({
@@ -446,6 +446,22 @@ async function upsertSyncLink(args: SyncLinkArgs) {
       set: values,
     });
   return values;
+}
+
+/**
+ * Links an existing page to a Notion page under the page's row lock. A
+ * switch to the live copy rechecks the page's links under that lock, so it
+ * either sees this link and refuses, or switched first and this refuses with
+ * LIVE_BODY_WRITER_UNSUPPORTED.
+ */
+async function installSyncLink(args: SyncLinkArgs) {
+  return getDb().transaction(async (tx) => {
+    await lockLegacyBodyWrites(tx, [args.documentId], {
+      operation: "Notion link",
+      content: null,
+    });
+    return upsertSyncLink(args, tx);
+  });
 }
 
 async function loadRemotePageDocumentLookup(
@@ -862,7 +878,7 @@ export async function linkDocumentToNotionPage(
   const pageId = normalizeNotionPageId(pageIdOrUrl);
   const page = await fetchNotionPage(connection.accessToken, pageId);
   const previousLink = await getSyncLink(documentId, owner);
-  const installed = await upsertSyncLink({
+  const installed = await installSyncLink({
     owner,
     documentId,
     remotePageId: page.id,
@@ -1632,16 +1648,32 @@ export async function createAndLinkNotionPage(
     icon: document.icon,
   });
 
-  await upsertSyncLink({
-    owner,
-    documentId,
-    remotePageId: newPage.id,
-    state: "linked",
-    lastPushedLocalUpdatedAt: document.updatedAt,
-    lastSyncedContentHash: hashContent(document.content),
-    warnings: [],
-    hasConflict: false,
-  });
+  try {
+    await installSyncLink({
+      owner,
+      documentId,
+      remotePageId: newPage.id,
+      state: "linked",
+      lastPushedLocalUpdatedAt: document.updatedAt,
+      lastSyncedContentHash: hashContent(document.content),
+      warnings: [],
+      hasConflict: false,
+    });
+  } catch (error) {
+    if (!isUnsupportedBodyWriter(error)) throw error;
+    throw new ActionContractError(
+      `Created Notion page ${newPage.id} from page ${documentId}, but the page took its live copy meanwhile, so it isn't linked: a page on its live copy can't take Notion's copy of its body yet.`,
+      {
+        errorCode: error.errorCode,
+        statusCode: 409,
+        details: {
+          documentId,
+          operation: "Notion link",
+          remotePageId: newPage.id,
+        },
+      },
+    );
+  }
 
   try {
     return await pullDocumentFromNotion(owner, documentId, true);

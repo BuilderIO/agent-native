@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
   LiveCopyError,
@@ -5,8 +7,8 @@ import {
 } from "@agent-native/core/collab";
 import { getDbExec } from "@agent-native/core/db";
 import { hasActiveFeatureFlagRollout } from "@agent-native/core/feature-flags";
-import { getSetting, putSetting } from "@agent-native/core/settings";
-import { asc, eq, gt, sql } from "drizzle-orm";
+import { mutateSetting } from "@agent-native/core/settings";
+import { asc, eq, gt, inArray, sql } from "drizzle-orm";
 
 import { LIVE_BODY_BACKFILL_FLAG } from "../../shared/feature-flags.js";
 import { getDb, schema } from "../db/index.js";
@@ -27,8 +29,9 @@ import { switchPageToLiveCopy } from "./switch.js";
 
 // Stored-form backfill (lane L6b): pages whose owner has the backfill flag on,
 // with both of the writer's, are switched to their live copy without a manual
-// switch. An editor's first open switches its page before the editor binds,
-// and a recurring sweep switches idle pages. Each switch is
+// switch. An editor that has loaded a page it can edit asks for it through
+// `convert-page-to-live-copy-if-due`, and a recurring sweep switches idle
+// pages. Each switch is
 // `switchPageToLiveCopy`'s conversion: History checkpoint, body revision,
 // pending suggestions and comment quotes re-baselined, live copy seeded or
 // matched. Neither path runs at cold start.
@@ -79,7 +82,7 @@ const DEFERRED_LIVE_COPY_CODES: ReadonlySet<LiveCopyErrorCode> = new Set([
 async function readPage(
   documentId: string,
 ): Promise<BackfillPageRow | undefined> {
-  // guard:allow-unscoped — the editor's open checked access, and the sweep acts for each page's owner; this reads only write-path columns.
+  // guard:allow-unscoped — convert-page-to-live-copy-if-due checks editor access, and the sweep acts for each page's owner; this reads only write-path columns.
   const [page] = await getDb()
     .select({
       ...liveBodyWriterPageColumns(),
@@ -133,8 +136,8 @@ export async function convertPageToLiveCopyIfDue(
   documentId: string,
   options: { ctx?: ActionRunContext; flagsOn?: FlagsOn } = {},
 ): Promise<LiveBodyBackfillOutcome> {
-  // An editor opens a page through here, so while no one has the flag on,
-  // that costs one settings read rather than the page's own flag reads.
+  // While no one has the flag on, a call costs one settings read rather than
+  // the page's own flag reads.
   if (!(await hasActiveFeatureFlagRollout(LIVE_BODY_BACKFILL_FLAG.key))) {
     return { status: "skipped", reason: "flag_off" };
   }
@@ -174,53 +177,201 @@ const SWEEP_STATE_KEY = "content-live-body-backfill-sweep";
 // Pages read per sweep, in id order. The sweep reads no more than this, so a
 // pass over a large table takes many sweeps rather than one long query.
 const SCAN_BATCH = 200;
-const CONVERSIONS_PER_SWEEP = 25;
+// Pages tried per sweep. Each try writes the sweep state first.
+const ATTEMPTS_PER_SWEEP = 25;
 // A page saved this recently may still have a tab's save in flight.
 const IDLE_MS = 10 * 60_000;
 // After a full pass, the sweep rests this long before starting another.
 const PASS_REST_MS = 60 * 60_000;
 // Leaves room for one conversion's worker deadline before the sweep's own.
 const DEADLINE_MARGIN_MS = 15_000;
+// A held page waits this long for its next try, twice as long after each
+// failure, up to HOLD_MAX_MS.
+const HOLD_BASE_MS = 60 * 60_000;
+const HOLD_MAX_MS = 24 * 60 * 60_000;
+// More held pages than this is a bug to fix, not pages to pass over, so the
+// sweep stops rather than holding another.
+const HELD_LIMIT = 100;
+const HELD_ERROR_LENGTH = 500;
 
-interface SweepState {
-  version: 1;
-  /** The last page id the pass reached; null at the start of a pass. */
+type HeldPage = {
+  reason:
+    | "failed"
+    /** The sweep trying it stopped before it finished: killed or out of time. */
+    | "interrupted";
+  error: string | null;
+  attempts: number;
+  retryAfter: string;
+};
+
+type SweepState = {
+  version: 2;
+  /** The last page id the pass finished; null at the start of a pass. */
   after: string | null;
   passCompletedAt: string | null;
-}
+  /** The sweep running now. Another sweep waits until its lease ends. */
+  run: { id: string; leaseUntil: string } | null;
+  /** The page that sweep is trying. Still set once its lease ends, that sweep died on it. */
+  inFlight: { documentId: string; startedAt: string } | null;
+  /** Pages the sweep passes over until their `retryAfter`. */
+  held: Record<string, HeldPage>;
+};
 
-function parseSweepState(value: Record<string, unknown> | null): SweepState {
-  if (value === null) return { version: 1, after: null, passCompletedAt: null };
-  const { version, after, passCompletedAt } = value;
-  if (
-    version !== 1 ||
-    (after !== null && typeof after !== "string") ||
-    (passCompletedAt !== null &&
-      (typeof passCompletedAt !== "string" ||
-        Number.isNaN(Date.parse(passCompletedAt))))
-  ) {
-    throw new Error(
+class SweepStateUnreadable extends Error {
+  constructor(value: unknown) {
+    super(
       `The live-body backfill's sweep state is unreadable: ${JSON.stringify(value)}.`,
     );
   }
-  return { version: 1, after, passCompletedAt };
+}
+
+/** Another sweep took the pass over once this one's lease ended. */
+class SweepLeaseLost extends Error {}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isTime(value: unknown): value is string {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value));
+}
+
+function parseHeldPage(value: unknown): HeldPage | undefined {
+  if (!isRecord(value)) return undefined;
+  const { reason, error, attempts, retryAfter } = value;
+  if (
+    (reason !== "failed" && reason !== "interrupted") ||
+    (error !== null && typeof error !== "string") ||
+    typeof attempts !== "number" ||
+    !Number.isSafeInteger(attempts) ||
+    attempts < 1 ||
+    !isTime(retryAfter)
+  ) {
+    return undefined;
+  }
+  return { reason, error, attempts, retryAfter };
+}
+
+function parseSweepState(value: Record<string, unknown> | null): SweepState {
+  if (value === null) {
+    return {
+      version: 2,
+      after: null,
+      passCompletedAt: null,
+      run: null,
+      inFlight: null,
+      held: {},
+    };
+  }
+  const { version, after, passCompletedAt, run, inFlight, held } = value;
+  if (
+    version !== 2 ||
+    (after !== null && typeof after !== "string") ||
+    (passCompletedAt !== null && !isTime(passCompletedAt)) ||
+    (run !== null &&
+      !(
+        isRecord(run) &&
+        typeof run.id === "string" &&
+        isTime(run.leaseUntil)
+      )) ||
+    (inFlight !== null &&
+      !(
+        isRecord(inFlight) &&
+        typeof inFlight.documentId === "string" &&
+        isTime(inFlight.startedAt)
+      )) ||
+    !isRecord(held)
+  ) {
+    throw new SweepStateUnreadable(value);
+  }
+  const heldPages: Record<string, HeldPage> = {};
+  for (const [documentId, entry] of Object.entries(held)) {
+    const heldPage = parseHeldPage(entry);
+    if (!heldPage) throw new SweepStateUnreadable(value);
+    heldPages[documentId] = heldPage;
+  }
+  return {
+    version: 2,
+    after,
+    passCompletedAt,
+    run:
+      run === null
+        ? null
+        : { id: run.id as string, leaseUntil: run.leaseUntil as string },
+    inFlight:
+      inFlight === null
+        ? null
+        : {
+            documentId: inFlight.documentId as string,
+            startedAt: inFlight.startedAt as string,
+          },
+    held: heldPages,
+  };
+}
+
+function holdPage(
+  previous: HeldPage | undefined,
+  reason: HeldPage["reason"],
+  error: string | null,
+  now: number,
+): HeldPage {
+  const attempts = (previous?.attempts ?? 0) + 1;
+  const wait = Math.min(HOLD_BASE_MS * 2 ** (attempts - 1), HOLD_MAX_MS);
+  return {
+    reason,
+    error,
+    attempts,
+    retryAfter: new Date(now + wait).toISOString(),
+  };
+}
+
+// A held page that was deleted would keep its place for good.
+async function dropDeletedPages(held: Record<string, HeldPage>) {
+  const ids = Object.keys(held);
+  if (ids.length === 0) return;
+  // guard:allow-unscoped — reads only which held page ids still exist.
+  const rows = await getDb()
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(inArray(schema.documents.id, ids));
+  const existing = new Set(rows.map((row) => row.id));
+  for (const id of ids) {
+    if (!existing.has(id)) delete held[id];
+  }
 }
 
 export type LiveBodyBackfillSweepReport =
   /** No organization or user has the backfill flag on. */
   | { status: "off" }
   | { status: "resting"; passCompletedAt: string }
+  /** Another sweep holds the pass until its lease ends. */
+  | { status: "busy"; leaseUntil: string }
   | {
       status: "ran";
       scanned: number;
       /** Pages the sweep read but didn't try: switched, in Trash, ineligible, recently saved. */
       passedOver: number;
+      /** Pages passed over because they're held until a later try. */
+      held: number;
+      /** The page the last sweep died on, held from now on. */
+      interrupted: string | null;
       outcomes: Record<string, number>;
       failed: Array<{ documentId: string; error: string }>;
       after: string | null;
       passComplete: boolean;
-      stoppedEarly: "deadline" | "aborted" | "conversions" | null;
+      stoppedEarly:
+        | "deadline"
+        | "aborted"
+        | "attempts"
+        | "held_limit"
+        | "lease_lost"
+        | null;
     };
+
+type SweepStop = Extract<
+  LiveBodyBackfillSweepReport,
+  { status: "ran" }
+>["stoppedEarly"];
 
 function outcomeKey(outcome: LiveBodyBackfillOutcome): string {
   if (outcome.status === "converted" || outcome.status === "current")
@@ -232,27 +383,73 @@ function outcomeKey(outcome: LiveBodyBackfillOutcome): string {
 
 /**
  * One sweep of the backfill: reads the next pages in id order and switches
- * the idle, eligible ones whose owner has the backfill flags on. Resumes where
- * the last sweep stopped, and rests after a full pass. A page that throws is
- * listed in `failed` and logged, and the sweep goes on to the next.
+ * the idle, eligible ones whose owner has the backfill flags on. Resumes after
+ * the last page a sweep finished, and rests after a full pass. Before each
+ * try it records the page it is about to try, so a sweep that dies there
+ * leaves that page for the next sweep to hold. A page that throws is listed
+ * in `failed`, logged and held, and the sweep goes on to the next.
  */
 export async function runLiveBodyBackfillSweep(context: {
   deadlineAt: number;
   signal?: AbortSignal;
   now?: number;
+  convert?: typeof convertPageToLiveCopyIfDue;
 }): Promise<LiveBodyBackfillSweepReport> {
   if (!(await hasActiveFeatureFlagRollout(LIVE_BODY_BACKFILL_FLAG.key))) {
     return { status: "off" };
   }
   const now = context.now ?? Date.now();
-  const state = parseSweepState(await getSetting(SWEEP_STATE_KEY));
-  if (
-    state.after === null &&
-    state.passCompletedAt !== null &&
-    now - Date.parse(state.passCompletedAt) < PASS_REST_MS
-  ) {
-    return { status: "resting", passCompletedAt: state.passCompletedAt };
-  }
+  const runId = randomUUID();
+  type Claim =
+    | { status: "busy"; leaseUntil: string }
+    | { status: "resting"; passCompletedAt: string }
+    | { status: "claimed"; state: SweepState; interrupted: string | null };
+  let claim = undefined as Claim | undefined;
+  // Core starts the sweep on every site tick without waiting for the last
+  // one, so two sweeps can overlap; the lease keeps them off one pass.
+  await mutateSetting(SWEEP_STATE_KEY, (current) => {
+    const state = parseSweepState(current);
+    if (state.run && Date.parse(state.run.leaseUntil) > now) {
+      claim = { status: "busy", leaseUntil: state.run.leaseUntil };
+      return state;
+    }
+    if (
+      state.after === null &&
+      state.inFlight === null &&
+      state.passCompletedAt !== null &&
+      now - Date.parse(state.passCompletedAt) < PASS_REST_MS
+    ) {
+      claim = { status: "resting", passCompletedAt: state.passCompletedAt };
+      return state;
+    }
+    const held = { ...state.held };
+    const interrupted = state.inFlight?.documentId ?? null;
+    if (interrupted !== null) {
+      held[interrupted] = holdPage(held[interrupted], "interrupted", null, now);
+    }
+    const claimed: SweepState = {
+      ...state,
+      run: {
+        id: runId,
+        leaseUntil: new Date(context.deadlineAt).toISOString(),
+      },
+      inFlight: null,
+      held,
+    };
+    claim = { status: "claimed", state: claimed, interrupted };
+    return claimed;
+  });
+  if (!claim) throw new Error("The backfill sweep's claim recorded no answer.");
+  if (claim.status !== "claimed") return claim;
+  const { state, interrupted } = claim;
+  const held = { ...state.held };
+  const save = (next: Omit<SweepState, "version" | "held">) =>
+    mutateSetting(SWEEP_STATE_KEY, (current) => {
+      if (parseSweepState(current).run?.id !== runId) {
+        throw new SweepLeaseLost();
+      }
+      return { version: 2, ...next, held: { ...held } } satisfies SweepState;
+    });
 
   // guard:allow-unscoped — the sweep acts for each page's owner, gated by that owner's flags; it reads write-path columns only.
   const pages = await getDb()
@@ -282,13 +479,38 @@ export async function runLiveBodyBackfillSweep(context: {
     }
     return on;
   };
+  const convert = context.convert ?? convertPageToLiveCopyIfDue;
   const idleBefore = now - IDLE_MS;
   const outcomes: Record<string, number> = {};
   const failed: Array<{ documentId: string; error: string }> = [];
   let passedOver = 0;
-  let conversions = 0;
+  let heldOver = 0;
+  let attempts = 0;
   let reached: string | null = state.after;
-  let stoppedEarly: "deadline" | "aborted" | "conversions" | null = null;
+  let stoppedEarly: SweepStop = null;
+  // Lists and holds a page that threw. False when the sweep stops instead,
+  // because HELD_LIMIT pages are held already.
+  const recordFailure = (documentId: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    failed.push({ documentId, error: message });
+    console.error(
+      `[${LIVE_BODY_BACKFILL_SWEEP_ID}] page ${documentId} failed:`,
+      error,
+    );
+    if (!held[documentId] && Object.keys(held).length >= HELD_LIMIT) {
+      console.error(
+        `[${LIVE_BODY_BACKFILL_SWEEP_ID}] ${HELD_LIMIT} pages are held already, so the sweep stops at page ${documentId}.`,
+      );
+      return false;
+    }
+    held[documentId] = holdPage(
+      held[documentId],
+      "failed",
+      message.slice(0, HELD_ERROR_LENGTH),
+      now,
+    );
+    return true;
+  };
 
   for (const page of pages) {
     if (context.signal?.aborted) {
@@ -299,61 +521,105 @@ export async function runLiveBodyBackfillSweep(context: {
       stoppedEarly = "deadline";
       break;
     }
-    if (conversions >= CONVERSIONS_PER_SWEEP) {
-      stoppedEarly = "conversions";
+    if (attempts >= ATTEMPTS_PER_SWEEP) {
+      stoppedEarly = "attempts";
       break;
     }
-    reached = page.id;
     const eligible = Number(page.eligible);
     if (eligible !== 0 && eligible !== 1) {
       throw new Error(
         `Page ${page.id}'s eligibility check answered ${String(page.eligible)}.`,
       );
     }
-    const updatedAt = Date.parse(page.updatedAt);
     if (
       page.trashedAt ||
       eligible === 0 ||
-      (page.liveBodySwitchedAt &&
-        page.collabBodyRevision === page.bodyRevision) ||
-      !(updatedAt < idleBefore)
+      (page.liveBodySwitchedAt && page.collabBodyRevision === page.bodyRevision)
     ) {
+      // Nothing is left to try on it, so nothing is left to hold.
+      delete held[page.id];
       passedOver += 1;
+      reached = page.id;
       continue;
     }
+    if (!(Date.parse(page.updatedAt) < idleBefore)) {
+      passedOver += 1;
+      reached = page.id;
+      continue;
+    }
+    const heldPage = held[page.id];
+    if (heldPage && Date.parse(heldPage.retryAfter) > now) {
+      heldOver += 1;
+      reached = page.id;
+      continue;
+    }
+    let pageFlagsOn: boolean;
     try {
-      if (!(await flagsOn(page))) {
-        outcomes["skipped:flag_off"] = (outcomes["skipped:flag_off"] ?? 0) + 1;
-        continue;
+      pageFlagsOn = await flagsOn(page);
+    } catch (error) {
+      if (!recordFailure(page.id, error)) {
+        stoppedEarly = "held_limit";
+        break;
       }
-      const outcome = await convertPageToLiveCopyIfDue(page.id, { flagsOn });
+      reached = page.id;
+      continue;
+    }
+    if (!pageFlagsOn) {
+      outcomes["skipped:flag_off"] = (outcomes["skipped:flag_off"] ?? 0) + 1;
+      reached = page.id;
+      continue;
+    }
+    attempts += 1;
+    try {
+      await save({
+        after: reached,
+        passCompletedAt: state.passCompletedAt,
+        run: state.run,
+        inFlight: { documentId: page.id, startedAt: new Date().toISOString() },
+      });
+    } catch (error) {
+      if (!(error instanceof SweepLeaseLost)) throw error;
+      stoppedEarly = "lease_lost";
+      break;
+    }
+    try {
+      const outcome = await convert(page.id, { flagsOn });
       const key = outcomeKey(outcome);
       outcomes[key] = (outcomes[key] ?? 0) + 1;
-      if (outcome.status === "converted") conversions += 1;
+      delete held[page.id];
     } catch (error) {
-      failed.push({
-        documentId: page.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      console.error(
-        `[${LIVE_BODY_BACKFILL_SWEEP_ID}] page ${page.id} failed:`,
-        error,
-      );
+      if (!recordFailure(page.id, error)) {
+        stoppedEarly = "held_limit";
+        break;
+      }
     }
+    reached = page.id;
   }
 
-  const passComplete = stoppedEarly === null && pages.length < SCAN_BATCH;
-  await putSetting(SWEEP_STATE_KEY, {
-    version: 1,
-    after: passComplete ? null : reached,
-    passCompletedAt: passComplete
-      ? new Date(now).toISOString()
-      : state.passCompletedAt,
-  } satisfies SweepState);
+  let passComplete = stoppedEarly === null && pages.length < SCAN_BATCH;
+  if (stoppedEarly !== "lease_lost") {
+    if (passComplete) await dropDeletedPages(held);
+    try {
+      await save({
+        after: passComplete ? null : reached,
+        passCompletedAt: passComplete
+          ? new Date(now).toISOString()
+          : state.passCompletedAt,
+        run: null,
+        inFlight: null,
+      });
+    } catch (error) {
+      if (!(error instanceof SweepLeaseLost)) throw error;
+      stoppedEarly = "lease_lost";
+      passComplete = false;
+    }
+  }
   const report: LiveBodyBackfillSweepReport = {
     status: "ran",
     scanned: pages.length,
     passedOver,
+    held: heldOver,
+    interrupted,
     outcomes,
     failed,
     after: passComplete ? null : reached,

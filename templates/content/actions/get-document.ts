@@ -16,7 +16,6 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { liveBodyWriterGate } from "../server/lib/live-body-writer.js";
-import { convertPageToLiveCopyIfDue } from "../server/live-copy/backfill.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   getDatabaseByDocumentId,
@@ -126,16 +125,6 @@ export default defineAction({
       access?.resource.sourceMode === "github" &&
       !access.resource.trashedAt &&
       (await refreshGitHubPageBeforeRead(access.resource.id))
-    ) {
-      access = await resolveDocumentAccess(args.id);
-    }
-    if (
-      access &&
-      !access.resource.trashedAt &&
-      args.includePreviewDraft === true &&
-      canEditRole(access.role) &&
-      (await convertPageToLiveCopyIfDue(access.resource.id, { ctx })).status ===
-        "converted"
     ) {
       access = await resolveDocumentAccess(args.id);
     }
