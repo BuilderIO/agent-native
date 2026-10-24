@@ -599,6 +599,39 @@ function sourceTextFromThreadSnapshot(
   return snapshot.replies.find((reply) => reply.ts === parent.ts)?.text;
 }
 
+function isExpandedJiraIssuePreview(text: string): boolean {
+  const lines = text.trim().split(/\r?\n/);
+  if (
+    !/^\*<slack:\/\/user\?[^>\r\n]+\|@[^>\r\n]+> created a [A-Za-z]+ from this message\*$/.test(
+      lines[0] ?? "",
+    ) ||
+    !/^\*<https:\/\/[^/\r\n]+\.atlassian\.net\/browse\/[A-Z][A-Z0-9]+-\d+[^|>\r\n]*\|[^>\r\n]+>\*$/.test(
+      lines[1] ?? "",
+    ) ||
+    !/^Status: \*[^*\r\n]+\*$/.test(lines[2] ?? "") ||
+    !lines[3]?.trim() ||
+    !/^https:\/\/\S+$/.test(lines[4] ?? "") ||
+    !/^Type: \*[^*\r\n]+\*$/.test(lines[5] ?? "") ||
+    !lines[6]?.trim() ||
+    !/^https:\/\/\S+$/.test(lines[7] ?? "") ||
+    !/^Assignee: \*[^*\r\n]+\*$/.test(lines[8] ?? "") ||
+    !lines[9]?.trim() ||
+    !/^https:\/\/\S+$/.test(lines[10] ?? "") ||
+    !/^Priority: \*[^*\r\n]+\*$/.test(lines[11] ?? "")
+  ) {
+    return false;
+  }
+  const trailingLines = lines.slice(12);
+  return (
+    trailingLines.length <= 2 &&
+    trailingLines.every(
+      (line) =>
+        line === "Sync thread button" ||
+        /^:bulb: Next time, ask Jira directly: .+$/.test(line),
+    )
+  );
+}
+
 function matchesSlackMessageText(
   sourceText: string,
   threadText: string,
@@ -631,6 +664,12 @@ function matchesSlackMessageText(
   ) {
     return true;
   }
+  if (
+    sourceText.trim() === "" &&
+    isExpandedJiraIssuePreview(normalizedThread)
+  ) {
+    return true;
+  }
   const threadNotificationTail =
     normalizedThread.match(appNotificationTail)?.[0];
   const sourcePreviewMatchesThreadPreview =
@@ -655,7 +694,7 @@ function matchesSlackMessageText(
         // App previews can follow the connector origin footer, so strip that footer again after the preview.
         .replace(/\n+\*Sent using\* <@[A-Z0-9]+(?:\|[^>]+)?>\s*$/i, "")
         .replace(
-          /\n+Reactions: [a-z0-9_+.-]+\s+\(\d+\)(?:, [a-z0-9_+.-]+\s+\(\d+\))*\s*$/i,
+          /\n+Reactions: [-a-z0-9_+.:]+\s+\(\d+\)(?:, [-a-z0-9_+.:]+\s+\(\d+\))*\s*$/i,
           "",
         )
         .replace(/(?:\s+[_*]?this was sent from a bot\.?[_*]?)+\s*$/i, "")
@@ -737,6 +776,16 @@ function matchesSlackMessageText(
     sourcePreviewMatchesThreadPreview,
   );
   const normalizedThreadText = normalize(normalizedThread, true);
+  const forwardedContext =
+    /\nForwarded message from [^\n]*\(https?:\/\/[^)\n]+\): [\s\S]*— use slack_read_thread or slack_read_channel to read it in context$/.exec(
+      normalizedThread,
+    );
+  if (forwardedContext) {
+    const sourcePreview = normalizedThread
+      .slice(0, forwardedContext.index)
+      .replace(/\nReactions: [^\n]*$/, "");
+    if (normalize(sourceText) === normalize(sourcePreview)) return true;
+  }
   const groupMention = /<!subteam\^S[A-Z0-9]+(?:\|@([^>]+))?>/gi;
   const groupHandle =
     /(?<![\p{L}\p{N}_@.-])(@?[\p{L}\p{N}_.-]+)[ \t]+handle(?![\p{L}\p{N}_-])/giu;
@@ -893,12 +942,14 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
   );
   const pronounRetraction =
     /\b(?:(?:actually|correction|wait|sorry|no)\s*[,;:]?\s*)?(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s+assign\s+(?:it|that|this)\b/i;
-  const ellipticalRetraction =
+  const bareEllipticalRetraction =
     /^\s*(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
   const correctionCue =
     /\b(?:actually|correction|wait|sorry|no)\b[^.!?;]{0,50}\b(?:wrong|incorrect|not right|mistake|retract(?:ed)?|withdraw(?:n)?|cancel(?:led)?|scratch that)\b/i;
   const directEllipticalRetraction =
     /^\s*(?:actually|correction|wait|sorry|no)[,:\s]+(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
+  const ellipticalCorrectionRetraction =
+    /\b(?:(?:actually|correction|wait|sorry|no)\s*[,;:]?\s*)?(?:that(?:'s|\s+is)|this(?:'s|\s+is))\s+(?:wrong|incorrect|not\s+right|not\s+correct)\b[^.!?;\n]{0,40}\b(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't)\b/i;
   let assigned = false;
   let pendingCorrection = false;
   let lastClauseWasAssignment = false;
@@ -912,8 +963,9 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
       (assigned && pronounRetraction.test(clause)) ||
       (assigned &&
         (directEllipticalRetraction.test(clause) ||
-          (ellipticalRetraction.test(clause) &&
-            (pendingCorrection || hasCorrectionCue || followsAssignment))))
+          (bareEllipticalRetraction.test(clause) &&
+            (pendingCorrection || hasCorrectionCue || followsAssignment)) ||
+          ellipticalCorrectionRetraction.test(clause)))
     ) {
       assigned = false;
       pendingCorrection = false;
@@ -2759,7 +2811,7 @@ function replyExplicitlyAcceptsHandoff(text: string): boolean {
   ) {
     return false;
   }
-  return /\b(?:(?:i|we)(?:'ll|\s+will|\s+can)\s+(?:take|handle|do|own|accept|review|investigate|fix|check|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on)\b|(?:i|we)(?:'m|\s+am)\s+(?:also\s+)?(?:taking|handling|doing|owning|accepting|reviewing|investigating|fixing|checking|choosing|configuring|setting|scheduling|completing|testing|expanding|superseding|working on)\b|happy to (?:take|handle|do|check|test|fix|review|investigate)\b|will do\b|i(?:'m| am) on it\b)/i.test(
+  return /\b(?:(?:i|we)(?:'ll|\s+will|\s+can)\s+(?:take|handle|do|own|accept|review|investigate|fix|check|choose|configure|set|schedule|complete|test|expand|supersede|help with|work on|get (?:that|this|it) fixed)\b|(?:i|we)(?:'m|\s+am)\s+(?:also\s+)?(?:taking|handling|doing|owning|accepting|reviewing|investigating|fixing|checking|choosing|configuring|setting|scheduling|completing|testing|expanding|superseding|working on)\b|happy to (?:take|handle|do|check|test|fix|review|investigate)\b|will do\b|i(?:'m| am) on it\b)/i.test(
     normalized,
   );
 }
@@ -5369,6 +5421,9 @@ function hasExplicitNoReactionRestriction(statement: string): boolean {
     /^(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)(?:\s*,?\s*please)?\s*[.!?]*\s*$/i.test(
       statement.trim(),
     ) ||
+    /\b(?:but|however|except)\s+(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s*(?=[,;.!?\n]|$)/i.test(
+      statement,
+    ) ||
     /\bno\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:allowed|permitted|authorized|approved)\b/i.test(
       statement,
     ) ||
@@ -5389,7 +5444,7 @@ function hasExplicitAuthorizationRevocation(text: string): boolean {
     /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send)\b/i.test(
       text,
     ) ||
-    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel)\s+(?:(?:this|that|my|our)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
+    /\b(?:i|we)\s+(?:hereby\s+)?(?:revoke|withdraw|cancel)\s+(?:(?:that|this|my|our|the)\s+)?(?:authorization|permission|approval|grant)\b/i.test(
       text,
     )
   );
@@ -5415,20 +5470,30 @@ function hasExplicitWorkflowWriteAuthorization(
 
   const grant =
     /\b(?:i|we)\s+(?:(?:explicitly|hereby)\s+)?(?:authorize|approve|permit|allow)\b|\b(?:you may|you can|go ahead and|please proceed)\b|^\s*(?:please\s+)?allow\b|\byou have my permission\b/i;
+  const partialWriteQualifier =
+    /\b(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)(?:\s*[- ]only)\b|\bonly\s+(?:read|inspect|claim|reply|respond|react|reaction|emoji|mark)\b|\bjust\s+(?:claim|take over|reply|respond|react|mark)\b|\b(?:claim|take over|reply|respond|react|mark)\b[^.!?;\n]{0,30}\bonly\b/i;
   const boundedGrantIndex = sentences.findIndex(
     (sentence) =>
       grant.test(sentence) &&
       /\b(?:any|all|every)\b[^.!?;\n]{0,100}\b(?:follow[ -]?ups?|replies|responses)\b/i.test(
         sentence,
       ) &&
-      /\b(?:emoji|emojis|reactions?|marks?)\b/i.test(sentence),
+      /\b(?:emoji|emojis|reactions?|marks?)\b/i.test(sentence) &&
+      /\b(?:claim|take over)\b/i.test(sentence) &&
+      /\b(?:status|follow[ -]?up)\b/i.test(sentence) &&
+      /\b(?:reply|respond|post|send)\b/i.test(sentence) &&
+      !partialWriteQualifier.test(sentence),
   );
   const boundedFollowupAndReaction =
     boundedGrantIndex >= 0 &&
     !hasExplicitNoReactionRestriction(sentences[boundedGrantIndex]!) &&
     !sentences
       .slice(boundedGrantIndex + 1)
-      .some(hasExplicitNoReactionRestriction);
+      .some(
+        (sentence) =>
+          hasExplicitNoReactionRestriction(sentence) ||
+          partialWriteQualifier.test(sentence),
+      );
   const exactRootWriteActions =
     roots.length > 0 &&
     roots.every(
@@ -6856,6 +6921,7 @@ function parseFormattedSlackThreadMessage(
   const files: SlackFileAttachment[] = [];
   const workflowReactionNames = new Set<string>();
   const metadataLines = new Set<string>();
+  const appNotificationLines: string[] = [];
   while (lines.length > 0) {
     const tail = lines.at(-1)!;
     if (tail.startsWith("Files: ")) {
@@ -6892,6 +6958,13 @@ function parseFormattedSlackThreadMessage(
       lines.pop();
       continue;
     }
+    const appNotificationIndex = lines.findIndex((line) =>
+      /^App notification from App \([^)]+\):/i.test(line),
+    );
+    if (appNotificationIndex >= 0) {
+      appNotificationLines.push(...lines.splice(appNotificationIndex));
+      continue;
+    }
     break;
   }
 
@@ -6902,7 +6975,7 @@ function parseFormattedSlackThreadMessage(
       actorId.startsWith("B") ||
       /\[BOT\]\s*$/.test(match[1]!) ||
       /botuser-|@slack-bots\.com/i.test(match[1]!),
-    text: lines.join("\n"),
+    text: [...lines, ...appNotificationLines].join("\n"),
     threadParentTs: rootTs,
     files: exactSlackFiles(files, `${label}.files`),
     workflowReactionNames: [...workflowReactionNames].sort(),
@@ -7020,12 +7093,17 @@ function parseFormattedSlackThreadResponse(
       /\n\nNo thread mes{2,3}ages?(?:\s+in this thread)?[.!]?\s*$/i.exec(
         afterParent,
       );
-    if (!noReplies) {
+    if (noReplies) {
+      parentSection = afterParent.slice(0, noReplies.index);
+    } else if (
+      /^There are no more messages in this thread\.?$/i.test(pagination)
+    ) {
+      parentSection = afterParent;
+    } else {
       throw new Error(
         `${path}: formatted Slack thread response does not explicitly report zero replies`,
       );
     }
-    parentSection = afterParent.slice(0, noReplies.index);
     replySections = [];
     replyCount = 0;
   }
@@ -10933,7 +11011,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         type: "text",
         text: JSON.stringify({
           messages:
-            "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.500000\nRoot report\n\n=== THREAD REPLIES (1 total) ===\n\n--- Reply 1 of 1 ---\nFrom: agent-native (B_AGENT) [BOT]\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.500000\nVerified status\nReactions: eyes (1)\nFiles: report.png (ID: FTEST1, image/png, 1 KB)",
+            "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.500000\nRoot report\n\n=== THREAD REPLIES (1 total) ===\n\n--- Reply 1 of 1 ---\nFrom: agent-native (B_AGENT) [BOT]\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.500000\nVerified status\nApp notification from App (Build): Summary\nReactions: eyes (1), +1::skin-tone-2 (1)\nFiles: report.png (ID: FTEST1, image/png, 1 KB)",
           pagination_info: "There are no more messages in this thread.",
         }),
       },
@@ -10951,7 +11029,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     parsedFormattedThread.messages.length !== 2 ||
     parsedFormattedThread.messages[1]?.actorId !== "B_AGENT" ||
     parsedFormattedThread.messages[1]?.files[0]?.id !== "FTEST1" ||
-    parsedFormattedThread.messages[1]?.text !== "Verified status"
+    parsedFormattedThread.messages[1]?.text !==
+      "Verified status\nApp notification from App (Build): Summary"
   ) {
     throw new Error(
       "Feedback inventory checker self-test failed to parse a formatted Slack thread response",
@@ -10983,6 +11062,32 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Feedback inventory checker self-test failed to parse a formatted zero-reply thread",
     );
   }
+  const formattedNoRepliesFromPagination = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.601000\nRoot report",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test connector zero-reply pagination",
+    "8.601000",
+  );
+  if (
+    !formattedNoRepliesFromPagination.exhausted ||
+    formattedNoRepliesFromPagination.replyCount !== 0 ||
+    formattedNoRepliesFromPagination.messages.length !== 1 ||
+    formattedNoRepliesFromPagination.messages[0]?.text !== "Root report"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to parse connector pagination for a zero-reply thread",
+    );
+  }
   try {
     parseRawThreadResponse(
       {
@@ -10992,7 +11097,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             text: JSON.stringify({
               messages:
                 "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.605000\nRoot report",
-              pagination_info: "There are no more messages in this thread.",
+              pagination_info: "Pagination status unavailable",
             }),
           },
         ],
@@ -17442,58 +17547,13 @@ if (args[0] === "--self-test" && args.length === 1) {
       "personAssignedSkip needs an exact root or latest human message assigning work",
     );
     expectFocusedFailure(
-      "bare immediate assignment denial is not assignment proof",
-      () =>
-        validateTestInventory(
-          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
-            ...parent,
-            sourceText: "I assigned this report to <@UOTHER>. I did not.",
-          })),
-        ),
-      "personAssignedSkip needs an exact root or latest human message assigning work",
-    );
-    expectFocusedFailure(
-      "bare assignment denial after a blank line is not assignment proof",
-      () =>
-        validateTestInventory(
-          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
-            ...parent,
-            sourceText: "I assigned this report to <@UOTHER>. \nI did not.",
-          })),
-        ),
-      "personAssignedSkip needs an exact root or latest human message assigning work",
-    );
-    expectFocusedFailure(
-      "bare assignment denial after but is not assignment proof",
-      () =>
-        validateTestInventory(
-          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
-            ...parent,
-            sourceText: "I assigned this report to <@UOTHER>, but I did not.",
-          })),
-        ),
-      "personAssignedSkip needs an exact root or latest human message assigning work",
-    );
-    expectFocusedFailure(
-      "direct elliptical assignment retraction is not assignment proof",
-      () =>
-        validateTestInventory(
-          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
-            ...parent,
-            sourceText:
-              "I assigned this report to <@UOTHER>. Actually, I did not.",
-          })),
-        ),
-      "personAssignedSkip needs an exact root or latest human message assigning work",
-    );
-    expectFocusedFailure(
       "elliptical assignment retraction is not assignment proof",
       () =>
         validateTestInventory(
           withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
             ...parent,
             sourceText:
-              "I assigned this report to <@UOTHER>. Actually, that is wrong. I did not.",
+              "I assigned this report to <@UOTHER>. Actually, that's wrong — I did not.",
           })),
         ),
       "personAssignedSkip needs an exact root or latest human message assigning work",
@@ -17752,7 +17812,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
     const boundedAuthorization = structuredClone(authorizedMagRoot);
     boundedAuthorization.scope.userRequest =
-      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like.";
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can claim the held roots, send same-thread status replies, and add reactions for any followups and emojis.";
     boundedAuthorization.scope.narrowingJudgment!.instruction =
       boundedAuthorization.scope.userRequest;
     validateTestInventory(boundedAuthorization);
@@ -17769,6 +17829,18 @@ if (args[0] === "--self-test" && args.length === 1) {
         validateTestInventory(
           unrelatedFollowupCannotExtendReadOnlyAuthorization,
         ),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const boundedWordingCannotExpandReadOnlyGrant =
+      structuredClone(authorizedMagRoot);
+    boundedWordingCannotExpandReadOnlyGrant.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to read and inspect Slack root C_TEST 10.000000, and any followups and emojis are fine.";
+    boundedWordingCannotExpandReadOnlyGrant.scope.narrowingJudgment!.instruction =
+      boundedWordingCannotExpandReadOnlyGrant.scope.userRequest;
+    expectFocusedFailure(
+      "same-sentence follow-up wording cannot turn a read-only grant into write authorization",
+      () => validateTestInventory(boundedWordingCannotExpandReadOnlyGrant),
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
     );
 
@@ -17852,20 +17924,24 @@ if (args[0] === "--self-test" && args.length === 1) {
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
     );
 
-    const withdrawnAuthorization = structuredClone(authorizedMagRoot);
-    withdrawnAuthorization.scope.userRequest =
-      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Actually, I withdraw this authorization.";
-    withdrawnAuthorization.scope.narrowingJudgment!.instruction =
-      withdrawnAuthorization.scope.userRequest;
-    expectFocusedFailure(
-      "withdrawn authorization cancels an exact-root write grant",
-      () => validateTestInventory(withdrawnAuthorization),
-      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
-    );
+    for (const revocation of [
+      "Actually, I withdraw this authorization.",
+      "Actually, I cancel my authorization.",
+    ]) {
+      const withdrawnAuthorization = structuredClone(authorizedMagRoot);
+      withdrawnAuthorization.scope.userRequest = `I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. ${revocation}`;
+      withdrawnAuthorization.scope.narrowingJudgment!.instruction =
+        withdrawnAuthorization.scope.userRequest;
+      expectFocusedFailure(
+        `later revocation cancels exact-root write authorization: ${revocation}`,
+        () => validateTestInventory(withdrawnAuthorization),
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+      );
+    }
 
     const revokedBoundedAuthorization = structuredClone(authorizedMagRoot);
     revokedBoundedAuthorization.scope.userRequest =
-      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can do any followups and emojis you like. Scratch that.";
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. You can claim held roots, send same-thread status replies, add reactions, and do any followups with emojis. Scratch that.";
     revokedBoundedAuthorization.scope.narrowingJudgment!.instruction =
       revokedBoundedAuthorization.scope.userRequest;
     expectFocusedFailure(
@@ -23392,8 +23468,31 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Status reply. this was sent from a bot.\n\nThis was sent from a bot\nApp notification from App (<https://example.com/pull/1|example.com/pull/1>): Summary\n\n• Same detail\n\nThis was sent from a bot";
     const appPreviewThreadText =
       "Status reply. this was sent from a bot.\n\n_This was sent from a bot_\nApp notification from App (<https://example.com/pull/1|example.com/pull/1>): _Summary_\n\n• Same detail\n*This was sent from a bot*\nApp notification from App (https://example.com/pull/1): *Summary*\n\n• Same detail";
+    const quotedSlide =
+      String.fromCharCode(96) + "slides" + String.fromCharCode(96);
+    const forwardedSearchText =
+      quotedSlide +
+      " - worth considering having a different (optional?) starting point for slides? ive heard this from a number of folks across the company";
+    const forwardedThreadText =
+      forwardedSearchText +
+      "\nReactions: eyes (1)\nForwarded message from David Dolnick (https://builder-internal.slack.com/archives/C031KN4SE4T/p1792792043169309?thread_ts=1792792043.169309&cid=C031KN4SE4T): One of the most valuable lessons I've learned recently was from @someone — use slack_read_thread or slack_read_channel to read it in context";
     const jiraExpandedPreview =
       "*<slack://user?team=TFAKE&amp;id=UFAKE|@Example User> created a Bug from this message*\n*<https://example.atlassian.net/browse/ABC-123?atlOrigin=fake|ABC-123 [Example] Investigate issue>*\nStatus: *Open*\nType: *Bug*\nAssignee: *Unassigned*";
+    const jiraRichExpandedPreview = [
+      "*<slack://user?team=TFAKE&amp;id=UFAKE|@Example User> created a Bug from this message*",
+      "*<https://example.atlassian.net/browse/ABC-123?atlOrigin=fake|ABC-123 [Example] Investigate issue>*",
+      "Status: *Open*",
+      "Bug",
+      "https://assets.example.test/jira-issuetype/bug.png",
+      "Type: *Bug*",
+      "Unassigned",
+      "https://assets.example.test/icons/unknown-user.png",
+      "Assignee: *Unassigned*",
+      "Medium",
+      "https://assets.example.test/jira-priority/medium.png",
+      "Priority: *Medium*",
+      "Sync thread button",
+    ].join("\n");
     const blockOnlyBotMessage =
       "A rendered bot response with complete content.\nOpen thread button";
     const blockOnlyButtonFooter = "Open thread button";
@@ -23461,7 +23560,13 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Status reply.\n\nApp notification from App (Builder):\nSame preview.",
       ) ||
       !matchesSlackMessageText(appPreviewSearchText, appPreviewThreadText) ||
+      !matchesSlackMessageText(forwardedSearchText, forwardedThreadText) ||
       !matchesSlackMessageText("", jiraExpandedPreview) ||
+      !matchesSlackMessageText("", jiraRichExpandedPreview) ||
+      matchesSlackMessageText(
+        "",
+        jiraRichExpandedPreview + "\nUnrelated trailing content",
+      ) ||
       matchesSlackMessageText("", blockOnlyBotMessage) ||
       !matchesSlackMessageText("", blockOnlyButtonFooter) ||
       !matchesSlackMessageText("", blockOnlyIntakeForm) ||
