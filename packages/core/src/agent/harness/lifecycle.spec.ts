@@ -14,6 +14,12 @@ const mocks = vi.hoisted(() => ({
   updateIfFollowUpClaim: vi.fn(),
   updateAtGeneration: vi.fn(),
   claimFollowUp: vi.fn(),
+  markFollowUpDispatched: vi.fn(),
+  renewFollowUpClaim: vi.fn(),
+  persistFollowUpEvent: vi.fn(),
+  persistApprovalEvent: vi.fn(),
+  listExpiredFollowUps: vi.fn(),
+  reconcileExpiredFollowUp: vi.fn(),
   startFollowUpDispatch: vi.fn(),
   markStopped: vi.fn(),
   markStoppedIfUnclaimed: vi.fn(),
@@ -38,6 +44,12 @@ vi.mock("./store.js", () => ({
   updateAgentHarnessSessionIfFollowUpClaim: mocks.updateIfFollowUpClaim,
   updateAgentHarnessSessionAtGeneration: mocks.updateAtGeneration,
   claimAgentHarnessSessionFollowUp: mocks.claimFollowUp,
+  markAgentHarnessSessionFollowUpDispatched: mocks.markFollowUpDispatched,
+  renewAgentHarnessSessionFollowUpClaim: mocks.renewFollowUpClaim,
+  persistAgentHarnessFollowUpEvent: mocks.persistFollowUpEvent,
+  persistAgentHarnessApprovalEvent: mocks.persistApprovalEvent,
+  listExpiredAgentHarnessFollowUps: mocks.listExpiredFollowUps,
+  reconcileExpiredAgentHarnessFollowUp: mocks.reconcileExpiredFollowUp,
   startAgentHarnessSessionFollowUpDispatch: mocks.startFollowUpDispatch,
   markAgentHarnessSessionStopped: mocks.markStopped,
   markAgentHarnessSessionStoppedIfUnclaimed: mocks.markStoppedIfUnclaimed,
@@ -131,24 +143,53 @@ describe("agent harness lifecycle", () => {
         return mocks.update(_id, patch);
       },
     );
-    mocks.claimFollowUp.mockImplementation(async (_id, generation, claimId) => {
-      if (
-        stored.generation !== generation ||
-        stored.status !== "idle" ||
-        stored.pendingApproval ||
-        stored.expiryCleanupId != null
-      ) {
-        return null;
-      }
-      stored = {
-        ...stored,
-        status: "running",
-        followUpClaimId: claimId,
-        generation: stored.generation + 1,
-        updatedAt: Date.now(),
-      };
-      return stored;
-    });
+    mocks.claimFollowUp.mockImplementation(
+      async (_id, generation, claimId, intent) => {
+        if (
+          stored.generation !== generation ||
+          stored.status !== "idle" ||
+          stored.pendingApproval ||
+          stored.expiryCleanupId != null
+        ) {
+          return null;
+        }
+        stored = {
+          ...stored,
+          status: "running",
+          followUpClaimId: claimId,
+          followUpId: intent.followUpId,
+          followUpPrompt: intent.prompt,
+          followUpMetadata: intent.metadata,
+          followUpClaimExpiresAt: intent.claimExpiresAt,
+          followUpDeadlineAt: intent.deadlineAt,
+          followUpDispatchedAt: null,
+          followUpOutcome: null,
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        return stored;
+      },
+    );
+    mocks.markFollowUpDispatched.mockImplementation(
+      async (_id, generation, claimId, now = Date.now()) => {
+        if (
+          stored.status !== "running" ||
+          stored.followUpClaimId !== claimId ||
+          stored.generation !== generation
+        ) {
+          return null;
+        }
+        stored = {
+          ...stored,
+          followUpDispatchedAt: now,
+          generation: stored.generation + 1,
+          updatedAt: now,
+        };
+        return stored;
+      },
+    );
+    mocks.renewFollowUpClaim.mockResolvedValue(true);
+    mocks.persistFollowUpEvent.mockResolvedValue(undefined);
     mocks.startFollowUpDispatch.mockImplementation(
       async (_id, expectedGeneration, claimId, start) => {
         if (
@@ -452,6 +493,62 @@ describe("agent harness lifecycle", () => {
     expect(result.ok).toBe(true);
     expect(session.detach).toHaveBeenCalledOnce();
     expect(stored.resumeState).toEqual({ token: "next" });
+  });
+
+  it("journals approval continuation events before forwarding them", async () => {
+    const { approve: _approve, ...baseSession } = fakeSession();
+    const session = {
+      ...baseSession,
+      continueTurn: vi.fn(async function* () {
+        yield {
+          type: "text-delta",
+          text: "Approval accepted",
+        } as AgentHarnessEvent;
+        yield {
+          type: "tool-start",
+          callId: "call-1",
+          name: "write_file",
+          input: { path: "notes.txt" },
+        } as AgentHarnessEvent;
+        yield { type: "done" } as AgentHarnessEvent;
+      }),
+    };
+    const approvalId = "approval-continuation-transcript";
+    stored.pendingApproval = approvalEvent(approvalId);
+    const order: string[] = [];
+    mocks.persistApprovalEvent.mockImplementation(
+      async (_sessionId, _approvalId, event) => {
+        order.push(`persist:${event.type}`);
+      },
+    );
+    const onHarnessEvent = vi.fn(async (event: AgentHarnessEvent) => {
+      order.push(`publish:${event.type}`);
+    });
+    register(stored, session);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+      onHarnessEvent,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(
+      mocks.persistApprovalEvent.mock.calls.map(([, , event]) => event),
+    ).toEqual([
+      { type: "text", text: "Approval accepted" },
+      { type: "tool_start", tool: "write_file", input: { path: "notes.txt" } },
+      { type: "done" },
+    ]);
+    expect(order).toEqual([
+      "persist:text",
+      "publish:text-delta",
+      "persist:tool_start",
+      "publish:tool-start",
+      "persist:done",
+      "publish:done",
+    ]);
   });
 
   it("persists detached state after a follow-up claim clears during approval", async () => {

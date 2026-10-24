@@ -3,10 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   abortRunDurablyMock,
   getAgentHarnessSessionByRunIdMock,
+  listAgentHarnessSessionEventsMock,
   stopAndPersistAgentHarnessSessionMock,
 } = vi.hoisted(() => ({
   abortRunDurablyMock: vi.fn(),
   getAgentHarnessSessionByRunIdMock: vi.fn(),
+  listAgentHarnessSessionEventsMock: vi.fn<() => Promise<unknown[]>>(
+    async () => [],
+  ),
   stopAndPersistAgentHarnessSessionMock: vi.fn(),
 }));
 
@@ -23,13 +27,18 @@ vi.mock("./lifecycle.js", () => ({
 }));
 vi.mock("./store.js", () => ({
   getAgentHarnessSessionByRunId: getAgentHarnessSessionByRunIdMock,
+  listAgentHarnessSessionEvents: listAgentHarnessSessionEventsMock,
   listAgentHarnessSessions: vi.fn(async () => []),
 }));
 
-import { stopAgentHarnessBackgroundRun } from "./background.js";
+import {
+  listAgentHarnessBackgroundTranscriptEvents,
+  stopAgentHarnessBackgroundRun,
+} from "./background.js";
 
 beforeEach(() => {
   abortRunDurablyMock.mockReset();
+  listAgentHarnessSessionEventsMock.mockReset().mockResolvedValue([]);
   getAgentHarnessSessionByRunIdMock.mockReset().mockResolvedValue({
     id: "session-1",
     runId: "run-1",
@@ -46,6 +55,32 @@ beforeEach(() => {
       const session = await getAgentHarnessSessionByRunIdMock();
       return { ...session, status, stoppedAt: Date.now() };
     });
+});
+
+it("replays persisted approval operations in the background transcript", async () => {
+  listAgentHarnessSessionEventsMock.mockResolvedValue([
+    {
+      operationId: "approval:approval-1",
+      seq: 0,
+      eventAt: Date.now(),
+      event: { type: "text", text: "Approved and continuing" },
+    },
+  ]);
+
+  const transcript = await listAgentHarnessBackgroundTranscriptEvents("run-1", {
+    ownerEmail: "owner@example.com",
+    orgId: "org-1",
+  });
+
+  expect(transcript).toContainEqual(
+    expect.objectContaining({
+      sourceRecord: expect.objectContaining({
+        type: "agent-harness-session-event",
+        operationId: "approval:approval-1",
+      }),
+      message: "Approved and continuing",
+    }),
+  );
 });
 
 describe("Agent Harness background stop", () => {

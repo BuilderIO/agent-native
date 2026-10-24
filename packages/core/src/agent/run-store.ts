@@ -5224,6 +5224,7 @@ async function getCurrentTurnRunEvents(
             AND COALESCE(r.turn_id, r.id) = ?
             AND r.dispatch_mode IS DISTINCT FROM 'turn-abort'
             AND (r.status IS DISTINCT FROM 'aborted' OR r.terminal_reason IS DISTINCT FROM 'aborted:duplicate_submission')
+            AND (r.completed_at IS NULL OR e.event_at IS NULL OR e.event_at <= r.completed_at)
           ORDER BY COALESCE(r.continuation_order, 0) ASC,
                    r.started_at ASC,
                    e.event_at ASC NULLS LAST,

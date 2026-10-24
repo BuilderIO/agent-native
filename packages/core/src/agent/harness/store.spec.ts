@@ -33,11 +33,17 @@ vi.mock("../../db/client.js", () => ({
 }));
 
 const {
-  claimAgentHarnessSessionFollowUp,
+  claimAgentHarnessSessionFollowUp: claimAgentHarnessSessionFollowUpInStore,
   finishAgentHarnessSessionExpiryCleanup,
   getAgentHarnessSession,
+  listAgentHarnessSessionEvents,
+  listExpiredAgentHarnessFollowUps,
+  markAgentHarnessSessionFollowUpDispatched,
   markAgentHarnessSessionStopped,
   markAgentHarnessSessionStoppedIfUnclaimed,
+  persistAgentHarnessFollowUpEvent,
+  reconcileExpiredAgentHarnessFollowUp,
+  renewAgentHarnessSessionFollowUpClaim,
   saveAgentHarnessSession,
   startAgentHarnessSessionApprovalDispatch,
   startAgentHarnessSessionExpiryCleanup,
@@ -45,6 +51,25 @@ const {
   updateAgentHarnessSessionAtGeneration,
   updateAgentHarnessSessionIfFollowUpClaim,
 } = await import("./store.js");
+
+function claimAgentHarnessSessionFollowUp(
+  id: string,
+  expectedGeneration: number,
+  claimId: string,
+) {
+  const now = Date.now();
+  return claimAgentHarnessSessionFollowUpInStore(
+    id,
+    expectedGeneration,
+    claimId,
+    {
+      followUpId: claimId,
+      prompt: `Follow-up ${claimId}`,
+      claimExpiresAt: now + 60_000,
+      deadlineAt: now + 24 * 60 * 60 * 1_000,
+    },
+  );
+}
 
 describe("agent harness session store", () => {
   it("allows only one follow-up claim for a session generation", async () => {
@@ -136,6 +161,187 @@ describe("agent harness session store", () => {
       followUpClaimId: "retryable-claim",
       generation: before!.generation + 1,
     });
+  });
+
+  it("persists follow-up intent before dispatch and records dispatched outcomes as unknown after recovery", async () => {
+    const id = "session-follow-up-recovery-dispatched";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-recovery-dispatched",
+      runId: "run-follow-up-recovery-dispatched",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const now = Date.now();
+    const claim = await claimAgentHarnessSessionFollowUpInStore(
+      id,
+      initial!.generation,
+      "claim-dispatched",
+      {
+        followUpId: "follow-up-dispatched",
+        prompt: "Run the requested action",
+        claimExpiresAt: now + 60_000,
+        deadlineAt: now + 24 * 60 * 60 * 1_000,
+      },
+    );
+
+    expect(claim).toMatchObject({
+      status: "running",
+      followUpId: "follow-up-dispatched",
+      followUpPrompt: "Run the requested action",
+      followUpClaimId: "claim-dispatched",
+    });
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toMatchObject([
+      {
+        operationId: "follow-up:follow-up-dispatched",
+        seq: 0,
+        event: { type: "text", text: "Run the requested action" },
+      },
+    ]);
+
+    const dispatched = await markAgentHarnessSessionFollowUpDispatched(
+      id,
+      claim!.generation,
+      "claim-dispatched",
+      now + 1,
+    );
+    expect(dispatched?.followUpDispatchedAt).toBe(now + 1);
+    await persistAgentHarnessFollowUpEvent(
+      id,
+      "follow-up-dispatched",
+      "claim-dispatched",
+      { type: "text", text: "Provider response" },
+      now + 2,
+    );
+    const expiredAt = Date.now() - 1;
+    await pglite
+      .prepare(
+        "UPDATE agent_harness_sessions SET follow_up_claim_expires_at = ? WHERE id = ?",
+      )
+      .run(expiredAt, id);
+
+    const recovered = await reconcileExpiredAgentHarnessFollowUp(
+      id,
+      "claim-dispatched",
+      dispatched!.generation,
+      Date.now(),
+    );
+    expect(recovered).toMatchObject({
+      status: "idle",
+      followUpClaimId: null,
+      followUpOutcome: "unknown",
+    });
+    const transcript = await listAgentHarnessSessionEvents(id);
+    expect(transcript.map((entry) => entry.event)).toEqual([
+      { type: "text", text: "Run the requested action" },
+      { type: "text", text: "Provider response" },
+      expect.objectContaining({
+        type: "error",
+        errorCode: "harness_follow_up_outcome_unknown",
+      }),
+    ]);
+    expect(
+      transcript.filter((entry) => entry.event.type === "text"),
+    ).toHaveLength(2);
+  });
+
+  it("makes an expired undispatched follow-up retryable and recovers legacy claims conservatively", async () => {
+    const id = "session-follow-up-recovery-undispatched";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-recovery-undispatched",
+      runId: "run-follow-up-recovery-undispatched",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const now = Date.now();
+    const claim = await claimAgentHarnessSessionFollowUpInStore(
+      id,
+      initial!.generation,
+      "claim-undispatched",
+      {
+        followUpId: "follow-up-undispatched",
+        prompt: "No action was dispatched",
+        claimExpiresAt: now + 10_000,
+        deadlineAt: now + 24 * 60 * 60 * 1_000,
+      },
+    );
+    const expiredAt = Date.now() - 1;
+    await pglite
+      .prepare(
+        "UPDATE agent_harness_sessions SET follow_up_claim_expires_at = ? WHERE id = ?",
+      )
+      .run(expiredAt, id);
+    const recovered = await reconcileExpiredAgentHarnessFollowUp(
+      id,
+      "claim-undispatched",
+      claim!.generation,
+      Date.now(),
+    );
+    expect(recovered).toMatchObject({
+      status: "idle",
+      followUpClaimId: null,
+      followUpOutcome: "not_dispatched",
+    });
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toContainEqual(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "error",
+          errorCode: "harness_follow_up_not_dispatched",
+        }),
+      }),
+    );
+
+    const legacyId = "session-follow-up-recovery-legacy";
+    await saveAgentHarnessSession({
+      id: legacyId,
+      harnessName: "fake",
+      threadId: "thread-follow-up-recovery-legacy",
+      runId: "run-follow-up-recovery-legacy",
+      status: "running",
+      followUpClaimId: "legacy-claim",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const legacy = await getAgentHarnessSession(legacyId);
+    const legacyUpdatedAt = Date.now() - 16 * 60 * 1_000;
+    await rawClient.execute({
+      sql: "UPDATE agent_harness_sessions SET updated_at = ? WHERE id = ?",
+      args: [legacyUpdatedAt, legacyId],
+    });
+    const recoveryAt = legacyUpdatedAt + 15 * 60 * 1_000;
+    await expect(
+      listExpiredAgentHarnessFollowUps(recoveryAt),
+    ).resolves.toContainEqual(expect.objectContaining({ id: legacyId }));
+    const recoveredLegacy = await reconcileExpiredAgentHarnessFollowUp(
+      legacyId,
+      "legacy-claim",
+      legacy!.generation,
+      recoveryAt,
+    );
+    expect(recoveredLegacy).toMatchObject({
+      status: "idle",
+      followUpClaimId: null,
+      followUpId: "recovered:legacy-claim",
+      followUpOutcome: "unknown",
+    });
+    await expect(
+      listAgentHarnessSessionEvents(legacyId),
+    ).resolves.toContainEqual(
+      expect.objectContaining({
+        operationId: "follow-up:recovered:legacy-claim",
+        event: expect.objectContaining({
+          type: "error",
+          errorCode: "harness_follow_up_outcome_unknown",
+        }),
+      }),
+    );
   });
 
   it("starts provider work under the row lock before a concurrent stop", async () => {
@@ -243,6 +449,126 @@ describe("agent harness session store", () => {
       ),
     ).resolves.toBeNull();
     expect(start).not.toHaveBeenCalled();
+  });
+
+  it("rejects follow-up writes after the claim expires", async () => {
+    const id = "session-follow-up-expired-claim";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-expired-claim",
+      runId: "run-follow-up-expired-claim",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      "expired-claim",
+    );
+    const expiredAt = Date.now() - 1;
+    await pglite
+      .prepare(
+        "UPDATE agent_harness_sessions SET follow_up_claim_expires_at = ? WHERE id = ?",
+      )
+      .run(expiredAt, id);
+    const now = Date.now();
+    const start = vi.fn();
+
+    await expect(
+      renewAgentHarnessSessionFollowUpClaim(
+        id,
+        "expired-claim",
+        now,
+        now + 60_000,
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      markAgentHarnessSessionFollowUpDispatched(
+        id,
+        claimed!.generation,
+        "expired-claim",
+        now,
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      startAgentHarnessSessionFollowUpDispatch(
+        id,
+        claimed!.generation,
+        "expired-claim",
+        start,
+      ),
+    ).resolves.toBeNull();
+    expect(start).not.toHaveBeenCalled();
+    await expect(
+      persistAgentHarnessFollowUpEvent(
+        id,
+        "expired-claim",
+        "expired-claim",
+        { type: "text", text: "late provider response" },
+        now,
+      ),
+    ).rejects.toThrow("changed concurrently");
+    await expect(
+      updateAgentHarnessSessionIfFollowUpClaim(id, "expired-claim", {
+        status: "idle",
+        followUpClaimId: null,
+        followUpOutcome: "completed",
+      }),
+    ).resolves.toBeNull();
+
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "running",
+      followUpClaimId: "expired-claim",
+      followUpDispatchedAt: null,
+      followUpOutcome: null,
+    });
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toMatchObject([
+      {
+        operationId: "follow-up:expired-claim",
+        seq: 0,
+        event: { type: "text", text: "Follow-up expired-claim" },
+      },
+    ]);
+  });
+
+  it("does not recover a live claim because a scheduler clock is ahead", async () => {
+    const id = "session-follow-up-live-claim-clock-skew";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-live-claim-clock-skew",
+      runId: "run-follow-up-live-claim-clock-skew",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      "clock-skew-claim",
+    );
+    const futureNow = Date.now() + 5 * 60_000;
+
+    await expect(
+      listExpiredAgentHarnessFollowUps(futureNow),
+    ).resolves.not.toContainEqual(expect.objectContaining({ id }));
+    await expect(
+      reconcileExpiredAgentHarnessFollowUp(
+        id,
+        "clock-skew-claim",
+        claimed!.generation,
+        futureNow,
+      ),
+    ).resolves.toBeNull();
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "running",
+      followUpClaimId: "clock-skew-claim",
+      generation: claimed!.generation,
+    });
   });
 
   it("starts approval dispatch under the row lock before a concurrent stop", async () => {
