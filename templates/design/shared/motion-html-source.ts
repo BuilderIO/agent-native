@@ -404,9 +404,10 @@ function assertSafeTargetId(targetNodeId: string): void {
 
 function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
   const normalized = name.toLowerCase();
+  const baseDirective = normalized.split(".", 1)[0]!;
   return (
-    normalized === "x-html" ||
-    normalized === "v-html" ||
+    baseDirective === "x-html" ||
+    baseDirective === "v-html" ||
     normalized === "ng-bind-html" ||
     dynamicBoundAttributeName(normalized) === "innerhtml" ||
     ((normalized === "x-data" || normalized === "v-scope") &&
@@ -916,6 +917,290 @@ function writesClasses(name: string, value: string): boolean {
 const MOTION_CONTROL_CSS_PROPERTY =
   /^(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$/i;
 
+const CSS_BORDER_SIDES = ["top", "right", "bottom", "left"] as const;
+const CSS_LOGICAL_BORDER_SIDES = [
+  "block-start",
+  "block-end",
+  "inline-start",
+  "inline-end",
+] as const;
+const CSS_BORDER_PARTS = ["color", "style", "width"] as const;
+const CSS_BORDER_IMAGE_LONGHANDS = [
+  "border-image-outset",
+  "border-image-repeat",
+  "border-image-slice",
+  "border-image-source",
+  "border-image-width",
+] as const;
+const cssBorderLonghands = (sides: readonly string[]) =>
+  sides.flatMap((side) =>
+    CSS_BORDER_PARTS.map((part) => `border-${side}-${part}`),
+  );
+const CSS_ALL_BORDER_LONGHANDS = [
+  "border-color",
+  "border-style",
+  "border-width",
+  ...cssBorderLonghands(CSS_BORDER_SIDES),
+  ...cssBorderLonghands(CSS_LOGICAL_BORDER_SIDES),
+];
+const CSS_SHORTHAND_LONGHANDS: Readonly<Record<string, readonly string[]>> = {
+  background: [
+    "background-attachment",
+    "background-clip",
+    "background-color",
+    "background-image",
+    "background-origin",
+    "background-position",
+    "background-position-x",
+    "background-position-y",
+    "background-repeat",
+    "background-repeat-x",
+    "background-repeat-y",
+    "background-size",
+  ],
+  border: [...CSS_ALL_BORDER_LONGHANDS, ...CSS_BORDER_IMAGE_LONGHANDS],
+  "border-color": [
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-color`),
+    ...CSS_LOGICAL_BORDER_SIDES.map((side) => `border-${side}-color`),
+  ],
+  "border-style": [
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-style`),
+    ...CSS_LOGICAL_BORDER_SIDES.map((side) => `border-${side}-style`),
+  ],
+  "border-width": [
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-width`),
+    ...CSS_LOGICAL_BORDER_SIDES.map((side) => `border-${side}-width`),
+  ],
+  ...Object.fromEntries(
+    CSS_BORDER_SIDES.map((side) => [
+      `border-${side}`,
+      [`border-${side}-color`, `border-${side}-style`, `border-${side}-width`],
+    ]),
+  ),
+  "border-radius": [
+    "border-bottom-left-radius",
+    "border-bottom-right-radius",
+    "border-top-left-radius",
+    "border-top-right-radius",
+  ],
+  "border-block": [
+    ...cssBorderLonghands(["block-start", "block-end"]),
+    ...cssBorderLonghands(CSS_BORDER_SIDES),
+  ],
+  "border-block-color": [
+    ...["block-start", "block-end"].map((side) => `border-${side}-color`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-color`),
+  ],
+  "border-block-style": [
+    ...["block-start", "block-end"].map((side) => `border-${side}-style`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-style`),
+  ],
+  "border-block-width": [
+    ...["block-start", "block-end"].map((side) => `border-${side}-width`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-width`),
+  ],
+  "border-inline": [
+    ...cssBorderLonghands(["inline-start", "inline-end"]),
+    ...cssBorderLonghands(CSS_BORDER_SIDES),
+  ],
+  "border-inline-color": [
+    ...["inline-start", "inline-end"].map((side) => `border-${side}-color`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-color`),
+  ],
+  "border-inline-style": [
+    ...["inline-start", "inline-end"].map((side) => `border-${side}-style`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-style`),
+  ],
+  "border-inline-width": [
+    ...["inline-start", "inline-end"].map((side) => `border-${side}-width`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-width`),
+  ],
+  ...Object.fromEntries(
+    CSS_LOGICAL_BORDER_SIDES.map((side) => [
+      `border-${side}`,
+      [...cssBorderLonghands([side]), ...cssBorderLonghands(CSS_BORDER_SIDES)],
+    ]),
+  ),
+  "border-image": [...CSS_BORDER_IMAGE_LONGHANDS],
+  "column-rule": [
+    "column-rule-color",
+    "column-rule-style",
+    "column-rule-width",
+  ],
+  columns: ["column-count", "column-width"],
+  flex: ["flex-basis", "flex-grow", "flex-shrink"],
+  "flex-flow": ["flex-direction", "flex-wrap"],
+  font: [
+    "font-family",
+    "font-feature-settings",
+    "font-kerning",
+    "font-language-override",
+    "font-optical-sizing",
+    "font-size",
+    "font-size-adjust",
+    "font-stretch",
+    "font-style",
+    "font-synthesis",
+    "font-variant",
+    "font-variant-alternates",
+    "font-variant-caps",
+    "font-variant-east-asian",
+    "font-variant-ligatures",
+    "font-variant-numeric",
+    "font-variant-position",
+    "font-variation-settings",
+    "font-weight",
+    "line-height",
+  ],
+  "font-variant": [
+    "font-variant-alternates",
+    "font-variant-caps",
+    "font-variant-east-asian",
+    "font-variant-ligatures",
+    "font-variant-numeric",
+    "font-variant-position",
+  ],
+  gap: ["column-gap", "row-gap"],
+  grid: [
+    "grid-auto-columns",
+    "grid-auto-flow",
+    "grid-auto-rows",
+    "grid-template-areas",
+    "grid-template-columns",
+    "grid-template-rows",
+  ],
+  "grid-area": [
+    "grid-column-end",
+    "grid-column-start",
+    "grid-row-end",
+    "grid-row-start",
+  ],
+  "grid-column": ["grid-column-end", "grid-column-start"],
+  "grid-row": ["grid-row-end", "grid-row-start"],
+  "grid-template": [
+    "grid-template-areas",
+    "grid-template-columns",
+    "grid-template-rows",
+  ],
+  inset: [
+    "bottom",
+    "inset-block-end",
+    "inset-block-start",
+    "inset-inline-end",
+    "inset-inline-start",
+    "left",
+    "right",
+    "top",
+  ],
+  "inset-block": [
+    "inset-block-end",
+    "inset-block-start",
+    "bottom",
+    "left",
+    "right",
+    "top",
+  ],
+  "inset-inline": [
+    "inset-inline-end",
+    "inset-inline-start",
+    "bottom",
+    "left",
+    "right",
+    "top",
+  ],
+  "list-style": ["list-style-image", "list-style-position", "list-style-type"],
+  margin: [
+    ...CSS_BORDER_SIDES.map((side) => `margin-${side}`),
+    "margin-block-end",
+    "margin-block-start",
+    "margin-inline-end",
+    "margin-inline-start",
+  ],
+  "margin-block": [
+    "margin-block-end",
+    "margin-block-start",
+    "margin-bottom",
+    "margin-left",
+    "margin-right",
+    "margin-top",
+  ],
+  "margin-inline": [
+    "margin-inline-end",
+    "margin-inline-start",
+    "margin-bottom",
+    "margin-left",
+    "margin-right",
+    "margin-top",
+  ],
+  outline: ["outline-color", "outline-style", "outline-width"],
+  overflow: ["overflow-x", "overflow-y"],
+  padding: [
+    ...CSS_BORDER_SIDES.map((side) => `padding-${side}`),
+    "padding-block-end",
+    "padding-block-start",
+    "padding-inline-end",
+    "padding-inline-start",
+  ],
+  "padding-block": [
+    "padding-block-end",
+    "padding-block-start",
+    "padding-bottom",
+    "padding-left",
+    "padding-right",
+    "padding-top",
+  ],
+  "padding-inline": [
+    "padding-inline-end",
+    "padding-inline-start",
+    "padding-bottom",
+    "padding-left",
+    "padding-right",
+    "padding-top",
+  ],
+  "place-content": ["align-content", "justify-content"],
+  "place-items": ["align-items", "justify-items"],
+  "place-self": ["align-self", "justify-self"],
+  "scroll-margin": [
+    ...CSS_BORDER_SIDES.map((side) => `scroll-margin-${side}`),
+    "scroll-margin-block-end",
+    "scroll-margin-block-start",
+    "scroll-margin-inline-end",
+    "scroll-margin-inline-start",
+  ],
+  "scroll-padding": [
+    ...CSS_BORDER_SIDES.map((side) => `scroll-padding-${side}`),
+    "scroll-padding-block-end",
+    "scroll-padding-block-start",
+    "scroll-padding-inline-end",
+    "scroll-padding-inline-start",
+  ],
+  "text-decoration": [
+    "text-decoration-color",
+    "text-decoration-line",
+    "text-decoration-style",
+    "text-decoration-thickness",
+  ],
+};
+
+function cssDeclarationAffectsMotionProperty(
+  property: string,
+  motionProperties: ReadonlySet<string> | undefined,
+): boolean {
+  if (
+    property === "all" ||
+    MOTION_CONTROL_CSS_PROPERTY.test(property) ||
+    motionProperties?.has(property)
+  ) {
+    return true;
+  }
+
+  return (
+    CSS_SHORTHAND_LONGHANDS[property]?.some((longhand) =>
+      motionProperties?.has(longhand),
+    ) ?? false
+  );
+}
+
 function hasUnsafeMotionCssRule(
   nodes: readonly HtmlNode[],
   targetNodeIds: readonly string[],
@@ -940,7 +1225,8 @@ function hasUnsafeMotionCssRule(
       visitCssRules(
         stylesheet as unknown as CssTreeSelectorNode,
         false,
-        (rule) => {
+        false,
+        (rule, insideReducedMotionMedia) => {
           if (affected) return;
           const declarations = cssTreeChildren(rule.block).filter(
             (child) => child.type === "Declaration",
@@ -950,19 +1236,19 @@ function hasUnsafeMotionCssRule(
               ? decodeMotionCssIdentifier(declaration.property).toLowerCase()
               : undefined;
             return (
-              property === "all" ||
-              (property !== undefined &&
-                MOTION_CONTROL_CSS_PROPERTY.test(property)) ||
-              targetNodeIds.some(
-                (targetNodeId) =>
-                  property !== undefined &&
-                  motionPropertiesByTarget.get(targetNodeId)?.has(property),
+              property !== undefined &&
+              targetNodeIds.some((targetNodeId) =>
+                cssDeclarationAffectsMotionProperty(
+                  property,
+                  motionPropertiesByTarget.get(targetNodeId),
+                ),
               )
             );
           });
           if (relevantDeclarations.length === 0) return;
           const hasImportantDeclaration = relevantDeclarations.some(
-            (declaration) => declaration.important === true,
+            (declaration) =>
+              declaration.important === true && !insideReducedMotionMedia,
           );
           const affectedTargets = targetNodeIds.filter((targetNodeId) => {
             const targetProperties = motionPropertiesByTarget.get(targetNodeId);
@@ -971,10 +1257,8 @@ function hasUnsafeMotionCssRule(
                 ? decodeMotionCssIdentifier(declaration.property).toLowerCase()
                 : undefined;
               return (
-                property === "all" ||
-                (property !== undefined &&
-                  MOTION_CONTROL_CSS_PROPERTY.test(property)) ||
-                (property !== undefined && targetProperties?.has(property))
+                property !== undefined &&
+                cssDeclarationAffectsMotionProperty(property, targetProperties)
               );
             });
           });
@@ -1021,17 +1305,46 @@ function hasUnsafeMotionCssRule(
 function visitCssRules(
   node: CssTreeSelectorNode | undefined,
   insideKeyframes: boolean,
-  visit: (rule: CssTreeSelectorNode) => void,
+  insideReducedMotionMedia: boolean,
+  visit: (rule: CssTreeSelectorNode, insideReducedMotionMedia: boolean) => void,
 ): void {
   if (!node) return;
   const isKeyframes =
     node.type === "Atrule" && /^(?:-[\w]+-)?keyframes$/i.test(node.name ?? "");
   const nestedInKeyframes = insideKeyframes || isKeyframes;
-  if (node.type === "Rule" && !insideKeyframes) visit(node);
-  for (const child of cssTreeChildren(node)) {
-    visitCssRules(child, nestedInKeyframes, visit);
+  const isReducedMotionMedia =
+    node.type === "Atrule" &&
+    node.name?.toLowerCase() === "media" &&
+    isReducedMotionMediaQuery(node.prelude);
+  const nestedInReducedMotionMedia =
+    insideReducedMotionMedia || isReducedMotionMedia;
+  if (node.type === "Rule" && !insideKeyframes) {
+    visit(node, insideReducedMotionMedia);
   }
-  if (node.block) visitCssRules(node.block, nestedInKeyframes, visit);
+  for (const child of cssTreeChildren(node)) {
+    visitCssRules(child, nestedInKeyframes, nestedInReducedMotionMedia, visit);
+  }
+  if (node.block) {
+    visitCssRules(
+      node.block,
+      nestedInKeyframes,
+      nestedInReducedMotionMedia,
+      visit,
+    );
+  }
+}
+
+function isReducedMotionMediaQuery(
+  prelude: CssTreeSelectorNode | undefined,
+): boolean {
+  if (!prelude) return false;
+  const query = cssTree
+    .generate(prelude as Parameters<typeof cssTree.generate>[0])
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  // Only the standalone reduced-motion preference is exempt from the CSS conflict check.
+  return /^\(prefers-reduced-motion:\s*reduce\)$/.test(query);
 }
 
 type CssTreeSelectorNode = {
@@ -3217,9 +3530,10 @@ function hasInlineMotionDeclarations(
       if (
         MOTION_CONTROL_CSS_PROPERTY.test(property) ||
         (declaration.important &&
-          (property === "all"
-            ? rejectAllImportant || animatedProperties.size > 0
-            : animatedProperties.has(property)))
+          cssDeclarationAffectsMotionProperty(property, animatedProperties) &&
+          (property !== "all" ||
+            rejectAllImportant ||
+            animatedProperties.size > 0))
       ) {
         found = true;
       }

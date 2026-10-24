@@ -1097,6 +1097,14 @@ function Card(style = { animationName: "fade" }) {
       "a string timer that mutates the style alias",
       "const motionStyles = { color: \"red\" }; setTimeout(\"motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'\", 0);",
     ],
+    [
+      "a dynamic Function constructor alias",
+      `const motionStyles = { color: "red" }; const run = Function; run("motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'")();`,
+    ],
+    [
+      "a global Function constructor alias",
+      `const motionStyles = { color: "red" }; const create = globalThis["Function"]; const run = create; run("motionStyles.animationName = 'pulse'; motionStyles.animationDuration = '1s'")();`,
+    ],
   ])(
     "rejects mutated or escaped CSS object aliases (%s)",
     (_label, declaration) => {

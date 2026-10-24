@@ -31,6 +31,8 @@ export function resolveMotionNativeStyleIdentity(
   targetNodeId: string | null | undefined,
   selected: MotionNativeStyleIdentity | null | undefined,
 ): MotionNativeStyleIdentity | null {
+  if (!selected && !targetNodeId) return null;
+
   if (selected) {
     if (selected.sourceInstanceId) {
       const index = styles.findIndex(

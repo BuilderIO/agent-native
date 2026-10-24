@@ -2974,6 +2974,16 @@ function hasDynamicCodeExecution(sourceFile: TypeScript.SourceFile): boolean {
   let found = false;
   const visit = (node: TypeScript.Node): void => {
     if (found) return;
+    const functionConstructorReference =
+      ts.isIdentifier(node) &&
+      node.text === "Function" &&
+      isFunctionConstructorReference(node);
+    const functionConstructorProperty =
+      (ts.isPropertyAccessExpression(node) && node.name.text === "Function") ||
+      (ts.isElementAccessExpression(node) &&
+        node.argumentExpression &&
+        ts.isStringLiteralLike(node.argumentExpression) &&
+        node.argumentExpression.text === "Function");
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const directEval = ts.isIdentifier(callee) && callee.text === "eval";
@@ -2991,10 +3001,20 @@ function hasDynamicCodeExecution(sourceFile: TypeScript.SourceFile): boolean {
             ts.isStringLiteral(argument) ||
             ts.isNoSubstitutionTemplateLiteral(argument),
         );
-      if (directEval || functionConstructor || dynamicTimer) {
+      if (
+        directEval ||
+        functionConstructor ||
+        functionConstructorReference ||
+        functionConstructorProperty ||
+        dynamicTimer
+      ) {
         found = true;
         return;
       }
+    }
+    if (functionConstructorReference || functionConstructorProperty) {
+      found = true;
+      return;
     }
     if (
       ts.isNewExpression(node) &&
@@ -3008,6 +3028,30 @@ function hasDynamicCodeExecution(sourceFile: TypeScript.SourceFile): boolean {
   };
   visit(sourceFile);
   return found;
+}
+
+function isFunctionConstructorReference(node: TypeScript.Identifier): boolean {
+  let child: TypeScript.Node = node;
+  for (
+    let parent = node.parent;
+    parent;
+    child = parent, parent = parent.parent
+  ) {
+    if (ts.isTypeNode(parent)) return false;
+    if (
+      (ts.isVariableDeclaration(parent) && parent.name === child) ||
+      (ts.isFunctionDeclaration(parent) && parent.name === child) ||
+      (ts.isFunctionExpression(parent) && parent.name === child) ||
+      (ts.isClassDeclaration(parent) && parent.name === child) ||
+      (ts.isClassExpression(parent) && parent.name === child) ||
+      (ts.isParameter(parent) && parent.name === child) ||
+      (ts.isTypeAliasDeclaration(parent) && parent.name === child) ||
+      (ts.isInterfaceDeclaration(parent) && parent.name === child)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function resolveReactStyleExpression(

@@ -422,7 +422,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       sourceVersionHash: directSourceHash,
     });
 
-    await gotoEditor(page, designId);
+    await page.reload({ waitUntil: "domcontentloaded" });
     const reloadedFrame = page
       .locator(
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
@@ -1398,8 +1398,9 @@ createRoot(document.getElementById("root")!).render(<App />);
 `;
     const sourceFilePath = path.join(rootPath, sourcePath);
     fs.writeFileSync(sourceFilePath, authoredSource);
-    await page.goto(reactDevServerUrl, { waitUntil: "load" });
-    const target = page.locator("button#motion-target");
+    const sourcePreview = await page.context().newPage();
+    await sourcePreview.goto(reactDevServerUrl, { waitUntil: "load" });
+    const target = sourcePreview.locator("button#motion-target");
     await expect(target).toHaveText("Motion target");
     const targetNodeId = await target.getAttribute("data-agent-native-node-id");
     expect(targetNodeId).toBe(nodeId);
@@ -1449,6 +1450,7 @@ createRoot(document.getElementById("root")!).render(<App />);
       targetNodeIds: [targetNodeId],
     });
 
+    await sourcePreview.close();
     await gotoEditor(page, designId);
     await selectReactMotionTarget(page);
     await page
@@ -1498,7 +1500,7 @@ createRoot(document.getElementById("root")!).render(<App />);
       sourceVersionHash: savedHash,
     });
 
-    await gotoEditor(page, designId);
+    await page.reload({ waitUntil: "domcontentloaded" });
     const iframe = page.locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
     );
@@ -1600,6 +1602,7 @@ createRoot(document.getElementById("root")!).render(<App />);
       .poll(() => viteChangedFiles.length)
       .toBeGreaterThan(viteChangesBeforeRemoval);
 
+    await page.reload({ waitUntil: "load" });
     const motionFreeTarget = page.locator(
       `[data-agent-native-node-id="${targetNodeId}"]`,
     );
