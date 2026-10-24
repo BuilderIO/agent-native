@@ -3,13 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   abortRunDurablyMock,
   getAgentHarnessSessionByRunIdMock,
-  markAgentHarnessSessionStoppedMock,
-  stopLiveAgentHarnessSessionMock,
+  stopAndPersistAgentHarnessSessionMock,
 } = vi.hoisted(() => ({
   abortRunDurablyMock: vi.fn(),
   getAgentHarnessSessionByRunIdMock: vi.fn(),
-  markAgentHarnessSessionStoppedMock: vi.fn(),
-  stopLiveAgentHarnessSessionMock: vi.fn(),
+  stopAndPersistAgentHarnessSessionMock: vi.fn(),
 }));
 
 vi.mock("../run-manager.js", () => ({
@@ -21,12 +19,11 @@ vi.mock("../run-store.js", () => ({
 vi.mock("./lifecycle.js", () => ({
   resolveAgentHarnessApproval: vi.fn(),
   sendAgentHarnessFollowUp: vi.fn(),
-  stopLiveAgentHarnessSession: stopLiveAgentHarnessSessionMock,
+  stopAndPersistAgentHarnessSession: stopAndPersistAgentHarnessSessionMock,
 }));
 vi.mock("./store.js", () => ({
   getAgentHarnessSessionByRunId: getAgentHarnessSessionByRunIdMock,
   listAgentHarnessSessions: vi.fn(async () => []),
-  markAgentHarnessSessionStopped: markAgentHarnessSessionStoppedMock,
 }));
 
 import { stopAgentHarnessBackgroundRun } from "./background.js";
@@ -43,8 +40,12 @@ beforeEach(() => {
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
-  markAgentHarnessSessionStoppedMock.mockReset();
-  stopLiveAgentHarnessSessionMock.mockReset();
+  stopAndPersistAgentHarnessSessionMock
+    .mockReset()
+    .mockImplementation(async ({ status }) => {
+      const session = await getAgentHarnessSessionByRunIdMock();
+      return { ...session, status, stoppedAt: Date.now() };
+    });
 });
 
 describe("Agent Harness background stop", () => {
@@ -61,14 +62,11 @@ describe("Agent Harness background stop", () => {
     expect(abortRunDurablyMock).toHaveBeenCalledWith("run-1", "user", {
       allowNotStarted: true,
     });
-    expect(stopLiveAgentHarnessSessionMock).toHaveBeenCalledWith({
+    expect(stopAndPersistAgentHarnessSessionMock).toHaveBeenCalledWith({
       sessionId: "session-1",
       scope: { ownerEmail: "owner@example.com", orgId: "org-1" },
+      status: "stopped",
     });
-    expect(markAgentHarnessSessionStoppedMock).toHaveBeenCalledWith(
-      "session-1",
-      "stopped",
-    );
   });
 
   it("tears down the harness when run abort persistence fails", async () => {
@@ -86,21 +84,18 @@ describe("Agent Harness background stop", () => {
     expect(abortRunDurablyMock).toHaveBeenCalledWith("run-1", "user", {
       allowNotStarted: true,
     });
-    expect(stopLiveAgentHarnessSessionMock).toHaveBeenCalledWith({
+    expect(stopAndPersistAgentHarnessSessionMock).toHaveBeenCalledWith({
       sessionId: "session-1",
       scope: { ownerEmail: "owner@example.com", orgId: "org-1" },
+      status: "errored",
     });
-    expect(markAgentHarnessSessionStoppedMock).toHaveBeenCalledWith(
-      "session-1",
-      "errored",
-    );
   });
 
   it("surfaces abort and teardown failures after recording an errored session", async () => {
     const abortError = new Error("run abort persistence failed");
     const teardownError = new Error("harness stop failed");
     abortRunDurablyMock.mockRejectedValueOnce(abortError);
-    stopLiveAgentHarnessSessionMock.mockRejectedValueOnce(teardownError);
+    stopAndPersistAgentHarnessSessionMock.mockRejectedValueOnce(teardownError);
 
     await expect(
       stopAgentHarnessBackgroundRun("run-1", {
@@ -111,9 +106,10 @@ describe("Agent Harness background stop", () => {
       errors: [abortError, teardownError],
     });
 
-    expect(markAgentHarnessSessionStoppedMock).toHaveBeenCalledWith(
-      "session-1",
-      "errored",
-    );
+    expect(stopAndPersistAgentHarnessSessionMock).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      scope: { ownerEmail: "owner@example.com", orgId: "org-1" },
+      status: "errored",
+    });
   });
 });

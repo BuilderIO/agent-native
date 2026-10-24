@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   updateIfFollowUpClaim: vi.fn(),
   updateAtGeneration: vi.fn(),
   claimFollowUp: vi.fn(),
-  admitFollowUpDispatch: vi.fn(),
+  startFollowUpDispatch: vi.fn(),
   markStopped: vi.fn(),
   markStoppedIfUnclaimed: vi.fn(),
   resolveAdapter: vi.fn(),
@@ -35,7 +35,7 @@ vi.mock("./store.js", () => ({
   updateAgentHarnessSessionIfFollowUpClaim: mocks.updateIfFollowUpClaim,
   updateAgentHarnessSessionAtGeneration: mocks.updateAtGeneration,
   claimAgentHarnessSessionFollowUp: mocks.claimFollowUp,
-  admitAgentHarnessSessionFollowUpDispatch: mocks.admitFollowUpDispatch,
+  startAgentHarnessSessionFollowUpDispatch: mocks.startFollowUpDispatch,
   markAgentHarnessSessionStopped: mocks.markStopped,
   markAgentHarnessSessionStoppedIfUnclaimed: mocks.markStoppedIfUnclaimed,
 }));
@@ -49,6 +49,7 @@ const {
   releaseLiveAgentHarnessSession,
   resolveAgentHarnessApproval,
   sendAgentHarnessFollowUp,
+  stopAndPersistAgentHarnessSession,
   stopLiveAgentHarnessSession,
   sweepExpiredAgentHarnessSessions,
 } = await import("./lifecycle.js");
@@ -127,8 +128,8 @@ describe("agent harness lifecycle", () => {
       };
       return stored;
     });
-    mocks.admitFollowUpDispatch.mockImplementation(
-      async (_id, expectedGeneration, claimId) => {
+    mocks.startFollowUpDispatch.mockImplementation(
+      async (_id, expectedGeneration, claimId, start) => {
         if (
           stored.status !== "running" ||
           stored.followUpClaimId !== claimId ||
@@ -141,9 +142,22 @@ describe("agent harness lifecycle", () => {
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
-        return stored;
+        const started = start();
+        return { session: stored, started };
       },
     );
+    mocks.markStopped.mockImplementation(async (_id, status) => {
+      stored = {
+        ...stored,
+        status,
+        pendingApproval: null,
+        followUpClaimId: null,
+        stoppedAt: Date.now(),
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      return stored;
+    });
     mocks.markStoppedIfUnclaimed.mockImplementation(
       async (_id, expectedStatus, expectedGeneration, status) => {
         if (
@@ -275,7 +289,7 @@ describe("agent harness lifecycle", () => {
   it("does not start provider work after its follow-up claim is lost", async () => {
     const session = fakeSession([{ type: "done" }]);
     register(stored, session);
-    mocks.admitFollowUpDispatch.mockImplementationOnce(async () => {
+    mocks.startFollowUpDispatch.mockImplementationOnce(async () => {
       stored = {
         ...stored,
         status: "stopped",
@@ -349,7 +363,7 @@ describe("agent harness lifecycle", () => {
     });
   });
 
-  it("does not stop an idle session after another process advances its generation", async () => {
+  it("detaches an expired local session after a remote generation advance", async () => {
     const session = fakeSession();
     register(stored, session);
     stored = { ...stored, generation: stored.generation + 1 };
@@ -358,19 +372,105 @@ describe("agent harness lifecycle", () => {
       Date.now() + 25 * 60 * 60 * 1_000,
     );
 
-    expect(removed).toBe(0);
+    expect(removed).toBe(1);
+    expect(mocks.markStoppedIfUnclaimed).not.toHaveBeenCalled();
+    expect(session.stop).not.toHaveBeenCalled();
+    expect(session.detach).toHaveBeenCalledOnce();
+    expect(stored.status).toBe("idle");
+    await expect(
+      stopLiveAgentHarnessSession({
+        sessionId: stored.id,
+        scope: ownerScope(),
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("releases an active stale entry without stopping it when detach is unavailable", async () => {
+    const session = fakeSession();
+    Object.defineProperty(session, "detach", { value: undefined });
+    register(stored, session);
+    stored = { ...stored, generation: stored.generation + 1 };
+
+    await expect(
+      sweepExpiredAgentHarnessSessions(Date.now() + 25 * 60 * 60 * 1_000),
+    ).resolves.toBe(1);
+
+    expect(session.stop).not.toHaveBeenCalled();
+    await expect(
+      stopLiveAgentHarnessSession({
+        sessionId: stored.id,
+        scope: ownerScope(),
+      }),
+    ).resolves.toBe(false);
+    expect(stored.status).toBe("idle");
+  });
+
+  it("detaches its stale entry after a generation race during expiry cleanup", async () => {
+    const session = fakeSession();
+    register(stored, session);
+    let raced = false;
+    mocks.markStoppedIfUnclaimed.mockImplementationOnce(async () => {
+      raced = true;
+      stored = { ...stored, generation: stored.generation + 1 };
+      return null;
+    });
+    const removed = await sweepExpiredAgentHarnessSessions(
+      Date.now() + 25 * 60 * 60 * 1_000,
+    );
+
+    expect(raced).toBe(true);
+    expect(mocks.markStoppedIfUnclaimed).toHaveBeenCalledOnce();
+    expect(removed).toBe(1);
+    expect(session.stop).not.toHaveBeenCalled();
+    expect(session.detach).toHaveBeenCalledOnce();
+  });
+
+  it("persists a stop before tearing down its provider session", async () => {
+    const session = fakeSession();
+    register(stored, session);
+
+    await expect(
+      stopAndPersistAgentHarnessSession({
+        sessionId: stored.id,
+        scope: ownerScope(),
+        status: "stopped",
+      }),
+    ).resolves.toMatchObject({ status: "stopped" });
+
+    expect(mocks.markStopped).toHaveBeenCalledWith(stored.id, "stopped");
+    expect(mocks.markStopped.mock.invocationCallOrder[0]).toBeLessThan(
+      session.stop.mock.invocationCallOrder[0],
+    );
+    expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("retries a present-row teardown failure with the refreshed generation", async () => {
+    const session = fakeSession();
+    session.stop.mockRejectedValueOnce(new Error("provider stop failed"));
+    register(stored, session);
+
+    await expect(
+      stopAndPersistAgentHarnessSession({
+        sessionId: stored.id,
+        scope: ownerScope(),
+        status: "stopped",
+      }),
+    ).rejects.toThrow("provider stop failed");
+    expect(stored.status).toBe("errored");
+
+    const erroredGeneration = stored.generation;
+    const removed = await sweepExpiredAgentHarnessSessions(
+      Date.now() + 25 * 60 * 60 * 1_000,
+    );
+
+    expect(removed).toBe(1);
     expect(mocks.markStoppedIfUnclaimed).toHaveBeenCalledWith(
       stored.id,
-      "idle",
-      0,
+      "errored",
+      erroredGeneration,
       "stopped",
     );
-    expect(session.stop).not.toHaveBeenCalled();
-    expect(stored.status).toBe("idle");
-    await stopLiveAgentHarnessSession({
-      sessionId: stored.id,
-      scope: ownerScope(),
-    });
+    expect(session.stop).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes the owned generation after a local approval update before expiry cleanup", async () => {
@@ -415,7 +515,7 @@ describe("agent harness lifecycle", () => {
     expect(session.stop).toHaveBeenCalledTimes(2);
   });
 
-  it("does not dispatch a follow-up when stop wins durable admission", async () => {
+  it("does not dispatch a follow-up when stop wins the durable row lock", async () => {
     const session = fakeSession();
     register(stored, session);
     let reachAdmission!: () => void;
@@ -426,8 +526,8 @@ describe("agent harness lifecycle", () => {
     const admissionGate = new Promise<void>((resolve) => {
       releaseAdmission = resolve;
     });
-    mocks.admitFollowUpDispatch.mockImplementationOnce(
-      async (_id, expectedGeneration, claimId) => {
+    mocks.startFollowUpDispatch.mockImplementationOnce(
+      async (_id, expectedGeneration, claimId, start) => {
         reachAdmission();
         await admissionGate;
         if (
@@ -442,7 +542,7 @@ describe("agent harness lifecycle", () => {
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
-        return stored;
+        return { session: stored, started: start() };
       },
     );
 

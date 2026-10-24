@@ -388,21 +388,35 @@ export async function claimAgentHarnessSessionFollowUp(
     : null;
 }
 
-export async function admitAgentHarnessSessionFollowUpDispatch(
+export async function startAgentHarnessSessionFollowUpDispatch<T>(
   id: string,
   expectedGeneration: number,
   claimId: string,
-): Promise<StoredAgentHarnessSession | null> {
+  start: () => T,
+): Promise<{ session: StoredAgentHarnessSession; started: T } | null> {
   await ensureAgentHarnessSessionTables();
-  const { rows } = await getDbExec().execute({
-    sql: `UPDATE agent_harness_sessions
-          SET generation = generation + 1, updated_at = ?
-          WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
-            AND generation = ?
-          RETURNING *`,
-    args: [Date.now(), id, claimId, expectedGeneration],
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error(
+      "Agent harness follow-up dispatch requires database transactions.",
+    );
+  }
+  return client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `UPDATE agent_harness_sessions
+            SET generation = generation + 1, updated_at = ?
+            WHERE id = ? AND status = 'running' AND follow_up_claim_id = ?
+              AND generation = ?
+            RETURNING *`,
+      args: [Date.now(), id, claimId, expectedGeneration],
+    });
+    const session = rowToHarnessSession(rows[0]);
+    if (!session) return null;
+
+    // The UPDATE holds this row lock until the first provider request is invoked.
+    const started = start();
+    return { session, started };
   });
-  return rowToHarnessSession(rows[0]);
 }
 
 async function updateAgentHarnessSessionWithStatus(

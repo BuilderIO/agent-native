@@ -24,6 +24,7 @@ const rawClient = {
     const result = await stmt.run(...args);
     return { rows: [], rowsAffected: result.changes };
   }),
+  transaction: pglite.transaction,
 };
 
 vi.mock("../../db/client.js", () => ({
@@ -32,12 +33,12 @@ vi.mock("../../db/client.js", () => ({
 }));
 
 const {
-  admitAgentHarnessSessionFollowUpDispatch,
   claimAgentHarnessSessionFollowUp,
   getAgentHarnessSession,
   markAgentHarnessSessionStopped,
   markAgentHarnessSessionStoppedIfUnclaimed,
   saveAgentHarnessSession,
+  startAgentHarnessSessionFollowUpDispatch,
   updateAgentHarnessSessionIfFollowUpClaim,
 } = await import("./store.js");
 
@@ -133,7 +134,7 @@ describe("agent harness session store", () => {
     });
   });
 
-  it("linearizes follow-up dispatch admission before a durable stop", async () => {
+  it("starts provider work under the row lock before a concurrent stop", async () => {
     const id = "session-follow-up-dispatch-admission";
     await saveAgentHarnessSession({
       id,
@@ -151,29 +152,93 @@ describe("agent harness session store", () => {
       "dispatch-claim",
     );
 
-    const admitted = await admitAgentHarnessSessionFollowUpDispatch(
-      id,
-      claimed!.generation,
-      "dispatch-claim",
-    );
-    expect(admitted).toMatchObject({
-      status: "running",
-      followUpClaimId: "dispatch-claim",
-      generation: claimed!.generation + 1,
+    let releaseCommit!: () => void;
+    let notifyStart!: () => void;
+    const commitGate = new Promise<void>((resolve) => {
+      releaseCommit = resolve;
     });
-
-    await markAgentHarnessSessionStopped(id, "stopped");
-    await expect(
-      admitAgentHarnessSessionFollowUpDispatch(
+    const providerStarted = new Promise<void>((resolve) => {
+      notifyStart = resolve;
+    });
+    const originalTransaction = rawClient.transaction;
+    rawClient.transaction = async (run) =>
+      pglite.transaction(async (tx) => {
+        const result = await run(tx);
+        await commitGate;
+        return result;
+      });
+    const order: string[] = [];
+    let stopFinished = false;
+    try {
+      const dispatch = startAgentHarnessSessionFollowUpDispatch(
         id,
         claimed!.generation,
         "dispatch-claim",
-      ),
-    ).resolves.toBeNull();
+        () => {
+          order.push("provider-start");
+          notifyStart();
+        },
+      );
+      await providerStarted;
+      const stop = markAgentHarnessSessionStopped(id, "stopped").then(
+        (session) => {
+          order.push("stop-complete");
+          stopFinished = true;
+          return session;
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(stopFinished).toBe(false);
+      releaseCommit();
+
+      const admitted = await dispatch;
+      await stop;
+      expect(admitted?.session).toMatchObject({
+        status: "running",
+        followUpClaimId: "dispatch-claim",
+        generation: claimed!.generation + 1,
+      });
+      expect(order).toEqual(["provider-start", "stop-complete"]);
+    } finally {
+      releaseCommit();
+      rawClient.transaction = originalTransaction;
+    }
+
     await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
       status: "stopped",
       followUpClaimId: null,
     });
+  });
+
+  it("does not start provider work after a durable stop wins the row lock", async () => {
+    const id = "session-follow-up-stop-wins-start";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-stop-wins-start",
+      runId: "run-follow-up-stop-wins-start",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      "stop-wins-claim",
+    );
+    await markAgentHarnessSessionStopped(id, "stopped");
+    const start = vi.fn();
+
+    await expect(
+      startAgentHarnessSessionFollowUpDispatch(
+        id,
+        claimed!.generation,
+        "stop-wins-claim",
+        start,
+      ),
+    ).resolves.toBeNull();
+    expect(start).not.toHaveBeenCalled();
   });
 
   it("retries a claim-fenced update after the same claim advances generation", async () => {

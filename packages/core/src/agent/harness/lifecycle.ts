@@ -2,16 +2,18 @@ import { randomUUID } from "node:crypto";
 
 import { resolveAgentHarness } from "./registry.js";
 import {
-  admitAgentHarnessSessionFollowUpDispatch,
   AgentHarnessSessionConflictError,
   claimAgentHarnessSessionFollowUp,
   getAgentHarnessSession,
   getAgentHarnessSessionByRunId,
   isAgentHarnessSessionConflictError,
+  markAgentHarnessSessionStopped,
   markAgentHarnessSessionStoppedIfUnclaimed,
+  startAgentHarnessSessionFollowUpDispatch,
   updateAgentHarnessSession,
   updateAgentHarnessSessionAtGeneration,
   updateAgentHarnessSessionIfFollowUpClaim,
+  type AgentHarnessSessionStatus,
   type SaveAgentHarnessSessionInput,
   type StoredAgentHarnessSession,
 } from "./store.js";
@@ -96,6 +98,14 @@ export function refreshLiveAgentHarnessSessionGeneration(
   if (live?.session === session) {
     live.generation = Math.max(live.generation, generation);
   }
+}
+
+function refreshLiveAgentHarnessSessionGenerationById(
+  sessionId: string,
+  generation: number,
+): void {
+  const live = liveSessions.get(sessionId);
+  if (live) live.generation = Math.max(live.generation, generation);
 }
 
 export function releaseLiveAgentHarnessSession(
@@ -410,32 +420,43 @@ export async function sendAgentHarnessFollowUp(input: {
       () => finalizing,
     );
     try {
-      const dispatchAdmission = await admitAgentHarnessSessionFollowUpDispatch(
+      const dispatch = await startAgentHarnessSessionFollowUpDispatch(
         session.id,
         claimed.generation,
         claimId,
+        () => {
+          const stream = acquired.live.session.streamTurn({
+            prompt,
+            metadata: input.metadata,
+            abortSignal: followUpAbort.signal,
+          });
+          const iterator = stream[Symbol.asyncIterator]();
+          return {
+            stream,
+            iterator,
+            firstNext: nextHarnessEvent(iterator, followUpAbort.signal),
+          };
+        },
       );
-      if (!dispatchAdmission) {
+      if (!dispatch) {
         throw new AgentHarnessSessionConflictError(session.id);
       }
       refreshLiveAgentHarnessSessionGeneration(
         session.id,
         acquired.live.session,
-        dispatchAdmission.generation,
+        dispatch.session.generation,
       );
 
       await consumeEvents(
-        acquired.live.session.streamTurn({
-          prompt,
-          metadata: input.metadata,
-          abortSignal: followUpAbort.signal,
-        }),
+        dispatch.started.stream,
         events,
         input.onHarnessEvent,
         session.id,
         {
           followUpClaimId: claimId,
           abortSignal: followUpAbort.signal,
+          firstNext: dispatch.started.firstNext,
+          iterator: dispatch.started.iterator,
           liveSession: acquired.live.session,
         },
       );
@@ -730,6 +751,50 @@ export async function stopLiveAgentHarnessSession(input: {
   return true;
 }
 
+export async function stopAndPersistAgentHarnessSession(input: {
+  sessionId: string;
+  scope: AgentHarnessOwnerScope;
+  status: "stopped" | "errored";
+}): Promise<StoredAgentHarnessSession | null> {
+  const stopped = await markAgentHarnessSessionStopped(
+    input.sessionId,
+    input.status,
+  );
+  if (stopped) {
+    refreshLiveAgentHarnessSessionGenerationById(
+      input.sessionId,
+      stopped.generation,
+    );
+  }
+
+  try {
+    await stopLiveAgentHarnessSession(input);
+  } catch (stopError) {
+    if (input.status !== "errored") {
+      try {
+        const errored = await markAgentHarnessSessionStopped(
+          input.sessionId,
+          "errored",
+        );
+        if (errored) {
+          refreshLiveAgentHarnessSessionGenerationById(
+            input.sessionId,
+            errored.generation,
+          );
+        }
+      } catch (persistError) {
+        throw new AggregateError(
+          [stopError, persistError],
+          "Harness teardown failed and its errored state could not be persisted.",
+        );
+      }
+    }
+    throw stopError;
+  }
+
+  return stopped;
+}
+
 export async function sweepExpiredAgentHarnessSessions(
   now = Date.now(),
 ): Promise<number> {
@@ -747,13 +812,36 @@ export async function sweepExpiredAgentHarnessSessions(
         continue;
       }
       if (current.followUpClaimId != null) continue;
+      if (current.generation !== live.generation) {
+        await detachStaleLiveSession(live, current.status);
+        releaseLiveAgentHarnessSession(sessionId, live.session);
+        removed += 1;
+        continue;
+      }
       stopped = await markAgentHarnessSessionStoppedIfUnclaimed(
         sessionId,
         current.status,
         live.generation,
         "stopped",
       );
-      if (!stopped) continue;
+      if (!stopped) {
+        const latest = await getAgentHarnessSession(sessionId);
+        if (!latest) {
+          if (live.session.stop) await live.session.stop();
+          else await live.session.destroy?.();
+          releaseLiveAgentHarnessSession(sessionId, live.session);
+          removed += 1;
+          continue;
+        }
+        if (latest.followUpClaimId != null) continue;
+        if (latest.generation !== live.generation) {
+          await detachStaleLiveSession(live, latest.status);
+          releaseLiveAgentHarnessSession(sessionId, live.session);
+          removed += 1;
+          continue;
+        }
+        continue;
+      }
       refreshLiveAgentHarnessSessionGeneration(
         sessionId,
         live.session,
@@ -879,13 +967,18 @@ async function consumeEvents(
   sessionId: string,
   options?: {
     abortSignal?: AbortSignal;
+    firstNext?: Promise<IteratorResult<AgentHarnessEvent>>;
     followUpClaimId?: string;
+    iterator?: AsyncIterator<AgentHarnessEvent>;
     liveSession?: AgentHarnessSession;
   },
 ): Promise<void> {
-  const iterator = stream[Symbol.asyncIterator]();
+  const iterator = options?.iterator ?? stream[Symbol.asyncIterator]();
+  let firstNext = options?.firstNext;
   while (true) {
-    const next = await nextHarnessEvent(iterator, options?.abortSignal);
+    const next = await (firstNext ??
+      nextHarnessEvent(iterator, options?.abortSignal));
+    firstNext = undefined;
     if (next.done) return;
     const event = next.value;
     events.push(event);
@@ -1154,6 +1247,22 @@ function ownedLiveSession(
     return undefined;
   }
   return live;
+}
+
+async function detachStaleLiveSession(
+  live: LiveAgentHarnessSession,
+  durableStatus: AgentHarnessSessionStatus,
+): Promise<void> {
+  if (
+    durableStatus === "stopped" ||
+    durableStatus === "errored" ||
+    durableStatus === "destroyed"
+  ) {
+    if (live.session.stop) await live.session.stop();
+    else await live.session.destroy?.();
+    return;
+  }
+  await live.session.detach?.();
 }
 
 function asPendingApproval(
