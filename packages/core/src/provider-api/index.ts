@@ -6694,6 +6694,10 @@ function mergeQueryObjects(
 
 function setValueAtPath(base: unknown, path: string, value: unknown): unknown {
   let cursorBase = base;
+  // A blank string body is an empty body, as it was before string bodies were parsed.
+  if (typeof cursorBase === "string" && cursorBase.trim() === "") {
+    cursorBase = undefined;
+  }
   if (typeof cursorBase === "string") {
     try {
       cursorBase = JSON.parse(cursorBase) as unknown;

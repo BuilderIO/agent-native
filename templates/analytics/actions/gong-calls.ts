@@ -199,6 +199,33 @@ const dropLowestRankedMatches: FitStep<FitState> = (fit, { fits }) => {
   return withTop(low);
 };
 
+interface SingleTranscriptFit {
+  text: TranscriptExtraction;
+  raw: unknown;
+  rawOmitted: boolean;
+}
+
+// The raw payload goes first (it is only for debugging and export), then the
+// compact text.
+const dropRawTranscriptPayload: FitStep<SingleTranscriptFit> = (fit) =>
+  fit.raw === undefined ? fit : { ...fit, raw: undefined, rawOmitted: true };
+
+const trimSingleTranscriptText: FitStep<SingleTranscriptFit> = (
+  fit,
+  { overage },
+) => {
+  const textChars = JSON.stringify(fit.text.text).length;
+  if (textChars === 0) return fit;
+  const keep = Math.max(
+    0,
+    (textChars - overage - FIT_MARGIN_CHARS) / textChars,
+  );
+  const text = fit.text.text.slice(0, Math.floor(fit.text.text.length * keep));
+  return text.length < fit.text.text.length
+    ? { ...fit, text: { ...fit.text, text, truncated: true } }
+    : fit;
+};
+
 function matchesTrimmedGuidance(matchesTrimmed: number): string {
   return matchesTrimmed > 0
     ? `The transcript match list is incomplete: ${matchesTrimmed} lower-ranked matching call(s) were dropped to fit the output size budget (matchingCalls is the true count). Narrow the window or query to see them.`
@@ -704,19 +731,42 @@ export default defineAction({
       const transcript = requestOptions
         ? await getCallTranscript(args.transcript, requestOptions)
         : await getCallTranscript(args.transcript);
-      const transcriptText = extractTranscriptText(
+      const extraction = extractTranscriptText(
         transcript,
         args.transcriptMaxChars,
       );
-      return {
-        callId: args.transcript,
-        transcript: transcriptText,
-        transcriptText,
-        ...(args.rawTranscript ? { rawTranscriptPayload: transcript } : {}),
-        guidance: args.rawTranscript
-          ? "Returned compact transcript text and the raw Gong transcript payload. Avoid passing the raw payload into save-analysis; preserve call IDs and short excerpts instead."
-          : "Returned compact transcript text only. The transcript field is a backward-compatible alias for transcriptText; set rawTranscript=true only for debugging or export.",
-      };
+      const rawRequested = Boolean(args.rawTranscript);
+      return fitResult({
+        initial: {
+          text: extraction,
+          raw: rawRequested ? transcript : undefined,
+          rawOmitted: false,
+        },
+        build: (fit: SingleTranscriptFit) => ({
+          callId: args.transcript,
+          transcriptText: fit.text,
+          ...(fit.raw !== undefined ? { rawTranscriptPayload: fit.raw } : {}),
+          ...(fit.rawOmitted ? { rawTranscriptOmitted: true } : {}),
+          guidance: [
+            rawRequested && !fit.rawOmitted
+              ? "Returned compact transcript text and the raw Gong transcript payload. Avoid passing the raw payload into save-analysis; preserve call IDs and short excerpts instead."
+              : "Returned compact transcript text only. Set rawTranscript=true only for debugging or export.",
+            fit.rawOmitted
+              ? "The raw Gong payload was omitted (rawTranscriptOmitted) because it did not fit the output size budget."
+              : "",
+            fit.text.truncated
+              ? "The transcript text is truncated; raise transcriptMaxChars or search it with transcriptQuery for specifics."
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        }),
+        steps: [dropRawTranscriptPayload, trimSingleTranscriptText],
+        summarize: () => ({ callId: args.transcript }),
+        guidance:
+          "The transcript does not fit the output size budget. Lower transcriptMaxChars and retry; do not treat this as an empty transcript.",
+        cap: resultCap,
+      });
     } else if (args.company) {
       const days = args.days ?? 90;
       const limit = normalizeGongCallLimit(

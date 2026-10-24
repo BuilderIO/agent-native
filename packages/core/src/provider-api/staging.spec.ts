@@ -618,6 +618,45 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     });
   });
 
+  it("treats an empty-string body as an empty body when a body cursor is added", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ calls: [{ id: "call-1" }], cursor: "next" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ calls: [{ id: "call-2" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    await stagingExecuteRequest(
+      {
+        provider: "gong",
+        method: "POST",
+        path: "/calls/extensive",
+        body: "",
+        stageAs: "gong_calls",
+        itemsPath: "calls",
+        pagination: {
+          nextCursorPath: "cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 2,
+        },
+      },
+      makeExecutor(),
+      { appId: "testapp", ownerEmail: "ada@example.com" },
+    );
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      cursor: "next",
+    });
+  });
+
   it("rejects malformed JSON when a body cursor must be added", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(

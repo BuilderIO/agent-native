@@ -808,7 +808,8 @@ describe("gong-calls action", () => {
 
     expect(getCallTranscript).toHaveBeenCalledWith("call-1");
     expect(result.callId).toBe("call-1");
-    expect(result.transcript).toEqual(result.transcriptText);
+    // One text field: the old `transcript` alias doubled the payload.
+    expect(result.transcript).toBeUndefined();
     expect(result.transcriptText.text.length).toBeLessThanOrEqual(8_000);
     expect(result.transcriptText.truncated).toBe(true);
     expect(result.guidance).toContain("compact transcript text only");
@@ -835,9 +836,63 @@ describe("gong-calls action", () => {
       rawTranscript: true,
     })) as Record<string, any>;
 
-    expect(result.transcript).toEqual(result.transcriptText);
+    expect(result.transcript).toBeUndefined();
     expect(result.rawTranscriptPayload).toBe(transcriptPayload);
     expect(result.transcriptText.text).toContain("Legal is reviewing.");
     expect(result.guidance).toContain("raw Gong transcript payload");
+  });
+
+  describe("single-call transcript fitting", () => {
+    const transcriptPayload = (
+      lines: number,
+      extra: Record<string, unknown> = {},
+    ) => ({
+      callTranscripts: [
+        {
+          callId: "call-1",
+          transcript: [
+            {
+              speakerId: "buyer",
+              sentences: Array.from({ length: lines }, (_, start) => ({
+                start: start * 1_000,
+                text: "ok budget",
+              })),
+            },
+          ],
+        },
+      ],
+      ...extra,
+    });
+
+    it("drops the raw payload before touching the text when both do not fit", async () => {
+      getCallTranscript.mockResolvedValue(
+        transcriptPayload(200, { rawProviderField: "x".repeat(60_000) }),
+      );
+
+      const result = (await gongCalls.run(
+        { transcript: "call-1", rawTranscript: true },
+        agentCtx,
+      )) as Record<string, any>;
+
+      expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
+      expect(result.rawTranscriptPayload).toBeUndefined();
+      expect(result.rawTranscriptOmitted).toBe(true);
+      expect(result.transcriptText.truncated).toBe(false);
+      expect(result.guidance).toContain("raw Gong payload was omitted");
+    });
+
+    it("trims a text that alone exceeds the cap", async () => {
+      getCallTranscript.mockResolvedValue(transcriptPayload(6_000));
+
+      const result = (await gongCalls.run(
+        { transcript: "call-1", transcriptMaxChars: 100_000 },
+        agentCtx,
+      )) as Record<string, any>;
+
+      expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
+      expect(result.transcriptText.truncated).toBe(true);
+      expect(result.transcriptText.text).toContain("ok budget");
+      expect(result.guidance).toContain("transcript text is truncated");
+    });
   });
 });
