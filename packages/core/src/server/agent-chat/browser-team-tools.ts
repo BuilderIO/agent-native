@@ -156,39 +156,46 @@ function buildExtensionPromotionPrompt(
   };
 }
 
+type BuilderRequestConnection =
+  | { status: "connected" }
+  | { status: "disconnected" }
+  /** The grant exists but is expired or lacks `requiredScope`. */
+  | { status: "reauthorize"; message: string };
+
 /**
  * New Builder connections store only an OAuth grant, so a missing legacy key
  * pair does not mean Builder is disconnected. An unusable grant must not fall
  * back to a deploy-level key the user never authorized. `requiredScope` is
  * the scope of the Builder call the tool makes next, so a grant without it
- * gets the reconnect path instead of failing later.
+ * is reported before that call fails.
  */
-async function isBuilderConnectedForRequest(
+async function builderConnectionForRequest(
   creds: {
     privateKey: string | null;
     publicKey: string | null;
   },
   requiredScope: BuilderOAuthPermissionScope,
-): Promise<boolean> {
+): Promise<BuilderRequestConnection> {
   const { resolveBuilderRequestAuthorization } =
     await import("../builder-api-auth.js");
   try {
     const authorization = await resolveBuilderRequestAuthorization({
       requiredScope,
     });
-    if (authorization?.source === "oauth") return true;
+    if (authorization?.source === "oauth") return { status: "connected" };
   } catch (error) {
-    // An expired or under-scoped grant needs the reconnect the card offers.
-    if (isActionContractError(error)) return false;
+    if (isActionContractError(error)) {
+      return { status: "reauthorize", message: error.message };
+    }
     throw error;
   }
   const { getBuilderCredentialAuthFailure } =
     await import("../credential-provider.js");
-  return !!(
-    creds.privateKey &&
+  return creds.privateKey &&
     creds.publicKey &&
     !(await getBuilderCredentialAuthFailure(creds))
-  );
+    ? { status: "connected" }
+    : { status: "disconnected" };
 }
 
 export function createBuilderBrowserTool(deps: {
@@ -272,11 +279,11 @@ export function createBuilderBrowserTool(deps: {
             import("../builder-oauth.js"),
           ]);
         const creds = await resolveBuilderCredentials();
-        // The same scope the Builder status route checks.
-        const configured = await isBuilderConnectedForRequest(
-          creds,
-          BUILDER_OAUTH_SCOPE,
-        );
+        // The same scope the Builder status route checks. A grant that needs
+        // re-authorizing renders unconfigured, so the card offers to connect.
+        const configured =
+          (await builderConnectionForRequest(creds, BUILDER_OAUTH_SCOPE))
+            .status === "connected";
         const branchProjectId = await resolveBuilderBranchProjectId();
         let prompt = typeof args?.prompt === "string" ? args.prompt : "";
         const extensionId =
@@ -454,12 +461,19 @@ export function createBuilderBrowserTool(deps: {
           await import("../credential-provider.js");
         const creds = await resolveBuilderCredentials();
         // requestBuilderBrowserConnection authorizes with this scope.
-        if (
-          !(await isBuilderConnectedForRequest(
-            creds,
-            "builder:browser:connect",
-          ))
-        ) {
+        const builderConnection = await builderConnectionForRequest(
+          creds,
+          "builder:browser:connect",
+        );
+        if (builderConnection.status === "reauthorize") {
+          // connect-builder may still show this grant as connected (it checks
+          // a different scope), so point at re-authorizing, not at the card.
+          return JSON.stringify({
+            error: "builder-reauthorization-required",
+            message: builderConnection.message,
+          });
+        }
+        if (builderConnection.status === "disconnected") {
           return JSON.stringify({
             error: "builder-not-connected",
             message:

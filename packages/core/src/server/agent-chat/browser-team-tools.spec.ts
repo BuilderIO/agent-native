@@ -335,7 +335,10 @@ describe("Builder sign-in without a legacy key pair", () => {
     ).resolves.toMatchObject({ configured: true });
     await expect(
       runBuilderTool("activate-browser", { sessionId: "session-1" }),
-    ).resolves.toMatchObject({ error: "builder-not-connected" });
+    ).resolves.toMatchObject({
+      error: "builder-reauthorization-required",
+      message: expect.stringContaining("builder:browser:connect"),
+    });
     expect(mocks.requestBuilderBrowserConnection).not.toHaveBeenCalled();
   });
 
@@ -354,6 +357,21 @@ describe("Builder sign-in without a legacy key pair", () => {
         },
       ),
     );
+
+    await expect(
+      runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
+    ).resolves.toMatchObject({ configured: false });
+    await expect(
+      runBuilderTool("activate-browser", { sessionId: "session-1" }),
+    ).resolves.toMatchObject({
+      error: "builder-reauthorization-required",
+      message: expect.stringContaining("Re-authorize Builder.io in Settings"),
+    });
+    expect(mocks.requestBuilderBrowserConnection).not.toHaveBeenCalled();
+  });
+
+  it("asks to connect when there is no sign-in or key pair", async () => {
+    mocks.resolveBuilderRequestAuthorization.mockResolvedValue(null);
 
     await expect(
       runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
