@@ -4,7 +4,10 @@ import {
   reconcileImageBytes,
   reconcilePdfBytes,
 } from "./attachment-bytes.js";
-import { isTextLikeMimeType } from "./attachment-text.js";
+import {
+  isTextLikeMimeType,
+  MAX_TEXT_ATTACHMENT_BYTES,
+} from "./attachment-text.js";
 import {
   formatBase64CharBudget,
   isInlineReadableDocumentType,
@@ -89,7 +92,7 @@ export const MAX_OWNED_ATTACHMENT_HYDRATION_BYTES = 8 * 1024 * 1024;
  * The composer's AGENT_PROMPT_MAX_TEXT_FILE_BYTES must match the per-file cap,
  * or its chip promises a read the server refuses.
  */
-export const MAX_OWNED_TEXT_FILE_BYTES = 8 * 1024 * 1024;
+export const MAX_OWNED_TEXT_FILE_BYTES = MAX_TEXT_ATTACHMENT_BYTES;
 export const MAX_OWNED_TEXT_HYDRATION_BYTES = 8 * 1024 * 1024;
 export const MAX_OWNED_IMAGE_HYDRATION_BYTES =
   MAX_OWNED_ATTACHMENT_HYDRATION_BYTES;

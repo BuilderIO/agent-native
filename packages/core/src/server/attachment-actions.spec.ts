@@ -908,6 +908,23 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     expect(mid).toMatchObject({ content: "😀b", offset: 1 });
   });
 
+  it("returns a whole surrogate pair rather than an empty page at limit 1", async () => {
+    resourceListMock.mockResolvedValue([
+      { id: "res-1", path: "attachments/thread-1/mfh2a1b2-0-data.csv" },
+    ]);
+    resourceGetMock.mockResolvedValue(makeResource("😀b"));
+
+    const result = await createCoreAttachmentActionEntries()[
+      "read-attachment"
+    ].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-data.csv", limit: "1" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+
+    expect(result).toMatchObject({ content: "😀", hasMore: true });
+    expect(result.note).toContain("offset=2");
+  });
+
   it("rejects a path outside stored attachments", async () => {
     const result = await createCoreAttachmentActionEntries()[
       "read-attachment"

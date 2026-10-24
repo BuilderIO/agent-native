@@ -9,6 +9,7 @@ import {
   decodeTextAttachmentData,
   isTextLikeFilename,
   MAX_INLINE_TEXT_ATTACHMENT_CHARS,
+  MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS,
   unwrapTextAttachmentEnvelope,
 } from "./attachment-text.js";
 import {
@@ -302,14 +303,13 @@ export async function preUploadAttachments(opts: {
     };
   }
 
+  const readableCandidates: Array<{ att: AgentChatAttachment; label: string }> =
+    [];
   const recordStorageGap = (att: AgentChatAttachment) => {
     const label = att.name || att.type || "attachment";
     const reason = classifyInlineAttachment(att);
     if (reason === null) {
-      // A long text file shows only its head inline, and its own truncation
-      // note says so; listing it here would tell the model it has all of it.
-      if (inlineTextLength(att) > MAX_INLINE_TEXT_ATTACHMENT_CHARS) return;
-      readableWithoutStorage.push(label);
+      readableCandidates.push({ att, label });
     } else {
       unreadableWithoutStorage.push({ label, reason });
     }
@@ -618,6 +618,30 @@ export async function preUploadAttachments(opts: {
         err instanceof Error ? err.message : String(err),
       );
     }
+  }
+
+  // A text file the prompt shows only partly, by its own cap or the shared
+  // total, gets a truncation note; listing it as readable here would tell
+  // the model it has all of it. This walks attachments in prompt order.
+  const fullyInlined = new Set<AgentChatAttachment>();
+  let remainingInlineTextChars = MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS;
+  for (const att of list) {
+    if (att.displayOnly === true) continue;
+    const length = inlineTextLength(att);
+    if (length === 0) {
+      fullyInlined.add(att);
+      continue;
+    }
+    const shown = Math.min(
+      length,
+      MAX_INLINE_TEXT_ATTACHMENT_CHARS,
+      remainingInlineTextChars,
+    );
+    remainingInlineTextChars -= shown;
+    if (shown === length) fullyInlined.add(att);
+  }
+  for (const { att, label } of readableCandidates) {
+    if (fullyInlined.has(att)) readableWithoutStorage.push(label);
   }
 
   const injectedBlocks: string[] = [...spreadsheetContexts];

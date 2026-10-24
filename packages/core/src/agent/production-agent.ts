@@ -99,6 +99,7 @@ import {
   decodeTextAttachmentData,
   isSvgTextAttachment,
   MAX_INLINE_TEXT_ATTACHMENT_CHARS,
+  MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS,
   sliceTextHead,
   type TextAttachmentStorage,
   unwrapTextAttachmentEnvelope,
@@ -2304,7 +2305,8 @@ const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 const MAX_INLINE_ATTACHMENT_BASE64_CHARS = MAX_INLINE_FILE_BASE64_CHARS;
 const MAX_TEXT_ATTACHMENT_CHARS = MAX_INLINE_TEXT_ATTACHMENT_CHARS;
-const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS = 80_000;
+const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS =
+  MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
@@ -2949,13 +2951,15 @@ function describeEmptyTextAttachment(att: AgentChatAttachment): string {
 function describeUndecodableTextAttachment(
   att: AgentChatAttachment,
   mediaType: string,
-  reason: "invalid-base64" | "not-utf8",
+  reason: "invalid-base64" | "not-utf8" | "too-large",
 ): string {
   const name = escapeAttachmentAttribute(att.name || "attachment");
   const why =
     reason === "invalid-base64"
       ? "its encoded payload is corrupt, so its contents were not sent to the model. Do not infer or describe its contents. Tell the user it could not be read and ask them to attach it again."
-      : "its bytes are not valid UTF-8, so its contents were not sent to the model. Do not infer or describe its contents. Tell the user it could not be read and ask them to save it as UTF-8 and attach it again.";
+      : reason === "too-large"
+        ? "it is over the 8 MB limit for reading text files, so its contents were not sent to the model. Do not infer or describe its contents. Tell the user it is too large to read and ask for a smaller file."
+        : "its bytes are not valid UTF-8, so its contents were not sent to the model. Do not infer or describe its contents. Tell the user it could not be read and ask them to save it as UTF-8 and attach it again.";
   return `<chat-attachment-processing-error code="undecodable-text" reason="${reason}" name="${name}" contentType="${escapeAttachmentAttribute(mediaType)}">The attachment is a text file, but ${why}</chat-attachment-processing-error>`;
 }
 

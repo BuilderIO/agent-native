@@ -49,7 +49,7 @@ export type InlineAttachmentBlockReason =
   | {
       kind: "undecodable-text";
       mediaType: string;
-      reason: "invalid-base64" | "not-utf8";
+      reason: "invalid-base64" | "not-utf8" | "too-large";
     }
   | { kind: "over-inline-limit"; maxChars: number; actualChars: number };
 
@@ -66,7 +66,9 @@ export function describeInlineBlockReason(
     case "undecodable-text":
       return reason.reason === "invalid-base64"
         ? `its ${reason.mediaType} payload is not valid base64`
-        : `its ${reason.mediaType} bytes are not valid UTF-8 text`;
+        : reason.reason === "too-large"
+          ? "it is over the 8 MB limit for reading text files"
+          : `its ${reason.mediaType} bytes are not valid UTF-8 text`;
     case "over-inline-limit":
       return `over the ${formatBase64CharBudget(reason.maxChars)} inline limit`;
   }

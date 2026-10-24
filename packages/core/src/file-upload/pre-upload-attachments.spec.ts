@@ -823,6 +823,31 @@ describe("preUploadAttachments", () => {
     expect(result.injectedText).not.toContain('"DESIGN.md"');
   });
 
+  it("does not call a file readable when the shared text budget cut it", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const result = await preUploadAttachments({
+      attachments: [
+        {
+          type: "file",
+          name: "first.md",
+          contentType: "text/markdown",
+          text: "a".repeat(50_000),
+        },
+        {
+          type: "file",
+          name: "second.md",
+          contentType: "text/markdown",
+          text: "b".repeat(50_000),
+        },
+      ],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.readableWithoutStorage).toEqual(["first.md"]);
+  });
+
   it("uploads decoded text attachments so their URL survives the thread", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/notes.txt",

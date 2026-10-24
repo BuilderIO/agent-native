@@ -494,7 +494,9 @@ export function createCoreAttachmentActionEntries(): Record<
             end < totalChars &&
             isHighSurrogate(content.charCodeAt(end - 1))
           ) {
-            end -= 1;
+            // Backing off would return an empty page at the same offset when
+            // the page is only the high half, so take the whole pair instead.
+            end = end - 1 > start ? end - 1 : end + 1;
           }
           const slice = content.slice(start, end);
           return {

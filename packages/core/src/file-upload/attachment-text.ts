@@ -12,6 +12,13 @@ export const ATTACHMENT_REFERENCE_MIME_TYPE =
   "application/vnd.agent-native.attachment-reference+json";
 /** Most characters of one text attachment the prompt shows inline. */
 export const MAX_INLINE_TEXT_ATTACHMENT_CHARS = 60_000;
+/** Most characters of all text attachments in one prompt. */
+export const MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS = 80_000;
+/**
+ * Largest text or SVG file read on any path: browser reads, owned-URL
+ * hydration and data URLs a caller sends directly all stop here.
+ */
+export const MAX_TEXT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 
 const TEXT_LIKE_APPLICATION_TYPES = new Set([
   "application/javascript",
@@ -49,6 +56,24 @@ export function isSvgTextAttachment(att: {
   );
 }
 
+/**
+ * Unwraps the composer's envelope only when it names this very file, so a
+ * stored or legacy upload that kept its wrapper reads as its body, while a
+ * real document that merely looks like one is left as written.
+ */
+export function unwrapOwnAttachmentEnvelope(
+  text: string,
+  name: string | undefined,
+): string {
+  const match = text.match(
+    /^<attachment\b([^>]*)>\n([\s\S]*)\n<\/attachment>$/,
+  );
+  if (!match || !name) return text;
+  const attrName = match[1]!.match(/\bname=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/);
+  const wrapped = attrName?.[1] ?? attrName?.[2] ?? attrName?.[3];
+  return wrapped === name ? match[2]! : text;
+}
+
 /** Pasted text arrives wrapped; the model and read-attachment offsets see the body. */
 export function unwrapTextAttachmentEnvelope(text: string): string {
   const match = text.match(/^<attachment\b[^>]*>\n([\s\S]*)\n<\/attachment>$/);
@@ -69,7 +94,7 @@ export type DecodedAttachmentText =
   | {
       kind: "undecodable";
       mediaType: string;
-      reason: "invalid-base64" | "not-utf8";
+      reason: "invalid-base64" | "not-utf8" | "too-large";
     };
 
 /**
@@ -151,11 +176,28 @@ function decodeTextAttachmentDataUncached(
       reason: "invalid-base64",
     };
   }
+  // Checked before decoding so a direct data URL cannot allocate past the
+  // limit every other read path enforces.
+  const padding = dataUrl.data.endsWith("==")
+    ? 2
+    : dataUrl.data.endsWith("=")
+      ? 1
+      : 0;
+  if ((dataUrl.data.length / 4) * 3 - padding > MAX_TEXT_ATTACHMENT_BYTES) {
+    return {
+      kind: "undecodable",
+      mediaType: mediaType || "unknown",
+      reason: "too-large",
+    };
+  }
   try {
     return {
       kind: "text",
-      text: new TextDecoder("utf-8", { fatal: true }).decode(
-        Buffer.from(dataUrl.data, "base64"),
+      text: unwrapOwnAttachmentEnvelope(
+        new TextDecoder("utf-8", { fatal: true }).decode(
+          Buffer.from(dataUrl.data, "base64"),
+        ),
+        att.name,
       ),
     };
   } catch {

@@ -26,6 +26,36 @@ describe("decodeTextAttachmentData", () => {
     ).toEqual({ kind: "text", text });
   });
 
+  it("reports a direct data URL over 8 MB as too large without decoding it", () => {
+    expect(
+      decodeTextAttachmentData({
+        name: "huge.md",
+        data: `data:text/markdown;base64,${"A".repeat(12_000_000)}`,
+      }),
+    ).toEqual({
+      kind: "undecodable",
+      mediaType: "text/markdown",
+      reason: "too-large",
+    });
+  });
+
+  it("unwraps a stored copy that kept this file's own composer envelope", () => {
+    const wrapped =
+      '<attachment name="notes.md" contentType="text/markdown">\nbody\n</attachment>';
+    expect(
+      decodeTextAttachmentData({
+        name: "notes.md",
+        data: markdownDataUrl(wrapped),
+      }),
+    ).toEqual({ kind: "text", text: "body" });
+    expect(
+      decodeTextAttachmentData({
+        name: "other.md",
+        data: markdownDataUrl(wrapped),
+      }),
+    ).toEqual({ kind: "text", text: wrapped });
+  });
+
   it.each(["aGVs*bG8=", "aGVsbG8", "aG=VsbG8="])(
     "reports %s as corrupt base64",
     (payload) => {
