@@ -282,6 +282,7 @@ export async function resolveAgentHarnessApproval(input: {
           {
             followUpClaimId: session.followUpClaimId ?? undefined,
             approvalResolutionId: input.approval.id,
+            approvalResolutionStatus: dispatch.session.status,
             firstNext: dispatch.started.firstNext,
             iterator: dispatch.started.iterator,
             liveSession: live.session,
@@ -1251,6 +1252,7 @@ async function consumeEvents(
   options?: {
     abortSignal?: AbortSignal;
     approvalResolutionId?: string;
+    approvalResolutionStatus?: AgentHarnessSessionStatus;
     firstNext?: Promise<IteratorResult<AgentHarnessEvent>>;
     followUpClaimId?: string;
     iterator?: AsyncIterator<AgentHarnessEvent>;
@@ -1276,10 +1278,22 @@ async function consumeEvents(
               { pendingApproval: event },
               { expectedApprovalResolutionId: options.approvalResolutionId },
             )
-          : await updateAgentHarnessSession(sessionId, {
-              pendingApproval: event,
-            });
-        if (options?.followUpClaimId && !updated) {
+          : options?.approvalResolutionId !== undefined
+            ? await updateApprovalContinuationPending(
+                sessionId,
+                options.approvalResolutionId,
+                options.approvalResolutionStatus,
+                options.liveSession,
+                event,
+              )
+            : await updateAgentHarnessSession(sessionId, {
+                pendingApproval: event,
+              });
+        if (
+          (options?.followUpClaimId ||
+            options?.approvalResolutionId !== undefined) &&
+          !updated
+        ) {
           throw new AgentHarnessSessionConflictError(sessionId);
         }
         if (updated && options?.liveSession) {
@@ -1414,12 +1428,9 @@ async function stopAcquiredHarnessSession(
   session: AgentHarnessSession,
 ): Promise<void> {
   if (liveSessions.get(sessionId)?.session !== session) return;
-  try {
-    if (session.stop) await session.stop();
-    else await session.destroy?.();
-  } finally {
-    releaseLiveAgentHarnessSession(sessionId, session);
-  }
+  if (session.stop) await session.stop();
+  else await session.destroy?.();
+  releaseLiveAgentHarnessSession(sessionId, session);
 }
 
 async function markOwnedFollowUpErrored(
@@ -1427,15 +1438,74 @@ async function markOwnedFollowUpErrored(
   claimId: string,
   liveSession: AgentHarnessSession,
 ): Promise<StoredAgentHarnessSession | null> {
-  return updateOwnedFollowUpClaim(
+  let conflict: AgentHarnessSessionConflictError | undefined;
+  let expectedApprovalResolutionId: string | null = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const updated = await updateAgentHarnessSessionIfFollowUpClaim(
+        sessionId,
+        claimId,
+        {
+          status: "errored",
+          pendingApproval: null,
+          approvalResolutionId: null,
+          followUpClaimId: null,
+        },
+        {
+          expectedApprovalResolutionId,
+        },
+      );
+      if (updated) {
+        refreshLiveAgentHarnessSessionGeneration(
+          sessionId,
+          liveSession,
+          updated.generation,
+        );
+        return updated;
+      }
+    } catch (error) {
+      if (!isAgentHarnessSessionConflictError(error)) throw error;
+      conflict = error;
+    }
+    const latest = await getAgentHarnessSession(sessionId);
+    if (latest?.status !== "running" || latest.followUpClaimId !== claimId) {
+      return null;
+    }
+    expectedApprovalResolutionId = latest.approvalResolutionId ?? null;
+  }
+  throw conflict ?? new AgentHarnessSessionConflictError(sessionId);
+}
+
+async function updateApprovalContinuationPending(
+  sessionId: string,
+  approvalResolutionId: string,
+  expectedStatus: AgentHarnessSessionStatus | undefined,
+  liveSession: AgentHarnessSession | undefined,
+  event: Extract<AgentHarnessEvent, { type: "approval-request" }>,
+): Promise<StoredAgentHarnessSession | null> {
+  if (!expectedStatus || !liveSession) return null;
+  const liveGeneration = getLiveAgentHarnessSessionGeneration(
     sessionId,
-    claimId,
-    {
-      status: "errored",
-      pendingApproval: null,
-      followUpClaimId: null,
-    },
     liveSession,
+  );
+  if (liveGeneration === null) return null;
+  const current = await getAgentHarnessSession(sessionId);
+  if (
+    !current ||
+    current.status === "stopped" ||
+    current.status === "errored" ||
+    current.status === "destroyed" ||
+    current.approvalResolutionId !== approvalResolutionId
+  ) {
+    return null;
+  }
+  return updateAgentHarnessSessionAtGeneration(
+    sessionId,
+    current.status,
+    current.generation,
+    { pendingApproval: event },
+    undefined,
+    { expectedApprovalResolutionId: approvalResolutionId },
   );
 }
 

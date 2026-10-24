@@ -82,6 +82,11 @@ export interface SaveAgentHarnessSessionInput {
   existingSession?: StoredAgentHarnessSession | null;
 }
 
+export interface AgentHarnessSessionGenerationFence {
+  expectedApprovalResolutionId?: string | null;
+  requiresNoApprovalResolution?: boolean;
+}
+
 export const agentHarnessSessionsStore = defineStore({
   id: "agent_harness_sessions",
   migrations: [
@@ -327,7 +332,7 @@ export async function updateAgentHarnessSessionAtGeneration(
   expectedGeneration: number,
   patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
   expectedFollowUpClaimId?: string,
-  requiresNoApprovalResolution = false,
+  fence: boolean | AgentHarnessSessionGenerationFence = false,
 ): Promise<StoredAgentHarnessSession | null> {
   return updateAgentHarnessSessionWithStatus(
     id,
@@ -335,7 +340,7 @@ export async function updateAgentHarnessSessionAtGeneration(
     expectedStatus,
     expectedGeneration,
     expectedFollowUpClaimId,
-    requiresNoApprovalResolution,
+    fence,
   );
 }
 
@@ -350,7 +355,7 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
         | Partial<Omit<SaveAgentHarnessSessionInput, "id">>
         | Promise<Partial<Omit<SaveAgentHarnessSessionInput, "id">>>),
   options: {
-    expectedApprovalResolutionId?: string;
+    expectedApprovalResolutionId?: string | null;
     requiresNoApprovalResolution?: boolean;
   } = {},
 ): Promise<StoredAgentHarnessSession | null> {
@@ -539,7 +544,7 @@ async function updateAgentHarnessSessionWithStatus(
   expectedStatus?: AgentHarnessSessionStatus,
   expectedGeneration?: number,
   expectedFollowUpClaimId?: string,
-  requiresNoApprovalResolution = false,
+  fence: boolean | AgentHarnessSessionGenerationFence = false,
 ): Promise<StoredAgentHarnessSession | null> {
   const existing = await getAgentHarnessSession(id);
   if (!existing) return null;
@@ -558,6 +563,10 @@ async function updateAgentHarnessSessionWithStatus(
   ) {
     return null;
   }
+  const requiresNoApprovalResolution =
+    typeof fence === "boolean" ? fence : fence.requiresNoApprovalResolution;
+  const expectedApprovalResolutionId =
+    typeof fence === "boolean" ? undefined : fence.expectedApprovalResolutionId;
   if (requiresNoApprovalResolution && existing.approvalResolutionId) {
     return null;
   }
@@ -594,6 +603,7 @@ async function updateAgentHarnessSessionWithStatus(
     expectedGeneration: expectedGeneration ?? existing.generation,
     expectedStatus,
     expectedFollowUpClaimId,
+    expectedApprovalResolutionId,
     requiresNoApprovalResolution,
     existingSession: existing,
   });

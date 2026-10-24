@@ -76,12 +76,14 @@ describe("agent harness lifecycle", () => {
       return stored;
     });
     mocks.updateIfFollowUpClaim.mockImplementation(
-      async (_id, expectedClaimId, patch) => {
+      async (_id, expectedClaimId, patch, options) => {
         for (let attempt = 0; attempt < 3; attempt += 1) {
           const current = stored;
           if (
             current.status !== "running" ||
-            current.followUpClaimId !== expectedClaimId
+            current.followUpClaimId !== expectedClaimId ||
+            current.approvalResolutionId !==
+              (options?.expectedApprovalResolutionId ?? null)
           ) {
             return null;
           }
@@ -100,12 +102,20 @@ describe("agent harness lifecycle", () => {
         expectedGeneration,
         patch,
         expectedClaimId,
+        fence,
       ) => {
         if (
           stored.status !== expectedStatus ||
           stored.generation !== expectedGeneration ||
           (expectedClaimId !== undefined &&
-            stored.followUpClaimId !== expectedClaimId)
+            stored.followUpClaimId !== expectedClaimId) ||
+          (typeof fence === "object" &&
+            "expectedApprovalResolutionId" in fence &&
+            stored.approvalResolutionId !==
+              fence.expectedApprovalResolutionId) ||
+          (typeof fence === "boolean" &&
+            fence &&
+            stored.approvalResolutionId !== null)
         ) {
           throw Object.assign(
             new Error("Harness session changed concurrently."),
@@ -1137,6 +1147,66 @@ describe("agent harness lifecycle", () => {
     expect(stored.status).toBe("errored");
   });
 
+  it("terminalizes a failed follow-up while approval resolution is reserved", async () => {
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* () {
+      stored = { ...stored, approvalResolutionId: "approval-in-flight" };
+      throw new Error("provider stream failed");
+    });
+    register(stored, session);
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("provider stream failed");
+
+    expect(stored).toMatchObject({
+      status: "errored",
+      followUpClaimId: null,
+      approvalResolutionId: null,
+      pendingApproval: null,
+    });
+    expect(mocks.updateIfFollowUpClaim).toHaveBeenCalledWith(
+      stored.id,
+      expect.any(String),
+      expect.objectContaining({
+        status: "errored",
+        approvalResolutionId: null,
+      }),
+      { expectedApprovalResolutionId: "approval-in-flight" },
+    );
+    expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("retains a failed provider stop for a later cleanup attempt", async () => {
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* () {
+      throw new Error("provider stream failed");
+    });
+    session.stop.mockRejectedValueOnce(new Error("provider stop failed"));
+    register(stored, session);
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("Harness follow-up failed and cleanup was incomplete.");
+
+    expect(stored.status).toBe("errored");
+    await expect(
+      stopLiveAgentHarnessSession({
+        sessionId: stored.id,
+        scope: ownerScope(),
+      }),
+    ).resolves.toBe(true);
+    expect(session.stop).toHaveBeenCalledTimes(2);
+  });
+
   it("retries failed-claim cleanup after a same-claim generation conflict", async () => {
     const session = fakeSession();
     session.streamTurn.mockImplementation(async function* () {
@@ -1503,6 +1573,41 @@ describe("agent harness lifecycle", () => {
     expect(result.ok).toBe(true);
     expect(stored.pendingApproval).toMatchObject({ id: "approval-next" });
     expect(stored.resolvedApprovalIds).toContain("approval-first");
+  });
+
+  it("does not persist a continuation approval after stop wins", async () => {
+    stored.pendingApproval = approvalEvent("approval-first");
+    const session = {
+      ...fakeSession(),
+      approve: undefined,
+      continueTurn: vi.fn(async function* () {
+        await stopAndPersistAgentHarnessSession({
+          sessionId: stored.id,
+          scope: ownerScope(),
+          status: "stopped",
+        });
+        yield approvalEvent("approval-after-stop");
+      }),
+    };
+    register(stored, session);
+
+    await expect(
+      resolveAgentHarnessApproval({
+        runId: stored.runId!,
+        approval: { id: "approval-first", approved: true },
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("changed concurrently");
+
+    expect(stored).toMatchObject({
+      status: "stopped",
+      pendingApproval: null,
+      approvalResolutionId: null,
+    });
+    expect(mocks.update).not.toHaveBeenCalledWith(
+      stored.id,
+      expect.objectContaining({ id: "approval-after-stop" }),
+    );
   });
 
   it("detaches after an approval continuation that overlaps follow-up completion", async () => {
