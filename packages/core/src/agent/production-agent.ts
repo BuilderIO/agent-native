@@ -5463,15 +5463,20 @@ function seedUnknownOutcomes(
       const namedCandidates = candidates.filter(
         (call) => call.name === part.toolName,
       );
-      for (const call of namedCandidates.length > 0
-        ? namedCandidates
-        : candidates) {
+      const owners = namedCandidates.length > 0 ? namedCandidates : candidates;
+      // The result is one candidate's; its cause can stand only where every
+      // candidate shares the keys it would be recorded under.
+      const ownerInputs = new Set(
+        owners.map((call) => toolCallCacheKey(call.name, call.input)),
+      );
+      const partCause = ownerInputs.size === 1 ? part.unknownCause : undefined;
+      for (const call of owners) {
         if (readOnlyCalls.has(call)) continue;
         const cause = ambiguousUnknownCalls.has(call)
-          ? ambiguousUnknownCalls.get(call) === part.unknownCause
-            ? part.unknownCause
+          ? ambiguousUnknownCalls.get(call) === partCause
+            ? partCause
             : undefined
-          : part.unknownCause;
+          : partCause;
         ambiguousUnknownCalls.set(call, cause);
       }
     }
@@ -9705,16 +9710,23 @@ export async function runAgentLoop(opts: {
             : unknownOutcomes.uncaused.has(key)
               ? null
               : undefined;
-        const recordedCause = [
-          () => interruptedStep?.unknownCause,
-          () => keyedCause(`call:${preparedCallKey}`),
-          () =>
-            (unknownOutcomes.inputs.get(inputKey) ?? 0) <= 1
-              ? keyedCause(`input:${inputKey}`)
-              : undefined,
-        ]
+        const [recordedCause, attempts] = (
+          [
+            () => [interruptedStep?.unknownCause, 1],
+            () => [
+              keyedCause(`call:${preparedCallKey}`),
+              unknownOutcomes.calls.get(preparedCallKey),
+            ],
+            () =>
+              (unknownOutcomes.inputs.get(inputKey) ?? 0) <= 1
+                ? [keyedCause(`input:${inputKey}`), 1]
+                : [undefined, undefined],
+          ] as Array<
+            () => [UnknownOutcomeCause | null | undefined, number | undefined]
+          >
+        )
           .map((read) => read())
-          .find((cause) => cause !== undefined);
+          .find(([cause]) => cause !== undefined) ?? [undefined, undefined];
         unknownOutcomeCause = recordedCause ?? undefined;
         // Attempts that disagree get no cause-specific wording.
         const result = unknownRepeatResult(
@@ -9722,6 +9734,7 @@ export async function runAgentLoop(opts: {
           recordedCause === null
             ? undefined
             : (unknownOutcomeCause ?? "interruption"),
+          recordedCause === null ? attempts : undefined,
         );
         await send({
           type: "tool_start",

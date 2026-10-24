@@ -442,7 +442,7 @@ describe("durable execution step replay", () => {
     );
     expect(vi.mocked(beginAgentExecutionStep)).toHaveBeenCalled();
     expect(done?.result).toContain(
-      "The create-deck action has 1 earlier attempt(s) whose outcome is unknown.",
+      "The create-deck action has 2 earlier attempt(s) whose outcome is unknown.",
     );
     expect(done?.unknownCause).toBeUndefined();
   });

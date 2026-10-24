@@ -664,8 +664,101 @@ describe("a write whose outcome is really unknown", () => {
     });
   });
 
-  it("keeps the cause of a history result whose call id is ambiguous", async () => {
+  it.each([
+    ["the same arguments", { body: "Refund sent" }, "rejection"],
+    ["different arguments", { body: "Other" }, "interruption"],
+  ] as const)(
+    "keeps the cause of a history result whose call id is ambiguous only when its candidates sent %s",
+    async (_label, otherInput, blockedBy) => {
+      const input = { body: "Refund sent" };
+      const run = vi.fn(async () => "sent");
+      const action = defineAction({
+        description: "Send.",
+        schema: z.object({ body: z.string() }),
+        run,
+      }) as unknown as ActionEntry;
+      const events = await runCalls(
+        { send: action },
+        [{ name: "send", input }],
+        {
+          threadId: `thread-ambiguous-history-${blockedBy}`,
+          history: [
+            {
+              role: "assistant",
+              content: [{ type: "tool-call", id: "dup", name: "send", input }],
+            },
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "dup",
+                  name: "send",
+                  input: otherInput,
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "dup",
+                  toolName: "send",
+                  content: "Error running send: Upstream rejected the request.",
+                  isError: true,
+                  outcome: "unknown",
+                  unknownCause: "rejection",
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+            },
+          ],
+        },
+      );
+
+      expect(run).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+          blockedBy,
+        }),
+      );
+    },
+  );
+
+  it("counts a step restated across resumes as one attempt", async () => {
     const input = { body: "Refund sent" };
+    const record = (id: string) => [
+      {
+        type: "tool_start",
+        id,
+        executionStepId: "step-send",
+        tool: "send",
+        input,
+      },
+      {
+        type: "tool_done",
+        id,
+        executionStepId: "step-send",
+        tool: "send",
+        input,
+        result: "Error running send: rejected.",
+        isError: true,
+        outcomeUnknown: true,
+        unknownCause: "rejection",
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ];
+    // The attempt, and a later resume's record that the step was unknown.
+    currentTurnEvents.mockResolvedValue([
+      ...record("attempt"),
+      ...record("restated"),
+    ]);
     const run = vi.fn(async () => "sent");
     const action = defineAction({
       description: "Send.",
@@ -673,51 +766,12 @@ describe("a write whose outcome is really unknown", () => {
       run,
     }) as unknown as ActionEntry;
     const events = await runCalls({ send: action }, [{ name: "send", input }], {
-      threadId: "thread-ambiguous-history",
-      history: [
-        {
-          role: "assistant",
-          content: [{ type: "tool-call", id: "dup", name: "send", input }],
-        },
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool-call",
-              id: "dup",
-              name: "send",
-              input: { body: "Other" },
-            },
-          ],
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "tool-result",
-              toolCallId: "dup",
-              toolName: "send",
-              content: "Error running send: Upstream rejected the request.",
-              isError: true,
-              outcome: "unknown",
-              unknownCause: "rejection",
-            },
-          ],
-        },
-        {
-          role: "user",
-          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
-        },
-      ],
+      threadId: "thread-restated-step",
     });
 
     expect(run).not.toHaveBeenCalled();
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "write_tool_outcome_unknown",
-        blockedBy: "rejection",
-      }),
+    expect(toolDones(events).at(-1)?.result).toContain(
+      "The send action failed 1 time(s) without confirming",
     );
   });
 
