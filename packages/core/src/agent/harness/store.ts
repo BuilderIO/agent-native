@@ -574,6 +574,37 @@ export async function markAgentHarnessSessionStopped(
   return rowToHarnessSession(rows[0]);
 }
 
+export async function markAgentHarnessSessionStoppedIfUnclaimed(
+  id: string,
+  expectedStatus: AgentHarnessSessionStatus,
+  expectedGeneration: number,
+  status: Extract<
+    AgentHarnessSessionStatus,
+    "stopped" | "destroyed" | "errored"
+  >,
+): Promise<StoredAgentHarnessSession | null> {
+  await ensureAgentHarnessSessionTables();
+  const stoppedAt = Date.now();
+  const { rows } = await getDbExec().execute({
+    sql: `UPDATE agent_harness_sessions
+          SET status = ?, stopped_at = ?, pending_approval = NULL,
+              follow_up_claim_id = NULL, generation = generation + 1,
+              updated_at = ?
+          WHERE id = ? AND status = ? AND generation = ?
+            AND follow_up_claim_id IS NULL
+          RETURNING *`,
+    args: [
+      status,
+      stoppedAt,
+      stoppedAt,
+      id,
+      expectedStatus,
+      expectedGeneration,
+    ],
+  });
+  return rowToHarnessSession(rows[0]);
+}
+
 function rowToHarnessSession(row: unknown): StoredAgentHarnessSession | null {
   if (!row || typeof row !== "object") return null;
   const record = row as Record<string, unknown>;

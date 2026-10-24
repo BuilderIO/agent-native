@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   updateAtGeneration: vi.fn(),
   claimFollowUp: vi.fn(),
   markStopped: vi.fn(),
+  markStoppedIfUnclaimed: vi.fn(),
   resolveAdapter: vi.fn(),
 }));
 
@@ -34,6 +35,7 @@ vi.mock("./store.js", () => ({
   updateAgentHarnessSessionAtGeneration: mocks.updateAtGeneration,
   claimAgentHarnessSessionFollowUp: mocks.claimFollowUp,
   markAgentHarnessSessionStopped: mocks.markStopped,
+  markAgentHarnessSessionStoppedIfUnclaimed: mocks.markStoppedIfUnclaimed,
 }));
 
 vi.mock("./registry.js", () => ({
@@ -45,6 +47,7 @@ const {
   resolveAgentHarnessApproval,
   sendAgentHarnessFollowUp,
   stopLiveAgentHarnessSession,
+  sweepExpiredAgentHarnessSessions,
 } = await import("./lifecycle.js");
 
 describe("agent harness lifecycle", () => {
@@ -121,6 +124,23 @@ describe("agent harness lifecycle", () => {
       };
       return stored;
     });
+    mocks.markStoppedIfUnclaimed.mockImplementation(
+      async (_id, expectedStatus, expectedGeneration, status) => {
+        if (
+          stored.status !== expectedStatus ||
+          stored.generation !== expectedGeneration ||
+          stored.followUpClaimId != null
+        ) {
+          return null;
+        }
+        return mocks.update("session", {
+          status,
+          pendingApproval: null,
+          followUpClaimId: null,
+          stoppedAt: Date.now(),
+        });
+      },
+    );
   });
 
   it.each([
@@ -250,6 +270,29 @@ describe("agent harness lifecycle", () => {
     expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
     expect(session.streamTurn).not.toHaveBeenCalled();
     expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("does not let an expired process stop a newer follow-up claim", async () => {
+    const session = fakeSession();
+    register(stored, session);
+    stored = {
+      ...stored,
+      status: "running",
+      followUpClaimId: "newer-worker-claim",
+      generation: stored.generation + 1,
+    };
+
+    const removed = await sweepExpiredAgentHarnessSessions(
+      Date.now() + 25 * 60 * 60 * 1_000,
+    );
+
+    expect(removed).toBeGreaterThan(0);
+    expect(session.stop).not.toHaveBeenCalled();
+    expect(mocks.markStoppedIfUnclaimed).not.toHaveBeenCalled();
+    expect(stored).toMatchObject({
+      status: "running",
+      followUpClaimId: "newer-worker-claim",
+    });
   });
 
   it("preserves a chained approval already persisted during the follow-up", async () => {

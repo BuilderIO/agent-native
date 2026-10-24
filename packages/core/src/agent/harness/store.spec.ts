@@ -35,6 +35,7 @@ const {
   claimAgentHarnessSessionFollowUp,
   getAgentHarnessSession,
   markAgentHarnessSessionStopped,
+  markAgentHarnessSessionStoppedIfUnclaimed,
   saveAgentHarnessSession,
   updateAgentHarnessSessionIfFollowUpClaim,
 } = await import("./store.js");
@@ -416,6 +417,47 @@ describe("agent harness session store", () => {
     ).resolves.toMatchObject({
       status: "stopped",
       followUpClaimId: null,
+    });
+  });
+
+  it("does not expire a session after another worker claims a follow-up", async () => {
+    const id = "session-expired-follow-up-claim";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-expired-follow-up-claim",
+      runId: "run-expired-follow-up-claim",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      "new-worker-claim",
+    );
+
+    await expect(
+      markAgentHarnessSessionStoppedIfUnclaimed(
+        id,
+        "idle",
+        initial!.generation,
+        "stopped",
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      markAgentHarnessSessionStoppedIfUnclaimed(
+        id,
+        "running",
+        claimed!.generation,
+        "stopped",
+      ),
+    ).resolves.toBeNull();
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "running",
+      followUpClaimId: "new-worker-claim",
+      generation: claimed!.generation,
     });
   });
 

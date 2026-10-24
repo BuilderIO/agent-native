@@ -7,7 +7,7 @@ import {
   getAgentHarnessSession,
   getAgentHarnessSessionByRunId,
   isAgentHarnessSessionConflictError,
-  markAgentHarnessSessionStopped,
+  markAgentHarnessSessionStoppedIfUnclaimed,
   updateAgentHarnessSession,
   updateAgentHarnessSessionAtGeneration,
   updateAgentHarnessSessionIfFollowUpClaim,
@@ -674,16 +674,39 @@ export async function sweepExpiredAgentHarnessSessions(
   let removed = 0;
   for (const [sessionId, live] of liveSessions) {
     if (live.expiresAt > now) continue;
-    liveSessions.delete(sessionId);
-    removed += 1;
+    let stoppedGeneration: number | undefined;
     try {
+      const current = await getAgentHarnessSession(sessionId);
+      if (!current || current.followUpClaimId != null) {
+        liveSessions.delete(sessionId);
+        removed += 1;
+        continue;
+      }
+      const stopped = await markAgentHarnessSessionStoppedIfUnclaimed(
+        sessionId,
+        current.status,
+        current.generation,
+        "stopped",
+      );
+      if (!stopped) {
+        liveSessions.delete(sessionId);
+        removed += 1;
+        continue;
+      }
+      stoppedGeneration = stopped.generation;
+      liveSessions.delete(sessionId);
+      removed += 1;
       if (live.session.stop) await live.session.stop();
       else await live.session.destroy?.();
-      await markAgentHarnessSessionStopped(sessionId, "stopped");
     } catch {
-      await markAgentHarnessSessionStopped(sessionId, "errored").catch(
-        () => {},
-      );
+      if (stoppedGeneration !== undefined) {
+        await markAgentHarnessSessionStoppedIfUnclaimed(
+          sessionId,
+          "stopped",
+          stoppedGeneration,
+          "errored",
+        ).catch(() => {});
+      }
     }
   }
   return removed;
