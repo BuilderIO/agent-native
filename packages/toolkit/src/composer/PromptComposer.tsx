@@ -16,7 +16,7 @@ import {
   CompositeAttachmentAdapter,
   SimpleImageAttachmentAdapter,
 } from "@assistant-ui/react";
-import { IconX } from "@tabler/icons-react";
+import { IconAlertTriangle, IconX } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -42,7 +42,11 @@ import type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 import type { ComposerContextSnapshot } from "./context-items.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
-import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
+import {
+  escapePromptAttachmentAttribute,
+  probeAgentPromptAttachment,
+  type AgentPromptAttachmentReadError,
+} from "./prompt-attachments.js";
 import {
   type EngineModelGroup,
   type ComposerAgentEngineState,
@@ -512,7 +516,28 @@ function ImagePreviewLightbox({
   );
 }
 
-function AttachmentChip({
+function useAttachmentReadError(
+  attachment: Attachment,
+): AgentPromptAttachmentReadError | null {
+  const file = "file" in attachment ? attachment.file : undefined;
+  const [readError, setReadError] =
+    useState<AgentPromptAttachmentReadError | null>(null);
+  useEffect(() => {
+    setReadError(null);
+    if (!file) return;
+    let active = true;
+    void probeAgentPromptAttachment(file).then((error) => {
+      if (active) setReadError(error);
+    });
+    return () => {
+      active = false;
+    };
+  }, [file]);
+  return readError;
+}
+
+/** @internal exported for unit tests only */
+export function AttachmentChip({
   attachment,
   onRemove,
 }: {
@@ -521,6 +546,7 @@ function AttachmentChip({
 }) {
   const src = useMemo(() => getImageSrc(attachment), [attachment]);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const readError = useAttachmentReadError(attachment);
   const t = useComposerRuntimeAdapters().translate!;
   useEffect(
     () => () => {
@@ -528,6 +554,45 @@ function AttachmentChip({
     },
     [src],
   );
+
+  if (readError) {
+    const message =
+      readError === "too-large"
+        ? t("agentChat.composer.attachmentTooLarge", {
+            defaultValue: "File is over 8 MB",
+          })
+        : readError === "not-utf8"
+          ? t("agentChat.composer.attachmentNotUtf8", {
+              defaultValue: "File isn't UTF-8 text",
+            })
+          : t("agentChat.composer.attachmentReadFailed", {
+              defaultValue: "Couldn't read this file",
+            });
+    return (
+      <div
+        role="status"
+        title={message}
+        className="agent-composer-attachment-chip group relative inline-flex max-w-[240px] items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs"
+      >
+        <IconAlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate font-medium">{attachment.name}</span>
+          <span className="truncate text-muted-foreground">{message}</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => onRemove(attachment.id)}
+          aria-label={t("agentChat.composer.removeAttachment", {
+            name: attachment.name,
+            defaultValue: `Remove ${attachment.name}`,
+          })}
+          className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
+        >
+          <IconX className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
 
   if (isPastedTextAttachmentName(attachment.name)) {
     return <PastedTextChip attachment={attachment} onRemove={onRemove} />;

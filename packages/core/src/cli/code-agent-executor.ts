@@ -160,8 +160,11 @@ export async function executeCodeAgentRun(
   const rawAttachments =
     options.attachments ?? latestUserPromptAttachments(existing.id, prompt);
 
-  const imageAttachments = rawAttachments.filter((a) => a.dataUrl);
-  const textOnlyAttachments = rawAttachments.filter((a) => !a.dataUrl);
+  // An SVG carries both its text and a data URL; the text is what the agent reads.
+  const isImageOnly = (a: AgentPromptAttachment) =>
+    Boolean(a.dataUrl) && a.text === undefined && !a.readError;
+  const imageAttachments = rawAttachments.filter(isImageOnly);
+  const textOnlyAttachments = rawAttachments.filter((a) => !isImageOnly(a));
   const executionPrompt = formatPromptWithAttachments(
     prompt,
     textOnlyAttachments,
@@ -2150,6 +2153,14 @@ function promptAttachmentsFromMetadata(
       ...(typeof item.type === "string" ? { type: item.type } : {}),
       ...(typeof item.size === "number" ? { size: item.size } : {}),
       ...(typeof item.text === "string" ? { text: item.text } : {}),
+      ...(typeof item.totalChars === "number"
+        ? { totalChars: item.totalChars }
+        : {}),
+      ...(item.readError === "read-failed" ||
+      item.readError === "too-large" ||
+      item.readError === "not-utf8"
+        ? { readError: item.readError }
+        : {}),
       ...(typeof item.dataUrl === "string" ? { dataUrl: item.dataUrl } : {}),
     }));
 }
