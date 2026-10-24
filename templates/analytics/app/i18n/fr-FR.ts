@@ -121,7 +121,33 @@ export default {
     sigmaOwnedBy: "Propriétaire",
     sigmaMigratingTooltip: "Migration en cours par {{name}}",
     sigmaMigrate: "Migrer",
-    sigmaMigrateComingSoon: "Bientôt disponible",
+    sigmaMigrating: "Migration…",
+    sigmaMigrateSucceeded: "{{name}} migré",
+    sigmaSharedOnlyWithYou: "Partagé uniquement avec vous pour l’instant.",
+    sigmaPanelsNeedReview: "Panneaux à vérifier : {{count}}.",
+    sigmaOpenDashboard: "Ouvrir",
+    sigmaLastImportFailed: "Le dernier import a échoué",
+    sigmaReviewWithAgent: "Vérifier avec l’agent",
+    sigmaReviewContext: "Migration Sigma",
+    sigmaReviewPrompt:
+      "Le classeur Sigma {{name}} n’a pas été migré vers Analytics : {{error}} Trouve ce qui le bloque et comment le corriger.",
+    sigmaErrorExportUnsupported:
+      "Sigma ne peut pas encore exporter ce classeur.",
+    sigmaErrorNoImportable:
+      "Ce classeur n’a aucun panneau BigQuery à importer.",
+    sigmaErrorNoRunnable:
+      "Aucun panneau de ce classeur ne s’est exécuté sur BigQuery.",
+    sigmaErrorBigQueryRequired:
+      "Connectez d’abord BigQuery dans Sources de données.",
+    sigmaErrorBigQueryDenied:
+      "La connexion BigQuery d’Analytics ne peut pas exécuter de requêtes. Vérifiez ses autorisations dans Sources de données.",
+    sigmaErrorBigQueryUnavailable:
+      "BigQuery n’a pas pu vérifier ce classeur. Réessayez.",
+    sigmaErrorOriginalMigrator:
+      "Seule la personne qui a migré ce classeur peut le réimporter.",
+    sigmaErrorInProgress: "Quelqu’un migre déjà ce classeur.",
+    sigmaErrorAlreadyMigrated: "Ce classeur a déjà été migré.",
+    sigmaErrorGeneric: "La migration a échoué. Réessayez.",
     sigmaArchived: "Archivé",
     sigmaMoreWorkbooksFailed: "Impossible de charger d’autres classeurs",
     sigmaLoadingMore: "Chargement des classeurs…",

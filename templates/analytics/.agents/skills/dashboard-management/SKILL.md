@@ -169,7 +169,6 @@ result). It is read-only; build on it with `duplicate-dashboard`.
 
 There is no dbt Semantic Layer panel source. For a Semantic Layer metric, answer in chat with `query-dbt-semantic-metric`; build a warehouse panel only on a table the owner names.
 
-
 AI-generated first-party panels are dashboard-time-bound by default. Set
 `config.timeScope` to `"dashboard"` and include the matching dashboard time
 filter in the SQL. The allowed values are:
@@ -495,13 +494,21 @@ visualizations outside these contracts may remain Custom Blocks.
 
 The dashboard menu opens the Sigma import flow: a searchable table of every
 workbook the user can see in Sigma, with the owner of each migrated one and a
-Migrate button on the rest. Imports remain disabled for elements whose source project
-Analytics cannot verify: Sigma's connection API reports provider type and
-metadata but does not expose a BigQuery project identifier. Do not call
-`migrate-sigma-workbook` for an unverified source or treat an Analytics
-BigQuery credential as proof that it targets Sigma's project. Users can list
-workbooks with `list-sigma-workbooks` and inspect one with
-`inspect-sigma-workbook`. The feature is controlled by
+Migrate button on the rest. Migrate builds a private dashboard in the user's
+"Sigma" folder: each panel's compiled Sigma SQL (data-model and join panels
+included) is dry-run on Analytics' BigQuery, panels with a byte estimate under
+50 GiB are imported as tables (their test run is capped at 50 GiB too), and the
+rest become review callouts. The 50 GiB limit only decides what is imported:
+once saved, imported panels run like any other panel, under the normal
+per-query limit. A credential that cannot run BigQuery queries at all stops the
+import instead of flagging every panel. Migrate assumes Sigma's
+BigQuery connections use Analytics' BigQuery project: the dry run resolves table
+names that omit the project against Analytics' project, so a workbook on another
+project can import cleanly while reading the wrong tables. Only the dialog calls `migrate-sigma-workbook`; the agent cannot. When
+the user asks you to review a failed migration, inspect the workbook with
+`inspect-sigma-workbook`, check the failing panels' tables with BigQuery, and
+explain what blocks them. Users can list workbooks with `list-sigma-workbooks`.
+The feature is controlled by
 `analytics.sigma-dashboard-migration` and requires a Sigma connection granted
 to Analytics.
 

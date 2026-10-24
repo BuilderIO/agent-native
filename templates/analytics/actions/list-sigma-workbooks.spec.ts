@@ -202,6 +202,41 @@ describe("list-sigma-workbooks", () => {
     ]);
   });
 
+  it("keeps a failed re-import's owner and dashboard, but not a failed first import's", async () => {
+    mocks.listWorkbooks.mockResolvedValue({
+      workbooks: [
+        { workbookId: "workbook_1", name: "Revenue" },
+        { workbookId: "workbook_2", name: "Pipeline" },
+      ],
+      nextPage: null,
+    });
+    mocks.listMigrations.mockResolvedValue([
+      migratedRow({ status: "failed", canStartImport: false }),
+      migratedRow({
+        status: "failed",
+        sourceId: "workbook_2",
+        targetDashboardId: null,
+        canStartImport: true,
+      }),
+    ]);
+    mocks.loadDashboardOwners.mockResolvedValue([bobsDashboardOwner]);
+
+    const result: any = await listSigmaWorkbooks.run({});
+
+    expect(result.workbooks[0]).toMatchObject({
+      status: "failed",
+      dashboardId: "dashboard_1",
+      migratedOwnerEmail: "bob@example.com",
+      canStartImport: false,
+    });
+    expect(result.workbooks[1]).toMatchObject({
+      status: "failed",
+      canStartImport: true,
+    });
+    expect(result.workbooks[1]).not.toHaveProperty("dashboardId");
+    expect(result.workbooks[1]).not.toHaveProperty("migratedOwnerEmail");
+  });
+
   it("lets a teammate open an import shared with them", async () => {
     mocks.listMigrations.mockResolvedValue([migratedRow()]);
     mocks.loadDashboardOwners.mockResolvedValue([bobsDashboardOwner]);

@@ -28,6 +28,7 @@ const {
   BigQueryQueryTimeoutError,
   dryRunQuery,
   dryRunQuerySchema,
+  classifyDryRunFailure,
   renderCurrentDateLiterals,
   runQuery,
 } = await import("./bigquery");
@@ -997,6 +998,70 @@ describe("runQuery cancellation", () => {
     const result = await dryRunQuerySchema("SELECT 1");
 
     expect(result).toEqual({ error: null });
+  });
+
+  it("classifies a failed dry run as rejected SQL, a denied credential, or unavailable", () => {
+    const kind = (fields: Record<string, unknown>) =>
+      classifyDryRunFailure({ error: "failed", ...fields });
+
+    expect(kind({ status: 400 })).toBe("rejected_sql");
+    expect(kind({ status: 400, reason: "invalid_query" })).toBe("rejected_sql");
+    expect(
+      classifyDryRunFailure({ error: "Not found: Dataset p:d", status: 404 }),
+    ).toBe("rejected_sql");
+    expect(
+      classifyDryRunFailure({
+        error:
+          "Access Denied: Table p:d.t: User does not have permission to query table p:d.t.",
+        status: 403,
+        reason: "access_denied",
+      }),
+    ).toBe("rejected_sql");
+    expect(
+      classifyDryRunFailure({
+        error:
+          "Access Denied: Project p: User does not have bigquery.jobs.create permission in project p.",
+        status: 403,
+        reason: "access_denied",
+      }),
+    ).toBe("credential_denied");
+    expect(
+      classifyDryRunFailure({
+        error:
+          "Access Denied: BigQuery BigQuery: Permission denied while getting Drive credentials.",
+        status: 403,
+        reason: "access_denied",
+      }),
+    ).toBe("rejected_sql");
+    expect(kind({ status: 404 })).toBe("unavailable");
+    expect(kind({ status: 400, reason: "timeout" })).toBe("unavailable");
+    expect(kind({ status: 403, reason: "quota_exceeded" })).toBe("unavailable");
+    expect(kind({ status: 429 })).toBe("unavailable");
+    expect(kind({ status: 503 })).toBe("unavailable");
+    expect(kind({ timedOut: true })).toBe("unavailable");
+  });
+
+  it("reports BigQuery's error reason on a failed dry run", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "Quota exceeded",
+              errors: [{ reason: "quotaExceeded" }],
+            },
+          }),
+          { status: 403 },
+        ),
+      ),
+    );
+
+    await expect(dryRunQuerySchema("SELECT 1")).resolves.toEqual({
+      error: "Quota exceeded",
+      status: 403,
+      reason: "quota_exceeded",
+    });
   });
 
   it("optionally classifies credential lookup failures as dry-run preparation errors", async () => {

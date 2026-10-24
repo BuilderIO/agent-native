@@ -512,6 +512,39 @@ describe("verifyDashboardPanels", () => {
     expect(mocks.resolve).toHaveBeenCalledTimes(1);
   });
 
+  it("caps a BigQuery run at the byte limit, even without a dry run", async () => {
+    const capped = new Error(
+      "BigQuery query exceeded its configured billed-byte limit",
+    );
+    capped.name = "BigQueryMaximumBytesBilledError";
+    mocks.resolve
+      .mockResolvedValueOnce(rows(WIDE))
+      .mockRejectedValueOnce(capped);
+    const config = dashboard([panel({ id: "small" }), panel({ id: "huge" })]);
+
+    const result = await verifyDashboardPanels(config, ["small", "huge"], {
+      dryRun: false,
+    });
+
+    expect(result.panels.map((p) => [p.panelId, p.status, p.note])).toEqual([
+      ["small", "ok", undefined],
+      ["huge", "unverified", "too_expensive"],
+    ]);
+    expect(mocks.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ maxBytesBilled: 50 * 1024 ** 3 }),
+      expect.anything(),
+    );
+    expect(mocks.dryRun).not.toHaveBeenCalled();
+
+    mocks.resolve.mockReset();
+    mocks.resolve.mockResolvedValue(rows(WIDE));
+    await verifyDashboardPanels(dashboard([panel()]), ["p1"], {
+      dryRun: false,
+      maxBytesToExecute: Infinity,
+    });
+    expect(mocks.resolve.mock.calls[0][0]).not.toHaveProperty("maxBytesBilled");
+  });
+
   it("reuses a memoized result instead of re-running the panel", async () => {
     mocks.resolve.mockResolvedValue(rows(WIDE));
     const memo = new Map();
