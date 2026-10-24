@@ -307,7 +307,13 @@ export async function updateAgentHarnessSessionAtGeneration(
 export async function updateAgentHarnessSessionIfFollowUpClaim(
   id: string,
   claimId: string,
-  patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
+  patch:
+    | Partial<Omit<SaveAgentHarnessSessionInput, "id">>
+    | ((
+        existing: StoredAgentHarnessSession,
+      ) =>
+        | Partial<Omit<SaveAgentHarnessSessionInput, "id">>
+        | Promise<Partial<Omit<SaveAgentHarnessSessionInput, "id">>>),
 ): Promise<StoredAgentHarnessSession | null> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const existing = await getAgentHarnessSession(id);
@@ -318,33 +324,34 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
     ) {
       return null;
     }
+    const update = typeof patch === "function" ? await patch(existing) : patch;
     try {
       return await saveAgentHarnessSession({
         id,
-        harnessName: patch.harnessName ?? existing.harnessName,
-        threadId: patch.threadId ?? existing.threadId,
-        runId: patch.runId ?? existing.runId ?? null,
+        harnessName: update.harnessName ?? existing.harnessName,
+        threadId: update.threadId ?? existing.threadId,
+        runId: update.runId ?? existing.runId ?? null,
         providerSessionId:
-          patch.providerSessionId ?? existing.providerSessionId ?? null,
-        status: patch.status ?? existing.status,
+          update.providerSessionId ?? existing.providerSessionId ?? null,
+        status: update.status ?? existing.status,
         resumeState:
-          patch.resumeState !== undefined
-            ? patch.resumeState
+          update.resumeState !== undefined
+            ? update.resumeState
             : existing.resumeState,
-        workspaceRef: patch.workspaceRef ?? existing.workspaceRef ?? null,
+        workspaceRef: update.workspaceRef ?? existing.workspaceRef ?? null,
         pendingApproval:
-          patch.pendingApproval !== undefined
-            ? patch.pendingApproval
+          update.pendingApproval !== undefined
+            ? update.pendingApproval
             : existing.pendingApproval,
         resolvedApprovalIds:
-          patch.resolvedApprovalIds ?? existing.resolvedApprovalIds,
-        ownerEmail: patch.ownerEmail ?? existing.ownerEmail ?? null,
-        orgId: patch.orgId ?? existing.orgId ?? null,
+          update.resolvedApprovalIds ?? existing.resolvedApprovalIds,
+        ownerEmail: update.ownerEmail ?? existing.ownerEmail ?? null,
+        orgId: update.orgId ?? existing.orgId ?? null,
         followUpClaimId:
-          patch.followUpClaimId !== undefined
-            ? patch.followUpClaimId
+          update.followUpClaimId !== undefined
+            ? update.followUpClaimId
             : existing.followUpClaimId,
-        stoppedAt: patch.stoppedAt ?? existing.stoppedAt ?? null,
+        stoppedAt: update.stoppedAt ?? existing.stoppedAt ?? null,
         expectedGeneration: existing.generation,
         existingSession: existing,
       });

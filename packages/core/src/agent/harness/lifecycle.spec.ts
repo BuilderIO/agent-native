@@ -66,13 +66,20 @@ describe("agent harness lifecycle", () => {
     });
     mocks.updateIfFollowUpClaim.mockImplementation(
       async (_id, expectedClaimId, patch) => {
-        if (
-          stored.status !== "running" ||
-          stored.followUpClaimId !== expectedClaimId
-        ) {
-          return null;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const current = stored;
+          if (
+            current.status !== "running" ||
+            current.followUpClaimId !== expectedClaimId
+          ) {
+            return null;
+          }
+          const update =
+            typeof patch === "function" ? await patch(current) : patch;
+          if (stored.generation !== current.generation) continue;
+          return mocks.update(_id, update);
         }
-        return mocks.update(_id, patch);
+        return null;
       },
     );
     mocks.updateAtGeneration.mockImplementation(
@@ -162,18 +169,21 @@ describe("agent harness lifecycle", () => {
   it("preserves a chained approval already persisted during the follow-up", async () => {
     const session = fakeSession([{ type: "done" }]);
     register(stored, session);
-    let lookups = 0;
-    mocks.getByRunId.mockImplementation(async () => {
-      lookups += 1;
-      if (lookups === 2) {
+    mocks.updateIfFollowUpClaim.mockImplementationOnce(
+      async (_id, expectedClaimId, patch) => {
         stored = {
           ...stored,
+          status: "running",
+          followUpClaimId: expectedClaimId,
           pendingApproval: approvalEvent("approval-chained"),
           generation: stored.generation + 1,
         };
-      }
-      return stored;
-    });
+        if (typeof patch === "function") {
+          return mocks.update(_id, await patch(stored));
+        }
+        return mocks.update(_id, patch);
+      },
+    );
 
     const result = await sendAgentHarnessFollowUp({
       runId: stored.runId!,
@@ -194,19 +204,27 @@ describe("agent harness lifecycle", () => {
   it("does not restore a current approval resolved before finalization", async () => {
     const session = fakeSession([approvalEvent("approval-current")]);
     register(stored, session);
-    let lookups = 0;
-    mocks.getByRunId.mockImplementation(async () => {
-      lookups += 1;
-      if (lookups === 2) {
-        stored = {
-          ...stored,
-          pendingApproval: null,
-          resolvedApprovalIds: ["approval-current"],
-          generation: stored.generation + 1,
-        };
-      }
-      return stored;
-    });
+    mocks.updateIfFollowUpClaim.mockImplementation(
+      async (_id, expectedClaimId, patch) => {
+        if (typeof patch !== "function") {
+          const updated = await mocks.update(_id, patch);
+          stored = {
+            ...stored,
+            pendingApproval: null,
+            resolvedApprovalIds: ["approval-current"],
+            generation: stored.generation + 1,
+          };
+          return updated;
+        }
+        if (
+          stored.status !== "running" ||
+          stored.followUpClaimId !== expectedClaimId
+        ) {
+          return null;
+        }
+        return mocks.update(_id, await patch(stored));
+      },
+    );
 
     const result = await sendAgentHarnessFollowUp({
       runId: stored.runId!,
@@ -255,6 +273,83 @@ describe("agent harness lifecycle", () => {
     await expect(followUp).resolves.toMatchObject({ ok: true });
     expect(stored.status).toBe("idle");
     expect(stored.pendingApproval).toBeNull();
+  });
+
+  it("keeps a live session while a follow-up claim owns approval continuation", async () => {
+    const { approve: _approve, ...withoutApproval } = fakeSession();
+    const session = {
+      ...withoutApproval,
+      continueTurn: vi.fn(async function* () {
+        yield { type: "done" } as AgentHarnessEvent;
+      }),
+    };
+    stored = {
+      ...stored,
+      status: "running",
+      followUpClaimId: "active-follow-up",
+      pendingApproval: approvalEvent("approval-active-follow-up"),
+    };
+    register(stored, session);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: "approval-active-follow-up", approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(session.continueTurn).toHaveBeenCalledOnce();
+    expect(session.detach).not.toHaveBeenCalled();
+    await expect(
+      stopLiveAgentHarnessSession({
+        sessionId: stored.id,
+        scope: ownerScope(),
+      }),
+    ).resolves.toBe(true);
+    expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("reconciles a concurrent approval write before finalizing its claim", async () => {
+    const approval = approvalEvent("approval-racing-finalization");
+    const session = fakeSession([approval]);
+    register(stored, session);
+    mocks.updateIfFollowUpClaim.mockImplementation(
+      async (_id, expectedClaimId, patch) => {
+        if (
+          stored.status !== "running" ||
+          stored.followUpClaimId !== expectedClaimId
+        ) {
+          return null;
+        }
+        if (typeof patch !== "function") return mocks.update(_id, patch);
+
+        await patch(stored);
+        stored = {
+          ...stored,
+          pendingApproval: null,
+          resolvedApprovalIds: [approval.id],
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        return mocks.update(_id, await patch(stored));
+      },
+    );
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      session: {
+        status: "idle",
+        pendingApproval: null,
+        resolvedApprovalIds: [approval.id],
+      },
+    });
+    expect(session.detach).toHaveBeenCalledOnce();
   });
 
   it("marks a failed follow-up errored instead of leaving a running claim", async () => {
@@ -386,7 +481,7 @@ describe("agent harness lifecycle", () => {
     expect(session.stop).toHaveBeenCalledOnce();
   });
 
-  it("errors and stops its own claim after a finalization generation conflict", async () => {
+  it("finalizes its claim after a same-claim generation conflict", async () => {
     const session = fakeSession([{ type: "text-delta", text: "done" }]);
     register(stored, session);
     session.detach.mockImplementationOnce(async () => {
@@ -406,11 +501,10 @@ describe("agent harness lifecycle", () => {
     });
 
     expect(result).toMatchObject({
-      ok: false,
-      errorCode: "unavailable",
-      session: { status: "errored", followUpClaimId: null },
+      ok: true,
+      session: { status: "idle", followUpClaimId: null },
     });
-    expect(session.stop).toHaveBeenCalledOnce();
+    expect(session.stop).not.toHaveBeenCalled();
   });
 
   it("delivers error events before failing a follow-up", async () => {

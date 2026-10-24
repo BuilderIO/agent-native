@@ -162,7 +162,8 @@ export async function resolveAgentHarnessApproval(input: {
     const nextPending = events.find(
       (event) => event.type === "approval-request",
     );
-    if (continued && !nextPending) {
+    const followUpOwnsSession = Boolean(session.followUpClaimId);
+    if (continued && !nextPending && !followUpOwnsSession) {
       if (live.session.detach) {
         const detached = await live.session.detach();
         if (detached !== undefined) resumeState = detached;
@@ -203,7 +204,7 @@ export async function resolveAgentHarnessApproval(input: {
         "The harness session changed while resolving approval.",
       );
     }
-    if (continued && !nextPending) {
+    if (continued && !nextPending && !followUpOwnsSession) {
       releaseLiveAgentHarnessSession(session.id, live.session);
     }
     return {
@@ -337,63 +338,55 @@ export async function sendAgentHarnessFollowUp(input: {
           > => event.type === "approval-request",
         );
       const updated = await withSessionLock(input.runId, async () => {
-        const latest = await getAgentHarnessSessionByRunId(input.runId);
-        if (!latest) {
-          return failure(
-            input.runId,
-            session,
-            "not_found",
-            "Harness session disappeared before the follow-up completed.",
-          );
-        }
-        if (latest.status !== "running" || latest.followUpClaimId !== claimId) {
-          return failure(
-            input.runId,
-            latest,
-            "unavailable",
-            "The harness follow-up no longer owns the active session claim.",
-          );
-        }
-        const currentApproval =
-          approvalRequest &&
-          !latest.resolvedApprovalIds?.includes(approvalRequest.id)
-            ? approvalRequest
-            : undefined;
-        const persistedApproval = asPendingApproval(latest.pendingApproval);
-        const pending =
-          currentApproval ??
-          (persistedApproval &&
-          !latest.resolvedApprovalIds?.includes(persistedApproval.id)
-            ? persistedApproval
-            : undefined);
-        let resumeState = latest.resumeState ?? session.resumeState;
-        if (!pending && acquired.live.session.detach) {
-          const detached = await acquired.live.session.detach();
-          if (detached !== undefined) resumeState = detached;
-        }
-        finalizing = true;
-        const updatedSession = await updateAgentHarnessSessionAtGeneration(
+        let detachedResumeState: unknown;
+        let hasDetachedResumeState = false;
+        const updatedSession = await updateAgentHarnessSessionIfFollowUpClaim(
           session.id,
-          "running",
-          latest.generation,
-          {
-            status: "idle",
-            resumeState,
-            pendingApproval: pending ?? null,
-            followUpClaimId: null,
-          },
           claimId,
+          async (latest) => {
+            const currentApproval =
+              approvalRequest &&
+              !latest.resolvedApprovalIds?.includes(approvalRequest.id)
+                ? approvalRequest
+                : undefined;
+            const persistedApproval = asPendingApproval(latest.pendingApproval);
+            const pending =
+              currentApproval ??
+              (persistedApproval &&
+              !latest.resolvedApprovalIds?.includes(persistedApproval.id)
+                ? persistedApproval
+                : undefined);
+            let resumeState = latest.resumeState ?? session.resumeState;
+            if (!pending && acquired.live.session.detach) {
+              if (!hasDetachedResumeState) {
+                detachedResumeState = await acquired.live.session.detach();
+                hasDetachedResumeState = true;
+              }
+              if (detachedResumeState !== undefined) {
+                resumeState = detachedResumeState;
+              }
+            }
+            finalizing = true;
+            return {
+              status: "idle",
+              resumeState,
+              pendingApproval: pending ?? null,
+              followUpClaimId: null,
+            };
+          },
         );
         if (!updatedSession) {
           const current = await getAgentHarnessSessionByRunId(input.runId);
           return failure(
             input.runId,
-            current ?? latest,
-            "unavailable",
-            "The harness follow-up was interrupted before its final state could be saved.",
+            current ?? session,
+            current ? "unavailable" : "not_found",
+            current
+              ? "The harness follow-up no longer owns the active session claim."
+              : "Harness session disappeared before the follow-up completed.",
           );
         }
-        if (!pending) {
+        if (!asPendingApproval(updatedSession.pendingApproval)) {
           releaseLiveAgentHarnessSession(session.id, acquired.live.session);
         }
         return {

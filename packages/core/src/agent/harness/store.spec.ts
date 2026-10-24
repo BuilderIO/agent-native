@@ -185,6 +185,184 @@ describe("agent harness session store", () => {
     }
   });
 
+  it("recomputes a claim-fenced update from the latest row after a generation conflict", async () => {
+    const id = "session-follow-up-approval-race";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-approval-race",
+      runId: "run-follow-up-approval-race",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const before = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      before!.generation,
+      "same-claim",
+    );
+    await saveAgentHarnessSession({
+      id,
+      harnessName: claimed!.harnessName,
+      threadId: claimed!.threadId,
+      runId: claimed!.runId,
+      status: "running",
+      pendingApproval: { type: "approval-request", id: "approval-1" },
+      followUpClaimId: "same-claim",
+      expectedGeneration: claimed!.generation,
+      existingSession: claimed!,
+    });
+
+    const execute = rawClient.execute.getMockImplementation()!;
+    let resolutionApplied = false;
+    rawClient.execute.mockImplementation(async (input) => {
+      const result = await execute(input);
+      if (
+        !resolutionApplied &&
+        typeof input !== "string" &&
+        input.sql === "SELECT * FROM agent_harness_sessions WHERE id = ?" &&
+        input.args?.[0] === id
+      ) {
+        resolutionApplied = true;
+        await pglite
+          .prepare(
+            `UPDATE agent_harness_sessions
+             SET pending_approval = NULL, resolved_approval_ids = ?,
+                 generation = generation + 1
+             WHERE id = ?`,
+          )
+          .run(JSON.stringify(["approval-1"]), id);
+      }
+      return result;
+    });
+
+    try {
+      const updated = await updateAgentHarnessSessionIfFollowUpClaim(
+        id,
+        "same-claim",
+        (current) => ({
+          status: "idle",
+          pendingApproval:
+            current.pendingApproval &&
+            !current.resolvedApprovalIds?.includes("approval-1")
+              ? current.pendingApproval
+              : null,
+          followUpClaimId: null,
+        }),
+      );
+
+      expect(resolutionApplied).toBe(true);
+      expect(updated).toMatchObject({
+        status: "idle",
+        pendingApproval: null,
+        resolvedApprovalIds: ["approval-1"],
+        followUpClaimId: null,
+      });
+    } finally {
+      rawClient.execute.mockImplementation(execute);
+    }
+  });
+
+  it("recomputes claim-fenced updates after a concurrent approval resolution", async () => {
+    const id = "session-follow-up-approval-conflict";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-approval-conflict",
+      runId: "run-follow-up-approval-conflict",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const before = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      before!.generation,
+      "same-claim",
+    );
+    await saveAgentHarnessSession({
+      id,
+      harnessName: claimed!.harnessName,
+      threadId: claimed!.threadId,
+      runId: claimed!.runId,
+      status: "running",
+      pendingApproval: { type: "approval-request", id: "approval-1" },
+      followUpClaimId: "same-claim",
+      expectedGeneration: claimed!.generation,
+      existingSession: claimed!,
+    });
+
+    const execute = rawClient.execute.getMockImplementation()!;
+    let resolutionApplied = false;
+    rawClient.execute.mockImplementation(async (input) => {
+      const result = await execute(input);
+      if (
+        !resolutionApplied &&
+        typeof input !== "string" &&
+        input.sql === "SELECT * FROM agent_harness_sessions WHERE id = ?" &&
+        input.args?.[0] === id
+      ) {
+        resolutionApplied = true;
+        await pglite
+          .prepare(
+            `UPDATE agent_harness_sessions
+             SET pending_approval = NULL, resolved_approval_ids = ?,
+                 generation = generation + 1
+             WHERE id = ?`,
+          )
+          .run(JSON.stringify(["approval-1"]), id);
+      }
+      return result;
+    });
+
+    const snapshots: Array<{
+      pendingApproval: unknown;
+      resolvedApprovalIds: string[];
+    }> = [];
+    try {
+      const updated = await updateAgentHarnessSessionIfFollowUpClaim(
+        id,
+        "same-claim",
+        (current) => {
+          snapshots.push({
+            pendingApproval: current.pendingApproval,
+            resolvedApprovalIds: current.resolvedApprovalIds ?? [],
+          });
+          const pending = current.pendingApproval as { id?: string } | null;
+          return {
+            status: "idle",
+            pendingApproval:
+              pending &&
+              !current.resolvedApprovalIds?.includes(pending.id ?? "")
+                ? current.pendingApproval
+                : null,
+            followUpClaimId: null,
+          };
+        },
+      );
+
+      expect(resolutionApplied).toBe(true);
+      expect(snapshots).toHaveLength(2);
+      expect(snapshots[0]).toMatchObject({
+        pendingApproval: { id: "approval-1" },
+        resolvedApprovalIds: [],
+      });
+      expect(snapshots[1]).toMatchObject({
+        pendingApproval: undefined,
+        resolvedApprovalIds: ["approval-1"],
+      });
+      expect(updated).toMatchObject({
+        status: "idle",
+        pendingApproval: null,
+        resolvedApprovalIds: ["approval-1"],
+        followUpClaimId: null,
+      });
+    } finally {
+      rawClient.execute.mockImplementation(execute);
+    }
+  });
+
   it("does not claim a session while it has a pending approval", async () => {
     await saveAgentHarnessSession({
       id: "session-pending-approval",
