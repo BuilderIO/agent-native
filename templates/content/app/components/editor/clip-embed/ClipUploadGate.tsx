@@ -1,4 +1,8 @@
-import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { CLIP_EMBED_BLOCK_TYPE } from "@shared/clip-embed-block";
 import {
@@ -100,6 +104,11 @@ export function useClipFileUpload(input: {
   const [held, setHeld] = useState<HeldClipFile | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  // Starting an upload can use a free clip, which the Upload tab counts.
+  const { mutateAsync: startUpload } =
+    useActionMutation<CreateClipUploadResult>("create-clip-upload", {
+      resources: [UPLOAD_STATUS_RESOURCE],
+    });
 
   const start = useCallback(
     async (file: File) => {
@@ -112,16 +121,13 @@ export function useClipFileUpload(input: {
       setBusy(true);
       const blockId = createContentBlockId(CLIP_EMBED_BLOCK_TYPE);
       try {
-        const result = await callAction<CreateClipUploadResult>(
-          "create-clip-upload",
-          {
-            documentId,
-            fileName: file.name,
-            sizeBytes: file.size,
-            mimeType: file.type,
-            blockId,
-          },
-        );
+        const result = await startUpload({
+          documentId,
+          fileName: file.name,
+          sizeBytes: file.size,
+          mimeType: file.type,
+          blockId,
+        });
         if (result.status === "started") {
           setHeld(null);
           onStartedRef.current({ file, ticket: result, blockId });
@@ -142,7 +148,7 @@ export function useClipFileUpload(input: {
         setBusy(false);
       }
     },
-    [documentId, t],
+    [documentId, startUpload, t],
   );
 
   const heldFile = held?.file ?? null;

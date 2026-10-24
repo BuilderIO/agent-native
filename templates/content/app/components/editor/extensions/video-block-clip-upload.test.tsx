@@ -8,6 +8,8 @@ const state = vi.hoisted(() => ({
   clipsOn: true,
   storage: undefined as unknown,
   storageError: null as unknown,
+  queryOptions: {} as Record<string, { resources?: readonly string[] }>,
+  mutationOptions: {} as Record<string, { resources?: readonly string[] }>,
   callAction: vi.fn(),
   uploadVideoFile: vi.fn(),
   beginClipUpload: vi.fn(),
@@ -33,8 +35,22 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: (name: string) =>
-    name === "get-clips-links"
+  useActionMutation: (
+    name: string,
+    options: { resources?: readonly string[] },
+  ) => {
+    state.mutationOptions[name] = options;
+    return {
+      mutateAsync: (variables: unknown) => state.callAction(name, variables),
+    };
+  },
+  useActionQuery: (
+    name: string,
+    _params: unknown,
+    options: { resources?: readonly string[] },
+  ) => {
+    state.queryOptions[name] = options;
+    return name === "get-clips-links"
       ? {
           data: {
             appUrl: "https://clips.example.test",
@@ -51,7 +67,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           }
         : name === "get-clip-upload-status" && state.storage
           ? { data: { storage: state.storage }, isSuccess: true }
-          : { data: undefined, isSuccess: false },
+          : { data: undefined, isSuccess: false };
+  },
   callAction: state.callAction,
   getBrowserTabId: () => "tab_1",
   setClientAppState: vi.fn(),
@@ -232,6 +249,15 @@ describe("the Upload tab while Clips in pages is on", () => {
       expect(text()).not.toContain("clipEmbed.savedAsClip");
     },
   );
+
+  it("refreshes the free clips left once an upload starts", () => {
+    render();
+    const read = state.queryOptions["get-clip-upload-status"]?.resources;
+    expect(read?.length).toBeGreaterThan(0);
+    expect(state.mutationOptions["create-clip-upload"]?.resources).toEqual(
+      read,
+    );
+  });
 
   it("uploads to Clips and swaps the block for the Clip it made", async () => {
     state.callAction.mockResolvedValue(ticket);

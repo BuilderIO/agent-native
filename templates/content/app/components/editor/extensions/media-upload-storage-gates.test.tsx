@@ -29,6 +29,7 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: () => ({ data: undefined, isSuccess: false }),
+  useActionMutation: () => ({ mutateAsync: vi.fn() }),
   callAction: vi.fn(),
   getBrowserTabId: () => "tab_1",
   setClientAppState: vi.fn(),
