@@ -566,6 +566,29 @@ describe("pick mode", () => {
     expect(hitTestAgentSelectable(40, 430)?.id).toBe("s1");
   });
 
+  it("outlines the element under the pointer, not the object's first", async () => {
+    const thumbnail = placedElement(box(0, 400, 80, 60));
+    const canvas = placedElement(box(100, 0, 400, 300));
+    stubHitTesting([thumbnail, canvas]);
+    registerAgentSelectable({
+      ...selectable("slide", "s1", null),
+      getElement: () => [thumbnail, canvas],
+    });
+    setAgentSelectMode(true);
+    canvas.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        clientX: 300,
+        clientY: 150,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const hover = document.querySelector<HTMLElement>(
+      '[data-agent-select-outline="hover"]',
+    );
+    expect(hover?.style.width).toBe("400px");
+  });
+
   it("outlines hovered and picked objects", async () => {
     const { title } = setup();
     setAgentSelectMode(true);

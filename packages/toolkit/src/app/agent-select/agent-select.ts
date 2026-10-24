@@ -118,6 +118,8 @@ interface AgentSelectStore {
   resolved: Map<string, AgentSelectable>;
   /** Context composers send alongside core items, by composer. */
   reserved: Map<symbol, ContextReservation>;
+  /** Mounted Select toggles; pick mode needs one to be turned off from. */
+  controls: number;
   listeners: Set<() => void>;
   rejectionListeners: Set<(rejection: AgentSelectRejection) => void>;
   snapshot: AgentSelectSnapshot;
@@ -138,6 +140,7 @@ function createStore(): AgentSelectStore {
     sources: new Set(),
     resolved: new Map(),
     reserved: new Map(),
+    controls: 0,
     listeners: new Set(),
     rejectionListeners: new Set(),
     snapshot: { active: false, available: 0 },
@@ -398,6 +401,22 @@ export function deselectAgentSelectable(kind: string, id: string): void {
   removeAgentChatContextItem(agentSelectionContextKey(kind, id));
 }
 
+/**
+ * Mark a Select toggle as mounted. When the last one unmounts (the sidebar
+ * closes), pick mode ends: nothing could show it is on or turn it off.
+ */
+export function registerAgentSelectControl(): () => void {
+  store().controls += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const current = store();
+    current.controls = Math.max(0, current.controls - 1);
+    if (current.controls === 0) setAgentSelectMode(false);
+  };
+}
+
 export function setAgentSelectMode(active: boolean): void {
   const current = store();
   const next = active && availableCount(current) > 0;
@@ -630,11 +649,21 @@ export function hitTestAgentSelectable(
   x: number,
   y: number,
 ): AgentSelectable | null {
+  return hitTest(x, y)?.selectable ?? null;
+}
+
+interface AgentSelectHit {
+  selectable: AgentSelectable;
+  /** Which of the object's elements is under the point (canvas or thumbnail). */
+  element: Element;
+}
+
+function hitTest(x: number, y: number): AgentSelectHit | null {
   const targets = elementsUnderPoint(x, y);
   const target = targets[0];
   if (!target) return null;
   const current = store();
-  let best: AgentSelectable | null = null;
+  let best: AgentSelectHit | null = null;
   let bestArea = Number.POSITIVE_INFINITY;
   const consider = (selectable: AgentSelectable, hit: Element) => {
     for (const element of selectableElements(selectable)) {
@@ -643,7 +672,7 @@ export function hitTestAgentSelectable(
       if (!box || !boxContains(box, x, y)) continue;
       const area = box.width * box.height;
       if (area < bestArea) {
-        best = selectable;
+        best = { selectable, element };
         bestArea = area;
       }
     }
@@ -745,21 +774,20 @@ function startPickMode(): () => void {
   document.body.appendChild(layer);
 
   const selectedOutlines = new Map<string, HTMLDivElement>();
-  let hovered: AgentSelectable | null = null;
+  let hovered: AgentSelectHit | null = null;
   let pointer: { x: number; y: number } | null = null;
   let frame = 0;
 
   const render = () => {
     frame = 0;
-    if (pointer) hovered = hitTestAgentSelectable(pointer.x, pointer.y);
-    const hoveredElement = hovered ? selectableElements(hovered)[0] : null;
-    const hoveredBox = hoveredElement
-      ? measureAgentSelectElement(hoveredElement)
+    if (pointer) hovered = hitTest(pointer.x, pointer.y);
+    const hoveredBox = hovered?.element.isConnected
+      ? measureAgentSelectElement(hovered.element)
       : null;
     if (hovered && hoveredBox) {
       hoverOutline.style.display = "";
       placeOutline(hoverOutline, hoveredBox);
-      hoverLabel.textContent = hovered.title;
+      hoverLabel.textContent = hovered.selectable.title;
       root.setAttribute(HOVER_ATTRIBUTE, "");
     } else {
       hoverOutline.style.display = "none";
@@ -789,7 +817,7 @@ function startPickMode(): () => void {
       outline.remove();
       selectedOutlines.delete(key);
     }
-    pruneResolved(hovered);
+    pruneResolved(hovered?.selectable ?? null);
   };
   const scheduleRender = () => {
     frame ||= requestAnimationFrame(render);

@@ -9,6 +9,7 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 
 import {
+  registerAgentSelectControl,
   reserveAgentSelectContext,
   subscribeAgentSelectRejections,
   toggleAgentSelectMode,
@@ -39,6 +40,8 @@ export function AgentSelectToggle({
   const offered = available > 0;
 
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => registerAgentSelectControl(), []);
 
   useEffect(() => {
     if (!reservedContextItems?.length) return;

@@ -89,4 +89,22 @@ describe("AgentSelectToggle", () => {
     expect(getAgentSelectSnapshot().active).toBe(false);
     expect(button()?.getAttribute("aria-pressed")).toBe("false");
   });
+
+  it("ends pick mode when the last toggle unmounts", () => {
+    act(() => {
+      registerAgentSelectable({
+        kind: "slide",
+        id: "s1",
+        title: "Intro",
+        getContext: () => "Slide s1",
+        getElement: () => null,
+      });
+    });
+    render();
+    act(() => button()!.click());
+    expect(getAgentSelectSnapshot().active).toBe(true);
+
+    act(() => root.render(<TooltipProvider />));
+    expect(getAgentSelectSnapshot().active).toBe(false);
+  });
 });
