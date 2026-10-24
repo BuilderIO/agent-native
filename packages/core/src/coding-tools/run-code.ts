@@ -75,26 +75,32 @@ const RUN_MAX_SOURCE_BYTES = 256 * 1024;
 
 // QuickJS is megabytes of code to compile, and registering these tools runs
 // on a cold instance's first framework request, so it loads on the first run.
+// A failed load isn't kept, so the next run retries it.
 let runRuntime:
   | Promise<{ runEvaluator: Runner; RunError: typeof RunError }>
   | undefined;
 function loadRunRuntime() {
-  return (runRuntime ??= import("run").then(({ createRunner, RunError }) => ({
-    RunError,
-    runEvaluator: createRunner({
-      limits: {
-        memoryLimitBytes: 64 * 1024 * 1024,
-        maxStackSizeBytes: 2 * 1024 * 1024,
-        maxResultBytes: RUN_MAX_RESULT_BYTES,
-        maxConsoleOutputBytes: RUN_MAX_CONSOLE_OUTPUT_BYTES,
-        maxSourceBytes: RUN_MAX_SOURCE_BYTES,
-        maxHostFunctionArgumentsBytes: 1 * 1024 * 1024,
-        maxHostFunctionOutputBytes: 4 * 1024 * 1024,
-        maxBridgeRequests: 256,
-        maxInFlightBridgeRequests: 32,
-      },
-    }),
-  })));
+  return (runRuntime ??= import("run")
+    .then(({ createRunner, RunError }) => ({
+      RunError,
+      runEvaluator: createRunner({
+        limits: {
+          memoryLimitBytes: 64 * 1024 * 1024,
+          maxStackSizeBytes: 2 * 1024 * 1024,
+          maxResultBytes: RUN_MAX_RESULT_BYTES,
+          maxConsoleOutputBytes: RUN_MAX_CONSOLE_OUTPUT_BYTES,
+          maxSourceBytes: RUN_MAX_SOURCE_BYTES,
+          maxHostFunctionArgumentsBytes: 1 * 1024 * 1024,
+          maxHostFunctionOutputBytes: 4 * 1024 * 1024,
+          maxBridgeRequests: 256,
+          maxInFlightBridgeRequests: 32,
+        },
+      }),
+    }))
+    .catch((error: unknown) => {
+      runRuntime = undefined;
+      throw error;
+    }));
 }
 
 export type SandboxCodeMode = "run-code" | "tool-orchestration";

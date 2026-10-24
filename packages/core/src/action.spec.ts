@@ -1562,6 +1562,24 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       );
     }
   });
+
+  it("keeps an unusable schema's verdict when parameters are assigned before the first read", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const action = defineAction({
+        description: "Accepts nothing",
+        schema: standardSchema(() => refused),
+        run: async () => "bad",
+      });
+      action.tool.parameters = { type: "object", properties: {} };
+
+      expect(mcpVerdict(action)).toBeInstanceOf(UnusableSchemaError);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
 });
 
 describe("defineAction schema mode — agentInputSchema (advertised-only override)", () => {

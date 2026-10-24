@@ -1203,8 +1203,10 @@ export function defineAction(options: any) {
       configurable: true,
       get: convertedParameters,
       // An assigned schema replaces what the agent sees, as it did when this
-      // was a plain property; validation keeps the converted one.
+      // was a plain property. The schema's own conversion still runs first, so
+      // its verdict is recorded and validation keeps using it.
       set(value: ActionTool["parameters"]) {
+        convertedParameters();
         Object.defineProperty(tool, "parameters", {
           value,
           enumerable: true,
