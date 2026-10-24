@@ -18,6 +18,7 @@ import {
   READABLE_TABLE_MIN_WIDTH_PROPERTY,
   contentTableColumnSizing,
   readableTableMinWidth,
+  renderedColumnWidths,
   storeColumnWidths,
 } from "./table-view";
 import { createVisualEditorExtensions } from "./VisualEditor";
@@ -221,6 +222,44 @@ describe("contentTableColumnSizing", () => {
       [[50, 60], [70]],
     );
     expect(storeColumnWidths(state, 0, [50, 60])).toBeNull();
+  });
+
+  it("keeps the widths a drag has already stored", () => {
+    const state = stateWith(table([{ colwidth: [80] }, {}, {}]), 4);
+
+    expect(storedWidths(storeColumnWidths(state, 0, [50, 60, 70], 2))).toEqual([
+      [80],
+      [60],
+      [0],
+    ]);
+  });
+
+  it("reads each column from a cell it has to itself", () => {
+    const row = (spans: number[]) =>
+      schema.nodes.tableRow.create(
+        null,
+        spans.map((colspan) =>
+          schema.nodes.tableCell.create(
+            { colspan },
+            schema.nodes.paragraph.create(),
+          ),
+        ),
+      );
+    // The middle column has no cell of its own, so it gets what's left of
+    // the cell spanning it.
+    const node = schema.nodes.table.create(null, [row([2, 1]), row([1, 2])]);
+    const dom = document.createElement("table");
+    for (const widths of [
+      [300, 50],
+      [100, 250],
+    ]) {
+      const tr = dom.insertRow();
+      for (const width of widths) {
+        tr.insertCell().getBoundingClientRect = () => ({ width }) as DOMRect;
+      }
+    }
+
+    expect(renderedColumnWidths(node, dom)).toEqual([100, 200, 50]);
   });
 
   it("leaves the column after the dragged border unsized to fill the rest", () => {

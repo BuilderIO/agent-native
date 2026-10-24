@@ -57,23 +57,53 @@ export function hasStoredColumnWidths(table: ProseMirrorNode): boolean {
   return stored;
 }
 
-/** Each column's rendered width, read from the table's first row. */
-export function renderedColumnWidths(table: HTMLTableElement): number[] {
-  const widths: number[] = [];
-  for (const cell of Array.from(table.rows[0]?.cells ?? [])) {
-    const width = cell.getBoundingClientRect().width / cell.colSpan;
-    for (let i = 0; i < cell.colSpan; i += 1) widths.push(width);
+/**
+ * Each column's rendered width. A cell spanning several columns doesn't show
+ * how the browser divided them, so a column is read from a cell it has to
+ * itself, in any row; only a column without one shares out what its spanning
+ * cell has left.
+ */
+export function renderedColumnWidths(
+  node: ProseMirrorNode,
+  table: HTMLTableElement,
+): number[] {
+  const map = TableMap.get(node);
+  const widths: Array<number | undefined> = new Array(map.width);
+  const spanning: Array<{ start: number; span: number; width: number }> = [];
+  let rowPos = 0;
+  node.forEach((row, _offset, rowIndex) => {
+    const cells = table.rows[rowIndex]?.cells;
+    row.forEach((cell, cellOffset, cellIndex) => {
+      const width = cells?.[cellIndex]?.getBoundingClientRect().width;
+      if (width === undefined) return;
+      const start = map.colCount(rowPos + 1 + cellOffset);
+      const span: number = cell.attrs.colspan;
+      if (span === 1) widths[start] ??= width;
+      else spanning.push({ start, span, width });
+    });
+    rowPos += row.nodeSize;
+  });
+  for (const { start, span, width } of spanning) {
+    const columns = Array.from({ length: span }, (_, index) => start + index);
+    const unknown = columns.filter((column) => widths[column] === undefined);
+    const known = columns.reduce(
+      (sum, column) => sum + (widths[column] ?? 0),
+      0,
+    );
+    for (const column of unknown) {
+      widths[column] = Math.max(0, width - known) / unknown.length;
+    }
   }
-  return widths;
+  return Array.from(widths, (width) => width ?? 0);
 }
 
 /**
- * Stores `widths` as each column's width, except `flexibleColumn`, which
- * stays unsized and so takes whatever width the others leave. A drag stores
- * only the column it moves, which would leave the rest of a content-sized
- * table to share what's left evenly; instead the first drag keeps the widths
- * the browser chose, and the column after the border gives or takes the
- * difference, so only the dragged border moves.
+ * Stores `widths` as the width of each column that has none, except
+ * `flexibleColumn`, which stays unsized and so takes whatever width the others
+ * leave. A drag stores only the column it moves, which would leave the rest of
+ * a content-sized table to share what's left evenly; instead the first drag
+ * keeps the widths the browser chose, and the column after the border gives or
+ * takes the difference, so only the dragged border moves.
  */
 export function storeColumnWidths(
   state: EditorState,
@@ -90,14 +120,34 @@ export function storeColumnWidths(
     const cell = table.nodeAt(pos);
     if (!cell) continue;
     const start = map.colCount(pos);
+    const stored: number[] | null = cell.attrs.colwidth;
     const colwidth = widths
       .slice(start, start + cell.attrs.colspan)
-      .map((width, index) =>
-        start + index === flexibleColumn ? 0 : Math.round(width),
-      );
+      .map((width, index) => {
+        if (stored?.[index]) return stored[index];
+        return start + index === flexibleColumn ? 0 : Math.round(width);
+      });
+    if (stored && colwidth.every((width, index) => width === stored[index])) {
+      continue;
+    }
     tr.setNodeMarkup(tablePos + 1 + pos, null, { ...cell.attrs, colwidth });
   }
   return tr.docChanged ? tr : null;
+}
+
+function clearColumnWidths(state: EditorState, tablePos: number) {
+  const tr = state.tr;
+  state.doc.nodeAt(tablePos)?.descendants((node, pos) => {
+    if (node.type.spec.tableRole === "row") return true;
+    if (node.attrs.colwidth) {
+      tr.setNodeMarkup(tablePos + 1 + pos, null, {
+        ...node.attrs,
+        colwidth: null,
+      });
+    }
+    return false;
+  });
+  return tr;
 }
 
 function selectedContentSizedTable(state: EditorState) {
@@ -111,29 +161,53 @@ function selectedContentSizedTable(state: EditorState) {
   return null;
 }
 
-function storeColumnWidthsBeforeResize(view: EditorView) {
-  const resize = columnResizingPluginKey.getState(view.state);
-  if (!view.editable || !resize || resize.activeHandle < 0 || resize.dragging)
-    return;
-  const $cell = view.state.doc.resolve(resize.activeHandle);
+interface ContentSizedResize {
+  widths: number[];
+  flexibleColumn: number;
+}
+
+/** The table holding the resize handle, while it has one. */
+function resizedTable(state: EditorState) {
+  const resize = columnResizingPluginKey.getState(state);
+  if (!resize || resize.activeHandle < 0) return null;
+  const $cell = state.doc.resolve(resize.activeHandle);
+  return { $cell, pos: $cell.before(-1), dragging: resize.dragging };
+}
+
+/**
+ * Stores a content-sized table's widths as a press on a column border starts
+ * a drag, so the drag shows the table it will leave. Undo skips them: the
+ * release takes them away and, if the border moved, stores them again in the
+ * drag's own undo step.
+ */
+function startContentSizedResize(view: EditorView): ContentSizedResize | null {
+  const handle = resizedTable(view.state);
+  if (!view.editable || !handle || handle.dragging) return null;
+  const { $cell } = handle;
   const table = $cell.node(-1);
-  if (!table || hasStoredColumnWidths(table)) return;
+  if (hasStoredColumnWidths(table)) return null;
   let dom: Node | null = view.domAtPos($cell.start(-1)).node;
   while (dom && dom.nodeName !== "TABLE") dom = dom.parentNode;
-  if (!dom) return;
+  if (!dom) return null;
   // The handle sits on the right edge of the column being dragged.
   const map = TableMap.get(table);
   const dragged =
     map.colCount($cell.pos - $cell.start(-1)) +
     ($cell.nodeAfter?.attrs.colspan ?? 1) -
     1;
+  const resize = {
+    widths: renderedColumnWidths(table, dom as HTMLTableElement),
+    flexibleColumn: dragged + 1 < map.width ? dragged + 1 : -1,
+  };
   const tr = storeColumnWidths(
     view.state,
-    $cell.before(-1),
-    renderedColumnWidths(dom as HTMLTableElement),
-    dragged + 1 < map.width ? dragged + 1 : -1,
+    handle.pos,
+    resize.widths,
+    resize.flexibleColumn,
   );
-  if (tr) view.dispatch(tr);
+  if (!tr) return null;
+  view.dispatch(tr.setMeta("addToHistory", false));
+  return resize;
 }
 
 // A touch screen sends a tap's mouse events only once the finger lifts, so a
@@ -151,7 +225,8 @@ function releaseColumnHandle(view: EditorView) {
  * Marks the content-sized table holding the caret, while the editor has focus,
  * so its view keeps its column widths; stores a content-sized table's widths
  * when a column drag starts; and keeps a tap from starting one. It must come
- * before `columnResizing`, whose mousedown starts the drag.
+ * before `columnResizing`, whose mousedown starts the drag and whose mouseup
+ * ends it.
  */
 export function contentTableColumnSizing() {
   // A page opens with its selection at the start, inside a leading table,
@@ -165,11 +240,52 @@ export function contentTableColumnSizing() {
     return false;
   };
   let touching = false;
+  // The content-sized table's drag under way, and the one being released.
+  let pending: ContentSizedResize | null = null;
+  let releasing: ContentSizedResize | null = null;
+
+  // Runs just before `columnResizing` writes the dragged width. Taking the
+  // widths away first lets that write and the widths the plugin puts back
+  // (in `appendTransaction`) be one undo step from a content-sized table.
+  const release = (
+    view: EditorView,
+    resize: ContentSizedResize,
+    event: MouseEvent,
+  ) => {
+    if (pending !== resize) return;
+    pending = null;
+    const handle = resizedTable(view.state);
+    if (!handle?.dragging) return;
+    const tr = clearColumnWidths(view.state, handle.pos).setMeta(
+      "addToHistory",
+      false,
+    );
+    if (event.clientX === handle.dragging.startX) {
+      // The border didn't move, so nothing is stored.
+      view.dispatch(tr.setMeta(columnResizingPluginKey, { setDragging: null }));
+      return;
+    }
+    view.dispatch(tr);
+    releasing = resize;
+  };
+
   return new Plugin({
     key,
     state: {
       init: () => false,
       apply: (tr, focused) => tr.getMeta(key) ?? focused,
+    },
+    appendTransaction(transactions, _oldState, state) {
+      if (!releasing) return null;
+      const handle = resizedTable(state);
+      if (!handle?.dragging) {
+        releasing = null;
+        return null;
+      }
+      if (!transactions.some((tr) => tr.docChanged)) return null;
+      const { widths, flexibleColumn } = releasing;
+      releasing = null;
+      return storeColumnWidths(state, handle.pos, widths, flexibleColumn);
     },
     props: {
       decorations(state) {
@@ -193,8 +309,19 @@ export function contentTableColumnSizing() {
           return false;
         },
         mousedown(view) {
-          if (touching) releaseColumnHandle(view);
-          else storeColumnWidthsBeforeResize(view);
+          // A drag released outside the window ends without a mouseup.
+          pending = null;
+          if (touching) {
+            releaseColumnHandle(view);
+            return false;
+          }
+          const resize = startContentSizedResize(view);
+          if (!resize) return false;
+          pending = resize;
+          // Added before `columnResizing` adds its own, so it runs first.
+          const win = view.dom.ownerDocument.defaultView ?? window;
+          const onMouseUp = (event: MouseEvent) => release(view, resize, event);
+          win.addEventListener("mouseup", onMouseUp, { once: true });
           return false;
         },
       },
@@ -258,7 +385,7 @@ export class ContentTableView extends TableView {
       this.table.setAttribute(COLUMN_SIZING_ATTRIBUTE, "content");
       for (const col of cols) col.style.removeProperty("width");
       if (!hold) return;
-      const widths = renderedColumnWidths(this.table);
+      const widths = renderedColumnWidths(this.node, this.table);
       const total = widths.reduce((sum, width) => sum + width, 0);
       if (widths.length !== cols.length || total <= 0) return;
       this.heldShares = widths.map((width) => (width / total) * 100);

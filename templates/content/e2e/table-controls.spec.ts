@@ -29,6 +29,17 @@ function caretCell(page: Page) {
   });
 }
 
+/** Rendered widths of the cells in the table's first row. */
+function columnWidths(page: Page) {
+  return page.evaluate(
+    (editor) =>
+      [
+        ...document.querySelectorAll(`${editor} tr:first-child :is(td, th)`),
+      ].map((td) => td.getBoundingClientRect().width),
+    EDITOR,
+  );
+}
+
 /** Whether keyboard focus is still inside the open menu. */
 function focusIsInMenu(page: Page) {
   return page.evaluate(
@@ -259,6 +270,48 @@ test.describe("inline table controls", () => {
     await expect(
       page.locator(`${EDITOR} tr:first-child :is(td, th)`),
     ).toHaveCount(7);
+  });
+
+  test("a content-sized table's border moves only when dragged, and one undo puts it back", async ({
+    page,
+  }) => {
+    await openTablePage(page, "Table border drag");
+    const table = page.locator(`${EDITOR} table`);
+    await page.locator(EDITOR).getByText("Before the table.").click();
+    await expect(table).toHaveAttribute("data-column-sizing", "content");
+    const before = await columnWidths(page);
+    const item = (await cell(page, "Item").boundingBox())!;
+    const border = { x: item.x + item.width - 1, y: item.y + item.height / 2 };
+    await page.mouse.move(border.x - 20, border.y);
+    await page.mouse.move(border.x, border.y);
+
+    // A press on the border that doesn't drag it stores no widths.
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect(table).toHaveAttribute("data-column-sizing", "content");
+
+    // The drag lasts longer than undo's grouping window, so the widths it
+    // stores have to join the drag's own undo step.
+    await page.mouse.down();
+    await page.mouse.move(border.x + 20, border.y, { steps: 4 });
+    await page.waitForTimeout(700); // e2e-harness-ignore: the drag must outlast undo's 500 ms grouping window
+    await page.mouse.move(border.x + 40, border.y, { steps: 4 });
+    await page.mouse.up();
+    await expect(table).not.toHaveAttribute("data-column-sizing");
+    const after = await columnWidths(page);
+    expect(Math.abs(after[0] - before[0] - 40)).toBeLessThanOrEqual(2);
+    expect(Math.abs(after[1] - before[1] + 40)).toBeLessThanOrEqual(2);
+    expect(Math.abs(after[2] - before[2])).toBeLessThanOrEqual(2);
+
+    await page.keyboard.press("Control+z");
+    await expect(table).toHaveAttribute(
+      "data-column-sizing",
+      /^(content|held)$/,
+    );
+    const undone = await columnWidths(page);
+    undone.forEach((width, index) =>
+      expect(Math.abs(width - before[index])).toBeLessThanOrEqual(1),
+    );
   });
 });
 
