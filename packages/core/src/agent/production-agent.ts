@@ -2290,6 +2290,7 @@ const VISIBLE_RETRY_THRESHOLD_MS = 10_000;
  */
 const FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS = 25_000;
 const EMPTY_FINAL_RESPONSE_RETRY_LIMIT = 2;
+const MAX_CONSECUTIVE_MAX_TOKENS_CONTINUATIONS = 3;
 const TRUNCATED_TOOL_CALL_RETRY_LIMIT = 2;
 const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
 const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
@@ -7782,6 +7783,8 @@ export async function runAgentLoop(opts: {
   const blockedA2ATargets = new Map<string, string>();
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
+  let preserveReasoningEffortForEmptyResponseRetries = false;
+  let consecutiveMaxTokensContinuations = 0;
   let truncatedToolCallRetries = 0;
   let iterations = 0;
   let endedAtLoopLimit = false;
@@ -8650,22 +8653,44 @@ export async function runAgentLoop(opts: {
     };
 
     if (toolCallParts.length === 0) {
-      if (followUpResults.length > 0)
-        messages.push({ role: "user", content: followUpResults });
-      if (terminalStopReason === "max_tokens") {
-        flushUnstreamedAssistantText();
-        appendAgentLoopContinuation(messages, "max_tokens");
-        continue;
-      }
-
       const hasEmptyFinalResponse =
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
         streamedAssistantText.trim().length === 0;
+      if (followUpResults.length > 0)
+        messages.push({ role: "user", content: followUpResults });
+      if (terminalStopReason === "max_tokens") {
+        if (hasEmptyFinalResponse) {
+          preserveReasoningEffortForEmptyResponseRetries = true;
+        } else if (
+          consecutiveMaxTokensContinuations <
+          MAX_CONSECUTIVE_MAX_TOKENS_CONTINUATIONS
+        ) {
+          consecutiveMaxTokensContinuations += 1;
+          flushUnstreamedAssistantText();
+          appendAgentLoopContinuation(messages, "max_tokens");
+          continue;
+        } else {
+          flushUnstreamedAssistantText();
+          terminalActionStop = {
+            message:
+              "This response kept reaching the output-token limit after several continuations and may be incomplete. Ask for a shorter or narrower answer.",
+            errorCode: "max_tokens_continuation_limit",
+          };
+          sendTerminalActionStop(terminalActionStop);
+          break;
+        }
+      } else {
+        consecutiveMaxTokensContinuations = 0;
+      }
       if (followUpResults.length > 0 && terminalStopReason === "tool_use") {
         if (streamedAssistantText) send({ type: "clear" });
         continue;
       }
-      if (followUpResults.length > 0 && hasEmptyFinalResponse) {
+      if (
+        followUpResults.length > 0 &&
+        hasEmptyFinalResponse &&
+        terminalStopReason !== "max_tokens"
+      ) {
         flushUnstreamedAssistantText();
         continue;
       }
@@ -8675,9 +8700,11 @@ export async function runAgentLoop(opts: {
           emptyFinalResponseRetries += 1;
           effectiveMaxOutputTokens =
             resolveEmptyResponseRetryMaxOutputTokens(model);
-          effectiveReasoningEffort = stepDownReasoningEffort(
-            effectiveReasoningEffort,
-          );
+          if (!preserveReasoningEffortForEmptyResponseRetries) {
+            effectiveReasoningEffort = stepDownReasoningEffort(
+              effectiveReasoningEffort,
+            );
+          }
           send({ type: "clear" });
           appendAgentLoopContinuation(messages, "max_tokens");
           continue;
@@ -8780,6 +8807,8 @@ export async function runAgentLoop(opts: {
         }
       }
       emptyFinalResponseRetries = 0;
+      preserveReasoningEffortForEmptyResponseRetries = false;
+      consecutiveMaxTokensContinuations = 0;
       effectiveMaxOutputTokens = opts.maxOutputTokens;
       effectiveReasoningEffort = opts.reasoningEffort;
       if (loopBreakerCloseout) loopBreakerStopped = true;
@@ -8788,6 +8817,8 @@ export async function runAgentLoop(opts: {
 
     finalGuardRetries = 0;
     emptyFinalResponseRetries = 0;
+    preserveReasoningEffortForEmptyResponseRetries = false;
+    consecutiveMaxTokensContinuations = 0;
 
     const toolCallTruncatedByOutputCap = terminalStopReason === "max_tokens";
     if (toolCallTruncatedByOutputCap) {

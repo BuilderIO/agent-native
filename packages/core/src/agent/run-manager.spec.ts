@@ -9075,7 +9075,7 @@ describe("run manager soft timeout", () => {
       expect(run.status).toBe("completed");
     });
 
-    it("does NOT backstop a run with a model stream in flight, and re-arms when it ends", async () => {
+    it("does NOT backstop a run with a model stream in flight, then checks once it ends", async () => {
       const events: AgentChatEvent[] = [];
       let aborted = false;
       let abortReason: unknown;
@@ -9115,9 +9115,6 @@ describe("run manager soft timeout", () => {
 
       endStream?.();
       await vi.advanceTimersByTimeAsync(3_000);
-      expect(aborted).toBe(false);
-
-      await vi.advanceTimersByTimeAsync(3_000);
       expect(aborted).toBe(true);
       expect(abortReason).toBe("no_progress");
       expect(events).toContainEqual(
@@ -9126,6 +9123,47 @@ describe("run manager soft timeout", () => {
           reason: "no_progress",
         }),
       );
+    });
+
+    it("backstops repeated completed model-stream brackets without answer progress", async () => {
+      const events: AgentChatEvent[] = [];
+      let aborted = false;
+      let abortReason: unknown;
+
+      const run = startRun(
+        "run-no-progress-completed-model-streams",
+        "thread-no-progress-completed-model-streams",
+        async (send, signal) => {
+          const streamTimer = setInterval(() => {
+            send({ type: "model_stream", status: "start" });
+            send({ type: "model_stream", status: "end" });
+          }, 1_000);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(streamTimer);
+              aborted = true;
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.advanceTimersByTimeAsync(6_000);
+
+      expect(aborted).toBe(true);
+      expect(abortReason).toBe("no_progress");
+      expect(events.some((event) => event.type === "model_stream")).toBe(true);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "auto_continue",
+          reason: "no_progress",
+        }),
+      );
+      await run.finalized;
     });
 
     it("mirrors the SQL in-flight marker across the model-stream bracket", async () => {

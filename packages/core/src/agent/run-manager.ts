@@ -1247,7 +1247,8 @@ export function startRun(
     scheduleProgressWrite();
   };
   const shouldBumpProgressForEvent = (event: AgentChatEvent): boolean => {
-    if (event.type === "stream_keepalive") return false;
+    if (event.type === "stream_keepalive" || event.type === "model_stream")
+      return false;
     if (event.type === "clear") {
       for (const [key, bytes] of preparingActivityBytes) {
         const toolKey = preparingActivityTools.get(key) ?? key;

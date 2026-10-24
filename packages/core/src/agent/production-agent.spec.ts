@@ -19818,6 +19818,106 @@ describe("runAgentLoop", () => {
     expect(errorEvents[0].error).toMatch(/empty response/i);
   });
 
+  it("bounds empty max-token turns without stepping reasoning effort down", async () => {
+    const seenOpts: EngineStreamOptions[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenOpts.push(opts);
+        yield { type: "stop", reason: "max_tokens" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "claude-sonnet-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxOutputTokens: 8_000,
+      reasoningEffort: "high",
+    });
+
+    expect(seenOpts).toHaveLength(3);
+    expect(seenOpts.map((opts) => opts.reasoningEffort)).toEqual([
+      "high",
+      "high",
+      "high",
+    ]);
+    expect(seenOpts[0]?.maxOutputTokens).toBe(8_000);
+    expect(seenOpts[1]?.maxOutputTokens).toBeGreaterThan(8_000);
+    expect(seenOpts[2]?.maxOutputTokens).toBe(seenOpts[1]?.maxOutputTokens);
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "empty_final_response",
+        recoverable: false,
+      }),
+    );
+  });
+
+  it("caps repeated textful max-token continuations with an incomplete-response error", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const text = `Part ${streamCalls}.`;
+        yield { type: "text-delta", text };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text }],
+        };
+        yield { type: "stop", reason: "max_tokens" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(4);
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "max_tokens_continuation_limit",
+        error: expect.stringMatching(/may be incomplete/i),
+      }),
+    );
+  });
+
   it("reports the effort each call runs at through onEngineResolved, so a write after an empty-response retry records the lower effort", async () => {
     let call = 0;
     const engine: AgentEngine = {
