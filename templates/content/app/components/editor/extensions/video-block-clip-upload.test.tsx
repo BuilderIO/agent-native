@@ -207,6 +207,31 @@ async function focusWindow() {
   });
 }
 
+async function clickCheckAgain() {
+  const button = Array.from(container.querySelectorAll("button")).find(
+    (each) => each.textContent === "clipEmbed.gateCheckAgain",
+  );
+  expect(button).toBeDefined();
+  await act(async () => button!.click());
+}
+
+function clickRemove() {
+  const button = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="clipEmbed.gateDiscard"]',
+  );
+  expect(button).not.toBeNull();
+  act(() => button!.click());
+}
+
+/** An answer the test gives when it chooses. */
+function later() {
+  let answer: (value: unknown) => void = () => {};
+  const promise = new Promise((resolve) => {
+    answer = resolve;
+  });
+  return { promise, answer: (value: unknown) => answer(value) };
+}
+
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.clipsOn = true;
@@ -310,7 +335,7 @@ describe("the Upload tab while Clips in pages is on", () => {
 
   it("cancels the upload in Clips, and says so, when its block is gone before the Clip", async () => {
     const fetch = vi.fn(async () =>
-      Response.json({ ok: true, recordingId: "rec_1", status: "failed" }),
+      Response.json({ outcome: "cancelled", recordingId: "rec_1" }),
     );
     vi.stubGlobal("fetch", fetch);
     state.callAction.mockResolvedValue(ticket);
@@ -324,14 +349,82 @@ describe("the Upload tab while Clips in pages is on", () => {
       ticket.cancelUrl,
       expect.objectContaining({ method: "POST", credentials: "omit" }),
     );
-    expect(state.toast.error).toHaveBeenCalledWith(
+    await vi.waitFor(() =>
+      expect(state.toast.error).toHaveBeenCalledWith(
+        "clipEmbed.uploadCancelledBlockGone",
+      ),
+    );
+  });
+
+  it("says the video was already saved as a Clip when Clips finished it before the cancel", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: "This upload is already finished",
+            outcome: "already_finished",
+            recordingId: "rec_1",
+            status: "processing",
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    state.callAction.mockImplementation(async (name: string) =>
+      name === "get-clips-links"
+        ? { appUrl: "https://clips.example.test", linkOrigins: [] }
+        : ticket,
+    );
+    swapSucceeds = false;
+    render();
+    await pick(video());
+
+    await vi.waitFor(() =>
+      expect(state.toast.info).toHaveBeenCalledWith(
+        "clipEmbed.uploadAlreadySaved",
+        {
+          action: {
+            label: "clipEmbed.openInClips",
+            onClick: expect.any(Function),
+          },
+        },
+      ),
+    );
+    expect(state.toast.error).not.toHaveBeenCalled();
+    state.toast.info.mock.calls[0][1].action.onClick();
+    expect(open).toHaveBeenCalledWith(
+      "https://clips.example.test/r/rec_1",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    open.mockRestore();
+  });
+
+  it("says Clips didn't confirm the cancel, not that it was cancelled, when Clips doesn't answer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 503 })),
+    );
+    state.callAction.mockResolvedValue(ticket);
+    swapSucceeds = false;
+    render();
+    await pick(video());
+
+    await vi.waitFor(() =>
+      expect(state.toast.error).toHaveBeenCalledWith(
+        "clipEmbed.uploadCancelUnconfirmed",
+      ),
+    );
+    expect(state.toast.error).not.toHaveBeenCalledWith(
       "clipEmbed.uploadCancelledBlockGone",
     );
   });
 
   it("cancels the upload, and says why, when edit access went while Clips started it", async () => {
     const fetch = vi.fn(async () =>
-      Response.json({ ok: true, recordingId: "rec_1", status: "failed" }),
+      Response.json({ outcome: "cancelled", recordingId: "rec_1" }),
     );
     vi.stubGlobal("fetch", fetch);
     const editor = render();
@@ -347,8 +440,10 @@ describe("the Upload tab while Clips in pages is on", () => {
       ticket.cancelUrl,
       expect.objectContaining({ method: "POST" }),
     );
-    expect(state.toast.error).toHaveBeenCalledWith(
-      "clipEmbed.uploadCancelledReadOnly",
+    await vi.waitFor(() =>
+      expect(state.toast.error).toHaveBeenCalledWith(
+        "clipEmbed.uploadCancelledReadOnly",
+      ),
     );
   });
 
@@ -498,6 +593,85 @@ describe("the Upload tab while Clips in pages is on", () => {
       'button[aria-label="clipEmbed.gateDiscard"]',
     );
     act(() => discard?.click());
+    expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
+  });
+
+  it.each([
+    ["the gate's button", clickCheckAgain],
+    ["coming back to the tab", focusWindow],
+  ])(
+    "uploads nothing once the file is removed during a check from %s",
+    async (_from, check) => {
+      const status = later();
+      state.callAction
+        .mockResolvedValueOnce({
+          status: "storage_required",
+          storage: { state: "none", reason: "disabled" },
+        })
+        .mockImplementationOnce(() => status.promise);
+      render();
+      await pick(video());
+      await check();
+      clickRemove();
+      await act(async () =>
+        status.answer({ storage: { state: "ready", provider: "builder" } }),
+      );
+
+      expect(state.callAction.mock.calls.map(([name]) => name)).toEqual([
+        "create-clip-upload",
+        "get-clip-upload-status",
+      ]);
+      expect(state.beginClipUpload).not.toHaveBeenCalled();
+      expect(inserted).toEqual([]);
+      expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
+    },
+  );
+
+  it("doesn't bring a removed file back when a check finds nowhere to save it", async () => {
+    const status = later();
+    state.callAction
+      .mockResolvedValueOnce({
+        status: "storage_required",
+        storage: { state: "none", reason: "disabled" },
+      })
+      .mockImplementationOnce(() => status.promise);
+    render();
+    await pick(video());
+    await clickCheckAgain();
+    clickRemove();
+    await act(async () =>
+      status.answer({ storage: { state: "used_up", limit: 3 } }),
+    );
+    expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
+  });
+
+  it("gives the upload back to Clips when the file is removed while Clips starts it", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({ outcome: "cancelled", recordingId: "rec_1" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const started = later();
+    state.callAction
+      .mockResolvedValueOnce({
+        status: "storage_required",
+        storage: { state: "none", reason: "disabled" },
+      })
+      .mockResolvedValueOnce({
+        storage: { state: "ready", provider: "builder" },
+      })
+      .mockImplementationOnce(() => started.promise);
+    render();
+    await pick(video());
+    await clickCheckAgain();
+    clickRemove();
+    await act(async () => started.answer(ticket));
+
+    expect(inserted).toEqual([]);
+    expect(state.beginClipUpload).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith(
+      ticket.cancelUrl,
+      expect.objectContaining({ method: "POST", credentials: "omit" }),
+    );
     expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
   });
 

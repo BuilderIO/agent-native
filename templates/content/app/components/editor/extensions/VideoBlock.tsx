@@ -30,6 +30,7 @@ import {
 import { toast } from "sonner";
 
 import { clipEmbedBlockContent } from "@/components/editor/clip-embed/clip-embed-content";
+import { announceClipCancel } from "@/components/editor/clip-embed/clip-upload-notices";
 import {
   beginClipUpload,
   cancelClipUpload,
@@ -211,13 +212,16 @@ export function VideoBlock({
         return;
       }
       // Clips has reserved the upload by now; nothing in the page can use it.
-      void cancelClipUpload(ticket);
-      toast.error(
-        t(
-          editor.isDestroyed || canMutateMediaNow()
-            ? "clipEmbed.uploadCancelledBlockGone"
-            : "clipEmbed.uploadCancelledReadOnly",
-        ),
+      const cancelledKey =
+        editor.isDestroyed || canMutateMediaNow()
+          ? "clipEmbed.uploadCancelledBlockGone"
+          : "clipEmbed.uploadCancelledReadOnly";
+      void cancelClipUpload(ticket).then((cancelled) =>
+        announceClipCancel(cancelled, {
+          recordingId: ticket.recordingId,
+          cancelledKey,
+          t,
+        }),
       );
     },
   });

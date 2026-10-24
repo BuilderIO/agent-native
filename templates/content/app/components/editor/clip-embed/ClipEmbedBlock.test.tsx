@@ -396,6 +396,7 @@ describe("ClipEmbed while a Clip is uploaded", () => {
   const sending: ClipUpload = {
     recordingId: "rec_1",
     documentId: "doc_1",
+    blockId: "clip-embed-abc12345",
     fileName: "demo.mp4",
     phase: "uploading",
     sentBytes: 42,

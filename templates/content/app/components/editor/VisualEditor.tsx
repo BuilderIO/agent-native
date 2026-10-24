@@ -116,6 +116,7 @@ import {
 } from "@/lib/startup-timing";
 
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
+import { announceClipCancel } from "./clip-embed/clip-upload-notices";
 import {
   holdDroppedClipFile,
   watchClipUploadBlocks,
@@ -4032,8 +4033,12 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!editor || !documentId) return;
-    return watchClipUploadBlocks(editor, documentId, () =>
-      toast.error(tRef.current("clipEmbed.uploadCancelledBlockGone")),
+    return watchClipUploadBlocks(editor, documentId, (upload, cancelled) =>
+      announceClipCancel(cancelled, {
+        recordingId: upload.recordingId,
+        cancelledKey: "clipEmbed.uploadCancelledBlockGone",
+        t: tRef.current,
+      }),
     );
   }, [documentId, editor]);
 

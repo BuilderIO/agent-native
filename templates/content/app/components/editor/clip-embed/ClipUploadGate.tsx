@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/tooltip";
 
 import { createContentBlockId } from "../extensions/registryBlocks";
+import { cancelClipUpload } from "./clip-uploads";
 import { clipsStorageSetupUrls, useClipsLinks } from "./use-clips-links";
 
 const UPLOAD_STATUS_RESOURCE = "clip-upload-status";
@@ -102,6 +103,13 @@ export function useClipFileUpload(input: {
   const onStartedRef = useRef(input.onStarted);
   onStartedRef.current = input.onStarted;
   const [held, setHeld] = useState<HeldClipFile | null>(null);
+  // The held file as of now, not as of a render: Remove during a check or a
+  // start must keep that file from uploading, or from coming back.
+  const heldRef = useRef<File | null>(null);
+  const hold = useCallback((next: HeldClipFile | null) => {
+    heldRef.current = next?.file ?? null;
+    setHeld(next);
+  }, []);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   // Starting an upload can use a free clip, which the Upload tab counts.
@@ -119,6 +127,7 @@ export function useClipFileUpload(input: {
       }
       busyRef.current = true;
       setBusy(true);
+      const heldBefore = heldRef.current;
       const blockId = createContentBlockId(CLIP_EMBED_BLOCK_TYPE);
       try {
         const result = await startUpload({
@@ -128,13 +137,17 @@ export function useClipFileUpload(input: {
           mimeType: file.type,
           blockId,
         });
+        if (heldRef.current !== heldBefore) {
+          if (result.status === "started") void cancelClipUpload(result);
+          return;
+        }
         if (result.status === "started") {
-          setHeld(null);
+          hold(null);
           onStartedRef.current({ file, ticket: result, blockId });
         } else if (result.status === "storage_required") {
-          setHeld({ file, storage: result.storage });
+          hold({ file, storage: result.storage });
         } else {
-          setHeld(null);
+          hold(null);
           toast.error(
             t("clipEmbed.uploadTooLarge", {
               size: `${Math.floor(result.maxBytes / 1_000_000)} MB`,
@@ -148,12 +161,12 @@ export function useClipFileUpload(input: {
         setBusy(false);
       }
     },
-    [documentId, startUpload, t],
+    [documentId, hold, startUpload, t],
   );
 
-  const heldFile = held?.file ?? null;
   const checkAgain = useCallback(async () => {
-    if (!documentId || !heldFile || busyRef.current) return;
+    const file = heldRef.current;
+    if (!documentId || !file || busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     let storage: ContentClipStorage | null = null;
@@ -171,10 +184,12 @@ export function useClipFileUpload(input: {
       busyRef.current = false;
       setBusy(false);
     }
-    if (!storage) return;
-    if (canUpload(storage)) await start(heldFile);
-    else setHeld({ file: heldFile, storage });
-  }, [documentId, heldFile, start, t]);
+    if (!storage || heldRef.current !== file) return;
+    if (canUpload(storage)) await start(file);
+    else hold({ file, storage });
+  }, [documentId, hold, start, t]);
+
+  const heldFile = held?.file ?? null;
 
   // Setup happens in a Clips tab, so coming back is the cue to look again.
   // Nothing checks while this tab is hidden.
@@ -196,7 +211,7 @@ export function useClipFileUpload(input: {
     busy,
     start,
     checkAgain,
-    discard: () => setHeld(null),
+    discard: () => hold(null),
   };
 }
 

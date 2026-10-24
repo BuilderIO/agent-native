@@ -72,6 +72,9 @@ const en = {
     "The upload was cancelled because its video block is gone.",
   uploadCancelledReadOnly:
     "The upload was cancelled because you can no longer edit this page.",
+  uploadAlreadySaved: "The video was already saved as a Clip.",
+  uploadCancelUnconfirmed:
+    "The upload stopped, but Clips didn't confirm the cancel. Clips clears it within an hour.",
   remove: "Remove",
 } as const;
 
@@ -157,6 +160,9 @@ const translations: Record<
       "Se canceló la subida porque su bloque de video ya no está.",
     uploadCancelledReadOnly:
       "Se canceló la subida porque ya no puedes editar esta página.",
+    uploadAlreadySaved: "El video ya se guardó como Clip.",
+    uploadCancelUnconfirmed:
+      "La subida se detuvo, pero Clips no confirmó la cancelación. Clips la borra en menos de una hora.",
     remove: "Quitar",
   },
   "fr-FR": {
@@ -237,6 +243,9 @@ const translations: Record<
       "L'importation a été annulée, car son bloc vidéo n'existe plus.",
     uploadCancelledReadOnly:
       "L'importation a été annulée, car vous ne pouvez plus modifier cette page.",
+    uploadAlreadySaved: "La vidéo était déjà enregistrée comme Clip.",
+    uploadCancelUnconfirmed:
+      "L'importation s'est arrêtée, mais Clips n'a pas confirmé l'annulation. Clips la supprime dans l'heure.",
     remove: "Retirer",
   },
   "de-DE": {
@@ -316,6 +325,9 @@ const translations: Record<
       "Der Upload wurde abgebrochen, weil sein Videoblock nicht mehr da ist.",
     uploadCancelledReadOnly:
       "Der Upload wurde abgebrochen, weil du diese Seite nicht mehr bearbeiten kannst.",
+    uploadAlreadySaved: "Das Video wurde bereits als Clip gespeichert.",
+    uploadCancelUnconfirmed:
+      "Der Upload wurde gestoppt, aber Clips hat den Abbruch nicht bestätigt. Clips entfernt ihn innerhalb einer Stunde.",
     remove: "Entfernen",
   },
   "pt-BR": {
@@ -394,6 +406,9 @@ const translations: Record<
       "O envio foi cancelado porque o bloco de vídeo dele não existe mais.",
     uploadCancelledReadOnly:
       "O envio foi cancelado porque você não pode mais editar esta página.",
+    uploadAlreadySaved: "O vídeo já foi salvo como Clip.",
+    uploadCancelUnconfirmed:
+      "O envio parou, mas o Clips não confirmou o cancelamento. O Clips o remove em até uma hora.",
     remove: "Remover",
   },
   "zh-CN": {
@@ -464,6 +479,9 @@ const translations: Record<
     uploadUnfinished: "此次上传未完成。",
     uploadCancelledBlockGone: "上传已取消，因为它的视频块已不存在。",
     uploadCancelledReadOnly: "上传已取消，因为你已无法编辑此页面。",
+    uploadAlreadySaved: "该视频已保存为 Clip。",
+    uploadCancelUnconfirmed:
+      "上传已停止，但 Clips 未确认取消。Clips 会在一小时内清除它。",
     remove: "移除",
   },
   "zh-TW": {
@@ -534,6 +552,9 @@ const translations: Record<
     uploadUnfinished: "這次上傳未完成。",
     uploadCancelledBlockGone: "上傳已取消，因為它的影片區塊已不存在。",
     uploadCancelledReadOnly: "上傳已取消，因為你已無法編輯此頁面。",
+    uploadAlreadySaved: "此影片已儲存為 Clip。",
+    uploadCancelUnconfirmed:
+      "上傳已停止，但 Clips 未確認取消。Clips 會在一小時內清除它。",
     remove: "移除",
   },
   "ja-JP": {
@@ -613,6 +634,9 @@ const translations: Record<
       "動画ブロックがなくなったため、アップロードをキャンセルしました。",
     uploadCancelledReadOnly:
       "このページを編集できなくなったため、アップロードをキャンセルしました。",
+    uploadAlreadySaved: "この動画はすでに Clip として保存されています。",
+    uploadCancelUnconfirmed:
+      "アップロードは停止しましたが、Clips はキャンセルを確認していません。Clips が 1 時間以内に削除します。",
     remove: "削除",
   },
   "ko-KR": {
@@ -687,6 +711,9 @@ const translations: Record<
     uploadCancelledBlockGone: "동영상 블록이 없어져 업로드를 취소했습니다.",
     uploadCancelledReadOnly:
       "이 페이지를 더 이상 편집할 수 없어 업로드를 취소했습니다.",
+    uploadAlreadySaved: "이 동영상은 이미 Clip으로 저장되었습니다.",
+    uploadCancelUnconfirmed:
+      "업로드가 중지되었지만 Clips에서 취소를 확인하지 않았습니다. Clips가 1시간 이내에 정리합니다.",
     remove: "제거",
   },
   "hi-IN": {
@@ -762,6 +789,9 @@ const translations: Record<
       "अपलोड रद्द कर दिया गया, क्योंकि उसका वीडियो ब्लॉक अब नहीं है।",
     uploadCancelledReadOnly:
       "अपलोड रद्द कर दिया गया, क्योंकि अब आप इस पेज को संपादित नहीं कर सकते।",
+    uploadAlreadySaved: "यह वीडियो पहले ही Clip के रूप में सहेजा जा चुका है।",
+    uploadCancelUnconfirmed:
+      "अपलोड रुक गया, लेकिन Clips ने रद्द करने की पुष्टि नहीं की। Clips इसे एक घंटे के भीतर हटा देगा।",
     remove: "हटाएं",
   },
   "ar-SA": {
@@ -835,6 +865,9 @@ const translations: Record<
     uploadCancelledBlockGone:
       "أُلغي الرفع لأن كتلة الفيديو الخاصة به لم تعد موجودة.",
     uploadCancelledReadOnly: "أُلغي الرفع لأنك لم تعد تستطيع تعديل هذه الصفحة.",
+    uploadAlreadySaved: "حُفظ الفيديو بالفعل بوصفه Clip.",
+    uploadCancelUnconfirmed:
+      "توقف الرفع، لكن Clips لم يؤكد الإلغاء. سيزيله Clips خلال ساعة.",
     remove: "إزالة",
   },
 };

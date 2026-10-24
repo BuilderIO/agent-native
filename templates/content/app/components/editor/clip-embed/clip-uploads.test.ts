@@ -11,6 +11,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 import {
   beginClipUpload,
+  cancelClipUpload,
   CLIP_UPLOAD_BLOCK_GONE_MS,
   clearClipUpload,
   failClipUpload,
@@ -73,6 +74,20 @@ const BLOCK_ID = "clip-embed-abc12345";
 function isCancel({ url }: Sent) {
   return url.pathname.endsWith("/content-cancel");
 }
+
+const cancelled = () =>
+  Response.json({ outcome: "cancelled", recordingId: "rec_1" });
+
+const finishedFirst = (status: string) =>
+  Response.json(
+    {
+      error: "This upload is already finished",
+      outcome: "already_finished",
+      recordingId: "rec_1",
+      status,
+    },
+    { status: 409 },
+  );
 
 describe("sendClipChunks", () => {
   it("posts each chunk in order, with no credentials and nothing but the ticket's URL", async () => {
@@ -171,6 +186,57 @@ describe("sendClipChunks", () => {
   });
 });
 
+describe("cancelClipUpload", () => {
+  it.each([
+    ["Clips cancelled it", cancelled(), { outcome: "cancelled" }],
+    [
+      "Clips was already making the Clip",
+      finishedFirst("processing"),
+      { outcome: "already_finished", status: "processing" },
+    ],
+    [
+      "Clips had already made the Clip",
+      finishedFirst("ready"),
+      { outcome: "already_finished", status: "ready" },
+    ],
+    [
+      "Clips refused it",
+      Response.json(
+        { error: "Clips didn't cancel this upload" },
+        { status: 409 },
+      ),
+      { outcome: "not_cancelled" },
+    ],
+    [
+      "an answer with no outcome",
+      new Response("{}", { status: 200 }),
+      { outcome: "not_cancelled" },
+    ],
+    [
+      "a finished answer without a finished status",
+      Response.json(
+        { outcome: "already_finished", status: "uploading" },
+        { status: 409 },
+      ),
+      { outcome: "not_cancelled" },
+    ],
+    [
+      "an outcome under the wrong status code",
+      Response.json({ outcome: "cancelled" }, { status: 409 }),
+      { outcome: "not_cancelled" },
+    ],
+    [
+      "a page that isn't JSON",
+      new Response("<html>", { status: 502 }),
+      { outcome: "not_cancelled" },
+    ],
+    ["no answer", new TypeError("offline"), { outcome: "not_cancelled" }],
+  ])("says what happened when %s", async (_when, answer, result) => {
+    stubFetch([answer]);
+    await expect(cancelClipUpload(ticket)).resolves.toEqual(result);
+  });
+});
+
 describe("beginClipUpload", () => {
   it("tells the agent how the upload is going, without the file", async () => {
     stubFetch([]);
@@ -264,6 +330,30 @@ describe("beginClipUpload", () => {
     expect(lastWritten()).toMatchObject({ uploads: [{ phase: "failed" }] });
   });
 
+  it("ends as making, not failed, when the cancel finds Clips had the whole file", async () => {
+    const sent = stubFetch([
+      200,
+      200,
+      new TypeError("reset"),
+      new TypeError("reset"),
+      new TypeError("reset"),
+      new TypeError("reset"),
+      new TypeError("reset"),
+      finishedFirst("processing"),
+    ]);
+    vi.useFakeTimers();
+    const upload = beginClipUpload({
+      file,
+      ticket,
+      documentId: "doc_1",
+      blockId: BLOCK_ID,
+    });
+    await vi.runAllTimersAsync();
+    await upload;
+    expect(sent.filter(isCancel)).toHaveLength(1);
+    expect(lastWritten()).toMatchObject({ uploads: [{ phase: "making" }] });
+  });
+
   it("cancels nothing once every chunk is sent", async () => {
     const sent = stubFetch([]);
     await beginClipUpload({
@@ -299,17 +389,18 @@ describe("beginClipUpload", () => {
 });
 
 describe("an upload whose block leaves the page", () => {
-  /** Chunks that wait until the upload stops them; a cancel Clips takes. */
-  function stubSlowChunks() {
+  /**
+   * Chunks that wait until the upload stops them; a cancel Clips takes,
+   * unless it answers otherwise.
+   */
+  function stubSlowChunks(cancelAnswer: () => Response = cancelled) {
     const sent: Sent[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init: RequestInit) => {
         sent.push({ url: new URL(url), init });
         if (url.includes("/content-cancel")) {
-          return Promise.resolve(
-            Response.json({ ok: true, recordingId: "rec_1", status: "failed" }),
-          );
+          return Promise.resolve(cancelAnswer());
         }
         return new Promise<Response>((_resolve, reject) => {
           init.signal?.addEventListener("abort", () =>
@@ -383,10 +474,72 @@ describe("an upload whose block leaves the page", () => {
     expect(sent[0].init.signal?.aborted).toBe(true);
     expect(onGivenUp).toHaveBeenCalledWith(
       expect.objectContaining({ recordingId: "rec_1", fileName: "demo.mp4" }),
+      { outcome: "cancelled" },
     );
     expect(lastWritten()).toBeNull();
     // Stopped sending: no later chunk went out.
     expect(sent.filter((each) => !isCancel(each))).toHaveLength(1);
+    stop();
+  });
+
+  it("says when Clips had the whole file before the cancel", async () => {
+    vi.useFakeTimers();
+    stubSlowChunks(() => finishedFirst("processing"));
+    const editor = fakeEditor([BLOCK_ID]);
+    const onGivenUp = vi.fn();
+    const stop = watchClipUploadBlocks(editor as never, "doc_1", onGivenUp);
+    const upload = start();
+
+    editor.change([]);
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS);
+    await upload;
+    expect(onGivenUp).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1" }),
+      { outcome: "already_finished", status: "processing" },
+    );
+    stop();
+  });
+
+  it.each([
+    ["making", [] as Array<number>],
+    ["failed", [401]],
+  ])(
+    "forgets an upload that is %s once its block is gone for a moment, cancelling nothing",
+    async (phase, answers) => {
+      vi.useFakeTimers();
+      const sent = stubFetch(answers);
+      await start();
+      expect(lastWritten()).toMatchObject({ uploads: [{ phase }] });
+      const cancels = sent.filter(isCancel).length;
+      const editor = fakeEditor([BLOCK_ID]);
+      const onGivenUp = vi.fn();
+      const stop = watchClipUploadBlocks(editor as never, "doc_1", onGivenUp);
+
+      editor.change([]);
+      await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS - 1);
+      expect(lastWritten()).toMatchObject({ uploads: [{ phase }] });
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(lastWritten()).toBeNull();
+      expect(onGivenUp).not.toHaveBeenCalled();
+      expect(sent.filter(isCancel)).toHaveLength(cancels);
+      stop();
+    },
+  );
+
+  it("keeps a finished upload whose block comes back in that moment", async () => {
+    vi.useFakeTimers();
+    stubFetch([]);
+    await start();
+    const editor = fakeEditor([BLOCK_ID]);
+    const stop = watchClipUploadBlocks(editor as never, "doc_1", vi.fn());
+
+    editor.change([]);
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS / 2);
+    editor.change([BLOCK_ID]);
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS * 4);
+
+    expect(lastWritten()).toMatchObject({ uploads: [{ phase: "making" }] });
     stop();
   });
 
@@ -440,8 +593,10 @@ describe("an upload whose block leaves the page", () => {
   it("cancels once, however often the upload is given up", async () => {
     const sent = stubSlowChunks();
     const upload = start();
-    expect(giveUpClipUpload("rec_1")).toBe(true);
-    expect(giveUpClipUpload("rec_1")).toBe(false);
+    await expect(giveUpClipUpload("rec_1")).resolves.toEqual({
+      outcome: "cancelled",
+    });
+    expect(giveUpClipUpload("rec_1")).toBeNull();
     await upload;
     expect(sent.filter(isCancel)).toHaveLength(1);
   });

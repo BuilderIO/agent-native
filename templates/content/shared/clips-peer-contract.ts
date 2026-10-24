@@ -206,3 +206,24 @@ export type CreateClipUploadResult =
   | ({ status: "started" } & ClipUploadTicket)
   | { status: "storage_required"; storage: ContentClipStorage }
   | { status: "too_large"; maxBytes: number };
+
+/**
+ * The `outcome` a ticket's `cancelUrl` answers with: `cancelled` (200), the
+ * upload failed in Clips and its free clip released; `already_finished`
+ * (409), Clips had the whole file first and kept the Clip, with `status`
+ * `processing` or `ready`. Any other answer is a refusal with only `error`.
+ */
+export const CLIP_CANCEL_OUTCOME = {
+  cancelled: "cancelled",
+  alreadyFinished: "already_finished",
+} as const;
+
+/** What giving an upload up did, as this tab knows it. */
+export type ClipCancelResult =
+  | { outcome: typeof CLIP_CANCEL_OUTCOME.cancelled }
+  | {
+      outcome: typeof CLIP_CANCEL_OUTCOME.alreadyFinished;
+      status: "processing" | "ready";
+    }
+  /** Clips refused, or didn't answer: its cleanup fails the upload later. */
+  | { outcome: "not_cancelled" };

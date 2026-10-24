@@ -80,13 +80,18 @@ Uploading is UI-only: no agent tool uploads a video.
 - `view-screen` returns `clipUploads.uploads` while this tab is sending a file
   or Clips is making the Clip. Each upload has `recordingId`, `documentId`,
   `fileName`, `phase` (`uploading`, `making`, or `failed`), and `percent`.
-  Keep a Clip block in place while its upload runs: once the block has been
-  gone from the page for a few seconds, the uploading tab cancels the upload
-  in Clips and says so, and the person picks the file again. It does the same
-  when the editor loses edit access before the block is in place.
+  An upload whose block has been gone from the page for a few seconds drops
+  out of `clipUploads`, whatever its phase.
+- Keep a Clip block in place while its file sends: once the block has been
+  gone for those few seconds, the uploading tab cancels the upload in Clips
+  and says so, and the person picks the file again. It does the same when the
+  editor loses edit access before the block is in place. If Clips already had
+  the whole file, the Clip stays, and the tab says it was saved, with Open in
+  Clips.
 - An upload whose file stopped sending is cancelled in Clips and shows "This
-  upload didn't finish", which its editors can remove. A tab closed mid-upload
-  is left to Clips, which fails the upload about an hour later.
+  upload didn't finish", which its editors can remove. When Clips doesn't
+  confirm a cancel, the tab says so. Clips fails such an upload about an hour
+  later, as it does one whose tab closed mid-upload.
 - With the flag off, video uploads use Content's file storage as before.
 
 ## Sharing and visibility
