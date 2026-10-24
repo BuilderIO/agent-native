@@ -390,40 +390,46 @@ describe("submit-content-database-form", () => {
     expect(after).toHaveLength(before.length);
   });
 
-  it("refuses Blocks that give two videos one id, without creating a row", async () => {
+  it("saves Blocks that give two videos one id, since a new row has no thread on them", async () => {
     const seeded = await seedFormDatabase();
     const video = (caption: string) =>
       `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
-    const db = getDb();
-    const rows = () =>
-      db
-        .select()
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
-    const before = await rows();
+    const paired = `${video("Demo")}
+${video("Copy")}`;
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "Two clips",
+        propertyValues: {
+          Description: paired,
+          "Internal notes": paired,
+          Priority: "P1 — High",
+        },
+      }),
+    );
 
-    for (const blocks of [
-      { Description: `${video("Demo")}\n${video("Copy")}` },
-      {
-        Description: video("Demo"),
-        "Internal notes": `${video("Demo")}\n${video("Copy")}`,
-      },
-    ])
-      await expect(
-        runWithRequestContext({ userEmail: OWNER }, () =>
-          submitForm.run({
-            databaseId: seeded.databaseId,
-            viewId: "request-form",
-            title: "Two clips",
-            propertyValues: { ...blocks, Priority: "P1 — High" },
-          }),
+    const db = getDb();
+    const [document] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.createdDocumentId));
+    const [notes] = await db
+      .select({ content: schema.documentBlockFieldContents.content })
+      .from(schema.documentBlockFieldContents)
+      .where(
+        and(
+          eq(
+            schema.documentBlockFieldContents.documentId,
+            result.createdDocumentId,
+          ),
+          eq(
+            schema.documentBlockFieldContents.propertyId,
+            seeded.additionalBlocksId,
+          ),
         ),
-      ).rejects.toMatchObject({
-        errorCode: "DOCUMENT_VIDEO_ID_SHARED",
-        statusCode: 422,
-        details: { blockId: "video-original" },
-      });
-    expect(await rows()).toHaveLength(before.length);
+      );
+    expect([document.content, notes.content]).toEqual([paired, paired]);
   });
 
   it("rejects duplicate model-safe entries before creating a row", async () => {
