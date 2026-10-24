@@ -422,7 +422,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       sourceVersionHash: directSourceHash,
     });
 
-    await page.reload({ waitUntil: "domcontentloaded" });
+    await gotoEditor(page, designId);
     const reloadedFrame = page
       .locator(
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
@@ -1498,7 +1498,7 @@ createRoot(document.getElementById("root")!).render(<App />);
       sourceVersionHash: savedHash,
     });
 
-    await page.reload({ waitUntil: "domcontentloaded" });
+    await gotoEditor(page, designId);
     const iframe = page.locator(
       `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
     );
@@ -1600,7 +1600,6 @@ createRoot(document.getElementById("root")!).render(<App />);
       .poll(() => viteChangedFiles.length)
       .toBeGreaterThan(viteChangesBeforeRemoval);
 
-    await page.reload({ waitUntil: "load" });
     const motionFreeTarget = page.locator(
       `[data-agent-native-node-id="${targetNodeId}"]`,
     );

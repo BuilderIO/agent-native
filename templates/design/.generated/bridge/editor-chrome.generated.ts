@@ -2314,6 +2314,14 @@ export const editorChromeBridgeScript: string = `"use strict";
     function sourceFileFromSourceMap(source, mapUrl, sourceRoot) {
       if (typeof source !== "string" || !source) return null;
       try {
+        if (!(typeof sourceRoot === "string" && sourceRoot)) {
+          var mapPath = decodeURIComponent(new URL(mapUrl).pathname);
+          var servedModulePath = mapPath.endsWith(".map") ? mapPath.slice(0, -4).replace(/^\\/+/, "") : "";
+          var mappedSourcePath = decodeURIComponent(source).replace(/^\\/+/, "");
+          if (servedModulePath && mappedSourcePath === servedModulePath) {
+            return mappedSourcePath;
+          }
+        }
         var base = typeof sourceRoot === "string" && sourceRoot ? new URL(sourceRoot, mapUrl) : new URL(".", mapUrl);
         var sourceUrl = new URL(source, base);
         return resolveProvenanceFrameUrl(sourceUrl.href)?.sourceFile || null;

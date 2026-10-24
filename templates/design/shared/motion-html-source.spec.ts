@@ -9,6 +9,7 @@ import {
 } from "./motion-code";
 import {
   applyMotionHtmlSourceEdit,
+  assertMotionHtmlSourceTargets,
   inspectMotionHtmlSourceWriteCapability,
   instrumentMotionHtmlPreviewSource,
   MotionHtmlSourceError,
@@ -1569,6 +1570,33 @@ describe("HTML Motion source adapter", () => {
     expect(() => apply(source)).toThrowError(
       expect.objectContaining({ code: "unsupported-target" }),
     );
+  });
+
+  it.each([
+    ["animation", "pulse 1s"],
+    ["animation-name", "pulse"],
+    ["animation-duration", "2s"],
+  ])("rejects stylesheet !important %s conflicts", (property, value) => {
+    const source = html
+      .replace(
+        "<head>",
+        `<head><style>#hero-title { ${property}: ${value} !important; }</style>`,
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">',
+        '<h1 id="hero-title" data-agent-native-node-id="hero-title">',
+      );
+
+    expect(() =>
+      assertMotionHtmlSourceTargets({ source, targetNodeIds: ["hero-title"] }),
+    ).toThrowError(expect.objectContaining({ code: "unsupported-target" }));
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported" });
+    expect(() => apply(source)).toThrow(MotionHtmlSourceError);
   });
 
   it("inspects stylesheet rules inside Alpine structural templates", () => {

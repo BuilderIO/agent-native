@@ -3,12 +3,14 @@
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import { createMotionNativeStyleInstance } from "@shared/motion-native-style-runtime";
-import { act, useState } from "react";
+import { act, useEffect, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createMotionNativeStyleIdentity,
+  removeMotionNativeStyleAndReconcileSelection,
+  resolveMotionNativeStyleIdentity,
   type MotionNativeStyleIdentity,
 } from "./motion-native-style-identity";
 import {
@@ -39,6 +41,52 @@ const positionStyle: MotionNativeStyleInstance = {
 };
 
 describe("MotionNativeStyleEditor", () => {
+  it("resolves source-identified styles after the list shifts", () => {
+    const styles = [
+      { ...positionStyle, sourceInstanceId: "first" },
+      { ...positionStyle, sourceInstanceId: "selected" },
+      { ...positionStyle, sourceInstanceId: "last" },
+    ];
+    const selection = createMotionNativeStyleIdentity(styles[1]!, 1);
+    const currentStyles = [styles[1]!, styles[2]!];
+
+    expect(
+      resolveMotionNativeStyleIdentity(currentStyles, "target-1", selection),
+    ).toEqual(createMotionNativeStyleIdentity(styles[1]!, 0));
+  });
+
+  it("keeps a stale selection on its original target when the canvas target changes", () => {
+    const staleSelection = {
+      ...createMotionNativeStyleIdentity(
+        { ...positionStyle, sourceInstanceId: undefined },
+        0,
+      ),
+      index: 0,
+    };
+    const currentStyles = [
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        targetNodeId: "target-2",
+      },
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        styleKey: "Rotation" as const,
+        targetNodeId: "target-1",
+      },
+      { ...positionStyle, sourceInstanceId: undefined },
+    ];
+
+    expect(
+      resolveMotionNativeStyleIdentity(
+        currentStyles,
+        "target-2",
+        staleSelection,
+      ),
+    ).toEqual(createMotionNativeStyleIdentity(currentStyles[2]!, 2));
+  });
+
   let container: HTMLDivElement;
   let root: Root;
 
@@ -604,6 +652,24 @@ describe("MotionNativeStyleEditor", () => {
       const [targetNodeId, setTargetNodeId] = useState("target-1");
       const [selectedStyle, setSelectedStyle] =
         useState<MotionNativeStyleIdentity | null>(initialSelection);
+      const previousTargetNodeIdRef = useRef(targetNodeId);
+      useEffect(() => {
+        const targetChanged = previousTargetNodeIdRef.current !== targetNodeId;
+        previousTargetNodeIdRef.current = targetNodeId;
+        const resolvedSelection = resolveMotionNativeStyleIdentity(
+          currentStyles,
+          targetNodeId,
+          targetChanged ? null : selectedStyle,
+        );
+        if (
+          resolvedSelection?.key === selectedStyle?.key &&
+          resolvedSelection?.sourceInstanceId ===
+            selectedStyle?.sourceInstanceId
+        ) {
+          return;
+        }
+        setSelectedStyle(resolvedSelection);
+      }, [currentStyles, selectedStyle, targetNodeId]);
 
       return (
         <>
@@ -692,6 +758,87 @@ describe("MotionNativeStyleEditor", () => {
         '[data-motion-native-style-settings="Rotation"]',
       ),
     ).toBeNull();
+  });
+
+  it("keeps the selected inspector style when an earlier same-type row is removed", async () => {
+    const styles = [
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        props: { ...positionStyle.props, distance: 10 },
+      },
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        props: { ...positionStyle.props, distance: 20 },
+      },
+      {
+        ...positionStyle,
+        sourceInstanceId: undefined,
+        props: { ...positionStyle.props, distance: 30 },
+      },
+    ];
+
+    function RemovalHarness() {
+      const [currentStyles, setStyles] =
+        useState<MotionNativeStyleInstance[]>(styles);
+      const [selectedStyle, setSelectedStyle] =
+        useState<MotionNativeStyleIdentity | null>(
+          createMotionNativeStyleIdentity(styles[1]!, 1),
+        );
+
+      return (
+        <>
+          <output data-test-selected-distance>
+            {String(
+              currentStyles[selectedStyle?.index ?? -1]?.props.distance ??
+                "none",
+            )}
+          </output>
+          <MotionNativeStyleEditor
+            styles={currentStyles}
+            targetNodeId="target-1"
+            selectedStyle={selectedStyle}
+            onSelectedStyleChange={setSelectedStyle}
+            onChange={vi.fn()}
+            onRemove={(identity) => {
+              const result = removeMotionNativeStyleAndReconcileSelection(
+                currentStyles,
+                selectedStyle,
+                identity,
+                "target-1",
+              );
+              setStyles(result.styles);
+              setSelectedStyle(result.selection);
+            }}
+            t={(key) => key}
+          />
+        </>
+      );
+    }
+
+    await act(async () => root.render(<RemovalHarness />));
+    const positionRows = Array.from(
+      container.querySelectorAll<HTMLElement>("li"),
+    );
+    await act(async () => {
+      positionRows[0]!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label^="designEditor.motion.animationStyles.removeAnimation"]',
+        )!
+        .click();
+    });
+
+    expect(
+      container.querySelector("[data-test-selected-distance]")?.textContent,
+    ).toBe("20");
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          "button[data-motion-native-style-trigger]",
+        ),
+      ).map((button) => button.getAttribute("aria-pressed")),
+    ).toEqual(["true", "false"]);
   });
 
   it("edits native TextStagger controls without discarding source props", async () => {

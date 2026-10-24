@@ -913,6 +913,9 @@ function writesClasses(name: string, value: string): boolean {
   );
 }
 
+const MOTION_CONTROL_CSS_PROPERTY =
+  /^(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$/i;
+
 function hasUnsafeMotionCssRule(
   nodes: readonly HtmlNode[],
   targetNodeIds: readonly string[],
@@ -922,6 +925,7 @@ function hasUnsafeMotionCssRule(
   for (const node of nodes) {
     if (
       node.tagName !== "style" ||
+      attributes(node, MANAGED_STYLE_ATTRIBUTE).length > 0 ||
       (node.insideTemplate && !isRenderedByAlpine(node)) ||
       !isPotentialCssStyle(node)
     ) {
@@ -947,6 +951,8 @@ function hasUnsafeMotionCssRule(
               : undefined;
             return (
               property === "all" ||
+              (property !== undefined &&
+                MOTION_CONTROL_CSS_PROPERTY.test(property)) ||
               targetNodeIds.some(
                 (targetNodeId) =>
                   property !== undefined &&
@@ -966,6 +972,8 @@ function hasUnsafeMotionCssRule(
                 : undefined;
               return (
                 property === "all" ||
+                (property !== undefined &&
+                  MOTION_CONTROL_CSS_PROPERTY.test(property)) ||
                 (property !== undefined && targetProperties?.has(property))
               );
             });
@@ -3199,8 +3207,6 @@ function hasInlineMotionDeclarations(
   animatedProperties: ReadonlySet<string> = new Set(),
   rejectAllImportant = false,
 ): boolean {
-  const motionProperty =
-    /^(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$/i;
   try {
     const declarations = postcss.parse(`.motion-target {\n${value}\n}`);
     let found = false;
@@ -3209,7 +3215,7 @@ function hasInlineMotionDeclarations(
         declaration.prop,
       ).toLowerCase();
       if (
-        motionProperty.test(property) ||
+        MOTION_CONTROL_CSS_PROPERTY.test(property) ||
         (declaration.important &&
           (property === "all"
             ? rejectAllImportant || animatedProperties.size > 0

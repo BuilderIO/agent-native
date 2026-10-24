@@ -622,7 +622,12 @@ export function runMotionAutosave({
             typeof response.versionHash === "string"
               ? response.versionHash
               : null;
-          if (isStillActiveFile && id && sourceVersionHash) {
+          if (
+            isStillActiveFile &&
+            id &&
+            sourceVersionHash &&
+            motionAutosaveRevisionRef.current === revisionAtSchedule
+          ) {
             cacheSavedMotionTimeline({
               queryClient,
               designId: id,

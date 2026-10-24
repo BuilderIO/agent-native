@@ -1307,11 +1307,15 @@ export function useEditorLiveEditsAndPresence({
     selectedElement?.tagName,
     selectedElementIsOutlineDrawable,
   ]);
+  const previousMotionSelectionTargetRef = useRef(motionSelectedTarget?.nodeId);
   useEffect(() => {
+    const targetChanged =
+      previousMotionSelectionTargetRef.current !== motionSelectedTarget?.nodeId;
+    previousMotionSelectionTargetRef.current = motionSelectedTarget?.nodeId;
     const resolvedSelection = resolveMotionNativeStyleIdentity(
       motionNativeStyles,
       motionSelectedTarget?.nodeId,
-      motionNativeStyleSelection,
+      targetChanged ? null : motionNativeStyleSelection,
     );
     if (
       resolvedSelection?.key === motionNativeStyleSelection?.key &&

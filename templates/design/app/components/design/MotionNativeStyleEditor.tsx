@@ -406,7 +406,6 @@ export function MotionNativeStyleEditor({
         .filter(({ instance }) => instance.targetNodeId === targetNodeId),
     [styles, targetNodeId],
   );
-  const selectedStyleKey = selectedStyle?.key ?? null;
   const resolvedSelectedStyle = onSelectedStyleChange
     ? resolveMotionNativeStyleIdentity(styles, targetNodeId, selectedStyle)
     : null;
@@ -423,19 +422,6 @@ export function MotionNativeStyleEditor({
   const selectedIdentityKey = selectedIdentity?.key ?? null;
   const previousSelectedIdentityKeyRef = useRef(selectedIdentityKey);
   const pendingInspectorSelectionRef = useRef<string | null>(null);
-  const selectionMatchesCurrentStyles =
-    selectedStyleKey === selectedIdentityKey &&
-    (selectedStyle?.styleKey ?? null) ===
-      (selectedIdentity?.styleKey ?? null) &&
-    (selectedStyle?.targetNodeId ?? null) ===
-      (selectedIdentity?.targetNodeId ?? null) &&
-    (selectedStyle?.index ?? null) === (selectedIdentity?.index ?? null) &&
-    (selectedStyle?.sourceInstanceId ?? null) ===
-      (selectedIdentity?.sourceInstanceId ?? null);
-  useEffect(() => {
-    if (!onSelectedStyleChange || selectionMatchesCurrentStyles) return;
-    onSelectedStyleChange(selectedIdentity);
-  }, [onSelectedStyleChange, selectedIdentity, selectionMatchesCurrentStyles]);
   useEffect(() => {
     if (!onSelectedStyleChange) return;
     setSelectedKey(selectedIdentityKey);

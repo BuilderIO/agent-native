@@ -747,7 +747,28 @@ test("Motion inspector states match the editable timeline", async ({
   await expect(dockPosition).toHaveAttribute("aria-pressed", "false");
   await expect(dockRotation).toHaveAttribute("aria-pressed", "true");
   await expect(inspectorPosition).toHaveAttribute("aria-pressed", "false");
-  await expect(inspectorRotation).toHaveAttribute("aria-pressed", "true");
+  const selectionsAfterDockRotation = await page.evaluate(() => ({
+    inspector: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-native-style-trigger]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+    dock: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-select-native-style]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+  }));
+  await expect(
+    inspectorRotation,
+    `Selection after selecting Rotation in the dock: ${JSON.stringify(selectionsAfterDockRotation)}`,
+  ).toHaveAttribute("aria-pressed", "true");
   const rotationSettings = page.locator(
     '[data-motion-native-style-settings="Rotation"][data-state="open"]',
   );
@@ -815,6 +836,59 @@ test("Motion inspector states match the editable timeline", async ({
     ),
     JSON.stringify(crossPaneState, null, 2),
   );
+  await page.keyboard.press("Escape");
+  await expect(rotationSettings).toHaveCount(0);
+  const removePosition = nativeStyleInspector.getByRole("button", {
+    name: "Remove animation Position",
+    exact: true,
+  });
+  const removedPosition = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
+  await removePosition.click();
+  const removedPositionResponse = await removedPosition;
+  expect(
+    removedPositionResponse.ok(),
+    await removedPositionResponse.text(),
+  ).toBe(true);
+  expect(await removedPositionResponse.json()).toMatchObject({
+    persisted: true,
+  });
+  await expect(
+    nativeStyleInspector.getByRole("button", { name: "Position", exact: true }),
+  ).toHaveCount(0);
+  const selectionsAfterPositionRemoval = await page.evaluate(() => ({
+    inspector: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-native-style-trigger]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+    dock: Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-motion-select-native-style]",
+      ),
+    ).map((button) => ({
+      name: button.innerText.trim(),
+      selected: button.getAttribute("aria-pressed") === "true",
+    })),
+  }));
+  await expect(
+    inspectorRotation,
+    `Selection after removing Position: ${JSON.stringify(selectionsAfterPositionRemoval)}`,
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(dockRotation).toHaveAttribute("aria-pressed", "true");
+  await expect(rotationSettings).toHaveCount(0);
+  await inspectorRotation.click();
+  await expect(rotationSettings).toHaveCount(1);
+  await expect(
+    rotationSettings.getByRole("combobox", { name: "Type" }),
+  ).toHaveText("Rotate in");
   await page.setViewportSize({ width: 1728, height: 941 });
 
   const origin = page.getByRole("button", { name: "Origin", exact: true });

@@ -190,6 +190,54 @@ describe("runMotionAutosave", () => {
     expect(toast.error).toHaveBeenCalledWith(args.unresolvedStylesheetsMessage);
   });
 
+  it("does not cache a response from a superseded motion save", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", globalThis);
+    const refs = {
+      lastScheduledMotionAutosaveFileVersionRef: { current: null },
+      lastScheduledMotionAutosaveRevisionRef: { current: 0 },
+      motionAutosaveRevisionRef: { current: 7 },
+      motionAutosaveTimerRef: { current: null },
+      motionAutosaveFlushRef: { current: null },
+      previousMotionFileIdRef: { current: "file-1" },
+      lastLocalContentRef: { current: null },
+      latestActiveContentRef: { current: null },
+      motionAutosaveFailedRevisionRef: { current: null },
+    } as unknown as Pick<
+      MotionAutosaveArgs,
+      | "lastScheduledMotionAutosaveFileVersionRef"
+      | "lastScheduledMotionAutosaveRevisionRef"
+      | "motionAutosaveRevisionRef"
+      | "motionAutosaveTimerRef"
+      | "motionAutosaveFlushRef"
+      | "previousMotionFileIdRef"
+      | "lastLocalContentRef"
+      | "latestActiveContentRef"
+      | "motionAutosaveFailedRevisionRef"
+    >;
+    const args = createArgs("revision-1", refs);
+    const applyMotionEdit = vi.fn();
+    args.applyMotionEdit = applyMotionEdit;
+
+    runMotionAutosave(args);
+    vi.advanceTimersByTime(500);
+    refs.motionAutosaveRevisionRef.current = 8;
+
+    const onSuccess = (
+      applyMotionEdit.mock.calls[0]?.[1] as unknown as {
+        onSuccess: (result: unknown) => void;
+      }
+    ).onSuccess;
+    onSuccess({
+      fileId: "file-1",
+      timelineId: "timeline-1",
+      contentPatched: false,
+      versionHash: "b".repeat(64),
+    });
+
+    expect(args.queryClient.setQueryData).not.toHaveBeenCalled();
+  });
+
   it("saves audio-only edits instead of removing an empty timeline", () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", globalThis);

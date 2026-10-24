@@ -56,7 +56,10 @@ import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls"
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
-import type { MotionNativeStyleIdentity } from "@/components/design/motion-native-style-identity";
+import {
+  removeMotionNativeStyleAndReconcileSelection,
+  type MotionNativeStyleIdentity,
+} from "@/components/design/motion-native-style-identity";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
@@ -1806,28 +1809,15 @@ export function renderDesignEditorView({
     onRemoveMotionNativeStyle:
       canEditActiveVisualScreen && canWriteMotion
         ? (identity: MotionNativeStyleIdentity) => {
-            setMotionNativeStyles((current) => {
-              const index = identity.sourceInstanceId
-                ? current.findIndex(
-                    (candidate) =>
-                      candidate.sourceInstanceId ===
-                        identity.sourceInstanceId &&
-                      candidate.styleKey === identity.styleKey &&
-                      candidate.targetNodeId === identity.targetNodeId,
-                  )
-                : identity.index;
-              const instance = current[index];
-              if (
-                !instance ||
-                instance.styleKey !== identity.styleKey ||
-                instance.targetNodeId !== identity.targetNodeId
-              ) {
-                return current;
-              }
-              return current.filter(
-                (_, currentIndex) => currentIndex !== index,
-              );
-            });
+            const result = removeMotionNativeStyleAndReconcileSelection(
+              motionNativeStyles,
+              motionNativeStyleSelection,
+              identity,
+              motionSelectedTarget?.nodeId,
+            );
+            if (result.styles === motionNativeStyles) return;
+            setMotionNativeStyles(result.styles);
+            setMotionNativeStyleSelection(result.selection);
             markMotionTracksDirty();
           }
         : undefined,
