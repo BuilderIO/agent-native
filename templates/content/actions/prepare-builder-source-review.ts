@@ -347,6 +347,25 @@ async function approveChangeSetForReview(args: {
       (args.changeSet.bodyChange
         ? JSON.stringify(args.changeSet.bodyChange)
         : null);
+  const approvedFromRow = (
+    row: typeof schema.contentDatabaseSourceChangeSets.$inferSelect,
+  ) => ({
+    id: row.id,
+    state: "approved" as const,
+    changeSet: {
+      ...approvedChangeSet(row.id),
+      summary: row.summary,
+      fieldChanges: JSON.parse(
+        row.fieldChangesJson,
+      ) as ContentDatabaseSourceChangeSet["fieldChanges"],
+      bodyChange: row.bodyChangeJson
+        ? (JSON.parse(
+            row.bodyChangeJson,
+          ) as ContentDatabaseSourceChangeSet["bodyChange"])
+        : null,
+      updatedAt: row.updatedAt,
+    },
+  });
 
   if (existing) {
     // An approved payload is immutable execution evidence. Even a locally
@@ -354,25 +373,7 @@ async function approveChangeSetForReview(args: {
     // proposal always receives a new revision identity instead of rewriting
     // the proposal beneath an in-flight execution.
     if (existing.state === "approved") {
-      if (existingPayloadMatches(existing)) {
-        return {
-          id: existing.id,
-          state: "approved" as const,
-          changeSet: {
-            ...approvedChangeSet(existing.id),
-            summary: existing.summary,
-            fieldChanges: JSON.parse(
-              existing.fieldChangesJson,
-            ) as ContentDatabaseSourceChangeSet["fieldChanges"],
-            bodyChange: existing.bodyChangeJson
-              ? (JSON.parse(
-                  existing.bodyChangeJson,
-                ) as ContentDatabaseSourceChangeSet["bodyChange"])
-              : null,
-            updatedAt: existing.updatedAt,
-          },
-        };
-      }
+      if (existingPayloadMatches(existing)) return approvedFromRow(existing);
       // Fall through to a revision-bound change-set ID below.
     } else {
       const [updated] = await db
@@ -458,25 +459,54 @@ async function approveChangeSetForReview(args: {
         ),
       )
     : args.changeSet.id;
-  await db.insert(schema.contentDatabaseSourceChangeSets).values({
-    id: changeSetId,
-    ownerEmail: args.ownerEmail,
-    sourceId: args.sourceId,
-    databaseItemId: args.changeSet.databaseItemId,
-    documentId: args.changeSet.documentId,
-    kind: args.changeSet.kind,
-    direction: "outbound",
-    state: "approved",
-    pushMode: args.changeSet.pushMode ?? "autosave",
-    localOnly: 1,
-    summary,
-    fieldChangesJson: JSON.stringify(args.changeSet.fieldChanges),
-    bodyChangeJson: args.changeSet.bodyChange
-      ? JSON.stringify(args.changeSet.bodyChange)
-      : null,
-    createdAt: args.now,
-    updatedAt: args.now,
-  });
+  const [inserted] = await db
+    .insert(schema.contentDatabaseSourceChangeSets)
+    .values({
+      id: changeSetId,
+      ownerEmail: args.ownerEmail,
+      sourceId: args.sourceId,
+      databaseItemId: args.changeSet.databaseItemId,
+      documentId: args.changeSet.documentId,
+      kind: args.changeSet.kind,
+      direction: "outbound",
+      state: "approved",
+      pushMode: args.changeSet.pushMode ?? "autosave",
+      localOnly: 1,
+      summary,
+      fieldChangesJson: JSON.stringify(args.changeSet.fieldChanges),
+      bodyChangeJson: args.changeSet.bodyChange
+        ? JSON.stringify(args.changeSet.bodyChange)
+        : null,
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .onConflictDoNothing()
+    .returning({ id: schema.contentDatabaseSourceChangeSets.id });
+  if (!inserted) {
+    // A review prepared at the same time for the same payload picks the same
+    // id, so its approval stands for this one.
+    const [concurrent] = await db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceChangeSets.sourceId, args.sourceId),
+          eq(schema.contentDatabaseSourceChangeSets.id, changeSetId),
+        ),
+      )
+      .limit(1);
+    if (
+      concurrent?.state === "approved" &&
+      concurrent.pushMode === (args.changeSet.pushMode ?? "autosave") &&
+      existingPayloadMatches(concurrent)
+    ) {
+      return approvedFromRow(concurrent);
+    }
+    fail("Builder change set changed during approval.", {
+      errorCode: "builder_change_set_changed",
+      statusCode: 409,
+    });
+  }
   await db.insert(schema.contentDatabaseSourceChangeReviews).values({
     id: crypto.randomUUID(),
     ownerEmail: args.ownerEmail,
