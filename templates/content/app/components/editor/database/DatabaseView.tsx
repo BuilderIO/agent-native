@@ -2812,7 +2812,7 @@ function DatabaseTable({
         preparedReview,
         selectedChangeSetIdSet,
       );
-      const executedSources: ContentDatabaseSource[] = [];
+      const executions: DatabaseBuilderRowExecution[] = [];
       for (const row of executableRows) {
         if (!row.execution?.idempotencyKey) continue;
         if (
@@ -2849,11 +2849,14 @@ function DatabaseTable({
           executedResponse.source,
           { sourceId: session.sourceId },
         );
-        if (executedSource) executedSources.push(executedSource);
+        executions.push({
+          changeSetId: row.changeSetId,
+          source: executedSource ?? null,
+        });
       }
       const nextReview = databaseBuilderReviewAfterExecution(
         preparedReview,
-        executedSources,
+        executions,
       );
       setPreparedBuilderReviewConfirmation(null);
       if (!nextReview) {
@@ -4615,36 +4618,53 @@ export function databaseBuilderReviewAfterExecutionError(
   return null;
 }
 
+export type DatabaseBuilderRowExecution = {
+  changeSetId: string;
+  source: ContentDatabaseSource | null;
+};
+
 /**
- * The review after every row was executed, built from the Builder source each
- * execution returned. Each execution answers for its own row, so the review
- * reads all of them; null when any reviewed row's change set did not come back.
+ * The review after a push, built from the Builder source each execution
+ * returned. Each execution answers for its own row; null when an executed
+ * row's change set did not come back. Rows the push skipped keep their
+ * prepared state.
  */
 export function databaseBuilderReviewAfterExecution(
   review: ContentDatabaseSourceReviewPayload,
-  executedSources: ContentDatabaseSource[],
+  executions: DatabaseBuilderRowExecution[],
 ) {
-  const latestSource = executedSources[executedSources.length - 1];
+  const sources = executions.flatMap(({ source }) => (source ? [source] : []));
+  const latestSource = sources[sources.length - 1];
   if (!latestSource) return null;
   const changeSetsById = new Map(
-    executedSources.flatMap((source) =>
+    sources.flatMap((source) =>
       source.changeSets.map((changeSet) => [changeSet.id, changeSet] as const),
     ),
   );
-  const changeSets = review.rows.flatMap((row) => {
-    const changeSet = changeSetsById.get(row.changeSetId);
+  const changeSets = executions.flatMap(({ changeSetId }) => {
+    const changeSet = changeSetsById.get(changeSetId);
     return changeSet ? [changeSet] : [];
   });
-  if (changeSets.length !== review.rows.length) return null;
+  if (changeSets.length !== executions.length) return null;
   const rowsById = new Map(
-    executedSources.flatMap((source) =>
+    sources.flatMap((source) =>
       source.rows.map((row) => [row.id, row] as const),
     ),
   );
-  return buildClientBuilderReviewPayload(
+  const pushed = buildClientBuilderReviewPayload(
     { ...latestSource, rows: [...rowsById.values()] },
     changeSets,
   );
+  const pushedRows = new Map(
+    pushed.rows.map((row) => [row.changeSetId, row] as const),
+  );
+  return {
+    ...pushed,
+    summary: review.summary,
+    riskLevel: review.riskLevel,
+    riskReasons: review.riskReasons,
+    rows: review.rows.map((row) => pushedRows.get(row.changeSetId) ?? row),
+  };
 }
 
 export function databaseBuilderReviewBelongsToSource(

@@ -1491,14 +1491,27 @@ export function realExecutionDeps(
     reconcileWrite: reconcileBuilderCmsWrite,
     // A page read scopes source change sets to that page's rows, so a row past
     // the first page would come back without the change set just executed.
-    getResponse: (databaseId, changeSet) =>
+    getResponse: async (databaseId, changeSet) =>
       getContentDatabaseResponse(databaseId, {
         limit: 100,
         offset: 0,
-        documentIds: changeSet.documentId ? [changeSet.documentId] : undefined,
+        documentIds: await changeSetDocumentIds(changeSet),
       }),
     lookupSafeModelIntent: lookupBuilderCmsSafeModelIntent,
   };
+}
+
+async function changeSetDocumentIds(
+  changeSet: ContentDatabaseSourceChangeSet,
+): Promise<string[]> {
+  if (changeSet.documentId) return [changeSet.documentId];
+  if (!changeSet.databaseItemId) return [];
+  const [item] = await getDb()
+    .select({ documentId: schema.contentDatabaseItems.documentId })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.id, changeSet.databaseItemId))
+    .limit(1);
+  return item ? [item.documentId] : [];
 }
 
 export async function executeBuilderSourceExecutionWithDeps(

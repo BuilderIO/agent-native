@@ -1256,14 +1256,15 @@ describe("Builder source settings helpers", () => {
       { ...prepared[1], rows: prepared.flatMap((source) => source.rows) },
       prepared.flatMap((source) => source.changeSets),
     );
-    const pushed = ["first", "second"].map((id) =>
-      rowSource(id, {
+    const pushed = ["first", "second"].map((id) => ({
+      changeSetId: `change-${id}`,
+      source: rowSource(id, {
         state: "applied",
         executions: [
           builderExecution({ changeSetId: `change-${id}`, state: "succeeded" }),
         ],
       }),
-    );
+    }));
 
     const review = databaseBuilderReviewAfterExecution(preparedReview, pushed);
 
@@ -1282,8 +1283,24 @@ describe("Builder source settings helpers", () => {
       message: "Pushed to Builder and reconciled locally.",
     });
     expect(
-      databaseBuilderReviewAfterExecution(preparedReview, pushed.slice(1)),
+      databaseBuilderReviewAfterExecution(preparedReview, [
+        pushed[0]!,
+        { changeSetId: "change-second", source: pushed[0]!.source },
+      ]),
     ).toBeNull();
+
+    const skipped = databaseBuilderReviewAfterExecution(
+      preparedReview,
+      pushed.slice(1),
+    );
+    expect(
+      skipped?.rows.map((row) => [row.changeSetId, row.execution?.state]),
+    ).toEqual([
+      ["change-first", preparedReview.rows[0]!.execution?.state],
+      ["change-second", "succeeded"],
+    ]);
+    expect(skipped?.result.status).toBe("succeeded");
+    expect(skipped?.summary).toBe(preparedReview.summary);
   });
 });
 

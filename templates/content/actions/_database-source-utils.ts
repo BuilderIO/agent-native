@@ -4658,9 +4658,28 @@ async function loadSourceSnapshot(
         options.documentIds !== undefined
           ? and(
               eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
-              inArray(
-                schema.contentDatabaseSourceChangeSets.documentId,
-                options.documentIds,
+              or(
+                inArray(
+                  schema.contentDatabaseSourceChangeSets.documentId,
+                  options.documentIds,
+                ),
+                // Execution and reconciliation also find a change set by its
+                // row's item alone, so a page holds those too.
+                and(
+                  isNull(schema.contentDatabaseSourceChangeSets.documentId),
+                  inArray(
+                    schema.contentDatabaseSourceChangeSets.databaseItemId,
+                    db
+                      .select({ id: schema.contentDatabaseItems.id })
+                      .from(schema.contentDatabaseItems)
+                      .where(
+                        inArray(
+                          schema.contentDatabaseItems.documentId,
+                          options.documentIds,
+                        ),
+                      ),
+                  ),
+                ),
               ),
             )
           : eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
