@@ -1579,11 +1579,9 @@ export const runContentMigrations = runMigrations(
     {
       version: 130,
       name: "content-property-value-generations",
-      // Triggers stamp every write, so no writer can forget to. Existing
+      // A trigger stamps every write, so no writer can forget to. Existing
       // values keep a NULL generation, which reads as 0, until they change.
-      // Deleting values records a new generation for each page they were on,
-      // so a cleared value can't make an old generation current again.
-      // Function bodies are one quoted string: the runner splits on
+      // The function body is one quoted string: the runner splits on
       // semicolons outside quotes.
       sql: `CREATE SEQUENCE IF NOT EXISTS content_property_value_generation_seq;
         ALTER TABLE document_property_values ADD COLUMN IF NOT EXISTS generation BIGINT;
@@ -1603,29 +1601,42 @@ export const runContentMigrations = runMigrations(
         CREATE TRIGGER content_property_value_generation
           BEFORE INSERT OR UPDATE ON document_property_values
           FOR EACH ROW
-          EXECUTE FUNCTION content_property_value_generation();
-        CREATE TABLE IF NOT EXISTS document_property_value_deletions (
-          document_id TEXT PRIMARY KEY,
-          generation BIGINT NOT NULL
+          EXECUTE FUNCTION content_property_value_generation()`,
+    },
+    {
+      version: 131,
+      name: "content-property-value-tombstones",
+      // Deleting a value records a new generation for that page and
+      // property, so a cleared value can't make an old generation current
+      // again. Each committed delete writes a number no reader has seen, so
+      // the upsert replaces rather than keeping the larger one.
+      sql: `CREATE TABLE IF NOT EXISTS document_property_value_tombstones (
+          document_id TEXT NOT NULL,
+          property_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          PRIMARY KEY (document_id, property_id)
         );
-        CREATE OR REPLACE FUNCTION content_property_value_deletion()
+        CREATE OR REPLACE FUNCTION content_property_value_tombstone()
           RETURNS trigger
           LANGUAGE plpgsql
           AS 'BEGIN
-            INSERT INTO document_property_value_deletions (document_id, generation)
-              SELECT document_id, nextval(''content_property_value_generation_seq'')
-              FROM (SELECT DISTINCT document_id FROM deleted_values) AS pages
-            ON CONFLICT (document_id)
+            INSERT INTO document_property_value_tombstones
+                (document_id, property_id, generation)
+              SELECT document_id, property_id,
+                  nextval(''content_property_value_generation_seq'')
+                FROM (SELECT DISTINCT document_id, property_id
+                  FROM deleted_values) AS cleared
+            ON CONFLICT (document_id, property_id)
               DO UPDATE SET generation = EXCLUDED.generation;
             RETURN NULL;
           END';
-        DROP TRIGGER IF EXISTS content_property_value_deletion
+        DROP TRIGGER IF EXISTS content_property_value_tombstone
           ON document_property_values;
-        CREATE TRIGGER content_property_value_deletion
+        CREATE TRIGGER content_property_value_tombstone
           AFTER DELETE ON document_property_values
           REFERENCING OLD TABLE AS deleted_values
           FOR EACH STATEMENT
-          EXECUTE FUNCTION content_property_value_deletion()`,
+          EXECUTE FUNCTION content_property_value_tombstone()`,
     },
   ],
   { table: "content_migrations" },

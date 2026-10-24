@@ -97,7 +97,8 @@ import {
 import {
   propertyChangeIdsFor,
   propertyGenerationsFor,
-  readPropertyGenerations,
+  readPropertyTombstones,
+  storedPropertyGenerations,
   type StoredPropertyChangeIds,
 } from "./_property-generations.js";
 import {
@@ -1107,9 +1108,10 @@ export async function getContentDatabasePageResponse(
       )!,
     );
   }
-  // Before the values: see readPropertyGenerations.
-  const storedGenerations = await readPropertyGenerations(db, documentIds);
+  // Before the values: see readPropertyTombstones.
+  const tombstones = await readPropertyTombstones(db, documentIds);
   const changeIds: StoredPropertyChangeIds = new Map();
+  const storedGenerations = storedPropertyGenerations(changeIds, tombstones);
   const [
     favorites,
     shareRows,
@@ -1753,6 +1755,15 @@ export async function deleteDatabaseDataForDocument(
         .delete(schema.documentPropertyValues)
         .where(
           inArray(schema.documentPropertyValues.propertyId, definitionIds),
+        );
+      // After the values: deleting them records a tombstone for each one.
+      await db
+        .delete(schema.documentPropertyValueTombstones)
+        .where(
+          inArray(
+            schema.documentPropertyValueTombstones.propertyId,
+            definitionIds,
+          ),
         );
       await db
         .delete(schema.documentBlockFieldContents)

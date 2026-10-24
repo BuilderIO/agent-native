@@ -12,18 +12,22 @@ import {
 type Db = ReturnType<typeof getDb>;
 
 /**
- * A property's generation goes up on every committed change to it, A → B → A
+ * A property's generation changes on every committed change to it, A → B → A
  * included, so a writer can tell "still the value I read" from "changed, then
  * changed back". Database triggers stamp it from one shared sequence, so
  * compare generations for equality only: the steps between them are not +1.
  *
- * It is the larger of the value row's own generation and the page's deletion
- * generation, which goes up whenever any value on the page is deleted. A
- * deleted value takes its own generation with it, so without the page's, a
- * property that was empty, then filled, then cleared would read 0 again and an
- * old token would pass. A deletion can make other properties on the page
- * conflict once; it never lets a stale write through. A value that hasn't
- * changed since generations began, on a page with no deletions, is 0.
+ * While a property has a stored value, its generation is that value row's own
+ * number, which a trigger renews whenever the value changes. Once the value is
+ * deleted outright, it's the number a second trigger stamped on a tombstone
+ * for that page and property, so a property that was empty, then filled, then
+ * cleared can't read 0 again and pass an old token. A property that has never
+ * had a value, or whose value hasn't changed since generations began, is 0.
+ *
+ * Every committed change sets a number no reader has seen yet, which is all an
+ * equality check needs. Taking the larger of two numbers would not be safe: a
+ * write can take its number before an unrelated deletion takes a larger one,
+ * then commit after it.
  */
 export type PropertyGenerations = Record<string, number>;
 
@@ -39,19 +43,15 @@ export interface PropertyGenerationConflict {
 }
 
 /**
- * A property's change ID names the write behind its current value: the value
- * row's own generation. Deleting other values on the page doesn't move it, so
- * it changes exactly when this value changes or its row is written anew. Use
- * it to act once per change, and the generation to guard a write. Null when
- * the property has no stored value; 0 for a value that hasn't changed since
- * generations began.
- *
- * A read takes each change ID from the same row as its value, so the two
- * always describe one write: see recordPropertyChangeIds.
+ * A property's change ID is its stored value's generation, or null when it has
+ * no stored value. It names the write behind the current value, so it changes
+ * exactly when this value is written anew. Use it to act once per change, and
+ * the generation to guard a write. It's 0 for a value that hasn't changed
+ * since generations began.
  */
 export type PropertyChangeIds = Record<string, number | null>;
 
-/** Change IDs by page, then property. */
+/** Change IDs, or tombstone generations, by page and then property. */
 export type StoredPropertyChangeIds = Map<string, Map<string, number>>;
 
 /** A stored generation as a number; NULL (never changed since) is 0. */
@@ -68,77 +68,132 @@ export function generationNumber(value: unknown): number {
 }
 
 /**
- * Reads the generations of these pages' properties. `lock` holds the value
- * rows and the pages' deletion rows until the transaction ends, so a guarded
- * write can compare and write without another writer in between.
+ * Records the change IDs of the value rows a read or write returned. A page
+ * holds one value row per property; were there two, the larger number would
+ * win, so every reader agrees.
+ */
+export function recordPropertyChangeIds(
+  stored: StoredPropertyChangeIds,
+  rows: Iterable<{
+    documentId: string;
+    propertyId: string;
+    generation: unknown;
+  }>,
+): StoredPropertyChangeIds {
+  for (const row of rows) {
+    const forPage = stored.get(row.documentId) ?? new Map<string, number>();
+    const generation = generationNumber(row.generation);
+    const previous = forPage.get(row.propertyId);
+    forPage.set(
+      row.propertyId,
+      previous === undefined ? generation : Math.max(previous, generation),
+    );
+    stored.set(row.documentId, forPage);
+  }
+  return stored;
+}
+
+export function propertyChangeIdOf(
+  stored: StoredPropertyChangeIds,
+  documentId: string,
+  propertyId: string,
+): number | null {
+  return stored.get(documentId)?.get(propertyId) ?? null;
+}
+
+/** Generations from stored values' change IDs and cleared values' tombstones. */
+export function storedPropertyGenerations(
+  changeIds: StoredPropertyChangeIds,
+  tombstones: StoredPropertyChangeIds,
+): StoredPropertyGenerations {
+  return {
+    of: (documentId, propertyId) =>
+      propertyChangeIdOf(changeIds, documentId, propertyId) ??
+      propertyChangeIdOf(tombstones, documentId, propertyId) ??
+      0,
+  };
+}
+
+/**
+ * Reads the tombstones of these pages' cleared values. `lock` holds them until
+ * the transaction ends.
  *
- * A read that returns values alongside generations must read generations
- * first. A change that lands between the two reads then shows the newer value
- * with the older generation, which only makes the next guarded write conflict
- * and reread. The other order would pair an older value with a newer
- * generation and let a write based on the stale value through.
+ * A read that returns values reads tombstones first, then takes each stored
+ * value's generation from that value's own row: see recordPropertyChangeIds.
+ * A deletion that lands between the two reads then pairs the emptied value
+ * with an older generation, which only makes the next guarded write conflict
+ * and reread. The other order could pair an empty value read before a change
+ * with a tombstone written after it.
+ */
+export async function readPropertyTombstones(
+  db: Db,
+  documentIds: string[],
+  options: { propertyIds?: string[]; lock?: boolean } = {},
+): Promise<StoredPropertyChangeIds> {
+  const tombstones: StoredPropertyChangeIds = new Map();
+  if (!documentIds.length || options.propertyIds?.length === 0)
+    return tombstones;
+  const table = schema.documentPropertyValueTombstones;
+  const query = db
+    .select({
+      documentId: table.documentId,
+      propertyId: table.propertyId,
+      generation: table.generation,
+    })
+    .from(table)
+    .where(
+      and(
+        inArray(table.documentId, [...new Set(documentIds)]),
+        options.propertyIds
+          ? inArray(table.propertyId, [...new Set(options.propertyIds)])
+          : undefined,
+      ),
+    );
+  return recordPropertyChangeIds(
+    tombstones,
+    options.lock ? await query.for("update") : await query,
+  );
+}
+
+/**
+ * Reads the generations of these pages' properties, for a guard or from inside
+ * the transaction that just wrote them. `lock` holds the value rows, then the
+ * tombstones, until the transaction ends, so a guarded write can compare and
+ * write without another writer in between. A read that returns values takes
+ * generations from its own value rows instead: see readPropertyTombstones.
  */
 export async function readPropertyGenerations(
   db: Db,
   documentIds: string[],
   options: { propertyIds?: string[]; lock?: boolean } = {},
 ): Promise<StoredPropertyGenerations> {
-  const pageIds = [...new Set(documentIds)];
-  const byValue = new Map<string, Map<string, number>>();
-  const byPage = new Map<string, number>();
-  const stored: StoredPropertyGenerations = {
-    of: (documentId, propertyId) =>
-      Math.max(
-        byValue.get(documentId)?.get(propertyId) ?? 0,
-        byPage.get(documentId) ?? 0,
-      ),
-  };
-  if (!pageIds.length || options.propertyIds?.length === 0) return stored;
-  const values = schema.documentPropertyValues;
-  const valueQuery = db
-    .select({
-      documentId: values.documentId,
-      propertyId: values.propertyId,
-      generation: values.generation,
-    })
-    .from(values)
-    .where(
-      and(
-        inArray(values.documentId, pageIds),
-        options.propertyIds
-          ? inArray(values.propertyId, [...new Set(options.propertyIds)])
-          : undefined,
-      ),
+  const changeIds: StoredPropertyChangeIds = new Map();
+  if (documentIds.length && options.propertyIds?.length !== 0) {
+    const values = schema.documentPropertyValues;
+    const query = db
+      .select({
+        documentId: values.documentId,
+        propertyId: values.propertyId,
+        generation: values.generation,
+      })
+      .from(values)
+      .where(
+        and(
+          inArray(values.documentId, [...new Set(documentIds)]),
+          options.propertyIds
+            ? inArray(values.propertyId, [...new Set(options.propertyIds)])
+            : undefined,
+        ),
+      );
+    recordPropertyChangeIds(
+      changeIds,
+      options.lock ? await query.for("update") : await query,
     );
-  const deletions = schema.documentPropertyValueDeletions;
-  const deletionQuery = db
-    .select({
-      documentId: deletions.documentId,
-      generation: deletions.generation,
-    })
-    .from(deletions)
-    .where(inArray(deletions.documentId, pageIds));
-  const valueRows = options.lock
-    ? await valueQuery.for("update")
-    : await valueQuery;
-  const deletionRows = options.lock
-    ? await deletionQuery.for("update")
-    : await deletionQuery;
-  for (const row of valueRows) {
-    const forPage = byValue.get(row.documentId) ?? new Map<string, number>();
-    forPage.set(
-      row.propertyId,
-      Math.max(
-        forPage.get(row.propertyId) ?? 0,
-        generationNumber(row.generation),
-      ),
-    );
-    byValue.set(row.documentId, forPage);
   }
-  for (const row of deletionRows) {
-    byPage.set(row.documentId, generationNumber(row.generation));
-  }
-  return stored;
+  return storedPropertyGenerations(
+    changeIds,
+    await readPropertyTombstones(db, documentIds, options),
+  );
 }
 
 type ReadProperty = { definition: { id: string; type: DocumentPropertyType } };
@@ -167,31 +222,6 @@ export function propertyGenerationsFor(
       stored.of(documentId, definition.id),
     ]),
   );
-}
-
-/** Records the change IDs of the value rows a read or write returned. */
-export function recordPropertyChangeIds(
-  stored: StoredPropertyChangeIds,
-  rows: Iterable<{
-    documentId: string;
-    propertyId: string;
-    generation: unknown;
-  }>,
-): StoredPropertyChangeIds {
-  for (const row of rows) {
-    const forPage = stored.get(row.documentId) ?? new Map<string, number>();
-    forPage.set(row.propertyId, generationNumber(row.generation));
-    stored.set(row.documentId, forPage);
-  }
-  return stored;
-}
-
-export function propertyChangeIdOf(
-  stored: StoredPropertyChangeIds,
-  documentId: string,
-  propertyId: string,
-): number | null {
-  return stored.get(documentId)?.get(propertyId) ?? null;
 }
 
 /** One change ID for each property a read returns, as propertyGenerationsFor. */

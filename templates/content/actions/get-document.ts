@@ -40,7 +40,8 @@ import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   propertyChangeIdsFor,
   propertyGenerationsFor,
-  readPropertyGenerations,
+  readPropertyTombstones,
+  storedPropertyGenerations,
   type StoredPropertyChangeIds,
 } from "./_property-generations.js";
 import {
@@ -354,8 +355,8 @@ export default defineAction({
             }),
           );
     const bodyHydrationAccess = await readBodyHydrationAccess();
-    // Before the values: see readPropertyGenerations.
-    const storedGenerations = await readPropertyGenerations(db, [doc.id]);
+    // Before the values: see readPropertyTombstones.
+    const tombstones = await readPropertyTombstones(db, [doc.id]);
     const changeIds: StoredPropertyChangeIds = new Map();
     const [properties] = await Promise.all([
       listPropertiesForDocument(doc, selectedDatabaseId, {
@@ -507,7 +508,7 @@ export default defineAction({
       propertyGenerations: propertyGenerationsFor(
         doc.id,
         properties,
-        storedGenerations,
+        storedPropertyGenerations(changeIds, tombstones),
       ),
       propertyChangeIds: propertyChangeIdsFor(doc.id, properties, changeIds),
       contextPath,

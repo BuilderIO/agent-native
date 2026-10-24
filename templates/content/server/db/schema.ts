@@ -1059,15 +1059,16 @@ export const documentPropertyValues = table("document_property_values", {
 });
 
 /**
- * One row per page that has had a property value deleted, holding a
+ * One row per page and property whose value has been deleted, holding a
  * generation from the same sequence as the values. A trigger writes it, so a
  * cleared value can't make an old generation current again; see
- * _property-generations.ts.
+ * _property-generations.ts. Its primary key is (document_id, property_id).
  */
-export const documentPropertyValueDeletions = table(
-  "document_property_value_deletions",
+export const documentPropertyValueTombstones = table(
+  "document_property_value_tombstones",
   {
-    documentId: text("document_id").primaryKey(),
+    documentId: text("document_id").notNull(),
+    propertyId: text("property_id").notNull(),
     generation: integer("generation").notNull(),
   },
 );

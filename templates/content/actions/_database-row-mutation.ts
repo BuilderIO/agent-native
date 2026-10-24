@@ -63,7 +63,6 @@ import {
   assertPropertyGenerations,
   propertyGenerationConflictError,
   propertyGenerationConflicts,
-  readPropertyGenerations,
   recordPropertyChangeIds,
   type PropertyGenerations,
 } from "./_property-generations.js";
@@ -170,9 +169,10 @@ export interface RowSnapshot {
   item: typeof schema.contentDatabaseItems.$inferSelect;
   document: typeof schema.documents.$inferSelect;
   values: Map<string, string>;
-  /** See _property-generations.ts; a value with no generation yet is 0. */
-  generations: Map<string, number>;
-  /** Each stored value's change ID, from the same row as the value. */
+  /**
+   * Each stored value's change ID, from the same row as the value. A stored
+   * value's generation is its change ID; see _property-generations.ts.
+   */
   changeIds: Map<string, number>;
   revision: string;
 }
@@ -872,20 +872,9 @@ export async function rowSnapshots(
     valueMap.set(value.propertyId, value.valueJson);
   }
   const changeIds = recordPropertyChangeIds(new Map(), values);
-  const stored = await readPropertyGenerations(
-    db,
-    found.map((row) => row.item.documentId),
-    { propertyIds: [...revisionPropertyIds] },
-  );
   const snapshots = new Map<string, RowSnapshot>();
   for (const row of found) {
     const valueMap = valuesByDocument.get(row.item.documentId) ?? new Map();
-    const generations = new Map(
-      [...valueMap.keys()].map((propertyId) => [
-        propertyId,
-        stored.of(row.item.documentId, propertyId),
-      ]),
-    );
     const revision = databaseRowRevision({
       itemId: row.item.id,
       documentId: row.item.documentId,
@@ -898,7 +887,6 @@ export async function rowSnapshots(
     snapshots.set(row.item.id, {
       ...row,
       values: valueMap,
-      generations,
       changeIds: changeIds.get(row.item.documentId) ?? new Map(),
       revision,
     });
@@ -1065,7 +1053,7 @@ function resultForReceipt(
           parsePropertyValue(valueJson),
         ]),
       ),
-      propertyGenerations: Object.fromEntries(snapshot.generations),
+      propertyGenerations: Object.fromEntries(snapshot.changeIds),
       propertyChangeIds: Object.fromEntries(snapshot.changeIds),
     },
   };
@@ -2522,7 +2510,7 @@ async function patchRowsInsideTransaction(
             .sort()
             .map((propertyId) => [
               propertyId,
-              snapshot.generations.get(propertyId) ?? 0,
+              snapshot.changeIds.get(propertyId) ?? 0,
             ]),
         ),
         propertyChangeIds: Object.fromEntries(

@@ -1120,6 +1120,15 @@ async function deleteCollectedDocuments(
       .where(
         inArray(schema.documentPropertyValues.propertyId, propertyIdBatch),
       );
+    // After the values: deleting them records a tombstone for each one.
+    await db
+      .delete(schema.documentPropertyValueTombstones)
+      .where(
+        inArray(
+          schema.documentPropertyValueTombstones.propertyId,
+          propertyIdBatch,
+        ),
+      );
     await db
       .delete(schema.documentBlockFieldContents)
       .where(
@@ -1167,12 +1176,12 @@ async function deleteCollectedDocuments(
           eq(schema.documentPropertyValues.ownerEmail, ownerEmail),
         ),
       );
-    // After the values: deleting them records a row for each page.
+    // After the values: deleting them records a tombstone for each one.
     await db
-      .delete(schema.documentPropertyValueDeletions)
+      .delete(schema.documentPropertyValueTombstones)
       .where(
         inArray(
-          schema.documentPropertyValueDeletions.documentId,
+          schema.documentPropertyValueTombstones.documentId,
           documentIdBatch,
         ),
       );

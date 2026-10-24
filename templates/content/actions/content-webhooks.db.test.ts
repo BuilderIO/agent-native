@@ -8,7 +8,7 @@ import {
   writeAppSecret,
 } from "@agent-native/core/secrets";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -59,24 +59,24 @@ vi.mock("@agent-native/core/extensions/url-safety", async (importOriginal) => {
   };
 });
 
-const generationReads = vi.hoisted(() => ({
-  /** Runs once, right after the next generation read and before its values. */
+const tombstoneReads = vi.hoisted(() => ({
+  /** Runs once, right after the next tombstone read and before its values. */
   thenWrite: null as null | (() => Promise<void>),
 }));
 
-// Lets a test land a write between a read's generations and its values, the
-// race a read's change IDs must not fall into.
+// Lets a test land a write between a read's tombstones and its values, the
+// race a read's generations and change IDs must not fall into.
 vi.mock("./_property-generations.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("./_property-generations.js")>();
   return {
     ...actual,
-    readPropertyGenerations: async (
-      ...args: Parameters<typeof actual.readPropertyGenerations>
+    readPropertyTombstones: async (
+      ...args: Parameters<typeof actual.readPropertyTombstones>
     ) => {
-      const stored = await actual.readPropertyGenerations(...args);
-      const write = generationReads.thenWrite;
-      generationReads.thenWrite = null;
+      const stored = await actual.readPropertyTombstones(...args);
+      const write = tombstoneReads.thenWrite;
+      tombstoneReads.thenWrite = null;
       if (write) await write();
       return stored;
     },
@@ -1519,9 +1519,8 @@ describe("property generations", () => {
     expect(cleared.propertyGenerations![owner]).toBeGreaterThan(
       filled.generation,
     );
-    // The page's other properties move once too: a spare conflict, never a
-    // missed one.
-    expect(cleared.propertyGenerations![ids.properties.notes]).not.toBe(
+    // The tombstone is this property's alone; the page's others keep theirs.
+    expect(cleared.propertyGenerations![ids.properties.notes]).toBe(
       notesBefore,
     );
     await expect(
@@ -1705,14 +1704,17 @@ describe("property generations", () => {
       toAgent.changeId,
     );
 
-    // Clearing another field moves every generation on the page once, but
-    // not this property's change ID.
+    // Clearing another field moves that field's generation and leaves this
+    // property's generation and change ID as they were.
     await getDb()
       .delete(schema.documentPropertyValues)
       .where(valueRow(row.documentId, ids.properties.notes));
     const cleared = await readChangeIds();
-    expect(cleared.propertyGenerations![ids.properties.turn]).toBeGreaterThan(
+    expect(cleared.propertyGenerations![ids.properties.turn]).toBe(
       before.propertyGenerations![ids.properties.turn],
+    );
+    expect(cleared.propertyGenerations![ids.properties.notes]).not.toBe(
+      before.propertyGenerations![ids.properties.notes],
     );
     expect(cleared.propertyChangeIds).toMatchObject({
       [ids.properties.turn]: toAgent.changeId,
@@ -1780,10 +1782,10 @@ describe("property generations", () => {
       return Number(stored.generation);
     };
 
-    // A writer lands after get-document reads generations and before it reads
-    // values. The value and its change ID come from the new row; only the
-    // generation is from before, which can cost a guarded write one retry.
-    generationReads.thenWrite = writeTurn("alice");
+    // A writer lands after get-document reads tombstones and before it reads
+    // values. The value, its change ID and its generation all come from the
+    // new row.
+    tombstoneReads.thenWrite = writeTurn("alice");
     const page = await asOwner(() =>
       getDocument.run({ id: row.documentId, databaseId: ids.databaseId }),
     );
@@ -1795,20 +1797,96 @@ describe("property generations", () => {
     const aliceChangeId = await storedChangeId();
     expect(aliceChangeId).not.toBe(toAgent.changeId);
     expect(page.propertyChangeIds![ids.properties.turn]).toBe(aliceChangeId);
-    expect(page.propertyGenerations![ids.properties.turn]).toBe(
-      toAgent.generation,
-    );
+    expect(page.propertyGenerations![ids.properties.turn]).toBe(aliceChangeId);
 
-    generationReads.thenWrite = writeTurn("agent");
+    tombstoneReads.thenWrite = writeTurn("agent");
     const item = await readItem(ids.databaseId, row.itemId);
     expect(
       item.properties.find(
         (property) => property.definition.id === ids.properties.turn,
       )!.value,
     ).toBe("agent");
-    expect(item.propertyChangeIds![ids.properties.turn]).toBe(
-      await storedChangeId(),
+    const agentChangeId = await storedChangeId();
+    expect(item.propertyChangeIds![ids.properties.turn]).toBe(agentChangeId);
+    expect(item.propertyGenerations![ids.properties.turn]).toBe(agentChangeId);
+
+    // A deletion lands in the same gap. The read shows no value and the
+    // generation from before the deletion, so a write guarded on it conflicts
+    // and rereads instead of passing.
+    tombstoneReads.thenWrite = async () => {
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(valueRow(row.documentId, ids.properties.turn));
+    };
+    const emptied = await readItem(ids.databaseId, row.itemId);
+    expect(emptied.propertyChangeIds![ids.properties.turn]).toBeNull();
+    const staleGeneration = emptied.propertyGenerations![ids.properties.turn];
+    await expect(setTurn(ids, "alice", staleGeneration)).rejects.toMatchObject({
+      errorCode: "PROPERTY_GENERATION_CONFLICT",
+    });
+    expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
+      undefined,
     );
-    expect(item.propertyGenerations![ids.properties.turn]).toBe(aliceChangeId);
+    const reread = await readItem(ids.databaseId, row.itemId);
+    expect(reread.propertyGenerations![ids.properties.turn]).not.toBe(
+      staleGeneration,
+    );
+    await setTurn(
+      ids,
+      "alice",
+      reread.propertyGenerations![ids.properties.turn],
+    );
+    expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
+      "alice",
+    );
+  });
+
+  it("a deletion elsewhere can't make a stale write pass", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const setSequence = (value: number) =>
+      getDb().execute(
+        sql`SELECT setval('content_property_value_generation_seq', ${value})`,
+      );
+    const toAgent = await setTurn(ids, "agent");
+    try {
+      // A deletion on the same page takes a larger number than a write that
+      // took its number first and commits after it.
+      await setSequence(toAgent.generation + 10);
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(valueRow(row.documentId, ids.properties.notes));
+      const read = await readItem(ids.databaseId, row.itemId);
+      expect(read.propertyGenerations![ids.properties.turn]).toBe(
+        toAgent.generation,
+      );
+      await setSequence(toAgent.generation);
+      const toAlice = await setTurn(ids, "alice");
+      expect(toAlice.generation).toBeLessThan(
+        read.propertyGenerations![ids.properties.notes],
+      );
+
+      // The agent's finish, computed from the read, must not land on Alice's
+      // turn.
+      await expect(
+        setTurn(ids, "agent", read.propertyGenerations![ids.properties.turn]),
+      ).rejects.toMatchObject({
+        errorCode: "PROPERTY_GENERATION_CONFLICT",
+        details: {
+          conflicts: [
+            {
+              propertyId: ids.properties.turn,
+              expected: toAgent.generation,
+              current: toAlice.generation,
+            },
+          ],
+        },
+      });
+      expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
+        "alice",
+      );
+    } finally {
+      await setSequence(toAgent.generation + 1000);
+    }
   });
 });
