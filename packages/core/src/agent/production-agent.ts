@@ -431,7 +431,7 @@ import {
   consumeAgentToolApproval,
   createAgentToolApproval,
   ensureAgentToolApprovalTable,
-  hasPendingAgentToolApproval,
+  hasPendingCurrentTurnApproval,
   isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
@@ -11886,6 +11886,7 @@ async function readTurnStartedAt(
 interface AdmittedQueuedMessagePromotion {
   id: string;
   text: string;
+  interruptActiveRun?: true;
   attachments?: unknown[];
   requestAttachments?: Record<string, unknown>[];
   references?: AgentSubmissionReference[];
@@ -12197,6 +12198,9 @@ export async function readAdmittedQueuedMessagePromotion(opts: {
   return {
     id: messageId,
     text: queuedMessage.text,
+    ...(queuedMessage.interruptActiveRun === true
+      ? { interruptActiveRun: true as const }
+      : {}),
     ...(Array.isArray(attachments) ? { attachments } : {}),
     ...(requestAttachments ? { requestAttachments } : {}),
     ...(Array.isArray(references)
@@ -15298,6 +15302,9 @@ export function createProductionAgentHandler(
         await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
+          ...(admittedQueuedMessage?.interruptActiveRun === true
+            ? { interruptApprovalPause: true }
+            : {}),
           ...(turnInitiator ? { turnInitiator } : {}),
           replayCompletedTurn:
             typeof requestTurnId === "string" &&
@@ -15321,14 +15328,12 @@ export function createProductionAgentHandler(
                   ),
               }
             : {}),
-          ...(ownerEmail && !isAuthorizedApprovalContinuation
+          ...(ownerEmail &&
+          !isAuthorizedApprovalContinuation &&
+          admittedQueuedMessage?.interruptActiveRun !== true
             ? {
                 hasPendingApproval: (tx) =>
-                  hasPendingAgentToolApproval(tx, {
-                    ownerEmail,
-                    orgId: getRequestOrgId() ?? null,
-                    threadId: runThreadId,
-                  }),
+                  hasPendingCurrentTurnApproval(runThreadId, tx),
               }
             : {}),
         });

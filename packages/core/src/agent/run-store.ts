@@ -59,6 +59,11 @@ import {
   type RunTerminalTrackingFields,
 } from "./run-terminal-tracking.js";
 import {
+  ensureAgentToolApprovalTable,
+  getPendingCurrentTurnApproval,
+  hasPendingCurrentTurnApproval,
+} from "./tool-approval-store.js";
+import {
   isConsistentToolCallInputFingerprint,
   isUnavailableToolCallInput,
   toolCallInputFingerprint,
@@ -2005,6 +2010,8 @@ export async function tryClaimRunSlot(
     hasPendingQueuedSubmission?: (tx: DbExec) => Promise<boolean>;
     /** Keep ordinary turns behind a pending tool approval on this thread. */
     hasPendingApproval?: (tx: DbExec) => Promise<boolean>;
+    /** Cancel a completed approval pause before admitting an explicit interruption. */
+    interruptApprovalPause?: boolean;
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<{
@@ -2020,6 +2027,7 @@ export async function tryClaimRunSlot(
     assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
   }
   await ensureRunTables();
+  if (options?.interruptApprovalPause) await ensureAgentToolApprovalTable();
   const client = getDbExec();
   const now = Date.now();
   const turnId = options?.turnId ?? runId;
@@ -2110,6 +2118,16 @@ export async function tryClaimRunSlot(
           },
         } as const;
       }
+    }
+    if (options?.interruptApprovalPause) {
+      const pause = await getPendingCurrentTurnApproval(threadId, tx);
+      if (pause?.status === "running") {
+        return {
+          result: { claimed: false, activeRunId: null, approvalPending: true },
+        } as const;
+      }
+      if (pause)
+        await insertTurnAbortMarkers(tx, threadId, pause.turnId, "user", now);
     }
     if (await options?.hasPendingApproval?.(tx)) {
       return {
@@ -3908,6 +3926,38 @@ function turnAbortMarkerRunId(threadId: string, turnId: string): string {
   return `turn-abort:${encodeURIComponent(threadId)}:${encodeURIComponent(turnId)}`;
 }
 
+async function insertTurnAbortMarkers(
+  tx: DbExec,
+  threadId: string,
+  turnId: string,
+  reason: string,
+  now: number,
+): Promise<void> {
+  await tx.execute({
+    sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort'), (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
+    args: [
+      turnAbortMarkerRunId(threadId, turnId),
+      threadId,
+      reason,
+      now,
+      now,
+      now,
+      now,
+      turnId,
+      `aborted:${reason}`,
+      `turn-abort-${turnId}`,
+      threadId,
+      reason,
+      now,
+      now,
+      now,
+      now,
+      turnId,
+      `aborted:${reason}`,
+    ],
+  });
+}
+
 export async function markTurnAborted(
   threadId: string,
   turnId: string,
@@ -3918,6 +3968,7 @@ export async function markTurnAborted(
     throw new StaleExecutionFenceError(fence);
   }
   await ensureRunTables();
+  await ensureAgentToolApprovalTable();
   const now = Date.now();
   const client = getDbExec();
   if (!client.transaction) {
@@ -4003,11 +4054,12 @@ export async function markTurnAborted(
           .map((row) => String((row as { id?: unknown }).id ?? ""))
           .filter(Boolean),
       );
-      if (
+      const turnPending =
         latest &&
-        latest.continuation_pending !== true &&
-        !isContinuationTerminalReason(latest.terminal_reason ?? "")
-      ) {
+        (latest.continuation_pending === true ||
+          isContinuationTerminalReason(latest.terminal_reason ?? "") ||
+          (await hasPendingCurrentTurnApproval(threadId, tx, turnId)));
+      if (latest && !turnPending) {
         return "already_terminal" as const;
       }
     }
@@ -4050,29 +4102,7 @@ export async function markTurnAborted(
     for (const runId of runIds) {
       await appendAbortTerminalRunEventInTransaction(tx, runId, abortEvent);
     }
-    await tx.execute({
-      sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort'), (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
-      args: [
-        turnAbortMarkerRunId(threadId, turnId),
-        threadId,
-        reason,
-        now,
-        now,
-        now,
-        now,
-        turnId,
-        `aborted:${reason}`,
-        `turn-abort-${turnId}`,
-        threadId,
-        reason,
-        now,
-        now,
-        now,
-        now,
-        turnId,
-        `aborted:${reason}`,
-      ],
-    });
+    await insertTurnAbortMarkers(tx, threadId, turnId, reason, now);
     return "aborted" as const;
   };
   const outcome = await retryAbortTerminalEventTransaction(

@@ -1359,6 +1359,7 @@ describe("readAdmittedQueuedMessagePromotion", () => {
             {
               id: messageId,
               text: "Use the legacy attachments",
+              interruptActiveRun: true,
               attachments,
               requestAttachments,
               promotionClaim: {
@@ -1381,6 +1382,7 @@ describe("readAdmittedQueuedMessagePromotion", () => {
         continuationRequested: false,
       });
 
+      expect(promoted?.interruptActiveRun).toBe(true);
       expect(promoted?.attachments).toHaveLength(
         MAX_AGENT_REQUEST_ATTACHMENTS + 1,
       );

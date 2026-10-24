@@ -37,6 +37,14 @@ Helper invariants, checked in the same runs:
 - Not covered: thread content folding, liveness (an abandoned run is
   eventually reaped or resumed), lock-order deadlocks, the team queue, and A2A
   task leases beyond their revoke.
+- Approval scheduling between turns is outside this one-turn model. The queued
+  submission approval gate only defers a new turn; it leaves the same-turn
+  `InsertRun` transition and all execution lease and step journal writes unchanged.
+  Stopping a completed approval pause also writes the turn-abort marker without
+  changing a run or lease; this is a stuttering step for the model's `AbortTurn`.
+  Explicit interruption records those same markers in the slot-admission
+  transaction before inserting its replacement turn. The completed run and
+  its lease remain unchanged; cross-turn admission is outside this model.
 
 ## Results at 38ce309e5da9
 

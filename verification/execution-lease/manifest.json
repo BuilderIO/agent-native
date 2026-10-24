@@ -59,7 +59,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "fecb1b3165ab3826c54978e7335d8404ff492f7f",
+    "syncCommit": "53ff201fe9cf8f12a9e380fff0a415d9bb277afa",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -109,7 +109,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "updateRunStatusIfRunning",
-        "sha256": "85cce8338d496beab19982ed98c3209f38a9e7c006d747f15eb7ecc0b8b5a6e7"
+        "sha256": "b11df089d98c1ac61d05fd496d2b6cdd7ad9ae40422c3e2bf1e990600c06eea8"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -129,12 +129,17 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "markTurnAborted",
-        "sha256": "faaef7711ac57308a0c64e3c4ac9f37ef67e50702d96f2e1f23a33258d9fd0d7"
+        "sha256": "94a1135fb503d0100c463da1c4ee2d392d5539a8b99ac7b0d7b4333b654941b9"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "insertTurnAbortMarkers",
+        "sha256": "7d31e5b3916aa80ef72a9e9c1a9eb2e6731d984d74e82d164fb6bdb6cd5e5842"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "reapSingleStaleRun",
-        "sha256": "23b6e03a5129aaaa4ef597767fd6484771f532006212b31e06d6f46200b8e7ca"
+        "sha256": "723c3b8e0e0b71bfa6890cf4121fe8ea4eb4a938935f92991a4d6f4c7fbecf03"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -154,12 +159,12 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "reapUnclaimedBackgroundRun",
-        "sha256": "369dea9174d7b7b7c6411a7c7123d37c7321807a78ba2c42e2fd8b1c7ff61707"
+        "sha256": "ad5ec824428723cb38a7aa5b677398acf521cf03a4185c4778bcd0b3815e993e"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "tryClaimRunSlot",
-        "sha256": "af9e108c11a08045ca4176650bb9079e089fc90834e584c6bdcf0e34bf61f13f"
+        "sha256": "88025b22abeac0563c01106803f17ccf88fc691c0e0eba5662f2bf7a3a74336a"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -179,7 +184,7 @@
       {
         "file": "packages/core/src/agent/execution-fence.ts",
         "name": "lockAndAssertCurrentExecutionFences",
-        "sha256": "6af9a8445b34980a57f75aa2af19981de9911fe4d370ed2b07835efaa7b969cd"
+        "sha256": "49db08ccca30f65fe25e1702e91b8be238a8e7e0121c81ecaf1290a6317d0a71"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",
@@ -189,7 +194,7 @@
       {
         "file": "packages/core/src/agent/production-agent.ts",
         "name": "invokeAction",
-        "sha256": "1201c303f3735c1ffcf0f05b26d091dca7680108e6da48d501bbb79d677431b4"
+        "sha256": "d88f213168df7062ed52a3dbb57336836221677bbee9a1ac257aec965f3f86fd"
       },
       {
         "file": "packages/core/src/jobs/background-automation-runner.ts",
