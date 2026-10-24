@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -602,6 +603,71 @@ describe("stage-builder-source-bulk-update", () => {
         proposedValue: "Retitled",
       }),
     ]);
+  });
+
+  it("keeps an edit when staging the other selected rows fails", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [editedRow, stagedRow] = seeded.rows;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      `change_${seeded.sourceId.slice("src_".length)}`,
+    );
+    const stage = (itemIds: string[], value: string) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds,
+          field: { propertyId: seeded.propertyId, value },
+          dryRun: false,
+        }),
+      );
+    await stage([editedRow.itemId], "Operators");
+    const [before] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    const triggerName = `fail_staged_value_${counter}`;
+    const functionName = `${triggerName}_fn`;
+    await getDbExec().execute(
+      `CREATE FUNCTION ${functionName}() RETURNS trigger
+       LANGUAGE plpgsql AS $stage$
+       BEGIN
+         RAISE EXCEPTION 'staged write failed';
+       END;
+       $stage$`,
+    );
+    await getDbExec().execute(
+      `CREATE TRIGGER ${triggerName}
+       BEFORE INSERT OR UPDATE ON document_property_values
+       FOR EACH ROW WHEN (NEW.document_id = '${stagedRow.documentId}')
+       EXECUTE FUNCTION ${functionName}()`,
+    );
+    try {
+      // The edited row is set back to Builder's value; the other row stages it.
+      await expect(
+        stage([editedRow.itemId, stagedRow.itemId], "Developers"),
+      ).rejects.toThrow(/insert into "document_property_values"/);
+    } finally {
+      await getDbExec().execute(
+        `DROP TRIGGER IF EXISTS ${triggerName} ON document_property_values`,
+      );
+      await getDbExec().execute(`DROP FUNCTION IF EXISTS ${functionName}()`);
+    }
+
+    await expect(
+      valuesFor(seeded.propertyId, [editedRow.documentId]),
+    ).resolves.toEqual([
+      expect.objectContaining({ valueJson: JSON.stringify("Operators") }),
+    ]);
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(after).toMatchObject({
+      state: before.state,
+      fieldChangesJson: before.fieldChangesJson,
+    });
   });
 
   it("refuses to set an edit back when Builder's value changed after the stage read it", async () => {
