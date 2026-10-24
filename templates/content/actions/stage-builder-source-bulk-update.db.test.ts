@@ -735,6 +735,69 @@ describe("stage-builder-source-bulk-update", () => {
     });
   });
 
+  it("refuses to stage a new value while the row's review item is being pushed", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      changeSetId,
+    );
+    await getDb()
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "approved" })
+      .where(changeSetFilter);
+    const [before] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    const startedAt = new Date().toISOString();
+    await getDb()
+      .insert(schema.contentDatabaseSourceExecutions)
+      .values({
+        id: `execution_${changeSetId}`,
+        ownerEmail: OWNER,
+        sourceId: seeded.sourceId,
+        changeSetId,
+        adapter: "builder-cms",
+        pushMode: "autosave",
+        state: "running",
+        idempotencyKey: `builder-cms:${seeded.sourceId}:${changeSetId}:autosave`,
+        summary: "Running.",
+        payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+        attemptToken: null,
+        lastError: null,
+        createdAt: startedAt,
+        updatedAt: startedAt,
+      });
+
+    await expect(
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value: "Architects" },
+          dryRun: false,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "builder_execution_running",
+    });
+    await expect(
+      valuesFor(seeded.propertyId, [row.documentId]),
+    ).resolves.toEqual([]);
+    const [after] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(after).toMatchObject({
+      state: "approved",
+      fieldChangesJson: before.fieldChangesJson,
+    });
+  });
+
   it("refuses to set an edit back while its review item is being pushed", async () => {
     const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
     const [row] = seeded.rows;
