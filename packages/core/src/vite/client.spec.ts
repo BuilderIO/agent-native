@@ -2835,51 +2835,58 @@ describe("app changelog raw imports", () => {
     }
   });
 
-  it("reloads with CHANGELOG.md once it is created after the first load", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
-    const changelogPath = path.join(tmpDir, "CHANGELOG.md");
-    const rawId = `${changelogPath}?raw`;
-
+  it("picks up a CHANGELOG.md created after the dev server first served it", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const routesDir = path.join(root, "app", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(routesDir, "settings.ts"),
+      'import changelog from "../../CHANGELOG.md?raw";\nexport default changelog;\n',
+    );
+    // A real dev server, because Vite 8 never calls `handleHotUpdate` for a
+    // created file; its module graph has to invalidate the raw module itself.
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [findPlugin("agent-native-app-changelog-raw")],
+      server: {
+        middlewareMode: true,
+        ws: false,
+        watch: { usePolling: true, interval: 20 },
+      },
+      optimizeDeps: { noDiscovery: true, include: [] },
+    });
     try {
-      const plugin = findPlugin("agent-native-app-changelog-raw");
-      const watched: string[] = [];
-      const context = { addWatchFile: (file: string) => watched.push(file) };
-      expect(await plugin.load.call(context, rawId)).toBe('export default "";');
-
-      fs.writeFileSync(
-        changelogPath,
-        "# Changelog\n\n## 2026-07-01\n\n### Added\n\n- First release.\n",
+      const client = server.environments.client;
+      const route = await client.transformRequest("/app/routes/settings.ts");
+      const rawUrl = /from\s+"([^"]*CHANGELOG\.md\?[^"]*)"/.exec(
+        String(route?.code),
+      )?.[1];
+      expect(rawUrl).toBeTruthy();
+      // Main failed here: the watched missing file became an unresolvable import.
+      expect((await client.transformRequest(rawUrl!))?.code).toContain(
+        'export default ""',
       );
-      // Vite sends a created file through the same hot-update hook as an edit.
-      const rawModule = { id: rawId };
-      const invalidateModule = vi.fn();
-      const send = vi.fn();
-      const updated = plugin.handleHotUpdate({
-        file: changelogPath,
-        server: {
-          moduleGraph: {
-            idToModuleMap: new Map([[rawId, rawModule]]),
-            invalidateModule,
-          },
-          ws: { send },
-        },
+
+      await vi.waitFor(() => {
+        expect(server.watcher.getWatched()[root]).toContain("app");
       });
-
-      expect(updated).toEqual([]);
-      expect(invalidateModule).toHaveBeenCalledWith(rawModule);
-      expect(send).toHaveBeenCalledWith({ type: "full-reload" });
-      const entries = parseChangelog(
-        JSON.parse(
-          String(await plugin.load.call(context, rawId))
-            .replace(/^export default /, "")
-            .replace(/;$/, ""),
-        ),
+      fs.writeFileSync(
+        path.join(root, "CHANGELOG.md"),
+        "# Changelog\n\n## 2026-07-01\n\n### Added\n\n- Created later.\n",
       );
-      expect(watched).toEqual([changelogPath]);
-      expect(entries.map((entry) => entry.title)).toEqual(["2026-07-01"]);
-      expect(entries[0].body).toContain("First release.");
+      await vi.waitFor(
+        async () => {
+          expect((await client.transformRequest(rawUrl!))?.code).toContain(
+            "Created later.",
+          );
+        },
+        { timeout: 5000, interval: 100 },
+      );
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      await server.close();
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
