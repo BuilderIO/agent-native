@@ -122,10 +122,12 @@ export function withoutDeletedDatabaseProperty(
       ? {
           itemLayout: {
             ...layout,
-            leading: {
-              ...layout.leading,
-              propertyId: keptId(layout.leading.propertyId) ?? null,
-            },
+            // A checkbox or status slot without a property shows the first
+            // one of its type, so it goes back to the page icon instead.
+            leading:
+              layout.leading.propertyId === propertyId
+                ? { kind: "page_icon", propertyId: null }
+                : layout.leading,
             line2: {
               ...layout.line2,
               propertyId: keptId(layout.line2.propertyId) ?? null,
