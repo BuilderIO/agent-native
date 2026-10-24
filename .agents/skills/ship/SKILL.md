@@ -425,20 +425,23 @@ blocking. Use the connected Slack integration for any Slack work; never use
 computer use, a browser, screenshots, or UI automation to operate Slack.
 Shipping does not independently take ownership of new Slack feedback, except
 when the user explicitly authorizes follow-ups or reactions for a bounded scope.
-For that scope, preserve existing marks and record the authorization in the
-inventory checker's confirmation input. Before the ship handoff and final
-disposition, reconcile every in-scope root carrying this actor's `👀`, `✅`, or
-`🎫`; each must have a current same-actor status after the latest human reply.
-When the user says all Slack items were replied to, report the complete bounded
-set of roots carrying this actor's `👀`, with each current status confirmed.
-After merge, update an existing same-thread status that still says local
-verification passed or merge is pending when direct post-merge proof changes
-its disposition to **Fixed**. Do not post another message if the current status
-already reflects the merged disposition; the update is for the changed outcome,
-not a merge announcement.
-Keep all reactions in place: never remove or clean them up; add
-`✅` when accepted scope is complete and verified, and `🎫` only for distinct
-remaining work needing follow-up or an owner. Keep each Slack reply to one short sentence in plain, non-technical
+For that scope, preserve existing marks and record the authorization. Before
+the ship handoff and final disposition, enumerate every in-scope root with this
+actor's `👀`, `✅`, or `🎫`; each eligible owned root must have a current
+same-actor status after the latest human reply. Record held-thread skips,
+person-assigned skips, and unowned canonical-linked `Clustered` roots in the
+coverage count without claiming or replying on them. When Steve says all Slack
+items were replied to, count bounded-inventory roots with this actor's `👀` and
+require a current same-thread status after the latest human reply. Exclude
+`✅`/`🎫`-only roots from that reply count; include them in the status gate.
+Report eye-owned roots and gated skips separately. If merge advances an
+eye-owned status from local verification to fixed or partially fixed, send one
+concise same-thread update with the PR link; never imply publication or live
+behavior without separate verification.
+Use `👀` for a claimed or handled root, `✅` for verified scope, and `🎫` for a
+distinct pending action and owner. Keep accurate marks as history. After a fresh
+reaction read, remove and record this actor's stale or misapplied mark. Change
+another actor's mark only with explicit authorization for that reaction. Keep each Slack reply to one short sentence in plain, non-technical
 language, followed by the exact bot disclosure `this was sent from a bot.` Say
 what changed. If `🎫` is used, briefly name what still needs investigation or
 action and its owner when known. Do not explain absent reactions or include
