@@ -1,0 +1,119 @@
+---
+title: "결정"
+description: "@agent-native/core/decisions를 사용한 기능 인식 분류 및 점수화."
+---
+
+# 결정
+
+`@agent-native/core/decisions` 패키지는 구조화된 질문을 기능에 맞춰 분류하고 점수화하는 `decide({ ownerEmail, input, questions, options? }): Promise<DecisionResult>`를 내보냅니다. 호출자가 확인할 결과를 반환합니다. 후속 작업을 실행하거나 승인하지 않습니다.
+
+## 입력과 질문
+
+decide()는 ownerEmail, 입력 파트 배열, 이름이 지정된 질문, 선택적 실행 설정을 받습니다. 입력 파트에는 텍스트, 구조화된 JSON 또는 이미지 URL을 넣을 수 있습니다.
+
+input에는 문자열을 직접 전달할 수도 있습니다.
+
+```ts
+const input = [
+  { type: "text", text: "Please cancel Friday's lunch reservation." },
+  { type: "json", value: { reservationId: "reservation-123" } },
+  { type: "image", url: "https://example.com/reservation.png" },
+];
+```
+
+각 질문에는 name과 instructions가 있습니다. 질문 유형에 따라 추가 필드가 정해집니다.
+
+| 유형 | 추가 필드 | 목적 |
+| --- | --- | --- |
+| `predicate` | 없음 | 명시된 조건 평가 |
+| `choice` | `choices`: 설명이 포함된 문자열 값 | 제공된 값 중 선택 |
+| `score` | `levels`: 라벨과 설명이 있는 2~10개의 순서 있는 단계 | 제공된 척도에 입력 배치 |
+
+choices 항목은 `{ value: string, description: string }` 형태입니다. score 단계는 `{ label: string, description: string }` 형태입니다.
+
+## API
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const result = await decide({
+  ownerEmail: "owner@example.com",
+  input: [{ type: "text", text: "Please cancel Friday's lunch reservation." }],
+  questions: [
+    {
+      type: "predicate",
+      name: "isCancellationRequest",
+      instructions: "Does the message ask to cancel a reservation?",
+    },
+  ],
+});
+
+if (result.status === "ok") {
+  const answer = result.answers["isCancellationRequest"];
+} else {
+  throw new Error(`Decision unavailable: ${result.status}`);
+}
+```
+
+이 예제는 하나의 호출에서 선택 질문과 점수 질문을 함께 사용합니다. 점수에는 지원 범위인 2~10개 안에 드는 5개의 순서 있는 단계가 있습니다.
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const triage = await decide({
+  ownerEmail: "owner@example.com",
+  input: [
+    { type: "text", text: "I have waited over a day for a refund update." },
+    { type: "json", value: { daysWaiting: 2, amount: 48 } },
+  ],
+  questions: [
+    {
+      type: "choice",
+      name: "queue",
+      instructions: "Choose the support queue that best fits the request.",
+      choices: [
+        { value: "billing", description: "Payments, refunds, or invoices" },
+        { value: "general", description: "Other customer questions" },
+      ],
+    },
+    {
+      type: "score",
+      name: "urgency",
+      instructions: "Score how soon a support agent should review the request.",
+      levels: [
+        { label: "low", description: "Can wait several business days" },
+        { label: "normal", description: "Review in the usual queue" },
+        { label: "elevated", description: "Review sooner than usual" },
+        { label: "high", description: "Review as soon as practical" },
+        { label: "urgent", description: "Needs immediate review" },
+      ],
+    },
+  ],
+  options: { timeoutMs: 15_000 },
+});
+
+if (triage.status !== "ok") {
+  throw new Error(`Decision unavailable: ${triage.status}`);
+}
+
+const queue = triage.answers["queue"];
+const urgency = triage.answers["urgency"];
+```
+
+인수 객체에는 다음 필드가 있습니다.
+
+- **ownerEmail**: 결정 구성을 확인하는 데 사용하는 워크스페이스 소유자 이메일.
+- **input**: 평가할 텍스트, JSON 또는 이미지 URL 파트.
+- **questions**: predicate, choice 또는 score 유형의 이름 지정 질문.
+- **options**: 선택적 signal, timeoutMs, providers 또는 cacheKey 설정.
+
+성공하면 result.status는 ok입니다. 결과에는 provider, model, 질문 이름을 키로 한 answers가 포함되며 cached와 usage는 선택 항목입니다. not_configured에는 missing_credentials 사유와 providers 목록이 포함됩니다. failed에는 유형이 지정된 사유가 포함되며 provider와 questionNames가 있을 수 있습니다. 캐싱은 cacheKey를 제공한 경우에만 활성화됩니다. 캐시 키에는 owner, 조직, provider, model, cacheKey, input, questions가 포함됩니다. 메모리 캐시는 60초 후 만료되며 최대 256개 항목을 저장합니다.
+
+
+## 기능 인식 provider 지원
+
+질문 지원 여부는 provider와 model에 따라 다를 수 있습니다. decide()는 기능을 고려하므로 모든 provider가 모든 질문 유형을 지원한다고 가정하지 마세요. provider, model, 질문 유형의 조합은 확인된 뒤에만 안내하세요. 성공 결과에서 응답한 provider와 model을 확인할 수 있습니다.
+
+provider 순서는 워크스페이스별로 설정할 수 있습니다. 새 고객 워크스페이스는 기본적으로 OpenAI를 먼저 사용합니다. 워크스페이스 구성에서 `decisions.providerOrder`는 provider 순서를 제어하고 `decisions.timeoutMs`는 provider별 시간 제한을 설정합니다. 환경 변수 별칭은 `DECISIONS_PROVIDER_ORDER`(쉼표로 구분)와 `DECISIONS_TIMEOUT_MS`입니다. provider별 임계값이나 캐시 키에는 provider와 model을 모두 포함해 한 model의 보정값이나 결과를 다른 model에 재사용하지 않도록 하세요.
+
+decide()는 호출자가 해석할 분류 또는 점수를 반환합니다. 애플리케이션 데이터를 변경하려면 별도의 승인된 action을 사용하세요.

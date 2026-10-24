@@ -187,6 +187,26 @@ describe("getOwnerApiKey with personal API keys restricted", () => {
   });
 });
 
+describe("getJevContextCredentials", () => {
+  it("exposes an org-scoped Jev key for the direct Jev API path", async () => {
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      value: "org-jev-key",
+      last4: "-key",
+      updatedAt: 1,
+    });
+
+    await expect(
+      getJevContextCredentials("owner@example.com"),
+    ).resolves.toEqual({
+      apiKey: "org-jev-key",
+      personalApiKey: undefined,
+      directApiKey: "org-jev-key",
+      builderAuth: null,
+    });
+  });
+});
+
 describe("getOwnerApiKey", () => {
   it("returns a user-scoped app secret before shared rows", async () => {
     mockGetRequestOrgId.mockReturnValue("org-1");

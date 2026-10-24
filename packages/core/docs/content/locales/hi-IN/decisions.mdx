@@ -1,0 +1,119 @@
+---
+title: "निर्णय"
+description: "@agent-native/core/decisions के साथ क्षमता-जागरूक वर्गीकरण और स्कोरिंग।"
+---
+
+# निर्णय
+
+`@agent-native/core/decisions` पैकेज `decide({ ownerEmail, input, questions, options? }): Promise<DecisionResult>` निर्यात करता है। यह संरचित प्रश्नों के लिए क्षमता-जागरूक वर्गीकरण और स्कोरिंग करता है। यह कॉल करने वाले के निरीक्षण के लिए परिणाम लौटाता है। यह आगे की कोई कार्रवाई न तो करता है और न ही उसे अधिकृत करता है।
+
+## इनपुट और प्रश्न
+
+decide() ownerEmail, इनपुट भागों की सूची, नाम वाले प्रश्न और वैकल्पिक निष्पादन सेटिंग स्वीकार करता है। इनपुट भागों में टेक्स्ट, संरचित JSON या इमेज URL हो सकता है:
+
+input के रूप में सीधे एक string भी दे सकते हैं।
+
+```ts
+const input = [
+  { type: "text", text: "Please cancel Friday's lunch reservation." },
+  { type: "json", value: { reservationId: "reservation-123" } },
+  { type: "image", url: "https://example.com/reservation.png" },
+];
+```
+
+हर प्रश्न का एक नाम और निर्देश होते हैं। प्रश्न का प्रकार अतिरिक्त फ़ील्ड तय करता है:
+
+| प्रकार | अतिरिक्त फ़ील्ड | उद्देश्य |
+| --- | --- | --- |
+| `predicate` | कोई नहीं | दिए गए कथन का मूल्यांकन करना |
+| `choice` | `choices`: विवरण के साथ टेक्स्ट मान | दिए गए मानों में से चुनना |
+| `score` | `levels`: विवरण और लेबल वाले 2–10 क्रमबद्ध स्तर | इनपुट को दिए गए पैमाने पर रखना |
+
+choices के आइटम का आकार `{ value: string, description: string }` होता है। score स्तरों का आकार `{ label: string, description: string }` होता है।
+
+## API
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const result = await decide({
+  ownerEmail: "owner@example.com",
+  input: [{ type: "text", text: "Please cancel Friday's lunch reservation." }],
+  questions: [
+    {
+      type: "predicate",
+      name: "isCancellationRequest",
+      instructions: "Does the message ask to cancel a reservation?",
+    },
+  ],
+});
+
+if (result.status === "ok") {
+  const answer = result.answers["isCancellationRequest"];
+} else {
+  throw new Error(`Decision unavailable: ${result.status}`);
+}
+```
+
+यह उदाहरण एक ही कॉल में चयन प्रश्न और स्कोर प्रश्न पूछता है। स्कोर में पाँच क्रमबद्ध स्तर हैं, जो समर्थित 2–10 की सीमा में हैं।
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const triage = await decide({
+  ownerEmail: "owner@example.com",
+  input: [
+    { type: "text", text: "I have waited over a day for a refund update." },
+    { type: "json", value: { daysWaiting: 2, amount: 48 } },
+  ],
+  questions: [
+    {
+      type: "choice",
+      name: "queue",
+      instructions: "Choose the support queue that best fits the request.",
+      choices: [
+        { value: "billing", description: "Payments, refunds, or invoices" },
+        { value: "general", description: "Other customer questions" },
+      ],
+    },
+    {
+      type: "score",
+      name: "urgency",
+      instructions: "Score how soon a support agent should review the request.",
+      levels: [
+        { label: "low", description: "Can wait several business days" },
+        { label: "normal", description: "Review in the usual queue" },
+        { label: "elevated", description: "Review sooner than usual" },
+        { label: "high", description: "Review as soon as practical" },
+        { label: "urgent", description: "Needs immediate review" },
+      ],
+    },
+  ],
+  options: { timeoutMs: 15_000 },
+});
+
+if (triage.status !== "ok") {
+  throw new Error(`Decision unavailable: ${triage.status}`);
+}
+
+const queue = triage.answers["queue"];
+const urgency = triage.answers["urgency"];
+```
+
+आर्ग्युमेंट ऑब्जेक्ट में ये फ़ील्ड हैं:
+
+- **ownerEmail**: निर्णय कॉन्फ़िगरेशन पाने के लिए उपयोग किया गया वर्कस्पेस मालिक का ईमेल।
+- **input**: मूल्यांकन के लिए टेक्स्ट, JSON या इमेज URL भाग।
+- **questions**: predicate, choice या score प्रकार के नाम वाले प्रश्न।
+- **options**: वैकल्पिक signal, timeoutMs, providers या cacheKey सेटिंग।
+
+सफलता पर result.status ok होता है। परिणाम में provider, model और प्रश्न के नाम से indexed answers होते हैं; cached और usage वैकल्पिक हैं। not_configured में missing_credentials कारण और providers की सूची होती है। failed में typed कारण होता है और provider तथा questionNames वैकल्पिक रूप से हो सकते हैं। caching केवल cacheKey देने पर चालू होती है। cache का दायरा owner, संगठन, provider, model, cacheKey, input और questions से तय होता है। memory cache 60 सेकंड तक रहता है और इसमें अधिकतम 256 entries होती हैं।
+
+
+## क्षमता के अनुसार provider समर्थन
+
+प्रश्नों का समर्थन provider और model के अनुसार बदल सकता है। decide() क्षमता को ध्यान में रखता है, इसलिए यह न मानें कि हर provider हर प्रश्न प्रकार का समर्थन करता है। provider/model और प्रश्न प्रकार के संयोजन का विज्ञापन तभी करें जब उसे सत्यापित किया गया हो। सफल परिणाम बताता है कि किस provider और model ने उत्तर दिया।
+
+हर वर्कस्पेस के लिए provider क्रम अलग से कॉन्फ़िगर किया जा सकता है। नए ग्राहक वर्कस्पेस में डिफ़ॉल्ट रूप से OpenAI पहले होता है। वर्कस्पेस कॉन्फ़िगरेशन में `decisions.providerOrder` provider क्रम नियंत्रित करता है और `decisions.timeoutMs` हर provider का timeout तय करता है; इनके environment aliases `DECISIONS_PROVIDER_ORDER` (comma-separated) और `DECISIONS_TIMEOUT_MS` हैं। हर provider-विशिष्ट सीमा या कैश की कुंजी में provider और model दोनों शामिल करें, ताकि एक model का कैलिब्रेशन या परिणाम दूसरे के लिए दोबारा उपयोग न हो।
+
+decide() वर्गीकरण या स्कोर लौटाता है जिसकी व्याख्या कॉल करने वाला करता है। ऐप डेटा में आगे कोई बदलाव करने के लिए अलग अधिकृत action का उपयोग करें।

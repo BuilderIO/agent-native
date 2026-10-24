@@ -1,0 +1,119 @@
+---
+title: "Decisiones"
+description: "Clasificación y puntuación conscientes de las capacidades con @agent-native/core/decisions."
+---
+
+# Decisiones
+
+El paquete `@agent-native/core/decisions` exporta `decide({ ownerEmail, input, questions, options? }): Promise<DecisionResult>`, un clasificador y evaluador que tiene en cuenta las capacidades para preguntas estructuradas. Devuelve un resultado para que lo revise quien lo llama. No ejecuta ni autoriza ninguna acción posterior.
+
+## Entradas y preguntas
+
+decide() acepta un ownerEmail, un array de partes de entrada, preguntas con nombre y ajustes de ejecución opcionales. Las partes de entrada pueden incluir texto, JSON estructurado o una URL de imagen:
+
+También puedes pasar directamente una cadena como input.
+
+```ts
+const input = [
+  { type: "text", text: "Please cancel Friday's lunch reservation." },
+  { type: "json", value: { reservationId: "reservation-123" } },
+  { type: "image", url: "https://example.com/reservation.png" },
+];
+```
+
+Cada pregunta tiene un nombre e instrucciones. El tipo de pregunta determina los campos adicionales:
+
+| Tipo | Campos adicionales | Propósito |
+| --- | --- | --- |
+| `predicate` | Ninguno | Evaluar un predicado indicado |
+| `choice` | `choices`: valores de texto con descripciones | Elegir entre los valores proporcionados |
+| `score` | `levels`: de 2 a 10 niveles ordenados con etiquetas y descripciones | Situar la entrada en una escala proporcionada |
+
+Los elementos de choices tienen la forma `{ value: string, description: string }`. Los niveles de score tienen la forma `{ label: string, description: string }`.
+
+## API
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const result = await decide({
+  ownerEmail: "owner@example.com",
+  input: [{ type: "text", text: "Please cancel Friday's lunch reservation." }],
+  questions: [
+    {
+      type: "predicate",
+      name: "isCancellationRequest",
+      instructions: "Does the message ask to cancel a reservation?",
+    },
+  ],
+});
+
+if (result.status === "ok") {
+  const answer = result.answers["isCancellationRequest"];
+} else {
+  throw new Error(`Decision unavailable: ${result.status}`);
+}
+```
+
+Este ejemplo combina una pregunta de elección y otra de puntuación en una llamada. La puntuación usa cinco niveles ordenados, dentro del rango admitido de 2 a 10.
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const triage = await decide({
+  ownerEmail: "owner@example.com",
+  input: [
+    { type: "text", text: "I have waited over a day for a refund update." },
+    { type: "json", value: { daysWaiting: 2, amount: 48 } },
+  ],
+  questions: [
+    {
+      type: "choice",
+      name: "queue",
+      instructions: "Choose the support queue that best fits the request.",
+      choices: [
+        { value: "billing", description: "Payments, refunds, or invoices" },
+        { value: "general", description: "Other customer questions" },
+      ],
+    },
+    {
+      type: "score",
+      name: "urgency",
+      instructions: "Score how soon a support agent should review the request.",
+      levels: [
+        { label: "low", description: "Can wait several business days" },
+        { label: "normal", description: "Review in the usual queue" },
+        { label: "elevated", description: "Review sooner than usual" },
+        { label: "high", description: "Review as soon as practical" },
+        { label: "urgent", description: "Needs immediate review" },
+      ],
+    },
+  ],
+  options: { timeoutMs: 15_000 },
+});
+
+if (triage.status !== "ok") {
+  throw new Error(`Decision unavailable: ${triage.status}`);
+}
+
+const queue = triage.answers["queue"];
+const urgency = triage.answers["urgency"];
+```
+
+El objeto de argumentos contiene estos campos:
+
+- **ownerEmail**: El correo de la persona propietaria del espacio de trabajo que se usa para resolver la configuración.
+- **input**: Partes de texto, JSON o URL de imagen que se van a evaluar.
+- **questions**: Preguntas con nombre de tipo predicate, choice o score.
+- **options**: Ajustes opcionales signal, timeoutMs, providers o cacheKey.
+
+En caso de éxito, result.status es ok. El resultado incluye provider, model y answers indexadas por nombre de pregunta, además de cached y usage opcionales. not_configured incluye el motivo missing_credentials y una lista de providers. failed incluye un motivo tipado y puede incluir provider y questionNames. El almacenamiento en caché solo se activa al proporcionar cacheKey. La clave de caché tiene en cuenta la persona propietaria, la organización, el proveedor, el modelo, cacheKey, input y questions. La caché en memoria dura 60 segundos y admite hasta 256 entradas.
+
+
+## Compatibilidad según las capacidades del proveedor
+
+La compatibilidad con las preguntas puede variar según el proveedor y el modelo. decide() tiene en cuenta las capacidades, así que no des por hecho que todos los proveedores admiten todos los tipos de pregunta. Anuncia una combinación de proveedor, modelo y tipo de pregunta solo después de verificarla. El resultado correcto identifica el proveedor y el modelo que respondieron.
+
+El orden de proveedores se configura por espacio de trabajo. Los espacios de trabajo nuevos de clientes usan OpenAI primero de forma predeterminada. La configuración del espacio de trabajo usa `decisions.providerOrder` para controlar el orden de proveedores y `decisions.timeoutMs` para establecer el tiempo límite de cada proveedor; sus alias de entorno son `DECISIONS_PROVIDER_ORDER` (separado por comas) y `DECISIONS_TIMEOUT_MS`. Las claves de umbrales o cachés por proveedor deben incluir tanto el proveedor como el modelo para no reutilizar la calibración o los resultados de un modelo en otro.
+
+decide() devuelve clasificaciones o puntuaciones para que las interprete quien llama. Usa una acción autorizada aparte para cualquier cambio posterior en los datos de la aplicación.

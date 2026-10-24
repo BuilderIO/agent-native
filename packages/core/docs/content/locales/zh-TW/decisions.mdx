@@ -1,0 +1,119 @@
+---
+title: "決策"
+description: "使用 @agent-native/core/decisions 進行能力感知的分類與評分。"
+---
+
+# 決策
+
+`@agent-native/core/decisions` 匯出 `decide({ ownerEmail, input, questions, options? }): Promise<DecisionResult>`，用於對結構化問題進行能力感知的分類與評分。它會回傳結果供呼叫端檢視，但不會執行或授權後續操作。
+
+## 輸入與問題
+
+decide() 接受 ownerEmail、輸入部分陣列、具名問題與選用的執行設定。輸入部分可以包含文字、結構化 JSON 或圖片 URL：
+
+也可以直接將字串作為 input 傳入。
+
+```ts
+const input = [
+  { type: "text", text: "Please cancel Friday's lunch reservation." },
+  { type: "json", value: { reservationId: "reservation-123" } },
+  { type: "image", url: "https://example.com/reservation.png" },
+];
+```
+
+每個問題都有 name 和 instructions。問題類型會決定額外欄位：
+
+| 類型 | 額外欄位 | 用途 |
+| --- | --- | --- |
+| `predicate` | 無 | 評估指定的述詞 |
+| `choice` | `choices`：附有說明的字串值 | 從提供的值中選擇 |
+| `score` | `levels`：2 到 10 個有序標籤與說明 | 將輸入放在提供的量表上 |
+
+choices 項目的形狀為 `{ value: string, description: string }`。score 等級的形狀為 `{ label: string, description: string }`。
+
+## API
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const result = await decide({
+  ownerEmail: "owner@example.com",
+  input: [{ type: "text", text: "Please cancel Friday's lunch reservation." }],
+  questions: [
+    {
+      type: "predicate",
+      name: "isCancellationRequest",
+      instructions: "Does the message ask to cancel a reservation?",
+    },
+  ],
+});
+
+if (result.status === "ok") {
+  const answer = result.answers["isCancellationRequest"];
+} else {
+  throw new Error(`Decision unavailable: ${result.status}`);
+}
+```
+
+此範例在一次呼叫中同時提出選擇問題與評分問題。評分使用五個有序等級，落在支援的 2 到 10 個等級範圍內。
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const triage = await decide({
+  ownerEmail: "owner@example.com",
+  input: [
+    { type: "text", text: "I have waited over a day for a refund update." },
+    { type: "json", value: { daysWaiting: 2, amount: 48 } },
+  ],
+  questions: [
+    {
+      type: "choice",
+      name: "queue",
+      instructions: "Choose the support queue that best fits the request.",
+      choices: [
+        { value: "billing", description: "Payments, refunds, or invoices" },
+        { value: "general", description: "Other customer questions" },
+      ],
+    },
+    {
+      type: "score",
+      name: "urgency",
+      instructions: "Score how soon a support agent should review the request.",
+      levels: [
+        { label: "low", description: "Can wait several business days" },
+        { label: "normal", description: "Review in the usual queue" },
+        { label: "elevated", description: "Review sooner than usual" },
+        { label: "high", description: "Review as soon as practical" },
+        { label: "urgent", description: "Needs immediate review" },
+      ],
+    },
+  ],
+  options: { timeoutMs: 15_000 },
+});
+
+if (triage.status !== "ok") {
+  throw new Error(`Decision unavailable: ${triage.status}`);
+}
+
+const queue = triage.answers["queue"];
+const urgency = triage.answers["urgency"];
+```
+
+引數物件包含以下欄位：
+
+- **ownerEmail**: 用來解析決策設定的工作區擁有者電子郵件。
+- **input**: 要評估的文字、JSON 或圖片 URL 部分。
+- **questions**: 具名的 predicate、choice 或 score 問題。
+- **options**: 選用的 signal、timeoutMs、providers 或 cacheKey 設定。
+
+成功時 result.status 為 ok。結果包含 provider、model 與依問題名稱索引的 answers，cached 和 usage 則為選用欄位。not_configured 包含 missing_credentials 原因與 providers 清單。failed 包含具型別的原因，並可能包含 provider 和 questionNames。只有提供 cacheKey 時才會啟用快取。快取鍵的範圍包括 owner、組織、provider、model、cacheKey、input 和 questions。記憶體快取有效期為 60 秒，最多保存 256 個項目。
+
+
+## 能力感知的提供者支援
+
+不同提供者與模型支援的問題類型可能不同。decide() 會考量能力，因此不要假設每個提供者都支援所有問題類型。只有在驗證後，才能宣稱某個提供者、模型與問題類型組合受到支援。成功結果會指出作答的提供者與模型。
+
+每個工作區都能個別設定提供者順序。新的客戶工作區預設會將 OpenAI 排在第一位。工作區設定中的 `decisions.providerOrder` 控制提供者順序，`decisions.timeoutMs` 設定每個提供者的逾時時間；對應的環境變數別名為 `DECISIONS_PROVIDER_ORDER`（逗號分隔）和 `DECISIONS_TIMEOUT_MS`。 依提供者設定的門檻或快取鍵必須同時包含提供者與模型，避免將某個模型的校準或結果套用到另一個模型。
+
+decide() 會回傳由呼叫端解讀的分類或分數。若要進一步變更應用程式資料，請使用另一個經授權的 action。
