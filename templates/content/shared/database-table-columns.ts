@@ -100,6 +100,7 @@ export function withoutDeletedDatabaseProperty(
     ids?.filter((id) => id !== propertyId);
   const keptId = (id: string | null | undefined) =>
     id === propertyId ? null : id;
+  const layout = view.itemLayout;
   return {
     ...view,
     sorts: view.sorts.filter((sort) => sort.key !== propertyId),
@@ -117,6 +118,23 @@ export function withoutDeletedDatabaseProperty(
     formQuestions: view.formQuestions?.filter(
       (question) => question.key !== propertyId,
     ),
+    ...(layout
+      ? {
+          itemLayout: {
+            ...layout,
+            leading: {
+              ...layout.leading,
+              propertyId: keptId(layout.leading.propertyId) ?? null,
+            },
+            line2: {
+              ...layout.line2,
+              propertyId: keptId(layout.line2.propertyId) ?? null,
+            },
+            line3: layout.line3.filter((id) => id !== propertyId),
+            trailing: layout.trailing.filter((id) => id !== propertyId),
+          },
+        }
+      : {}),
   };
 }
 
