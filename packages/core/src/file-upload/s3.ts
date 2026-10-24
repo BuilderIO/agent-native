@@ -1,11 +1,14 @@
 import {
+  assertCredentialStoreReadable,
   prefetchSecrets,
-  resolveSecret,
+  resolveSecretDetailed,
+  type ResolvedSecretDetail,
 } from "../server/credential-provider.js";
 import {
   listFileUploadProviders,
   registerFileUploadProvider,
 } from "./registry.js";
+import { cancelS3ResponseBody, rfc3986, signedS3Request } from "./s3-client.js";
 import type { FileUploadProvider } from "./types.js";
 
 interface S3Config {
@@ -79,14 +82,6 @@ function readEnvConfig(): S3Config | null {
   });
 }
 
-async function resolveStorageSecret(
-  primary: string,
-  fallback: string,
-): Promise<string | undefined> {
-  const primaryValue = cleanValue(await resolveSecret(primary));
-  return primaryValue ?? cleanValue(await resolveSecret(fallback));
-}
-
 const STORAGE_SECRET_KEYS = [
   "S3_BUCKET",
   "R2_BUCKET",
@@ -102,78 +97,60 @@ const STORAGE_SECRET_KEYS = [
   "R2_PUBLIC_BASE_URL",
 ] as const;
 
+/**
+ * The storage a user, org or workspace saved for this request, read only
+ * from the place that saved the bucket. Mixing places field by field could
+ * send the deployment's keys to an endpoint a workspace saved, so a gap, or a
+ * setting saved anywhere else, leaves no saved config.
+ */
+async function readSavedConfig(): Promise<S3Config | null> {
+  const found = new Map<string, ResolvedSecretDetail>();
+  await Promise.all(
+    STORAGE_SECRET_KEYS.map(async (key) => {
+      const detail = await resolveSecretDetailed(key);
+      if (cleanValue(detail.value)) found.set(key, detail);
+      else assertCredentialStoreReadable(detail);
+    }),
+  );
+  const saved = (detail: ResolvedSecretDetail | undefined) =>
+    detail !== undefined && detail.source !== "env";
+  const bucket = [found.get("S3_BUCKET"), found.get("R2_BUCKET")].find(saved);
+  if (!bucket) return null;
+  const fromBucketPlace = (detail: ResolvedSecretDetail | undefined) =>
+    detail !== undefined &&
+    detail.source === bucket.source &&
+    detail.scopeId === bucket.scopeId;
+  if (
+    [...found.values()].some(
+      (detail) => saved(detail) && !fromBucketPlace(detail),
+    )
+  ) {
+    return null;
+  }
+  const value = (primary: string, fallback: string) =>
+    [found.get(primary), found.get(fallback)].find(fromBucketPlace)?.value ??
+    undefined;
+  return buildConfig({
+    bucket: value("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: value("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: value("S3_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
+    endpoint: value("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: value("S3_REGION", "R2_REGION"),
+    publicBaseUrl: value("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"),
+  });
+}
+
+/** Saved storage when complete, else the deployment's, never a mix. */
 async function readRequestConfig(): Promise<S3Config | null> {
   await prefetchSecrets(STORAGE_SECRET_KEYS);
-  const scopedConfig = buildConfig({
-    bucket: await resolveStorageSecret("S3_BUCKET", "R2_BUCKET"),
-    accessKeyId: await resolveStorageSecret(
-      "S3_ACCESS_KEY_ID",
-      "R2_ACCESS_KEY_ID",
-    ),
-    secretAccessKey: await resolveStorageSecret(
-      "S3_SECRET_ACCESS_KEY",
-      "R2_SECRET_ACCESS_KEY",
-    ),
-    endpoint: await resolveStorageSecret("S3_ENDPOINT", "R2_ENDPOINT"),
-    region: await resolveStorageSecret("S3_REGION", "R2_REGION"),
-    publicBaseUrl: await resolveStorageSecret(
-      "S3_PUBLIC_BASE_URL",
-      "R2_PUBLIC_BASE_URL",
-    ),
-  });
-  return scopedConfig ?? readEnvConfig();
+  return (await readSavedConfig()) ?? readEnvConfig();
 }
 
-async function hmac(key: ArrayBuffer, message: string): Promise<ArrayBuffer> {
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    key,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return crypto.subtle.sign(
-    "HMAC",
-    cryptoKey,
-    new TextEncoder().encode(message),
-  );
-}
+const PUT_TIMEOUT_MS = 120_000;
+const DELETE_TIMEOUT_MS = 30_000;
 
-async function sha256(data: Uint8Array): Promise<string> {
-  const buffer = new ArrayBuffer(data.byteLength);
-  new Uint8Array(buffer).set(data);
-  return toHex(await crypto.subtle.digest("SHA-256", buffer));
-}
-
-function toHex(buffer: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buffer), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-}
-
-async function signingKey(
-  secret: string,
-  dateStamp: string,
-  region: string,
-): Promise<ArrayBuffer> {
-  const dateKey = await hmac(
-    new TextEncoder().encode(`AWS4${secret}`).buffer as ArrayBuffer,
-    dateStamp,
-  );
-  const regionKey = await hmac(dateKey, region);
-  const serviceKey = await hmac(regionKey, "s3");
-  return hmac(serviceKey, "aws4_request");
-}
-
-function encodePathSegment(value: string): string {
-  return encodeURIComponent(value).replace(
-    /[!'()*]/g,
-    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-}
-
-function objectPath(config: S3Config, key: string): string {
-  return `/${config.bucket}/${key.split("/").map(encodePathSegment).join("/")}`;
+function encodeKey(key: string): string {
+  return key.split("/").map(rfc3986).join("/");
 }
 
 async function putObject(
@@ -182,64 +159,11 @@ async function putObject(
   data: Uint8Array,
   contentType: string,
 ): Promise<string> {
-  const now = new Date();
-  const amzDate =
-    now
-      .toISOString()
-      .replace(/[:-]|\.\d{3}/g, "")
-      .slice(0, 15) + "Z";
-  const dateStamp = amzDate.slice(0, 8);
-  const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`;
-  const host = new URL(config.endpoint).host;
-  const canonicalUri = objectPath(config, key);
-  const payloadHash = await sha256(data);
-  const headers: Record<string, string> = {
-    host,
-    "content-type": contentType,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-  const signedHeaderKeys = Object.keys(headers).sort();
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalHeaders =
-    signedHeaderKeys
-      .map((header) => `${header}:${headers[header]}`)
-      .join("\n") + "\n";
-  const canonicalRequest = [
-    "PUT",
-    canonicalUri,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-  const requestHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    requestHash,
-  ].join("\n");
-  const signature = toHex(
-    await hmac(
-      await signingKey(config.secretAccessKey, dateStamp, config.region),
-      stringToSign,
-    ),
-  );
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  const response = await fetch(`${config.endpoint}${canonicalUri}`, {
+  const response = await signedS3Request(config, key, {
     method: "PUT",
-    headers: {
-      ...headers,
-      Authorization: authorization,
-      "Content-Length": String(data.byteLength),
-    },
-    body: data.buffer.slice(
-      data.byteOffset,
-      data.byteOffset + data.byteLength,
-    ) as BodyInit,
+    body: data,
+    contentType,
+    timeoutMs: PUT_TIMEOUT_MS,
   });
   if (!response.ok) {
     const detail = await response.text();
@@ -247,62 +171,19 @@ async function putObject(
       `S3 PutObject failed (${response.status}): ${detail || response.statusText}`,
     );
   }
-  return `${config.publicBaseUrl}/${key.split("/").map(encodePathSegment).join("/")}`;
+  await cancelS3ResponseBody(response);
+  return `${config.publicBaseUrl}/${encodeKey(key)}`;
 }
 
 async function deleteObject(config: S3Config, key: string): Promise<boolean> {
-  const now = new Date();
-  const amzDate =
-    now
-      .toISOString()
-      .replace(/[:-]|\.\d{3}/g, "")
-      .slice(0, 15) + "Z";
-  const dateStamp = amzDate.slice(0, 8);
-  const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`;
-  const host = new URL(config.endpoint).host;
-  const canonicalUri = objectPath(config, key);
-  const payloadHash = await sha256(new Uint8Array(0));
-  const headers: Record<string, string> = {
-    host,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-  const signedHeaderKeys = Object.keys(headers).sort();
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalHeaders =
-    signedHeaderKeys
-      .map((header) => `${header}:${headers[header]}`)
-      .join("\n") + "\n";
-  const canonicalRequest = [
-    "DELETE",
-    canonicalUri,
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-  const requestHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    requestHash,
-  ].join("\n");
-  const signature = toHex(
-    await hmac(
-      await signingKey(config.secretAccessKey, dateStamp, config.region),
-      stringToSign,
-    ),
-  );
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  const response = await fetch(`${config.endpoint}${canonicalUri}`, {
+  const response = await signedS3Request(config, key, {
     method: "DELETE",
-    headers: { ...headers, Authorization: authorization },
+    timeoutMs: DELETE_TIMEOUT_MS,
   });
-  if (response.ok) return true;
-  if (response.status === 404) return true;
+  if (response.ok || response.status === 404) {
+    await cancelS3ResponseBody(response);
+    return true;
+  }
   const detail = await response.text();
   throw new Error(
     `S3 DeleteObject failed (${response.status}): ${detail || response.statusText}`,

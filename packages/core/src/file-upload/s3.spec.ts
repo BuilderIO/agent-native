@@ -1,11 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const resolveSecretMock = vi.hoisted(() => vi.fn());
+const resolveSecretDetailedMock = vi.hoisted(() => vi.fn());
 const prefetchSecretsMock = vi.hoisted(() => vi.fn());
+const isBlockedUrlMock = vi.hoisted(() => vi.fn());
+const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
+  assertCredentialStoreReadable: () => {},
   prefetchSecrets: (...args: unknown[]) => prefetchSecretsMock(...args),
-  resolveSecret: (...args: unknown[]) => resolveSecretMock(...args),
+  readDeployCredentialEnv: (key: string) => process.env[key] || undefined,
+  resolveSecret: async (key: string) =>
+    (await resolveSecretDetailedMock(key)).value,
+  resolveSecretDetailed: (...args: unknown[]) =>
+    resolveSecretDetailedMock(...args),
+}));
+
+vi.mock("../extensions/url-safety.js", () => ({
+  isBlockedExtensionUrlWithDns: isBlockedUrlMock,
+  ssrfSafeFetch: ssrfSafeFetchMock,
 }));
 
 import {
@@ -15,6 +27,18 @@ import {
 } from "./registry.js";
 import { ensureS3FileUploadProvider, s3FileUploadProvider } from "./s3.js";
 import type { FileUploadProvider } from "./types.js";
+
+type Place = { source: "env" } | { source: "workspace"; scopeId: string };
+const workspace: Place = { source: "workspace", scopeId: "org-1" };
+
+/** Settings saved in one place; other keys are unset. */
+function useSecrets(secrets: Record<string, string>, place: Place = workspace) {
+  resolveSecretDetailedMock.mockImplementation(async (key: string) =>
+    secrets[key]
+      ? { value: secrets[key], lookupFailed: false, ...place }
+      : { value: null, lookupFailed: false },
+  );
+}
 
 describe("s3FileUploadProvider", () => {
   const originalEnv = { ...process.env };
@@ -37,14 +61,24 @@ describe("s3FileUploadProvider", () => {
     ]) {
       delete process.env[key];
     }
-    resolveSecretMock.mockReset();
-    resolveSecretMock.mockResolvedValue(null);
+    resolveSecretDetailedMock.mockReset();
+    resolveSecretDetailedMock.mockResolvedValue({
+      value: null,
+      lookupFailed: false,
+    });
     prefetchSecretsMock.mockReset();
     prefetchSecretsMock.mockResolvedValue(undefined);
+    isBlockedUrlMock.mockReset();
+    isBlockedUrlMock.mockResolvedValue(false);
+    ssrfSafeFetchMock.mockReset();
+    ssrfSafeFetchMock.mockImplementation((url: string, init: RequestInit) =>
+      fetch(url, init),
+    );
   });
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    vi.unstubAllGlobals();
   });
 
   it("batches every storage key into one prefetch before resolving them", async () => {
@@ -52,9 +86,9 @@ describe("s3FileUploadProvider", () => {
     prefetchSecretsMock.mockImplementation(async () => {
       order.push("prefetch");
     });
-    resolveSecretMock.mockImplementation(async (key: string) => {
+    resolveSecretDetailedMock.mockImplementation(async (key: string) => {
       order.push(key);
-      return null;
+      return { value: null, lookupFailed: false };
     });
 
     await s3FileUploadProvider.isConfiguredForRequest?.();
@@ -83,9 +117,7 @@ describe("s3FileUploadProvider", () => {
       S3_REGION: "us-east-1",
       S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
     };
-    resolveSecretMock.mockImplementation(
-      async (key: string) => secrets[key] ?? null,
-    );
+    useSecrets(secrets);
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -144,9 +176,7 @@ describe("s3FileUploadProvider", () => {
       S3_REGION: "us-east-1",
       S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
     };
-    resolveSecretMock.mockImplementation(
-      async (key: string) => secrets[key] ?? null,
-    );
+    useSecrets(secrets);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -163,6 +193,79 @@ describe("s3FileUploadProvider", () => {
         id: "uploads/missing.mp4",
       }),
     ).resolves.toBe(true);
+  });
+
+  it("never mixes a workspace's saved storage with the deployment's", async () => {
+    const deployment: Record<string, string> = {
+      S3_ENDPOINT: "https://deploy-s3.example.com",
+      S3_BUCKET: "deploy-bucket",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+      S3_PUBLIC_BASE_URL: "https://cdn.deploy.example.com",
+    };
+    Object.assign(process.env, deployment);
+    // A saved key resolves from the workspace; the rest fall back to env.
+    let saved: Record<string, string> = {};
+    resolveSecretDetailedMock.mockImplementation(async (key: string) =>
+      saved[key]
+        ? { value: saved[key], lookupFailed: false, ...workspace }
+        : deployment[key]
+          ? { value: deployment[key], lookupFailed: false, source: "env" }
+          : { value: null, lookupFailed: false },
+    );
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () => "",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const upload = async () => {
+      fetchMock.mockClear();
+      const result = await s3FileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "a.png",
+        mimeType: "image/png",
+      });
+      const [url, init] = (fetchMock.mock.calls[0] ?? []) as unknown as [
+        string,
+        { headers: Record<string, string> },
+      ];
+      return { result, url, auth: init.headers.Authorization };
+    };
+
+    // Only an endpoint saved, or a bucket and endpoint without keys: the
+    // deployment's keys stay on the deployment's endpoint.
+    for (const partial of [
+      { S3_ENDPOINT: "https://workspace-s3.example.com" },
+      {
+        S3_BUCKET: "workspace-bucket",
+        S3_ENDPOINT: "https://workspace-s3.example.com",
+      },
+    ]) {
+      saved = partial;
+      const { result, url, auth } = await upload();
+      expect(url).toMatch(
+        /^https:\/\/deploy-s3\.example\.com\/deploy-bucket\//,
+      );
+      expect(auth).toContain("Credential=deploy-access/");
+      expect(result.url).toMatch(/^https:\/\/cdn\.deploy\.example\.com\//);
+    }
+
+    // A complete saved set is used as a whole.
+    saved = {
+      S3_ENDPOINT: "https://workspace-s3.example.com",
+      S3_BUCKET: "workspace-bucket",
+      S3_ACCESS_KEY_ID: "workspace-access",
+      S3_SECRET_ACCESS_KEY: "workspace-secret",
+      S3_PUBLIC_BASE_URL: "https://cdn.workspace.example.com",
+    };
+    const { result, url, auth } = await upload();
+    expect(url).toMatch(
+      /^https:\/\/workspace-s3\.example\.com\/workspace-bucket\//,
+    );
+    expect(auth).toContain("Credential=workspace-access/");
+    expect(result.url).toMatch(/^https:\/\/cdn\.workspace\.example\.com\//);
   });
 
   it("uploads through environment-backed storage when scoped secrets are absent", async () => {
@@ -193,6 +296,113 @@ describe("s3FileUploadProvider", () => {
       }),
     ).resolves.toMatchObject({ provider: "s3" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("s3FileUploadProvider endpoint safety", () => {
+  const originalEnv = { ...process.env };
+  const bucket = {
+    S3_BUCKET: "uploads-example",
+    S3_ACCESS_KEY_ID: "access-example",
+    S3_SECRET_ACCESS_KEY: "secret-example",
+    S3_REGION: "us-east-1",
+    S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
+  };
+  const upload = () =>
+    s3FileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "a.png",
+      mimeType: "image/png",
+    });
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    for (const prefix of ["S3", "R2"]) {
+      for (const field of [
+        "ENDPOINT",
+        "BUCKET",
+        "ACCESS_KEY_ID",
+        "SECRET_ACCESS_KEY",
+        "REGION",
+        "PUBLIC_BASE_URL",
+      ]) {
+        delete process.env[`${prefix}_${field}`];
+      }
+    }
+    resolveSecretDetailedMock.mockReset();
+    resolveSecretDetailedMock.mockResolvedValue({
+      value: null,
+      lookupFailed: false,
+    });
+    prefetchSecretsMock.mockReset();
+    prefetchSecretsMock.mockResolvedValue(undefined);
+    isBlockedUrlMock.mockReset();
+    isBlockedUrlMock.mockResolvedValue(true);
+    ssrfSafeFetchMock.mockReset();
+    ssrfSafeFetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () => "",
+    });
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("refuses a private-network endpoint saved in workspace settings", async () => {
+    const secrets: Record<string, string> = {
+      ...bucket,
+      S3_ENDPOINT: "https://10.0.0.5:9000",
+    };
+    useSecrets(secrets);
+
+    await expect(upload()).rejects.toThrow(/SSRF blocked/);
+    await expect(
+      s3FileUploadProvider.delete!({
+        url: "https://cdn.example.com/assets/uploads/a.png",
+        id: "uploads/a.png",
+      }),
+    ).rejects.toThrow(/SSRF blocked/);
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a plain HTTP endpoint saved in workspace settings", async () => {
+    isBlockedUrlMock.mockResolvedValue(false);
+    const secrets: Record<string, string> = {
+      ...bucket,
+      S3_ENDPOINT: "http://s3.example.com",
+    };
+    useSecrets(secrets);
+
+    await expect(upload()).rejects.toThrow(/must use HTTPS/);
+    await expect(
+      s3FileUploadProvider.delete!({
+        url: "https://cdn.example.com/assets/uploads/a.png",
+        id: "uploads/a.png",
+      }),
+    ).rejects.toThrow(/must use HTTPS/);
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows the deployment's own private-network endpoint", async () => {
+    Object.assign(process.env, {
+      ...bucket,
+      S3_ENDPOINT: "http://minio.internal:9000",
+    });
+
+    await expect(upload()).resolves.toMatchObject({ provider: "s3" });
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^http:\/\/minio\.internal:9000\/uploads-example\//,
+      ),
+      expect.objectContaining({ method: "PUT" }),
+      expect.objectContaining({
+        followRedirects: false,
+        allowedPrivateOrigins: ["http://minio.internal:9000"],
+      }),
+    );
   });
 });
 

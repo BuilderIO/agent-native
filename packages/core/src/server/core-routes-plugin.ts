@@ -115,6 +115,7 @@ import {
   resolveOrgScopeForEmail,
 } from "../org/context.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
+import { ensureS3PrivateBlobProviders } from "../private-blob/s3-private.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
 import {
@@ -3172,8 +3173,10 @@ export function createCoreRoutesPlugin(
       // app does not mount the optional onboarding plugin. The settings CTA and
       // the upload route share this registry. An app may register its own
       // provider under the conventional `s3` id, so preserve that explicit
-      // registration instead of replacing it during core bootstrap.
+      // registration instead of replacing it during core bootstrap. The
+      // private-blob side gets the workspace and hosted private buckets.
       ensureS3FileUploadProvider();
+      ensureS3PrivateBlobProviders();
 
       getH3App(nitroApp).use(
         `${P}/oauth/popup`,

@@ -2,31 +2,73 @@ import { z } from "zod";
 
 import { AppConfigurationError } from "./configuration-error.js";
 
+/**
+ * Clips' hosted recordings use the deployment's hosted private bucket. Its
+ * settings read `CLIPS_HOSTED_STORAGE_*` first, then the shared
+ * `AGENT_NATIVE_HOSTED_STORAGE_*` names, in the same order as
+ * `hostedStorageConfig`. When both are set, the Clips names win for Clips and
+ * private files alike, so recordings already stored there stay readable.
+ */
 export const clipsHostedStorageConfig = z.object({
   enabled: z.boolean().default(false).meta({
     env: "CLIPS_HOSTED_STORAGE_ENABLED",
     doc: "Enable server-hosted Clips recordings.",
   }),
-  endpoint: z.string().url().optional().meta({
-    env: "CLIPS_HOSTED_STORAGE_ENDPOINT",
-    doc: "S3-compatible endpoint for server-hosted Clips recordings.",
-  }),
-  bucket: z.string().min(1).optional().meta({
-    env: "CLIPS_HOSTED_STORAGE_BUCKET",
-    doc: "Private object-storage bucket for server-hosted Clips recordings.",
-  }),
-  accessKeyId: z.string().min(1).optional().meta({
-    env: "CLIPS_HOSTED_STORAGE_ACCESS_KEY_ID",
-    doc: "Access key for server-hosted Clips object storage.",
-  }),
-  secretAccessKey: z.string().min(1).optional().meta({
-    env: "CLIPS_HOSTED_STORAGE_SECRET_ACCESS_KEY",
-    doc: "Secret access key for server-hosted Clips object storage.",
-  }),
-  region: z.string().min(1).optional().meta({
-    env: "CLIPS_HOSTED_STORAGE_REGION",
-    doc: "S3-compatible object-storage region for server-hosted Clips recordings.",
-  }),
+  endpoint: z
+    .string()
+    .url()
+    .optional()
+    .meta({
+      env: [
+        "CLIPS_HOSTED_STORAGE_ENDPOINT",
+        "AGENT_NATIVE_HOSTED_STORAGE_ENDPOINT",
+      ],
+      doc: "S3-compatible endpoint for server-hosted Clips recordings.",
+    }),
+  bucket: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: [
+        "CLIPS_HOSTED_STORAGE_BUCKET",
+        "AGENT_NATIVE_HOSTED_STORAGE_BUCKET",
+      ],
+      doc: "Private object-storage bucket for server-hosted Clips recordings.",
+    }),
+  accessKeyId: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: [
+        "CLIPS_HOSTED_STORAGE_ACCESS_KEY_ID",
+        "AGENT_NATIVE_HOSTED_STORAGE_ACCESS_KEY_ID",
+      ],
+      doc: "Access key for server-hosted Clips object storage.",
+    }),
+  secretAccessKey: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: [
+        "CLIPS_HOSTED_STORAGE_SECRET_ACCESS_KEY",
+        "AGENT_NATIVE_HOSTED_STORAGE_SECRET_ACCESS_KEY",
+      ],
+      doc: "Secret access key for server-hosted Clips object storage.",
+    }),
+  region: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: [
+        "CLIPS_HOSTED_STORAGE_REGION",
+        "AGENT_NATIVE_HOSTED_STORAGE_REGION",
+      ],
+      doc: "S3-compatible object-storage region for server-hosted Clips recordings.",
+    }),
   perIdentityClipLimit: z.number().int().positive().default(3).meta({
     env: "CLIPS_HOSTED_STORAGE_PER_IDENTITY_CLIP_LIMIT",
     doc: "Maximum number of retained hosted Clips recordings per identity.",

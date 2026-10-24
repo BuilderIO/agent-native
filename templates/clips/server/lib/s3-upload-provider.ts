@@ -1,8 +1,10 @@
 import {
-  isBlockedExtensionUrlWithDns,
-  ssrfSafeFetch,
-} from "@agent-native/core/extensions/url-safety";
-import type { FileUploadProvider } from "@agent-native/core/file-upload";
+  cancelS3ResponseBody,
+  rfc3986,
+  signedS3Request,
+  type FileUploadProvider,
+  type SignedS3RequestOptions,
+} from "@agent-native/core/file-upload";
 import {
   type PrivateBlobHandle,
   type PrivateBlobProvider,
@@ -13,7 +15,8 @@ import {
   getRequestOrgId,
   prefetchSecrets,
   resolveClipsHostedStorageConfig,
-  resolveSecret,
+  resolveSecretDetailed,
+  type ResolvedSecretDetail,
 } from "@agent-native/core/server";
 
 import {
@@ -28,6 +31,8 @@ interface S3Config {
   secretAccessKey: string;
   endpoint: string;
   publicBaseUrl: string | null;
+  /** The deployment's hosted bucket, not one a workspace saved. */
+  hosted?: true;
 }
 
 function cleanValue(value: string | null | undefined): string | undefined {
@@ -54,176 +59,6 @@ export class S3StorageError extends Error {
     super(message);
     this.name = "S3StorageError";
   }
-}
-
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
-  trustedPrivateOrigin?: string,
-): Promise<Response> {
-  const controller = new AbortController();
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const createTimeoutError = () => {
-    const error = new Error(
-      `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
-    );
-    error.name = "TimeoutError";
-    return error;
-  };
-  const clearTimeoutIfRunning = () => {
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = undefined;
-    }
-  };
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeout = setTimeout(() => {
-      const timeoutError = createTimeoutError();
-      controller.abort(timeoutError);
-      reject(timeoutError);
-    }, timeoutMs);
-  });
-
-  try {
-    const request = (async () => {
-      const isPrivateDestination = await isBlockedExtensionUrlWithDns(url);
-      if (controller.signal.aborted) throw controller.signal.reason;
-      const allowedPrivateOrigins =
-        isPrivateDestination &&
-        trustedPrivateOrigin === new URL(url).origin &&
-        trustedPrivateOrigin
-          ? [trustedPrivateOrigin]
-          : [];
-      if (isPrivateDestination && allowedPrivateOrigins.length === 0) {
-        throw new Error(
-          `SSRF blocked: refusing to fetch private/internal S3 endpoint (${url})`,
-        );
-      }
-      return ssrfSafeFetch(
-        url,
-        {
-          ...init,
-          signal: controller.signal,
-        },
-        {
-          followRedirects: false,
-          requireDispatcher: true,
-          allowedPrivateOrigins,
-        },
-      );
-    })();
-    const response = await Promise.race([request, timeoutPromise]);
-    clearTimeoutIfRunning();
-    if (!response.body) {
-      return response;
-    }
-
-    const reader = response.body.getReader();
-    let idleTimeout: ReturnType<typeof setTimeout> | undefined;
-    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
-    let bodySettled = false;
-    const clearIdleTimeout = () => {
-      if (idleTimeout) {
-        clearTimeout(idleTimeout);
-        idleTimeout = undefined;
-      }
-    };
-    const timeOutBody = () => {
-      if (bodySettled) return;
-      const timeoutError = createTimeoutError();
-      bodySettled = true;
-      clearIdleTimeout();
-      controller.abort(timeoutError);
-      bodyController?.error(timeoutError);
-    };
-    const resetIdleTimeout = () => {
-      clearIdleTimeout();
-      idleTimeout = setTimeout(timeOutBody, timeoutMs);
-      if (idleTimeout.unref) idleTimeout.unref();
-    };
-    const body = new ReadableStream<Uint8Array>(
-      {
-        start(streamController) {
-          bodyController = streamController;
-          resetIdleTimeout();
-        },
-        async pull(streamController) {
-          try {
-            if (controller.signal.aborted) throw controller.signal.reason;
-            const { done, value } = await reader.read();
-            if (bodySettled) return;
-            if (controller.signal.aborted) throw controller.signal.reason;
-            if (done) {
-              bodySettled = true;
-              clearIdleTimeout();
-              streamController.close();
-            } else {
-              streamController.enqueue(value);
-              resetIdleTimeout();
-            }
-          } catch (error) {
-            if (bodySettled) return;
-            bodySettled = true;
-            clearIdleTimeout();
-            streamController.error(
-              controller.signal.aborted ? controller.signal.reason : error,
-            );
-          }
-        },
-        async cancel(reason) {
-          bodySettled = true;
-          clearIdleTimeout();
-          await reader.cancel(reason);
-        },
-      },
-      { highWaterMark: 0 },
-    );
-    return new Response(body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
-  } catch (err) {
-    clearTimeoutIfRunning();
-    if (err instanceof Error && err.name === "TimeoutError") {
-      throw createTimeoutError();
-    }
-    if (err instanceof Error && err.name === "AbortError") {
-      const abortError = new Error(
-        `S3 request aborted (timeout ${timeoutMs}ms): ${init.method ?? "GET"} ${url}`,
-      );
-      abortError.name = "AbortError";
-      throw abortError;
-    }
-    throw err;
-  }
-}
-
-async function cancelS3ResponseBody(response: Response): Promise<void> {
-  await response.body?.cancel().catch(() => undefined);
-}
-
-function trustedDeploymentS3Origin(endpoint: string): string | undefined {
-  const configuredEndpoint = readS3EnvSecret("S3_ENDPOINT", "R2_ENDPOINT");
-  if (!configuredEndpoint) return undefined;
-  if (!URL.canParse(endpoint) || !URL.canParse(configuredEndpoint)) {
-    return undefined;
-  }
-  const endpointUrl = new URL(endpoint);
-  const configuredUrl = new URL(configuredEndpoint);
-  const normalizePath = (path: string) => path.replace(/\/+$/, "") || "/";
-  if (
-    endpointUrl.origin !== configuredUrl.origin ||
-    normalizePath(endpointUrl.pathname) !==
-      normalizePath(configuredUrl.pathname) ||
-    endpointUrl.search !== configuredUrl.search ||
-    endpointUrl.username !== configuredUrl.username ||
-    endpointUrl.password !== configuredUrl.password
-  ) {
-    return undefined;
-  }
-  return endpointUrl.origin;
 }
 
 function buildS3Config(values: {
@@ -271,13 +106,6 @@ function readS3EnvSecret(
   return cleanValue(process.env[primary]) ?? cleanValue(process.env[fallback]);
 }
 
-async function resolveS3Secret(primary: string, fallback: string) {
-  return (
-    cleanValue(await resolveSecret(primary)) ??
-    cleanValue(await resolveSecret(fallback))
-  );
-}
-
 const S3_SECRET_KEYS = [
   "S3_BUCKET",
   "R2_BUCKET",
@@ -293,21 +121,52 @@ const S3_SECRET_KEYS = [
   "R2_PUBLIC_BASE_URL",
 ] as const;
 
+/**
+ * Storage settings come from one place: the user, org or workspace that saved
+ * the bucket, else the deployment's env. Mixing places field by field could
+ * send the deployment's keys to an endpoint a workspace saved, so a setting
+ * saved anywhere else leaves storage unconfigured.
+ */
 async function readS3Config(): Promise<S3Config | null> {
   await prefetchSecrets(S3_SECRET_KEYS);
+  const found = new Map<string, ResolvedSecretDetail>();
+  await Promise.all(
+    S3_SECRET_KEYS.map(async (key) => {
+      const detail = await resolveSecretDetailed(key);
+      if (cleanValue(detail.value)) found.set(key, detail);
+      else if (detail.lookupFailed) {
+        throw detail.cause ?? new Error(`Unable to read configured ${key}`);
+      }
+    }),
+  );
+  const saved = (detail: ResolvedSecretDetail | undefined) =>
+    detail !== undefined && detail.source !== "env";
+  const bucket =
+    [found.get("S3_BUCKET"), found.get("R2_BUCKET")].find(saved) ??
+    found.get("S3_BUCKET") ??
+    found.get("R2_BUCKET");
+  if (!bucket) return null;
+  const fromBucketPlace = (detail: ResolvedSecretDetail | undefined) =>
+    detail !== undefined &&
+    detail.source === bucket.source &&
+    detail.scopeId === bucket.scopeId;
+  if (
+    [...found.values()].some(
+      (detail) => saved(detail) && !fromBucketPlace(detail),
+    )
+  ) {
+    return null;
+  }
+  const read = (primary: string, fallback: string) =>
+    [found.get(primary), found.get(fallback)].find(fromBucketPlace)?.value ??
+    undefined;
   return buildS3Config({
-    bucket: await resolveS3Secret("S3_BUCKET", "R2_BUCKET"),
-    accessKeyId: await resolveS3Secret("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
-    secretAccessKey: await resolveS3Secret(
-      "S3_SECRET_ACCESS_KEY",
-      "R2_SECRET_ACCESS_KEY",
-    ),
-    endpoint: await resolveS3Secret("S3_ENDPOINT", "R2_ENDPOINT"),
-    region: await resolveS3Secret("S3_REGION", "R2_REGION"),
-    publicBaseUrl: await resolveS3Secret(
-      "S3_PUBLIC_BASE_URL",
-      "R2_PUBLIC_BASE_URL",
-    ),
+    bucket: read("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: read("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: read("S3_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
+    endpoint: read("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: read("S3_REGION", "R2_REGION"),
+    publicBaseUrl: read("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"),
   });
 }
 
@@ -320,13 +179,14 @@ function readHostedClipS3Config(): S3Config | null {
     enabled: true,
   });
   if (!config) return null;
-  return buildS3Config({
+  const s3Config = buildS3Config({
     bucket: config.bucket,
     accessKeyId: config.accessKeyId,
     secretAccessKey: config.secretAccessKey,
     endpoint: config.endpoint,
     region: config.region,
   });
+  return s3Config ? { ...s3Config, hosted: true } : null;
 }
 
 type ClipsS3StorageMode = "own" | "hosted";
@@ -337,129 +197,56 @@ function readS3ConfigForMode(
   return mode === "hosted" ? readHostedClipS3Config() : readS3Config();
 }
 
-async function resolveOrganizationLogoS3Secret(
-  organizationId: string,
-  primary: string,
-  fallback: string,
-) {
-  return (
-    cleanValue(
-      (
-        await readAppSecret({
-          key: primary,
-          scope: "workspace",
-          scopeId: organizationId,
-        })
-      )?.value,
-    ) ??
-    cleanValue(
-      (
-        await readAppSecret({
-          key: fallback,
-          scope: "workspace",
-          scopeId: organizationId,
-        })
-      )?.value,
-    ) ??
-    readS3EnvSecret(primary, fallback)
-  );
-}
-
+/**
+ * A workspace's logo storage comes from one place: the settings it saved,
+ * when it saved any, else the deployment's env. Mixing them field by field
+ * could send the deployment's keys to an endpoint the workspace chose.
+ */
 async function readOrganizationLogoS3Config(
   organizationId: string,
 ): Promise<S3Config | null> {
+  const saved = new Map<string, string>();
+  await Promise.all(
+    S3_SECRET_KEYS.map(async (key) => {
+      const value = cleanValue(
+        (
+          await readAppSecret({
+            key,
+            scope: "workspace",
+            scopeId: organizationId,
+          })
+        )?.value,
+      );
+      if (value) saved.set(key, value);
+    }),
+  );
+  if (saved.size === 0) return readS3EnvConfig();
+  const read = (primary: string, fallback: string) =>
+    saved.get(primary) ?? saved.get(fallback);
   return buildS3Config({
-    bucket: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_BUCKET",
-      "R2_BUCKET",
-    ),
-    accessKeyId: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_ACCESS_KEY_ID",
-      "R2_ACCESS_KEY_ID",
-    ),
-    secretAccessKey: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_SECRET_ACCESS_KEY",
-      "R2_SECRET_ACCESS_KEY",
-    ),
-    endpoint: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_ENDPOINT",
-      "R2_ENDPOINT",
-    ),
-    region: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_REGION",
-      "R2_REGION",
-    ),
-    publicBaseUrl: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_PUBLIC_BASE_URL",
-      "R2_PUBLIC_BASE_URL",
-    ),
+    bucket: read("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: read("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: read("S3_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
+    endpoint: read("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: read("S3_REGION", "R2_REGION"),
+    publicBaseUrl: read("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"),
   });
 }
 
-async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
-  const k = await crypto.subtle.importKey(
-    "raw",
-    key,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg));
-}
-
-async function sha256(data: Uint8Array): Promise<string> {
-  const ab = new ArrayBuffer(data.byteLength);
-  new Uint8Array(ab).set(data);
-  const buf = await crypto.subtle.digest("SHA-256", ab);
-  return toHex(buf);
-}
-
-function toHex(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let out = "";
-  for (let i = 0; i < bytes.length; i++) {
-    out += bytes[i].toString(16).padStart(2, "0");
-  }
-  return out;
-}
-
-async function deriveSigningKey(
-  secret: string,
-  dateStamp: string,
-  region: string,
-): Promise<ArrayBuffer> {
-  const kSecret = new TextEncoder().encode(`AWS4${secret}`);
-  const kDate = await hmac(kSecret.buffer as ArrayBuffer, dateStamp);
-  const kRegion = await hmac(kDate, region);
-  const kService = await hmac(kRegion, "s3");
-  return hmac(kService, "aws4_request");
-}
-
-function rfc3986(str: string): string {
-  return encodeURIComponent(str).replace(
-    /[!'()*]/g,
-    (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
-  );
-}
-
-function objectUri(cfg: S3Config, key: string): string {
-  const keySegments = key.split("/");
-  if (
-    cfg.bucket.includes("/") ||
-    cfg.bucket.includes("\\") ||
-    cfg.bucket === "." ||
-    cfg.bucket === ".." ||
-    keySegments.some((segment) => segment === "." || segment === "..")
-  ) {
-    throw new Error("S3 object path contains an unsafe URL path segment");
-  }
-  return `/${rfc3986(cfg.bucket)}/${keySegments.map(rfc3986).join("/")}`;
+/**
+ * Sends a signed request. The hosted bucket's endpoint is the deployment's
+ * own, so like an env endpoint it may use plain HTTP or a private network;
+ * endpoints a workspace saved may not.
+ */
+function s3Request(
+  cfg: S3Config,
+  key: string,
+  options: Omit<SignedS3RequestOptions, "trustedEndpoint">,
+): Promise<Response> {
+  return signedS3Request(cfg, key, {
+    ...options,
+    trustedEndpoint: cfg.hosted === true,
+  });
 }
 
 export class S3MultipartStartError extends Error {
@@ -469,113 +256,13 @@ export class S3MultipartStartError extends Error {
   }
 }
 
-function canonicalQueryString(query: Record<string, string>): string {
-  return Object.entries(query)
-    .map(([key, value]) => [rfc3986(key), rfc3986(value)] as const)
-    .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
-      const left = leftKey === rightKey ? leftValue : leftKey;
-      const right = leftKey === rightKey ? rightValue : rightKey;
-      return left < right ? -1 : left > right ? 1 : 0;
-    })
-    .map(([key, value]) => `${key}=${value}`)
-    .join("&");
-}
-
-async function signedS3Request(
-  cfg: S3Config,
-  key: string,
-  options: {
-    method: "DELETE" | "GET" | "HEAD" | "POST" | "PUT";
-    query?: Record<string, string>;
-    body?: Uint8Array;
-    contentType?: string;
-    range?: string;
-    timeoutMs: number;
-  },
-): Promise<Response> {
-  const now = new Date();
-  const amzDate =
-    now
-      .toISOString()
-      .replace(/[:-]|\.\d{3}/g, "")
-      .slice(0, 15) + "Z";
-  const dateStamp = amzDate.slice(0, 8);
-  const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
-  const host = new URL(cfg.endpoint).host;
-  const canonicalUri = objectUri(cfg, key);
-  const canonicalQuery = canonicalQueryString(options.query ?? {});
-  const body = options.body ?? new Uint8Array(0);
-  const payloadHash = await sha256(body);
-
-  const headers: Record<string, string> = {
-    host,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-  if (options.contentType) headers["content-type"] = options.contentType;
-  if (options.range?.startsWith("bytes=")) headers.range = options.range;
-
-  const signedHeaderKeys = Object.keys(headers).sort();
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalHeaders =
-    signedHeaderKeys
-      .map((header) => `${header}:${headers[header]}`)
-      .join("\n") + "\n";
-  const canonicalRequest = [
-    options.method,
-    canonicalUri,
-    canonicalQuery,
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    crHash,
-  ].join("\n");
-  const signingKey = await deriveSigningKey(
-    cfg.secretAccessKey,
-    dateStamp,
-    cfg.region,
-  );
-  const signature = toHex(await hmac(signingKey, stringToSign));
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  const url = `${cfg.endpoint}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ""}`;
-  return fetchWithTimeout(
-    url,
-    {
-      method: options.method,
-      headers: {
-        ...headers,
-        Authorization: authorization,
-      },
-      ...(options.body
-        ? {
-            body: options.body.buffer.slice(
-              options.body.byteOffset,
-              options.body.byteOffset + options.body.byteLength,
-            ) as BodyInit,
-          }
-        : {}),
-    },
-    options.timeoutMs,
-    trustedDeploymentS3Origin(cfg.endpoint),
-  );
-}
-
 async function putObject(
   cfg: S3Config,
   key: string,
   body: Uint8Array,
   contentType: string,
 ): Promise<string> {
-  const res = await signedS3Request(cfg, key, {
+  const res = await s3Request(cfg, key, {
     method: "PUT",
     body,
     contentType,
@@ -671,7 +358,7 @@ function isLegacyUnscopedObjectKey(key: string): boolean {
 }
 
 async function deleteObject(cfg: S3Config, key: string): Promise<void> {
-  const res = await signedS3Request(cfg, key, {
+  const res = await s3Request(cfg, key, {
     method: "DELETE",
     timeoutMs: S3_DELETE_TIMEOUT_MS,
   });
@@ -686,7 +373,7 @@ async function deleteObject(cfg: S3Config, key: string): Promise<void> {
 }
 
 async function getObject(cfg: S3Config, key: string): Promise<Uint8Array> {
-  const res = await signedS3Request(cfg, key, {
+  const res = await s3Request(cfg, key, {
     method: "GET",
     timeoutMs: S3_PUT_TIMEOUT_MS,
   });
@@ -732,6 +419,9 @@ const PRIVATE_LOGO_EXTENSIONS: Record<string, string> = {
 export const clipsOrganizationLogoPrivateBlobProvider: PrivateBlobProvider = {
   id: S3_ORGANIZATION_LOGO_PROVIDER_ID,
   name: "Clips organization logo storage",
+  // Only logo uploads land here; every other private blob goes to the
+  // general provider.
+  handles: (request) => request.metadata?.purpose === ORGANIZATION_LOGO_PURPOSE,
   isConfigured: () => readS3EnvConfig() !== null,
   isConfiguredForRequest: async () => {
     const organizationId = getRequestOrgId();
@@ -813,7 +503,7 @@ export async function fetchS3OrganizationLogoByLegacyUrl(
   if (!cfg) {
     throw new S3StorageError("S3 credentials are not configured", 503);
   }
-  return signedS3Request(cfg, key, {
+  return s3Request(cfg, key, {
     method: "GET",
     timeoutMs: S3_PUT_TIMEOUT_MS,
   });
@@ -936,7 +626,7 @@ async function uploadMultipartPart(
   if (partNumber > S3_MULTIPART_MAX_PARTS) {
     throw new Error("S3 multipart upload exceeds the 10,000 part limit");
   }
-  const res = await signedS3Request(cfg, meta.objectKey, {
+  const res = await s3Request(cfg, meta.objectKey, {
     method: "PUT",
     query: { partNumber: String(partNumber), uploadId },
     body: bytes,
@@ -964,7 +654,7 @@ async function verifyCompletedMultipartObject(
   cfg: S3Config,
   meta: S3MultipartMeta,
 ): Promise<boolean> {
-  const res = await signedS3Request(cfg, meta.objectKey, {
+  const res = await s3Request(cfg, meta.objectKey, {
     method: "HEAD",
     timeoutMs: S3_DELETE_TIMEOUT_MS,
   });
@@ -1065,7 +755,7 @@ export async function fetchS3ObjectByUrl(
   ) {
     return null;
   }
-  return signedS3Request(cfg, key, {
+  return s3Request(cfg, key, {
     method: "GET",
     range: options.range,
     timeoutMs: options.timeoutMs ?? S3_PUT_TIMEOUT_MS,
@@ -1145,7 +835,7 @@ function createS3FileUploadProvider(
         }
         const objectKey = `clips/${safeFilename}`;
         const stagingKey = `clips/.multipart/${safeFilename}.pending`;
-        const res = await signedS3Request(cfg, objectKey, {
+        const res = await s3Request(cfg, objectKey, {
           method: "POST",
           query: { uploads: "" },
           contentType: mimeType,
@@ -1257,7 +947,7 @@ function createS3FileUploadProvider(
         let res: Response;
         let body: string;
         try {
-          res = await signedS3Request(cfg, meta.objectKey, {
+          res = await s3Request(cfg, meta.objectKey, {
             method: "POST",
             query: { uploadId: session.sessionId },
             body: new TextEncoder().encode(manifest),
@@ -1318,7 +1008,7 @@ function createS3FileUploadProvider(
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
         const meta = readMultipartMeta(session.meta);
-        const abortRes = await signedS3Request(cfg, meta.objectKey, {
+        const abortRes = await s3Request(cfg, meta.objectKey, {
           method: "DELETE",
           query: { uploadId: session.sessionId },
           timeoutMs: S3_DELETE_TIMEOUT_MS,

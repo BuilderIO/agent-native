@@ -1227,4 +1227,31 @@ describe("development process on a shared database", () => {
     expect(message).not.toContain("deployment-value");
     expect(message).not.toContain(orgRef.scopeId);
   });
+
+  it("remembers, for the request, keys it couldn't decrypt", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    useDeploymentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "deployment-value" });
+
+    useDevelopmentKeys();
+    const seen = await runWithRequestContext(
+      { userEmail: "alice@example.test" },
+      async () => {
+        await mod.readAppSecrets({
+          keys: [orgRef.key],
+          scope: orgRef.scope,
+          scopeId: orgRef.scopeId,
+        });
+        return [...mod.undecryptableSecretKeysForRequest()];
+      },
+    );
+    expect(seen).toEqual([orgRef.key]);
+    await expect(
+      runWithRequestContext({ userEmail: "alice@example.test" }, async () => [
+        ...mod.undecryptableSecretKeysForRequest(),
+      ]),
+    ).resolves.toEqual([]);
+  });
 });
