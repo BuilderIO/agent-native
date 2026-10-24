@@ -901,7 +901,6 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
     /^\s*(?:actually|correction|wait|sorry|no)[,:\s]+(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
   let assigned = false;
   let pendingCorrection = false;
-  let lastClauseWasAssignment = false;
   for (const rawClause of clauses) {
     const clause = rawClause.replace(/^\s*(?:but|and|however)\s+/i, "");
     const hasCorrectionCue = correctionCue.test(clause);
@@ -912,17 +911,14 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
         ellipticalRetraction.test(clause) &&
         (pendingCorrection ||
           hasCorrectionCue ||
-          directEllipticalRetraction.test(clause) ||
-          lastClauseWasAssignment))
+          directEllipticalRetraction.test(clause)))
     ) {
       assigned = false;
       pendingCorrection = false;
-      lastClauseWasAssignment = false;
       continue;
     }
     if (assigned && hasCorrectionCue) {
       pendingCorrection = true;
-      lastClauseWasAssignment = false;
       continue;
     }
     pendingCorrection = false;
@@ -944,9 +940,6 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
     );
     if (directAssignment.test(clause) || passiveAssignment.test(clause)) {
       assigned = true;
-      lastClauseWasAssignment = true;
-    } else {
-      lastClauseWasAssignment = false;
     }
   }
   return assigned;
@@ -17306,6 +17299,13 @@ if (args[0] === "--self-test" && args.length === 1) {
           "I assigned this report to <@UOTHER>. Did you ask me to run the migration? I did not.",
       })),
     );
+    validateTestInventory(
+      withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+        ...parent,
+        sourceText:
+          "I assigned this report to <@UOTHER>. Reviewed the logs and I did not.",
+      })),
+    );
     expectFocusedFailure(
       "person-assigned skip without a named assignment",
       () =>
@@ -24360,7 +24360,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 68} negative cases; 43 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 16 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 68} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 16 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
