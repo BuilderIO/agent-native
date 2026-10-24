@@ -4,10 +4,36 @@ import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { BUILDER_CMS_FIXTURE_ROW_PROVENANCE } from "./_builder-cms-source-adapter";
+import { BUILDER_CMS_EDIT_CONFLICTS_KEY } from "./_builder-cms-unpublished-changes";
 import { registerMemoryPrivateBlobProvider } from "./_builder-private-blob.test-fixture";
+
+const snapshotRead = vi.hoisted(() => ({
+  after: null as null | (() => Promise<void>),
+}));
+
+vi.mock("./_database-source-utils.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_database-source-utils.js")>();
+  return {
+    ...actual,
+    async getContentDatabaseSourceSnapshotForWrite(
+      ...args: Parameters<
+        typeof actual.getContentDatabaseSourceSnapshotForWrite
+      >
+    ) {
+      const snapshot = await actual.getContentDatabaseSourceSnapshotForWrite(
+        ...args,
+      );
+      const after = snapshotRead.after;
+      snapshotRead.after = null;
+      await after?.();
+      return snapshot;
+    },
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -467,8 +493,37 @@ describe("stage-builder-source-bulk-update", () => {
       expect.objectContaining({ valueJson: JSON.stringify("Operators") }),
     ]);
 
+    const sourceRowFilter = and(
+      eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId),
+      eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+    );
+    const [sourceRow] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(sourceRowFilter);
+    // A refresh flagged the field and the title as changed in Builder too.
+    await getDb()
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          ...JSON.parse(sourceRow.sourceValuesJson),
+          [BUILDER_CMS_EDIT_CONFLICTS_KEY]: [
+            seeded.sourceFieldKey,
+            "data.title",
+          ],
+        }),
+      })
+      .where(sourceRowFilter);
+
     const response = await stage("Developers", false);
     expect(response.summary).toMatchObject({ staged: 0, unchanged: 1 });
+    const [restoredRow] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(sourceRowFilter);
+    expect(
+      JSON.parse(restoredRow.sourceValuesJson)[BUILDER_CMS_EDIT_CONFLICTS_KEY],
+    ).toEqual(["data.title"]);
     await expect(
       valuesFor(seeded.propertyId, [row.documentId]),
     ).resolves.toEqual([
@@ -487,6 +542,66 @@ describe("stage-builder-source-bulk-update", () => {
       state: "rejected",
       fieldChangesJson: "[]",
     });
+  });
+
+  it("keeps a change saved to the review item after the stage read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const stage = (value: string) =>
+      asOwner(() =>
+        stageBulkUpdate.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          itemIds: [row.itemId],
+          field: { propertyId: seeded.propertyId, value },
+          dryRun: false,
+        }),
+      );
+    await stage("Operators");
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      changeSetId,
+    );
+    snapshotRead.after = async () => {
+      const [current] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(changeSetFilter);
+      await getDb()
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({
+          fieldChangesJson: JSON.stringify([
+            ...JSON.parse(current.fieldChangesJson),
+            {
+              propertyId: null,
+              propertyName: "Title",
+              localFieldKey: "title",
+              sourceFieldKey: "data.title",
+              currentValue: "Article 1",
+              proposedValue: "Retitled",
+            },
+          ]),
+        })
+        .where(changeSetFilter);
+    };
+    try {
+      await stage("Developers");
+    } finally {
+      snapshotRead.after = null;
+    }
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).toBe("pending_push");
+    expect(JSON.parse(changeSet.fieldChangesJson)).toEqual([
+      expect.objectContaining({
+        sourceFieldKey: "data.title",
+        proposedValue: "Retitled",
+      }),
+    ]);
   });
 
   it("stages Builder File URLs through Files & media properties", async () => {

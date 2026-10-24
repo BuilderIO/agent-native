@@ -22,6 +22,12 @@ import {
 } from "../shared/properties.js";
 import { BUILDER_CMS_FIXTURE_ROW_PROVENANCE } from "./_builder-cms-source-adapter.js";
 import {
+  readBuilderCmsEditConflicts,
+  withBuilderCmsEditConflicts,
+} from "./_builder-cms-unpublished-changes.js";
+import { parseBuilderEntrySourceValues } from "./_builder-entry-status.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import {
   DATABASE_ROW_BATCH_LIMIT,
   resolveDatabaseRowsForBatch,
 } from "./_database-row-batch.js";
@@ -236,13 +242,14 @@ async function propertyDefinition(args: {
 }
 
 async function upsertPropertyValues(args: {
+  db?: any;
   ownerEmail: string;
   documentIds: string[];
   propertyId: string;
   valueJson: string;
   now: string;
 }) {
-  const db = getDb();
+  const db = args.db ?? getDb();
   const existing = await db
     .select({
       id: schema.documentPropertyValues.id,
@@ -256,9 +263,12 @@ async function upsertPropertyValues(args: {
       ),
     );
   const existingByDocumentId = new Map(
-    existing.map((row) => [row.documentId, row.id]),
+    existing.map((row: { id: string; documentId: string }) => [
+      row.documentId,
+      row.id,
+    ]),
   );
-  const existingIds = existing.map((row) => row.id);
+  const existingIds = existing.map((row: { id: string }) => row.id);
   if (existingIds.length > 0) {
     await db
       .update(schema.documentPropertyValues)
@@ -307,35 +317,117 @@ async function updateOpenChangeSetsForStagedRows(args: {
   }
 }
 
-async function dropFieldFromOpenChangeSets(args: {
-  source: ContentDatabaseSource;
+/**
+ * Sets the rows' properties back to the value Builder has and takes the field
+ * out of their open review items and edit conflicts, all at once.
+ */
+async function setEditsBackToBuilderValue(args: {
+  sourceId: string;
   field: ContentDatabaseSourceFieldMapping;
-  documentIds: string[];
+  rows: Array<{ itemId: string; documentId: string }>;
+  ownerEmail: string;
+  propertyId: string;
+  valueJson: string;
   now: string;
 }) {
-  const db = getDb();
-  for (const documentId of args.documentIds) {
-    const openChangeSet = openChangeSetForDocument(args.source, documentId);
-    if (!openChangeSet) continue;
-    const fieldChanges = openChangeSet.fieldChanges.filter(
-      (change) =>
-        change.sourceFieldKey !== args.field.sourceFieldKey &&
-        change.localFieldKey !== args.field.localFieldKey,
+  const documentIds = args.rows.map((row) => row.documentId);
+  await getDb().transaction(async (tx) => {
+    // Refreshes and pushes rewrite these rows under the same lock.
+    await lockDatabaseMemberships(
+      tx,
+      args.rows.map((row) => row.itemId),
     );
-    if (fieldChanges.length === openChangeSet.fieldChanges.length) continue;
-    await db
-      .update(schema.contentDatabaseSourceChangeSets)
-      .set({
-        // A change with nothing left to push is closed rather than pushed empty.
-        state:
-          fieldChanges.length === 0 && !openChangeSet.bodyChange
-            ? "rejected"
-            : "pending_push",
-        fieldChangesJson: JSON.stringify(fieldChanges),
-        updatedAt: args.now,
+    await upsertPropertyValues({
+      db: tx,
+      ownerEmail: args.ownerEmail,
+      documentIds,
+      propertyId: args.propertyId,
+      valueJson: args.valueJson,
+      now: args.now,
+    });
+    const openChangeSets = await tx
+      .select({
+        id: schema.contentDatabaseSourceChangeSets.id,
+        fieldChangesJson:
+          schema.contentDatabaseSourceChangeSets.fieldChangesJson,
+        bodyChangeJson: schema.contentDatabaseSourceChangeSets.bodyChangeJson,
       })
-      .where(eq(schema.contentDatabaseSourceChangeSets.id, openChangeSet.id));
-  }
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceChangeSets.sourceId, args.sourceId),
+          inArray(
+            schema.contentDatabaseSourceChangeSets.documentId,
+            documentIds,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.direction, "outbound"),
+          inArray(schema.contentDatabaseSourceChangeSets.state, [
+            "pending_push",
+            "staged_revision",
+            "approved",
+          ]),
+        ),
+      )
+      .for("update");
+    for (const changeSet of openChangeSets) {
+      const current = JSON.parse(
+        changeSet.fieldChangesJson,
+      ) as ContentDatabaseSourceFieldChange[];
+      const fieldChanges = current.filter(
+        (change) =>
+          change.sourceFieldKey !== args.field.sourceFieldKey &&
+          change.localFieldKey !== args.field.localFieldKey,
+      );
+      if (fieldChanges.length === current.length) continue;
+      await tx
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({
+          // A change with nothing left to push is closed rather than pushed empty.
+          state:
+            fieldChanges.length === 0 && !changeSet.bodyChangeJson
+              ? "rejected"
+              : "pending_push",
+          fieldChangesJson: JSON.stringify(fieldChanges),
+          updatedAt: args.now,
+        })
+        .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id));
+    }
+    const sourceRows = await tx
+      .select({
+        id: schema.contentDatabaseSourceRows.id,
+        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      })
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+          inArray(schema.contentDatabaseSourceRows.documentId, documentIds),
+        ),
+      );
+    for (const row of sourceRows) {
+      const sourceValues = parseBuilderEntrySourceValues(row.sourceValuesJson);
+      const conflicts = readBuilderCmsEditConflicts(sourceValues);
+      if (
+        !sourceValues ||
+        conflicts.state !== "recorded" ||
+        !conflicts.sourceFieldKeys.includes(args.field.sourceFieldKey)
+      ) {
+        continue;
+      }
+      await tx
+        .update(schema.contentDatabaseSourceRows)
+        .set({
+          sourceValuesJson: JSON.stringify(
+            withBuilderCmsEditConflicts(sourceValues, {
+              ownedKeys: [args.field.sourceFieldKey],
+              conflictedKeys: [],
+            }),
+          ),
+          updatedAt: args.now,
+        })
+        .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+    }
+  });
 }
 
 async function stageBuilderSourceBulkUpdateWithDeps(
@@ -413,7 +505,7 @@ async function stageBuilderSourceBulkUpdateWithDeps(
         ).map((value) => [value.documentId, value.valueJson])
       : [],
   );
-  const revertedDocumentIds: string[] = [];
+  const revertedRows: Array<{ itemId: string; documentId: string }> = [];
 
   for (const row of rows) {
     const sourceRow = sourceRowsByDocumentId.get(row.document.id);
@@ -450,7 +542,9 @@ async function stageBuilderSourceBulkUpdateWithDeps(
       const localValueJson = localValueJsonByDocumentId.get(row.document.id);
       const revertsLocalEdit =
         localValueJson !== undefined && localValueJson !== valueJson;
-      if (revertsLocalEdit) revertedDocumentIds.push(row.document.id);
+      if (revertsLocalEdit) {
+        revertedRows.push({ itemId: row.item.id, documentId: row.document.id });
+      }
       results.push({
         ...baseResult,
         status: "unchanged",
@@ -496,7 +590,9 @@ async function stageBuilderSourceBulkUpdateWithDeps(
             fieldChange: undefined,
           }
         : row.status === "unchanged" &&
-            revertedDocumentIds.includes(row.documentId)
+            revertedRows.some(
+              (reverted) => reverted.documentId === row.documentId,
+            )
           ? {
               ...row,
               message: "The selected Builder field already has this value.",
@@ -523,21 +619,17 @@ async function stageBuilderSourceBulkUpdateWithDeps(
   if (
     !dryRun &&
     summary.blocked === 0 &&
-    revertedDocumentIds.length > 0 &&
+    revertedRows.length > 0 &&
     field.propertyId &&
     valueJson
   ) {
-    await upsertPropertyValues({
+    await setEditsBackToBuilderValue({
+      sourceId: source.id,
+      field,
+      rows: revertedRows,
       ownerEmail: database.ownerEmail,
-      documentIds: revertedDocumentIds,
       propertyId: field.propertyId,
       valueJson,
-      now,
-    });
-    await dropFieldFromOpenChangeSets({
-      source,
-      field,
-      documentIds: revertedDocumentIds,
       now,
     });
     if (summary.staged === 0) {
