@@ -489,7 +489,6 @@ async function waitForPurge(purge: Promise<void>): Promise<void> {
     ]);
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
-    if (_purgeInFlight === purge) _purgeInFlight = undefined;
   }
 }
 
@@ -523,6 +522,14 @@ async function maybePurge(now: number): Promise<void> {
     )
     .then(() => undefined);
   _purgeInFlight = purge;
+  void purge.then(
+    () => {
+      if (_purgeInFlight === purge) _purgeInFlight = undefined;
+    },
+    () => {
+      if (_purgeInFlight === purge) _purgeInFlight = undefined;
+    },
+  );
   await waitForPurge(purge);
 }
 

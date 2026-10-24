@@ -632,6 +632,21 @@ describe("awareness-store", () => {
         }),
       );
       expect(purgeCalls.count).toBe(1);
+
+      const retryRead = loadAwarenessRowsStrict("retry-doc", 70_000);
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(retryRead).resolves.toEqual([]);
+      expect(purgeCalls.count).toBe(1);
+
+      releasePurge();
+      purgeHang.promise = undefined;
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await expect(
+        loadAwarenessRowsStrict("after-purge-doc", 70_001),
+      ).resolves.toEqual([]);
+      expect(purgeCalls.count).toBe(2);
     } finally {
       releasePurge();
       purgeHang.promise = undefined;
