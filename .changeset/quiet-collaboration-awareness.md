@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Persist ordered collaboration awareness updates so stale requests cannot restore cleared presence.
+Bound awareness request bodies, preserve ordered updates, and report store read outages clearly.

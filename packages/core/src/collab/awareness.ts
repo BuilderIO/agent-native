@@ -10,7 +10,7 @@ import {
 import type { H3Event } from "h3";
 
 import { getSession } from "../server/auth.js";
-import { readBody } from "../server/h3-helpers.js";
+import { readBodyWithSizeLimit } from "../server/h3-helpers.js";
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
 import {
   MAX_AWARENESS_CLIENT_SEQUENCE,
@@ -25,6 +25,7 @@ import {
 import { emailToColor, emailToName } from "./types.js";
 
 const AWARENESS_TIMEOUT = 30_000;
+const DEFAULT_MAX_AWARENESS_BODY_BYTES = 2 * 1024 * 1024;
 const CLEAR_TOMBSTONE_TTL = AWARENESS_TIMEOUT + 5_000;
 const AWARENESS_SCOPE_TIMEOUT = AWARENESS_TIMEOUT + 5_000;
 const MAX_AWARENESS_SCOPES = 10_000;
@@ -478,7 +479,10 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     event.context as { _collabAwarenessScope?: AwarenessScope } | undefined
   )?._collabAwarenessScope;
 
-  const body = await readBody(event);
+  const maxPayloadBytes =
+    (event.context as { _collabMaxPayloadBytes?: number } | undefined)
+      ?._collabMaxPayloadBytes ?? DEFAULT_MAX_AWARENESS_BODY_BYTES;
+  const body = await readBodyWithSizeLimit(event, maxPayloadBytes);
   const { clientId, clientSequence, state, clearToken } = body as {
     clientId?: number;
     clientSequence?: number;
@@ -760,7 +764,15 @@ export const getActiveUsers = defineEventHandler(async (event: H3Event) => {
   }
 
   const map = getDocAwareness(docId);
-  await mergeStoredAwareness(docId, map);
+  try {
+    await mergeStoredAwareness(docId, map);
+  } catch (error) {
+    setResponseStatus(event, 503);
+    return {
+      error: "Awareness read unavailable",
+      failureType: error instanceof Error ? error.name : typeof error,
+    };
+  }
   cleanExpired(map);
   pruneIfEmpty(docId, map);
 

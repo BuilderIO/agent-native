@@ -104,7 +104,10 @@ export function postAwarenessState(
           parsedSequence <= MAX_AWARENESS_CLIENT_SEQUENCE
         ) {
           if (!cleanupWhenIdle.has(key)) {
-            clientSequences.set(key, parsedSequence);
+            clientSequences.set(
+              key,
+              Math.max(clientSequences.get(key) ?? 0, parsedSequence),
+            );
           }
         }
       }

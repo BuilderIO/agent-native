@@ -12,6 +12,9 @@ vi.mock("h3", () => ({
 }));
 
 const mockReadBody = vi.fn();
+const mockReadBodyWithSizeLimit = vi.fn((event: unknown, _maxBytes?: number) =>
+  mockReadBody(event),
+);
 const mockGetSession = vi.fn();
 const mockWriteAwarenessRow = vi.hoisted(() => vi.fn());
 const mockLoadAwarenessClientSequence = vi.hoisted(() => vi.fn());
@@ -21,6 +24,8 @@ vi.mock("../server/auth.js", () => ({
 }));
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
+  readBodyWithSizeLimit: (...args: unknown[]) =>
+    mockReadBodyWithSizeLimit(...args),
 }));
 vi.mock("./awareness-store.js", async (importOriginal) => {
   const store = await importOriginal<typeof import("./awareness-store.js")>();
@@ -208,6 +213,7 @@ describe("postAwareness handler", () => {
   afterEach(() => {
     vi.useRealTimers();
     mockReadBody.mockReset();
+    mockReadBodyWithSizeLimit.mockClear();
     mockGetSession.mockReset();
     mockLoadAwarenessRows.mockClear();
     docAwareness("post-doc").clear();
@@ -245,6 +251,21 @@ describe("postAwareness handler", () => {
     const res = await postAwareness(ev);
     expect(ev._status).toBe(400);
     expect(res).toEqual({ error: "clientId and state required" });
+  });
+
+  it("reads the body through the configured byte limit", async () => {
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 76,
+      clientSequence: 1,
+      state: JSON.stringify({ visible: true }),
+    });
+    mockWriteAwarenessRow.mockResolvedValueOnce(true);
+    const ev = event({ docId: "post-doc-payload-limit" });
+    ev.context = { _collabMaxPayloadBytes: 128 };
+
+    await postAwareness(ev);
+
+    expect(mockReadBodyWithSizeLimit).toHaveBeenCalledWith(ev, 128);
   });
 
   it("does not let a caller claim the reserved agent client id", async () => {
@@ -889,5 +910,16 @@ describe("getActiveUsers handler", () => {
     vi.useRealTimers();
 
     expect(res.users).toEqual([{ clientId: 2, lastSeen: 25_000 }]);
+  });
+
+  it("returns a typed unavailable response when stored awareness cannot be read", async () => {
+    mockLoadAwarenessRows.mockRejectedValueOnce(new Error("database offline"));
+    const ev = event({ docId: "users-doc" });
+
+    await expect(getActiveUsers(ev)).resolves.toEqual({
+      error: "Awareness read unavailable",
+      failureType: "Error",
+    });
+    expect(ev._status).toBe(503);
   });
 });
