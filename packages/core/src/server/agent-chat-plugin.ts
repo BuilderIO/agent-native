@@ -10203,6 +10203,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const agentHarnessFollowUpRecoveryIncomplete =
               expiredAgentHarnessFollowUps === null ||
               expiredAgentHarnessFollowUps.truncated;
+            const { sweepExpiredAgentHarnessApprovalResolutions } =
+              await import("../agent/harness/lifecycle.js");
+            const expiredAgentHarnessApprovals =
+              await sweepExpiredAgentHarnessApprovalResolutions().catch(
+                (error: unknown) => {
+                  console.error(
+                    "[agent-chat] durable AgentHarness approval recovery failed:",
+                    error,
+                  );
+                  return null;
+                },
+              );
+            const agentHarnessApprovalRecoveryIncomplete =
+              expiredAgentHarnessApprovals === null ||
+              expiredAgentHarnessApprovals.truncated;
             const staleAgentTeamRuns = await reconcileStaleAgentTeamRuns(
               event,
             ).catch((error: unknown) => {
@@ -10265,6 +10280,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ok: false,
                 staleRunsReaped,
                 expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10279,6 +10295,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (
                 staleRunReapIncomplete ||
                 agentHarnessFollowUpRecoveryIncomplete ||
+                agentHarnessApprovalRecoveryIncomplete ||
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
                 queuedSubmissionDrain === null ||
@@ -10292,6 +10309,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ok:
                   !staleRunReapIncomplete &&
                   !agentHarnessFollowUpRecoveryIncomplete &&
+                  !agentHarnessApprovalRecoveryIncomplete &&
                   appSweepHandlers.failed.length === 0 &&
                   automationFailureAlerts !== null &&
                   queuedSubmissionDrain !== null &&
@@ -10300,6 +10318,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   staleAgentTeamRuns.failed === 0,
                 staleRunsReaped,
                 expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10315,6 +10334,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (
                 staleRunReapIncomplete ||
                 agentHarnessFollowUpRecoveryIncomplete ||
+                agentHarnessApprovalRecoveryIncomplete ||
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
                 queuedSubmissionDrain === null ||
@@ -10327,6 +10347,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ok: false,
                   staleRunsReaped,
                   expiredAgentHarnessFollowUps,
+                  expiredAgentHarnessApprovals,
                   staleAgentTeamRuns,
                   queuedSubmissionDrain,
                   chatHealth,
@@ -10339,6 +10360,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ok: true,
                 staleRunsReaped,
                 expiredAgentHarnessFollowUps,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10352,6 +10374,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
+                expiredAgentHarnessApprovals,
                 staleAgentTeamRuns,
                 queuedSubmissionDrain,
                 chatHealth,
@@ -10571,6 +10594,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   (error: unknown) => {
                     console.error(
                       "[agent-chat] in-process AgentHarness follow-up recovery failed:",
+                      error,
+                    );
+                  },
+                );
+                const { sweepExpiredAgentHarnessApprovalResolutions } =
+                  await import("../agent/harness/lifecycle.js");
+                await sweepExpiredAgentHarnessApprovalResolutions().catch(
+                  (error: unknown) => {
+                    console.error(
+                      "[agent-chat] in-process AgentHarness approval recovery failed:",
                       error,
                     );
                   },

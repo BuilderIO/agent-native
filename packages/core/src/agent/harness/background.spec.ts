@@ -83,6 +83,32 @@ it("replays persisted approval operations in the background transcript", async (
   );
 });
 
+it("projects a submitted follow-up as user input in the transcript", async () => {
+  listAgentHarnessSessionEventsMock.mockResolvedValue([
+    {
+      operationId: "follow-up:follow-up-1",
+      seq: 0,
+      eventAt: Date.now(),
+      event: { type: "user_input", text: "Run the requested action" },
+    },
+  ]);
+
+  const transcript = await listAgentHarnessBackgroundTranscriptEvents("run-1", {
+    ownerEmail: "owner@example.com",
+    orgId: "org-1",
+  });
+
+  expect(transcript).toContainEqual(
+    expect.objectContaining({
+      kind: "user",
+      message: "Run the requested action",
+      sourceRecord: expect.objectContaining({
+        operationId: "follow-up:follow-up-1",
+      }),
+    }),
+  );
+});
+
 describe("Agent Harness background stop", () => {
   it("tears down a session when its run was never registered", async () => {
     abortRunDurablyMock.mockResolvedValueOnce(false);

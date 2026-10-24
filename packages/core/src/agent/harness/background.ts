@@ -23,8 +23,10 @@ import {
   getAgentHarnessSessionByRunId,
   listAgentHarnessSessionEvents,
   listAgentHarnessSessions,
+  type AgentHarnessSessionJournalEvent,
   type AgentHarnessSessionStatus,
   type StoredAgentHarnessSession,
+  type StoredAgentHarnessSessionEvent,
 } from "./store.js";
 
 export function createAgentHarnessBackgroundAgentController(
@@ -219,12 +221,7 @@ function toAgentHarnessBackgroundTranscriptEvent(
 
 function toAgentHarnessBackgroundSessionTranscriptEvent(
   session: StoredAgentHarnessSession,
-  sessionEvent: {
-    operationId: string;
-    seq: number;
-    eventAt: number;
-    event: AgentChatEvent;
-  },
+  sessionEvent: StoredAgentHarnessSessionEvent,
 ): BackgroundAgentTranscriptEvent | null {
   const runId = session.runId ?? session.id;
   const eventId = `${runId}:operation:${sessionEvent.operationId}:${sessionEvent.seq}`;
@@ -241,7 +238,7 @@ function toAgentHarnessBackgroundSessionTranscriptEvent(
 
 function toAgentHarnessTranscriptEvent(input: {
   session: StoredAgentHarnessSession;
-  event: AgentChatEvent;
+  event: AgentHarnessSessionJournalEvent;
   eventId: string;
   seq: number;
   createdAt: number;
@@ -276,12 +273,14 @@ function toAgentHarnessTranscriptEvent(input: {
   };
 }
 
-function summarizeAgentChatEvent(event: AgentChatEvent): {
+function summarizeAgentChatEvent(event: AgentHarnessSessionJournalEvent): {
   kind: BackgroundAgentTranscriptEvent["kind"];
   message: string;
   metadata?: Record<string, unknown>;
 } | null {
   switch (event.type) {
+    case "user_input":
+      return { kind: "user", message: event.text };
     case "text":
       return { kind: "note", message: event.text };
     case "thinking":

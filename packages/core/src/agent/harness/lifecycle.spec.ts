@@ -14,12 +14,18 @@ const mocks = vi.hoisted(() => ({
   updateIfFollowUpClaim: vi.fn(),
   updateAtGeneration: vi.fn(),
   claimFollowUp: vi.fn(),
+  claimApprovalResolution: vi.fn(),
+  renewApprovalResolutionClaim: vi.fn(),
+  finalizeApprovalResolution: vi.fn(),
   markFollowUpDispatched: vi.fn(),
   renewFollowUpClaim: vi.fn(),
   persistFollowUpEvent: vi.fn(),
+  finalizeFollowUp: vi.fn(),
   persistApprovalEvent: vi.fn(),
   listExpiredFollowUps: vi.fn(),
+  listExpiredApprovals: vi.fn(),
   reconcileExpiredFollowUp: vi.fn(),
+  reconcileExpiredApproval: vi.fn(),
   startFollowUpDispatch: vi.fn(),
   markStopped: vi.fn(),
   markStoppedIfUnclaimed: vi.fn(),
@@ -30,6 +36,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./store.js", () => ({
+  APPROVAL_RESOLUTION_CLAIM_LEASE_MS: 60_000,
+  RESOLVED_APPROVAL_LIMIT: 32,
   getAgentHarnessSessionByRunId: mocks.getByRunId,
   getAgentHarnessSession: mocks.getById,
   AgentHarnessSessionConflictError: class extends Error {
@@ -44,12 +52,21 @@ vi.mock("./store.js", () => ({
   updateAgentHarnessSessionIfFollowUpClaim: mocks.updateIfFollowUpClaim,
   updateAgentHarnessSessionAtGeneration: mocks.updateAtGeneration,
   claimAgentHarnessSessionFollowUp: mocks.claimFollowUp,
+  claimAgentHarnessSessionApprovalResolution: mocks.claimApprovalResolution,
+  renewAgentHarnessSessionApprovalResolutionClaim:
+    mocks.renewApprovalResolutionClaim,
+  finalizeAgentHarnessSessionApprovalResolution:
+    mocks.finalizeApprovalResolution,
   markAgentHarnessSessionFollowUpDispatched: mocks.markFollowUpDispatched,
   renewAgentHarnessSessionFollowUpClaim: mocks.renewFollowUpClaim,
   persistAgentHarnessFollowUpEvent: mocks.persistFollowUpEvent,
+  finalizeAgentHarnessSessionFollowUp: mocks.finalizeFollowUp,
   persistAgentHarnessApprovalEvent: mocks.persistApprovalEvent,
   listExpiredAgentHarnessFollowUps: mocks.listExpiredFollowUps,
+  listExpiredAgentHarnessApprovalResolutions: mocks.listExpiredApprovals,
   reconcileExpiredAgentHarnessFollowUp: mocks.reconcileExpiredFollowUp,
+  reconcileExpiredAgentHarnessApprovalResolution:
+    mocks.reconcileExpiredApproval,
   startAgentHarnessSessionFollowUpDispatch: mocks.startFollowUpDispatch,
   markAgentHarnessSessionStopped: mocks.markStopped,
   markAgentHarnessSessionStoppedIfUnclaimed: mocks.markStoppedIfUnclaimed,
@@ -69,6 +86,7 @@ const {
   sendAgentHarnessFollowUp,
   stopAndPersistAgentHarnessSession,
   stopLiveAgentHarnessSession,
+  sweepExpiredAgentHarnessApprovalResolutions,
   sweepExpiredAgentHarnessSessions,
 } = await import("./lifecycle.js");
 
@@ -188,7 +206,93 @@ describe("agent harness lifecycle", () => {
         return stored;
       },
     );
-    mocks.renewFollowUpClaim.mockResolvedValue(true);
+    mocks.claimApprovalResolution.mockImplementation(
+      async (
+        _id,
+        approvalId,
+        expectedStatus,
+        generation,
+        expectedFollowUpId,
+      ) => {
+        if (
+          stored.status !== expectedStatus ||
+          stored.generation !== generation ||
+          stored.approvalResolutionId != null ||
+          (stored.followUpClaimId ?? null) !== expectedFollowUpId ||
+          stored.expiryCleanupId != null
+        ) {
+          return null;
+        }
+        stored = {
+          ...stored,
+          approvalResolutionId: approvalId,
+          approvalResolutionClaimExpiresAt: Date.now() + 60_000,
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        return stored;
+      },
+    );
+    mocks.renewApprovalResolutionClaim.mockImplementation(
+      async (_id, approvalId) => {
+        if (
+          stored.approvalResolutionId !== approvalId ||
+          (stored.approvalResolutionClaimExpiresAt ?? 0) <= Date.now()
+        ) {
+          return false;
+        }
+        stored = {
+          ...stored,
+          approvalResolutionClaimExpiresAt: Date.now() + 60_000,
+        };
+        return true;
+      },
+    );
+    mocks.finalizeApprovalResolution.mockImplementation(async (input) => {
+      if (
+        stored.status !== input.expectedStatus ||
+        stored.generation !== input.expectedGeneration ||
+        stored.approvalResolutionId !== input.approvalId ||
+        (stored.approvalResolutionClaimExpiresAt ?? 0) <= Date.now() ||
+        (stored.followUpClaimId ?? null) !== input.expectedFollowUpClaimId
+      ) {
+        throw Object.assign(
+          new Error("Harness session changed concurrently."),
+          {
+            name: "AgentHarnessSessionConflictError",
+          },
+        );
+      }
+      stored = {
+        ...stored,
+        pendingApproval: input.pendingApproval,
+        resumeState: input.resumeState,
+        approvalResolutionId: null,
+        approvalResolutionClaimExpiresAt: null,
+        resolvedApprovalIds: input.resolvedApprovalIds,
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      return stored;
+    });
+    mocks.listExpiredApprovals.mockResolvedValue([]);
+    mocks.reconcileExpiredApproval.mockResolvedValue(null);
+    mocks.renewFollowUpClaim.mockImplementation(
+      async (_id, claimId, now, expiresAt) => {
+        if (
+          stored.followUpClaimId !== claimId ||
+          (stored.followUpClaimExpiresAt ?? 0) <= now
+        ) {
+          return false;
+        }
+        stored = {
+          ...stored,
+          followUpClaimExpiresAt: expiresAt,
+          updatedAt: now,
+        };
+        return true;
+      },
+    );
     mocks.persistFollowUpEvent.mockResolvedValue(undefined);
     mocks.startFollowUpDispatch.mockImplementation(
       async (_id, expectedGeneration, claimId, start) => {
@@ -209,6 +313,31 @@ describe("agent harness lifecycle", () => {
         return { session: stored, started };
       },
     );
+    mocks.finalizeFollowUp.mockImplementation(async (input) => {
+      if (
+        stored.status !== "running" ||
+        stored.generation !== input.expectedGeneration ||
+        stored.followUpClaimId !== input.claimId ||
+        stored.followUpId !== input.followUpId ||
+        (stored.approvalResolutionId ?? null) !==
+          input.expectedApprovalResolutionId
+      ) {
+        return null;
+      }
+      stored = {
+        ...stored,
+        status: "idle",
+        resumeState: input.resumeState,
+        pendingApproval: input.pendingApproval,
+        followUpClaimId: null,
+        followUpClaimExpiresAt: null,
+        followUpDeadlineAt: null,
+        followUpOutcome: "completed",
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      return stored;
+    });
     mocks.markStopped.mockImplementation(async (_id, status) => {
       stored = {
         ...stored,
@@ -246,6 +375,7 @@ describe("agent harness lifecycle", () => {
           stored.status !== expectedStatus ||
           stored.generation !== expectedGeneration ||
           stored.approvalResolutionId !== approvalId ||
+          (stored.approvalResolutionClaimExpiresAt ?? 0) <= Date.now() ||
           stored.expiryCleanupId != null
         ) {
           return null;
@@ -299,6 +429,7 @@ describe("agent harness lifecycle", () => {
 
   afterEach(() => {
     releaseLiveAgentHarnessSession(stored.id);
+    vi.useRealTimers();
   });
 
   it.each([
@@ -322,6 +453,28 @@ describe("agent harness lifecycle", () => {
     });
     expect(stored.pendingApproval).toBeNull();
     expect(stored.resolvedApprovalIds).toContain("approval-1");
+  });
+
+  it("renews an approval claim while its provider call is still running", async () => {
+    vi.useFakeTimers();
+    const session = fakeSession();
+    stored.pendingApproval = approvalEvent("approval-long-running");
+    let finishApproval!: () => void;
+    session.approve.mockImplementation(
+      () => new Promise<void>((resolve) => (finishApproval = resolve)),
+    );
+    register(stored, session);
+
+    const resolution = resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: "approval-long-running", approved: true },
+      scope: ownerScope(),
+    });
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(mocks.renewApprovalResolutionClaim).toHaveBeenCalledTimes(3);
+
+    finishApproval();
+    await expect(resolution).resolves.toMatchObject({ ok: true });
   });
 
   it("keeps a recoverable idle status after delayed approval resolution", async () => {
@@ -353,12 +506,12 @@ describe("agent harness lifecycle", () => {
     const session = fakeSession();
     stored.pendingApproval = approvalEvent("approval-racing-write");
     register(stored, session);
-    const updateAtGeneration =
-      mocks.updateAtGeneration.getMockImplementation()!;
+    const finalizeApproval =
+      mocks.finalizeApprovalResolution.getMockImplementation()!;
     let attempts = 0;
-    mocks.updateAtGeneration.mockImplementation(async (...args) => {
+    mocks.finalizeApprovalResolution.mockImplementation(async (...args) => {
       attempts += 1;
-      if (attempts === 2) {
+      if (attempts === 1) {
         stored = {
           ...stored,
           resumeState: { token: "concurrent" },
@@ -370,7 +523,7 @@ describe("agent harness lifecycle", () => {
           name: "AgentHarnessSessionConflictError",
         });
       }
-      return updateAtGeneration(...args);
+      return finalizeApproval(...args);
     });
 
     const result = await resolveAgentHarnessApproval({
@@ -381,7 +534,7 @@ describe("agent harness lifecycle", () => {
 
     expect(result.ok).toBe(true);
     expect(session.approve).toHaveBeenCalledOnce();
-    expect(mocks.updateAtGeneration).toHaveBeenCalledTimes(3);
+    expect(mocks.finalizeApprovalResolution).toHaveBeenCalledTimes(2);
     expect(stored.pendingApproval).toBeNull();
     expect(stored.resolvedApprovalIds).toEqual([
       "approval-other",
@@ -394,12 +547,12 @@ describe("agent harness lifecycle", () => {
     const session = fakeSession();
     stored.pendingApproval = approvalEvent("approval-racing-write");
     register(stored, session);
-    const updateAtGeneration =
-      mocks.updateAtGeneration.getMockImplementation()!;
+    const finalizeApproval =
+      mocks.finalizeApprovalResolution.getMockImplementation()!;
     let attempts = 0;
-    mocks.updateAtGeneration.mockImplementation(async (...args) => {
+    mocks.finalizeApprovalResolution.mockImplementation(async (...args) => {
       attempts += 1;
-      if (attempts === 2) {
+      if (attempts === 1) {
         stored = {
           ...stored,
           pendingApproval: approvalEvent("approval-next"),
@@ -410,7 +563,7 @@ describe("agent harness lifecycle", () => {
           name: "AgentHarnessSessionConflictError",
         });
       }
-      return updateAtGeneration(...args);
+      return finalizeApproval(...args);
     });
 
     const result = await resolveAgentHarnessApproval({
@@ -433,18 +586,11 @@ describe("agent harness lifecycle", () => {
     session.approve.mockImplementation(async () => {
       expect(stored.approvalResolutionId).toBe(approvalId);
     });
-    const updateAtGeneration =
-      mocks.updateAtGeneration.getMockImplementation()!;
-    let attempts = 0;
-    mocks.updateAtGeneration.mockImplementation(async (...args) => {
-      attempts += 1;
-      if (attempts > 1) {
-        throw Object.assign(new Error("database write failed"), {
-          name: "AgentHarnessSessionConflictError",
-        });
-      }
-      return updateAtGeneration(...args);
-    });
+    mocks.finalizeApprovalResolution.mockRejectedValue(
+      Object.assign(new Error("database write failed"), {
+        name: "AgentHarnessSessionConflictError",
+      }),
+    );
 
     const first = await resolveAgentHarnessApproval({
       runId: stored.runId!,
@@ -465,10 +611,23 @@ describe("agent harness lifecycle", () => {
       pendingApproval: { id: approvalId },
     });
 
+    stored.approvalResolutionClaimExpiresAt = Date.now() - 1;
+    mocks.listExpiredApprovals.mockResolvedValueOnce([stored]);
+    mocks.reconcileExpiredApproval.mockImplementationOnce(async () => {
+      stored = {
+        ...stored,
+        approvalResolutionId: null,
+        approvalResolutionClaimExpiresAt: null,
+        pendingApproval: null,
+        resolvedApprovalIds: [approvalId],
+        generation: stored.generation + 1,
+      };
+      return stored;
+    });
     await expect(
-      sweepExpiredAgentHarnessSessions(Date.now() + 25 * 60 * 60 * 1_000),
-    ).resolves.toBe(1);
-    expect(session.stop).toHaveBeenCalledOnce();
+      sweepExpiredAgentHarnessApprovalResolutions(),
+    ).resolves.toEqual({ recovered: 1, truncated: false });
+    expect(session.stop).not.toHaveBeenCalled();
     expect(stored.approvalResolutionId).toBeNull();
   });
 
@@ -1095,7 +1254,10 @@ describe("agent harness lifecycle", () => {
   });
 
   it("preserves a chained approval already persisted during the follow-up", async () => {
-    const session = fakeSession([{ type: "done" }]);
+    const session = fakeSession([
+      approvalEvent("approval-chained"),
+      { type: "done" },
+    ]);
     register(stored, session);
     mocks.updateIfFollowUpClaim.mockImplementationOnce(
       async (_id, expectedClaimId, patch) => {
@@ -1163,13 +1325,11 @@ describe("agent harness lifecycle", () => {
         (call) => call[3]?.allowCurrentApprovalResolution === true,
       ),
     ).toBe(true);
-    expect(
-      mocks.updateIfFollowUpClaim.mock.calls.some(
-        (call) =>
-          call[3]?.expectedApprovalResolutionId === "approval-in-flight" &&
-          call[3]?.requiresNoApprovalResolution === false,
-      ),
-    ).toBe(true);
+    expect(mocks.finalizeFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedApprovalResolutionId: "approval-in-flight",
+      }),
+    );
   });
 
   it("does not restore a current approval resolved before finalization", async () => {
@@ -1283,28 +1443,18 @@ describe("agent harness lifecycle", () => {
   it("reconciles a concurrent approval write before finalizing its claim", async () => {
     const approval = approvalEvent("approval-racing-finalization");
     const session = fakeSession([approval]);
+    session.streamTurn.mockImplementation(async function* () {
+      yield approval;
+      stored = {
+        ...stored,
+        pendingApproval: null,
+        resolvedApprovalIds: [approval.id],
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      yield { type: "done" } as AgentHarnessEvent;
+    });
     register(stored, session);
-    mocks.updateIfFollowUpClaim.mockImplementation(
-      async (_id, expectedClaimId, patch) => {
-        if (
-          stored.status !== "running" ||
-          stored.followUpClaimId !== expectedClaimId
-        ) {
-          return null;
-        }
-        if (typeof patch !== "function") return mocks.update(_id, patch);
-
-        await patch(stored);
-        stored = {
-          ...stored,
-          pendingApproval: null,
-          resolvedApprovalIds: [approval.id],
-          generation: stored.generation + 1,
-          updatedAt: Date.now(),
-        };
-        return mocks.update(_id, await patch(stored));
-      },
-    );
 
     const result = await sendAgentHarnessFollowUp({
       runId: stored.runId!,
@@ -1542,25 +1692,23 @@ describe("agent harness lifecycle", () => {
   it("retries finalization after the claim store exhausts its conflict retries", async () => {
     const session = fakeSession([{ type: "text-delta", text: "done" }]);
     register(stored, session);
-    const updateIfClaim = mocks.updateIfFollowUpClaim.getMockImplementation()!;
+    const finalizeFollowUp = mocks.finalizeFollowUp.getMockImplementation()!;
     let conflicted = false;
-    mocks.updateIfFollowUpClaim.mockImplementation(
-      async (id, claimId, patch) => {
-        if (typeof patch === "function" && !conflicted) {
-          conflicted = true;
-          stored = {
-            ...stored,
-            generation: stored.generation + 1,
-            updatedAt: Date.now(),
-          };
-          throw Object.assign(
-            new Error("Harness session changed concurrently."),
-            { name: "AgentHarnessSessionConflictError" },
-          );
-        }
-        return updateIfClaim!(id, claimId, patch);
-      },
-    );
+    mocks.finalizeFollowUp.mockImplementation(async (input) => {
+      if (!conflicted) {
+        conflicted = true;
+        stored = {
+          ...stored,
+          generation: stored.generation + 1,
+          updatedAt: Date.now(),
+        };
+        throw Object.assign(
+          new Error("Harness session changed concurrently."),
+          { name: "AgentHarnessSessionConflictError" },
+        );
+      }
+      return finalizeFollowUp(input);
+    });
 
     const result = await sendAgentHarnessFollowUp({
       runId: stored.runId!,
@@ -1573,32 +1721,26 @@ describe("agent harness lifecycle", () => {
       ok: true,
       session: { status: "idle", followUpClaimId: null },
     });
-    expect(mocks.updateIfFollowUpClaim).toHaveBeenCalledTimes(2);
+    expect(mocks.finalizeFollowUp).toHaveBeenCalledTimes(2);
     expect(session.stop).not.toHaveBeenCalled();
   });
 
   it("fails and cleans up after exhausting follow-up finalization retries", async () => {
     const session = fakeSession([{ type: "text-delta", text: "done" }]);
     register(stored, session);
-    const updateIfClaim = mocks.updateIfFollowUpClaim.getMockImplementation()!;
+
     let finalizationAttempts = 0;
-    mocks.updateIfFollowUpClaim.mockImplementation(
-      async (id, claimId, patch) => {
-        if (typeof patch === "function") {
-          finalizationAttempts += 1;
-          stored = {
-            ...stored,
-            generation: stored.generation + 1,
-            updatedAt: Date.now(),
-          };
-          throw Object.assign(
-            new Error("Harness session changed concurrently."),
-            { name: "AgentHarnessSessionConflictError" },
-          );
-        }
-        return updateIfClaim!(id, claimId, patch);
-      },
-    );
+    mocks.finalizeFollowUp.mockImplementation(async () => {
+      finalizationAttempts += 1;
+      stored = {
+        ...stored,
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      throw Object.assign(new Error("Harness session changed concurrently."), {
+        name: "AgentHarnessSessionConflictError",
+      });
+    });
 
     const result = await sendAgentHarnessFollowUp({
       runId: stored.runId!,
@@ -1677,6 +1819,27 @@ describe("agent harness lifecycle", () => {
     } finally {
       process.off("unhandledRejection", onUnhandledRejection);
     }
+  });
+
+  it("marks a failed dispatch admission retryable when the provider never starts", async () => {
+    const session = fakeSession();
+    register(stored, session);
+    mocks.startFollowUpDispatch.mockResolvedValueOnce(null);
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(session.streamTurn).not.toHaveBeenCalled();
+    expect(stored).toMatchObject({
+      status: "idle",
+      followUpClaimId: null,
+      followUpOutcome: "not_dispatched",
+    });
+    expect(session.stop).not.toHaveBeenCalled();
   });
 
   it("does not finalize a newer follow-up claim after a generation conflict", async () => {
@@ -1846,13 +2009,11 @@ describe("agent harness lifecycle", () => {
       yield { type: "done" } as AgentHarnessEvent;
     });
     register(stored, session);
-    const updateIfClaim = mocks.updateIfFollowUpClaim.getMockImplementation()!;
-    mocks.updateIfFollowUpClaim.mockImplementation(
-      async (id, claimId, patch) => {
-        if (typeof patch === "function") finalizationStarted();
-        return updateIfClaim!(id, claimId, patch);
-      },
-    );
+    const finalizeFollowUp = mocks.finalizeFollowUp.getMockImplementation()!;
+    mocks.finalizeFollowUp.mockImplementation(async (input) => {
+      finalizationStarted();
+      return finalizeFollowUp(input);
+    });
 
     const followUp = sendAgentHarnessFollowUp({
       runId: stored.runId!,
@@ -1887,11 +2048,11 @@ describe("agent harness lifecycle", () => {
       ok: true,
       session: { status: "idle", resumeState: { token: "after-approval" } },
     });
-    expect(
-      mocks.updateIfFollowUpClaim.mock.calls.some(
-        (call) => call[3]?.requiresNoApprovalResolution === true,
-      ),
-    ).toBe(true);
+    expect(mocks.finalizeFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedApprovalResolutionId: null,
+      }),
+    );
     expect(order).toEqual(["continue", "detach"]);
   });
 
@@ -2021,6 +2182,36 @@ describe("agent harness lifecycle", () => {
         ownerEmail: "owner@example.com",
       }),
     );
+  });
+
+  it("renews the claim while a resumable adapter is being acquired", async () => {
+    vi.useFakeTimers();
+    stored.resumeState = { token: "saved" };
+    releaseLiveAgentHarnessSession(stored.id);
+    let finishCreateSession!: () => void;
+    const session = fakeSession([{ type: "done" }]);
+    const adapter = fakeAdapter(session);
+    adapter.createSession = vi.fn(
+      () =>
+        new Promise<AgentHarnessSession>((resolve) => {
+          finishCreateSession = () => resolve(session);
+        }),
+    );
+    mocks.resolveAdapter.mockReturnValue(adapter);
+
+    const followUp = sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "resume",
+      scope: ownerScope(),
+    });
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(mocks.renewFollowUpClaim).toHaveBeenCalledTimes(3);
+
+    finishCreateSession();
+    await expect(followUp).resolves.toMatchObject({
+      ok: true,
+      rehydrated: true,
+    });
   });
 
   it("reports approval unavailable when the live callback was lost", async () => {

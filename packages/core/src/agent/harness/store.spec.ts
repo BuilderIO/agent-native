@@ -33,16 +33,22 @@ vi.mock("../../db/client.js", () => ({
 }));
 
 const {
+  claimAgentHarnessSessionApprovalResolution,
   claimAgentHarnessSessionFollowUp: claimAgentHarnessSessionFollowUpInStore,
+  finalizeAgentHarnessSessionApprovalResolution,
   finishAgentHarnessSessionExpiryCleanup,
   getAgentHarnessSession,
   listAgentHarnessSessionEvents,
+  listExpiredAgentHarnessApprovalResolutions,
   listExpiredAgentHarnessFollowUps,
   markAgentHarnessSessionFollowUpDispatched,
   markAgentHarnessSessionStopped,
   markAgentHarnessSessionStoppedIfUnclaimed,
+  persistAgentHarnessApprovalEvent,
   persistAgentHarnessFollowUpEvent,
   reconcileExpiredAgentHarnessFollowUp,
+  reconcileExpiredAgentHarnessApprovalResolution,
+  renewAgentHarnessSessionApprovalResolutionClaim,
   renewAgentHarnessSessionFollowUpClaim,
   saveAgentHarnessSession,
   startAgentHarnessSessionApprovalDispatch,
@@ -198,7 +204,7 @@ describe("agent harness session store", () => {
       {
         operationId: "follow-up:follow-up-dispatched",
         seq: 0,
-        event: { type: "text", text: "Run the requested action" },
+        event: { type: "user_input", text: "Run the requested action" },
       },
     ]);
 
@@ -236,7 +242,7 @@ describe("agent harness session store", () => {
     });
     const transcript = await listAgentHarnessSessionEvents(id);
     expect(transcript.map((entry) => entry.event)).toEqual([
-      { type: "text", text: "Run the requested action" },
+      { type: "user_input", text: "Run the requested action" },
       { type: "text", text: "Provider response" },
       expect.objectContaining({
         type: "error",
@@ -245,7 +251,72 @@ describe("agent harness session store", () => {
     ]);
     expect(
       transcript.filter((entry) => entry.event.type === "text"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(
+      transcript.filter((entry) => entry.event.type === "user_input"),
+    ).toHaveLength(1);
+  });
+
+  it("recovers a persisted completion without appending an unknown outcome", async () => {
+    const id = "session-follow-up-recovery-completed";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-recovery-completed",
+      runId: "run-follow-up-recovery-completed",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const now = Date.now();
+    const claim = await claimAgentHarnessSessionFollowUpInStore(
+      id,
+      initial!.generation,
+      "claim-completed",
+      {
+        followUpId: "follow-up-completed",
+        prompt: "Finish the action",
+        claimExpiresAt: now + 10_000,
+        deadlineAt: now + 24 * 60 * 60 * 1_000,
+      },
+    );
+    const dispatched = await markAgentHarnessSessionFollowUpDispatched(
+      id,
+      claim!.generation,
+      "claim-completed",
+    );
+    await persistAgentHarnessFollowUpEvent(
+      id,
+      "follow-up-completed",
+      "claim-completed",
+      { type: "done" },
+    );
+    const expiredAt = Date.now() - 1;
+    await pglite
+      .prepare(
+        "UPDATE agent_harness_sessions SET follow_up_claim_expires_at = ? WHERE id = ?",
+      )
+      .run(expiredAt, id);
+
+    const recovered = await reconcileExpiredAgentHarnessFollowUp(
+      id,
+      "claim-completed",
+      dispatched!.generation,
+      Date.now(),
+    );
+
+    expect(recovered).toMatchObject({
+      status: "idle",
+      followUpClaimId: null,
+      followUpOutcome: "completed",
+    });
+    const events = await listAgentHarnessSessionEvents(id);
+    expect(events.map((entry) => entry.event)).toEqual([
+      { type: "user_input", text: "Finish the action" },
+      { type: "done" },
+    ]);
+    expect(events.some((entry) => entry.event.type === "error")).toBe(false);
   });
 
   it("makes an expired undispatched follow-up retryable and recovers legacy claims conservatively", async () => {
@@ -529,7 +600,7 @@ describe("agent harness session store", () => {
       {
         operationId: "follow-up:expired-claim",
         seq: 0,
-        event: { type: "text", text: "Follow-up expired-claim" },
+        event: { type: "user_input", text: "Follow-up expired-claim" },
       },
     ]);
   });
@@ -585,11 +656,12 @@ describe("agent harness session store", () => {
       orgId: "org-1",
     });
     const initial = await getAgentHarnessSession(id);
-    const reserved = await updateAgentHarnessSessionAtGeneration(
+    const reserved = await claimAgentHarnessSessionApprovalResolution(
       id,
+      approvalId,
       "idle",
       initial!.generation,
-      { approvalResolutionId: approvalId },
+      null,
     );
 
     let releaseCommit!: () => void;
@@ -665,11 +737,12 @@ describe("agent harness session store", () => {
       orgId: "org-1",
     });
     const initial = await getAgentHarnessSession(id);
-    const reserved = await updateAgentHarnessSessionAtGeneration(
+    const reserved = await claimAgentHarnessSessionApprovalResolution(
       id,
+      approvalId,
       "idle",
       initial!.generation,
-      { approvalResolutionId: approvalId },
+      null,
     );
     await markAgentHarnessSessionStopped(id, "stopped");
     const start = vi.fn();
@@ -850,11 +923,12 @@ describe("agent harness session store", () => {
       orgId: "org-1",
     });
     const initial = await getAgentHarnessSession(id);
-    const reserved = await updateAgentHarnessSessionAtGeneration(
+    const reserved = await claimAgentHarnessSessionApprovalResolution(
       id,
+      approvalId,
       "idle",
       initial!.generation,
-      { approvalResolutionId: approvalId },
+      null,
     );
 
     await expect(
@@ -887,11 +961,12 @@ describe("agent harness session store", () => {
       orgId: "org-1",
     });
     const initial = await getAgentHarnessSession(id);
-    const reserved = await updateAgentHarnessSessionAtGeneration(
+    const reserved = await claimAgentHarnessSessionApprovalResolution(
       id,
+      approvalId,
       "idle",
       initial!.generation,
-      { approvalResolutionId: approvalId },
+      null,
     );
     const start = vi.fn();
 
@@ -910,6 +985,211 @@ describe("agent harness session store", () => {
       approvalResolutionId: approvalId,
       generation: reserved!.generation,
     });
+  });
+
+  it("renews approval claims and recovers an expired unknown outcome once", async () => {
+    const id = "session-expired-approval-resolution";
+    const approvalId = "approval-expired-unknown";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-expired-approval-resolution",
+      runId: "run-expired-approval-resolution",
+      status: "idle",
+      pendingApproval: { type: "approval-request", id: approvalId },
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionApprovalResolution(
+      id,
+      approvalId,
+      "idle",
+      initial!.generation,
+      null,
+    );
+
+    expect(await listExpiredAgentHarnessApprovalResolutions()).toEqual([]);
+    await expect(
+      renewAgentHarnessSessionApprovalResolutionClaim(id, approvalId),
+    ).resolves.toBe(true);
+    await pglite
+      .prepare(
+        "UPDATE agent_harness_sessions SET approval_resolution_claim_expires_at = 0 WHERE id = ?",
+      )
+      .run(id);
+    const expired = await listExpiredAgentHarnessApprovalResolutions();
+    expect(expired.map((session) => session.id)).toContain(id);
+
+    const recovered = await reconcileExpiredAgentHarnessApprovalResolution(
+      id,
+      approvalId,
+      claimed!.generation,
+    );
+    expect(recovered).toMatchObject({
+      approvalResolutionId: null,
+      approvalResolutionClaimExpiresAt: null,
+      resolvedApprovalIds: [approvalId],
+    });
+    expect(recovered?.pendingApproval ?? null).toBeNull();
+    await expect(
+      renewAgentHarnessSessionApprovalResolutionClaim(id, approvalId),
+    ).resolves.toBe(false);
+    const events = await listAgentHarnessSessionEvents(id);
+    expect(events.map((entry) => entry.event)).toEqual([
+      expect.objectContaining({
+        type: "error",
+        errorCode: "harness_approval_outcome_unknown",
+      }),
+    ]);
+    await expect(listExpiredAgentHarnessApprovalResolutions()).resolves.toEqual(
+      [],
+    );
+  });
+
+  it("commits approval completion with the claim release", async () => {
+    const id = "session-approval-finalize-transaction";
+    const approvalId = "approval-finalize-transaction";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-approval-finalize-transaction",
+      runId: "run-approval-finalize-transaction",
+      status: "idle",
+      pendingApproval: { type: "approval-request", id: approvalId },
+      resumeState: { token: "before" },
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionApprovalResolution(
+      id,
+      approvalId,
+      "idle",
+      initial!.generation,
+      null,
+    );
+
+    const finalized = await finalizeAgentHarnessSessionApprovalResolution({
+      sessionId: id,
+      approvalId,
+      expectedStatus: "idle",
+      expectedGeneration: claimed!.generation,
+      expectedFollowUpClaimId: null,
+      pendingApproval: null,
+      resumeState: { token: "after" },
+      resolvedApprovalIds: [approvalId],
+    });
+
+    expect(finalized).toMatchObject({
+      approvalResolutionId: null,
+      approvalResolutionClaimExpiresAt: null,
+      resumeState: { token: "after" },
+      resolvedApprovalIds: [approvalId],
+    });
+    const events = await listAgentHarnessSessionEvents(id);
+    expect(events.map((entry) => entry.event)).toEqual([{ type: "done" }]);
+  });
+
+  it("recovers a durable approval completion without adding an unknown outcome", async () => {
+    const id = "session-expired-approval-completed";
+    const approvalId = "approval-expired-completed";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-expired-approval-completed",
+      runId: "run-expired-approval-completed",
+      status: "idle",
+      pendingApproval: { type: "approval-request", id: approvalId },
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionApprovalResolution(
+      id,
+      approvalId,
+      "idle",
+      initial!.generation,
+      null,
+    );
+    await persistAgentHarnessApprovalEvent(id, approvalId, { type: "done" });
+    await pglite
+      .prepare(
+        "UPDATE agent_harness_sessions SET approval_resolution_claim_expires_at = 0 WHERE id = ?",
+      )
+      .run(id);
+
+    const recovered = await reconcileExpiredAgentHarnessApprovalResolution(
+      id,
+      approvalId,
+      claimed!.generation,
+    );
+
+    expect(recovered).toMatchObject({
+      approvalResolutionId: null,
+      resolvedApprovalIds: [approvalId],
+    });
+    expect(recovered?.pendingApproval ?? null).toBeNull();
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toMatchObject([
+      { event: { type: "done" } },
+    ]);
+  });
+
+  it("clears a nested approval claim when its follow-up expires", async () => {
+    const id = "session-expired-follow-up-with-approval";
+    const followUpId = "follow-up-expired-with-approval";
+    const approvalId = "approval-expired-with-follow-up";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-expired-follow-up-with-approval",
+      runId: "run-expired-follow-up-with-approval",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      followUpId,
+    );
+    const pending = await updateAgentHarnessSessionIfFollowUpClaim(
+      id,
+      followUpId,
+      { pendingApproval: { type: "approval-request", id: approvalId } },
+    );
+    const approval = await claimAgentHarnessSessionApprovalResolution(
+      id,
+      approvalId,
+      "running",
+      pending!.generation,
+      followUpId,
+    );
+    await pglite
+      .prepare(
+        "UPDATE agent_harness_sessions SET follow_up_claim_expires_at = 0 WHERE id = ?",
+      )
+      .run(id);
+
+    const recovered = await reconcileExpiredAgentHarnessFollowUp(
+      id,
+      followUpId,
+      approval!.generation,
+      Date.now(),
+    );
+
+    expect(recovered).toMatchObject({
+      status: "idle",
+      followUpClaimId: null,
+      approvalResolutionId: null,
+      approvalResolutionClaimExpiresAt: null,
+      resolvedApprovalIds: [approvalId],
+    });
+    expect(recovered?.pendingApproval ?? null).toBeNull();
+    const events = await listAgentHarnessSessionEvents(id);
+    expect(events.some((entry) => entry.event.type === "error")).toBe(true);
+    expect(claimed).not.toBeNull();
   });
 
   it("lets an approval owner persist a chained request without finalizing early", async () => {
@@ -941,11 +1221,11 @@ describe("agent harness session store", () => {
         },
       },
     );
-    const reserved = await updateAgentHarnessSessionAtGeneration(
+    const reserved = await claimAgentHarnessSessionApprovalResolution(
       id,
+      approvalId,
       "running",
       pending!.generation,
-      { approvalResolutionId: approvalId },
       claimId,
     );
     await expect(
@@ -1400,11 +1680,12 @@ describe("agent harness session store", () => {
       orgId: "org-1",
     });
     const initial = await getAgentHarnessSession(id);
-    const resolving = await updateAgentHarnessSessionAtGeneration(
+    const resolving = await claimAgentHarnessSessionApprovalResolution(
       id,
+      "approval-in-progress",
       "idle",
       initial!.generation,
-      { approvalResolutionId: "approval-in-progress" },
+      null,
     );
 
     await expect(
