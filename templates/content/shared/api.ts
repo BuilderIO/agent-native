@@ -316,6 +316,43 @@ export interface DocumentProperty {
    * trashed — deliberately indistinguishable).
    */
   relationTargets?: DocumentPropertyRelationTarget[];
+  /**
+   * Builder status only: the statuses this viewer can give the page's Builder
+   * entry. Absent while the status is read-only.
+   */
+  builderStatusChoices?: BuilderEntryStatusChoice[];
+}
+
+/**
+ * A status that can be picked for a Builder entry from Content. Unpublished
+ * changes can be picked only while Builder reports it, to clear a staged change.
+ */
+export type BuilderEntryStatusPick =
+  | "published"
+  | "draft"
+  | "unpublished_changes";
+
+export interface BuilderEntryStatusChoice {
+  status: BuilderEntryStatusPick;
+  /**
+   * False for Published while Builder's editor holds changes Content can't
+   * see, and for Unpublished changes while Builder doesn't report them.
+   */
+  available: boolean;
+}
+
+export interface SetBuilderEntryStatusRequest {
+  databaseId: string;
+  documentId: string;
+  status: BuilderEntryStatusPick;
+  sourceId?: string;
+}
+
+export interface SetBuilderEntryStatusResponse {
+  documentId: string;
+  sourceId: string;
+  /** The publish or unpublish now waiting for review and push, if any. */
+  stagedPublicationTransition: BuilderCmsPublicationTransitionIntent | null;
 }
 
 export interface DocumentPropertiesResponse {
@@ -967,6 +1004,11 @@ export interface ContentDatabaseSourceChangeSet {
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
   conflictState: ContentDatabaseSourceConflictState;
+  /**
+   * A publish or unpublish picked for this row's Builder entry. The review
+   * preselects it; the push still has to send it.
+   */
+  stagedPublicationTransition?: BuilderCmsPublicationTransitionIntent;
   reviewEvents: ContentDatabaseSourceReviewEvent[];
   executions: ContentDatabaseSourceExecution[];
   createdAt: string;
@@ -1811,6 +1853,7 @@ export interface ContentDatabaseSourceReviewRowSummary {
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
   conflictState: ContentDatabaseSourceConflictState;
+  stagedPublicationTransition?: BuilderCmsPublicationTransitionIntent;
   effect: BuilderCmsWriteEffect;
   execution: ContentDatabaseSourceExecution | null;
 }

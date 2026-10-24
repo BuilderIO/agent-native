@@ -1,7 +1,18 @@
 import { createHash } from "node:crypto";
 
 import { fail, isActionContractError } from "@agent-native/core/action";
-import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
@@ -111,10 +122,16 @@ import {
 } from "./_builder-cms-source-adapter.js";
 import {
   builderCmsBodyStillSavedOver,
+  builderCmsLiveBaselineValues,
+  builderCmsLiveBodyBaseline,
   builderSourceValuesKeepingUnpublishedChanges,
+  readBuilderCmsPublicationIntent,
   readBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes.js";
-import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
+import {
+  builderCmsWriteSettingsFromJson,
+  mergeBuilderCmsWriteSettingsIntoJson,
+} from "./_builder-cms-write-settings.js";
 import { assertNoActiveBuilderSourceExecutions } from "./_builder-source-execution-guard.js";
 import {
   clearBuilderStatusValues,
@@ -852,6 +869,36 @@ function maxRisk(
   return riskRank(next) > riskRank(current) ? next : current;
 }
 
+/** The publish or unpublish staged for a Builder row, while the source allows one. */
+function stagedPublicationTransitionForRow(args: {
+  source: Pick<
+    ContentDatabaseSourceRowDb,
+    "sourceType" | "capabilitiesJson" | "metadataJson"
+  >;
+  row:
+    | Pick<ContentDatabaseSourceRecordRowDb, "sourceValuesJson">
+    | null
+    | undefined;
+}) {
+  if (
+    !args.row ||
+    normalizeSourceType(args.source.sourceType) !== "builder-cms"
+  ) {
+    return null;
+  }
+  if (
+    !builderCmsWriteSettingsFromJson(args.source).allowPublicationTransitions
+  ) {
+    return null;
+  }
+  const intent = readBuilderCmsPublicationIntent(
+    parseObject<Record<string, DocumentPropertyValue>>(
+      args.row.sourceValuesJson,
+    ),
+  );
+  return intent.state === "staged" ? intent.transition : null;
+}
+
 function reviewedChangeSet(args: {
   changeSet: ContentDatabaseSourceChangeSet;
   source: ContentDatabaseSourceRowDb;
@@ -861,6 +908,22 @@ function reviewedChangeSet(args: {
 }): ContentDatabaseSourceChangeSet {
   let riskLevel: ContentDatabaseSourceRiskLevel = "low";
   const riskReasons: string[] = [];
+  const sourceRow = args.changeSet.documentId
+    ? args.rowByDocumentId.get(args.changeSet.documentId)
+    : null;
+  const stagedPublicationTransition =
+    args.changeSet.direction === "outbound" &&
+    args.changeSet.state !== "applied" &&
+    args.changeSet.state !== "rejected"
+      ? stagedPublicationTransitionForRow({
+          source: args.source,
+          row: sourceRow,
+        })
+      : null;
+  if (stagedPublicationTransition) {
+    riskLevel = maxRisk(riskLevel, "high");
+    riskReasons.push(`staged ${stagedPublicationTransition}`);
+  }
 
   if (args.changeSet.bodyChange) {
     riskLevel = maxRisk(riskLevel, "medium");
@@ -879,9 +942,6 @@ function reviewedChangeSet(args: {
     riskReasons.push("publish mode");
   }
 
-  const sourceRow = args.changeSet.documentId
-    ? args.rowByDocumentId.get(args.changeSet.documentId)
-    : null;
   const sourceChanged =
     sourceRow?.lastSourceUpdatedAt &&
     sourceRow.lastSourceUpdatedAt > args.changeSet.updatedAt;
@@ -898,6 +958,7 @@ function reviewedChangeSet(args: {
     riskLevel,
     riskReasons: riskReasons.length ? riskReasons : ["single field diff"],
     conflictState,
+    stagedPublicationTransition: stagedPublicationTransition ?? undefined,
     reviewEvents: args.reviewEvents,
     executions: args.executions,
   };
@@ -918,7 +979,24 @@ function stableValueString(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function reviewedBuilderChangeSetRevisionId(
+/**
+ * A review id that no stored change set holds. The same change can be pushed
+ * more than once (every publish or unpublish without a field or body change
+ * hashes alike), so the revision hash alone repeats.
+ */
+export function unusedBuilderChangeSetRevisionId(
+  changeSet: ContentDatabaseSourceChangeSet,
+  usedIds: ReadonlySet<string>,
+) {
+  const revisionId = reviewedBuilderChangeSetRevisionId(changeSet);
+  let id = revisionId;
+  for (let repeat = 2; usedIds.has(id); repeat += 1) {
+    id = `${revisionId}-${repeat}`;
+  }
+  return id;
+}
+
+function reviewedBuilderChangeSetRevisionId(
   changeSet: ContentDatabaseSourceChangeSet,
 ) {
   const revision = createHash("sha256")
@@ -3514,15 +3592,21 @@ export async function builderBodyChangeForLocalContent(args: {
   row: Pick<ContentDatabaseSourceRecordRowDb, "sourceValuesJson">;
   localContent: string | null | undefined;
   usesCurrentHydrationCodec?: boolean;
+  /**
+   * Compare against Builder's live body instead of the row's, which holds
+   * the body Content saved over it. Only its hash is kept, so the body is
+   * converted and compared by hash.
+   */
+  liveBaseline?: { blocksHash: string | null } | null;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
       args.row.sourceValuesJson,
     ) ?? {};
-  const currentHash = stringSourceValue(
-    sourceValues,
-    BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
-  );
+  const liveBaseline = args.liveBaseline ?? null;
+  const currentHash = liveBaseline
+    ? liveBaseline.blocksHash
+    : stringSourceValue(sourceValues, BUILDER_CMS_BODY_BLOCKS_HASH_KEY);
   const currentContent = stringSourceValue(
     sourceValues,
     BUILDER_CMS_BODY_CONTENT_KEY,
@@ -3535,12 +3619,23 @@ export async function builderBodyChangeForLocalContent(args: {
     stringSourceValue(sourceValues, BUILDER_CMS_BODY_SIDECARS_KEY) ?? "{}";
   const localContent = args.localContent ?? "";
   if (!currentHash && !currentContent && !localContent.trim()) return null;
-  if (!currentContent?.trim() && !losslessContent?.trim()) return null;
+  // A row with no stored body has an unknown baseline, unless the body is
+  // known to be empty or Builder's live body is the baseline.
+  if (
+    !liveBaseline &&
+    !currentContent?.trim() &&
+    !losslessContent?.trim() &&
+    !builderCmsBodyKnownEmpty(sourceValues)
+  ) {
+    return null;
+  }
   const usesCurrentMediaConverter =
     builderBodyUsesCurrentMediaConverter(localContent);
   const normalizedLocalContent =
     normalizeBuilderBodyBaselineContent(localContent);
+  const comparesStoredContent = !liveBaseline;
   if (
+    comparesStoredContent &&
     args.usesCurrentHydrationCodec &&
     normalizedLocalContent &&
     normalizedLocalContent ===
@@ -3549,6 +3644,7 @@ export async function builderBodyChangeForLocalContent(args: {
     return null;
   }
   if (
+    comparesStoredContent &&
     !usesCurrentMediaConverter &&
     normalizedLocalContent &&
     normalizedLocalContent ===
@@ -3557,6 +3653,7 @@ export async function builderBodyChangeForLocalContent(args: {
     return null;
   }
   if (
+    comparesStoredContent &&
     !usesCurrentMediaConverter &&
     normalizedLocalContent &&
     normalizedLocalContent ===
@@ -3564,6 +3661,7 @@ export async function builderBodyChangeForLocalContent(args: {
   ) {
     return null;
   }
+  const currentBodyExcerpt = liveBaseline ? null : bodyExcerpt(currentContent);
 
   let sidecars: Record<string, string> = {};
   try {
@@ -3605,7 +3703,7 @@ export async function builderBodyChangeForLocalContent(args: {
     if (!proposed.blocks) {
       return {
         summary: "Builder body blocks changed, but need attention before push.",
-        currentExcerpt: bodyExcerpt(currentContent),
+        currentExcerpt: currentBodyExcerpt,
         proposedExcerpt: bodyExcerpt(localContent),
         currentHash,
         proposedHash: null,
@@ -3620,7 +3718,7 @@ export async function builderBodyChangeForLocalContent(args: {
     if (currentHash && proposedHash === currentHash) return null;
     return {
       summary: "Builder body blocks changed.",
-      currentExcerpt: bodyExcerpt(currentContent),
+      currentExcerpt: currentBodyExcerpt,
       proposedExcerpt: bodyExcerpt(localContent),
       currentHash,
       proposedHash,
@@ -3636,7 +3734,7 @@ export async function builderBodyChangeForLocalContent(args: {
         : "Builder body could not be converted.";
     return {
       summary: "Builder body blocks changed, but need attention before push.",
-      currentExcerpt: bodyExcerpt(currentContent),
+      currentExcerpt: currentBodyExcerpt,
       proposedExcerpt: bodyExcerpt(localContent),
       currentHash,
       proposedHash: null,
@@ -3718,6 +3816,7 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   bodyHydrationVersion?: string | null;
   allowUnsourcedCreate: boolean;
   localContent: string | null | undefined;
+  liveBaseline?: { blocksHash: string | null } | null;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   if (args.row) {
     const identity = builderCmsSourceRowIdentityState({ row: args.row });
@@ -3733,6 +3832,7 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
       usesCurrentHydrationCodec:
         Boolean(args.bodyHydrationVersion) &&
         !builderBodyHydrationIsCodecMigration(args.bodyHydrationVersion),
+      liveBaseline: args.liveBaseline,
     });
   }
   if (!args.allowUnsourcedCreate) return null;
@@ -3802,13 +3902,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
           stableValueString(candidate.bodyChange),
     );
 
+  const storedChangeSetIds = new Set(
+    args.storedChangeSets.map((stored) => stored.id),
+  );
   const withUniqueReviewIdentity = (
     candidate: ContentDatabaseSourceChangeSet,
   ): ContentDatabaseSourceChangeSet =>
-    args.storedChangeSets.some((stored) => stored.id === candidate.id)
+    storedChangeSetIds.has(candidate.id)
       ? {
           ...candidate,
-          id: reviewedBuilderChangeSetRevisionId(candidate),
+          id: unusedBuilderChangeSetRevisionId(candidate, storedChangeSetIds),
         }
       : candidate;
 
@@ -3892,10 +3995,17 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       continue;
     }
 
-    const rowSourceValues =
+    const stagedTransition = stagedPublicationTransitionForRow({
+      source: args.source,
+      row,
+    });
+    const storedSourceValues =
       parseObject<Record<string, DocumentPropertyValue>>(
         row.sourceValuesJson,
       ) ?? {};
+    const rowSourceValues = stagedTransition
+      ? builderCmsLiveBaselineValues(storedSourceValues)
+      : storedSourceValues;
     const sourceTitleValue = rowSourceValues["data.title"];
     const sourceTitle =
       typeof sourceTitleValue === "string" && sourceTitleValue.trim()
@@ -3952,7 +4062,8 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       }
     }
     const bodyChange = args.bodyChangeByDocumentId?.get(row.documentId) ?? null;
-    if (fieldChanges.length === 0 && !bodyChange) continue;
+    const transitionOnly = fieldChanges.length === 0 && !bodyChange;
+    if (transitionOnly && !stagedTransition) continue;
     const matchesStoredChange = args.storedChangeSets.some((changeSet) => {
       if (
         changeSet.direction !== "outbound" ||
@@ -3963,6 +4074,8 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       ) {
         return false;
       }
+      // Any open change for the row carries its staged publish or unpublish.
+      if (transitionOnly) return true;
       return (
         changeSet.fieldChanges.some((stored) =>
           fieldChanges.some((change) => {
@@ -3996,16 +4109,18 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       id: `local-pending-${row.id}-change`,
       databaseItemId: row.databaseItemId,
       documentId: row.documentId,
-      kind:
-        bodyChange && fieldChanges.length === 0
+      kind: transitionOnly
+        ? "metadata_update"
+        : bodyChange && fieldChanges.length === 0
           ? "body_update"
           : "field_update",
       direction: "outbound",
       state: "pending_push",
       pushMode: "autosave",
       localOnly: true,
-      summary:
-        bodyChange && fieldChanges.length === 0
+      summary: transitionOnly
+        ? `Pending local Builder CMS ${stagedTransition} for "${displayTitle}".`
+        : bodyChange && fieldChanges.length === 0
           ? `Pending local Builder CMS body change for "${displayTitle}".`
           : fieldChanges.length === 1 &&
               fieldChanges[0]?.localFieldKey === "title"
@@ -5019,6 +5134,14 @@ async function loadSourceSnapshot(
             bodyHydrationVersionByDocumentId.get(documentId) ?? null,
           allowUnsourcedCreate,
           localContent: documentContentById.get(documentId),
+          liveBaseline:
+            row && stagedPublicationTransitionForRow({ source, row })
+              ? builderCmsLiveBodyBaseline(
+                  parseObject<Record<string, DocumentPropertyValue>>(
+                    row.sourceValuesJson,
+                  ) ?? {},
+                )
+              : null,
         });
         if (bodyChange) bodyChangeByDocumentId.set(documentId, bodyChange);
       }),
@@ -6111,7 +6234,7 @@ export async function replaceMockSourceRows(args: {
     });
   }
   const db = getDb();
-  const rows = mockSourceRowsForSeed(args);
+  const lockRows = mockSourceRowsForSeed(args);
   await db.transaction(async (tx) => {
     const scope = args.documentIds?.length
       ? and(
@@ -6131,8 +6254,20 @@ export async function replaceMockSourceRows(args: {
       .where(scope);
     await lockDatabaseMemberships(tx, [
       ...oldRows.map((row) => row.databaseItemId).filter(Boolean),
-      ...rows.map((row) => row.databaseItemId),
+      ...lockRows.map((row) => row.databaseItemId),
     ]);
+    // The caller read these rows before this lock, so a save or staged status
+    // change that landed since is only in the locked rows; build on those.
+    const rows = args.existingBuilderRows
+      ? mockSourceRowsForSeed({
+          ...args,
+          existingBuilderRows: await lockedExistingBuilderRows(
+            tx,
+            scope,
+            args.existingBuilderRows,
+          ),
+        })
+      : lockRows;
     await tx.delete(schema.contentDatabaseSourceRows).where(scope);
     await insertMockSourceRows(tx, rows, args.now);
     const [source] = await tx
@@ -6155,6 +6290,30 @@ export async function replaceMockSourceRows(args: {
       });
     }
   });
+}
+
+async function lockedExistingBuilderRows(
+  tx: any,
+  scope: SQL | undefined,
+  readBeforeLock: Map<string, ExistingBuilderSourceRowIdentity>,
+) {
+  const locked = await tx
+    .select({
+      documentId: schema.contentDatabaseSourceRows.documentId,
+      sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+      sourceQualifiedId: schema.contentDatabaseSourceRows.sourceQualifiedId,
+      sourceDisplayKey: schema.contentDatabaseSourceRows.sourceDisplayKey,
+      provenance: schema.contentDatabaseSourceRows.provenance,
+      lastSourceUpdatedAt: schema.contentDatabaseSourceRows.lastSourceUpdatedAt,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(scope);
+  const next = new Map(readBeforeLock);
+  for (const row of locked as ExistingBuilderSourceRowIdentity[]) {
+    next.set(row.documentId, row);
+  }
+  return next;
 }
 
 export function sourceValuesForSeededSourceRow(args: {

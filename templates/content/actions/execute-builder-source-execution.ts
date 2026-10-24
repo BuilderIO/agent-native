@@ -50,7 +50,9 @@ import {
 import {
   builderCmsSourceFieldMatches,
   builderCmsUnpublishedChangesAfterWrite,
+  readBuilderCmsPublicationIntent,
   readBuilderCmsUnpublishedChanges,
+  withBuilderCmsPublicationIntent,
   withBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes.js";
 import type {
@@ -108,6 +110,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
     >,
   ) => Promise<DatabaseRecord | null>;
   assertEditor: (database: DatabaseRecord) => Promise<void>;
+  assertPageEditor: (documentId: string) => Promise<void>;
   getSourceSnapshot: (
     database: DatabaseRecord,
   ) => Promise<ContentDatabaseSource | null>;
@@ -488,7 +491,14 @@ export function builderCmsReconciledSourceValuesJson(args: {
     ...(args.snapshotSourceValues ?? {}),
     ...parseSourceValues(args.existingSourceValuesJson),
   };
-  const next = { ...existing };
+  const effect = args.plan.payload.effect;
+  // A push settles only the staged change it sent. One staged while it was
+  // in flight, or left out of its review, still waits for a push.
+  const staged = readBuilderCmsPublicationIntent(existing);
+  const next =
+    staged.state === "staged" && staged.transition === effect
+      ? withBuilderCmsPublicationIntent(existing, null)
+      : { ...existing };
   const published = builderCmsPublishedAfterWrite({
     effect: args.plan.payload.effect,
     livePreflight: args.plan.payload.livePreflight,
@@ -742,6 +752,12 @@ function livePreflightBlockMessage(args: {
   }
   if (args.effect === "unpublish" && args.liveState.published !== "published") {
     return "Entry is not currently published.";
+  }
+  // An autosave in Builder's editor can leave the entry's update time alone,
+  // so the timestamp check above doesn't catch one made after the review.
+  // Content's own unpublished save doesn't account for it either.
+  if (args.effect === "publish" && args.liveState.hasAutosaves === true) {
+    return "This entry has unpublished changes saved in Builder's editor, which Content can't see. Publish it from Builder.";
   }
   return null;
 }
@@ -1083,6 +1099,9 @@ export function realExecutionDeps(
     resolveDatabase: (args) => resolveDatabaseForSourceMutation(args),
     assertEditor: async (database) => {
       await assertAccess("document", database.documentId, "editor");
+    },
+    assertPageEditor: async (documentId) => {
+      await assertAccess("document", documentId, "editor");
     },
     getSourceSnapshot: async (database) => {
       const [target] = changeSetId
@@ -1784,6 +1803,11 @@ export async function executeBuilderSourceExecutionWithDeps(
     if (!changeSet) throw new Error("Source change-set not found.");
     if (changeSet.direction !== "outbound") {
       throw new Error("Only outbound Builder change sets can be executed.");
+    }
+    // A collection editor may only view a page, and publishing or
+    // unpublishing one needs edit access to it, as staging the pick does.
+    if (args.publicationTransition && changeSet.documentId) {
+      await deps.assertPageEditor(changeSet.documentId);
     }
 
     const resolvedPushMode = resolveBuilderCmsExecutionPushMode({

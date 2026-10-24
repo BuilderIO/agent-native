@@ -757,13 +757,14 @@ export const parityMatrix: ParityRow[] = [
       "Review, stage, validate, cancel, and execute Builder CMS source writes",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
+      "app/components/editor/DocumentProperties.tsx",
       "app/components/editor/database/DatabaseView.tsx",
       "app/components/editor/database-sources/BuilderSourceReviewDialog.tsx",
     ],
     durableEffect:
-      "Builder source write mode, staged reviews, pre-dispatch cancellations, validation records, and bounded execution records are created through guarded actions.",
+      "Builder source write mode, staged publish and unpublish picks, staged reviews, pre-dispatch cancellations, validation records, and bounded execution records are created through guarded actions.",
     uiImplementation:
-      "Builder source dialogs call review, write-mode, validation, staging, and execution actions.",
+      "Builder source dialogs call review, write-mode, validation, staging, and execution actions; the Builder status property's picker calls set-builder-entry-status.",
     status: "action-backed",
     actions: [
       "cancel-prepared-builder-source-update",
@@ -773,6 +774,7 @@ export const parityMatrix: ParityRow[] = [
       "prepare-builder-source-review",
       "preview-builder-source-review",
       "review-content-database-source-change-set",
+      "set-builder-entry-status",
       "set-content-database-source-write-mode",
       "stage-builder-source-bulk-update",
       "stage-builder-revision",
@@ -787,6 +789,7 @@ export const parityMatrix: ParityRow[] = [
       "actions/builder-source-review-gates.db.test.ts",
       "actions/cancel-prepared-builder-source-update.db.test.ts",
       "actions/execute-builder-source-execution.test.ts",
+      "actions/set-builder-entry-status.db.test.ts",
       "actions/stage-builder-source-bulk-update.db.test.ts",
     ],
     evalScenarioIds: ["builder-source-review-readonly"],

@@ -847,6 +847,8 @@ const editor = {
     moveColumnLeft: "Spalte nach links verschieben",
     moveColumnRight: "Spalte nach rechts verschieben",
     editProperty: "Bearbeiten Sie {{name}}",
+    builderStatusPublishInBuilder:
+      "Im Builder-Editor gespeicherte Änderungen können nur in Builder veröffentlicht werden.",
     editStartDate: "{{name}}-Startdatum bearbeiten",
     editValue: "{{name}}-Wert bearbeiten",
     empty: "Leer",

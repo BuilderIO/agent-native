@@ -410,6 +410,12 @@ export function BuilderSourceReviewDialog({
   );
   const [transitionSelections, setTransitionSelections] =
     useState<BuilderReviewPublicationTransitionSelections>({});
+  // The staged status each row was preselected with, so clearing one sticks,
+  // through a prepare that gives the row a new id too, until a different
+  // status is staged.
+  const seededTransitionsRef = useRef(
+    new Map<string, BuilderCmsPublicationTransitionIntent>(),
+  );
   const [cancelChangeSetId, setCancelChangeSetId] = useState<string | null>(
     null,
   );
@@ -442,8 +448,16 @@ export function BuilderSourceReviewDialog({
         : next;
     });
   }, [autoSelectReviewRows, open, reviewRowIdsKey, selectionChangeSetIdMap]);
+  const stagedTransitionsKey = reviewRows
+    .flatMap((row) =>
+      row.stagedPublicationTransition
+        ? [`${row.changeSetId}:${row.stagedPublicationTransition}`]
+        : [],
+    )
+    .join("\u0000");
   useEffect(() => {
     if (!open || !allowPublicationTransitionControls) {
+      seededTransitionsRef.current = new Map();
       setTransitionSelections({});
       return;
     }
@@ -451,6 +465,36 @@ export function BuilderSourceReviewDialog({
     const reviewRowIdSet = new Set(
       reviewRowIdsKey ? reviewRowIdsKey.split("\u0000") : [],
     );
+    const seeded = seededTransitionsRef.current;
+    for (const [changeSetId, publicationTransition] of [...seeded]) {
+      const mappedChangeSetId = selectionChangeSetIdMap?.[changeSetId];
+      if (mappedChangeSetId) {
+        seeded.set(mappedChangeSetId, publicationTransition);
+      }
+    }
+    const staged = new Map(
+      (stagedTransitionsKey ? stagedTransitionsKey.split("\u0000") : []).map(
+        (entry) => {
+          const separator = entry.lastIndexOf(":");
+          return [
+            entry.slice(0, separator),
+            entry.slice(separator + 1) as BuilderCmsPublicationTransitionIntent,
+          ] as const;
+        },
+      ),
+    );
+    const unstaged: Array<[string, BuilderCmsPublicationTransitionIntent]> = [];
+    for (const [changeSetId, publicationTransition] of [...seeded]) {
+      if (!reviewRowIdSet.has(changeSetId) || staged.has(changeSetId)) continue;
+      seeded.delete(changeSetId);
+      unstaged.push([changeSetId, publicationTransition]);
+    }
+    const restaged: Array<[string, BuilderCmsPublicationTransitionIntent]> = [];
+    for (const [changeSetId, publicationTransition] of staged) {
+      if (seeded.get(changeSetId) === publicationTransition) continue;
+      seeded.set(changeSetId, publicationTransition);
+      restaged.push([changeSetId, publicationTransition]);
+    }
     setTransitionSelections((current) => {
       const next: BuilderReviewPublicationTransitionSelections = {};
       for (const [changeSetId, selection] of Object.entries(current)) {
@@ -459,6 +503,27 @@ export function BuilderSourceReviewDialog({
         if (reviewRowIdSet.has(mappedChangeSetId)) {
           next[mappedChangeSetId] = selection;
         }
+      }
+      // Clearing a pick takes away the preselection it made unless the row's
+      // selection was changed since; a different pick preselects the row again.
+      for (const [changeSetId, publicationTransition] of unstaged) {
+        if (
+          next[changeSetId]?.publicationTransition === publicationTransition
+        ) {
+          delete next[changeSetId];
+        }
+      }
+      for (const [changeSetId, publicationTransition] of restaged) {
+        if (
+          next[changeSetId]?.publicationTransition === publicationTransition
+        ) {
+          continue;
+        }
+        next[changeSetId] = {
+          publicationTransition,
+          confirmUnpublish:
+            publicationTransition === "unpublish" ? false : undefined,
+        };
       }
       return Object.keys(next).length === Object.keys(current).length &&
         Object.entries(next).every(
@@ -472,6 +537,7 @@ export function BuilderSourceReviewDialog({
     open,
     reviewRowIdsKey,
     selectionChangeSetIdMap,
+    stagedTransitionsKey,
   ]);
   const selectedChangeSetIdSet = useMemo(
     () => new Set(selectedChangeSetIds),

@@ -800,6 +800,8 @@ const editor = {
     moveColumnLeft: "कॉलम को बाईं ओर ले जाएं",
     moveColumnRight: "कॉलम को दाईं ओर ले जाएं",
     editProperty: "{{name}} संपादित करें",
+    builderStatusPublishInBuilder:
+      "Builder के एडिटर में सहेजे गए बदलाव केवल Builder से ही प्रकाशित किए जा सकते हैं।",
     editStartDate: "{{name}} आरंभ दिनांक संपादित करें",
     editValue: "{{name}} मान संपादित करें",
     empty: "ख़ाली",
