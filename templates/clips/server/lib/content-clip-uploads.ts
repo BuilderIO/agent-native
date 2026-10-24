@@ -2,8 +2,9 @@
  * Uploads from an Agent-Native Content document. Content vouches, with an
  * upload-scoped token, for an editor of one document; Clips makes a private
  * recording owned by that editor, binds it to the document as an upload, and
- * hands back a ticketed chunk URL the editor's browser posts the file to.
- * Content's server never carries the video. The contract is in
+ * hands back a ticketed chunk URL the editor's browser posts the file to, and
+ * a cancel URL it calls when the page gives the upload up. Content's server
+ * never carries the video. The contract is in
  * `shared/content-clip-contract.ts`.
  */
 import { isActionContractError } from "@agent-native/core/action";
@@ -38,6 +39,7 @@ import {
   type ContentClipStorage,
 } from "../../shared/content-clip-contract.js";
 import { getDb, schema } from "../db/index.js";
+import { handleAbortRecordingUpload } from "../routes/api/uploads/[recordingId]/abort.post.js";
 import { handleRecordingChunk } from "../routes/api/uploads/[recordingId]/chunk.post.js";
 import {
   PRIVATE_HEADERS,
@@ -45,8 +47,11 @@ import {
   type VerifiedContentPeer,
 } from "./content-clip-peer.js";
 import { startRecordingUpload } from "./recording-upload-start.js";
-import { requireUploadTicketOwnerForToken } from "./recording-upload-ticket.js";
-import { nanoid } from "./recordings.js";
+import {
+  requireUploadTicketOwnerForToken,
+  verifyRecordingUploadTicket,
+} from "./recording-upload-ticket.js";
+import { nanoid, ownerEmailMatches } from "./recordings.js";
 import { getClipsVideoStorageStatus } from "./video-storage.js";
 
 const MAX_START_BODY_BYTES = 4 * 1024;
@@ -215,9 +220,13 @@ function titleFromFileName(fileName: string): string {
   return (title || fileName).replace(/[\p{Cc}]/gu, " ");
 }
 
-function chunkUrlFor(recordingId: string, query: URLSearchParams): string {
+function uploadUrlFor(
+  recordingId: string,
+  route: "content-chunk" | "content-cancel",
+  query: URLSearchParams,
+): string {
   const base = withConfiguredAppBasePath(getAppProductionUrl());
-  return `${base}/api/uploads/${encodeURIComponent(recordingId)}/content-chunk?${query}`;
+  return `${base}/api/uploads/${encodeURIComponent(recordingId)}/${route}?${query}`;
 }
 
 const invalidStart = () => json({ error: "Invalid upload request" }, 400);
@@ -353,7 +362,12 @@ export async function handleContentClipUploadStart(
     upload.chunkQuery.set("ticket", upload.ticket);
     return json({
       recordingId,
-      chunkUrl: chunkUrlFor(recordingId, upload.chunkQuery),
+      chunkUrl: uploadUrlFor(recordingId, "content-chunk", upload.chunkQuery),
+      cancelUrl: uploadUrlFor(
+        recordingId,
+        "content-cancel",
+        new URLSearchParams({ ticket: upload.ticket }),
+      ),
       chunkSizeBytes: upload.chunkSizeBytes,
       totalChunks: upload.totalChunks,
       expiresAt: upload.expiresAt,
@@ -407,12 +421,12 @@ function firstQueryValue(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
 }
 
-const CONTENT_CHUNK_PATH = /\/api\/uploads\/[^/]+\/content-chunk$/;
+const CONTENT_UPLOAD_PATH = /\/api\/uploads\/[^/]+\/content-(chunk|cancel)$/;
 
 /**
- * The chunk route's answer to a preflight. The auth guard would answer it
- * with the app-wide CORS policy, which can allow other origins and
- * credentials, so the middleware asks here first. Content's chunks never
+ * The chunk and cancel routes' answer to a preflight. The auth guard would
+ * answer it with the app-wide CORS policy, which can allow other origins and
+ * credentials, so the middleware asks here first. Content's requests never
  * need one; a preflight gets the same policy they do.
  */
 export function answerContentChunkPreflight(
@@ -420,7 +434,7 @@ export function answerContentChunkPreflight(
 ): Response | undefined {
   if (
     event.req.method !== "OPTIONS" ||
-    !CONTENT_CHUNK_PATH.test(event.url.pathname)
+    !CONTENT_UPLOAD_PATH.test(event.url.pathname)
   ) {
     return undefined;
   }
@@ -439,12 +453,10 @@ export function answerContentChunkPreflight(
 }
 
 /**
- * One chunk of a document's upload, posted by the editor's browser from the
- * paired Content. The ticket in the URL is the only authority: the request
- * carries no cookie, and the answer never allows credentials. Content sends
- * it as a CORS simple request, so it needs no preflight.
+ * The CORS answer to a request from the editor's browser: the paired
+ * Content's origin alone, never credentials, whatever the auth guard set.
  */
-export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
+function contentUploadCors(event: H3Event): Record<string, string> | Response {
   const responseHeaders = event.res.headers;
   for (const name of CORS_HEADER_NAMES) responseHeaders.delete(name);
   for (const [name, value] of Object.entries(PRIVATE_HEADERS)) {
@@ -460,6 +472,18 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
     cors["access-control-allow-origin"] = origin;
     responseHeaders.set("access-control-allow-origin", origin);
   }
+  return cors;
+}
+
+/**
+ * One chunk of a document's upload, posted by the editor's browser from the
+ * paired Content. The ticket in the URL is the only authority: the request
+ * carries no cookie, and the answer never allows credentials. Content sends
+ * it as a CORS simple request, so it needs no preflight.
+ */
+export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
+  const cors = contentUploadCors(event);
+  if (cors instanceof Response) return cors;
 
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) return json({ error: "Not found" }, 404, cors);
@@ -480,4 +504,74 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
       cors,
     );
   }
+}
+
+/**
+ * Gives up a document's upload at once, from the editor's browser, when the
+ * page can no longer use it: its block is gone, the editor lost edit access,
+ * or the file stopped sending. Clips' own abort fails the recording and
+ * releases its free clip, as the lease reaper would an hour later. The ticket
+ * is the only authority, as for a chunk, and a repeat answers the same.
+ */
+export async function handleContentClipCancel(
+  event: H3Event,
+): Promise<unknown> {
+  const cors = contentUploadCors(event);
+  if (cors instanceof Response) return cors;
+
+  const recordingId = getRouterParam(event, "recordingId");
+  const token = firstQueryValue(getQuery(event).ticket);
+  const verified =
+    recordingId && token
+      ? await verifyRecordingUploadTicket(recordingId, token)
+      : null;
+  if (!recordingId || !verified || !(await hasUploadBinding(recordingId))) {
+    return json({ error: "Invalid or expired upload ticket" }, 401, cors);
+  }
+  const [recording] = await getDb()
+    .select({
+      status: schema.recordings.status,
+      organizationId: schema.recordings.organizationId,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+      uploadGenerationId: schema.recordings.uploadGenerationId,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        ownerEmailMatches(schema.recordings.ownerEmail, verified.ownerEmail),
+      ),
+    );
+  if (!recording) return json({ error: "Not found" }, 404, cors);
+  const cancelled = { ok: true, recordingId, status: "failed" };
+  if (recording.status === "failed") return json(cancelled, 200, cors);
+  // Clips has every byte and is making the Clip: not the page's to stop.
+  if (recording.status !== "uploading") {
+    return json(
+      {
+        error: "This upload is already finished",
+        data: { recordingId, status: recording.status },
+      },
+      409,
+      cors,
+    );
+  }
+
+  const result = (await handleAbortRecordingUpload(event, {
+    recordingId,
+    ownerEmail: verified.ownerEmail,
+    orgId: recording.organizationId,
+    authUserId:
+      typeof verified.ticket.authUserId === "string"
+        ? verified.ticket.authUserId
+        : undefined,
+    body: {
+      failureCode: "upload_aborted",
+      reason: "The Content page gave up this upload.",
+      attemptId: recording.uploadAttemptId ?? undefined,
+      uploadGenerationId: recording.uploadGenerationId ?? undefined,
+    },
+  })) as Record<string, unknown>;
+  if (result.ok === true) return json(cancelled, 200, cors);
+  return json(result, event.res.status ?? 409, cors);
 }

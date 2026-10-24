@@ -34,6 +34,7 @@ const state = vi.hoisted(() => {
     storageStatus: {} as Record<string, unknown>,
     created: [] as Array<{ args: any; context: any; caller: any }>,
     chunks: [] as Array<{ owner: unknown }>,
+    aborts: [] as Array<Record<string, any>>,
   };
 });
 
@@ -77,6 +78,19 @@ vi.mock("../routes/api/uploads/[recordingId]/chunk.post.js", () => ({
     return { ok: true };
   },
 }));
+// Clips' own abort is tested with it; here it fails the row as it would.
+vi.mock("../routes/api/uploads/[recordingId]/abort.post.js", () => ({
+  handleAbortRecordingUpload: async (_event: unknown, override: any) => {
+    const { schema } = await import("../db/index.js");
+    const { eq } = await import("drizzle-orm");
+    state.aborts.push(override);
+    await state.db
+      .update(schema.recordings)
+      .set({ status: "failed", failureCode: override.body?.failureCode })
+      .where(eq(schema.recordings.id, override.recordingId));
+    return { ok: true, recordingId: override.recordingId, chunksCleared: 0 };
+  },
+}));
 vi.mock("./video-storage.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./video-storage.js")>()),
   getClipsVideoStorageStatus: async () => state.storageStatus,
@@ -101,6 +115,8 @@ const { default: uploadStatusRoute } =
   await import("../routes/api/content-clips/upload-status.get.js");
 const { default: contentChunkRoute } =
   await import("../routes/api/uploads/[recordingId]/content-chunk.post.js");
+const { default: contentCancelRoute } =
+  await import("../routes/api/uploads/[recordingId]/content-cancel.post.js");
 const { default: authMiddleware } = await import("../middleware/auth.js");
 const { default: playbackRoute } =
   await import("../routes/api/content-clips/[recordingId]/playback.get.js");
@@ -271,6 +287,19 @@ function postChunk(
   return respond(contentChunkRoute, event);
 }
 
+function postCancel(url: string, origin?: string) {
+  const event = mockEvent(url, {
+    method: "POST",
+    headers: origin ? { origin } : {},
+  });
+  event.context.params = {
+    recordingId: decodeURIComponent(
+      /\/api\/uploads\/([^/]+)\//.exec(new URL(url).pathname)?.[1] ?? "",
+    ),
+  };
+  return respond(contentCancelRoute, event);
+}
+
 async function rows(table: string) {
   return (await client.query(`SELECT * FROM ${table}`)).rows as any[];
 }
@@ -291,6 +320,7 @@ beforeEach(async () => {
   };
   state.created = [];
   state.chunks = [];
+  state.aborts = [];
   for (const table of [
     schema.recordings,
     schema.recordingShares,
@@ -384,6 +414,15 @@ describe("an editor's upload from a Content page", () => {
     );
     expect(chunkUrl.searchParams.get("ticket")).toMatch(/^clipsup_/);
     expect(chunkUrl.searchParams.get("mimeType")).toBe("video/mp4");
+    const cancelUrl = new URL(result.body.cancelUrl);
+    expect(cancelUrl.origin).toBe(CLIPS_URL);
+    expect(cancelUrl.pathname).toBe(
+      `/api/uploads/${result.body.recordingId}/content-cancel`,
+    );
+    expect([...cancelUrl.searchParams.keys()]).toEqual(["ticket"]);
+    expect(cancelUrl.searchParams.get("ticket")).toBe(
+      chunkUrl.searchParams.get("ticket"),
+    );
     expect(result.body).toMatchObject({
       totalChunks: 2,
       chunkSizeBytes: expect.any(Number),
@@ -670,6 +709,16 @@ describe("chunks posted from the editor's browser", () => {
     expect(other.status).toBe(403);
     expect(other.headers.get("access-control-allow-origin")).toBeNull();
     expect(other.headers.get("access-control-allow-credentials")).toBeNull();
+
+    const cancel = (await authMiddleware(
+      mockEvent(`${CLIPS_URL}/api/uploads/rec_1/content-cancel?ticket=t`, {
+        method: "OPTIONS",
+        headers: { origin: paired, "access-control-request-method": "POST" },
+      }),
+    )) as Response;
+    expect(cancel.status).toBe(204);
+    expect(cancel.headers.get("access-control-allow-origin")).toBe(paired);
+    expect(cancel.headers.get("access-control-allow-credentials")).toBeNull();
   });
 
   it("answers a bad ticket so the paired page can read why", async () => {
@@ -715,12 +764,120 @@ describe("chunks posted from the editor's browser", () => {
   });
 });
 
+describe("an upload the editor's page gives up", () => {
+  async function started(blockId = "block-video-1") {
+    const editor = await clipsEditor();
+    const { body } = await startUpload(await token({ sub: editor }), {
+      ...START,
+      blockId,
+    });
+    return { editor, ...body } as {
+      editor: string;
+      recordingId: string;
+      cancelUrl: string;
+    };
+  }
+
+  it("fails the upload through Clips' own abort, with its ticket alone", async () => {
+    const upload = await started();
+    const paired = pairedContentOrigin()!;
+    const result = await postCancel(upload.cancelUrl, paired);
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      ok: true,
+      recordingId: upload.recordingId,
+      status: "failed",
+    });
+    expect(state.aborts).toEqual([
+      expect.objectContaining({
+        recordingId: upload.recordingId,
+        ownerEmail: upload.editor,
+        orgId: expect.stringMatching(/^org-/),
+        authUserId: expect.stringMatching(/^user-/),
+        body: expect.objectContaining({ failureCode: "upload_aborted" }),
+      }),
+    ]);
+    expect((await rows("recordings"))[0]).toMatchObject({ status: "failed" });
+    expect(result.headers.get("access-control-allow-origin")).toBe(paired);
+    expect(result.headers.get("access-control-allow-credentials")).toBeNull();
+  });
+
+  it("answers a repeated cancel the same way, without aborting again", async () => {
+    const upload = await started();
+    const paired = pairedContentOrigin()!;
+    const first = await postCancel(upload.cancelUrl, paired);
+    const again = await postCancel(upload.cancelUrl, paired);
+
+    expect(again.status).toBe(200);
+    expect(again.body).toEqual(first.body);
+    expect(state.aborts).toHaveLength(1);
+  });
+
+  it("refuses another recording's ticket and an expired one", async () => {
+    const one = await started();
+    const other = (
+      await startUpload(await token({ sub: one.editor }), {
+        ...START,
+        blockId: "block-video-2",
+      })
+    ).body as { recordingId: string; cancelUrl: string };
+    const paired = pairedContentOrigin()!;
+
+    const swapped = new URL(other.cancelUrl);
+    swapped.searchParams.set(
+      "ticket",
+      new URL(one.cancelUrl).searchParams.get("ticket")!,
+    );
+    expect((await postCancel(swapped.href, paired)).status).toBe(401);
+
+    const [setting] = await rows("settings");
+    const tickets = JSON.parse(setting.value);
+    tickets.tickets[one.recordingId].expiresAt = Date.now() - 1;
+    await client.query("UPDATE settings SET value = $1 WHERE key = $2", [
+      JSON.stringify(tickets),
+      setting.key,
+    ]);
+    expect((await postCancel(one.cancelUrl, paired)).status).toBe(401);
+
+    expect(state.aborts).toEqual([]);
+    expect(
+      (await rows("recordings")).map((recording) => recording.status),
+    ).toEqual(["uploading", "uploading"]);
+  });
+
+  it("refuses a cancel from any other origin", async () => {
+    const upload = await started();
+    const result = await postCancel(
+      upload.cancelUrl,
+      "https://attacker.example.test",
+    );
+    expect(result.status).toBe(403);
+    expect(result.headers.get("access-control-allow-origin")).toBeNull();
+    expect(state.aborts).toEqual([]);
+  });
+
+  it("leaves a Clip alone once Clips has its whole file", async () => {
+    const upload = await started();
+    await client.query("UPDATE recordings SET status = 'processing'");
+    const result = await postCancel(upload.cancelUrl, pairedContentOrigin()!);
+
+    expect(result.status).toBe(409);
+    expect(result.body.data).toEqual({
+      recordingId: upload.recordingId,
+      status: "processing",
+    });
+    expect(state.aborts).toEqual([]);
+  });
+});
+
 describe("From Content and Library in Clips", () => {
   async function list(
     editor: string,
     orgId: string,
     view: "library" | "from-content",
     countOnly = false,
+    folderId?: string,
   ) {
     return withDbExec(coreDb(), () =>
       runWithRequestContext({ userEmail: editor, orgId }, () =>
@@ -733,6 +890,7 @@ describe("From Content and Library in Clips", () => {
             offset: 0,
             countOnly,
             includeMedia: false,
+            ...(folderId ? { folderId } : {}),
           },
           { caller: "frontend", userEmail: editor },
         ),
@@ -778,6 +936,31 @@ describe("From Content and Library in Clips", () => {
 
     expect((await list(editor, orgId, "library", true)).total).toBe(2);
     expect((await list(editor, orgId, "from-content", true)).total).toBe(1);
+  });
+
+  it("lists an upload someone moved into a folder in that folder, and still not in Library", async () => {
+    const editor = await clipsEditor();
+    const bearer = await token({ sub: editor });
+    const moved = (await startUpload(bearer)).body.recordingId;
+    const kept = (
+      await startUpload(bearer, { ...START, blockId: "block-video-2" })
+    ).body.recordingId;
+    const orgId = state.created[0]!.caller.orgId as string;
+    await client.query(
+      "UPDATE recordings SET folder_id = 'folder-1' WHERE id = $1",
+      [moved],
+    );
+
+    const folder = await list(editor, orgId, "library", false, "folder-1");
+    expect(folder.recordings.map((r: any) => r.id)).toEqual([moved]);
+    expect((await list(editor, orgId, "library", true, "folder-1")).total).toBe(
+      1,
+    );
+    expect((await list(editor, orgId, "library")).recordings).toEqual([]);
+    const fromContent = await list(editor, orgId, "from-content");
+    expect(fromContent.recordings.map((r: any) => r.id).sort()).toEqual(
+      [moved, kept].sort(),
+    );
   });
 
   it("lists only the signed-in person's own uploads", async () => {

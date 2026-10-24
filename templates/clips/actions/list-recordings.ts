@@ -197,8 +197,9 @@ export default defineAction({
     // Library = "Your personal recordings in the active org". `accessFilter`
     // admits all owner rows regardless of org, so library must add both the
     // owner-email and current-org predicates to scope correctly. A Clip
-    // uploaded from a Content page lists under From Content instead; one
-    // linked into a page stays in Library.
+    // uploaded from a Content page lists under From Content instead of
+    // Library's own list, but a folder someone moved it into still lists it;
+    // one linked into a page stays in Library.
     if (args.view === "library" || args.view === "from-content") {
       const email = getRequestUserEmail();
       if (email) {
@@ -209,11 +210,11 @@ export default defineAction({
       if (orgId) {
         whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
-      whereClauses.push(
-        args.view === "from-content"
-          ? uploadedFromContent()
-          : not(uploadedFromContent()),
-      );
+      if (args.view === "from-content") {
+        whereClauses.push(uploadedFromContent());
+      } else if (args.folderId == null) {
+        whereClauses.push(not(uploadedFromContent()));
+      }
     }
 
     if (args.view === "shared") {

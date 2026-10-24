@@ -78,6 +78,8 @@ export async function handleAbortRecordingUpload(
     ownerEmail?: string;
     orgId?: string;
     authUserId?: string;
+    /** The abort request, from a caller that reads its own body. */
+    body?: Record<string, unknown>;
   },
 ) {
   const recordingId =
@@ -98,7 +100,9 @@ export async function handleAbortRecordingUpload(
         orgId: context.orgId,
         authUserId: context.authUserId,
       }));
-  const body = (await readBody(event).catch(() => null)) as {
+  const body = (override?.body ??
+    // coercion-ok: an unreadable abort report still aborts, with its reason recorded as unknown.
+    (await readBody(event).catch(() => null))) as {
     reason?: unknown;
     failureCode?: unknown;
     failureStage?: unknown;

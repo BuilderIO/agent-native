@@ -140,7 +140,7 @@ vi.mock("../../../../lib/resumable-upload-provider.js", () => ({
     mockResolveResumableUploadProvider(...args),
 }));
 
-import handler from "./abort.post";
+import handler, { handleAbortRecordingUpload } from "./abort.post";
 
 describe("/api/uploads/:recordingId/abort route", () => {
   beforeEach(() => {
@@ -724,6 +724,62 @@ describe("/api/uploads/:recordingId/abort route", () => {
     await handler({} as any);
 
     expect(mockDeleteResumableSession).toHaveBeenCalled();
+    expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec-1" }),
+    );
+  });
+
+  it("takes the request from a caller that read it, and releases the hosted clip", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+        storageMode: "hosted",
+      },
+    ];
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+
+    await expect(
+      handleAbortRecordingUpload({} as any, {
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        authUserId: "user-1",
+        body: {
+          failureCode: "upload_aborted",
+          reason: "The Content page gave up this upload.",
+          attemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+        },
+      }),
+    ).resolves.toMatchObject({ ok: true, recordingId: "rec-1" });
+
+    expect(mockReadBody).not.toHaveBeenCalled();
+    expect(mockGetEventOwnerContext).not.toHaveBeenCalled();
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "failed",
+          failureCode: "upload_aborted",
+          failureReason: "The Content page gave up this upload.",
+        }),
+      ]),
+    );
     expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith(
       expect.objectContaining({ recordingId: "rec-1" }),
     );
