@@ -104,15 +104,86 @@ pnpm --filter analytics exec tsx evals/synthetic-query-path/combine-phase-csv.ts
   "$EVAL_DIR/baseline.csv" "$EVAL_DIR/candidate.csv" "$EVAL_DIR/paired.csv"
 ```
 
-The combiner enforces an exact safe header, all eighteen reviewed v13 case keys
-at replicates 1 and 2 in each phase, one source revision per phase, matching
+The combiner enforces an exact safe header, all eighteen reviewed case keys at
+replicates 1 and 2 in each phase, one source revision per phase, matching
 harness hashes and case/replicate pairs, valid result and production-receipt
 values, and refuses to overwrite an existing output. The generated CSV has no
 prompts, SQL, provider rows, identity values, cursors, or credentials. A passing
 score requires all production receipts; an aborted or incomplete production-path
 run is retained as a score-0 failure.
 
-## Current latest-wave comparison (v13)
+## Current latest-wave comparison (v14)
+
+[`SYNTHETIC-analytics-query-quality-v14-main-vs-20261024.csv`](./SYNTHETIC-analytics-query-quality-v14-main-vs-20261024.csv)
+contains eighteen synthetic questions run twice through the production path on
+`origin/main` snapshot `526e3313eaa41f00fad7cdbed4519ab28e765b6b` and candidate
+`178f2bed7b31bd6eed86590666282a5368ef2682`. The baseline passed 34/36 runs;
+the candidate passed 36/36. The only changed case is a row-level organization
+roster lookup: baseline failed both runs because source-index generation lost
+the membership grain for a multiline computed projection; the candidate found
+the dbt membership model and distinguished it from seat utilization. The eval
+now maps generated entries through Analytics' production source-index mapper
+and catalog page ranker, verifying that `approved: false` and
+`aiGenerated: true` are derived rather than seeded in the fixture. The answer
+still treats the row-level entry as an unapproved suggestion pending owner
+review.
+
+All 72 rows have production-path, final-guard, owner/org-context, and usage
+receipts. Both phases use the same harness bytes, SHA-256
+`a2090172be86fb3ea13cf8f8a1beaf7ba68aac6ef5b207befa05ed34901077d0`; the
+paired CSV SHA-256 is
+`8abdab24347ba041219fc0f8b315c3d5ba625dfcff3194a885ae79894af981a2`.
+This is a deterministic scripted-engine contract comparison with synthetic
+provider responses. It measures the code path and source-index change, not an
+independent model-quality benchmark or live warehouse accuracy.
+
+### Reproduce v14
+
+Create detached worktrees for the two source snapshots, copy the candidate
+production-path harness into the baseline worktree so both phases use identical
+test bytes, then run each phase and combine the CSVs. Use fresh paths for every
+reproduction:
+
+```sh
+BASELINE_SHA=526e3313eaa41f00fad7cdbed4519ab28e765b6b
+CANDIDATE_SHA=178f2bed7b31bd6eed86590666282a5368ef2682
+RUN_ID="$(date +%s)-$$"
+BASELINE_DIR=".tmp/analytics-eval-v14-main-$RUN_ID"
+CANDIDATE_DIR=".tmp/analytics-eval-v14-candidate-$RUN_ID"
+EVAL_DIR="$(pwd)/.tmp/analytics-eval-v14-$RUN_ID"
+mkdir -p "$EVAL_DIR"
+git worktree add --detach "$BASELINE_DIR" "$BASELINE_SHA"
+git worktree add --detach "$CANDIDATE_DIR" "$CANDIDATE_SHA"
+mkdir -p "$BASELINE_DIR/templates/analytics/evals/synthetic-query-path"
+cp "$CANDIDATE_DIR/templates/analytics/evals/synthetic-query-path/production-path.spec.ts" \
+  "$BASELINE_DIR/templates/analytics/evals/synthetic-query-path/production-path.spec.ts"
+(
+  cd "$BASELINE_DIR"
+  corepack pnpm install --frozen-lockfile
+  ANALYTICS_QUERY_EVAL_PHASE=baseline \
+    ANALYTICS_QUERY_EVAL_SOURCE_REVISION="$BASELINE_SHA" \
+    ANALYTICS_QUERY_EVAL_WRITE_CSV=1 \
+    ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/baseline.csv" \
+    pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
+)
+(
+  cd "$CANDIDATE_DIR"
+  corepack pnpm install --frozen-lockfile
+  ANALYTICS_QUERY_EVAL_PHASE=candidate \
+    ANALYTICS_QUERY_EVAL_SOURCE_REVISION="$CANDIDATE_SHA" \
+    ANALYTICS_QUERY_EVAL_WRITE_CSV=1 \
+    ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/candidate.csv" \
+    pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
+)
+pnpm --filter analytics exec tsx evals/synthetic-query-path/combine-phase-csv.ts \
+  "$EVAL_DIR/baseline.csv" "$EVAL_DIR/candidate.csv" "$EVAL_DIR/paired.csv"
+```
+
+## Previous latest-wave comparison (v13)
+
+The v13 pair below is retained as an earlier comparison. Its roster case set
+approval/provenance fields directly in the fixture; v14 supersedes it with the
+production source-index mapping and catalog page ranker in the eval.
 
 [`SYNTHETIC-analytics-query-quality-v13-main-vs-20261024.csv`](./SYNTHETIC-analytics-query-quality-v13-main-vs-20261024.csv)
 contains eighteen synthetic questions run twice through the production path on
