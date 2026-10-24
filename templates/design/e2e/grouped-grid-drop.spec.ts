@@ -234,15 +234,32 @@ const TARGET_GRID_ITEMS = [
 
 /** Rendered boxes of the target grid's items, in design pixels. */
 async function targetGridBoxes(app: App) {
-  const boxes: Record<
-    string,
-    { left: number; top: number; right: number; bottom: number }
-  > = {};
-  for (const id of TARGET_GRID_ITEMS) {
-    const { x, y, width, height } = await app.designRect(id);
-    boxes[id] = { left: x, top: y, right: x + width, bottom: y + height };
-  }
-  return boxes;
+  return preview(app.page)
+    .locator("body")
+    .evaluate((body, nodeIds) => {
+      const boxes: Record<
+        string,
+        { left: number; top: number; right: number; bottom: number }
+      > = {};
+      for (const id of nodeIds) {
+        const element = body.ownerDocument.querySelector<HTMLElement>(
+          `[data-agent-native-node-id="${id}"]`,
+        );
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        const x = Math.round(rect.x);
+        const y = Math.round(rect.y);
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        boxes[id] = {
+          left: x,
+          top: y,
+          right: x + width,
+          bottom: y + height,
+        };
+      }
+      return boxes;
+    }, TARGET_GRID_ITEMS);
 }
 
 test("dropping a two-item group on an occupied grid cell keeps every item inside the 4×3 grid without overlap, and undo, redo and reload agree", async ({
@@ -287,6 +304,8 @@ test("dropping a two-item group on an occupied grid cell keeps every item inside
   expect(childrenOf(dropped, "target-grid")).toEqual(TARGET_GRID_ITEMS);
   expect(childrenOf(dropped, "source-group")).toEqual([]);
   const boxes = await targetGridBoxes(app);
+  if (!boxes)
+    throw new Error("preview has not rendered every target grid item");
   const gridContent = { left: 516, top: 116, right: 964, bottom: 364 };
   const outside = Object.entries(boxes)
     .filter(

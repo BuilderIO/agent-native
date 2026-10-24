@@ -6281,61 +6281,41 @@ function parseFormattedSlackThreadMessage(
   }
 
   const actorId = actorIdMatch[1]!;
-  const lines = match[3]!.split(/\r?\n/);
+  const lines = stripConnectorSlackThreadTrailers(match[3]!).split(/\r?\n/);
   const files: SlackFileAttachment[] = [];
   const workflowReactionNames = new Set<string>();
   const metadataLines = new Set<string>();
   while (lines.length > 0) {
     const tail = lines.at(-1)!;
     if (tail.startsWith("Files: ")) {
-      const value = tail.slice("Files: ".length);
-      const filePattern = /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
-      const fileMatches = [...value.matchAll(filePattern)];
-      if (
-        fileMatches.length === 0 ||
-        fileMatches.map((file) => file[0]).join("") !== value
-      ) {
-        break;
-      }
+      const parsedFiles = parseFormattedSlackFileMetadata(tail);
+      if (!parsedFiles) break;
       if (metadataLines.has("Files")) {
         throw new Error(
           `${label}: ambiguous repeated Files line in formatted Slack message`,
         );
       }
       metadataLines.add("Files");
-      for (const file of fileMatches) {
-        files.push({ id: file[2]!, name: file[1]!, mimeType: file[3]! });
-      }
+      files.push(...parsedFiles);
       lines.pop();
       continue;
     }
     if (tail.startsWith("Reactions: ")) {
-      const reactionMatches = [
-        ...tail
-          .slice("Reactions: ".length)
-          .matchAll(/([a-z0-9_+.-]+)\s+\(\d+\)(?:, |$)/gi),
-      ];
-      const reactionValue = tail.slice("Reactions: ".length);
-      if (
-        reactionMatches.length === 0 ||
-        reactionMatches.map((reaction) => reaction[0]).join("") !==
-          reactionValue
-      ) {
-        break;
-      }
+      const parsedReactions = parseFormattedSlackReactionMetadata(tail);
+      if (!parsedReactions) break;
       if (metadataLines.has("Reactions")) {
         throw new Error(
           `${label}: ambiguous repeated Reactions line in formatted Slack message`,
         );
       }
       metadataLines.add("Reactions");
-      for (const reaction of reactionMatches) {
+      for (const reaction of parsedReactions) {
         if (
-          reaction[1] === "eyes" ||
-          reaction[1] === "white_check_mark" ||
-          reaction[1] === "ticket"
+          reaction === "eyes" ||
+          reaction === "white_check_mark" ||
+          reaction === "ticket"
         ) {
-          workflowReactionNames.add(reaction[1]);
+          workflowReactionNames.add(reaction);
         }
       }
       lines.pop();
@@ -6356,6 +6336,72 @@ function parseFormattedSlackThreadMessage(
     files: exactSlackFiles(files, `${label}.files`),
     workflowReactionNames: [...workflowReactionNames].sort(),
   };
+}
+
+function parseFormattedSlackFileMetadata(
+  line: string,
+): SlackFileAttachment[] | undefined {
+  if (!line.startsWith("Files: ")) return undefined;
+  const value = line.slice("Files: ".length);
+  const filePattern = /(.+?) \(ID: ([A-Z0-9]+), ([^,]+), [^)]+\)(?:, |$)/g;
+  const matches = [...value.matchAll(filePattern)];
+  if (
+    matches.length === 0 ||
+    matches.map((file) => file[0]).join("") !== value
+  ) {
+    return undefined;
+  }
+  return matches.map((file) => ({
+    id: file[2]!,
+    name: file[1]!,
+    mimeType: file[3]!,
+  }));
+}
+
+function parseFormattedSlackReactionMetadata(
+  line: string,
+): string[] | undefined {
+  if (!line.startsWith("Reactions: ")) return undefined;
+  const value = line.slice("Reactions: ".length);
+  const matches = [...value.matchAll(/([a-z0-9_+.-]+)\s+\(\d+\)(?:, |$)/gi)];
+  if (
+    matches.length === 0 ||
+    matches.map((reaction) => reaction[0]).join("") !== value
+  ) {
+    return undefined;
+  }
+  return matches.map((reaction) => reaction[1]!);
+}
+
+function stripConnectorSlackThreadTrailers(body: string): string {
+  let text = body;
+  const appNotification =
+    /\n+App notification from App \(https?:\/\/[^)\r\n]+\):[\s\S]*$/i.exec(
+      text,
+    );
+  if (appNotification) {
+    const beforeNotification = text.slice(0, appNotification.index);
+    const lastLine = beforeNotification.split(/\r?\n/).at(-1)?.trim() ?? "";
+    if (
+      parseFormattedSlackFileMetadata(lastLine) ||
+      parseFormattedSlackReactionMetadata(lastLine)
+    ) {
+      text = beforeNotification;
+    }
+  }
+
+  const forwardedPreview =
+    /\nForwarded message from [^\r\n]+\s+\(https?:\/\/[^)\r\n]+\):[\s\S]*?\s+\u2014 use slack_read_thread or slack_read_channel to read it in context\s*$/i.exec(
+      text,
+    );
+  if (forwardedPreview) {
+    const beforePreview = text.slice(0, forwardedPreview.index);
+    const lastLine = beforePreview.split(/\r?\n/).at(-1)?.trim() ?? "";
+    if (parseFormattedSlackReactionMetadata(lastLine)) {
+      text = beforePreview;
+    }
+  }
+  return text;
 }
 
 function parseFormattedSlackThreadResponse(
@@ -10370,6 +10416,34 @@ if (args[0] === "--self-test" && args.length === 1) {
   ) {
     throw new Error(
       "Feedback inventory checker self-test stripped message text that resembled connector metadata",
+    );
+  }
+  const connectorThreadTrailers = parseRawThreadResponse(
+    {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            messages:
+              "=== THREAD PARENT MESSAGE ===\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:00:00 UTC\nMessage TS: 8.800000\nSlides report\nReactions: eyes (1)\nForwarded message from Reporter (https://example.com/slack/thread): forwarded context\n• Extra context\nMore context — use slack_read_thread or slack_read_channel to read it in context\n\n=== THREAD REPLIES (1 total) ===\n\n--- Reply 1 of 1 ---\nFrom: Reporter <reporter@example.com> (U_REPORTER)\nTime: 2026-10-20 10:01:00 UTC\nMessage TS: 9.800000\nClip link\nReactions: gratitude-thank-you (1)\nFiles: Screenshot.png (ID: FTEST2, image/png, 124 KB)\nApp notification from App (https://example.com/clip): [no preview available]",
+            pagination_info: "There are no more messages in this thread.",
+          }),
+        },
+      ],
+    },
+    "self-test connector Slack thread trailers",
+    "8.800000",
+  );
+  if (
+    connectorThreadTrailers.messages[0]?.text !== "Slides report" ||
+    connectorThreadTrailers.messages[0]?.workflowReactionNames.join(",") !==
+      "eyes" ||
+    connectorThreadTrailers.messages[1]?.text !== "Clip link" ||
+    connectorThreadTrailers.messages[1]?.files[0]?.id !== "FTEST2" ||
+    connectorThreadTrailers.messages[1]?.files[0]?.mimeType !== "image/png"
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test did not strip connector trailers while preserving reactions and attachments",
     );
   }
 
