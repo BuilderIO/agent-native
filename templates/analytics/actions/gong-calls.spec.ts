@@ -568,6 +568,111 @@ describe("gong-calls action", () => {
     );
   });
 
+  it("does not mark failed transcript rows truncated when trimming to the cap", async () => {
+    const calls = Array.from({ length: 50 }, (_, index) => ({
+      id: `c${index + 1}`,
+      title: `Acme call ${index + 1}`,
+      started: "2026-05-03T10:00:00Z",
+    }));
+    searchCalls.mockResolvedValue({
+      calls,
+      limit: calls.length,
+      truncated: false,
+      matchedCallCount: calls.length,
+      coverageTruncated: false,
+    });
+    getCallTranscripts.mockImplementation(async (callIds: string[]) => ({
+      callTranscripts: callIds
+        .filter((callId) => callId !== "c1")
+        .map((callId) => ({
+          callId,
+          transcript: [
+            {
+              speakerId: "buyer",
+              sentences: Array.from({ length: 500 }, (_, start) => ({
+                start: start * 1_000,
+                text: "ok",
+              })),
+            },
+          ],
+        })),
+    }));
+
+    const result = (await gongCalls.run({
+      company: "Acme",
+      exhaustive: true,
+      includeTranscripts: true,
+      transcriptMaxChars: 100_000,
+    })) as Record<string, any>;
+
+    expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
+    const failed = result.transcripts.find((t: any) => t.callId === "c1");
+    expect(failed.error).toBeTruthy();
+    expect(failed.text).toBe("");
+    expect(failed.truncated).toBe(false);
+    expect(
+      result.transcripts.find((t: any) => t.callId === "c2").truncated,
+    ).toBe(true);
+    expect(result.transcriptCoverage).toMatchObject({
+      errorCount: 1,
+      coverageComplete: false,
+    });
+  });
+
+  it("trims transcript-search snippets and drops the lowest-ranked matches to stay under the cap", async () => {
+    const calls = Array.from({ length: 200 }, (_, index) => ({
+      id: `c${index + 1}`,
+      title: `Acme call ${index + 1}`,
+      started: "2026-05-03T10:00:00Z",
+    }));
+    searchCalls.mockResolvedValue({
+      calls,
+      limit: calls.length,
+      truncated: false,
+      matchedCallCount: calls.length,
+      coverageTruncated: false,
+    });
+    // 5 well-separated hits per call, each with a full-width snippet window.
+    getCallTranscripts.mockImplementation(async (callIds: string[]) => ({
+      callTranscripts: callIds.map((callId) => ({
+        callId,
+        transcript: [
+          {
+            speakerId: "buyer",
+            sentences: Array.from({ length: 5 }, (_, start) => ({
+              start: start * 1_000,
+              text: `Figma MCP ${"context ".repeat(150)}`,
+            })),
+          },
+        ],
+      })),
+    }));
+
+    const result = (await gongCalls.run({
+      company: "Acme",
+      transcriptQuery: "Figma MCP",
+      transcriptScanLimit: 200,
+      limit: 200,
+    })) as Record<string, any>;
+
+    expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
+    expect(result.transcriptSearch).toMatchObject({
+      query: "Figma MCP",
+      matchingCalls: 200,
+      inspectedCalls: 200,
+      availableCalls: 200,
+      errors: [],
+    });
+    expect(result.transcriptSearch.matchesTrimmed).toBeGreaterThan(0);
+    expect(
+      result.transcriptSearch.matches.length +
+        result.transcriptSearch.matchesTrimmed,
+    ).toBe(200);
+    expect(result.transcriptSearch.matches[0].snippets[0]).toContain(
+      "Figma MCP",
+    );
+  });
+
   it("serializes date-window calls before transcripts so truncation keeps the call records", async () => {
     getCalls.mockResolvedValue({
       calls: [
