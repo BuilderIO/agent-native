@@ -328,9 +328,8 @@ describe("the Upload tab while Clips in pages is on", () => {
     await focusWindow();
     expect(state.callAction).toHaveBeenLastCalledWith(
       "get-clip-upload-status",
-      {
-        documentId: "doc_1",
-      },
+      { documentId: "doc_1" },
+      { method: "GET" },
     );
     expect(container.querySelector("[data-clip-upload-gate]")).not.toBeNull();
 
@@ -383,9 +382,8 @@ describe("the Upload tab while Clips in pages is on", () => {
     await act(async () => checkAgain?.click());
     expect(state.callAction).toHaveBeenLastCalledWith(
       "get-clip-upload-status",
-      {
-        documentId: "doc_1",
-      },
+      { documentId: "doc_1" },
+      { method: "GET" },
     );
 
     const discard = container.querySelector<HTMLButtonElement>(

@@ -147,6 +147,7 @@ export function useClipFileUpload(input: {
         await callAction<{ storage: ContentClipStorage }>(
           "get-clip-upload-status",
           { documentId },
+          { method: "GET" },
         )
       ).storage;
     } catch (error) {
