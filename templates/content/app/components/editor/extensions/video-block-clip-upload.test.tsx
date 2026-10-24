@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   clipsOn: true,
   storage: undefined as unknown,
+  storageError: null as unknown,
   callAction: vi.fn(),
   uploadVideoFile: vi.fn(),
   beginClipUpload: vi.fn(),
@@ -41,9 +42,16 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           },
           isSuccess: true,
         }
-      : name === "get-clip-upload-status" && state.storage
-        ? { data: { storage: state.storage }, isSuccess: true }
-        : { data: undefined, isSuccess: false },
+      : name === "get-clip-upload-status" && state.storageError
+        ? {
+            data: undefined,
+            isSuccess: false,
+            isError: true,
+            error: state.storageError,
+          }
+        : name === "get-clip-upload-status" && state.storage
+          ? { data: { storage: state.storage }, isSuccess: true }
+          : { data: undefined, isSuccess: false },
   callAction: state.callAction,
   getBrowserTabId: () => "tab_1",
   setClientAppState: vi.fn(),
@@ -174,6 +182,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.clipsOn = true;
   state.storage = { state: "free", remaining: 2, limit: 3, maxClipBytes: 9 };
+  state.storageError = null;
   state.callAction.mockReset();
   state.uploadVideoFile.mockReset();
   state.beginClipUpload.mockReset();
@@ -209,6 +218,15 @@ describe("the Upload tab while Clips in pages is on", () => {
     render();
     expect(text()).toContain(hint);
     expect(text()).not.toContain("onboarding.fileStorage");
+  });
+
+  it("says why when Clips can't say where the video would go", () => {
+    state.storageError = Object.assign(new Error("down"), {
+      errorCode: "clips_unreachable",
+    });
+    render();
+    expect(text()).toContain("clipEmbed.unreachable");
+    expect(text()).not.toContain("clipEmbed.savedAsClip");
   });
 
   it("uploads to Clips and swaps the block for the Clip it made", async () => {

@@ -12,6 +12,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 import {
   beginClipUpload,
   clearClipUpload,
+  failClipUpload,
   sendClipChunks,
   takeDroppedClipFile,
   holdDroppedClipFile,
@@ -36,7 +37,7 @@ function lastWritten() {
 
 type Sent = { url: URL; init: RequestInit };
 
-function stubFetch(answers: Array<number | Error>) {
+function stubFetch(answers: Array<number | Error | Response>) {
   const sent: Sent[] = [];
   vi.stubGlobal(
     "fetch",
@@ -44,6 +45,7 @@ function stubFetch(answers: Array<number | Error>) {
       sent.push({ url: new URL(url), init });
       const answer = answers.shift() ?? 200;
       if (answer instanceof Error) throw answer;
+      if (answer instanceof Response) return answer;
       return new Response("{}", { status: answer });
     }),
   );
@@ -134,6 +136,26 @@ describe("sendClipChunks", () => {
     );
     expect(down).toHaveLength(5);
   });
+
+  it("counts a last chunk Clips already took as sent when its answer was lost", async () => {
+    const finished = (status: string) =>
+      new Response(
+        JSON.stringify({
+          error: "This upload is already finished",
+          data: { recordingId: "rec_1", status },
+        }),
+        { status: 409 },
+      );
+    stubFetch([200, 200, new TypeError("reset"), finished("processing")]);
+    await expect(sendClipChunks(file, ticket, () => {}, noWait)).resolves.toBe(
+      true,
+    );
+
+    stubFetch([200, 200, new TypeError("reset"), finished("failed")]);
+    await expect(sendClipChunks(file, ticket, () => {}, noWait)).resolves.toBe(
+      false,
+    );
+  });
 });
 
 describe("beginClipUpload", () => {
@@ -198,6 +220,23 @@ describe("beginClipUpload", () => {
     await beginClipUpload({ file, ticket, documentId: "doc_1" });
     expect(lastWritten()).toMatchObject({
       uploads: [{ phase: "failed" }],
+    });
+  });
+
+  it("tells the agent an upload failed when Clips couldn't make its Clip", async () => {
+    stubFetch([]);
+    await beginClipUpload({ file, ticket, documentId: "doc_1" });
+    failClipUpload("rec_1");
+    expect(lastWritten()).toEqual({
+      uploads: [
+        {
+          recordingId: "rec_1",
+          documentId: "doc_1",
+          fileName: "demo.mp4",
+          phase: "failed",
+          percent: null,
+        },
+      ],
     });
   });
 });

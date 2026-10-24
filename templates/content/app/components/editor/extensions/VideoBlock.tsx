@@ -570,7 +570,12 @@ export function VideoBlock({
               {t("editor.media.uploadFile")}
             </Button>
             {uploadsGoToClips ? (
-              <ClipUploadHint storage={clipUploadStorage.data?.storage} />
+              <ClipUploadHint
+                storage={clipUploadStorage.data?.storage}
+                error={
+                  clipUploadStorage.isError ? clipUploadStorage.error : null
+                }
+              />
             ) : (
               <FileStorageStatusGate
                 status={fileUploadStatus}

@@ -101,9 +101,34 @@ export function clearClipUpload(recordingId: string) {
   if (uploads.has(recordingId)) set(null, recordingId);
 }
 
+/** Marks an upload failed once Clips says it couldn't make the Clip. */
+export function failClipUpload(recordingId: string) {
+  const upload = uploads.get(recordingId);
+  if (!upload || upload.phase === "failed") return;
+  const { documentId, fileName } = upload;
+  set({ recordingId, documentId, fileName, phase: "failed" }, recordingId);
+}
+
 const RETRY_DELAYS_MS = [1_000, 3_000, 10_000, 30_000];
 
 type ChunkAnswer = { ok: true } | { ok: false; retry: boolean };
+
+/**
+ * A chunk sent again after its answer was lost, when Clips had already taken
+ * the last one: Clips refuses it as finished, with the Clip past uploading.
+ */
+async function alreadyFinished(response: Response): Promise<boolean> {
+  if (response.status !== 409) return false;
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) return false;
+    throw error;
+  }
+  const status = (body as { data?: { status?: unknown } } | null)?.data?.status;
+  return status === "processing" || status === "ready";
+}
 
 async function postChunk(url: string, body: Blob): Promise<ChunkAnswer> {
   try {
@@ -117,7 +142,7 @@ async function postChunk(url: string, body: Blob): Promise<ChunkAnswer> {
       cache: "no-store",
       redirect: "error",
     });
-    if (response.ok) return { ok: true };
+    if (response.ok || (await alreadyFinished(response))) return { ok: true };
     return {
       ok: false,
       retry: response.status === 429 || response.status >= 500,

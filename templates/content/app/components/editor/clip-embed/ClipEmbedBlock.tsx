@@ -21,6 +21,7 @@ import { youtubeEmbedSrc } from "./clip-media";
 import {
   clearClipUpload,
   clipUploadPercent,
+  failClipUpload,
   useClipUpload,
 } from "./clip-uploads";
 import { ClipPlayer } from "./ClipPlayer";
@@ -29,6 +30,7 @@ import {
   isClipBeingMade,
   useClipMarkers,
   useClipPlayback,
+  type ClipPlaybackState,
   type ClipPlayerError,
 } from "./use-clip-playback";
 import {
@@ -109,7 +111,7 @@ function ClipMessage({
 function removeBlockFrom(element: HTMLElement | null, blockId: string) {
   const editor =
     element?.closest<TiptapEditorHTMLElement>(".ProseMirror")?.editor;
-  if (!editor?.isEditable) return;
+  if (!editor?.isEditable) return false;
   const ranges: Array<{ from: number; to: number }> = [];
   editor.state.doc.descendants((node, pos) => {
     if (ranges.length > 0) return false;
@@ -119,7 +121,9 @@ function removeBlockFrom(element: HTMLElement | null, blockId: string) {
     }
     return true;
   });
-  if (ranges[0]) editor.chain().focus().deleteRange(ranges[0]).run();
+  if (!ranges[0]) return false;
+  editor.chain().focus().deleteRange(ranges[0]).run();
+  return true;
 }
 
 /** A Clip whose file is still on its way to Clips, or being made there. */
@@ -162,9 +166,11 @@ function ClipBeingMade({
 }
 
 function ClipUploadUnfinished({
+  recordingId,
   blockId,
   canRemove,
 }: {
+  recordingId: string;
   blockId: string;
   canRemove: boolean;
 }) {
@@ -181,7 +187,11 @@ function ClipUploadUnfinished({
               variant="link"
               size="sm"
               className="h-auto px-0"
-              onClick={() => removeBlockFrom(ref.current, blockId)}
+              onClick={() => {
+                if (removeBlockFrom(ref.current, blockId)) {
+                  clearClipUpload(recordingId);
+                }
+              }}
             >
               {t("clipEmbed.remove")}
             </Button>
@@ -255,15 +265,19 @@ export function ClipEmbed({
   const links = useClipsLinks();
   const openUrl = links.appUrl ? clipShareUrl(links.appUrl, recordingId) : null;
 
-  // The tab that uploaded the Clip says so once Clips has made it.
+  // The tab that uploaded the Clip says so once Clips has made it, or tells
+  // the agent when Clips couldn't.
   const recordingUrl = links.appUrl
     ? clipRecordingUrl(links.appUrl, recordingId)
     : null;
   const uploadPhase = upload?.phase ?? null;
   useEffect(() => {
-    if (!uploadPhase || uploadPhase === "uploading" || status !== "ready") {
+    if (!uploadPhase || uploadPhase === "uploading") return;
+    if (status === "failed") {
+      failClipUpload(recordingId);
       return;
     }
+    if (status !== "ready") return;
     clearClipUpload(recordingId);
     toast.success(t("clipEmbed.savedAsClip"), {
       action: recordingUrl
@@ -296,16 +310,19 @@ export function ClipEmbed({
     return (
       <ClipFrame recordingId={recordingId}>
         <ClipUploadUnfinished
+          recordingId={recordingId}
           blockId={blockId ?? ""}
           canRemove={canEdit && Boolean(blockId)}
         />
       </ClipFrame>
     );
   }
-  if (
-    (upload?.phase === "making" && status !== "ready" && !playback.error) ||
-    isClipBeingMade(grant)
-  ) {
+  // A check that failed while the Clip was being made says why, with Retry,
+  // rather than leaving the block making it forever.
+  const beingMade =
+    (upload?.phase === "making" && status !== "ready") ||
+    isClipBeingMade(grant);
+  if (beingMade && !playback.error) {
     return (
       <ClipFrame recordingId={recordingId}>
         <ClipBeingMade
@@ -320,6 +337,33 @@ export function ClipEmbed({
       </ClipFrame>
     );
   }
+  return (
+    <ClipEmbedPlayer
+      documentId={documentId}
+      recordingId={recordingId}
+      playback={playback}
+      openUrl={openUrl}
+    />
+  );
+}
+
+/**
+ * The Clip once it's made, or why it can't play. Its own component, so the
+ * upload states above can return before its hooks run.
+ */
+function ClipEmbedPlayer({
+  documentId,
+  recordingId,
+  playback,
+  openUrl,
+}: {
+  documentId: string;
+  recordingId: string;
+  playback: ClipPlaybackState;
+  openUrl: string | null;
+}) {
+  const t = useT();
+  const { grant } = playback;
   const provider = grant?.recording.embedProvider ?? null;
   const youtubeSrc =
     provider === "youtube"

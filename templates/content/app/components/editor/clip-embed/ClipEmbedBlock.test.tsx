@@ -23,16 +23,22 @@ const queries = vi.hoisted(() => ({
   options: {} as Record<string, Record<string, unknown> | undefined>,
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: (
-    name: string,
-    _params: unknown,
-    options?: Record<string, unknown>,
-  ) => {
-    queries.options[name] = options;
-    return queries.byName[name];
-  },
-}));
+vi.mock("@agent-native/core/client/hooks", async () => {
+  const { useRef } = await import("react");
+  return {
+    useActionQuery: (
+      name: string,
+      _params: unknown,
+      options?: Record<string, unknown>,
+    ) => {
+      // A hook, as the real one is, so a render that calls it only some of
+      // the time fails here too.
+      useRef(name);
+      queries.options[name] = options;
+      return queries.byName[name];
+    },
+  };
+});
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) =>
@@ -46,12 +52,14 @@ vi.mock("@agent-native/toolkit/app/review", () => ({
 const uploads = vi.hoisted(() => ({
   current: null as ClipUpload | null,
   clear: vi.fn(),
+  fail: vi.fn(),
 }));
 
 vi.mock("./clip-uploads", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./clip-uploads")>()),
   useClipUpload: () => uploads.current,
   clearClipUpload: uploads.clear,
+  failClipUpload: uploads.fail,
 }));
 
 const toasts = vi.hoisted(() => ({ success: vi.fn() }));
@@ -125,6 +133,7 @@ function render() {
 beforeEach(() => {
   uploads.current = null;
   uploads.clear.mockReset();
+  uploads.fail.mockReset();
   toasts.success.mockReset();
   queries.byName = {
     "get-clip-playback": fakeQuery(playback()),
@@ -484,6 +493,7 @@ describe("ClipEmbed while a Clip is uploaded", () => {
     );
     expect(deleteRange).toHaveBeenCalledWith({ from: 5, to: 8 });
     expect(run).toHaveBeenCalledOnce();
+    expect(uploads.clear).toHaveBeenCalledWith("rec_1");
   });
 
   it("leaves a failed linked Clip to the usual messages", () => {
@@ -558,6 +568,45 @@ describe("ClipEmbed while a Clip is uploaded", () => {
     });
     await waitMs(20_000);
     expect(refetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("says so when a check on a Clip being made fails, and asks again on Retry", async () => {
+    vi.useFakeTimers();
+    queries.byName["get-clip-playback"] = withStatus("processing");
+    const { refetch } = queries.byName["get-clip-playback"];
+    refetch.mockResolvedValueOnce({
+      isError: true,
+      error: refusal("clips_unreachable"),
+    });
+    render();
+    await waitMs(4_000);
+    expect(container.querySelector("[data-clip-upload]")).toBeNull();
+    expect(container.textContent).toContain("clipEmbed.unreachable");
+
+    refetch.mockResolvedValueOnce({ isError: false, data: playback() });
+    const retry = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "clipEmbed.retry",
+    );
+    await act(async () => retry!.click());
+    await waitMs(0);
+    expect(container.querySelector("video")).not.toBeNull();
+  });
+
+  it("marks this tab's upload failed when Clips couldn't make the Clip", async () => {
+    vi.useFakeTimers();
+    uploads.current = { ...sending, phase: "making" };
+    queries.byName["get-clip-playback"] = withStatus("processing");
+    queries.byName["get-clip-playback"].refetch.mockResolvedValue({
+      isError: false,
+      data: playback({ recording: { status: "failed" } }),
+    });
+    renderBlock({ origin: "upload", canEdit: true });
+    await waitMs(4_000);
+    expect(uploads.fail).toHaveBeenCalledWith("rec_1");
+    expect(
+      container.querySelector('[data-clip-upload="failed"]'),
+    ).not.toBeNull();
+    expect(toasts.success).not.toHaveBeenCalled();
   });
 
   it("doesn't ask while this tab is still sending the file", async () => {

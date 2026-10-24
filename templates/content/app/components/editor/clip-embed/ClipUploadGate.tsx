@@ -188,12 +188,16 @@ export function useClipFileUpload(input: {
 /** The Upload tab's note on where the video goes. */
 export function ClipUploadHint({
   storage,
+  error,
 }: {
   storage: ContentClipStorage | undefined;
+  /** Why Clips couldn't say, when it couldn't. */
+  error?: unknown;
 }) {
   const t = useT();
-  const text =
-    storage?.state === "free"
+  const text = error
+    ? t(uploadErrorKey(error))
+    : storage?.state === "free"
       ? storage.remaining === 1
         ? t("clipEmbed.savedAsClipFreeOne")
         : storage.remaining > 0
