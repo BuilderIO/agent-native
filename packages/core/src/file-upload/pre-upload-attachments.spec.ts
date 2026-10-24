@@ -904,6 +904,33 @@ describe("preUploadAttachments", () => {
     expect(att.url).toBe("https://cdn.example.com/notes.txt");
   });
 
+  it("does not encode or upload text over the 8 MB limit", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/huge.md",
+      provider: "builder",
+    });
+
+    await preUploadAttachments({
+      attachments: [
+        makeFileAtt({
+          data: undefined,
+          name: "huge.md",
+          contentType: "text/markdown",
+          text: "x".repeat(9_000_000),
+        }),
+        makeFileAtt({
+          name: "inline.md",
+          contentType: "text/markdown",
+          data: `data:text/markdown;base64,${"A".repeat(12_000_000)}`,
+        }),
+      ],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(uploadFileMock).not.toHaveBeenCalled();
+  });
+
   it("uploads the file body, not the composer's attachment wrapper", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/notes.txt",

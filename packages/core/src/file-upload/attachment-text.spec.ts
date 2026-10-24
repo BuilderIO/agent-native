@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   decodeTextAttachmentData,
+  isOverTextAttachmentLimit,
   sliceTextHead,
   unwrapOwnAttachmentEnvelope,
 } from "./attachment-text.js";
@@ -41,6 +42,32 @@ describe("decodeTextAttachmentData", () => {
       mediaType: "text/markdown",
       reason: "too-large",
     });
+  });
+
+  it("applies one size limit to data URLs and composer text alike", () => {
+    expect(
+      isOverTextAttachmentLimit({
+        name: "huge.md",
+        data: `data:text/markdown;base64,${"A".repeat(12_000_000)}`,
+      }),
+    ).toBe(true);
+    expect(
+      isOverTextAttachmentLimit({
+        name: "huge.md",
+        text: "x".repeat(9_000_000),
+      }),
+    ).toBe(true);
+    expect(
+      isOverTextAttachmentLimit({ name: "small.md", text: "x".repeat(1_000) }),
+    ).toBe(false);
+    expect(
+      isOverTextAttachmentLimit({
+        name: "report.pdf",
+        contentType: "application/pdf",
+        data: "data:application/pdf;base64,JVBERi0=",
+        text: "x".repeat(9_000_000),
+      }),
+    ).toBe(false);
   });
 
   it("unwraps a stored copy that kept this file's own composer envelope", () => {

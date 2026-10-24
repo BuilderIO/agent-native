@@ -97,6 +97,7 @@ import {
 } from "../file-upload/attachment-bytes.js";
 import {
   decodeTextAttachmentData,
+  isOverTextAttachmentLimit,
   isSvgTextAttachment,
   MAX_INLINE_TEXT_ATTACHMENT_CHARS,
   MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS,
@@ -3163,6 +3164,16 @@ export function buildUserContentWithAttachments(opts: {
       continue;
     }
 
+    if (!isText && isOverTextAttachmentLimit(att)) {
+      textAttachments.push(
+        describeUndecodableTextAttachment(
+          att,
+          att.contentType || "text/plain",
+          "too-large",
+        ),
+      );
+      continue;
+    }
     const rawTextAttachment = isText
       ? decodedText.text
       : typeof att.text === "string"

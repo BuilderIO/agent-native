@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   decodeTextAttachmentData,
+  isOverTextAttachmentLimit,
   isTextLikeFilename,
   isTextLikeMimeType,
   ATTACHMENT_REFERENCE_MIME_TYPE,
@@ -244,7 +245,9 @@ export async function persistTextAttachmentsAsResources(opts: {
     const decoded = decodeTextAttachmentData(att);
     // The prompt says an undecodable file's contents were withheld, so no
     // copy of them may become readable here.
-    if (decoded.kind === "undecodable") continue;
+    if (decoded.kind === "undecodable" || isOverTextAttachmentLimit(att)) {
+      continue;
+    }
     const text =
       decoded.kind === "text"
         ? decoded.text

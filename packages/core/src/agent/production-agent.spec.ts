@@ -2188,6 +2188,26 @@ describe("buildUserContentWithAttachments", () => {
     );
   });
 
+  it("reports composer text over the 8 MB limit as too large", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Use this",
+      attachments: [
+        {
+          type: "file",
+          name: "huge.md",
+          contentType: "text/markdown",
+          text: "x".repeat(9_000_000),
+        },
+      ],
+    });
+
+    const text = content[0]?.type === "text" ? content[0].text : "";
+    expect(text).toContain(
+      '<chat-attachment-processing-error code="undecodable-text" reason="too-large" name="huge.md"',
+    );
+    expect(text).not.toContain("x".repeat(100));
+  });
+
   it("reports a corrupt base64 text payload instead of decoding around it", () => {
     const content = buildUserContentWithAttachments({
       text: "Use this",

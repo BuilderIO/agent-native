@@ -7,6 +7,7 @@ import { parseBase64DataUrl } from "../shared/data-url.js";
 import { normalizeImageMediaType } from "./attachment-bytes.js";
 import {
   decodeTextAttachmentData,
+  isOverTextAttachmentLimit,
   isTextLikeFilename,
   MAX_INLINE_TEXT_ATTACHMENT_CHARS,
   MAX_INLINE_TEXT_ATTACHMENTS_TOTAL_CHARS,
@@ -400,6 +401,9 @@ export async function preUploadAttachments(opts: {
         isFile = false;
       }
     }
+    // Over the text limit nothing is encoded or uploaded; the prompt reports
+    // the file as too large from the same check.
+    if (isFile && isOverTextAttachmentLimit(att)) continue;
     if (
       typeof data !== "string" &&
       includeFiles &&

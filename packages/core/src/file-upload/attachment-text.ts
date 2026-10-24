@@ -228,6 +228,33 @@ function decodeTextAttachmentDataUncached(
   }
 }
 
+/**
+ * The one size check for text attachments, whether the bytes arrive as a data
+ * URL or as composer text. Pre-upload runs it before encoding or uploading,
+ * and the prompt and persistence run it so all three agree the file is too
+ * large.
+ */
+export function isOverTextAttachmentLimit(att: {
+  name?: string;
+  contentType?: string;
+  data?: string;
+  text?: string;
+}): boolean {
+  const decoded = decodeTextAttachmentData(att);
+  if (decoded.kind === "undecodable" && decoded.reason === "too-large") {
+    return true;
+  }
+  // A binary payload (a PDF with extracted text, say) is not a text file.
+  if (decoded.kind === "not-text" && typeof att.data === "string") {
+    return false;
+  }
+  return (
+    typeof att.text === "string" &&
+    att.text.length > MAX_TEXT_ATTACHMENT_BYTES / 4 &&
+    Buffer.byteLength(att.text, "utf8") > MAX_TEXT_ATTACHMENT_BYTES
+  );
+}
+
 export type TextAttachmentStorage =
   | { kind: "stored"; resourceId: string; path: string; totalChars: number }
   | { kind: "failed"; reason: "too-large" | "write-failed"; error?: string };
