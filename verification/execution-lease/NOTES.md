@@ -42,6 +42,9 @@ Helper invariants, checked in the same runs:
   `InsertRun` transition and all execution lease and step journal writes unchanged.
   Stopping a completed approval pause also writes the turn-abort marker without
   changing a run or lease; this is a stuttering step for the model's `AbortTurn`.
+  Explicit interruption records those same markers in the slot-admission
+  transaction before inserting its replacement turn. The completed run and
+  its lease remain unchanged; cross-turn admission is outside this model.
 
 ## Results at 38ce309e5da9
 

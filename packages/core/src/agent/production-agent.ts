@@ -15269,6 +15269,9 @@ export function createProductionAgentHandler(
         await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
+          ...(admittedQueuedMessage?.interruptActiveRun === true
+            ? { interruptApprovalPause: true }
+            : {}),
           ...(turnInitiator ? { turnInitiator } : {}),
           replayCompletedTurn:
             typeof requestTurnId === "string" &&

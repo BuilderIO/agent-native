@@ -320,11 +320,11 @@ export async function isAgentToolAlwaysAllowed(
   return (result.rows ?? []).length > 0;
 }
 
-export async function hasPendingCurrentTurnApproval(
+export async function getPendingCurrentTurnApproval(
   threadId: string,
   tx: DbExec,
   turnId?: string,
-): Promise<boolean> {
+): Promise<{ turnId: string; status: "running" | "completed" } | null> {
   const { rows } = await tx.execute({
     sql: `WITH latest_run AS (
             SELECT COALESCE(turn_id, id) AS turn_id, status
@@ -333,7 +333,7 @@ export async function hasPendingCurrentTurnApproval(
             ORDER BY started_at DESC, COALESCE(continuation_order, 0) DESC
             LIMIT 1
           )
-          SELECT approval.id FROM agent_tool_approvals approval
+          SELECT latest_run.turn_id, latest_run.status FROM agent_tool_approvals approval
           JOIN latest_run ON latest_run.turn_id = approval.turn_id
           WHERE approval.thread_id = ? AND approval.status = 'pending'
             AND approval.expires_at > ?
@@ -349,7 +349,24 @@ export async function hasPendingCurrentTurnApproval(
           LIMIT 1`,
     args: [threadId, threadId, Date.now(), turnId ?? null, turnId ?? null],
   });
-  return rows.length > 0;
+  const row = rows[0] as { turn_id?: unknown; status?: unknown } | undefined;
+  if (!row) return null;
+  if (
+    typeof row.turn_id !== "string" ||
+    !row.turn_id ||
+    (row.status !== "running" && row.status !== "completed")
+  ) {
+    throw new Error("Pending approval has an invalid turn identity or status");
+  }
+  return { turnId: row.turn_id, status: row.status };
+}
+
+export async function hasPendingCurrentTurnApproval(
+  threadId: string,
+  tx: DbExec,
+  turnId?: string,
+): Promise<boolean> {
+  return (await getPendingCurrentTurnApproval(threadId, tx, turnId)) !== null;
 }
 
 export async function resolveAgentToolApprovalTurnId(binding: {

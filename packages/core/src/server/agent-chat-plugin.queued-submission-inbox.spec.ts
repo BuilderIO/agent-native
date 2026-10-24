@@ -346,6 +346,7 @@ import {
   getRunById,
   insertRun,
   insertRunEvent,
+  isTurnAborted,
   markTurnAborted,
   retryRunThreadProjection,
   tryClaimRunSlot,
@@ -355,6 +356,7 @@ import {
   consumeAgentToolApproval,
   createAgentToolApproval,
   hasPendingCurrentTurnApproval,
+  resolveAgentToolApprovalTurnId,
 } from "../agent/tool-approval-store.js";
 import {
   createThread,
@@ -1197,6 +1199,7 @@ describe("queued submission inbox recurring sweep", () => {
     async (state) => {
       const threadId = `thread-${randomUUID()}`;
       const turnId = `turn-${randomUUID()}`;
+      let approvedTurnId: string | null = null;
       const runId = `paused-${randomUUID()}`;
       const messageId = "follow-up";
       const actor = { email: "inbox-owner@example.com", anonymous: false };
@@ -1219,6 +1222,25 @@ describe("queued submission inbox recurring sweep", () => {
         await insertRun("later-run", threadId, "later-turn");
         await updateRunStatus("later-run", "completed");
       }
+      if (state === "interrupted") {
+        approvedTurnId = await resolveAgentToolApprovalTurnId({
+          ownerEmail: actor.email,
+          threadId,
+          requestedTurnId: turnId,
+          approvalKeys: ["release-approval"],
+        });
+        expect(approvedTurnId).toBe(turnId);
+        await expect(
+          tryClaimRunSlot(threadId, "failed-interruption", undefined, {
+            turnId: "failed-interruption-turn",
+            interruptApprovalPause: true,
+            afterInsert: async () => {
+              throw new Error("receipt submission failed");
+            },
+          }),
+        ).rejects.toThrow("receipt submission failed");
+        await expect(isTurnAborted(threadId, turnId)).resolves.toBe(false);
+      }
       await mutateThreadQueuedMessages(
         threadId,
         {
@@ -1238,6 +1260,7 @@ describe("queued submission inbox recurring sweep", () => {
           throw new Error("Queued receipt disappeared before admit");
         const slot = await tryClaimRunSlot(threadId, "queued-run", undefined, {
           turnId: "queued-turn",
+          ...(state === "interrupted" ? { interruptApprovalPause: true } : {}),
           ...(state !== "interrupted"
             ? {
                 hasPendingApproval: (tx) =>
@@ -1267,6 +1290,21 @@ describe("queued submission inbox recurring sweep", () => {
         state: "submitted",
         submittedRunId: "queued-run",
       });
+      if (state === "interrupted") {
+        await updateRunStatus("queued-run", "completed");
+        if (!approvedTurnId)
+          throw new Error(
+            "Approval did not resolve its turn before interruption",
+          );
+        await expect(
+          tryClaimRunSlot(threadId, "late-approval", undefined, {
+            turnId: approvedTurnId,
+          }),
+        ).resolves.toMatchObject({
+          claimed: false,
+          turnAborted: true,
+        });
+      }
     },
   );
 
