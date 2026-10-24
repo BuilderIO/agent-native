@@ -282,22 +282,38 @@ test.describe("inline table controls on a touch screen", () => {
     const headerCells = page.locator(`${EDITOR} tr:first-child :is(td, th)`);
     const addColumn = page.getByTestId("table-column-handle");
 
-    // The control sits half over the cell the scrollport's edge cuts through.
+    // The control sits over the scrollport's edge. Columns sized to their
+    // content can put a border there too, and a tap beside a border may land
+    // in the next cell, so the tap goes where the control is farthest from one.
     const addBox = (await addColumn.boundingBox())!;
-    const tap = { x: addBox.x + 3, y: addBox.y + addBox.height / 2 };
-    const tappedCell = await page.evaluate(
-      ({ editor, x, y }) => {
-        const cells = document.querySelectorAll(`${editor} td, ${editor} th`);
-        const hit = [...cells].find((td) => {
-          const box = td.getBoundingClientRect();
-          return (
-            box.left <= x && x <= box.right && box.top <= y && y <= box.bottom
-          );
-        });
-        return hit?.textContent ?? null;
+    const y = addBox.y + addBox.height / 2;
+    const { x, tappedCell } = await page.evaluate(
+      ({ editor, left, right, y }) => {
+        const cells = [
+          ...document.querySelectorAll(`${editor} td, ${editor} th`),
+        ].map((td) => ({ td, box: td.getBoundingClientRect() }));
+        const row = cells.filter(({ box }) => box.top <= y && y <= box.bottom);
+        const borders = row.flatMap(({ box }) => [box.left, box.right]);
+        // Only the part of the control over the table's visible area.
+        const visible = row[0]?.td
+          .closest(".tableWrapper")
+          ?.getBoundingClientRect();
+        const from = Math.max(left, visible?.left ?? left) + 2;
+        const to = Math.min(right, visible?.right ?? right) - 2;
+        let best = from;
+        let bestGap = -1;
+        for (let x = from; x <= to; x += 0.5) {
+          const gap = Math.min(...borders.map((edge) => Math.abs(edge - x)));
+          if (gap > bestGap) [best, bestGap] = [x, gap];
+        }
+        const hit = row.find(
+          ({ box }) => box.left <= best && best <= box.right,
+        );
+        return { x: best, tappedCell: hit?.td.textContent ?? null };
       },
-      { editor: EDITOR, ...tap },
+      { editor: EDITOR, left: addBox.x, right: addBox.x + addBox.width, y },
     );
+    const tap = { x, y };
     expect(tappedCell).not.toBeNull();
 
     await page.touchscreen.tap(tap.x, tap.y);
