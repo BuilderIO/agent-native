@@ -359,6 +359,22 @@ UI 측에서는 이 키를 직접 폴링하거나 삭제하지 않습니다. 경
 포장 대신 `navigate(path, { replace: true, flushSync: true })` 사용
 보기 전환 시 주소 표시줄과 표시되는 페이지가 함께 유지됩니다.
 
+## 턴이 작업하는 화면 {#turn-screen}
+
+각 채팅 메시지는 사용자가 보낸 시점의 해당 탭의 `navigation`, `__url__`, `settings-view`, `selection` 값을 함께 전달합니다. 턴 전체 동안(나중에 시작되는 대기열의 메시지, 백그라운드 실행, 연속 실행 포함) 해당 탭에 대한 이 키들의 서버 읽기는 전송된 값을 반환합니다. `<current-screen>`, `view-screen`, 그리고 기본적으로 "현재" 항목을 대상으로 하는 모든 작업은 에이전트가 작업하는 동안 사용자가 다른 곳을 클릭하더라도 사용자가 본 내용과 일치합니다. 레코드는 여전히 최신 상태로 읽히며, 고정되는 것은 화면 위치뿐입니다.
+
+편집기 선택처럼 앱이 소유한 탭별 화면 키는 `app/root.tsx`에서 한 번 등록합니다:
+
+```ts
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
+
+registerAgentScreenStateKeys(["design-selection"]);
+```
+
+키는 `<key>:<tabId>` 형식으로 작성해야 합니다. 재생 위치, 열린 패널, 진행 상황처럼 실시간으로 유지되어야 하는 상태는 제외하세요.
+
+턴은 해당 탭에 `navigate` 또는 `__set_url__`를 쓰거나 등록된 키를 직접 쓰면 다시 실시간 상태를 읽습니다. 탭이 `navigate` 명령을 적용하기 전까지는 그 직후의 읽기가 여전히 이전 화면을 보여 줄 수 있습니다.
+
 ## useNavigationState 후크 {#use-navigation-state}
 
 `useNavigationState`는 **프레임워크 가져오기가 아닌 앱의 후크입니다.** 모든 템플릿은 `app/hooks/use-navigation-state.ts`에서 템플릿을 제공하고 앱 셸(`root.tsx`)에서 한 번 호출합니다. 양방향 탐색을 연결하는 단일 위치입니다.

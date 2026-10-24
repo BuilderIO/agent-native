@@ -2,7 +2,10 @@ import {
   agentNativePath,
   isWorkspaceAppPath,
 } from "@agent-native/core/client/api-path";
-import { readClientAppState } from "@agent-native/core/client/application-state";
+import {
+  readClientAppState,
+  setClientAppState,
+} from "@agent-native/core/client/application-state";
 import { useScreenRefreshKey } from "@agent-native/core/client/hooks";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React from "react";
@@ -58,15 +61,18 @@ export function URLSync({ browserTabId }: { browserTabId?: string }) {
       hash: location.hash,
       searchParams,
     };
-    const write = (key: string) =>
-      fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
+    // Tracked write: a message sent right after navigating waits for it before capturing its screen.
+    void setClientAppState(appStateKey("__url__"), body, {
+      keepalive: true,
+    }).catch(() => {});
+    if (normalizedBrowserTabId) {
+      fetch(agentNativePath("/_agent-native/application-state/__url__"), {
         method: "PUT",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       }).catch(() => {});
-    void write(appStateKey("__url__"));
-    if (normalizedBrowserTabId) void write("__url__");
+    }
   }, [
     appStateKey,
     location.pathname,

@@ -60,6 +60,28 @@ const writes = () =>
     .map(([, options]) => JSON.parse(options.body));
 
 describe("template navigation parity", () => {
+  it("writes the tab's navigation under its tab key so a send can wait for it", async () => {
+    render(
+      <MemoryRouter initialEntries={["/deck/d1?slide=3"]}>
+        <Harness />
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(mocks.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("navigation:template-navigation-test"),
+        expect.objectContaining({ method: "PUT" }),
+      ),
+    );
+    const tabWrite = mocks.fetch.mock.calls.find(([url]) =>
+      String(url).includes("navigation:template-navigation-test"),
+    );
+    expect(JSON.parse(tabWrite?.[1].body)).toEqual({
+      view: "editor",
+      deckId: "d1",
+      slideNumber: 3,
+      slideIndex: 2,
+    });
+  });
   it("captures a direct gallery route, selected template, and search", async () => {
     render(
       <MemoryRouter

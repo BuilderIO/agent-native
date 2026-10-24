@@ -69,6 +69,8 @@ export interface RequestRunContext {
     id: string;
     label?: string;
   } | null;
+  /** The sending tab's screen state; screen-state reads return it until the turn navigates. */
+  turnScreen?: import("../application-state/turn-screen.js").TurnScreen;
   owner?: string;
   userApiKey?: string;
   userApiKeyEnvVar?: string;

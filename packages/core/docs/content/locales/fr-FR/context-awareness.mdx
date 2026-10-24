@@ -359,6 +359,22 @@ changements. Pour les commandes qui peuvent arriver pendant la diffusion du chat
 avec `navigate(path, { replace: true, flushSync: true })` au lieu de l'envelopper
 dans une transition de vue afin que la barre d'adresse et la page visible restent ensemble.
 
+## L'écran sur lequel travaille un tour {#turn-screen}
+
+Chaque message de chat transporte les valeurs `navigation`, `__url__`, `settings-view` et `selection` de son onglet telles qu'elles étaient au moment où l'utilisateur l'a envoyé. Pendant tout le tour -- y compris un message en file d'attente qui démarre plus tard, les exécutions en arrière-plan et les continuations -- les lectures côté serveur de ces clés pour cet onglet renvoient les valeurs envoyées. `<current-screen>`, `view-screen` et toute action qui cible par défaut l'élément « actuel » concordent tous avec ce que l'utilisateur a vu, même s'il clique ailleurs pendant que l'agent travaille. Les enregistrements sont toujours lus à jour ; seule la position à l'écran est figée.
+
+Enregistrez une seule fois dans `app/root.tsx` les clés d'écran par onglet propres à l'application, comme une sélection d'éditeur :
+
+```ts
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
+
+registerAgentScreenStateKeys(["design-selection"]);
+```
+
+La clé doit être écrite sous la forme `<key>:<tabId>`. Laissez de côté l'état qui doit rester en direct, comme la position de lecture, les panneaux ouverts ou la progression.
+
+Le tour relit l'état en direct dès qu'il écrit `navigate` ou `__set_url__` pour cet onglet, ou qu'il écrit lui-même une clé enregistrée. Tant que l'onglet n'a pas appliqué une commande `navigate`, une lecture juste après peut encore afficher l'écran précédent.
+
 ## Le hook useNavigationState {#use-navigation-state}
 
 `useNavigationState` est **le crochet de votre application, pas une importation de framework.** Chaque modèle en est livré un sur `app/hooks/use-navigation-state.ts` et l'appelle une fois depuis le shell de l'application (`root.tsx`). C'est le lieu unique qui relie la navigation dans les deux sens :

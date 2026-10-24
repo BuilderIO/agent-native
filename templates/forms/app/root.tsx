@@ -1,6 +1,7 @@
 import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
 import {
   useDbSync,
   createAgentNativeQueryClient,
@@ -44,6 +45,7 @@ configureTracking({
     app: "agent-native-forms",
   }),
 });
+registerAgentScreenStateKeys(["forms-selection"]);
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },

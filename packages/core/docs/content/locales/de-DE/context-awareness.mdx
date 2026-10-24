@@ -359,6 +359,22 @@ Framework URL-Tools (`set-url-path`, `set-search-params`) und reiner URL-Filter
 mit `navigate(path, { replace: true, flushSync: true })`, anstatt es zu umschließen
 in einem Ansichtsübergang, damit die Adressleiste und die sichtbare Seite zusammen bleiben.
 
+## Der Bildschirm, auf dem eine Runde arbeitet {#turn-screen}
+
+Jede Chatnachricht enthält die Werte `navigation`, `__url__`, `settings-view` und `selection` ihres Tabs zu dem Zeitpunkt, an dem der Benutzer sie gesendet hat. Für die gesamte Runde – einschließlich einer eingereihten Nachricht, die später startet, Hintergrundläufen und Fortsetzungen – liefern serverseitige Lesezugriffe auf diese Schlüssel für diesen Tab die gesendeten Werte. `<current-screen>`, `view-screen` und jede Aktion, die standardmäßig das „aktuelle“ Element verwendet, stimmen alle mit dem überein, was der Benutzer gesehen hat, selbst wenn er woanders klickt, während der Agent arbeitet. Datensätze werden weiterhin frisch gelesen; nur die Bildschirmposition wird festgehalten.
+
+Registrieren Sie app-eigene Bildschirmschlüssel pro Tab, etwa eine Editor-Auswahl, einmal in `app/root.tsx`:
+
+```ts
+import { registerAgentScreenStateKeys } from "@agent-native/core/client/application-state";
+
+registerAgentScreenStateKeys(["design-selection"]);
+```
+
+Der Schlüssel muss als `<key>:<tabId>` geschrieben werden. Lassen Sie Status weg, der live bleiben soll, etwa die Wiedergabeposition, geöffnete Bedienfelder oder den Fortschritt.
+
+Die Runde liest den Live-Status erneut, sobald sie `navigate` oder `__set_url__` für diesen Tab schreibt oder selbst einen registrierten Schlüssel schreibt. Bis der Tab einen `navigate`-Befehl anwendet, kann ein Lesezugriff direkt danach noch den vorherigen Bildschirm zeigen.
+
 ## Der useNavigationState-Hook {#use-navigation-state}
 
 `useNavigationState` ist **der Hook Ihrer App, kein Framework-Import.** Jede Vorlage liefert eine unter `app/hooks/use-navigation-state.ts` und ruft sie einmal aus der App-Shell (`root.tsx`) auf. Es ist der einzige Ort, der die Navigation in beide Richtungen verbindet:
