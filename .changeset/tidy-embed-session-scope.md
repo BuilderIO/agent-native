@@ -9,3 +9,5 @@ Apps with a custom `AuthOptions.getSession` resolver must also configure the coo
 MCP Apps embeds behind a proxy require the public origin configured through `APP_URL` or the workspace gateway URL unless the proxy connects over loopback.
 
 Use the embed origin consistently for widget CSP and keep ordinary sign-in session lookup independent of embed origin validation.
+
+Keep Visual Edit capabilities on their declared action set and automatic source synchronization on the signed-in user's own write access.

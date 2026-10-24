@@ -1128,6 +1128,37 @@ describe("requestMatchesEmbedTarget", () => {
     } as any;
   }
 
+  it("resolves Visual Edit metadata without granting other framework routes", async () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "mail.test",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        credentialEvent("/_agent-native/webmcp/manifest", token, "query"),
+      ),
+    ).resolves.toMatchObject({
+      scope: "capability:visual-edit:design:design_1",
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        credentialEvent("/_agent-native/org/me", token, "query"),
+      ),
+    ).resolves.toBeNull();
+    const ordinary = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "mail.test",
+      targetPath: "/inbox",
+    });
+    await expect(
+      resolveEmbedSessionFromRequest(
+        credentialEvent("/_agent-native/webmcp/manifest", ordinary, "query"),
+      ),
+    ).resolves.toBeNull();
+  });
+
   it.each([
     "/page/github%3Aowner%2Frepo",
     "/page/local-file%3Adocs%2Freadme%2emd",
@@ -1428,6 +1459,7 @@ describe("requestMatchesEmbedTarget", () => {
       "/inbox?documentId=doc-2",
       "/_agent-native/open?view=inbox&documentId=doc-1",
     ],
+    ["/inbox", "/_agent-native/open?to=%2Finbox%3FdocumentId%3Ddoc-1"],
     [
       "/inbox?documentId=doc-2",
       "/_agent-native/open?to=%2Finbox%3FdocumentId%3Ddoc-1",
@@ -1452,21 +1484,20 @@ describe("requestMatchesEmbedTarget", () => {
     },
   );
 
-  it("preserves signed resource queries through open redirects", async () => {
-    const targetPath = "/_agent-native/open?to=%2Finbox%3FdocumentId%3Ddoc-1";
+  it.each([
+    [
+      "/inbox?documentId=doc-1&embedded=1&agentSidebar=closed",
+      "/_agent-native/open?to=%2Finbox%3FdocumentId%3Ddoc-1",
+    ],
+    ["/inbox", "/_agent-native/open?app=mail&view=inbox&to=%2Finbox"],
+  ])("preserves signed open destination %s", async (path, targetPath) => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       audienceHost: "mail.test",
       targetPath,
     });
     await expect(
-      resolveEmbedSessionFromRequest(
-        credentialEvent(
-          "/inbox?documentId=doc-1&embedded=1&agentSidebar=closed",
-          token,
-          "query",
-        ),
-      ),
+      resolveEmbedSessionFromRequest(credentialEvent(path, token, "query")),
     ).resolves.toMatchObject({ targetPath });
   });
 

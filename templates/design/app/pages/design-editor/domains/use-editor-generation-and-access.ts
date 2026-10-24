@@ -1062,8 +1062,14 @@ export function useEditorGenerationAndAccess({
       setReviewSendingThreadId(null);
     }
   }, [reviewAgentQueueThreadIds, reviewSendingThreadId]);
+  // accessRole includes a Visual Edit link's role, which update-file does not
+  // honor; automatic source syncs need the account's own canPersistSource.
+  const canPersistDesignSource =
+    canEditDesign &&
+    isSignedIn &&
+    (design?.canPersistSource ?? !isVisualEditSurface);
   const canEditDesignRef = useRef(canEditDesign);
-  const canPersistDesignSourceRef = useRef(canEditDesign && isSignedIn);
+  const canPersistDesignSourceRef = useRef(canPersistDesignSource);
   const rawServerFilesByIdRef = useRef(new Map<string, DesignFile>());
   const historyFilesRef = useRef<DesignFile[]>([]);
   const restoreSelectionSnapshot = useCallback(
@@ -1191,13 +1197,22 @@ export function useEditorGenerationAndAccess({
       baseUpdatedAt?: string | null,
       identityMigrationSourceContent?: string,
       deferCollabReconcile?: boolean,
+      identityMigrationRefused?: boolean,
     ) => {
       const current = pendingLocalFileContentsRef.current.get(fileId);
+      const sameMigration =
+        current?.content === content &&
+        current.identityMigrationSourceContent ===
+          identityMigrationSourceContent;
+      // A refusal annotates only the migration it answered, never a newer edit.
+      if (identityMigrationRefused && !sameMigration) return;
       if (
         current?.content === content &&
         current.identityMigrationSourceContent ===
           identityMigrationSourceContent &&
         current.deferCollabReconcile === deferCollabReconcile &&
+        current.identityMigrationRefused ===
+          (identityMigrationRefused || undefined) &&
         (baseUpdatedAt === undefined || current.baseUpdatedAt !== undefined)
       )
         return;
@@ -1210,6 +1225,7 @@ export function useEditorGenerationAndAccess({
           baseUpdatedAt,
           identityMigrationSourceContent,
           deferCollabReconcile,
+          identityMigrationRefused,
         }),
       );
       setPendingLocalFileContentsRevision((revision) => revision + 1);
@@ -1252,8 +1268,25 @@ export function useEditorGenerationAndAccess({
 
   useLayoutEffect(() => {
     canEditDesignRef.current = canEditDesign;
-    canPersistDesignSourceRef.current = canEditDesign && isSignedIn;
-  }, [canEditDesign, isSignedIn]);
+    canPersistDesignSourceRef.current = canPersistDesignSource;
+  }, [canEditDesign, canPersistDesignSource]);
+  const sourcePersistenceDeniedRef = useRef(!canPersistDesignSource);
+  useLayoutEffect(() => {
+    const regained =
+      canPersistDesignSource && sourcePersistenceDeniedRef.current;
+    sourcePersistenceDeniedRef.current = !canPersistDesignSource;
+    if (!regained) return;
+    // Refused migrations stay pending so they are not re-sent; regained source
+    // access is the only signal that one may now succeed.
+    let cleared = false;
+    for (const [fileId, pending] of pendingLocalFileContentsRef.current) {
+      if (!pending.identityMigrationRefused) continue;
+      pendingLocalFileContentsRef.current.delete(fileId);
+      cleared = true;
+    }
+    if (cleared)
+      setPendingLocalFileContentsRevision((revision) => revision + 1);
+  }, [canPersistDesignSource]);
 
   useEffect(() => {
     if (!id || !hasPendingGeneration || !designDataReady) return;
@@ -1666,6 +1699,7 @@ export function useEditorGenerationAndAccess({
     reviewSendingThreadId,
     setReviewSendingThreadId,
     canEditDesignRef,
+    canPersistDesignSource,
     canPersistDesignSourceRef,
     rawServerFilesByIdRef,
     historyFilesRef,

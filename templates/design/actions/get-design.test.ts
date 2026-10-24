@@ -55,6 +55,7 @@ const mocks = vi.hoisted(() => {
     sql: vi.fn((strings, ...values) => ({ strings, values })),
     getDb: vi.fn(() => ({ select })),
     resolveAccess: vi.fn(),
+    currentAccess: vi.fn(() => ({})),
     currentRequestUserIsOrgAdmin: vi.fn(),
     getAppConfig: vi.fn(() => ({
       observability: { superOrgId: state.superOrgId },
@@ -74,7 +75,11 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
+  roleSatisfies: (
+    await importOriginal<typeof import("@agent-native/core/sharing")>()
+  ).roleSatisfies,
+  currentAccess: mocks.currentAccess,
   registerShareableResource: vi.fn(),
   resolveAccess: mocks.resolveAccess,
 }));
@@ -133,6 +138,7 @@ import action from "./get-design.js";
 describe("get-design", () => {
   beforeEach(() => {
     mocks.resolveAccess.mockReset();
+    mocks.currentAccess.mockReset().mockReturnValue({});
     mocks.currentRequestUserIsOrgAdmin.mockReset();
     mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(false);
     mocks.getAppConfig.mockClear();
@@ -229,6 +235,51 @@ describe("get-design", () => {
     expect(result.data).not.toContain("previewToken");
     expect(result.data).not.toContain("example-private-bridge-token");
   });
+
+  it.each([
+    { userEmail: undefined, sourceRole: "viewer", canPersistSource: false },
+    {
+      userEmail: "viewer@example.com",
+      sourceRole: "viewer",
+      canPersistSource: false,
+    },
+    {
+      userEmail: "editor@example.com",
+      sourceRole: "editor",
+      canPersistSource: true,
+    },
+    {
+      userEmail: "owner@example.com",
+      sourceRole: "owner",
+      canPersistSource: true,
+    },
+  ])(
+    "separates Visual Edit role from source persistence for $sourceRole",
+    async ({ userEmail, sourceRole, canPersistSource }) => {
+      const resource = mocks.state.reviewResource;
+      mocks.resolveAccess.mockResolvedValueOnce({ role: "editor", resource });
+      mocks.resolveAccess.mockResolvedValueOnce({ role: sourceRole, resource });
+      mocks.currentAccess.mockReturnValue({
+        userEmail,
+        orgId: "org-a",
+        authCapability: "capability:visual-edit:design:design_123",
+      } as any);
+      const result = await action.run({ id: "design_123" }, {
+        userEmail,
+        orgId: "org-a",
+        caller: "frontend",
+      } as any);
+      expect(result).toMatchObject({ accessRole: "editor", canPersistSource });
+      if (userEmail)
+        expect(mocks.resolveAccess).toHaveBeenLastCalledWith(
+          "design",
+          "design_123",
+          { userEmail, orgId: "org-a", authCapability: undefined },
+          { skipResourceBody: true },
+        );
+      else expect(mocks.resolveAccess).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("allows an org admin to read a same-org design for Human Review", async () => {
     mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);

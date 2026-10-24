@@ -134,6 +134,8 @@ vi.mock("./auth.js", () => ({
   isLoopbackRequest: () => false,
 }));
 vi.mock("./embed-session.js", () => ({
+  hasLiveEmbedCapabilityCookie: (event: any) =>
+    event._hasLiveEmbedCapabilityCookie ?? false,
   hasPresentedEmbedSessionCredential: (event: any) =>
     mockHasPresentedEmbedSessionCredential(event),
   isExpiredMcpDirectoryWidgetSessionRequest: (...args: unknown[]) =>
@@ -2037,7 +2039,127 @@ describe("mountActionRoutes", () => {
     },
   );
 
-  it("does not let a capability satisfy account-backed write action auth", async () => {
+  it.each(
+    [
+      {
+        credential: "capability-only",
+        browserUser: undefined,
+        scope: "visual-edit",
+      },
+      {
+        credential: "signed-in plus capability",
+        browserUser: "browser@example.com",
+        scope: "visual-edit",
+      },
+      {
+        credential: "MCP card",
+        browserUser: "browser@example.com",
+        scope: "card",
+      },
+      {
+        credential: "plain signed-in",
+        browserUser: "browser@example.com",
+        scope: undefined,
+      },
+    ].flatMap((credential) =>
+      [
+        { inside: true, requiresAuth: true },
+        { inside: false, requiresAuth: true },
+        { inside: false, requiresAuth: false },
+      ].map((action) => ({ ...credential, ...action })),
+    ),
+  )(
+    "keeps $credential authority independent (Visual Edit: $inside, account required: $requiresAuth)",
+    async ({ browserUser, scope, inside, requiresAuth }) => {
+      const { createMcpDirectoryWidgetReadCapability } =
+        await import("../shared/embed-auth.js");
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const { getRequestAuthCapability } = await import("./request-context.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const visualScope = "capability:visual-edit:design:design_1";
+      const resolvedScope =
+        scope === "card"
+          ? createMcpDirectoryWidgetReadCapability({
+              appId: "design",
+              resourceUri: "ui://design/card",
+              resourceIds: { designId: "design_1" },
+              actionArguments: { "get-design": { id: "design_1" } },
+            })
+          : scope
+            ? visualScope
+            : undefined;
+      mockResolveEmbedSessionFromRequest.mockResolvedValue(
+        resolvedScope
+          ? {
+              email: "link-owner@example.com",
+              token: "signed-capability",
+              targetPath: "/visual-edit/design_1",
+              scope: resolvedScope,
+            }
+          : null,
+      );
+      const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+        statusCode: 401,
+      });
+      const run = vi.fn(async (_args, ctx) => ({
+        userEmail: ctx?.userEmail,
+        authCapability: getRequestAuthCapability(),
+      }));
+      const name = inside ? "update-screen-source" : "future-visual-action";
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          [name]: {
+            http: { method: "POST" },
+            requiresAuth,
+            capabilityScopes: ["visual-edit"],
+            run,
+          } as any,
+        },
+        {
+          getOwnerFromEvent: async () => {
+            if (browserUser) return browserUser;
+            throw unauthenticated;
+          },
+        },
+      );
+      const event = {
+        _method: "POST",
+        _headers: {
+          "x-agent-native-frontend": "1",
+          ...(browserUser
+            ? { cookie: "better-auth.session_token=browser-session" }
+            : {}),
+        },
+        req: {
+          url: `http://app.test/_agent-native/actions/${name}`,
+          json: async () => (inside ? { designId: "design_1" } : {}),
+        },
+      };
+      if (scope === "card") {
+        expect(await mounted[0].handler(event)).toEqual({
+          error: "This widget capability only permits its scoped data routes.",
+        });
+        expect(event).toMatchObject({ _status: 403 });
+      } else if (!inside && !browserUser && requiresAuth) {
+        await expect(mounted[0].handler(event)).rejects.toBe(unauthenticated);
+      } else {
+        expect(await mounted[0].handler(event)).toEqual({
+          userEmail: browserUser,
+          authCapability: inside && scope ? visualScope : undefined,
+        });
+        expect(run).toHaveBeenCalledOnce();
+        return;
+      }
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses update-file from a capability-only client that ignores its persistence hint", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const run = vi.fn(async () => ({ ok: true }));
@@ -2058,7 +2180,7 @@ describe("mountActionRoutes", () => {
         ),
       },
       {
-        "update-design": {
+        "update-file": {
           http: { method: "POST" },
           requiresAuth: true,
           run,
@@ -2074,9 +2196,14 @@ describe("mountActionRoutes", () => {
     await expect(
       mounted[0]!.handler({
         _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
         req: {
-          url: "http://app.test/_agent-native/actions/update-design",
-          json: async () => ({ id: "design_1" }),
+          url: "http://app.test/_agent-native/actions/update-file",
+          json: async () => ({
+            id: "file_1",
+            filename: "renamed.html",
+            canPersistSource: true,
+          }),
         },
       }),
     ).rejects.toBe(unauthenticated);
@@ -7711,206 +7838,218 @@ describe("mountWebMcpActionRoutes", () => {
     expect(privateRun).not.toHaveBeenCalled();
   });
 
-  it("filters signed-out WebMCP actions to the matching capability scope", async () => {
-    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
-    const mounted: Array<{ path: string; handler: any }> = [];
-    const nitroApp = {
-      use: vi.fn((path: string, handler: any) =>
-        mounted.push({ path, handler }),
-      ),
-    };
-    mockResolveEmbedSessionFromRequest.mockResolvedValue({
-      email: "ticket-owner@example.com",
-      token: "signed-capability",
-      targetPath: "/visual-edit/design_1",
-      scope: "capability:visual-edit:design:design_1",
-    });
-    const unauthenticated = Object.assign(new Error("Unauthorized"), {
-      statusCode: 401,
-    });
+  it.each([false, true])(
+    "filters Visual Edit metadata with browser identity: %s",
+    async (signedIn) => {
+      const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      mockResolveEmbedSessionFromRequest.mockResolvedValue({
+        email: "ticket-owner@example.com",
+        token: "signed-capability",
+        targetPath: "/visual-edit/design_1",
+        scope: "capability:visual-edit:design:design_1",
+      });
+      const unauthenticated = Object.assign(new Error("Unauthorized"), {
+        statusCode: 401,
+      });
 
-    mountWebMcpActionRoutes(
-      nitroApp,
-      {
-        "visual-edit": {
-          tool: { description: "Visual edit", parameters: {} },
-          run: vi.fn(),
-          capabilityScopes: ["visual-edit"],
-        } as any,
-        "other-capability": {
-          tool: { description: "Other capability", parameters: {} },
-          run: vi.fn(),
-          capabilityScopes: ["other"],
-        } as any,
-      },
-      {
-        getOwnerFromEvent: async () => {
-          throw unauthenticated;
+      mountWebMcpActionRoutes(
+        nitroApp,
+        {
+          "update-screen-source": {
+            tool: { description: "Visual edit", parameters: {} },
+            run: vi.fn(),
+            capabilityScopes: ["visual-edit"],
+          } as any,
+          "other-capability": {
+            tool: { description: "Other capability", parameters: {} },
+            run: vi.fn(),
+            capabilityScopes: ["other"],
+          } as any,
+          "future-visual-action": {
+            tool: { description: "Unlisted action", parameters: {} },
+            run: vi.fn(),
+            capabilityScopes: ["visual-edit"],
+          } as any,
         },
-      },
-    );
-
-    const manifestRoute = mounted.find(
-      ({ path }) => path === "/_agent-native/webmcp/manifest",
-    );
-    await expect(
-      manifestRoute?.handler({ _method: "GET", _headers: {} }),
-    ).resolves.toEqual([
-      {
-        name: "visual-edit",
-        title: "Visual edit",
-        description: "Visual edit",
-        inputSchema: {},
-        readOnly: false,
-      },
-    ]);
-
-    const otherRoute = mounted.find(
-      ({ path }) => path === "/_agent-native/webmcp/actions/other-capability",
-    );
-    await expect(
-      otherRoute?.handler({
-        _method: "POST",
-        _headers: {},
-        req: { json: async () => ({}) },
-      }),
-    ).rejects.toMatchObject({ statusCode: 401 });
-  });
-
-  it("keeps directory-widget read manifests and WebMCP calls scoped when a session cookie is present", async () => {
-    const { createMcpDirectoryWidgetReadCapability } =
-      await import("../shared/embed-auth.js");
-    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
-    const mounted: Array<{ path: string; handler: any }> = [];
-    const run = vi.fn(async (_args, context) => ({
-      caller: context.caller,
-      userEmail: context.userEmail,
-      mcpDirectoryWidgetReadOnly: context.mcpDirectoryWidgetReadOnly,
-    }));
-    const runUnscopedPublicRead = vi.fn();
-    const capability = createMcpDirectoryWidgetReadCapability({
-      appId: "design",
-      resourceUri: "ui://design/shell-v69",
-      resourceIds: { designId: "d1" },
-      actionArguments: { "get-design": { id: "d1" } },
-    })!;
-    mockResolveEmbedSessionFromRequest.mockResolvedValue({
-      email: "ticket-owner@example.com",
-      token: "signed-directory-capability",
-      targetPath: "/design/d1",
-      scope: capability,
-    });
-    const nitroApp = {
-      use: vi.fn((path: string, handler: any) =>
-        mounted.push({ path, handler }),
-      ),
-    };
-
-    mountWebMcpActionRoutes(
-      nitroApp,
-      {
-        "get-design": {
-          tool: { description: "Read this design", parameters: {} },
-          run,
-          http: { method: "GET" },
-          readOnly: true,
-        } as any,
-        "update-design": {
-          tool: { description: "Update a design", parameters: {} },
-          run: vi.fn(),
-          http: { method: "POST" },
-          readOnly: false,
-        } as any,
-        "get-other-design": {
-          tool: { description: "Read another design", parameters: {} },
-          run: vi.fn(),
-          http: { method: "GET" },
-          readOnly: true,
-        } as any,
-        "search-public-docs": {
-          tool: { description: "Search public docs", parameters: {} },
-          run: runUnscopedPublicRead,
-          http: { method: "GET" },
-          requiresAuth: false,
-          readOnly: true,
-          publicAgent: {
-            expose: true,
-            readOnly: true,
-            requiresAuth: false,
+        {
+          getOwnerFromEvent: async () => {
+            if (signedIn) return "browser@example.com";
+            throw unauthenticated;
           },
-        } as any,
-      },
-      {
-        getOwnerContextFromEvent: async () => ({
-          owner: "cookie-owner@example.com",
-          anonymous: false,
+        },
+      );
+
+      const manifestRoute = mounted.find(
+        ({ path }) => path === "/_agent-native/webmcp/manifest",
+      );
+      await expect(
+        manifestRoute?.handler({ _method: "GET", _headers: {} }),
+      ).resolves.toEqual([
+        {
+          name: "update-screen-source",
+          title: "Update screen source",
+          description: "Visual edit",
+          inputSchema: {},
+          readOnly: false,
+        },
+      ]);
+
+      const otherRoute = mounted.find(
+        ({ path }) => path === "/_agent-native/webmcp/actions/other-capability",
+      );
+      if (!signedIn)
+        await expect(
+          otherRoute?.handler({
+            _method: "POST",
+            _headers: {},
+            req: { json: async () => ({}) },
+          }),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    },
+  );
+
+  it.each([false, true])(
+    "refuses card metadata but keeps scoped reads (ineligible cookie: %s)",
+    async (ineligibleCookie) => {
+      const { createMcpDirectoryWidgetReadCapability } =
+        await import("../shared/embed-auth.js");
+      const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async (_args, context) => ({
+        caller: context.caller,
+        userEmail: context.userEmail,
+        mcpDirectoryWidgetReadOnly: context.mcpDirectoryWidgetReadOnly,
+      }));
+      const runUnscopedPublicRead = vi.fn();
+      const capability = createMcpDirectoryWidgetReadCapability({
+        appId: "design",
+        resourceUri: "ui://design/shell-v69",
+        resourceIds: { designId: "d1" },
+        actionArguments: { "get-design": { id: "d1" } },
+      })!;
+      mockResolveEmbedSessionFromRequest.mockResolvedValue({
+        email: "ticket-owner@example.com",
+        token: "signed-directory-capability",
+        targetPath: "/design/d1",
+        scope: capability,
+      });
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+
+      mountWebMcpActionRoutes(
+        nitroApp,
+        {
+          "get-design": {
+            tool: { description: "Read this design", parameters: {} },
+            run,
+            http: { method: "GET" },
+            readOnly: true,
+          } as any,
+          "update-design": {
+            tool: { description: "Update a design", parameters: {} },
+            run: vi.fn(),
+            http: { method: "POST" },
+            readOnly: false,
+          } as any,
+          "get-other-design": {
+            tool: { description: "Read another design", parameters: {} },
+            run: vi.fn(),
+            http: { method: "GET" },
+            readOnly: true,
+          } as any,
+          "search-public-docs": {
+            tool: { description: "Search public docs", parameters: {} },
+            run: runUnscopedPublicRead,
+            http: { method: "GET" },
+            requiresAuth: false,
+            readOnly: true,
+            publicAgent: {
+              expose: true,
+              readOnly: true,
+              requiresAuth: false,
+            },
+          } as any,
+        },
+        {
+          getOwnerContextFromEvent: async () => ({
+            owner: "cookie-owner@example.com",
+            anonymous: false,
+          }),
+          mcpDirectoryWidgetReadActionArguments: { "get-design": ["id"] },
+          mcpDirectoryWidgetReadOnlyActions: ["get-design"],
+          mcpDirectoryWidgetAppId: "design",
+          mcpDirectoryWidgetResourceUri: "ui://design/shell-v69",
+        },
+      );
+
+      const manifestRoute = mounted.find(
+        ({ path }) => path === "/_agent-native/webmcp/manifest",
+      );
+      const webMcpRoute = mounted.find(
+        ({ path }) => path === "/_agent-native/webmcp/actions/get-design",
+      );
+      const unscopedPublicRoute = mounted.find(
+        ({ path }) =>
+          path === "/_agent-native/webmcp/actions/search-public-docs",
+      );
+      const mcpToolRoute = mounted.find(
+        ({ path }) => path === "/mcp/tool/get-design",
+      );
+      if (ineligibleCookie)
+        mockResolveEmbedSessionFromRequest.mockResolvedValueOnce(null);
+      await expect(
+        manifestRoute?.handler({
+          _method: "GET",
+          _headers: {},
+          _hasLiveEmbedCapabilityCookie: true,
         }),
-        mcpDirectoryWidgetReadActionArguments: { "get-design": ["id"] },
-        mcpDirectoryWidgetReadOnlyActions: ["get-design"],
-        mcpDirectoryWidgetAppId: "design",
-        mcpDirectoryWidgetResourceUri: "ui://design/shell-v69",
-      },
-    );
+      ).rejects.toMatchObject({ statusCode: 401 });
 
-    const manifestRoute = mounted.find(
-      ({ path }) => path === "/_agent-native/webmcp/manifest",
-    );
-    const webMcpRoute = mounted.find(
-      ({ path }) => path === "/_agent-native/webmcp/actions/get-design",
-    );
-    const unscopedPublicRoute = mounted.find(
-      ({ path }) => path === "/_agent-native/webmcp/actions/search-public-docs",
-    );
-    const mcpToolRoute = mounted.find(
-      ({ path }) => path === "/mcp/tool/get-design",
-    );
-    await expect(
-      manifestRoute?.handler({ _method: "GET", _headers: {} }),
-    ).resolves.toEqual([
-      {
-        name: "get-design",
-        title: "Get design",
-        description: "Read this design",
-        inputSchema: {},
-        readOnly: true,
-      },
-    ]);
+      await expect(
+        webMcpRoute?.handler({
+          _method: "POST",
+          _headers: {},
+          req: { json: async () => ({ id: "d1" }) },
+        }),
+      ).resolves.toEqual({
+        caller: "mcp-widget",
+        userEmail: "ticket-owner@example.com",
+        mcpDirectoryWidgetReadOnly: true,
+      });
+      expect(run).toHaveBeenCalledOnce();
 
-    await expect(
-      webMcpRoute?.handler({
-        _method: "POST",
-        _headers: {},
-        req: { json: async () => ({ id: "d1" }) },
-      }),
-    ).resolves.toEqual({
-      caller: "mcp-widget",
-      userEmail: "ticket-owner@example.com",
-      mcpDirectoryWidgetReadOnly: true,
-    });
-    expect(run).toHaveBeenCalledOnce();
+      await expect(
+        mcpToolRoute?.handler({
+          _method: "POST",
+          _headers: {},
+          req: { json: async () => ({ id: "d1" }) },
+        }),
+      ).resolves.toEqual({
+        error: "This widget capability only permits its scoped data routes.",
+      });
+      expect(run).toHaveBeenCalledOnce();
 
-    await expect(
-      mcpToolRoute?.handler({
-        _method: "POST",
-        _headers: {},
-        req: { json: async () => ({ id: "d1" }) },
-      }),
-    ).resolves.toEqual({
-      error: "This widget capability only permits its scoped data routes.",
-    });
-    expect(run).toHaveBeenCalledOnce();
-
-    await expect(
-      unscopedPublicRoute?.handler({
-        _method: "POST",
-        _headers: {},
-        req: { json: async () => ({}) },
-      }),
-    ).resolves.toEqual({
-      error: "This widget capability only permits its scoped data routes.",
-    });
-    expect(runUnscopedPublicRead).not.toHaveBeenCalled();
-  });
+      await expect(
+        unscopedPublicRoute?.handler({
+          _method: "POST",
+          _headers: {},
+          req: { json: async () => ({}) },
+        }),
+      ).resolves.toEqual({
+        error: "This widget capability only permits its scoped data routes.",
+      });
+      expect(runUnscopedPublicRead).not.toHaveBeenCalled();
+    },
+  );
 
   it("does not let a bootstrap capability match ordinary visual-edit actions", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");

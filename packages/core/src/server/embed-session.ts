@@ -765,23 +765,22 @@ function matchesEmbedTargetQuery(
   const expected = new URLSearchParams(target.search);
   const redirectedOpen =
     target.pathname === OPEN_ROUTE_PATH && currentPathname !== OPEN_ROUTE_PATH;
+  const requiredKeys = new Set(redirectedOpen ? [] : expected.keys());
   if (redirectedOpen) {
     const to = normalizeEmbedTargetPath(expected.get("to"));
     if (to) {
       const destination = new URL(to, "http://agent-native.invalid");
       for (const key of new Set(destination.searchParams.keys())) {
+        requiredKeys.add(key);
         expected.delete(key);
         for (const value of destination.searchParams.getAll(key))
           expected.append(key, value);
       }
     }
   }
-  const keys = new Set([
-    ...current.searchParams.keys(),
-    ...(redirectedOpen ? [] : expected.keys()),
-  ]);
-  // Open redirects move navigation selectors into application state, but a URL
-  // that carries selectors must still agree with the signed target.
+  const keys = new Set([...current.searchParams.keys(), ...requiredKeys]);
+  // Open redirects move top-level navigation selectors into application state;
+  // selectors in the destination URL remain part of the signed target.
   for (const key of keys) {
     if (EMBED_PRESENTATION_QUERY_PARAMS.has(key)) continue;
     const actual = current.searchParams.getAll(key);
@@ -813,13 +812,25 @@ export function requestMatchesEmbedTarget(
   );
 }
 
-function isEmbedActionRuntimeRequest(event: H3Event): boolean {
+function isEmbedCapabilityRuntimeRequest(
+  event: H3Event,
+  scope: string,
+): boolean {
   const pathname = requestPathname(event);
-  return (
-    !!pathname &&
+  if (!pathname) return false;
+  if (
     ["/_agent-native/actions", "/_agent-native/webmcp/actions"].some(
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
     )
+  )
+    return true;
+  const method =
+    (event as any).req?.method ?? (event as any).node?.req?.method ?? "GET";
+  return (
+    scope.startsWith("capability:visual-edit:design:") &&
+    method === "GET" &&
+    (pathname === "/_agent-native/webmcp/manifest" ||
+      pathname === "/_agent-native/webmcp/manifest/")
   );
 }
 
@@ -846,7 +857,7 @@ function embedSessionAllowsRequest(
 ): boolean {
   if (
     isEmbedCapabilityScope(claims.scope) &&
-    isEmbedActionRuntimeRequest(event)
+    isEmbedCapabilityRuntimeRequest(event, claims.scope!)
   )
     return true;
   const method =

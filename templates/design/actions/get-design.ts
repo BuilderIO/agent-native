@@ -9,7 +9,11 @@ import {
 } from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
+import {
+  currentAccess,
+  resolveAccess,
+  roleSatisfies,
+} from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -160,6 +164,23 @@ export default defineAction({
     }
 
     const row = access.resource;
+    const accessContext = ctx?.userEmail ? currentAccess() : undefined;
+    const sourceAccess = accessContext?.authCapability?.startsWith(
+      "capability:visual-edit:",
+    )
+      ? await resolveAccess(
+          "design",
+          id,
+          { ...accessContext, authCapability: undefined },
+          { skipResourceBody: true },
+        )
+      : access;
+    const canPersistSource = Boolean(
+      !reviewPreview &&
+      ctx?.userEmail &&
+      sourceAccess &&
+      roleSatisfies(sourceAccess.role, "editor"),
+    );
     const baseFileFields = {
       id: schema.designFiles.id,
       filename: schema.designFiles.filename,
@@ -234,6 +255,7 @@ export default defineAction({
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       accessRole: access.role,
+      canPersistSource,
       files: files.map((f) => {
         const metadata = {
           id: f.id,
