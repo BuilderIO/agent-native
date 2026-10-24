@@ -59,7 +59,9 @@ each row to its true parent and read the root reactions before opening the threa
 If another actor owns a workflow mark or this actor owns `:mag:`, hold the root
 unless the exact request authorizes it. List each authorized root and the exact
 request in both `scope.authorizedRoots` and the orchestrator confirmation; the
-checker matches them before allowing a claim or status. Preserve marks. Without
+unquoted request must name each exact channel ID and root timestamp or Slack
+permalink in its authorization statement. Generic permission does not qualify.
+The checker matches them before allowing a claim or status. Preserve marks. Without
 that record, do not read, react, or reply. Read unheld threads before
 classifying them. Follow
 [`channel-inventory.md`](references/channel-inventory.md) for exact query
@@ -90,13 +92,15 @@ the thread, inspect reply reactions, add or remove reactions, or post a reply.
 Record the root and reaction owners in `ownershipSkip`. For an authorized root,
 include the exact channel ID and root timestamp in both `scope.authorizedRoots`
 and the separate orchestrator confirmation file, with the exact user request;
-do not record `ownershipSkip`, preserve existing reactions, read the thread,
-claim the root, and post or reuse its current status. Apply the same default
+the unquoted authorization statement must name that exact channel ID and root
+timestamp or Slack permalink. Do not record `ownershipSkip`, preserve existing
+reactions, read the thread, claim the root, and post or reuse its current status.
+Apply the same default
 skip to channel reply rows linked to an unauthorized held root. A linked pre-window root without source text remains
 `unclassified`; do not infer its original report from the reply. This explicit
 exception keeps ownership boundaries intact while allowing the rest of the
 window to be reconciled. A foreign `👀` without current status is still held
-unless the user explicitly authorized that root or its bounded sweep scope;
+unless the user explicitly authorized that exact root;
 never read it merely to decide whether its owner is active.
 
 Only Steve's `:mag:` and `:yes-party:` count (`U0GCV21HC`). When Steve invokes,

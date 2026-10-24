@@ -91,9 +91,10 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
   and the same root list in the separate orchestrator confirmation file. A
   bounded authorization is expanded into its exact in-window root list. Pass
   this confirmation as the checker's fourth input; without it, held roots stay
-  skipped. The checker verifies the copied request contains an explicit
-  authorization and that every listed root is a directly evidenced held report
-  in the requested window or linked by an in-window reply.
+  skipped. The unquoted authorization statement must name each exact channel ID
+  and root timestamp or Slack permalink. Generic permission does not qualify.
+  The checker verifies every listed root is a directly evidenced held report in
+  the requested window or linked by an in-window reply.
 - Record the actual canonical Slack `channelName` in every channel row. Use
   that name only when validating Slack's echoed channel search query; the
   checker also accepts the exact channel ID and rejects any other name. Never
@@ -253,8 +254,9 @@ chase arrivals or expand a finite catch-up request into an all-history audit.
 - **Held thread:** If the exact root reaction read shows another actor owns any
   workflow mark (`👀`, `✅`, or `🎫`), or this actor owns `:mag:`, hold the root
   by default. A direct user instruction may authorize follow-ups or reactions
-  for an exact root or bounded sweep scope. Record the exact request and every
-  covered root in `scope.userRequest` and `scope.authorizedRoots`, then repeat
+  for exact roots; its unquoted authorization statement must name each exact
+  channel ID and root timestamp or Slack permalink. Record the exact request and
+  every covered root in `scope.userRequest` and `scope.authorizedRoots`, then repeat
   the same request and root list in the
   separate orchestrator confirmation file. The checker matches both records,
   verifies that each target is a held report root, and then requires the normal
