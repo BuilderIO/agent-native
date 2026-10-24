@@ -865,12 +865,6 @@ async function mcpAppsAuthHeaders(
 
 const directoryWidgetTemplates = [
   {
-    appId: "slides",
-    profile: slidesDirectoryProfile,
-    toolName: "create-deck",
-    result: { id: "deck-1" },
-  },
-  {
     appId: "design",
     profile: designDirectoryProfile,
     toolName: "create-design",
@@ -1219,7 +1213,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         { appId: "content", profile: contentDirectoryProfile },
       ] as const;
       const expectedWidgetToolNames = {
-        slides: ["add-slide", "create-deck"],
+        slides: [],
         design: [
           "create-design",
           "create-design-from-template",
@@ -1481,7 +1475,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         expect(init.body?.result?.protocolVersion).toBe(protocolVersion);
         expect(init.body?.result?.instructions).toBe(profile.instructions);
         expect(init.body?.result?.capabilities?.prompts).toBeUndefined();
-        expect(resourcesSupported).toBe(profile.widgets !== false);
+        expect(resourcesSupported).toBe(
+          expectedWidgetToolNames[appId].length > 0,
+        );
         const modelVisibleTools = listedTools.filter((tool: any) => {
           const visibility = tool._meta?.ui?.visibility;
           return !(
@@ -1544,7 +1540,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             directiveCopyPattern.test(entry.text),
         );
         expect(directiveCopy).toEqual([]);
-        if (profile.widgets === false) {
+        if (expectedWidgetToolNames[appId].length === 0) {
           expect(linkedUris).toEqual([]);
           expect(JSON.stringify(listedTools)).not.toMatch(
             /ui:\/\/|openai\/(?:ui|outputTemplate|widget)/,
@@ -3357,7 +3353,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       widgetDomain: "https://slides.agent-native.com",
       authorizeWidgetWrite,
       widgetTargets: {
-        "create-deck": slidesDirectoryProfile.widgetTargets["create-deck"],
+        "create-deck": () => ({
+          targetPath: "/deck/deck-a",
+          resourceIds: { deckId: "deck-a", resourceType: "deck" },
+          writeActions: Object.keys(
+            slidesDirectoryProfile.widgetWriteActionArguments,
+          ),
+        }),
       },
       widgetReadActionArguments:
         slidesDirectoryProfile.widgetReadActionArguments,
