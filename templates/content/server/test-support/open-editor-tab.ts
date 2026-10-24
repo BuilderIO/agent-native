@@ -74,55 +74,86 @@ function envelope(request: DocumentFlushRequest) {
 /**
  * The tab's side of a title request, as the editor answers it on protocol 2:
  * it waits for the prepare request for page `id` in `email`'s mailbox, marks
- * it taken, runs `save`, and answers with the title SQL now holds, or with
- * `errorCode`. Then it verifies. It returns the prepare request. It reads the
- * mailbox itself, not through the editor's sync wake, so a test using it
- * proves nothing about a real tab hearing of the request.
+ * it taken, runs `save`, and answers with the title SQL now holds (or
+ * `claimTitle`), or with `errorCode`. It answers each prepare round the same
+ * way until the server verifies, which it confirms, or gives the request up.
+ * It returns the first prepare request. It reads the mailbox itself, not
+ * through the editor's sync wake, so a test using it proves nothing about a
+ * real tab hearing of the request.
  */
 export async function answerTitleRequest(
   id: string,
   email: string,
-  options: { save?: () => Promise<void>; errorCode?: string } = {},
+  options: {
+    save?: () => Promise<void>;
+    errorCode?: string;
+    claimTitle?: string;
+  } = {},
 ): Promise<DocumentFlushRequest> {
-  const prepare = await requestFor(
+  const first = await requestFor(
     id,
     email,
     (request) => request.phase === "prepare",
   );
-  const key = flushAckKey(prepare, TAB.clientId);
-  const taken: DocumentFlushAck = { ...envelope(prepare), status: "taken" };
-  if (!(await appStateCompareAndSet(email, key, null, taken)))
-    throw new Error(`Another answer holds ${key}.`);
-  await options.save?.();
-  if (options.errorCode) {
+  const answer = async (prepare: DocumentFlushRequest) => {
+    const key = flushAckKey(prepare, TAB.clientId);
+    const taken: DocumentFlushAck = { ...envelope(prepare), status: "taken" };
+    if (!(await appStateCompareAndSet(email, key, null, taken)))
+      throw new Error(`Another answer holds ${key}.`);
+    if (prepare === first) await options.save?.();
+    if (options.errorCode) {
+      await appStateCompareAndSet(email, key, taken, {
+        ...envelope(prepare),
+        status: "error",
+        errorCode: options.errorCode,
+      } satisfies DocumentFlushAck);
+      return;
+    }
+    const title = options.claimTitle ?? (await readDocumentTitleRow(id))?.title;
+    if (title === undefined)
+      throw new Error(`Page ${id} has no row to claim a title from.`);
     await appStateCompareAndSet(email, key, taken, {
       ...envelope(prepare),
-      status: "error",
-      errorCode: options.errorCode,
+      status: "prepared",
+      stabilityToken: `stable-${prepare.phaseToken}`,
+      claim: { kind: "title", title },
     } satisfies DocumentFlushAck);
-    return prepare;
-  }
-  const row = await readDocumentTitleRow(id);
-  if (!row) throw new Error(`Page ${id} has no row to claim a title from.`);
-  const stabilityToken = `stable-${prepare.phaseToken}`;
-  await appStateCompareAndSet(email, key, taken, {
-    ...envelope(prepare),
-    status: "prepared",
-    stabilityToken,
-    claim: { kind: "title", title: row.title, titleUpdatedAt: row.updatedAt },
-  } satisfies DocumentFlushAck);
-  const verify = await requestFor(
-    id,
-    email,
-    (request) =>
+  };
+  await answer(first);
+  if (options.errorCode) return first;
+  let prepare = first;
+  while (Date.now() < first.expiresAt + 1_000) {
+    const request = await appStateGet(email, `flush-request-${id}`);
+    if (
+      !isDocumentFlushRequest(request) ||
+      request.requestId !== first.requestId
+    )
+      return first;
+    if (
       request.phase === "verify" &&
-      request.requestId === prepare.requestId &&
-      request.prepareToken === prepare.phaseToken,
-  );
-  await appStateCompareAndSet(email, flushAckKey(verify, TAB.clientId), null, {
-    ...envelope(verify),
-    status: "verified",
-    stabilityToken,
-  } satisfies DocumentFlushAck);
-  return prepare;
+      request.prepareToken === prepare.phaseToken
+    ) {
+      await appStateCompareAndSet(
+        email,
+        flushAckKey(request, TAB.clientId),
+        null,
+        {
+          ...envelope(request),
+          status: "verified",
+          stabilityToken: `stable-${prepare.phaseToken}`,
+        } satisfies DocumentFlushAck,
+      );
+      return first;
+    }
+    if (
+      request.phase === "prepare" &&
+      request.phaseToken !== prepare.phaseToken
+    ) {
+      prepare = request;
+      await answer(prepare);
+      continue;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`The title request for page ${id} never finished.`);
 }

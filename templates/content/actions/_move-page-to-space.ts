@@ -152,8 +152,9 @@ async function lockMoveBetweenSpaces(args: {
   spaceId: string;
   parentId: string | null;
   userEmail: string;
+  confirmedTitles: ReadonlyMap<string, string>;
 }) {
-  const { tx, root, ids, spaceId, parentId, userEmail } = args;
+  const { tx, root, ids, spaceId, parentId, userEmail, confirmedTitles } = args;
   for (const ownerEmail of sortRowIds([root.ownerEmail as string, userEmail])) {
     await lockOwnerPageTree(tx, ownerEmail);
   }
@@ -171,6 +172,23 @@ async function lockMoveBetweenSpaces(args: {
     throw contractError(
       "This page changed while it was being moved. Try again.",
       "PAGE_SUBTREE_CHANGED",
+    );
+  }
+  // A title saved after its editors confirmed theirs means one of them may
+  // still hold a newer title the move would take from it.
+  const retitled = lockedPages.find(
+    (page) =>
+      confirmedTitles.has(page.id) &&
+      confirmedTitles.get(page.id) !== page.title,
+  );
+  if (retitled) {
+    throw new ActionContractError(
+      `The title of page ${retitled.id} changed after its open editor saved it. Nothing moved; try again.`,
+      {
+        errorCode: "PAGE_TITLE_CHANGED",
+        statusCode: 409,
+        details: { documentId: retitled.id, retryable: true },
+      },
     );
   }
   // A page turned into a collection while the move waited would leave the
@@ -367,8 +385,15 @@ export async function movePageToSpace(args: {
 
   // The move takes these pages from the editors who lose access with it, so
   // their open editors save the titles first. The locks below refuse a
-  // subtree that changed while they did.
+  // subtree or a title that changed since they did.
   const titleFlush = await saveOpenEditorTitles(ids);
+  const confirmedTitles = new Map(
+    (titleFlush?.pages ?? []).flatMap((page) =>
+      page.confirmedTitle === undefined
+        ? []
+        : [[page.documentId, page.confirmedTitle] as const],
+    ),
+  );
   const now = new Date().toISOString();
   await withPositionLock(
     documentsPositionScope(userEmail, parentId),
@@ -381,6 +406,7 @@ export async function movePageToSpace(args: {
           spaceId,
           parentId,
           userEmail,
+          confirmedTitles,
         });
         // Read under the parent's lock: the subtree takes the parent's access.
         if (parent && parentId) {

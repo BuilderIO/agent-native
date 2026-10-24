@@ -48,17 +48,6 @@ export function editorSaveIsInSql(
   ) {
     return false;
   }
-  return editorTitleIsInSql(row, claim);
-}
-
-export type DocumentTitleRow = { title: string; updatedAt: string };
-
-// True when SQL holds the title an editor reports, or a title another writer
-// saved after it.
-export function editorTitleIsInSql(
-  row: DocumentTitleRow,
-  claim: { title: string; titleUpdatedAt: string | null },
-): boolean {
   if (row.title === claim.title) return true;
   if (claim.titleUpdatedAt === null) return false;
   const sqlUpdatedAt = Date.parse(row.updatedAt);
@@ -70,15 +59,14 @@ export function editorTitleIsInSql(
   );
 }
 
+export type DocumentTitleRow = { title: string };
+
 export async function readDocumentTitleRow(
   documentId: string,
 ): Promise<DocumentTitleRow | null> {
   // guard:allow-unscoped — every title barrier caller authorizes the document first and writes nothing from this read.
   const [row] = await getDb()
-    .select({
-      title: schema.documents.title,
-      updatedAt: schema.documents.updatedAt,
-    })
+    .select({ title: schema.documents.title })
     .from(schema.documents)
     .where(eq(schema.documents.id, documentId))
     .limit(1);

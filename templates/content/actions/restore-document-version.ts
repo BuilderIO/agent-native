@@ -369,7 +369,27 @@ export default defineAction({
       // conflict.
       titleFlush = await saveOpenEditorTitles([documentId]);
       if (titleFlush) {
+        const prepared = current;
+        const confirmedTitle = titleFlush.pages.find(
+          (page) => page.documentId === documentId,
+        )?.confirmedTitle;
         current = await readCurrent();
+        // Only the title save may have moved the page on. Anything else that
+        // landed while the editors saved is an edit this restore wasn't
+        // prepared from.
+        if (
+          current.content !== prepared.content ||
+          current.bodyRevision !== prepared.bodyRevision ||
+          (confirmedTitle !== undefined && current.title !== confirmedTitle)
+        ) {
+          restoreConflict(
+            "The document changed after this restore was prepared.",
+            {
+              expectedUpdatedAt: args.expectedUpdatedAt,
+              currentUpdatedAt: current.updatedAt,
+            },
+          );
+        }
         preparedUpdatedAt = current.updatedAt;
       }
       const restored = await restoreThroughLiveCopy({

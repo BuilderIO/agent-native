@@ -126,11 +126,7 @@ function ack(
         stabilityToken: `stable-${target.clientId}-${request.prepareToken}`,
         claim:
           request.scope === "title"
-            ? {
-                kind: "title",
-                title: SQL_ROW.title,
-                titleUpdatedAt: SQL_ROW.updatedAt,
-              }
+            ? { kind: "title", title: SQL_ROW.title }
             : request.propertyId
               ? {
                   kind: "property",
@@ -174,10 +170,7 @@ describe("flushOpenDocumentEditorToSql", () => {
     mocks.capture.mockResolvedValue(SQL_ROW);
     mocks.isLiveBodyWriterPage.mockResolvedValue(false);
     mocks.pageIds.mockResolvedValue(new Set());
-    mocks.titleRow.mockResolvedValue({
-      title: SQL_ROW.title,
-      updatedAt: SQL_ROW.updatedAt,
-    });
+    mocks.titleRow.mockResolvedValue({ title: SQL_ROW.title });
     mocks.get.mockImplementation(
       async (email, key) => store.get(address(email, key)) ?? null,
     );
@@ -1444,6 +1437,7 @@ describe("flushOpenDocumentEditorToSql", () => {
             pages: [
               {
                 documentId: "doc-1",
+                confirmedTitle: SQL_ROW.title,
                 editors: [
                   {
                     clientId: 123,
@@ -1497,10 +1491,7 @@ describe("flushOpenDocumentEditorToSql", () => {
       mocks.awareness.mockResolvedValue([
         editorRow(123, "owner@example.com", TITLE_EDITOR),
       ]);
-      mocks.titleRow.mockResolvedValue({
-        title: "Older title",
-        updatedAt: SQL_ROW.updatedAt,
-      });
+      mocks.titleRow.mockResolvedValue({ title: "Older title" });
 
       expect(await settle()).toMatchObject({
         error: {
@@ -1639,6 +1630,90 @@ describe("flushOpenDocumentEditorToSql", () => {
         error: { details: { reason: "acknowledgement_unreadable" } },
       });
     });
+
+    it("reads the acknowledgements again after a failed read, and confirms the title", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.many.mockRejectedValueOnce(new Error("ack store down"));
+
+      expect(await settle()).toMatchObject({
+        value: {
+          status: "live_copy",
+          titleFlush: {
+            pages: [
+              {
+                documentId: "doc-1",
+                confirmedTitle: SQL_ROW.title,
+                editors: [{ clientId: 123, flush: "answered" }],
+              },
+            ],
+          },
+        },
+      });
+      expect(store.size).toBe(0);
+    });
+
+    it("refuses as unreadable, with the cause, when every acknowledgement read fails up to the deadline", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.many.mockRejectedValue(new Error("ack store down"));
+
+      expect(await settle()).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          details: {
+            documentId: "doc-1",
+            reason: "acknowledgement_unreadable",
+            cause: "ack store down",
+            retryable: true,
+          },
+        },
+      });
+      expect(mocks.many.mock.calls.length).toBeGreaterThan(2);
+    });
+
+    it.each([
+      [
+        "the verify request can't be written",
+        "request_not_delivered",
+        "mailbox write failed",
+        () => {
+          const write = mocks.cas.getMockImplementation()!;
+          mocks.cas.mockImplementation(async (...args: any[]) => {
+            if (args[3]?.phase === "verify")
+              throw new Error("mailbox write failed");
+            return write(...args);
+          });
+        },
+      ],
+      [
+        "SQL's title can't be read",
+        "acknowledgement_unreadable",
+        "title read failed",
+        () => {
+          mocks.titleRow.mockRejectedValue(new Error("title read failed"));
+        },
+      ],
+    ])(
+      "refuses with the step's reason when %s",
+      async (_label, reason, cause, fail) => {
+        mocks.awareness.mockResolvedValue([
+          editorRow(123, "owner@example.com", TITLE_EDITOR),
+        ]);
+        fail();
+
+        expect(await settle()).toMatchObject({
+          error: {
+            errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+            details: { reason, cause },
+          },
+        });
+      },
+    );
   });
 
   describe("saveOpenEditorTitles", () => {
@@ -1685,6 +1760,7 @@ describe("flushOpenDocumentEditorToSql", () => {
           pages: [
             {
               documentId: "doc-1",
+              confirmedTitle: SQL_ROW.title,
               editors: [
                 expect.objectContaining({ clientId: 123, flush: "answered" }),
               ],
@@ -1761,6 +1837,64 @@ describe("flushOpenDocumentEditorToSql", () => {
           },
         },
       });
+      expect(mocks.cas).not.toHaveBeenCalled();
+    });
+
+    it("gives the editors the whole deadline after a slow read of which are open", async () => {
+      const ids = Array.from({ length: 21 }, (_, index) => `doc-${index}`);
+      mocks.pageIds.mockResolvedValue(new Set(ids));
+      mocks.awareness.mockImplementation(
+        (id: string) =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve(
+                  id === "doc-20"
+                    ? [editorRow(123, "owner@example.com", TITLE_EDITOR)]
+                    : [],
+                ),
+              7_000,
+            ),
+          ),
+      );
+      const result = saveOpenEditorTitles(ids).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(25_000);
+
+      expect(await result).toEqual({
+        value: {
+          pages: [
+            {
+              documentId: "doc-20",
+              confirmedTitle: SQL_ROW.title,
+              editors: [
+                expect.objectContaining({ clientId: 123, flush: "answered" }),
+              ],
+            },
+          ],
+        },
+      });
+      expect(mocks.awareness).toHaveBeenCalledTimes(21);
+    });
+
+    it("asks nobody, however long reading the editors takes, when none advertises canFlushTitle", async () => {
+      const ids = Array.from({ length: 21 }, (_, index) => `doc-${index}`);
+      mocks.pageIds.mockResolvedValue(new Set(ids));
+      mocks.awareness.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve([editorRow(123)]), 7_000),
+          ),
+      );
+      const result = saveOpenEditorTitles(ids).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(25_000);
+
+      expect(await result).toEqual({ value: undefined });
       expect(mocks.cas).not.toHaveBeenCalled();
     });
   });

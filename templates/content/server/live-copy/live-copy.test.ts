@@ -2950,6 +2950,7 @@ describe("a version restore on a switched page", () => {
         pages: [
           {
             documentId: "restore-tab-title",
+            confirmedTitle: "Tab title",
             editors: [
               expect.objectContaining({ clientId: 7, flush: "answered" }),
             ],
@@ -3055,6 +3056,70 @@ describe("a version restore on a switched page", () => {
     expect(await metadata("restore-tab-error")).toEqual(before);
     expect((await page("restore-tab-error")).content).toBe("Second draft");
     expect(await collabVersion("restore-tab-error")).toBe(version);
+  });
+
+  it("refuses a restore whose tab claims a title SQL never got, though a body save moved the page on", async () => {
+    await switchedPage("restore-tab-unsaved", "First draft");
+    await serverEdit("restore-tab-unsaved", "Second draft");
+    const versionId = await versionHolding(
+      "restore-tab-unsaved",
+      "First draft",
+    );
+    const before = await metadata("restore-tab-unsaved");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-unsaved", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-tab-unsaved", OWNER, {
+      claimTitle: "Typed title",
+      save: () => serverEdit("restore-tab-unsaved", "Third draft"),
+    });
+
+    await expect(
+      restore("restore-tab-unsaved", versionId, before.updatedAt),
+    ).rejects.toMatchObject({
+      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+      statusCode: 409,
+      details: {
+        documentId: "restore-tab-unsaved",
+        reason: "timeout",
+        retryable: true,
+      },
+    });
+    await answered;
+    const after = await metadata("restore-tab-unsaved");
+    expect(after.updatedAt).not.toBe(before.updatedAt);
+    expect(after.title).toBe(before.title);
+    expect((await page("restore-tab-unsaved")).content).toBe("Third draft");
+  }, 40_000);
+
+  it("refuses a restore when a body edit lands while its tab saves the title", async () => {
+    await switchedPage("restore-tab-edit", "First draft");
+    await serverEdit("restore-tab-edit", "Second draft");
+    const versionId = await versionHolding("restore-tab-edit", "First draft");
+    const before = await metadata("restore-tab-edit");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-edit", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-tab-edit", OWNER, {
+      save: async () => {
+        await rename("restore-tab-edit", "Tab title");
+        await serverEdit("restore-tab-edit", "Third draft");
+      },
+    });
+
+    await expect(
+      restore("restore-tab-edit", versionId, before.updatedAt),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_RESTORE_CONFLICT",
+      statusCode: 409,
+    });
+    await answered;
+    expect(await metadata("restore-tab-edit")).toMatchObject({
+      title: "Tab title",
+    });
+    expect((await page("restore-tab-edit")).content).toBe("Third draft");
   });
 
   it("restores a version's private callout icon in the page's canonical form", async () => {

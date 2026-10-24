@@ -30,7 +30,6 @@ import { claimedEditorSave } from "../shared/editor-save-state.js";
 import {
   createDocumentFlushCapture,
   editorSaveIsInSql,
-  editorTitleIsInSql,
   readDocumentTitleRow,
   type DocumentFlushSnapshot,
 } from "./_document-save-row.js";
@@ -65,7 +64,12 @@ export type OpenEditorFlushOutcome =
  * `canFlushTitle` isn't asked and stays unconfirmed.
  */
 export type OpenEditorTitleFlush = {
-  pages: Array<{ documentId: string; editors: OpenEditorFlushOutcome[] }>;
+  pages: Array<{
+    documentId: string;
+    // The title SQL held when the asked editors confirmed theirs was saved.
+    confirmedTitle?: string;
+    editors: OpenEditorFlushOutcome[];
+  }>;
 };
 export type OpenEditorFlushResult =
   | { status: "no_open_editor" }
@@ -209,7 +213,12 @@ type FlushBudget = {
 function flushBudget(deadline: number, timeout: () => Error): FlushBudget {
   async function bounded<T>(promise: Promise<T>): Promise<T> {
     const remaining = deadline - Date.now();
-    if (remaining <= 0) throw timeout();
+    if (remaining <= 0) {
+      // The caller gets the timeout, as from the race below, so a late
+      // failure of the operation must not surface as an unhandled rejection.
+      promise.catch(() => {});
+      throw timeout();
+    }
     let timer: ReturnType<typeof setTimeout>;
     try {
       return await Promise.race([
@@ -253,17 +262,19 @@ type HandshakeState = {
   phase: string;
   waitingEditors: FlushEditorIdentity[];
   lastEditorError?: { clientId: number; errorCode: string };
-  // The title scope's failure reasons: whether every session's mailbox took
-  // the first request, and which editors took the current prepare request.
-  delivered: boolean;
+  // The title scope's failure reasons: the step the handshake is on, which
+  // editors took the current prepare request, and why the acknowledgements
+  // couldn't be read, while no read has succeeded since.
+  operation: "publish" | "acknowledge" | "capture" | null;
   reached: Set<number>;
+  unreadAcknowledgements?: { cause: unknown };
 };
 
 function handshakeState(): HandshakeState {
   return {
     phase: "discovery",
     waitingEditors: [],
-    delivered: false,
+    operation: null,
     reached: new Set(),
   };
 }
@@ -384,23 +395,43 @@ async function confirmEditors<S>(args: {
     const answers = new Map<number, DocumentFlushAck>();
     state.waitingEditors = required.map(editorIdentity);
     while (true) {
-      const reads = await bounded(
-        Promise.all(
-          sessions.map(async (email) => {
-            const request = requestsByEmail.get(email)!;
-            const keys = request.targets.map((target) =>
-              flushAckKey(request, target.clientId),
-            );
-            const known = leaves.get(email) ?? new Set<string>();
-            keys.forEach((key) => known.add(key));
-            leaves.set(email, known);
-            return {
-              email,
-              entries: await appStateGetManyEntries(email, keys),
-            };
-          }),
-        ),
-      );
+      let reads: Array<{
+        email: string;
+        entries: Awaited<ReturnType<typeof appStateGetManyEntries>>;
+      }>;
+      try {
+        reads = await bounded(
+          Promise.all(
+            sessions.map(async (email) => {
+              const request = requestsByEmail.get(email)!;
+              const keys = request.targets.map((target) =>
+                flushAckKey(request, target.clientId),
+              );
+              const known = leaves.get(email) ?? new Set<string>();
+              keys.forEach((key) => known.add(key));
+              leaves.set(email, known);
+              return {
+                email,
+                entries: await appStateGetManyEntries(email, keys),
+              };
+            }),
+          ),
+        );
+      } catch (error) {
+        // A title save's answer can still be read after a failed read, so
+        // only reads that fail up to the deadline refuse it.
+        if (scope !== "title" || error instanceof ActionContractError)
+          throw error;
+        if (!state.unreadAcknowledgements)
+          console.warn("Document title save acknowledgements unreadable", {
+            requestId,
+            error,
+          });
+        state.unreadAcknowledgements = { cause: error };
+        await pause();
+        continue;
+      }
+      state.unreadAcknowledgements = undefined;
       let retry = false;
       for (const { email, entries } of reads) {
         const request = requestsByEmail.get(email)!;
@@ -490,9 +521,10 @@ async function confirmEditors<S>(args: {
       const prepareToken = randomUUID();
       const prepare = requests("prepare", prepareToken, prepareToken);
       state.reached.clear();
+      state.operation = "publish";
       await publish(prepare, acquire);
       acquire = false;
-      state.delivered = true;
+      state.operation = "acknowledge";
       const prepared = await acknowledgments(prepare);
       if (
         [...prepared.values()].some(
@@ -501,6 +533,7 @@ async function confirmEditors<S>(args: {
       )
         continue;
       state.phase = "capture";
+      state.operation = "capture";
       const snapshot = await bounded(args.capture());
       if (!snapshot)
         throw failure(
@@ -517,7 +550,9 @@ async function confirmEditors<S>(args: {
       state.phase = "verify";
       const verifyToken = randomUUID();
       const verify = requests("verify", verifyToken, prepareToken);
+      state.operation = "publish";
       await publish(verify, false);
+      state.operation = "acknowledge";
       const verified = await acknowledgments(verify);
       if (
         ![...verified.values()].every(
@@ -578,8 +613,9 @@ function documentClaimIsInSql(
 function titleTimeoutReason(
   state: HandshakeState,
 ): OpenEditorTitleNotSavedReason {
-  if (state.phase === "discovery") return "timeout";
-  if (!state.delivered) return "request_not_delivered";
+  if (state.operation === "publish") return "request_not_delivered";
+  if (state.operation !== "acknowledge") return "timeout";
+  if (state.unreadAcknowledgements) return "acknowledgement_unreadable";
   // An editor marks a title request taken before it saves, so one that never
   // did never picked the request up.
   if (
@@ -610,7 +646,9 @@ async function saveEditorTitle(
     return { documentId, editors: candidates.map(unconfirmed) };
   const state = handshakeState();
   const budget = flushBudget(deadline, () =>
-    titleNotSaved(documentId, titleTimeoutReason(state)),
+    titleNotSaved(documentId, titleTimeoutReason(state), {
+      cause: state.unreadAcknowledgements?.cause,
+    }),
   );
   try {
     if (
@@ -622,18 +660,21 @@ async function saveEditorTitle(
       )
     )
       throw titleNotSaved(documentId, "request_not_delivered");
-    const { prepareToken, verifyToken } = await confirmEditors({
+    const { snapshot, prepareToken, verifyToken } = await confirmEditors({
       documentId,
       scope: "title",
       editors: asked,
       budget,
       state,
       capture: () => readDocumentTitleRow(documentId),
+      // Only the title itself confirms it: `updatedAt` also moves on with
+      // every body write.
       inSql: (row, claim) =>
-        claim.kind === "title" && editorTitleIsInSql(row, claim),
+        claim.kind === "title" && row.title === claim.title,
     });
     return {
       documentId,
+      confirmedTitle: snapshot.title,
       editors: candidates.map((editor) =>
         editor.canFlushTitle
           ? {
@@ -649,7 +690,7 @@ async function saveEditorTitle(
     if (!(error instanceof ActionContractError))
       throw titleNotSaved(
         documentId,
-        state.delivered
+        state.operation === "acknowledge" || state.operation === "capture"
           ? "acknowledgement_unreadable"
           : "request_not_delivered",
         { cause: error },
@@ -678,7 +719,6 @@ export async function saveOpenEditorTitles(
 ): Promise<OpenEditorTitleFlush | undefined> {
   const switched = await liveBodyWriterPageIds(documentIds);
   if (switched.size === 0) return undefined;
-  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
   const ids = documentIds.filter((id) => switched.has(id));
   const open: Array<{ documentId: string; candidates: Candidate[] }> = [];
   for (
@@ -689,13 +729,10 @@ export async function saveOpenEditorTitles(
     const group = ids.slice(offset, offset + TITLE_DISCOVERY_CONCURRENCY);
     for (const page of await Promise.all(
       group.map(async (documentId) => {
-        const { bounded } = flushBudget(deadline, () =>
-          titleNotSaved(documentId, "timeout"),
-        );
         try {
           return {
             documentId,
-            candidates: await openEditors(documentId, bounded),
+            candidates: await openEditors(documentId, (read) => read),
           };
         } catch (error) {
           if (error instanceof ActionContractError) throw error;
@@ -712,6 +749,9 @@ export async function saveOpenEditorTitles(
     !open.some((page) => page.candidates.some((editor) => editor.canFlushTitle))
   )
     return undefined;
+  // The deadline bounds the wait on editors, not reading which are open: a
+  // slow read of a subtree with no editor to ask must not refuse a move.
+  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
   // Every page's editors finish before the caller refuses, so none is still
   // being asked after it returns.
   const saved = await Promise.allSettled(
@@ -951,12 +991,7 @@ function validClaim(
   if (!value || typeof value !== "object") return false;
   const claim = value as Record<string, unknown>;
   if (scope === "title")
-    return (
-      claim.kind === "title" &&
-      typeof claim.title === "string" &&
-      (claim.titleUpdatedAt === null ||
-        typeof claim.titleUpdatedAt === "string")
-    );
+    return claim.kind === "title" && typeof claim.title === "string";
   if (propertyId)
     return (
       claim.kind === "property" &&

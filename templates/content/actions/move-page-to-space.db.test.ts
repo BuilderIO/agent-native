@@ -20,6 +20,23 @@ vi.mock("./_local-file-documents.js", async (importOriginal) => {
     await importOriginal<typeof import("./_local-file-documents.js")>();
   return { ...original, isContentLocalFileMode: async () => false };
 });
+// Runs after the open editors confirm their titles and before the move takes
+// its locks.
+const titleSave = vi.hoisted(() => ({
+  after: undefined as undefined | (() => Promise<void>),
+}));
+vi.mock("./_document-flush.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./_document-flush.js")>();
+  return {
+    ...original,
+    saveOpenEditorTitles: async (ids: readonly string[]) => {
+      const saved = await original.saveOpenEditorTitles(ids);
+      await titleSave.after?.();
+      return saved;
+    },
+  };
+});
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/application-state")
@@ -413,7 +430,10 @@ describe("moving a page between Content spaces", () => {
 });
 
 describe("moving a page that takes body writes through its live copy", () => {
-  afterEach(() => liveCopy.turnLiveCopyFlagsOff());
+  afterEach(async () => {
+    titleSave.after = undefined;
+    await liveCopy.turnLiveCopyFlagsOff();
+  });
 
   // The tabs below advertise the title save and never answer unless a test
   // answers for them, so a request nobody expects refuses the move.
@@ -463,8 +483,12 @@ describe("moving a page that takes body writes through its live copy", () => {
     expect(moved).toMatchObject({ spaceId: orgSpaceId });
     expect(moved.titleFlush.pages).toEqual(
       expect.arrayContaining([
-        { documentId: page.id, editors: answeredBy },
-        { documentId: child.id, editors: answeredBy },
+        { documentId: page.id, confirmedTitle: "Plan", editors: answeredBy },
+        {
+          documentId: child.id,
+          confirmedTitle: "Details",
+          editors: answeredBy,
+        },
         {
           documentId: legacy.id,
           editors: [
@@ -640,6 +664,39 @@ describe("moving a page that takes body writes through its live copy", () => {
         spaceId: orgSpaceId,
         ownerEmail: OWNER,
         visibility: "private",
+      }),
+    ]);
+  });
+
+  it("refuses a move to another space when the page's title changes after its editor saved it", async () => {
+    const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+    await liveCopy.putPageOnLiveCopy(page.id);
+    await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+    const answered = tabs.answerTitleRequest(page.id, EDITOR);
+    titleSave.after = async () => {
+      await getDb()
+        .update(schema.documents)
+        .set({ title: "Plan, renamed" })
+        .where(eq(schema.documents.id, page.id));
+    };
+
+    await expect(
+      as(OWNER, () =>
+        moveDocument.run({
+          id: page.id,
+          spaceId: organizationContentSpaceId(ORG_ID),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "PAGE_TITLE_CHANGED",
+      statusCode: 409,
+      details: { documentId: page.id, retryable: true },
+    });
+    await answered;
+    expect(await documentRows([page.id])).toEqual([
+      expect.objectContaining({
+        spaceId: personalContentSpaceId(OWNER),
+        ownerEmail: OWNER,
       }),
     ]);
   });

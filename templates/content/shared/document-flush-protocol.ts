@@ -25,7 +25,7 @@ export type DocumentFlushRequest = {
 export type DocumentFlushClaim =
   | { kind: "document"; save: ClaimedEditorSave }
   | { kind: "property"; propertyId: string; contentHash: string }
-  | { kind: "title"; title: string; titleUpdatedAt: string | null };
+  | { kind: "title"; title: string };
 
 export type DocumentFlushAck = FlushEditorIdentity & {
   protocol: typeof DOCUMENT_FLUSH_PROTOCOL;

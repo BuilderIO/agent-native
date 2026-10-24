@@ -176,8 +176,10 @@ open editors of such a page that can save a title alone are asked to save it;
 its body is already in the live copy. `OPEN_EDITOR_TITLE_NOT_SAVED` (409,
 `retryable: true`) means one of them didn't confirm that save or couldn't make
 it, and nothing changed: retry, and if it refuses again, tell the user the open
-editor of page `details.documentId` didn't save its title. When editors were
-asked, a restore or move result's `titleFlush`, or a pull result's
+editor of page `details.documentId` didn't save its title. A move to another
+space refuses with `PAGE_TITLE_CHANGED` (409, `retryable: true`) when a page's
+title changed after its editors saved it; nothing moved, so retry. When editors
+were asked, a restore or move result's `titleFlush`, or a pull result's
 `editorFlush.titleFlush`, lists each page's editors. One with
 `flush: "unconfirmed"` couldn't be asked, so a title it hadn't saved yet may be
 missing; tell the user.
