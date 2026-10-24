@@ -16,6 +16,7 @@ import {
   normalizePersonalDatabaseViewOverrides,
   personalDatabaseViewSettingKey,
   personalViewOverridesSchema,
+  withoutDeletedPersonalViewProperties,
 } from "./_content-database-personal-view.js";
 import { mutateContentUserSettingTransaction } from "./_user-setting-transaction.js";
 
@@ -202,7 +203,10 @@ export default defineAction({
       });
       return {
         databaseId,
-        overrides: personalViewOverridesSchema.parse(saved),
+        overrides: await withoutDeletedPersonalViewProperties(
+          databaseId,
+          personalViewOverridesSchema.parse(saved),
+        ),
       };
     }
     if (overrides) {
@@ -263,7 +267,10 @@ export default defineAction({
           result: undefined,
         };
       });
-      overrides = personalViewOverridesSchema.parse(value);
+      overrides = await withoutDeletedPersonalViewProperties(
+        databaseId,
+        personalViewOverridesSchema.parse(value),
+      );
     } else {
       await mutateSetting(() => ({ value: null, result: undefined }));
     }

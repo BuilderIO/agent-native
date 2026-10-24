@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { ContentDatabaseView } from "./api";
+import type { ContentDatabaseItemLayout, ContentDatabaseView } from "./api";
+import { resolveContentDatabaseItemLayout } from "./database-item-layout";
 import {
   databaseColumnWraps,
   databaseFrozenColumnIds,
@@ -10,7 +11,7 @@ import {
   withDatabaseWrapDefault,
   withSavedTableColumnPresentation,
   withSavedTableColumnOrder,
-  withoutDatabaseColumnPresentation,
+  withoutDeletedDatabaseProperty,
 } from "./database-table-columns";
 
 const view: ContentDatabaseView = {
@@ -132,7 +133,7 @@ describe("table column presentation", () => {
   });
   it("clears only an intentionally deleted column's presentation state", () => {
     expect(
-      withoutDatabaseColumnPresentation(
+      withoutDeletedDatabaseProperty(
         {
           ...view,
           columnWrapOverrides: { hidden: true, deleted: true },
@@ -144,6 +145,89 @@ describe("table column presentation", () => {
       columnWrapOverrides: { hidden: true },
       frozenThroughColumnId: null,
     });
+  });
+  it("drops every view reference to a deleted property", () => {
+    const filter = {
+      label: "Status",
+      operator: "equals" as const,
+      value: "published",
+    };
+    const cleaned = withoutDeletedDatabaseProperty(
+      {
+        ...view,
+        sorts: [
+          { key: "deleted", label: "Deleted", direction: "asc" },
+          { key: "name", label: "Name", direction: "desc" },
+        ],
+        filters: [
+          { ...filter, key: "deleted" },
+          { ...filter, key: "kept" },
+        ],
+        columnWidths: { deleted: 120, kept: 200 },
+        groupByPropertyId: "deleted",
+        datePropertyId: "date",
+        hiddenPropertyIds: ["deleted", "hidden"],
+        propertyOrderIds: ["kept", "deleted"],
+        tableColumnOrderIds: ["name", "deleted", "kept"],
+        calculations: { deleted: "count_all", kept: "count_values" },
+        formQuestions: [
+          { key: "deleted", enabled: true, required: false },
+          { key: "kept", enabled: true, required: true },
+        ],
+        itemLayout: {
+          leading: { kind: "checkbox", propertyId: "deleted" },
+          titleWeight: "medium",
+          line2: { propertyId: "deleted", lines: 1 },
+          line3: ["deleted", "kept"],
+          trailing: ["kept", "deleted"],
+        },
+      },
+      "deleted",
+    );
+
+    expect(cleaned).toMatchObject({
+      sorts: [{ key: "name" }],
+      filters: [{ key: "kept" }],
+      columnWidths: { kept: 200 },
+      groupByPropertyId: null,
+      datePropertyId: "date",
+      hiddenPropertyIds: ["hidden"],
+      propertyOrderIds: ["kept"],
+      tableColumnOrderIds: ["name", "kept"],
+      calculations: { kept: "count_values" },
+      formQuestions: [{ key: "kept" }],
+      itemLayout: {
+        leading: { kind: "page_icon", propertyId: null },
+        line2: { propertyId: null, lines: 1 },
+        line3: ["kept"],
+        trailing: ["kept"],
+      },
+    });
+    expect(cleaned.columnWidths).not.toHaveProperty("deleted");
+    expect(cleaned.calculations).not.toHaveProperty("deleted");
+  });
+  it("keeps a deleted leading checkbox from switching to another checkbox", () => {
+    const layout: ContentDatabaseItemLayout = {
+      leading: { kind: "checkbox", propertyId: "deleted" },
+      titleWeight: "medium",
+      line2: { propertyId: null, lines: 1 },
+      line3: [],
+      trailing: [],
+    };
+    const cleaned = withoutDeletedDatabaseProperty(
+      { ...view, itemLayout: layout },
+      "deleted",
+    ).itemLayout!;
+
+    expect(
+      resolveContentDatabaseItemLayout(cleaned, [
+        { definition: { id: "other", type: "checkbox" } },
+      ]).leading,
+    ).toEqual({ kind: "page_icon", property: null });
+    expect(
+      withoutDeletedDatabaseProperty({ ...view, itemLayout: layout }, "other")
+        .itemLayout?.leading,
+    ).toEqual(layout.leading);
   });
   it("keeps Name first for legacy views and appends new properties", () => {
     expect(databaseTableColumnIds(["text", "status"])).toEqual([
