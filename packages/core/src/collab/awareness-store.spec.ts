@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import {
   MAX_AWARENESS_CLIENT_SEQUENCE,
   MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE,
@@ -24,6 +25,10 @@ const dbRows = vi.hoisted(
 const dbAvailable = vi.hoisted(() => ({ value: true }));
 const purgeCalls = vi.hoisted(() => ({ count: 0 }));
 const purgeFails = vi.hoisted(() => ({ value: false }));
+const clearRace = vi.hoisted(() => ({ value: false }));
+const clearUpsertQuery = vi.hoisted(() => ({
+  value: null as null | { sql: string; args: unknown[] },
+}));
 
 function rowKey(docId: string, clientId: number): string {
   return `${docId}|${clientId}`;
@@ -64,6 +69,111 @@ vi.mock("../db/client.js", async () => {
           rows: [{ client_id: Number(args[1]) }],
           rowsAffected: 1,
         };
+      }
+      if (
+        /^\s*INSERT INTO _collab_awareness/i.test(sql) &&
+        /ON CONFLICT\s*\(\s*doc_id\s*,\s*client_id\s*\)\s+DO UPDATE SET\s+state = ''/i.test(
+          sql,
+        )
+      ) {
+        if (typeof query !== "string") {
+          clearUpsertQuery.value = { sql, args: [...args] };
+        }
+        const key = rowKey(String(args[0]), Number(args[1]));
+        const lastSeen = Number(args[2]);
+        const incomingSequence = Number(args[3]);
+        const incomingRawSequence = Number(args[4]);
+        const actorEmail =
+          typeof args[5] === "string"
+            ? String(args[5]).trim().toLowerCase()
+            : null;
+        const actorEmailExpiresAt =
+          typeof args[6] === "number" ? Number(args[6]) : null;
+        const isLegacyClockSequence = sql.includes("client_sequence + 1");
+        let argumentIndex = 7;
+        if (isLegacyClockSequence) argumentIndex++;
+        const tokenActorEmail = args[argumentIndex++];
+        const tokenHashPresent = args[argumentIndex++];
+        const tokenHash = args[argumentIndex++];
+        const sequenceArguments = args.slice(argumentIndex).map(Number);
+
+        const row = dbRows.get(key);
+        if (clearRace.value && row) {
+          clearRace.value = false;
+          row.state = "concurrent-presence";
+          row.last_seen = 2_000;
+          row.client_sequence = 2;
+          row.client_sequence_raw = 0;
+        }
+
+        if (!row) {
+          dbRows.set(key, {
+            state: "",
+            last_seen: lastSeen,
+            client_sequence: incomingSequence,
+            client_sequence_raw: incomingRawSequence,
+            cleared: true,
+            actor_email: actorEmail,
+            clear_token_hash: null,
+            actor_email_expires_at: actorEmailExpiresAt,
+          });
+          return { rows: [{ client_id: Number(args[1]) }], rowsAffected: 1 };
+        }
+
+        const sameActor = row.actor_email === actorEmail;
+        const ownsClearToken =
+          tokenActorEmail != null &&
+          tokenHashPresent != null &&
+          row.actor_email !== null &&
+          row.clear_token_hash === tokenHash &&
+          row.last_seen >= lastSeen - 60_000;
+        const sequence = isLegacyClockSequence
+          ? sequenceArguments[0]
+          : incomingSequence;
+        const canAdvance =
+          sequence > MAX_AWARENESS_CLIENT_SEQUENCE
+            ? row.client_sequence_raw > 0
+              ? sequence > row.client_sequence_raw
+              : row.client_sequence > MAX_AWARENESS_CLIENT_SEQUENCE
+                ? sequence > row.client_sequence
+                : row.client_sequence === 0
+            : sequence > 0
+              ? row.client_sequence_raw > 0 ||
+                row.client_sequence > MAX_AWARENESS_CLIENT_SEQUENCE
+                ? sequence <= MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
+                : sequence > row.client_sequence &&
+                  sequence <=
+                    row.client_sequence + MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
+              : row.client_sequence_raw === 0 && row.client_sequence === 0;
+
+        if (
+          row.cleared ||
+          (!sameActor && !ownsClearToken) ||
+          (sameActor && !canAdvance)
+        ) {
+          return { rows: [], rowsAffected: 0 };
+        }
+
+        row.state = "";
+        row.last_seen = Math.max(row.last_seen, lastSeen);
+        row.client_sequence = sameActor
+          ? sequence > MAX_AWARENESS_CLIENT_SEQUENCE
+            ? row.client_sequence >= MAX_AWARENESS_CLIENT_SEQUENCE
+              ? 1
+              : row.client_sequence + 1
+            : incomingSequence
+          : row.client_sequence;
+        row.client_sequence_raw = sameActor
+          ? sequence > MAX_AWARENESS_CLIENT_SEQUENCE
+            ? sequence
+            : 0
+          : row.client_sequence_raw;
+        row.cleared = true;
+        row.clear_token_hash = null;
+        row.actor_email_expires_at = row.actor_email
+          ? row.last_seen + 60_000
+          : null;
+        return { rows: [{ client_id: Number(args[1]) }], rowsAffected: 1 };
       }
       if (
         /^\s*INSERT INTO _collab_awareness/i.test(sql) &&
@@ -353,6 +463,8 @@ beforeEach(() => {
   dbAvailable.value = true;
   purgeCalls.count = 0;
   purgeFails.value = false;
+  clearRace.value = false;
+  clearUpsertQuery.value = null;
   _resetAwarenessStoreForTests();
 });
 
@@ -504,6 +616,96 @@ describe("awareness-store", () => {
         cleared: true,
       },
     ]);
+  });
+
+  it("atomically clears a same-actor write that wins the disposal race", async () => {
+    await writeAwarenessRow(
+      "doc-clear-race",
+      9,
+      "initial-state",
+      1_000,
+      1,
+      false,
+      "owner@example.com",
+    );
+    clearRace.value = true;
+
+    await expect(
+      writeAwarenessRow(
+        "doc-clear-race",
+        9,
+        "",
+        1_500,
+        3,
+        true,
+        "owner@example.com",
+      ),
+    ).resolves.toBe(true);
+
+    expect(dbRows.get(rowKey("doc-clear-race", 9))).toMatchObject({
+      state: "",
+      last_seen: 2_000,
+      client_sequence: 3,
+      client_sequence_raw: 0,
+      cleared: true,
+      actor_email: "owner@example.com",
+    });
+
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`
+        CREATE TABLE _collab_awareness (
+          doc_id TEXT NOT NULL,
+          client_id BIGINT NOT NULL,
+          state TEXT NOT NULL,
+          last_seen BIGINT NOT NULL,
+          client_sequence BIGINT NOT NULL DEFAULT 0,
+          cleared BOOLEAN NOT NULL DEFAULT FALSE,
+          client_sequence_raw BIGINT NOT NULL DEFAULT 0,
+          actor_email TEXT,
+          clear_token_hash TEXT,
+          actor_email_expires_at BIGINT,
+          PRIMARY KEY (doc_id, client_id)
+        )
+      `);
+      await pglite.query(
+        `INSERT INTO _collab_awareness
+           (doc_id, client_id, state, last_seen, client_sequence, cleared,
+            client_sequence_raw, actor_email, clear_token_hash,
+            actor_email_expires_at)
+         VALUES (?, ?, ?, ?, ?, FALSE, 0, ?, NULL, NULL)`,
+        ["doc-clear-race", 9, "initial-state", 1_000, 1, "owner@example.com"],
+      );
+      await pglite.query(
+        `UPDATE _collab_awareness
+         SET state = ?, last_seen = ?, client_sequence = ?
+         WHERE doc_id = ? AND client_id = ?`,
+        ["concurrent-presence", 2_000, 2, "doc-clear-race", 9],
+      );
+
+      const atomicClear = clearUpsertQuery.value;
+      expect(atomicClear).toBeTruthy();
+      const result = await pglite.query(atomicClear!.sql, atomicClear!.args);
+      expect(result.rows).toEqual([{ client_id: 9 }]);
+      await expect(
+        pglite.query(
+          `SELECT state, last_seen, client_sequence, cleared
+           FROM _collab_awareness WHERE doc_id = ? AND client_id = ?`,
+          ["doc-clear-race", 9],
+        ),
+      ).resolves.toMatchObject({
+        rows: [
+          {
+            state: "",
+            last_seen: 2_000,
+            client_sequence: 3,
+            cleared: true,
+          },
+        ],
+      });
+    } finally {
+      await pglite.close();
+    }
   });
 
   it("does not let legacy sequence-zero writes replace clear tombstones", async () => {

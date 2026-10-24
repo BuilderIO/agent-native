@@ -1403,6 +1403,24 @@ export function useCollaborativeDoc(
     return { ...user, avatarUrl: storedAvatarUrl };
   }, [storedAvatarUrl, user]);
   const actorIdentity = resolvedUser?.email.trim().toLowerCase() ?? "";
+  const [connectionIdentityState, setConnectionIdentityState] = useState(
+    () => ({
+      connectionIdentity: actorIdentity,
+      lastResolvedIdentity: actorIdentity,
+    }),
+  );
+  if (
+    actorIdentity &&
+    actorIdentity !== connectionIdentityState.lastResolvedIdentity
+  ) {
+    setConnectionIdentityState({
+      connectionIdentity: connectionIdentityState.lastResolvedIdentity
+        ? actorIdentity
+        : connectionIdentityState.connectionIdentity,
+      lastResolvedIdentity: actorIdentity,
+    });
+  }
+  const connectionIdentity = connectionIdentityState.connectionIdentity;
 
   const [generation, setGeneration] = useState(0);
 
@@ -1410,10 +1428,10 @@ export function useCollaborativeDoc(
     void generation;
     if (!docId) return null;
     if (typeof window === "undefined") {
-      return new CollabDocConnection(docId, baseUrl, actorIdentity, true);
+      return new CollabDocConnection(docId, baseUrl, connectionIdentity, true);
     }
-    return getOrCreateCollabConnection(docId, baseUrl, actorIdentity);
-  }, [docId, baseUrl, actorIdentity, generation]);
+    return getOrCreateCollabConnection(docId, baseUrl, connectionIdentity);
+  }, [docId, baseUrl, connectionIdentity, generation]);
 
   const [snapshot, setSnapshot] = useState<CollabDocSnapshot>(() =>
     conn ? conn.snapshot : EMPTY_SNAPSHOT,

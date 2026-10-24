@@ -166,126 +166,97 @@ export async function writeAwarenessRow(
   }
   const storedSequence = isLegacyClockSequence ? 1 : clientSequence;
   if (cleared) {
-    const { rows: existingRows } = await client.execute({
-      sql: `SELECT client_sequence, client_sequence_raw, cleared, actor_email,
-                   clear_token_hash, actor_email_expires_at, last_seen
-            FROM _collab_awareness
-            WHERE doc_id = ? AND client_id = ?`,
-      args: [docId, clientId],
-    });
-    const existing = existingRows[0] as
-      | {
-          client_sequence?: unknown;
-          client_sequence_raw?: unknown;
-          cleared?: unknown;
-          actor_email?: unknown;
-          clear_token_hash?: unknown;
-          actor_email_expires_at?: unknown;
-          last_seen?: unknown;
-        }
-      | undefined;
-    if (!existing) {
-      const { rows } = await client.execute({
-        sql: `INSERT INTO _collab_awareness
-                (doc_id, client_id, state, last_seen, client_sequence, cleared,
-                 client_sequence_raw, actor_email, clear_token_hash,
-                 actor_email_expires_at)
-              VALUES (?, ?, '', ?, ?, TRUE, ?, ?, NULL, ?)
-              ON CONFLICT (doc_id, client_id) DO NOTHING
-              RETURNING client_id`,
-        args: [
-          docId,
-          clientId,
-          lastSeen,
-          storedSequence,
-          isLegacyClockSequence ? clientSequence : 0,
-          normalizedActorEmail,
-          normalizedActorEmail ? lastSeen + ACTOR_RESERVATION_TTL_MS : null,
-        ],
-      });
-      const applied = rows.length > 0;
-      if (applied) {
-        _lastWrites.delete(writeKey(docId, clientId));
-        await maybePurgeBestEffort(lastSeen);
-      }
-      return applied;
-    }
-    if (existing.cleared === true) return false;
-
-    const existingActorEmail =
-      typeof existing.actor_email === "string" ? existing.actor_email : null;
-    const normalizedExistingActorEmail =
-      existingActorEmail?.trim().toLowerCase() || null;
-    const existingClearTokenHash =
-      typeof existing.clear_token_hash === "string"
-        ? existing.clear_token_hash
-        : null;
-    const existingLastSeen = Number(existing.last_seen);
-    const existingActorEmailExpiresAt =
-      existing.actor_email_expires_at == null
-        ? null
-        : Number(existing.actor_email_expires_at);
-    const sameActor = normalizedExistingActorEmail === normalizedActorEmail;
-    const ownsClearToken =
-      normalizedActorEmail !== null &&
-      normalizedExistingActorEmail !== null &&
-      normalizedClearTokenHash !== null &&
-      existingClearTokenHash === normalizedClearTokenHash &&
-      existingLastSeen >= lastSeen - ROW_TTL_MS * 2;
-    if (!sameActor && !ownsClearToken) return false;
-
-    const currentSequence = Number(existing.client_sequence ?? 0);
-    const currentRawSequence = Number(existing.client_sequence_raw ?? 0);
-    const existingCleared = existing.cleared === true;
-    if (
-      sameActor &&
-      !canAdvanceClientSequence(
-        currentSequence,
-        currentRawSequence,
-        existingCleared,
-        clientSequence,
-      )
-    ) {
-      return false;
-    }
-
-    const nextSequence = sameActor
-      ? isLegacyClockSequence
-        ? currentSequence >= MAX_AWARENESS_CLIENT_SEQUENCE
-          ? 1
-          : currentSequence + 1
-        : storedSequence
-      : currentSequence;
-    const nextRawSequence = sameActor
-      ? isLegacyClockSequence
-        ? clientSequence
-        : 0
-      : currentRawSequence;
+    // Keep ownership, sequence validation, and clearing in one conflict update.
+    const sequencePredicate = isLegacyClockSequence
+      ? `(_collab_awareness.client_sequence_raw > 0
+           AND ? > _collab_awareness.client_sequence_raw)
+         OR (_collab_awareness.client_sequence_raw = 0
+             AND _collab_awareness.client_sequence > ${MAX_AWARENESS_CLIENT_SEQUENCE}
+             AND ? > _collab_awareness.client_sequence)
+         OR (_collab_awareness.client_sequence_raw = 0
+             AND _collab_awareness.client_sequence = 0)`
+      : clientSequence > 0
+        ? `((_collab_awareness.client_sequence_raw > 0
+             OR _collab_awareness.client_sequence > ${MAX_AWARENESS_CLIENT_SEQUENCE})
+            AND ? <= ${MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE})
+           OR (_collab_awareness.client_sequence_raw = 0
+               AND _collab_awareness.client_sequence <= ${MAX_AWARENESS_CLIENT_SEQUENCE}
+               AND ? > _collab_awareness.client_sequence
+               AND ? <= _collab_awareness.client_sequence + ${MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE})`
+        : `(_collab_awareness.client_sequence_raw = 0
+            AND _collab_awareness.client_sequence = 0)`;
+    const nextClientSequence = isLegacyClockSequence
+      ? `CASE
+          WHEN _collab_awareness.client_sequence >= ${MAX_AWARENESS_CLIENT_SEQUENCE}
+            THEN 1
+          ELSE _collab_awareness.client_sequence + 1
+        END`
+      : "EXCLUDED.client_sequence";
+    const nextRawSequence = isLegacyClockSequence ? "?" : "0";
+    const sequenceArguments = isLegacyClockSequence
+      ? [clientSequence, clientSequence]
+      : clientSequence > 0
+        ? [clientSequence, clientSequence, clientSequence]
+        : [];
     const { rows } = await client.execute({
-      sql: `UPDATE _collab_awareness
-            SET state = '', last_seen = ?, client_sequence = ?,
-                client_sequence_raw = ?, cleared = TRUE, clear_token_hash = NULL,
-                actor_email_expires_at = ?
-            WHERE doc_id = ? AND client_id = ? AND cleared = FALSE
-              AND client_sequence = ? AND client_sequence_raw = ?
-              AND actor_email IS NOT DISTINCT FROM ?
-              AND clear_token_hash IS NOT DISTINCT FROM ?
-              AND actor_email_expires_at IS NOT DISTINCT FROM ?
-              AND last_seen = ?
+      sql: `INSERT INTO _collab_awareness
+              (doc_id, client_id, state, last_seen, client_sequence, cleared,
+               client_sequence_raw, actor_email, clear_token_hash,
+               actor_email_expires_at)
+            VALUES (?, ?, '', ?, ?, TRUE, ?, ?, NULL, ?)
+            ON CONFLICT (doc_id, client_id)
+            DO UPDATE SET
+              state = '',
+              last_seen = GREATEST(
+                _collab_awareness.last_seen,
+                EXCLUDED.last_seen
+              ),
+              client_sequence = CASE
+                WHEN _collab_awareness.actor_email IS NOT DISTINCT FROM EXCLUDED.actor_email
+                  THEN ${nextClientSequence}
+                ELSE _collab_awareness.client_sequence
+              END,
+              client_sequence_raw = CASE
+                WHEN _collab_awareness.actor_email IS NOT DISTINCT FROM EXCLUDED.actor_email
+                  THEN ${nextRawSequence}
+                ELSE _collab_awareness.client_sequence_raw
+              END,
+              cleared = TRUE,
+              clear_token_hash = NULL,
+              actor_email_expires_at = CASE
+                WHEN _collab_awareness.actor_email IS NOT NULL
+                  THEN GREATEST(
+                    _collab_awareness.last_seen,
+                    EXCLUDED.last_seen
+                  ) + ${ACTOR_RESERVATION_TTL_MS}
+                ELSE NULL
+              END
+            WHERE _collab_awareness.cleared = FALSE
+              AND (
+                _collab_awareness.actor_email IS NOT DISTINCT FROM EXCLUDED.actor_email
+                OR (? <> '' AND ? <> ''
+                    AND _collab_awareness.actor_email IS NOT NULL
+                    AND _collab_awareness.clear_token_hash = ?
+                    AND _collab_awareness.last_seen >= EXCLUDED.last_seen - ${ROW_TTL_MS * 2})
+              )
+              AND (
+                _collab_awareness.actor_email IS DISTINCT FROM EXCLUDED.actor_email
+                OR (${sequencePredicate})
+              )
             RETURNING client_id`,
       args: [
-        lastSeen,
-        nextSequence,
-        nextRawSequence,
-        existingActorEmail ? lastSeen + ACTOR_RESERVATION_TTL_MS : null,
         docId,
         clientId,
-        currentSequence,
-        currentRawSequence,
-        existingActorEmail,
-        existingClearTokenHash,
-        existingActorEmailExpiresAt,
-        existingLastSeen,
+        lastSeen,
+        storedSequence,
+        isLegacyClockSequence ? clientSequence : 0,
+        normalizedActorEmail,
+        normalizedActorEmail ? lastSeen + ACTOR_RESERVATION_TTL_MS : null,
+        ...(isLegacyClockSequence ? [clientSequence] : []),
+        normalizedActorEmail,
+        normalizedClearTokenHash,
+        normalizedClearTokenHash,
+        ...sequenceArguments,
       ],
     });
     const applied = rows.length > 0;
@@ -386,32 +357,6 @@ export async function writeAwarenessRow(
     await maybePurgeBestEffort(lastSeen);
   }
   return applied;
-}
-
-function canAdvanceClientSequence(
-  currentSequence: number,
-  currentRawSequence: number,
-  cleared: boolean,
-  clientSequence: number,
-): boolean {
-  if (clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE) {
-    return currentRawSequence > 0
-      ? clientSequence > currentRawSequence
-      : currentSequence > MAX_AWARENESS_CLIENT_SEQUENCE
-        ? clientSequence > currentSequence
-        : currentSequence === 0 && !cleared;
-  }
-  if (clientSequence > 0) {
-    return (
-      !cleared &&
-      (currentRawSequence > 0 || currentSequence > MAX_AWARENESS_CLIENT_SEQUENCE
-        ? clientSequence <= MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
-        : clientSequence > currentSequence &&
-          clientSequence <=
-            currentSequence + MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE)
-    );
-  }
-  return currentRawSequence === 0 && currentSequence === 0 && !cleared;
 }
 
 export async function deleteAwarenessRow(

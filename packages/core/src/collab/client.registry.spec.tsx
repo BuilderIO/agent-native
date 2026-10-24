@@ -432,6 +432,45 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(b?.isSynced).toBe(true);
   });
 
+  it("keeps the cold-load connection when the authenticated user resolves", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe docId="cold-load-identity" onResult={(next) => (result = next)} />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+
+    const initialYdoc = result?.ydoc;
+    expect(initialYdoc).toBeTruthy();
+    expect(stateFetches).toHaveLength(1);
+
+    act(() => {
+      root.render(
+        <Probe
+          docId="cold-load-identity"
+          user={{
+            name: "Ada",
+            email: "ada@example.test",
+            color: "blue",
+          }}
+          onResult={(next) => (result = next)}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    expect(result?.ydoc).toBe(initialYdoc);
+    expect(stateFetches).toHaveLength(1);
+    expect(_collabDocRegistrySizeForTests()).toBe(1);
+  });
+
   it("creates a new awareness client identity when the authenticated user changes", async () => {
     const { mock } = makeFetchMock();
     vi.stubGlobal("fetch", mock);
