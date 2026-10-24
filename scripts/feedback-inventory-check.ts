@@ -894,24 +894,26 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
   const pronounRetraction =
     /\b(?:(?:actually|correction|wait|sorry|no)\s*[,;:]?\s*)?(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s+assign\s+(?:it|that|this)\b/i;
   const ellipticalRetraction =
-    /\b(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
+    /^\s*(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
   const correctionCue =
     /\b(?:actually|correction|wait|sorry|no)\b[^.!?;]{0,50}\b(?:wrong|incorrect|not right|mistake|retract(?:ed)?|withdraw(?:n)?|cancel(?:led)?|scratch that)\b/i;
   const directEllipticalRetraction =
     /^\s*(?:actually|correction|wait|sorry|no)[,:\s]+(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
   let assigned = false;
   let pendingCorrection = false;
+  let lastClauseWasAssignment = false;
   for (const rawClause of clauses) {
+    const followsAssignment = lastClauseWasAssignment;
+    lastClauseWasAssignment = false;
     const clause = rawClause.replace(/^\s*(?:but|and|however)\s+/i, "");
     const hasCorrectionCue = correctionCue.test(clause);
     if (
       negatedAssignment.test(clause) ||
       (assigned && pronounRetraction.test(clause)) ||
       (assigned &&
-        ellipticalRetraction.test(clause) &&
-        (pendingCorrection ||
-          hasCorrectionCue ||
-          directEllipticalRetraction.test(clause)))
+        (directEllipticalRetraction.test(clause) ||
+          (ellipticalRetraction.test(clause) &&
+            (pendingCorrection || hasCorrectionCue || followsAssignment))))
     ) {
       assigned = false;
       pendingCorrection = false;
@@ -940,6 +942,7 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
     );
     if (directAssignment.test(clause) || passiveAssignment.test(clause)) {
       assigned = true;
+      lastClauseWasAssignment = true;
     }
   }
   return assigned;
@@ -17365,6 +17368,28 @@ if (args[0] === "--self-test" && args.length === 1) {
       "personAssignedSkip needs an exact root or latest human message assigning work",
     );
     expectFocusedFailure(
+      "bare immediate assignment denial is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I assigned this report to <@UOTHER>. I did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
+      "bare assignment denial after but is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText: "I assigned this report to <@UOTHER>, but I did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
       "direct elliptical assignment retraction is not assignment proof",
       () =>
         validateTestInventory(
@@ -24360,7 +24385,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 68} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 16 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 70} negative cases; 44 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 16 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
