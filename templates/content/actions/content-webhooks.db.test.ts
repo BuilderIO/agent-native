@@ -538,6 +538,49 @@ describe("content webhooks", () => {
     expect(receiver.requests).toHaveLength(0);
   });
 
+  it("W2-3: stops sending in the same run once the creator loses access", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        documentId: row.documentId,
+        events: ["property.changed"],
+      }),
+    );
+    receiver.status = 500;
+    for (const value of ["agent", "alice"]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.turn,
+          value,
+        }),
+      );
+    }
+    await settled(webhook.id, 2);
+    await makeDue(webhook.id);
+
+    // Access is revoked while the first send is in flight.
+    const sent: string[] = [];
+    const counts = await hooks.drainContentWebhookDeliveries({
+      transport: async (request) => {
+        sent.push(request.headers["webhook-id"]);
+        await getDb()
+          .update(schema.contentWebhooks)
+          .set({ createdBy: STRANGER })
+          .where(eq(schema.contentWebhooks.id, webhook.id));
+        return { ok: true, status: 200 };
+      },
+    });
+    expect(counts).toMatchObject({ delivered: 1, failed: 1 });
+    expect(sent).toHaveLength(1);
+    const [, second] = await deliveries(webhook.id);
+    expect(second).toMatchObject({ status: "failed" });
+    expect(second.lastError).toMatch(/no longer manages/);
+  });
+
   it("W2-4: registers, lists and removes a webhook, and keeps others out", async () => {
     const ids = await fixture();
     const created = await asOwner(() =>

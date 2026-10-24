@@ -146,7 +146,7 @@ type WebhookRow = typeof schema.contentWebhooks.$inferSelect;
  * which would widen a property filter to every property.
  */
 function parseStringArray(json: string | null): string[] | null {
-  if (!json) return null;
+  if (json === null) return null;
   const parsed: unknown = JSON.parse(json);
   if (
     !Array.isArray(parsed) ||
@@ -620,7 +620,6 @@ async function deliverOne(
   db: Db,
   delivery: DeliveryRow,
   transport: ContentWebhookTransport,
-  creatorChecks: Map<string, Promise<boolean>>,
 ): Promise<ContentWebhookTransportResult> {
   const [webhook] = await db
     .select()
@@ -630,12 +629,9 @@ async function deliverOne(
   if (!webhook) {
     return { ok: false, error: "The webhook was removed.", permanent: true };
   }
-  let creatorCheck = creatorChecks.get(webhook.id);
-  if (!creatorCheck) {
-    creatorCheck = creatorStillManages(webhook);
-    creatorChecks.set(webhook.id, creatorCheck);
-  }
-  if (!(await creatorCheck)) {
+  // Checked for every send, not once per drain, so a revoked creator's
+  // events stop at the next send.
+  if (!(await creatorStillManages(webhook))) {
     return {
       ok: false,
       error:
@@ -680,7 +676,6 @@ export async function drainContentWebhookDeliveries(
   const transport = options.transport ?? fetchContentWebhook;
   const deadlineAt = options.deadlineAt ?? Date.now() + 60_000;
   const counts = { delivered: 0, failed: 0, retrying: 0 };
-  const creatorChecks = new Map<string, Promise<boolean>>();
   const expired = () => Date.now() >= deadlineAt || options.signal?.aborted;
   while (!expired()) {
     const ids = await dueDeliveryIds(db, CLAIM_BATCH);
@@ -692,12 +687,7 @@ export async function drainContentWebhookDeliveries(
       if (!claim) continue;
       claimedAny = true;
       const { delivery, leaseToken } = claim;
-      const result = await deliverOne(
-        db,
-        delivery,
-        transport,
-        creatorChecks,
-      ).catch(
+      const result = await deliverOne(db, delivery, transport).catch(
         (error): ContentWebhookTransportResult => ({
           ok: false,
           error: error instanceof Error ? error.message : String(error),
