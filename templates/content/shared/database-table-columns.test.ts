@@ -173,6 +173,13 @@ describe("table column presentation", () => {
           { key: "deleted", enabled: true, required: false },
           { key: "kept", enabled: true, required: true },
         ],
+        itemLayout: {
+          leading: { kind: "checkbox", propertyId: "deleted" },
+          titleWeight: "medium",
+          line2: { propertyId: "deleted", lines: 1 },
+          line3: ["deleted", "kept"],
+          trailing: ["kept", "deleted"],
+        },
       },
       "deleted",
     );
@@ -188,6 +195,12 @@ describe("table column presentation", () => {
       tableColumnOrderIds: ["name", "kept"],
       calculations: { kept: "count_values" },
       formQuestions: [{ key: "kept" }],
+      itemLayout: {
+        leading: { kind: "checkbox", propertyId: null },
+        line2: { propertyId: null, lines: 1 },
+        line3: ["kept"],
+        trailing: ["kept"],
+      },
     });
     expect(cleaned.columnWidths).not.toHaveProperty("deleted");
     expect(cleaned.calculations).not.toHaveProperty("deleted");
