@@ -333,7 +333,6 @@ function canApplyLocalAwarenessWrite(
   clientId: number,
   clientSequence: number,
   lastSeen: number,
-  cleared: boolean,
   actorEmail: string,
 ): boolean {
   if (!existing || existing.actorEmail?.trim().toLowerCase() !== actorEmail) {
@@ -352,25 +351,20 @@ function canApplyLocalAwarenessWrite(
     sequenceAllowed =
       currentRawSequence > 0 || currentSequence > MAX_AWARENESS_CLIENT_SEQUENCE
         ? clientSequence <= MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
-        : !cleared &&
-          clientSequence > currentSequence &&
+        : clientSequence > currentSequence &&
           clientSequence <=
             currentSequence + MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE;
   } else {
-    sequenceAllowed =
-      currentRawSequence === 0 && currentSequence === 0 && !cleared;
+    sequenceAllowed = currentRawSequence === 0 && currentSequence === 0;
   }
   if (!sequenceAllowed) return false;
 
-  return (
-    cleared ||
-    !isBlockedByAwarenessClear(
-      docId,
-      clientId,
-      lastSeen,
-      localSequenceForWrite(existing, clientSequence),
-      Date.now(),
-    )
+  return !isBlockedByAwarenessClear(
+    docId,
+    clientId,
+    lastSeen,
+    localSequenceForWrite(existing, clientSequence),
+    Date.now(),
   );
 }
 
@@ -484,7 +478,6 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         clientId,
         sequence,
         lastSeen,
-        cleared,
         actorEmail,
       )
     ) {
