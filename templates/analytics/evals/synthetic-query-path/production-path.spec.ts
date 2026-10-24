@@ -285,7 +285,6 @@ const cases: readonly Case[] = [
           }
         | undefined;
       const roster = result?.results?.[0];
-      const text = output?.text.toLowerCase() ?? "";
       return (
         output?.toolCalls.filter((name) => name === "find-data").length === 1 &&
         roster?.metric === "model:user_organization_role" &&
@@ -302,10 +301,6 @@ const cases: readonly Case[] = [
         result.of === 1 &&
         result.truncated === false &&
         result.nextPage === null &&
-        text.includes("row-level source") &&
-        text.includes("capacity") &&
-        text.includes("unapproved index suggestion") &&
-        text.includes("did not run a count") &&
         !output?.toolCalls.some((name) =>
           ["bigquery", "query-dbt-semantic-metric"].includes(name),
         )
@@ -2316,6 +2311,32 @@ describe("Analytics synthetic production-path query quality", () => {
 
   it("keeps the exported CSV on its allowlisted, privacy-safe schema", async () => {
     const header = SAFE_CSV_COLUMNS.join(",");
+    const expectedPairs = cases.flatMap((testCase) =>
+      [1, 2].map((replicate) => `${testCase.key}:${replicate}`),
+    );
+    expect(
+      csvRows.map((row) => `${row.case_key}:${row.replicate}`).sort(),
+    ).toEqual(expectedPairs.sort());
+    for (const row of csvRows) {
+      expect(row.completed, `${row.case_key} completed`).toBe(true);
+      expect(row.aborted, `${row.case_key} was not aborted`).toBe(false);
+      expect(
+        row.production_path_invoked,
+        `${row.case_key} production path`,
+      ).toBe(true);
+      expect(row.guard_applied, `${row.case_key} response guard`).toBe(true);
+      expect(
+        row.owner_org_context_verified,
+        `${row.case_key} owner and org context`,
+      ).toBe(true);
+      expect(row.usage_captured, `${row.case_key} usage receipt`).toBe(true);
+      expect(row.score, `${row.case_key} replicate ${row.replicate}`).toBe(
+        isBaselineRun() &&
+          row.case_key === "synthetic-row-level-roster-beats-seat-utilization"
+          ? 0
+          : 1,
+      );
+    }
     const forbiddenHeaders = [
       "prompt",
       "sql",

@@ -5,6 +5,9 @@ chat adapter, prompt builder, read-only action allowlist, shared agent loop, and
 final response guard. A deterministic engine supplies the model steps. Provider
 actions return bounded synthetic fixtures, so the suite does not connect to
 BigQuery, dbt, Sigma, Amplitude, HubSpot, or production storage.
+Scores come from production action results and fixture contracts. Scripted final
+text only exercises the response guard; it does not measure answer wording or
+model quality.
 
 The cases cover an unbuilt index without an absence claim, source provenance
 and ambiguous user/seat definitions, row-level organization roster discovery
@@ -104,10 +107,12 @@ pnpm --filter analytics exec tsx evals/synthetic-query-path/combine-phase-csv.ts
   "$EVAL_DIR/baseline.csv" "$EVAL_DIR/candidate.csv" "$EVAL_DIR/paired.csv"
 ```
 
-The combiner enforces an exact safe header, all eighteen reviewed case keys at
-replicates 1 and 2 in each phase, one source revision per phase, matching
-harness hashes and case/replicate pairs, valid result and production-receipt
-values, and refuses to overwrite an existing output. The generated CSV has no
+Before the test writes a phase CSV, it enforces the exact eighteen case keys at
+replicates 1 and 2, complete production-path, guard, owner/org, and usage
+receipts, all candidate passes, and the single expected baseline roster miss.
+The combiner enforces an exact safe header, one source revision per phase,
+matching harness hashes and case/replicate pairs, valid result and
+production-receipt values, and refuses to overwrite an existing output. The generated CSV has no
 prompts, SQL, provider rows, identity values, cursors, or credentials. A passing
 score requires all production receipts; an aborted or incomplete production-path
 run is retained as a score-0 failure.
