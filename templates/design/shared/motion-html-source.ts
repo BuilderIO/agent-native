@@ -2085,16 +2085,21 @@ function hasRuntimeHtmlMutation(node: HtmlNode): boolean {
 function hasRuntimeStructuralMutation(node: HtmlNode): boolean {
   return (
     isAlpineStructuralTemplate(node) ||
-    (node.attrs ?? []).some(({ name }) => isEventHandlerAttribute(name))
+    (node.attrs ?? []).some(({ name }) => {
+      const directive = name.toLowerCase().split(/[.:]/, 1)[0]!;
+      return (
+        isEventHandlerAttribute(name) ||
+        directive === "x-init" ||
+        directive === "x-effect"
+      );
+    })
   );
 }
 
 function hasRuntimeStructuralMutationInSubtree(node: HtmlNode): boolean {
   return (
     hasRuntimeStructuralMutation(node) ||
-    descendants(node).some((candidate) =>
-      (candidate.attrs ?? []).some(({ name }) => isEventHandlerAttribute(name)),
-    )
+    descendants(node).some(hasRuntimeStructuralMutation)
   );
 }
 

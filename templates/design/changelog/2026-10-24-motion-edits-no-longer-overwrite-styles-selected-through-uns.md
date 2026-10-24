@@ -3,4 +3,4 @@ type: fixed
 date: 2026-10-24
 ---
 
-Motion edits no longer overwrite styles selected through unsupported relational CSS.
+Motion edits stop when structural CSS selectors could change at runtime, including through Alpine lifecycle directives.
