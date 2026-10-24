@@ -368,6 +368,7 @@ import {
 import { closeDbExec, getDbExec } from "../db/client.js";
 import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
+import { runWithRequestContext } from "./request-context.js";
 
 async function createSweepHandler() {
   const h3App = createApp();
@@ -1191,13 +1192,7 @@ describe("queued submission inbox recurring sweep", () => {
     },
   );
 
-  it.each([
-    "expired",
-    "aborted",
-    "stopped-after-pause",
-    "interrupted",
-    "superseded",
-  ] as const)(
+  it.each(["expired", "aborted", "interrupted", "superseded"] as const)(
     "allows queued follow-ups to claim their run slot when approval state is %s",
     async (state) => {
       const threadId = `thread-${randomUUID()}`;
@@ -1218,11 +1213,6 @@ describe("queued submission inbox recurring sweep", () => {
       });
       if (state === "aborted") await markTurnAborted(threadId, turnId);
       else await updateRunStatus(runId, "completed");
-      if (state === "stopped-after-pause") {
-        await expect(markTurnAborted(threadId, turnId)).resolves.toBe(
-          "aborted",
-        );
-      }
       if (state === "superseded") {
         const later = Date.now() + 1;
         vi.spyOn(Date, "now").mockReturnValue(later);
@@ -1270,6 +1260,89 @@ describe("queued submission inbox recurring sweep", () => {
       const runSweep = await createSweepHandler();
       const response = await runSweep();
       expect(response.status).toBe(200);
+      expect(inboxHarness.admissionAttempts).toEqual([messageId]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({
+        state: "submitted",
+        submittedRunId: "queued-run",
+      });
+    },
+  );
+
+  it.each(["turn", "run"] as const)(
+    "drains queued follow-ups immediately after stopping a completed approval pause by %s",
+    async (target) => {
+      const threadId = `thread-${randomUUID()}`;
+      const turnId = `turn-${randomUUID()}`;
+      const runId = `paused-${randomUUID()}`;
+      const messageId = "follow-up";
+      const actor = { email: "user@example.com", anonymous: false };
+      await createThread(actor.email, { id: threadId });
+      await insertRun(runId, threadId, turnId);
+      await createAgentToolApproval({
+        ownerEmail: actor.email,
+        threadId,
+        turnId,
+        toolName: "release",
+        callId: "release-call",
+        approvalKey: "release-approval",
+      });
+      await updateRunStatus(runId, "completed");
+      await mutateThreadQueuedMessages(
+        threadId,
+        {
+          type: "append",
+          message: { id: messageId, threadId, text: "Queued work" },
+        },
+        { actor },
+      );
+      const actual = await vi.importActual<
+        typeof import("../agent/run-store.js")
+      >("../agent/run-store.js");
+      vi.mocked(getRunById).mockImplementation(actual.getRunById);
+      inboxHarness.admit = async () => {
+        const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+        if (!receipt)
+          throw new Error("Queued receipt disappeared before admit");
+        const slot = await tryClaimRunSlot(threadId, "queued-run", undefined, {
+          turnId: "queued-turn",
+          hasPendingApproval: (tx) =>
+            hasPendingCurrentTurnApproval(threadId, tx),
+          afterInsert: (tx) =>
+            markQueuedSubmissionSubmitted(tx, {
+              threadId,
+              messageId,
+              runId: "queued-run",
+              actor,
+              message: receipt.message,
+            }),
+        });
+        expect(slot.claimed).toBe(true);
+        return "queued-run";
+      };
+      const app = await mountAgentChatRoutes();
+      const drains: Promise<unknown>[] = [];
+      const response = await runWithRequestContext(
+        {
+          userEmail: actor.email,
+          run: { waitUntil: (promise) => drains.push(promise) },
+        },
+        () =>
+          app.fetch(
+            new Request(
+              `http://example.test/_agent-native/agent-chat/runs/${target === "turn" ? `turn/${turnId}` : runId}/abort`,
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ threadId, reason: "user" }),
+              },
+            ),
+          ),
+      );
+      expect(response.status).toBe(200);
+      expect(drains).toHaveLength(1);
+      await Promise.all(drains);
       expect(inboxHarness.admissionAttempts).toEqual([messageId]);
       await expect(
         getQueuedSubmissionReceipt(threadId, messageId),
