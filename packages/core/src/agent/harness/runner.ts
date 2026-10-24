@@ -119,13 +119,13 @@ export function startAgentHarnessRun(
           try {
             for await (const event of events) {
               if (runControl.turnSignal.aborted) break;
-              await opts.onHarnessEvent?.(event);
               if (event.type === "approval-request") {
                 pendingApproval = event;
                 await updateAgentHarnessSession(storedSessionId, {
                   pendingApproval: event,
                 });
               }
+              await opts.onHarnessEvent?.(event);
               if (event.type === "error") {
                 throw new Error(event.error);
               }

@@ -272,6 +272,32 @@ describe("agent harness lifecycle", () => {
     expect(session.stop).toHaveBeenCalledOnce();
   });
 
+  it("retries releasing its claim after a transient resume failure", async () => {
+    stored.resumeState = { token: "resume" };
+    const session = fakeSession();
+    const adapter = fakeAdapter(session);
+    adapter.createSession.mockRejectedValueOnce(
+      new Error("provider could not resume"),
+    );
+    mocks.resolveAdapter.mockReturnValue(adapter);
+    mocks.updateIfFollowUpClaim.mockImplementationOnce(async () => {
+      throw new Error("temporary database write failure");
+    });
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      errorCode: "unavailable",
+      session: { status: "idle", followUpClaimId: null },
+    });
+    expect(mocks.updateIfFollowUpClaim).toHaveBeenCalledTimes(2);
+  });
+
   it("does not let an expired process stop a newer follow-up claim", async () => {
     const session = fakeSession();
     register(stored, session);
@@ -788,10 +814,16 @@ describe("agent harness lifecycle", () => {
 
   it("persists a chained approval before emitting it", async () => {
     stored.pendingApproval = approvalEvent("approval-first");
+    stored.status = "running";
     const session = {
       ...fakeSession(),
       approve: undefined,
       continueTurn: vi.fn(async function* () {
+        stored = {
+          ...stored,
+          status: "idle",
+          generation: stored.generation + 1,
+        };
         yield approvalEvent("approval-next");
       }),
     };

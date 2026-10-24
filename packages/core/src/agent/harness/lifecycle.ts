@@ -246,9 +246,11 @@ async function persistResolvedApproval(input: {
 
     const pendingApproval =
       pending?.id === input.approvalId
-        ? latest.status === input.session.status
-          ? (input.nextPending ?? null)
-          : null
+        ? latest.status === "stopped" ||
+          latest.status === "errored" ||
+          latest.status === "destroyed"
+          ? null
+          : (input.nextPending ?? null)
         : latest.pendingApproval;
     try {
       const updated = await updateAgentHarnessSessionAtGeneration(
@@ -359,12 +361,18 @@ export async function sendAgentHarnessFollowUp(input: {
 
     const acquired = await acquireSession(claimed, input.scope);
     if (!acquired.ok) {
-      const reset = await updateOwnedFollowUpClaim(claimed.id, claimId, {
-        status: "idle",
-        followUpClaimId: null,
-      });
-      const latest =
-        reset ?? (await getAgentHarnessSessionByRunId(input.runId));
+      let latest: StoredAgentHarnessSession | null;
+      try {
+        latest = await releaseFollowUpClaimAfterAcquireFailure(
+          claimed.id,
+          claimId,
+        );
+      } catch (releaseError) {
+        throw new AggregateError(
+          [acquired.result, releaseError],
+          "Harness resume failed and its follow-up claim could not be released.",
+        );
+      }
       return { ...acquired.result, session: latest ?? acquired.result.session };
     }
     const events: AgentHarnessEvent[] = [];
@@ -976,6 +984,49 @@ async function updateOwnedFollowUpClaim(
     }
   }
   throw conflict ?? new AgentHarnessSessionConflictError(sessionId);
+}
+
+async function releaseFollowUpClaimAfterAcquireFailure(
+  sessionId: string,
+  claimId: string,
+): Promise<StoredAgentHarnessSession | null> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const released = await updateOwnedFollowUpClaim(sessionId, claimId, {
+        status: "idle",
+        followUpClaimId: null,
+      });
+      if (released) return released;
+    } catch (error) {
+      lastError = error;
+    }
+
+    let current: StoredAgentHarnessSession | null;
+    try {
+      current = await getAgentHarnessSession(sessionId);
+    } catch (error) {
+      lastError = lastError
+        ? new AggregateError(
+            [lastError, error],
+            "Could not verify a failed harness resume claim release.",
+          )
+        : error;
+      continue;
+    }
+    if (
+      !current ||
+      current.status !== "running" ||
+      current.followUpClaimId !== claimId
+    ) {
+      return current;
+    }
+  }
+
+  throw new AggregateError(
+    [lastError ?? new AgentHarnessSessionConflictError(sessionId)],
+    "Could not release the harness follow-up claim after resume failed.",
+  );
 }
 
 function checkScope(

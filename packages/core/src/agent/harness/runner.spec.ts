@@ -263,6 +263,13 @@ describe("startAgentHarnessRun", () => {
       adapter,
       input: { prompt: "work" },
       createSession: { sessionId: "stored-resolved-before-idle" },
+      onHarnessEvent: (event) => {
+        if (event.type === "approval-request") {
+          expect(persistedSession.pendingApproval).toMatchObject({
+            id: event.id,
+          });
+        }
+      },
     });
 
     await capturedRunFn?.(() => {}, new AbortController().signal);
