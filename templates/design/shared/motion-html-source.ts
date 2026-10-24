@@ -1814,7 +1814,9 @@ function selectorPseudoMatchesNode(
         matches: !(node.childNodes ?? []).some(
           (child) => child.tagName || child.nodeName === "#text",
         ),
-        dynamic: hasAlpineContentReplacement(node),
+        dynamic:
+          hasAlpineContentReplacement(node) ||
+          hasRuntimeStructuralMutationInSubtree(node),
       };
     }
 
@@ -1833,6 +1835,7 @@ function selectorPseudoMatchesNode(
     );
     let dynamic =
       hasRuntimeStructuralMutationOnSelectorPath(node) ||
+      hasRemoteAlpineTeleportToParent(node) ||
       allSiblings.some(hasRuntimeStructuralMutationInSubtree);
     if (nthArgument?.selector) {
       const siblingMatches = siblings.map((sibling) => {
@@ -2104,6 +2107,43 @@ function hasRuntimeStructuralMutationInSubtree(node: HtmlNode): boolean {
     hasRuntimeStructuralMutation(node) ||
     descendants(node).some(hasRuntimeStructuralMutation)
   );
+}
+
+function hasRemoteAlpineTeleportToParent(node: HtmlNode): boolean {
+  const parent = node.parentNode;
+  if (!parent?.tagName) return false;
+
+  let root = node;
+  while (root.parentNode) root = root.parentNode;
+
+  return descendants(root).some((candidate) => {
+    const directive = candidate.attrs?.find(({ name }) =>
+      /^x-teleport(?:\.|$)/i.test(name),
+    );
+    if (candidate.tagName !== "template" || !directive) return false;
+
+    const selector = parseMotionAuthoredCssSimpleSelector(
+      directive.value.trim(),
+    );
+    if (!selector) return true;
+
+    const matchesParent = matchesHtmlSelector(parent, selector);
+    const selectorAttribute =
+      selector.kind === "id"
+        ? "id"
+        : selector.kind === "class"
+          ? "class"
+          : selector.kind === "attribute"
+            ? selector.name
+            : null;
+    const canMatchParentLater =
+      selectorAttribute !== null &&
+      (parent.attrs ?? []).some(({ name, value }) =>
+        isDynamicHtmlAttribute(name, selectorAttribute, value),
+      );
+
+    return matchesParent || canMatchParentLater;
+  });
 }
 
 function descendants(node: HtmlNode | undefined): HtmlNode[] {

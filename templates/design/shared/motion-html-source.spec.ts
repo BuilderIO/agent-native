@@ -1680,6 +1680,28 @@ describe("HTML Motion source adapter", () => {
   });
 
   it.each([
+    ["a matching remote destination", ".card", "unsupported"],
+    ["an unresolved remote destination", "getPortal()", "unsupported"],
+    ["a different static destination", "#portal", "supported"],
+  ])(
+    "accounts for remote Alpine teleports with %s",
+    (_label, destination, status) => {
+      const source = `<!doctype html><html><head><style>.card > h1:nth-last-child(3) { opacity: 0 !important; }</style></head><body><main class="card"><h1>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1><h1>Outro</h1></main><aside id="portal"></aside><div x-data><template x-teleport="${destination}"><p></p></template></div>${ALPINE_CDN}</body></html>`;
+
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject(
+        status === "supported"
+          ? { status: "supported", targetNodeIds: ["hero-title"] }
+          : { status: "unsupported", code: "unsupported-target" },
+      );
+    },
+  );
+
+  it.each([
     ["Alpine initialization", 'x-init="$el.remove()"'],
     ["Alpine effect", 'x-effect="$el.remove()"'],
     ["Alpine x-data expression", 'x-data="createScope()"'],
@@ -1956,6 +1978,25 @@ describe("HTML Motion source adapter", () => {
       error: { code: "unsupported-target" },
     });
     expect(() => apply(source)).toThrow(MotionHtmlSourceError);
+  });
+
+  it("rejects :empty when a child runtime handler can remove the last child", () => {
+    const source = html
+      .replace(
+        "<head>",
+        "<head><style>#hero-title:empty { opacity: 0 !important; }</style>",
+      )
+      .replace(
+        '<h1 data-agent-native-node-id="hero-title">Hello</h1>',
+        '<h1 id="hero-title" data-agent-native-node-id="hero-title"><span onclick="this.remove()">Hello</span></h1>',
+      );
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
   });
 
   it("allows a structural sibling that cannot change the target's :empty state", () => {
