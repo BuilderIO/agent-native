@@ -25,7 +25,7 @@ Repeatable workflow: the job's trigger, steps, and outcome, in the source's own 
 Inputs and outputs: what comes in, what the user gets back, fixed output shapes
 Judgment and review points: 1-3 agent moments, each tied to the object it acts on; what the user confirms
 Representative runs: none, or the 1-3 runs used and why
-Integrations and permissions: feeds and connections, their honest state, what must never be written
+Integrations and permissions: each external service the source relies on and its honest state (connections never carry over, so the user sets up each one); what must never be written
 Unknowns and assumptions: defaults chosen where the source was silent
 
 Invariants: rules that must hold in code (counts, sort order, rounding, thresholds, read-only boundaries)
@@ -100,6 +100,12 @@ Read the visible context in this order:
    the most valuable rules in the source. Their people and records inform
    labelled sample data, never live entries.
 4. The current turn: the app boundary, target workspace, naming, corrections.
+
+Record each integration the source uses: a service named in the instructions,
+knowledge files, or supplied runs. Connectors are account-wide, so a connector
+merely visible in the chat is not an integration unless the source uses it.
+Each goes in the brief with its honest state. Never claim a connection, token,
+or account carried over.
 
 Say which runs were available and which you used. If none were supplied,
 proceed from instructions and knowledge files and say so. Never claim hidden

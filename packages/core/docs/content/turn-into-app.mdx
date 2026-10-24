@@ -39,9 +39,9 @@ Without an argument the skill builds the latest successful, repeatable job and n
 | Claude Code, Codex, Cursor, other local coding agents | Builds, runs, and reviews the app in your checkout.                                                             |
 | Claude or ChatGPT on the web                          | Writes a bounded brief and hands it to Builder through the Dispatch connector. It does not run anything itself. |
 
-A host counts as local when it has a real working directory, a terminal, and a workspace. Having a Builder or Dispatch connector does not make a host a browser host.
+Claude.ai, the Claude app chat, and ChatGPT on the web, including their Projects, are browser hosts even when they offer a code sandbox, shell, or file tools. A host counts as local only when the working directory is on the user's own machine or in their repo or workspace, even a new empty one. A vendor chat sandbox is not local. Having a Builder or Dispatch connector does not make a host a browser host.
 
-On a browser host the skill requires the Agent-Native Dispatch MCP connector (`https://dispatch.agent-native.com/mcp`, OAuth) and calls its `start-workspace-app-creation` action. The host cannot run or inspect the app, so the report stays pending or unverified until the branch Dispatch returns is built. The skill reports what Dispatch actually returned and never invents a branch URL. For a ChatGPT Project, or any host that only exposes MCP, put the skill instructions in the Project instructions or knowledge files.
+On a browser host the skill requires the Agent-Native Dispatch MCP connector (`https://dispatch.agent-native.com/mcp`, OAuth) and calls its `start-workspace-app-creation` action. The host cannot run or inspect the app, so the report stays pending or unverified until the branch Dispatch returns is built. The skill reports what Dispatch actually returned and never invents a branch URL. For a ChatGPT Project, or any host that only exposes MCP, put the skill instructions in the Project instructions or knowledge files. Connector tools may be deferred, so the skill loads the Dispatch action through tool search before it concludes that the connector is unavailable.
 
 ## Local prerequisites
 
