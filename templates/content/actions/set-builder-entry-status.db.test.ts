@@ -677,6 +677,41 @@ it("drops staged changes when the source stops allowing them", async () => {
   expect((await statuses()).doc_entry_draft).toBe("draft");
 });
 
+it("keeps a pick when publication changes come back on before the clear runs", async () => {
+  const [{ metadataJson }] = await getDb()
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+  await pick("doc_entry_draft", "published");
+  // Another save turns them back on, and the pick is made again, before the
+  // clear that turning them off started gets the rows.
+  membershipLock.beforeNextLock = (tx) =>
+    tx
+      .update(schema.contentDatabaseSources)
+      .set({ metadataJson: TRANSITIONS_ON })
+      .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+  try {
+    await asOwner(() =>
+      setWriteMode.run({
+        databaseId: DATABASE_ID,
+        sourceId: SOURCE_ID,
+        writeMode: "publish_updates",
+        allowPublicationTransitions: false,
+      }),
+    );
+    expect(await stagedIntent("doc_entry_draft")).toBeDefined();
+    expect((await statuses()).doc_entry_draft).toBe("published");
+  } finally {
+    membershipLock.beforeNextLock = null;
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ metadataJson })
+      .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+    await pick("doc_entry_draft", "draft");
+  }
+  expect(await stagedIntent("doc_entry_draft")).toBeUndefined();
+});
+
 it("refuses a pick when publication changes go off while it waits for the row", async () => {
   const [{ metadataJson }] = await getDb()
     .select({ metadataJson: schema.contentDatabaseSources.metadataJson })

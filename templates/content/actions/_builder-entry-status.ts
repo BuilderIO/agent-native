@@ -200,6 +200,22 @@ export async function clearStagedBuilderPublicationChanges(args: {
       tx,
       staged.map((row) => row.databaseItemId),
     );
+    // The setting is saved before this runs, so it can be turned back on and
+    // a new pick staged first. Staging takes the same locks in this order.
+    const [source] = await tx
+      .select({
+        capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
+        metadataJson: schema.contentDatabaseSources.metadataJson,
+      })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+      .for("share");
+    if (
+      source &&
+      builderCmsWriteSettingsFromJson(source).allowPublicationTransitions
+    ) {
+      return;
+    }
     const rows: Array<{
       id: string;
       documentId: string;
