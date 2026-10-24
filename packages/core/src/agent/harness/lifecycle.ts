@@ -25,6 +25,7 @@ import type {
 const LIVE_SESSION_TTL_MS = 24 * 60 * 60 * 1_000;
 const RESOLVED_APPROVAL_LIMIT = 32;
 const FOLLOW_UP_CLAIM_POLL_INTERVAL_MS = 500;
+const MAX_FOLLOW_UP_FINALIZATION_ATTEMPTS = 3;
 
 interface LiveAgentHarnessSession {
   adapter: AgentHarnessAdapter;
@@ -146,7 +147,6 @@ export async function resolveAgentHarnessApproval(input: {
         session.id,
         {
           followUpClaimId: session.followUpClaimId ?? undefined,
-          persistApproval: false,
         },
       );
     } else {
@@ -377,6 +377,14 @@ export async function sendAgentHarnessFollowUp(input: {
       () => finalizing,
     );
     try {
+      const beforeDispatch = await getAgentHarnessSession(session.id);
+      if (
+        beforeDispatch?.status !== "running" ||
+        beforeDispatch.followUpClaimId !== claimId
+      ) {
+        throw new AgentHarnessSessionConflictError(session.id);
+      }
+
       await consumeEvents(
         acquired.live.session.streamTurn({
           prompt,
@@ -409,8 +417,12 @@ export async function sendAgentHarnessFollowUp(input: {
         let detachedResumeState: unknown;
         let hasDetachedResumeState = false;
         finalizing = true;
-        let updatedSession: StoredAgentHarnessSession | null;
-        while (true) {
+        let updatedSession: StoredAgentHarnessSession | null = null;
+        for (
+          let attempt = 0;
+          attempt < MAX_FOLLOW_UP_FINALIZATION_ATTEMPTS;
+          attempt += 1
+        ) {
           try {
             updatedSession = await updateAgentHarnessSessionIfFollowUpClaim(
               session.id,
@@ -456,7 +468,8 @@ export async function sendAgentHarnessFollowUp(input: {
               current?.status === "running" &&
               current.followUpClaimId === claimId
             ) {
-              continue;
+              if (attempt + 1 < MAX_FOLLOW_UP_FINALIZATION_ATTEMPTS) continue;
+              throw error;
             }
             return failure(
               input.runId,
@@ -770,7 +783,6 @@ async function consumeEvents(
   options?: {
     abortSignal?: AbortSignal;
     followUpClaimId?: string;
-    persistApproval?: boolean;
   },
 ): Promise<void> {
   const iterator = stream[Symbol.asyncIterator]();
@@ -780,19 +792,17 @@ async function consumeEvents(
     const event = next.value;
     events.push(event);
     if (event.type === "approval-request") {
-      if (options?.persistApproval !== false) {
-        const updated = options?.followUpClaimId
-          ? await updateAgentHarnessSessionIfFollowUpClaim(
-              sessionId,
-              options.followUpClaimId,
-              { pendingApproval: event },
-            )
-          : await updateAgentHarnessSession(sessionId, {
-              pendingApproval: event,
-            });
-        if (options?.followUpClaimId && !updated) {
-          throw new AgentHarnessSessionConflictError(sessionId);
-        }
+      const updated = options?.followUpClaimId
+        ? await updateAgentHarnessSessionIfFollowUpClaim(
+            sessionId,
+            options.followUpClaimId,
+            { pendingApproval: event },
+          )
+        : await updateAgentHarnessSession(sessionId, {
+            pendingApproval: event,
+          });
+      if (options?.followUpClaimId && !updated) {
+        throw new AgentHarnessSessionConflictError(sessionId);
       }
     }
     await onHarnessEvent?.(event);

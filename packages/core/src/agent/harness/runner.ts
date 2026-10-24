@@ -162,7 +162,6 @@ export function startAgentHarnessRun(
               keepLiveSession = true;
               await updateAgentHarnessSession(storedSessionId, {
                 status: "idle",
-                pendingApproval,
               });
               return;
             }

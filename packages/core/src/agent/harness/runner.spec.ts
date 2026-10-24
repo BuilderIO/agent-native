@@ -202,6 +202,78 @@ describe("startAgentHarnessRun", () => {
     });
   });
 
+  it("does not restore an approval resolved before the turn becomes idle", async () => {
+    const approval: AgentHarnessEvent = {
+      type: "approval-request",
+      id: "approval-resolved-before-idle",
+      message: "Allow the tool?",
+    };
+    let persistedSession: {
+      status?: string;
+      pendingApproval?: unknown;
+      resolvedApprovalIds?: string[];
+    } = {};
+    mocks.saveAgentHarnessSession.mockImplementation(async (input) => {
+      persistedSession = {
+        status: input.status,
+        pendingApproval: input.pendingApproval ?? null,
+        resolvedApprovalIds: input.resolvedApprovalIds ?? [],
+      };
+      return {};
+    });
+    mocks.getAgentHarnessSession.mockImplementation(
+      async () => persistedSession,
+    );
+    let updates = 0;
+    mocks.updateAgentHarnessSession.mockImplementation(async (_id, update) => {
+      updates += 1;
+      if (updates === 2) {
+        persistedSession = {
+          ...persistedSession,
+          pendingApproval: null,
+          resolvedApprovalIds: [approval.id],
+        };
+      }
+      persistedSession = { ...persistedSession, ...update };
+      return {};
+    });
+
+    const session = fakeSession("native-resolved-before-idle", [approval]);
+    const adapter = fakeAdapter(session);
+    let capturedRunFn:
+      | ((send: (event: AgentChatEvent) => void) => Promise<void>)
+      | undefined;
+    mocks.startRun.mockImplementation((_runId, _threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId: "run-resolved-before-idle",
+        threadId: "thread-resolved-before-idle",
+        turnId: "run-resolved-before-idle",
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-resolved-before-idle",
+      threadId: "thread-resolved-before-idle",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-resolved-before-idle" },
+    });
+
+    await capturedRunFn?.(() => {}, new AbortController().signal);
+
+    expect(persistedSession).toMatchObject({
+      status: "idle",
+      pendingApproval: null,
+      resolvedApprovalIds: [approval.id],
+    });
+  });
+
   it("stops and marks the session when the run signal is aborted", async () => {
     const session = fakeSession("native-2", [
       { type: "text-delta", text: "hi" },
