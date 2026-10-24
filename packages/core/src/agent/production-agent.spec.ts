@@ -19856,7 +19856,7 @@ describe("runAgentLoop", () => {
     expect(seenOpts.map((opts) => opts.reasoningEffort)).toEqual([
       "high",
       "high",
-      "high",
+      "medium",
     ]);
     expect(seenOpts[0]?.maxOutputTokens).toBe(8_000);
     expect(seenOpts[1]?.maxOutputTokens).toBeGreaterThan(8_000);
@@ -19868,6 +19868,49 @@ describe("runAgentLoop", () => {
         recoverable: false,
       }),
     );
+  });
+
+  it("steps reasoning effort down on empty max-token retries when the model cap cannot rise", async () => {
+    const seenOpts: EngineStreamOptions[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "gpt-5.6-luna",
+      supportedModels: ["gpt-5.6-luna"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenOpts.push(opts);
+        yield { type: "stop", reason: "max_tokens" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "gpt-5.6-luna",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+      maxOutputTokens: 40_000,
+      reasoningEffort: "high",
+    });
+
+    expect(seenOpts.map((opts) => opts.maxOutputTokens)).toEqual([
+      40_000, 40_000, 40_000,
+    ]);
+    expect(seenOpts.map((opts) => opts.reasoningEffort)).toEqual([
+      "high",
+      "medium",
+      "low",
+    ]);
   });
 
   it("caps repeated textful max-token continuations with an incomplete-response error", async () => {

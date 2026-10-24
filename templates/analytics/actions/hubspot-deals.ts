@@ -364,6 +364,21 @@ function buildHubSpotDealFilters(options: {
   return { filterGroups: [{ filters }], impossible: false };
 }
 
+const DEALS_JSON_CHAR_BUDGET = 40_000;
+
+// The agent truncates tool output at 50,000 chars, so keep the serialized page
+// well under it. Always return at least one deal so paging makes progress.
+function fitDealsToBudget<T>(deals: T[]): T[] {
+  const kept = [...deals];
+  while (
+    kept.length > 1 &&
+    JSON.stringify(kept).length > DEALS_JSON_CHAR_BUDGET
+  ) {
+    kept.pop();
+  }
+  return kept;
+}
+
 function buildGuidance(options: {
   query: string | undefined;
   structuredFilters: boolean;
@@ -374,6 +389,7 @@ function buildGuidance(options: {
   offset: number;
   limit: number;
   searchCoverageLimited: boolean;
+  sizeTrimmed: boolean;
 }) {
   const guidance: string[] = [];
 
@@ -394,6 +410,14 @@ function buildGuidance(options: {
   } else {
     guidance.push(
       "For product, pipeline, closed-won/lost, or close-date cohorts, prefer product, pipeline, closedStatus, closedDateFrom, and closedDateTo over query.",
+    );
+  }
+
+  if (options.sizeTrimmed) {
+    guidance.push(
+      options.query
+        ? "The page was trimmed to fit the output size budget, so some matching deals on it were not returned and cannot be resumed with a cursor. Re-run with a smaller limit or a narrower query."
+        : "The page was trimmed to fit the output size budget. Resume from nextOffset (or re-run with a smaller limit) so no deals are skipped.",
     );
   }
 
@@ -614,12 +638,14 @@ export default defineAction({
       });
 
     const matchedTotal = dealResult.total;
-    const deals = matchedDeals.map((deal) => ({
+    const allDeals = matchedDeals.map((deal) => ({
       ...deal,
       properties: Object.fromEntries(
         Object.entries(deal.properties).filter(([, value]) => value != null),
       ),
     }));
+    const deals = fitDealsToBudget(allDeals);
+    const sizeTrimmed = deals.length < allDeals.length;
     const searchCoverageLimited = matchedTotal >= HUBSPOT_SEARCH_RESULT_CAP;
     const nextCursor = dealResult.nextAfter
       ? Number.parseInt(dealResult.nextAfter, 10)
@@ -628,18 +654,21 @@ export default defineAction({
       nextCursor == null ||
       !Number.isFinite(nextCursor) ||
       nextCursor < HUBSPOT_SEARCH_RESULT_CAP;
-    const hasMore = dealResult.nextAfter != null && nextCursorWithinCap;
+    const nextOffsetValue = offset + deals.length;
+    // A size-trimmed offset page resumes right after the last returned deal.
+    // A trimmed query page has no cursor to resume from, so it reports none.
+    const hasMore = trimmedQuery
+      ? !sizeTrimmed && dealResult.nextAfter != null && nextCursorWithinCap
+      : sizeTrimmed
+        ? nextOffsetValue < HUBSPOT_SEARCH_RESULT_CAP
+        : dealResult.nextAfter != null && nextCursorWithinCap;
     const truncated = deals.length < matchedTotal || searchCoverageLimited;
 
+    // Paging fields and `deals` come before the bulky lookup maps so the
+    // agent's output truncation can never cut the page it is asked to resume.
     return {
       total: matchedTotal,
       count: deals.length,
-      query: trimmedQuery || null,
-      filters,
-      nextAfter: hasMore ? dealResult.nextAfter : null,
-      searchResultCap: HUBSPOT_SEARCH_RESULT_CAP,
-      searchCoverageComplete: !searchCoverageLimited,
-      searchCoverageLimited,
       ...(trimmedQuery
         ? {}
         : {
@@ -647,8 +676,16 @@ export default defineAction({
             offset,
             truncated,
             hasMore,
-            nextOffset: hasMore ? offset + deals.length : null,
+            nextOffset: hasMore ? nextOffsetValue : null,
           }),
+      nextAfter: hasMore && !sizeTrimmed ? dealResult.nextAfter : null,
+      sizeTrimmed,
+      deals,
+      query: trimmedQuery || null,
+      filters,
+      searchResultCap: HUBSPOT_SEARCH_RESULT_CAP,
+      searchCoverageComplete: !searchCoverageLimited,
+      searchCoverageLimited,
       guidance: buildGuidance({
         query: trimmedQuery,
         structuredFilters,
@@ -659,11 +696,11 @@ export default defineAction({
         offset,
         limit,
         searchCoverageLimited,
+        sizeTrimmed,
       }),
       searchedProperties: dealResult.properties,
       stageLabels: lookups.stageLabels,
       pipelineLabels: lookups.pipelineLabels,
-      deals,
     };
   },
 });

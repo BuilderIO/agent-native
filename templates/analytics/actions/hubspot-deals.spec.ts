@@ -298,6 +298,60 @@ describe("hubspot-deals action", () => {
     expect(full.nextOffset).toBe(null);
   });
 
+  it("serializes deals before lookup maps and trims oversized pages without skipping unseen deals", async () => {
+    const deals = Array.from({ length: 30 }, (_, index) => ({
+      id: `big-${index}`,
+      properties: {
+        dealname: `Big deal ${index} ${"x".repeat(3_000)}`,
+        dealstage: "closed-lost",
+        pipeline: "enterprise-new-business",
+        hubspot_owner_id: "owner-1",
+      },
+    }));
+    searchHubSpotObjects.mockResolvedValue({
+      records: deals,
+      total: 100,
+      nextAfter: "30",
+      properties: [],
+    });
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [
+          {
+            id: "closed-lost",
+            label: "Closed Lost",
+            displayOrder: 1,
+            metadata: { probability: "0" },
+          },
+        ],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({ "owner-1": "Alice Seller" });
+
+    const result = (await hubspotDeals.run({
+      closedStatus: "lost",
+      limit: 30,
+      offset: 60,
+    })) as Record<string, any>;
+
+    const json = JSON.stringify(result);
+    expect(json.indexOf('"total"')).toBeLessThan(json.indexOf('"deals"'));
+    expect(json.indexOf('"nextOffset"')).toBeLessThan(json.indexOf('"deals"'));
+    expect(json.indexOf('"deals"')).toBeLessThan(json.indexOf('"stageLabels"'));
+    expect(json.indexOf('"deals"')).toBeLessThan(
+      json.indexOf('"pipelineLabels"'),
+    );
+    expect(json.length).toBeLessThan(50_000);
+    expect(result.total).toBe(100);
+    expect(result.sizeTrimmed).toBe(true);
+    expect(result.deals.length).toBeLessThan(30);
+    expect(result.count).toBe(result.deals.length);
+    expect(result.hasMore).toBe(true);
+    expect(result.nextOffset).toBe(60 + result.deals.length);
+  });
+
   it("bounds an unfiltered (no query, no filters) call too", async () => {
     const deals = Array.from({ length: 40 }, (_, index) => ({
       id: `deal-${index}`,

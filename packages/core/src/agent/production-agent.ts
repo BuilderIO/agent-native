@@ -8701,9 +8701,17 @@ export async function runAgentLoop(opts: {
         completedFollowUpSuggestions = undefined;
         if (emptyFinalResponseRetries < EMPTY_FINAL_RESPONSE_RETRY_LIMIT) {
           emptyFinalResponseRetries += 1;
+          const previousMaxOutputTokens = resolveMaxOutputTokensForEngine(
+            engine.name,
+            effectiveMaxOutputTokens,
+            model,
+          );
           effectiveMaxOutputTokens =
             resolveEmptyResponseRetryMaxOutputTokens(model);
-          if (!preserveReasoningEffortForEmptyResponseRetries) {
+          if (
+            !preserveReasoningEffortForEmptyResponseRetries ||
+            effectiveMaxOutputTokens <= previousMaxOutputTokens
+          ) {
             effectiveReasoningEffort = stepDownReasoningEffort(
               effectiveReasoningEffort,
             );
