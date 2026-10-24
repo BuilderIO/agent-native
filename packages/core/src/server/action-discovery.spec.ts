@@ -569,6 +569,28 @@ describe("action discovery", () => {
   );
 
   it(
+    "keeps persistInBrowser:false on merged core actions that read private data",
+    async () => {
+      // action-routes.ts reads the flag from the registry entry; without it
+      // these reads are let into the browser's persisted query cache.
+      const registry: Record<string, any> = {};
+      await mergeCoreSharingActions(registry);
+
+      for (const name of [
+        "list-api-keys",
+        "get-email-log-body",
+        "get-infrastructure-status",
+        "list-chatgpt-subscription-accounts",
+        "list-workspace-user-groups",
+      ]) {
+        expect(registry[name], `${name} should be merged`).toBeDefined();
+        expect(registry[name].persistInBrowser, name).toBe(false);
+      }
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
+  it(
     "merges invite-organization-member as an approval-gated agent and MCP tool",
     async () => {
       const registry: Record<string, any> = {};

@@ -50,7 +50,6 @@ import type {
   A2AConnectionRequestMetadata,
   Message as A2AMessage,
 } from "../a2a/types.js";
-import type { ActionHttpConfig } from "../action.js";
 import {
   clientAbortReason,
   EXECUTION_LEASE_LOST_ABORT_REASON,
@@ -315,6 +314,7 @@ import {
 } from "./auth.js";
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
+import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
 import {
   discoveredActionMcpAnnotations,
   filesystemActionEntry,
@@ -1906,45 +1906,36 @@ export function createAgentChatPlugin(
                 // (and .ts files Node can't parse natively).
               }
 
-              // Static-parse the source for `http: false` or
-              // `http: { method: "GET" }` so the shell-wrapper fallback still
-              // mounts HTTP routes with the correct method. We can't load the
-              // .ts module to read the real defineAction object in this Node
-              // context, so this regex sniff is the best we can do until the
-              // discovery is moved into a Vite-aware codepath.
-              let httpConfig: ActionHttpConfig | false | undefined;
-              // Sniff `agentTool: false` the same way so a CLI-style action can
-              // opt out of agent exposure even on the shell-wrapper fallback path.
-              let agentToolFlag: boolean | undefined;
+              // Static-parse the source for `http`, `agentTool: false`,
+              // `needsApproval`, `persistInBrowser`, `uiOnly` and
+              // `toolCallable` so the shell-wrapper fallback still mounts HTTP
+              // routes with the correct method, stays hidden when asked, keeps
+              // its approval gate and UI-only limits, and keeps its results out
+              // of browser storage. We can't load the .ts module to read
+              // the real defineAction object in this Node context, so parsing
+              // the source is the best we can do until the discovery is moved
+              // into a Vite-aware codepath. The parser loads only on this path.
+              let sniffed: CliWrapperFlags = {};
               try {
-                const src = _fs.readFileSync(filePath, "utf-8");
-                if (/\bagentTool\s*:\s*false\b/.test(src)) {
-                  agentToolFlag = false;
-                }
-                if (/\bhttp\s*:\s*false\b/.test(src)) {
-                  httpConfig = false;
-                } else {
-                  const httpStart = src.search(/\bhttp\s*:\s*\{/);
-                  if (httpStart >= 0) {
-                    const window = src.slice(httpStart, httpStart + 200);
-                    const m = window.match(
-                      /method\s*:\s*['"`](GET|POST|PUT|DELETE)['"`]/,
-                    );
-                    const p = window.match(/path\s*:\s*['"`]([^'"`]+)['"`]/);
-                    if (m || p) {
-                      httpConfig = {
-                        ...(m
-                          ? {
-                              method: m[1] as "GET" | "POST" | "PUT" | "DELETE",
-                            }
-                          : {}),
-                        ...(p ? { path: p[1] } : {}),
-                      };
-                    }
-                  }
-                }
-              } catch {
-                // File read failed — leave httpConfig undefined (default POST)
+                const { cliWrapperFlagsFromSource } =
+                  await import("./cli-wrapper-flags.js");
+                sniffed = cliWrapperFlagsFromSource(
+                  _fs.readFileSync(filePath, "utf-8"),
+                );
+              } catch (error) {
+                // Without the source there's no telling which limits the
+                // action sets, so it gets all of them. The route stays the
+                // default POST.
+                console.warn(
+                  `[agent-native] Could not read ${dir}/${file}; it will run only from the app's UI and ask for approval first.`,
+                  error,
+                );
+                sniffed = {
+                  needsApproval: true,
+                  persistInBrowser: false,
+                  uiOnly: true,
+                  toolCallable: false,
+                };
               }
 
               // Fallback: bash-based wrapper for CLI-style scripts
@@ -2013,10 +2004,7 @@ export function createAgentChatPlugin(
                     command: `pnpm action ${name} ${escapedArgs}`.trim(),
                   });
                 },
-                ...(httpConfig !== undefined ? { http: httpConfig } : {}),
-                ...(typeof agentToolFlag === "boolean"
-                  ? { agentTool: agentToolFlag }
-                  : {}),
+                ...sniffed,
               };
             }
           }
