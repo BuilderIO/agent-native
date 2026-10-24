@@ -897,8 +897,11 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
     /\b(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
   const correctionCue =
     /\b(?:actually|correction|wait|sorry|no)\b[^.!?;]{0,50}\b(?:wrong|incorrect|not right|mistake|retract(?:ed)?|withdraw(?:n)?|cancel(?:led)?|scratch that)\b/i;
+  const directEllipticalRetraction =
+    /^\s*(?:actually|correction|wait|sorry|no)[,:\s]+(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
   let assigned = false;
   let pendingCorrection = false;
+  let lastClauseWasAssignment = false;
   for (const rawClause of clauses) {
     const clause = rawClause.replace(/^\s*(?:but|and|however)\s+/i, "");
     const hasCorrectionCue = correctionCue.test(clause);
@@ -907,14 +910,19 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
       (assigned && pronounRetraction.test(clause)) ||
       (assigned &&
         ellipticalRetraction.test(clause) &&
-        (pendingCorrection || hasCorrectionCue))
+        (pendingCorrection ||
+          hasCorrectionCue ||
+          directEllipticalRetraction.test(clause) ||
+          lastClauseWasAssignment))
     ) {
       assigned = false;
       pendingCorrection = false;
+      lastClauseWasAssignment = false;
       continue;
     }
     if (assigned && hasCorrectionCue) {
       pendingCorrection = true;
+      lastClauseWasAssignment = false;
       continue;
     }
     pendingCorrection = false;
@@ -936,6 +944,9 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
     );
     if (directAssignment.test(clause) || passiveAssignment.test(clause)) {
       assigned = true;
+      lastClauseWasAssignment = true;
+    } else {
+      lastClauseWasAssignment = false;
     }
   }
   return assigned;
@@ -5376,7 +5387,7 @@ function hasExplicitNoReactionRestriction(statement: string): boolean {
 
 function hasExplicitAuthorizationRevocation(text: string): boolean {
   return (
-    /(?:^|[.!?;\n]\s*)(?:(?:actually|wait|sorry)[,:\s]+)?(?:scratch that|never mind|nevermind|please stop(?=$|[.!?;]|\s+(?:that|this|the work|the follow[ -]?up|working|doing that)\b)|stop (?:that|this|the work|the follow[ -]?up)|(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send))\b/i.test(
+    /(?:^|[.!?;\n]\s*)(?:(?:actually|wait|sorry)[,:\s]+)?(?:scratch that|never mind|nevermind|please stop(?=$|[.!?;]|\s+(?:(?:reply(?:ing)?|respond(?:ing)?|work(?:ing)?|post(?:ing)?|send(?:ing)?|react(?:ing)?|claim(?:ing)?|handle|handling|follow(?:ing)?\s+up|write|writing|edit|editing|change|changing|update|updating|touch|touching|review|reviewing|inspect|inspecting)\b|(?:the|this|that)\s+(?:work|follow[ -]?up|migration|root|thread|task|review|changes?)\b))|stop (?:that|this|the work|the follow[ -]?up)|(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send))\b/i.test(
       text,
     ) ||
     /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send)\b/i.test(
@@ -17354,6 +17365,18 @@ if (args[0] === "--self-test" && args.length === 1) {
       "personAssignedSkip needs an exact root or latest human message assigning work",
     );
     expectFocusedFailure(
+      "direct elliptical assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, I did not.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
       "elliptical assignment retraction is not assignment proof",
       () =>
         validateTestInventory(
@@ -17685,6 +17708,28 @@ if (args[0] === "--self-test" && args.length === 1) {
     unrelatedStopByText.scope.narrowingJudgment!.instruction =
       unrelatedStopByText.scope.userRequest;
     validateTestInventory(unrelatedStopByText);
+
+    const stoppedReplyAuthorization = structuredClone(authorizedMagRoot);
+    stoppedReplyAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Please stop replying on this root.";
+    stoppedReplyAuthorization.scope.narrowingJudgment!.instruction =
+      stoppedReplyAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "stop-reply instruction cancels an exact-root write grant",
+      () => validateTestInventory(stoppedReplyAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const stoppedMigrationAuthorization = structuredClone(authorizedMagRoot);
+    stoppedMigrationAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Please stop the migration.";
+    stoppedMigrationAuthorization.scope.narrowingJudgment!.instruction =
+      stoppedMigrationAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "stop-work instruction cancels an exact-root write grant",
+      () => validateTestInventory(stoppedMigrationAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
 
     const revokedAuthorization = structuredClone(authorizedMagRoot);
     revokedAuthorization.scope.userRequest =
@@ -24315,7 +24360,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 65} negative cases; 43 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 14 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 68} negative cases; 43 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 16 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
