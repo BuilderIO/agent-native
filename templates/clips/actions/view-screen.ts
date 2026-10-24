@@ -23,9 +23,14 @@ import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import {
+  isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
+} from "../server/lib/recording-page-access.js";
+import {
   getActiveOrganizationId,
   ownerEmailMatches,
   parseSpaceIds,
+  sameOwnerEmail,
 } from "../server/lib/recordings.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { getAgentClipReadiness } from "../shared/agent-context.js";
@@ -97,7 +102,15 @@ async function fetchRecording(id: string) {
         ),
       ),
     );
-  return row ? mapRecording(row) : null;
+  if (!row) return null;
+  const viewerIsOwner = sameOwnerEmail(row.ownerEmail, getRequestUserEmail());
+  if (
+    isRecordingTrashedForViewer({ trashedAt: row.trashedAt, viewerIsOwner }) ||
+    isRecordingExpiredForViewer({ expiresAt: row.expiresAt, viewerIsOwner })
+  ) {
+    return null;
+  }
+  return mapRecording(row);
 }
 
 async function fetchTranscript(recordingId: string) {
@@ -501,7 +514,7 @@ async function addRecordingContext(
   const [transcript, comments, browserDiagnosticsSummary, bugReportSummary] =
     await Promise.all([
       fetchTranscript(recordingId),
-      fetchComments(recordingId),
+      recording.enableComments ? fetchComments(recordingId) : [],
       fetchBrowserDiagnosticsSummary(recordingId),
       fetchBugReportSummary(recordingId),
     ]);

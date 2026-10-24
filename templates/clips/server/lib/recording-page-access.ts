@@ -23,6 +23,13 @@ export function isRecordingExpiredForViewer(input: {
   return !input.viewerIsOwner && isRecordingExpired(input.expiresAt, input.now);
 }
 
+export function isRecordingTrashedForViewer(input: {
+  trashedAt: string | null | undefined;
+  viewerIsOwner: boolean;
+}): boolean {
+  return Boolean(input.trashedAt) && !input.viewerIsOwner;
+}
+
 /**
  * Decide whether an authenticated request may use the editor/player route.
  * Public visibility is intentionally a share-link concern; a direct `/r/*`

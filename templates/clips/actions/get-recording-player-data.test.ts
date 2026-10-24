@@ -233,6 +233,26 @@ describe("get-recording-player-data direct public access", () => {
   });
 
   it.each(["admin", "editor", "viewer"] as const)(
+    "withholds a trashed recording's direct player payload from %s callers",
+    async (role) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          id: "rec-1",
+          visibility: "org",
+          password: null,
+          expiresAt: null,
+          trashedAt: "2026-10-22T12:00:00.000Z",
+        },
+      });
+      await expect(action.run({ recordingId: "rec-1" })).rejects.toThrow(
+        "No access to recording rec-1",
+      );
+      expect(mockDb.select).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["admin", "editor", "viewer"] as const)(
     "requires an explicit recording share for %s callers",
     async (role) => {
       mockResolveAccess.mockResolvedValue({
@@ -532,6 +552,51 @@ describe("get-recording-player-data view count", () => {
     expect(result.recording.folderId).toBe("folder-1");
   });
 
+  it.each(["owner", "viewer"])(
+    "omits disabled comments from the %s player payload",
+    async (role) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          id: "rec-1",
+          ownerEmail: "owner@example.com",
+          visibility: "org",
+          enableComments: false,
+          password: null,
+          expiresAt: null,
+          status: "ready",
+          chaptersJson: "[]",
+        },
+      });
+      mockPlayerQuery.build = () => {
+        let isCommentsQuery = false;
+        const query: Record<string, unknown> = {};
+        query.from = (table: unknown) => {
+          isCommentsQuery =
+            (table as { videoTimestampMs?: string })?.videoTimestampMs ===
+            "recordingComments.videoTimestampMs";
+          return query;
+        };
+        query.where = () => query;
+        query.limit = async () => [];
+        query.orderBy = async () =>
+          isCommentsQuery
+            ? [
+                {
+                  id: "comment-1",
+                  authorEmail: "author@example.com",
+                  authorName: "Author",
+                  content: "Saved comment",
+                },
+              ]
+            : [];
+        return query;
+      };
+      const result = await action.run({ recordingId: "rec-1" });
+      expect(result.comments).toEqual([]);
+    },
+  );
+
   it("includes a trashed recording's timestamp in the player payload", async () => {
     const trashedAt = "2026-09-22T12:00:00.000Z";
     mockResolveAccess.mockResolvedValue({
@@ -683,6 +748,7 @@ describe("get-recording-player-data for agents reading a YouTube clip", () => {
       role: "owner",
       resource: {
         id: "rec-yt",
+        enableComments: true,
         ownerEmail: "owner@example.com",
         visibility: "private",
         password: null,

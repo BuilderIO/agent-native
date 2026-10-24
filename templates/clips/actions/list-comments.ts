@@ -1,9 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
 import { eq, asc } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { displayCommentMentions } from "../shared/comment-mentions.js";
 
@@ -15,7 +15,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "viewer");
+    await assertCommentAccess(args.recordingId);
 
     const db = getDb();
     const rows = await db
