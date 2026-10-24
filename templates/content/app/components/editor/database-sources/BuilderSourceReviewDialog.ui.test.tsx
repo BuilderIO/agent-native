@@ -353,6 +353,67 @@ describe("BuilderSourceReviewDialog row selection", () => {
     expect(pressed("Unpublish")).toEqual(["false", "true"]);
   });
 
+  it("moves a preselection when its staged publish or unpublish changes", () => {
+    const transitionSource = {
+      ...source,
+      metadata: {
+        ...source.metadata,
+        writeMode: "publish_updates",
+        allowPublicationTransitions: true,
+      },
+    } as ContentDatabaseSource;
+    const staged = (
+      transitions: Array<"publish" | "unpublish" | null>,
+    ): ContentDatabaseSourceReviewPayload => ({
+      ...review,
+      rows: review.rows.map((row, index) => ({
+        ...row,
+        effect: "update_in_place",
+        ...(transitions[index]
+          ? { stagedPublicationTransition: transitions[index] }
+          : {}),
+      })),
+    });
+    const render = (current: ContentDatabaseSourceReviewPayload) =>
+      act(() => {
+        root.render(
+          <BuilderSourceReviewDialog
+            open
+            review={current}
+            source={transitionSource}
+            canEdit
+            pending={false}
+            checkedAt={null}
+            autoSelectReviewRows
+            onClose={vi.fn()}
+            onValidate={vi.fn()}
+          />,
+        );
+      });
+    const buttons = (label: string) =>
+      Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).filter((button) => button.textContent === label);
+    const pressed = (label: string) =>
+      buttons(label).map((button) => button.getAttribute("aria-pressed"));
+
+    render(staged(["publish", "publish", "publish"]));
+    expect(pressed("Publish")).toEqual(["true", "true", "true"]);
+    act(() => buttons("Unpublish")[1]!.click());
+
+    // The first row's pick turns into an unpublish; the other two are
+    // cleared, and only the second row's selection was changed by hand.
+    render(staged(["unpublish", null, null]));
+    expect(pressed("Publish")).toEqual(["false", "false", "false"]);
+    expect(pressed("Unpublish")).toEqual(["true", "true", "false"]);
+    const [confirm] = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="database.confirmUnpublish"]',
+      ),
+    );
+    expect(confirm?.getAttribute("data-state")).toBe("unchecked");
+  });
+
   it("distinguishes loading and failed previews from a true empty diff", () => {
     act(() => {
       root.render(

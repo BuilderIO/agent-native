@@ -75,6 +75,7 @@ export default defineAction({
       });
     }
     await assertAccess("document", database.documentId, "editor");
+    await assertAccess("document", args.documentId, "editor");
 
     const db = getDb();
     const targets = (

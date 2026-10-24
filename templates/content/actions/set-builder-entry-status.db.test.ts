@@ -364,6 +364,60 @@ it("offers no Published over editor changes beside Content's own", async () => {
   }
 });
 
+it("refuses a pick from a collection editor who can't edit the page", async () => {
+  const collaborator = "collaborator@example.com";
+  const db = getDb();
+  await db.insert(schema.documentShares).values(
+    (
+      [
+        [COLLECTION_DOCUMENT_ID, "editor"],
+        ["doc_entry_draft", "viewer"],
+      ] as const
+    ).map(([resourceId, role]) => ({
+      id: `share_${resourceId}_${collaborator}`,
+      resourceId,
+      principalType: "user" as const,
+      principalId: collaborator,
+      role,
+      createdBy: OWNER,
+      createdAt: NOW,
+    })),
+  );
+  const pickAsCollaborator = () =>
+    runWithRequestContext({ userEmail: collaborator }, () =>
+      setStatus.run({
+        databaseId: DATABASE_ID,
+        documentId: "doc_entry_draft",
+        status: "published",
+      }),
+    );
+  try {
+    await expect(pickAsCollaborator()).rejects.toThrow(
+      "Requires editor role on document doc_entry_draft (have viewer)",
+    );
+    expect(await stagedIntent("doc_entry_draft")).toBeUndefined();
+
+    await db
+      .update(schema.documentShares)
+      .set({ role: "editor" })
+      .where(
+        and(
+          eq(schema.documentShares.resourceId, "doc_entry_draft"),
+          eq(schema.documentShares.principalId, collaborator),
+        ),
+      );
+    await expect(pickAsCollaborator()).resolves.toMatchObject({
+      stagedPublicationTransition: "publish",
+    });
+  } finally {
+    await db
+      .delete(schema.documentShares)
+      .where(eq(schema.documentShares.principalId, collaborator));
+    await pick("doc_entry_draft", "draft");
+  }
+  expect(await stagedIntent("doc_entry_draft")).toBeUndefined();
+});
+
 it("stages a publish or unpublish and shows the status it will have", async () => {
   await expect(pick("doc_entry_draft", "published")).resolves.toEqual({
     documentId: "doc_entry_draft",
