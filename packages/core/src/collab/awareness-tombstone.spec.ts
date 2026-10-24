@@ -34,6 +34,7 @@ vi.mock("../server/auth.js", () => ({
 
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
+  readBodyWithSizeLimit: (...args: unknown[]) => mockReadBody(...args),
 }));
 
 vi.mock("./awareness-store.js", () => ({
