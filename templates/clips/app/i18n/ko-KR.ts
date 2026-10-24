@@ -221,6 +221,7 @@ const messages = {
     spaces: "스페이스",
     meetings: "회의",
     dictate: "받아쓰기",
+    fromContent: "Content에서",
     archive: "보관함",
     trash: "휴지통",
     agent: "에이전트",
@@ -275,6 +276,10 @@ const messages = {
     archive: {
       title: "보관한 녹화가 없습니다",
       body: "보관한 Clips는 다시 가져올 때까지 여기에 보관됩니다.",
+    },
+    fromContent: {
+      title: "아직 Content에서 업로드한 항목이 없습니다",
+      body: "Content 페이지에 업로드한 동영상은 여기에 Clips로 저장됩니다.",
     },
     trash: {
       title: "휴지통이 비어 있습니다",
@@ -2284,6 +2289,8 @@ const messages = {
     goHome: "홈으로 이동",
     testMic: "마이크 테스트",
     archivePageTitle: "보관함 · Clips",
+    fromContentPageTitle: "Content에서 · Clips",
+    openContentPage: "페이지 열기",
     insightsPageTitle: "인사이트 · Clips",
     folderPageTitle: "폴더 · Clips",
     spacePageTitle: "스페이스 · Clips",

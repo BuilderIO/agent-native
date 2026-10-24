@@ -14,6 +14,10 @@
 //     extraClaims: { scope, document_id, recording_id, name? },
 //   })
 //
+// An `upload` token names no recording: Clips makes the recording when the
+// upload starts. It may carry `client_ip`, the uploader's address as Content's
+// edge saw it, which Clips' free storage counts per network.
+//
 // No org domain and no `preferGlobalSecret`: either would let core sign with
 // another secret. That gives an HS256 token whose `iss` is Content's app URL,
 // which must equal the `content_app` Clips stored for the document's Clip. The
@@ -30,6 +34,11 @@ export const CONTENT_CLIP_SCOPES = {
   comment: "content-clip:comment",
   /** A signed-out reader of a public document: playback and the comment list. */
   publicRead: "content-clip:public-read",
+  /**
+   * A signed-in editor of the document: reading their Clips storage, and
+   * starting an upload that becomes a Clip bound to the document.
+   */
+  upload: "content-clip:upload",
 } as const;
 
 export type ContentClipScope =
@@ -43,6 +52,8 @@ export const CONTENT_CLIP_CLAIMS = {
   recordingId: "recording_id",
   /** Optional display name of a signed-in reader, used on their comments. */
   viewerName: "name",
+  /** Optional, on an upload token: the uploader's IP address. */
+  clientIp: "client_ip",
 } as const;
 
 /** Longest token lifetime the routes accept; Content mints one-minute tokens. */
@@ -89,3 +100,78 @@ export const CONTENT_CLIP_GRANT_EXPIRED = "content_grant_expired";
  * `CONTENT_CLIPS_PEER_SECRET`: unset, too short, or the same as `A2A_SECRET`.
  */
 export const CONTENT_CLIP_NOT_CONFIGURED = "content_clips_not_configured";
+
+/**
+ * The video types an upload from a document may be. Content sends the chunks
+ * with no `Content-Type`, so the browser makes no CORS preflight; the type
+ * travels in the chunk URL Clips returns. A cancel goes to the cancel URL the
+ * same way, with no body.
+ */
+export const CONTENT_CLIP_UPLOAD_MIME_TYPES = [
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+] as const;
+
+export type ContentClipUploadMimeType =
+  (typeof CONTENT_CLIP_UPLOAD_MIME_TYPES)[number];
+
+/** The longest file name an upload start takes; Clips titles the Clip with it. */
+export const CONTENT_CLIP_UPLOAD_FILE_NAME_CHARS = 255;
+
+/**
+ * Where an editor's uploads would go, from `GET /api/content-clips/upload-status`
+ * and with every refused upload start. Content shows it as it is.
+ *
+ * - `ready`: the editor's workspace has its own storage (`builder` or
+ *   `custom`), or a local development Clips keeps chunks in SQL (`local`).
+ * - `free`: Clips' free hosted storage takes `remaining` more of `limit`.
+ * - `used_up`: the free clips are used up; connecting storage continues.
+ * - `none`: no storage and no free clips. `reason` is the free storage's
+ *   refusal: `disabled` when this Clips offers none, or why this editor
+ *   can't have it now.
+ * - `account_required`: the email has no Clips account with a workspace yet.
+ */
+export type ContentClipStorage =
+  | { state: "ready"; provider: "builder" | "custom" | "local" }
+  | { state: "free"; remaining: number; limit: number; maxClipBytes: number }
+  | { state: "used_up"; limit: number }
+  | { state: "none"; reason: string }
+  | { state: "account_required" };
+
+/**
+ * What `POST /api/uploads/:recordingId/content-cancel` did, as `outcome`.
+ *
+ * - `cancelled` (200): the upload is failed in Clips. Its free clip is
+ *   released once Clips confirms the upload's cleanup.
+ * - `already_finished` (409): Clips has the whole file and is making the
+ *   Clip, or made it; `status` says which. Nothing changed.
+ *
+ * Any other answer is a refusal with only `error`: the upload wasn't
+ * cancelled, and Clips fails it once its lease runs out.
+ */
+export const CONTENT_CLIP_CANCEL_OUTCOME = {
+  cancelled: "cancelled",
+  alreadyFinished: "already_finished",
+} as const;
+
+export type ContentClipCancelAnswer =
+  | {
+      outcome: typeof CONTENT_CLIP_CANCEL_OUTCOME.cancelled;
+      recordingId: string;
+    }
+  | {
+      outcome: typeof CONTENT_CLIP_CANCEL_OUTCOME.alreadyFinished;
+      recordingId: string;
+      status: "processing" | "ready";
+    };
+
+/** The `code` of an upload start Clips refused, with `storage` in the body. */
+export const CONTENT_CLIP_UPLOAD_REFUSED = {
+  /** No storage takes the file: see `storage`. */
+  storageRequired: "storage_required",
+  /** The file is larger than the storage takes; `maxBytes` says how large. */
+  tooLarge: "upload_too_large",
+  /** The editor has too many uploads in progress. */
+  tooMany: "too_many_uploads",
+} as const;

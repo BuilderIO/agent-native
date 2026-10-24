@@ -259,7 +259,14 @@ export async function requireRecordingUploadTicketOwner(
   event: H3Event,
   recordingId: string,
 ): Promise<RecordingUploadTicketOwner> {
-  const token = readTicketToken(event);
+  return requireUploadTicketOwnerForToken(recordingId, readTicketToken(event));
+}
+
+/** The same check for a ticket that arrives some other way than the header. */
+export async function requireUploadTicketOwnerForToken(
+  recordingId: string,
+  token: string | null,
+): Promise<RecordingUploadTicketOwner> {
   const verified = token
     ? await verifyRecordingUploadTicket(recordingId, token)
     : null;
