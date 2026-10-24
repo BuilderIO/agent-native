@@ -10,7 +10,8 @@ import type {
 const mocks = vi.hoisted(() => ({
   getByRunId: vi.fn(),
   update: vi.fn(),
-  updateIfStatus: vi.fn(),
+  updateIfFollowUpClaim: vi.fn(),
+  updateAtGeneration: vi.fn(),
   claimFollowUp: vi.fn(),
   markStopped: vi.fn(),
   resolveAdapter: vi.fn(),
@@ -18,8 +19,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./store.js", () => ({
   getAgentHarnessSessionByRunId: mocks.getByRunId,
+  isAgentHarnessSessionConflictError: (error: unknown) =>
+    error instanceof Error && error.name === "AgentHarnessSessionConflictError",
   updateAgentHarnessSession: mocks.update,
-  updateAgentHarnessSessionIfStatus: mocks.updateIfStatus,
+  updateAgentHarnessSessionIfFollowUpClaim: mocks.updateIfFollowUpClaim,
+  updateAgentHarnessSessionAtGeneration: mocks.updateAtGeneration,
   claimAgentHarnessSessionFollowUp: mocks.claimFollowUp,
   markAgentHarnessSessionStopped: mocks.markStopped,
 }));
@@ -51,13 +55,40 @@ describe("agent harness lifecycle", () => {
       };
       return stored;
     });
-    mocks.updateIfStatus.mockImplementation(
-      async (_id, expectedStatus, patch) => {
-        if (stored.status !== expectedStatus) return null;
+    mocks.updateIfFollowUpClaim.mockImplementation(
+      async (_id, expectedClaimId, patch) => {
+        if (
+          stored.status !== "running" ||
+          stored.followUpClaimId !== expectedClaimId
+        ) {
+          return null;
+        }
         return mocks.update(_id, patch);
       },
     );
-    mocks.claimFollowUp.mockImplementation(async (_id, generation) => {
+    mocks.updateAtGeneration.mockImplementation(
+      async (
+        _id,
+        expectedStatus,
+        expectedGeneration,
+        patch,
+        expectedClaimId,
+      ) => {
+        if (
+          stored.status !== expectedStatus ||
+          stored.generation !== expectedGeneration ||
+          (expectedClaimId !== undefined &&
+            stored.followUpClaimId !== expectedClaimId)
+        ) {
+          throw Object.assign(
+            new Error("Harness session changed concurrently."),
+            { name: "AgentHarnessSessionConflictError" },
+          );
+        }
+        return mocks.update(_id, patch);
+      },
+    );
+    mocks.claimFollowUp.mockImplementation(async (_id, generation, claimId) => {
       if (
         stored.generation !== generation ||
         stored.status !== "idle" ||
@@ -68,6 +99,7 @@ describe("agent harness lifecycle", () => {
       stored = {
         ...stored,
         status: "running",
+        followUpClaimId: claimId,
         generation: stored.generation + 1,
         updatedAt: Date.now(),
       };
@@ -169,6 +201,136 @@ describe("agent harness lifecycle", () => {
     ).rejects.toThrow("provider stream failed");
 
     expect(stored.status).toBe("errored");
+  });
+
+  it("does not finalize a newer follow-up claim after a generation conflict", async () => {
+    const session = fakeSession([{ type: "text-delta", text: "done" }]);
+    register(stored, session);
+    session.detach.mockImplementationOnce(async () => {
+      stored = {
+        ...stored,
+        status: "running",
+        followUpClaimId: "newer-claim",
+        generation: stored.generation + 1,
+        pendingApproval: null,
+        updatedAt: Date.now(),
+      };
+      return { token: "next" };
+    });
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(stored.status).toBe("running");
+    expect(stored.followUpClaimId).toBe("newer-claim");
+    expect(session.stop).not.toHaveBeenCalled();
+  });
+
+  it("does not stop or overwrite a newer claim when a provider stream fails", async () => {
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* () {
+      throw new Error("provider stream failed");
+    });
+    register(stored, session);
+    mocks.updateIfFollowUpClaim.mockImplementationOnce(async () => {
+      stored = {
+        ...stored,
+        status: "running",
+        followUpClaimId: "newer-claim",
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      return null;
+    });
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("provider stream failed");
+
+    expect(stored.status).toBe("running");
+    expect(stored.followUpClaimId).toBe("newer-claim");
+    expect(session.stop).not.toHaveBeenCalled();
+  });
+
+  it("commits a chained approval without a self-conflicting event write", async () => {
+    stored.pendingApproval = approvalEvent("approval-first");
+    const session = {
+      ...fakeSession(),
+      approve: undefined,
+      continueTurn: vi.fn(async function* () {
+        yield approvalEvent("approval-next");
+      }),
+    };
+    register(stored, session);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: "approval-first", approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(stored.pendingApproval).toMatchObject({ id: "approval-next" });
+    expect(stored.resolvedApprovalIds).toContain("approval-first");
+  });
+
+  it("does not report terminal sessions as running", async () => {
+    stored.status = "errored";
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "try again",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(result.error).toContain("errored");
+    expect(mocks.claimFollowUp).not.toHaveBeenCalled();
+  });
+
+  it("reports a terminal session from the active-follow-up fast path", async () => {
+    let finishStream!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      finishStream = resolve;
+    });
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* () {
+      await blocked;
+      yield { type: "done" } as AgentHarnessEvent;
+    });
+    register(stored, session);
+
+    const first = sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "first",
+      scope: ownerScope(),
+    });
+    await vi.waitFor(() => expect(stored.followUpClaimId).toBeTruthy());
+    stored = {
+      ...stored,
+      status: "errored",
+      followUpClaimId: null,
+      generation: stored.generation + 1,
+      updatedAt: Date.now(),
+    };
+
+    const second = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "second",
+      scope: ownerScope(),
+    });
+    expect(second.error).toContain("errored");
+
+    finishStream();
+    await expect(first).resolves.toMatchObject({ ok: false });
   });
 
   it("rehydrates a resumable adapter for a follow-up after restart", async () => {
@@ -275,6 +437,7 @@ function storedSession(id: string, runId: string): StoredAgentHarnessSession {
     threadId: "thread-1",
     providerSessionId: "native-1",
     status: "idle",
+    followUpClaimId: null,
     ownerEmail: "owner@example.com",
     orgId: "org-1",
     generation: 0,

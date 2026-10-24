@@ -64,4 +64,12 @@ export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
         "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 0",
     },
   },
+  {
+    version: 5,
+    name: "agent-harness-sessions-follow-up-claim",
+    sql: {
+      postgres:
+        "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS follow_up_claim_id TEXT",
+    },
+  },
 ];

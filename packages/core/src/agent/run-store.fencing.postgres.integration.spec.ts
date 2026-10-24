@@ -396,6 +396,7 @@ describe.skipIf(!databaseUrl)(
             orgId: prefix,
           }),
         );
+        const claimIds = [`${prefix}:claim-a`, `${prefix}:claim-b`];
         const results = await Promise.all([
           runWorker(
             "harness-follow-up-claim",
@@ -403,7 +404,10 @@ describe.skipIf(!databaseUrl)(
             "unused",
             "unused-a",
             "unused",
-            String(session.generation),
+            JSON.stringify({
+              expectedGeneration: session.generation,
+              claimId: claimIds[0],
+            }),
           ),
           runWorker(
             "harness-follow-up-claim",
@@ -411,7 +415,10 @@ describe.skipIf(!databaseUrl)(
             "unused",
             "unused-b",
             "unused",
-            String(session.generation),
+            JSON.stringify({
+              expectedGeneration: session.generation,
+              claimId: claimIds[1],
+            }),
           ),
         ]);
         const outcomes = results.map((result) =>
@@ -421,9 +428,11 @@ describe.skipIf(!databaseUrl)(
         expect(results.map((result) => result.exitCode)).toEqual([0, 0]);
         expect(outcomes.filter((result) => result.claimed)).toHaveLength(1);
         expect(outcomes.filter((result) => !result.claimed)).toHaveLength(1);
-        await expect(
-          withDbExec(executor(sql), () => getAgentHarnessSession(sessionId)),
-        ).resolves.toMatchObject({ status: "running" });
+        const persisted = await withDbExec(executor(sql), () =>
+          getAgentHarnessSession(sessionId),
+        );
+        expect(persisted).toMatchObject({ status: "running" });
+        expect(claimIds).toContain(persisted?.followUpClaimId);
       });
     }, 45_000);
 

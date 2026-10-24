@@ -35,6 +35,7 @@ const {
   claimAgentHarnessSessionFollowUp,
   getAgentHarnessSession,
   saveAgentHarnessSession,
+  updateAgentHarnessSessionIfFollowUpClaim,
 } = await import("./store.js");
 
 describe("agent harness session store", () => {
@@ -52,21 +53,48 @@ describe("agent harness session store", () => {
     const stored = await getAgentHarnessSession("session-follow-up-claim");
     expect(stored).not.toBeNull();
 
+    const claimIds = ["claim-a", "claim-b"];
     const claims = await Promise.all([
       claimAgentHarnessSessionFollowUp(
         "session-follow-up-claim",
         stored!.generation,
+        claimIds[0]!,
       ),
       claimAgentHarnessSessionFollowUp(
         "session-follow-up-claim",
         stored!.generation,
+        claimIds[1]!,
       ),
     ]);
 
     expect(claims.filter(Boolean)).toHaveLength(1);
-    expect(
-      await getAgentHarnessSession("session-follow-up-claim"),
-    ).toMatchObject({ status: "running", generation: stored!.generation + 1 });
+    const claimed = await getAgentHarnessSession("session-follow-up-claim");
+    expect(claimed).toMatchObject({
+      status: "running",
+      generation: stored!.generation + 1,
+    });
+    expect(claimIds).toContain(claimed!.followUpClaimId);
+    await expect(
+      updateAgentHarnessSessionIfFollowUpClaim(
+        "session-follow-up-claim",
+        "stale-claim",
+        { status: "errored" },
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      getAgentHarnessSession("session-follow-up-claim"),
+    ).resolves.toMatchObject({
+      status: "running",
+      followUpClaimId: claimed!.followUpClaimId,
+    });
+    await updateAgentHarnessSessionIfFollowUpClaim(
+      "session-follow-up-claim",
+      claimed!.followUpClaimId!,
+      { status: "idle", followUpClaimId: null },
+    );
+    await expect(
+      getAgentHarnessSession("session-follow-up-claim"),
+    ).resolves.toMatchObject({ status: "idle", followUpClaimId: null });
   });
 
   it("does not claim a session while it has a pending approval", async () => {
@@ -87,6 +115,7 @@ describe("agent harness session store", () => {
       claimAgentHarnessSessionFollowUp(
         "session-pending-approval",
         stored!.generation,
+        "claim-pending-approval",
       ),
     ).resolves.toBeNull();
     await expect(

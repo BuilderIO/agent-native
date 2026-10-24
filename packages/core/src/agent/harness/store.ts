@@ -50,6 +50,7 @@ export interface StoredAgentHarnessSession {
   resolvedApprovalIds?: string[];
   ownerEmail?: string | null;
   orgId?: string | null;
+  followUpClaimId?: string | null;
   generation: number;
   createdAt: number;
   updatedAt: number;
@@ -69,6 +70,7 @@ export interface SaveAgentHarnessSessionInput {
   resolvedApprovalIds?: string[];
   ownerEmail?: string | null;
   orgId?: string | null;
+  followUpClaimId?: string | null;
   stoppedAt?: number | null;
   expectedGeneration?: number;
   existingSession?: StoredAgentHarnessSession | null;
@@ -94,6 +96,7 @@ export const agentHarnessSessionsStore = defineStore({
           resolved_approval_ids TEXT,
           owner_email TEXT,
           org_id TEXT,
+          follow_up_claim_id TEXT,
           generation BIGINT NOT NULL DEFAULT 0,
           created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL,
@@ -111,6 +114,7 @@ export const agentHarnessSessionsStore = defineStore({
           "resolved_approval_ids",
           "owner_email",
           "org_id",
+          "follow_up_claim_id",
         ] as const) {
           await ensureColumnExists(
             "agent_harness_sessions",
@@ -182,6 +186,10 @@ export async function saveAgentHarnessSession(
       input.resolvedApprovalIds ?? existing?.resolvedApprovalIds ?? [],
     ownerEmail: input.ownerEmail ?? existing?.ownerEmail ?? null,
     orgId: input.orgId ?? existing?.orgId ?? null,
+    followUpClaimId:
+      input.followUpClaimId !== undefined
+        ? input.followUpClaimId
+        : (existing?.followUpClaimId ?? null),
     generation: (input.expectedGeneration ?? existing?.generation ?? 0) + 1,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
@@ -205,14 +213,16 @@ export async function saveAgentHarnessSession(
     record.createdAt,
     record.updatedAt,
     record.stoppedAt ?? null,
+    record.followUpClaimId ?? null,
   ];
   if (!existing) {
     const inserted = await client.execute({
       sql: `INSERT INTO agent_harness_sessions (
               id, harness_name, thread_id, run_id, provider_session_id, status,
               resume_state, workspace_ref, pending_approval, resolved_approval_ids,
-              owner_email, org_id, generation, created_at, updated_at, stopped_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              owner_email, org_id, generation, created_at, updated_at, stopped_at,
+              follow_up_claim_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO NOTHING`,
       args: values,
     });
@@ -232,7 +242,7 @@ export async function saveAgentHarnessSession(
             harness_name = ?, thread_id = ?, run_id = ?, provider_session_id = ?,
             status = ?, resume_state = ?, workspace_ref = ?, pending_approval = ?,
             resolved_approval_ids = ?, owner_email = ?, org_id = ?, generation = ?,
-            updated_at = ?, stopped_at = ?
+            updated_at = ?, stopped_at = ?, follow_up_claim_id = ?
           WHERE id = ? AND generation = ?`,
     args: [
       record.harnessName,
@@ -249,6 +259,7 @@ export async function saveAgentHarnessSession(
       record.generation,
       record.updatedAt,
       record.stoppedAt ?? null,
+      record.followUpClaimId ?? null,
       record.id,
       expectedGeneration,
     ],
@@ -274,31 +285,33 @@ export async function updateAgentHarnessSessionIfStatus(
   return updateAgentHarnessSessionWithStatus(id, patch, expectedStatus);
 }
 
-export async function claimAgentHarnessSessionFollowUp(
+export async function updateAgentHarnessSessionAtGeneration(
   id: string,
+  expectedStatus: AgentHarnessSessionStatus,
   expectedGeneration: number,
+  patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
+  expectedFollowUpClaimId?: string,
 ): Promise<StoredAgentHarnessSession | null> {
-  await ensureAgentHarnessSessionTables();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `UPDATE agent_harness_sessions
-          SET status = 'running', generation = generation + 1, updated_at = ?
-          WHERE id = ? AND generation = ? AND status = 'idle'
-            AND pending_approval IS NULL
-          RETURNING *`,
-    args: [Date.now(), id, expectedGeneration],
-  });
-  return rowToHarnessSession(rows[0]);
+  return updateAgentHarnessSessionWithStatus(
+    id,
+    patch,
+    expectedStatus,
+    expectedGeneration,
+    expectedFollowUpClaimId,
+  );
 }
 
-async function updateAgentHarnessSessionWithStatus(
+export async function updateAgentHarnessSessionIfFollowUpClaim(
   id: string,
+  claimId: string,
   patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
-  expectedStatus?: AgentHarnessSessionStatus,
 ): Promise<StoredAgentHarnessSession | null> {
   const existing = await getAgentHarnessSession(id);
-  if (!existing) return null;
-  if (expectedStatus !== undefined && existing.status !== expectedStatus) {
+  if (
+    !existing ||
+    existing.status !== "running" ||
+    existing.followUpClaimId !== claimId
+  ) {
     return null;
   }
   return saveAgentHarnessSession({
@@ -322,8 +335,86 @@ async function updateAgentHarnessSessionWithStatus(
       patch.resolvedApprovalIds ?? existing.resolvedApprovalIds,
     ownerEmail: patch.ownerEmail ?? existing.ownerEmail ?? null,
     orgId: patch.orgId ?? existing.orgId ?? null,
+    followUpClaimId:
+      patch.followUpClaimId !== undefined
+        ? patch.followUpClaimId
+        : existing.followUpClaimId,
     stoppedAt: patch.stoppedAt ?? existing.stoppedAt ?? null,
     expectedGeneration: existing.generation,
+    existingSession: existing,
+  });
+}
+
+export async function claimAgentHarnessSessionFollowUp(
+  id: string,
+  expectedGeneration: number,
+  claimId: string,
+): Promise<StoredAgentHarnessSession | null> {
+  await ensureAgentHarnessSessionTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `UPDATE agent_harness_sessions
+          SET status = 'running', follow_up_claim_id = ?,
+              generation = generation + 1, updated_at = ?
+          WHERE id = ? AND generation = ? AND status = 'idle'
+            AND pending_approval IS NULL
+          RETURNING *`,
+    args: [claimId, Date.now(), id, expectedGeneration],
+  });
+  return rowToHarnessSession(rows[0]);
+}
+
+async function updateAgentHarnessSessionWithStatus(
+  id: string,
+  patch: Partial<Omit<SaveAgentHarnessSessionInput, "id">>,
+  expectedStatus?: AgentHarnessSessionStatus,
+  expectedGeneration?: number,
+  expectedFollowUpClaimId?: string,
+): Promise<StoredAgentHarnessSession | null> {
+  const existing = await getAgentHarnessSession(id);
+  if (!existing) return null;
+  if (expectedStatus !== undefined && existing.status !== expectedStatus) {
+    return null;
+  }
+  if (
+    expectedGeneration !== undefined &&
+    existing.generation !== expectedGeneration
+  ) {
+    throw new AgentHarnessSessionConflictError(id);
+  }
+  if (
+    expectedFollowUpClaimId !== undefined &&
+    existing.followUpClaimId !== expectedFollowUpClaimId
+  ) {
+    return null;
+  }
+  return saveAgentHarnessSession({
+    id,
+    harnessName: patch.harnessName ?? existing.harnessName,
+    threadId: patch.threadId ?? existing.threadId,
+    runId: patch.runId ?? existing.runId ?? null,
+    providerSessionId:
+      patch.providerSessionId ?? existing.providerSessionId ?? null,
+    status: patch.status ?? existing.status,
+    resumeState:
+      patch.resumeState !== undefined
+        ? patch.resumeState
+        : existing.resumeState,
+    workspaceRef: patch.workspaceRef ?? existing.workspaceRef ?? null,
+    pendingApproval:
+      patch.pendingApproval !== undefined
+        ? patch.pendingApproval
+        : existing.pendingApproval,
+    resolvedApprovalIds:
+      patch.resolvedApprovalIds ?? existing.resolvedApprovalIds,
+    ownerEmail: patch.ownerEmail ?? existing.ownerEmail ?? null,
+    orgId: patch.orgId ?? existing.orgId ?? null,
+    followUpClaimId:
+      patch.followUpClaimId !== undefined
+        ? patch.followUpClaimId
+        : (existing.followUpClaimId ?? null),
+    stoppedAt: patch.stoppedAt ?? existing.stoppedAt ?? null,
+    expectedGeneration: expectedGeneration ?? existing.generation,
     existingSession: existing,
   });
 }
@@ -449,6 +540,7 @@ export async function markAgentHarnessSessionStopped(
     status,
     stoppedAt: Date.now(),
     pendingApproval: null,
+    followUpClaimId: null,
   });
 }
 
@@ -468,6 +560,7 @@ function rowToHarnessSession(row: unknown): StoredAgentHarnessSession | null {
     resolvedApprovalIds: stringArray(record.resolved_approval_ids),
     ownerEmail: stringOrNull(record.owner_email),
     orgId: stringOrNull(record.org_id),
+    followUpClaimId: stringOrNull(record.follow_up_claim_id),
     generation: numberValue(record.generation),
     createdAt: numberValue(record.created_at),
     updatedAt: numberValue(record.updated_at),

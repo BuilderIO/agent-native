@@ -186,10 +186,14 @@ async function main(): Promise<void> {
 
       if (mode === "harness-follow-up-claim") {
         await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
-        const expectedGeneration = Number(extra);
+        const { expectedGeneration, claimId } = JSON.parse(extra ?? "null") as {
+          expectedGeneration: number;
+          claimId: string;
+        };
         const claimed = await claimAgentHarnessSessionFollowUp(
           threadId,
-          expectedGeneration,
+          Number(expectedGeneration),
+          claimId,
         );
         writeSync(
           1,
