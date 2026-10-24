@@ -657,8 +657,9 @@ bounds. Current root and reply reaction reads and full-thread snapshots must be
 within 60 minutes, allow at most one minute of local clock skew, and follow the
 final source and ownership-search pages. Refresh only a stale current-state
 target. Honor `Retry-After` or use exponential backoff for rate limits, and
-keep retrying that exact target while the task remains active; do not restart
-the full sweep or report complete until every required read is fresh.
+retry that exact target once. If that retry still cannot pass freshness, mark
+coverage incomplete and stop. Do not restart the full sweep or report complete
+until every required read is fresh.
 
 The inventory checker requires a complete `threadSnapshot` for every in-scope
 classified root and every supplemental root included to resolve an in-scope

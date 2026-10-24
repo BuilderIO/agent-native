@@ -176,9 +176,11 @@ direct post-change proof bar, including before merge; use
 and record both scopes in the internal ledger. Keep the reply short; do not
 wait for an entire
 multi-symptom report to be resolved before checking off its verified scope.
-Keep all existing reactions after scopes close. Post the final disposition and
+Keep all accurate existing reactions after scopes close. Post the final disposition and
 read back the final reply and reactions; the status shows closure while the
-eye remains as history. Never remove or clean up any reaction. An open PR can
+eye remains as history. After a fresh root reaction read, correct and record
+this actor's stale or misapplied root mark. Never change another actor's mark
+or remove reply reactions. An open PR can
 earn `✅` as soon as the relevant
 `verifying-changes` proof bar passes. During that period, `✅` marks the
 verified scope and `👀` may remain whether or not another scope or merge is

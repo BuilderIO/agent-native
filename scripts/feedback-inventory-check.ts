@@ -880,19 +880,27 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
   const assigneeMention = `<@${assigneeId}(?:\\|[^>]+)?>`;
   const reportSubject =
     "(?:this|the)\\s+(?:report|issue|ticket|task|action|work|root|thread)";
-  return withoutQuotedScopeContext(text)
-    .split(/[.!?;\n]+/)
-    .some((clause) => {
-      const directAssignment = new RegExp(
-        `^\\s*(?:i|we)\\s+assigned\\s+${reportSubject}\\s+to\\s+${assigneeMention}\\s*$`,
-        "i",
-      );
-      const passiveAssignment = new RegExp(
-        `^\\s*${reportSubject}\\s+(?:is|was|has been)\\s+assigned\\s+to\\s+${assigneeMention}\\s*$`,
-        "i",
-      );
-      return directAssignment.test(clause) || passiveAssignment.test(clause);
-    });
+  const clauses = withoutQuotedScopeContext(text).split(/[.!?;\n]+/);
+  if (
+    clauses.some((clause) =>
+      /\b(?:i|we)\s+(?:(?:actually|correction|sorry)\s+)?(?:did\s+not|didn't|do\s+not|don't|never)\s+assign\b|\b(?:this|the)\s+(?:report|issue|ticket|task|action|work|root|thread)\s+(?:is|was|has been)\s+not\s+assigned\b/i.test(
+        clause,
+      ),
+    )
+  ) {
+    return false;
+  }
+  return clauses.some((clause) => {
+    const directAssignment = new RegExp(
+      `^\\s*(?:i|we)\\s+assigned\\s+${reportSubject}\\s+to\\s+${assigneeMention}\\s*$`,
+      "i",
+    );
+    const passiveAssignment = new RegExp(
+      `^\\s*${reportSubject}\\s+(?:is|was|has been)\\s+assigned\\s+to\\s+${assigneeMention}\\s*$`,
+      "i",
+    );
+    return directAssignment.test(clause) || passiveAssignment.test(clause);
+  });
 }
 
 function validatePersonAssignedSkipRecord(
@@ -2694,6 +2702,7 @@ function replyExplicitlyAcceptsHandoff(text: string): boolean {
     .toLowerCase();
   if (replyExplicitlyRefusesHandoff(normalized)) return false;
   const firstClause = normalized.split(/[.!?;\n]/, 1)[0] ?? normalized;
+  if (/\bonly\s+if\b/.test(firstClause)) return false;
   const acceptanceClause = firstClause.replace(
     /\bcheck\b[^.!?;]*\bif\s+(?:we|they|the team)\s+should\b/,
     (match) => match.replace(/\bif\b/, "whether"),
@@ -5321,6 +5330,9 @@ function hasExplicitWorkflowWriteAuthorization(
     ) ||
     /\b(?:do\s+not|don't|cannot|can't|never|not)\s+(?:to\s+)?(?:authorize|approve|permit|allow|claim|reply|respond|post|send|react|mark|add|follow[ -]?up|take over|work|handle)\b/i.test(
       requestText,
+    ) ||
+    /\b(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\b/i.test(
+      requestText,
     )
   ) {
     return false;
@@ -5329,24 +5341,33 @@ function hasExplicitWorkflowWriteAuthorization(
   const sentences = requestText.split(/(?:[.!?;]\s+|\n+)/);
   const grant =
     /\b(?:i|we)\s+(?:(?:explicitly|hereby)\s+)?(?:authorize|approve|permit|allow)\b|\b(?:you may|you can|go ahead and|please proceed)\b|^\s*(?:please\s+)?allow\b|\byou have my permission\b/i;
-  const boundedFollowupAndReaction =
-    /\b(?:any|all|every)\b[^.!?;\n]{0,100}\b(?:follow[ -]?ups?|replies|responses)\b/i.test(
-      requestText,
-    ) && /\b(?:emoji|emojis|reactions?|marks?)\b/i.test(requestText);
-  const exactWriteActions =
+  const boundedFollowupAndReaction = sentences.some(
+    (sentence) =>
+      grant.test(sentence) &&
+      /\b(?:any|all|every)\b[^.!?;\n]{0,100}\b(?:follow[ -]?ups?|replies|responses)\b/i.test(
+        sentence,
+      ) &&
+      /\b(?:emoji|emojis|reactions?|marks?)\b/i.test(sentence),
+  );
+  const exactRootWriteActions =
     roots.length > 0 &&
-    roots.every((root) => requestText.includes(root.rootTs)) &&
-    /\b(?:claim|take over|work on|handle|reconcile|react|reaction|emoji|emojis|mark|add)\b/i.test(
-      requestText,
-    ) &&
-    /\b(?:reply|replies|respond|post|send|status|follow[ -]?up)\b/i.test(
-      requestText,
+    roots.every(
+      (root) =>
+        typeof root?.channelId === "string" &&
+        typeof root?.rootTs === "string" &&
+        sentences.some(
+          (sentence) =>
+            userRequestAuthorizesExactRoot(sentence, root) &&
+            /\b(?:claim|take over|work on|handle|reconcile|react|reaction|emoji|emojis|mark|add)\b/i.test(
+              sentence,
+            ) &&
+            /\b(?:reply|replies|respond|post|send|status|follow[ -]?up)\b/i.test(
+              sentence,
+            ),
+        ),
     );
 
-  return (
-    sentences.some((sentence) => grant.test(sentence)) &&
-    (boundedFollowupAndReaction || exactWriteActions)
-  );
+  return boundedFollowupAndReaction || exactRootWriteActions;
 }
 
 function validateAuthorizedRootsDeclaration(
@@ -5472,9 +5493,9 @@ function userRequestAuthorizesExactRoot(
     "i",
   );
   const authorizationLimit =
-    /\b(?:not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|only|just|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
+    /\b(?:not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|cannot|can't|won't|shouldn't|mustn't|only|just|no\s+(?:any\s+)?(?:emojis?|reactions?|marks?)|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?)|(?:do|does|did|can|could|should|must|will)(?:\s+not|n't)\s+(?:write|make\s+changes?|change|edit|modify))\b/i;
   const directlyAttachedQualifier =
-    /^\s*(?:only|just|not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?))\b/i;
+    /^\s*(?:only|just|not|never|unless|if|when|whenever|after|once|before|while|until|upon|as\s+soon\s+as|as\s+long\s+as|so\s+long\s+as|except|without|provided(?:\s+that)?|subject\s+to|no\s+(?:any\s+)?(?:emojis?|reactions?|marks?)|no[\s-]+(?:writes?|writing|changes?|edits?|modifications?))\b/i;
   const workAuthorizationLanguage =
     /\b(?:work|handle|reconcile|take over|follow up|claim(?:ing)?|reply(?:ing)?|read|inspect|authorize|permission)\b/i;
   const unquotedRequest = withoutQuotedScopeContext(userRequest);
@@ -11470,6 +11491,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "I might test this later today",
     "I may expand it to be all apps",
     "I won't supersede #7524",
+    "I'll check the framework, but only if we should add support for that",
   ]) {
     if (replyExplicitlyAcceptsHandoff(text)) {
       throw new Error(
@@ -17204,6 +17226,18 @@ if (args[0] === "--self-test" && args.length === 1) {
       "personAssignedSkip needs an exact root or latest human message assigning work",
     );
     expectFocusedFailure(
+      "same-message assignment retraction is not assignment proof",
+      () =>
+        validateTestInventory(
+          withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+            ...parent,
+            sourceText:
+              "I assigned this report to <@UOTHER>. Actually, I did not assign it.",
+          })),
+        ),
+      "personAssignedSkip needs an exact root or latest human message assigning work",
+    );
+    expectFocusedFailure(
       "unrelated work cannot establish a report assignment",
       () =>
         validateTestInventory(
@@ -17351,12 +17385,12 @@ if (args[0] === "--self-test" && args.length === 1) {
       [
         "trailing read-only qualifier cannot authorize full held-root work",
         "I authorize you to work on Slack root C_TEST 10.000000, including the claim and same-thread status reply, read-only.",
-        "scope.userRequest must explicitly authorize work on exact root C_TEST 10.000000",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
       ],
       [
         "trailing no-write qualifier cannot authorize full held-root work",
         "I authorize you to work on Slack root C_TEST 10.000000, including the claim and same-thread status reply, with no writes.",
-        "scope.userRequest must explicitly authorize work on exact root C_TEST 10.000000",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
       ],
       [
         "trailing claim-only qualifier cannot authorize full held-root work",
@@ -17371,12 +17405,12 @@ if (args[0] === "--self-test" && args.length === 1) {
       [
         "trailing reply-only qualifier cannot authorize full held-root work",
         "I authorize you to work on Slack root C_TEST 10.000000, reply-only.",
-        "scope.userRequest must explicitly authorize work on exact root C_TEST 10.000000",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
       ],
       [
         "trailing reply only qualifier cannot authorize full held-root work",
         "I authorize you to work on Slack root C_TEST 10.000000, reply only.",
-        "scope.userRequest must explicitly authorize work on exact root C_TEST 10.000000",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
       ],
       [
         "trailing only after claim cannot authorize full held-root work",
@@ -17386,7 +17420,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       [
         "trailing only after reply cannot authorize full held-root work",
         "I authorize you to work on Slack root C_TEST 10.000000, reply to it only.",
-        "scope.userRequest must explicitly authorize work on exact root C_TEST 10.000000",
+        "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
       ],
       [
         "just claim qualifier cannot authorize full held-root work",
@@ -17413,7 +17447,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     expectFocusedFailure(
       "cross-paired channel and timestamp cannot authorize a held root",
       () => validateTestInventory(crossPairedAuthorization),
-      "scope.userRequest must explicitly authorize work on exact root C_TEST 10.000000",
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply; read-only, conditional, or negated permission is insufficient",
     );
 
     const quotedAuthorization = structuredClone(authorizedMagRoot);
@@ -17461,6 +17495,44 @@ if (args[0] === "--self-test" && args.length === 1) {
     boundedAuthorization.scope.narrowingJudgment!.instruction =
       boundedAuthorization.scope.userRequest;
     validateTestInventory(boundedAuthorization);
+
+    const unrelatedFollowupCannotExtendReadOnlyAuthorization =
+      structuredClone(authorizedMagRoot);
+    unrelatedFollowupCannotExtendReadOnlyAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to read and inspect Slack root C_TEST 10.000000. Any followups and emojis are fine.";
+    unrelatedFollowupCannotExtendReadOnlyAuthorization.scope.narrowingJudgment!.instruction =
+      unrelatedFollowupCannotExtendReadOnlyAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "unrelated follow-up wording cannot turn a read-only grant into write authorization",
+      () =>
+        validateTestInventory(
+          unrelatedFollowupCannotExtendReadOnlyAuthorization,
+        ),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const noReactionAuthorization = structuredClone(authorizedMagRoot);
+    noReactionAuthorization.scope.userRequest =
+      "I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions.";
+    noReactionAuthorization.scope.narrowingJudgment!.instruction =
+      noReactionAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "no-reaction restriction blocks exact-root write authorization",
+      () => validateTestInventory(noReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
+    const permalinkOnlyRequest =
+      "I authorize you to work on Slack permalink https://slack.com/archives/C_TEST/p10000000, including the root claim and same-thread status reply despite its :mag: hold.";
+    if (
+      !hasExplicitWorkflowWriteAuthorization(permalinkOnlyRequest, [
+        { channelId: "C_TEST", rootTs: "10.000000" },
+      ])
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected an exact-root grant expressed only as a Slack permalink.",
+      );
+    }
 
     expectFocusedFailure(
       "authorized root needs its separate orchestrator confirmation",
@@ -24046,7 +24118,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 55} negative cases; 39 positive inventory cases plus 6 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 58} negative cases; 39 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 8 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
