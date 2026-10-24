@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -11,10 +11,12 @@ import {
 } from "./_content-webhooks.js";
 
 const RECENT_DELIVERIES = 5;
+/** Without a scope, the caller's most recently created webhooks. */
+const OWN_WEBHOOKS_LIMIT = 50;
 
 export default defineAction({
   description:
-    "List webhooks on a collection or page, with each one's last few deliveries (status, attempts, last response). Omit both IDs to list the webhooks you registered. Never returns signing secrets. Requires admin access to the collection or page.",
+    "List webhooks on a collection or page, with each one's last few deliveries (status, attempts, last response). Omit both IDs to list up to 50 of the webhooks you registered, newest first. Never returns signing secrets. Requires admin access to the collection or page.",
   mcpTool: true,
   mcpAnnotations: {
     readOnlyHint: true,
@@ -56,17 +58,36 @@ export default defineAction({
         .select()
         .from(hooks)
         .where(eq(hooks.createdBy, userEmail))
-        .orderBy(desc(hooks.createdAt));
-      rows = [];
-      for (const row of created) {
-        if (await contentWebhookScopeForRow(row)) rows.push(row);
-      }
+        .orderBy(desc(hooks.createdAt))
+        .limit(OWN_WEBHOOKS_LIMIT);
+      // Webhooks on the same collection or page share one access check.
+      const scopeKey = (row: (typeof created)[number]) =>
+        `${row.scopeType}:${row.scopeId}`;
+      const manageable = new Map(
+        await Promise.all(
+          [...new Map(created.map((row) => [scopeKey(row), row])).values()].map(
+            async (row) =>
+              [
+                scopeKey(row),
+                Boolean(await contentWebhookScopeForRow(row)),
+              ] as const,
+          ),
+        ),
+      );
+      rows = created.filter((row) => manageable.get(scopeKey(row)));
     }
     if (!rows.length) return { webhooks: [] };
 
+    // The newest few per webhook, so a busy webhook can't push another's
+    // failures out of the list.
     const deliveries = schema.contentWebhookDeliveries;
-    const recent = await db
-      .select()
+    const ranked = db
+      .select({
+        id: deliveries.id,
+        rank: sql<number>`row_number() over (partition by ${deliveries.webhookId} order by ${deliveries.sequence} desc)`.as(
+          "rank",
+        ),
+      })
       .from(deliveries)
       .where(
         inArray(
@@ -74,15 +95,18 @@ export default defineAction({
           rows.map((row) => row.id),
         ),
       )
-      .orderBy(desc(deliveries.createdAt))
-      .limit(rows.length * 50);
+      .as("ranked");
+    const recent = await db
+      .select(getTableColumns(deliveries))
+      .from(deliveries)
+      .innerJoin(ranked, eq(ranked.id, deliveries.id))
+      .where(lte(ranked.rank, RECENT_DELIVERIES))
+      .orderBy(desc(deliveries.sequence));
     return {
       webhooks: rows.map((row) =>
         serializeContentWebhook(
           row,
-          recent
-            .filter((delivery) => delivery.webhookId === row.id)
-            .slice(0, RECENT_DELIVERIES),
+          recent.filter((delivery) => delivery.webhookId === row.id),
         ),
       ),
     };

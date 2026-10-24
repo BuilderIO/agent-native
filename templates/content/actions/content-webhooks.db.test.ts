@@ -570,14 +570,37 @@ describe("content webhooks", () => {
       }),
     );
     await settled(created.webhook.id, 1);
+    // A busier webhook on the same collection can't crowd this one out.
+    const { webhook: busy } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed"],
+        propertyIds: [ids.properties.rank],
+      }),
+    );
+    for (let rank = 1; rank <= 6; rank += 1) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: ids.rows[0].documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.rank,
+          value: rank,
+        }),
+      );
+    }
+    await settled(busy.id, 6);
 
     const byScope = await asOwner(() =>
       listWebhooks.run({ databaseId: ids.databaseId }),
     );
-    expect(byScope.webhooks).toHaveLength(1);
-    expect(byScope.webhooks[0].recentDeliveries).toMatchObject([
+    expect(byScope.webhooks).toHaveLength(2);
+    const listed = (id: string) =>
+      byScope.webhooks.find((hook) => hook.id === id)!;
+    expect(listed(created.webhook.id).recentDeliveries).toMatchObject([
       { type: "property.changed", status: "delivered", attempts: 1 },
     ]);
+    expect(listed(busy.id).recentDeliveries).toHaveLength(5);
     expect(JSON.stringify(byScope)).not.toContain(created.secret);
     const mine = await asOwner(() => listWebhooks.run({}));
     expect(mine.webhooks.map((hook) => hook.id)).toContain(created.webhook.id);
@@ -610,9 +633,10 @@ describe("content webhooks", () => {
     ).resolves.toEqual({ ok: true, id: created.webhook.id });
     expect(await readAppSecret(secretRef)).toBeNull();
     expect(
-      (await asOwner(() => listWebhooks.run({ databaseId: ids.databaseId })))
-        .webhooks,
-    ).toEqual([]);
+      (
+        await asOwner(() => listWebhooks.run({ databaseId: ids.databaseId }))
+      ).webhooks.map((hook) => hook.id),
+    ).toEqual([busy.id]);
   });
 
   it("W2-4: refuses URLs it can't safely call and properties outside the scope", async () => {

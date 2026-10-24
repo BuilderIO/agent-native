@@ -36,6 +36,10 @@ export default defineAction({
         statusCode: 404,
       });
     }
+    // The secret goes first: if that fails, the webhook is still there to
+    // delete again. A webhook left without its secret sends nothing, and a
+    // retry finds no secret and removes the row.
+    await deleteAppSecret(contentWebhookSecretRef(webhook));
     await db.transaction(async (tx) => {
       await tx
         .delete(schema.contentWebhookDeliveries)
@@ -49,9 +53,6 @@ export default defineAction({
         .delete(schema.contentWebhooks)
         .where(eq(schema.contentWebhooks.id, webhook.id));
     });
-    await deleteAppSecret(contentWebhookSecretRef(webhook)).catch(
-      () => undefined,
-    );
     return { ok: true, id: webhook.id };
   },
 });
