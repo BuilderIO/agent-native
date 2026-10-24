@@ -5384,7 +5384,16 @@ export function createAgentNativeChatRuntime(
               }),
             },
           );
-          if (!response.ok) {
+          let denialResolved = response.ok;
+          if (!denialResolved && response.status === 409) {
+            try {
+              const body = asRecord(await response.clone().json());
+              denialResolved = body?.code === "approval_not_pending";
+            } catch {
+              // coercion-ok: Preserve the original HTTP failure when conflict details are unreadable.
+            }
+          }
+          if (!denialResolved) {
             throw new Error(await readErrorText(response));
           }
           messageStates.delete(messageStateKey);

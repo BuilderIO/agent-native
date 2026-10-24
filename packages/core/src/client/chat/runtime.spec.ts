@@ -7294,6 +7294,54 @@ describe("createAgentNativeChatRuntime", () => {
       }),
     ).rejects.toThrow("Approval is no longer pending");
   });
+
+  it("dismisses a denial card when the approval was already resolved", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            approvalKey: "publish-release:{}",
+            askId: "agent-tool-approval-resolved",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "Approval is no longer pending",
+            code: "approval_not_pending",
+            retryable: false,
+          }),
+          { status: 409 },
+        ),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-denial",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-denial" });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: {
+        id: "agent-tool-approval-resolved",
+        approved: false,
+      },
+    });
+
+    expect(continuation).toBeDefined();
+    expect(await drain(continuation!.events)).toEqual([
+      { type: "done", reason: "complete" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("loadedSkillSlugsFromMessages", () => {
