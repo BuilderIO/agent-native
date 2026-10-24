@@ -438,7 +438,15 @@ export default defineAction({
         currentUpdatedAt: beforeFlush.updatedAt,
       });
     }
-    await flushOpenDocumentEditorToSql({ documentId, ownerEmail });
+    const flushed = await flushOpenDocumentEditorToSql({
+      documentId,
+      ownerEmail,
+    });
+    // The page can go back to its live copy after the check above, and then
+    // this flush has its editors save their titles instead.
+    if (flushed.status === "live_copy" && flushed.titleFlush) {
+      titleFlush = flushed.titleFlush;
+    }
     const [afterFlush] = await db
       .select({
         title: schema.documents.title,

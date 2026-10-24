@@ -3026,6 +3026,67 @@ describe("a version restore on a switched page", () => {
     });
   });
 
+  it("reports the title save its tab makes during main's flush when the flags come back on", async () => {
+    await switchedPage("restore-late-title", "First draft");
+    const saved = (await page("restore-late-title")).content;
+    await getDb().insert(schema.documentVersions).values({
+      id: "restore-late-title-version",
+      documentId: "restore-late-title",
+      ownerEmail: OWNER,
+      title: "Original title",
+      content: saved,
+    });
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-late-title", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-late-title", OWNER, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ title: "Tab title", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, "restore-late-title"));
+      },
+    });
+    await setFlags(false);
+    beforeEditorFlush.current = () => setFlags(true);
+
+    try {
+      const restored = await restore(
+        "restore-late-title",
+        "restore-late-title-version",
+        (await metadata("restore-late-title")).updatedAt,
+      );
+
+      await expect(answered).resolves.toMatchObject({ scope: "title" });
+      expect(restored).toMatchObject({
+        title: "Original title",
+        content: saved,
+        titleFlush: {
+          pages: [
+            {
+              documentId: "restore-late-title",
+              confirmedTitle: "Tab title",
+              editors: [
+                expect.objectContaining({ clientId: 7, flush: "answered" }),
+              ],
+            },
+          ],
+        },
+      });
+    } finally {
+      beforeEditorFlush.current = null;
+    }
+    const versions = await getDb()
+      .select({
+        title: schema.documentVersions.title,
+        content: schema.documentVersions.content,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "restore-late-title"));
+    expect(versions).toContainEqual({ title: "Tab title", content: saved });
+  });
+
   it("restores through main's path when the flags go off after its tab's title save and an editor saves the body during main's flush", async () => {
     await switchedPage("restore-tab-dirty", "First draft");
     await serverEdit("restore-tab-dirty", "Second draft");
