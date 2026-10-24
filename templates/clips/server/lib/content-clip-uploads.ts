@@ -407,11 +407,42 @@ function firstQueryValue(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
 }
 
+const CONTENT_CHUNK_PATH = /\/api\/uploads\/[^/]+\/content-chunk$/;
+
+/**
+ * The chunk route's answer to a preflight. The auth guard would answer it
+ * with the app-wide CORS policy, which can allow other origins and
+ * credentials, so the middleware asks here first. Content's chunks never
+ * need one; a preflight gets the same policy they do.
+ */
+export function answerContentChunkPreflight(
+  event: H3Event,
+): Response | undefined {
+  if (
+    event.req.method !== "OPTIONS" ||
+    !CONTENT_CHUNK_PATH.test(event.url.pathname)
+  ) {
+    return undefined;
+  }
+  const origin = getRequestHeader(event, "origin");
+  if (!origin || origin !== pairedContentOrigin()) {
+    return new Response(null, { status: 403, headers: { vary: "Origin" } });
+  }
+  return new Response(null, {
+    status: 204,
+    headers: {
+      vary: "Origin",
+      "access-control-allow-origin": origin,
+      "access-control-allow-methods": "POST",
+    },
+  });
+}
+
 /**
  * One chunk of a document's upload, posted by the editor's browser from the
  * paired Content. The ticket in the URL is the only authority: the request
  * carries no cookie, and the answer never allows credentials. Content sends
- * it as a CORS simple request, so no preflight reaches the auth guard.
+ * it as a CORS simple request, so it needs no preflight.
  */
 export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
   const responseHeaders = event.res.headers;

@@ -101,6 +101,7 @@ const { default: uploadStatusRoute } =
   await import("../routes/api/content-clips/upload-status.get.js");
 const { default: contentChunkRoute } =
   await import("../routes/api/uploads/[recordingId]/content-chunk.post.js");
+const { default: authMiddleware } = await import("../middleware/auth.js");
 const { default: playbackRoute } =
   await import("../routes/api/content-clips/[recordingId]/playback.get.js");
 const { createRecordingUploadTicket } =
@@ -645,6 +646,30 @@ describe("chunks posted from the editor's browser", () => {
     expect(result.headers.get("access-control-allow-origin")).toBeNull();
     expect(result.headers.get("access-control-allow-credentials")).toBeNull();
     expect(state.chunks).toEqual([]);
+  });
+
+  it("answers a preflight itself, for the paired Content alone and with no credentials", async () => {
+    async function preflight(origin: string) {
+      const event = mockEvent(
+        `${CLIPS_URL}/api/uploads/rec_1/content-chunk?ticket=t`,
+        {
+          method: "OPTIONS",
+          headers: { origin, "access-control-request-method": "POST" },
+        },
+      );
+      return (await authMiddleware(event)) as Response;
+    }
+    const paired = pairedContentOrigin()!;
+    const allowed = await preflight(paired);
+    expect(allowed.status).toBe(204);
+    expect(allowed.headers.get("access-control-allow-origin")).toBe(paired);
+    expect(allowed.headers.get("access-control-allow-methods")).toBe("POST");
+    expect(allowed.headers.get("access-control-allow-credentials")).toBeNull();
+
+    const other = await preflight("https://other.example.test");
+    expect(other.status).toBe(403);
+    expect(other.headers.get("access-control-allow-origin")).toBeNull();
+    expect(other.headers.get("access-control-allow-credentials")).toBeNull();
   });
 
   it("answers a bad ticket so the paired page can read why", async () => {
