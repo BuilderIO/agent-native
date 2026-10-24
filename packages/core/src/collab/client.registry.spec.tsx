@@ -827,6 +827,87 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(stateFetches).toHaveLength(2);
   });
 
+  it("removes a departed editor from the awareness snapshot", async () => {
+    const awarenessByClient = new Map<number, string>();
+    const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) return emptyStateResponse();
+      if (url.includes("/_agent-native/poll")) {
+        return new Response(JSON.stringify({ version: 1, events: [] }));
+      }
+      if (url.endsWith("/awareness")) {
+        const body = JSON.parse(String(init?.body)) as {
+          clientId: number;
+          state: string | null;
+        };
+        if (body.state === null) {
+          awarenessByClient.delete(body.clientId);
+        } else {
+          awarenessByClient.set(body.clientId, body.state);
+        }
+        return new Response(
+          JSON.stringify({
+            states: Array.from(awarenessByClient, ([clientId, state]) => ({
+              clientId,
+              state,
+            })).filter(({ clientId }) => clientId !== body.clientId),
+          }),
+        );
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    const user = {
+      name: "First editor",
+      email: "first@example.test",
+      color: "#111",
+    };
+    let first: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="awareness-unmount"
+        user={user}
+        onResult={(r) => (first = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(awarenessByClient.size).toBe(1);
+
+    act(() => root.unmount());
+    roots = roots.filter((candidate) => candidate !== root);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(awarenessByClient.size).toBe(0);
+
+    let second: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="awareness-unmount"
+        user={{
+          name: "Second editor",
+          email: "second@example.test",
+          color: "#222",
+        }}
+        onResult={(r) => (second = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(second?.activeUsers).not.toContainEqual(
+      expect.objectContaining({ email: "first@example.test" }),
+    );
+    expect(first?.ydoc?.isDestroyed).toBe(true);
+  });
+
   it("survives unmount→remount within the linger window without teardown or refetch", async () => {
     const { mock, stateFetches } = makeFetchMock();
     vi.stubGlobal("fetch", mock);

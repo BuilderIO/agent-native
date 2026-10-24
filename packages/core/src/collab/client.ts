@@ -413,6 +413,14 @@ class CollabDocConnection {
     }
     this.awareness.off("change", this.handleAwarenessChange);
     cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+    if (this.awareness.getLocalState()) {
+      fetch(`${this.baseUrl}/${this.docId}/awareness`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId: this.ydoc.clientID, state: null }),
+        keepalive: true,
+      }).catch(() => {});
+    }
     this.awareness.destroy();
     this.ydoc.destroy();
     if (collabConnectionRegistry.get(this.registryKey) === this) {
