@@ -3044,6 +3044,55 @@ export function mountMcpConnectRoutes(
   }
 }
 
+// Each image module loads on the first request for its route. The OG image
+// module embeds its background image, over a megabyte of source, and loading
+// it while the routes mount would cost every cold instance its first request.
+// A failed load isn't kept, so the route's next request retries it.
+export function mountImageRoutes(
+  app: H3AppShim,
+  routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
+): void {
+  app.use(
+    `${routePrefix}/og-image.png`,
+    lazyRouteHandler(async () => {
+      const { createAgentNativeOgImageHandler } =
+        await import("./social-og-image.js");
+      return createAgentNativeOgImageHandler();
+    }),
+  );
+
+  // Signed, content-only recap PNG images. POST (authenticated with the
+  // same `agent-native connect` bearer token the action surface accepts)
+  // stores a PNG and returns a public image URL; GET <token>.png serves
+  // the opaque bytes anonymously so GitHub's camo proxy can inline a recap
+  // screenshot into a private-repo PR comment. Mounted as a prefix so it
+  // owns both `/_agent-native/recap-image` (POST) and
+  // `/_agent-native/recap-image/<token>.png` (GET).
+  app.use(
+    `${routePrefix}/recap-image`,
+    lazyRouteHandler(async () => {
+      const { createRecapImageHandler } =
+        await import("./recap-image-route.js");
+      return createRecapImageHandler();
+    }),
+  );
+}
+
+type RouteHandler = (event: H3Event) => unknown;
+
+// h3's `defineLazyEventHandler` keeps a rejected load, which would fail the
+// route for the rest of the instance's life.
+function lazyRouteHandler(load: () => Promise<RouteHandler>) {
+  let loaded: Promise<RouteHandler> | undefined;
+  return defineEventHandler(async (event: H3Event) => {
+    const handler = await (loaded ??= load().catch((error: unknown) => {
+      loaded = undefined;
+      throw error;
+    }));
+    return handler(event);
+  });
+}
+
 export function mountApplicationStateRoutes(
   nitroApp: any,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
@@ -4084,27 +4133,7 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      {
-        const { createAgentNativeOgImageHandler } =
-          await import("./social-og-image.js");
-        getH3App(nitroApp).use(
-          `${P}/og-image.png`,
-          createAgentNativeOgImageHandler(),
-        );
-      }
-
-      // Signed, content-only recap PNG images. POST (authenticated with the
-      // same `agent-native connect` bearer token the action surface accepts)
-      // stores a PNG and returns a public image URL; GET <token>.png serves
-      // the opaque bytes anonymously so GitHub's camo proxy can inline a recap
-      // screenshot into a private-repo PR comment. Mounted as a prefix so it
-      // owns both `/_agent-native/recap-image` (POST) and
-      // `/_agent-native/recap-image/<token>.png` (GET).
-      {
-        const { createRecapImageHandler } =
-          await import("./recap-image-route.js");
-        getH3App(nitroApp).use(`${P}/recap-image`, createRecapImageHandler());
-      }
+      mountImageRoutes(getH3App(nitroApp), P);
 
       mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
 

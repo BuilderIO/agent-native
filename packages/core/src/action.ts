@@ -1167,23 +1167,54 @@ export function defineAction<
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
+  const tool: ActionTool = {
+    ...(typeof options.title === "string" && options.title.trim()
+      ? { title: options.title.trim() }
+      : {}),
+    description: options.description,
+    parameters:
+      !hasSchema && options.parameters
+        ? { type: "object" as const, properties: options.parameters }
+        : undefined,
+  };
   // Converting a schema to JSON Schema is the dominant module-scope cost of an
-  // action-heavy app's cold start, so convert only the schema the agent sees.
-  let toolParameters: ActionTool["parameters"];
-  let inputSchemaVerdict: ConvertedSchema["verdict"];
+  // action-heavy app's cold start, so convert only the schema the agent sees,
+  // and only when something first reads it. `convertedParameters` is the one
+  // place that converts: it records the verdict against this `tool`, so readers
+  // of the verdict read `parameters` first (`usableInputSchema`, `derivedTool`).
+  let convertedParameters: () => ActionTool["parameters"] = () => undefined;
   if (hasSchema) {
-    ({ parameters: toolParameters, verdict: inputSchemaVerdict } =
-      schemaToJsonSchema(
-        options.agentInputSchema && "~standard" in options.agentInputSchema
-          ? options.agentInputSchema
-          : options.schema,
-        options.description,
-      ));
-  } else if (options.parameters) {
-    toolParameters = {
-      type: "object" as const,
-      properties: options.parameters,
+    const agentSchema =
+      options.agentInputSchema && "~standard" in options.agentInputSchema
+        ? options.agentInputSchema
+        : options.schema;
+    let converted: ConvertedSchema | undefined;
+    convertedParameters = () => {
+      if (!converted) {
+        converted = schemaToJsonSchema(agentSchema, options.description);
+        if (converted.verdict) {
+          recordInputSchemaVerdict(tool, converted.verdict);
+        }
+      }
+      return converted.parameters;
     };
+    Object.defineProperty(tool, "parameters", {
+      enumerable: true,
+      configurable: true,
+      get: convertedParameters,
+      // An assigned schema replaces what the agent sees, as it did when this
+      // was a plain property. The schema's own conversion still runs first, so
+      // its verdict is recorded and validation keeps using it.
+      set(value: ActionTool["parameters"]) {
+        convertedParameters();
+        Object.defineProperty(tool, "parameters", {
+          value,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      },
+    });
   }
 
   const executionKey = {};
@@ -1345,7 +1376,7 @@ export function defineAction(options: any) {
     }
   };
   const run = hasSchema
-    ? wrapWithValidation(options.schema, classifiedRun, toolParameters)
+    ? wrapWithValidation(options.schema, classifiedRun, convertedParameters)
     : classifiedRun;
 
   const uiOnly: boolean | undefined =
@@ -1458,13 +1489,7 @@ export function defineAction(options: any) {
   })();
 
   const entry = {
-    tool: {
-      ...(typeof options.title === "string" && options.title.trim()
-        ? { title: options.title.trim() }
-        : {}),
-      description: options.description,
-      parameters: toolParameters,
-    },
+    tool,
     run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
@@ -1557,9 +1582,6 @@ export function defineAction(options: any) {
       return invalidCallRun(args, ctx);
     },
   });
-  if (inputSchemaVerdict) {
-    recordInputSchemaVerdict(entry.tool, inputSchemaVerdict);
-  }
   return entry;
 }
 
@@ -2602,11 +2624,11 @@ export function boundActionCallIntent(
 function wrapWithValidation(
   schema: StandardSchemaV1,
   run: Function,
-  toolParameters?: ActionTool["parameters"],
+  toolParameters: () => ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
     if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
-    return run(await validateActionArgs(schema, args, toolParameters), ctx);
+    return run(await validateActionArgs(schema, args, toolParameters()), ctx);
   };
 }
 
