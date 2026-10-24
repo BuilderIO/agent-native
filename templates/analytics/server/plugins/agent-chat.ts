@@ -958,11 +958,67 @@ function dbtMetricQueryPromptEntries(queries: DbtGuardQuery[]) {
   }));
 }
 
-function normalizedDbtMetricName(value: unknown): string {
+function dbtMetricIdentity(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function normalizedQueryText(value: unknown): string {
   return String(value ?? "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+}
+
+function normalizedSqlIdentifier(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[`"]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizedFilterValue(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function metricMentionWords(value: unknown): string[] {
+  return (
+    String(value ?? "")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .toLowerCase()
+      .match(/[a-z0-9]+/g) ?? []
+  );
+}
+
+function textMentionsDbtMetric(text: string, metricName: unknown): boolean {
+  const metricWords = metricMentionWords(metricName);
+  const textWords = metricMentionWords(text);
+  return (
+    metricWords.length > 0 &&
+    textWords.some((_, index) =>
+      metricWords.every((word, offset) => textWords[index + offset] === word),
+    )
+  );
+}
+
+function requestedPlanNames(userText: string): string[] {
+  const names = new Set<string>();
+  for (const match of userText.matchAll(
+    /\b([a-z][a-z0-9_-]*)\s+(?:plans?|tiers?|subscriptions?)\b/gi,
+  )) {
+    names.add(normalizedFilterValue(match[1]));
+  }
+  for (const match of userText.matchAll(
+    /\b((?:the\s+)?[a-z][a-z0-9_-]*(?:\s+(?:and|or)\s+(?:the\s+)?[a-z][a-z0-9_-]*)+)\s+(?:plans?|tiers?|subscriptions?)\b/gi,
+  )) {
+    const list = match[1];
+    if (!list) continue;
+    for (const name of list.split(/\s+(?:and|or)\s+/i)) {
+      names.add(normalizedFilterValue(name.replace(/^the\s+/i, "")));
+    }
+  }
+  return [...names].filter(Boolean);
 }
 
 function normalizedDbtGroupBy(value: unknown): string[] | null {
@@ -989,7 +1045,7 @@ function normalizedDbtGroupBy(value: unknown): string[] | null {
 }
 
 function dbtQuerySpecKey(metricName: string, value: unknown): string | null {
-  if (!normalizedDbtMetricName(metricName)) return null;
+  if (!dbtMetricIdentity(metricName)) return null;
   const parsed = actionSummaryRecord(value);
   if (parsed.kind !== "record") return null;
   const querySpec = parsed.record;
@@ -1053,11 +1109,11 @@ function dbtQueryForResult(
   const input = parsedInput.record;
   const outputMetric = actionSummaryRecord(output.metric);
   if (outputMetric.kind === "invalid") return null;
-  const outputMetricName = normalizedDbtMetricName(
+  const outputMetricName = dbtMetricIdentity(
     output.metricName ??
       (outputMetric.kind === "record" ? outputMetric.record.name : undefined),
   );
-  const inputMetricName = normalizedDbtMetricName(input.metricName);
+  const inputMetricName = dbtMetricIdentity(input.metricName);
   if (
     !inputMetricName ||
     (outputMetricName && outputMetricName !== inputMetricName)
@@ -1121,8 +1177,8 @@ function approvedDataDictionaryMetric(
         entry.record.aiGenerated === true ||
         entry.record.status === "deprecated" ||
         typeof entry.record.metric !== "string" ||
-        normalizedDbtMetricName(entry.record.metric) !==
-          normalizedDbtMetricName(metricName) ||
+        dbtMetricIdentity(entry.record.metric) !==
+          dbtMetricIdentity(metricName) ||
         typeof entry.record.definition !== "string" ||
         !entry.record.definition.trim()
       ) {
@@ -1153,7 +1209,7 @@ function dbtFailureResolvedLater(
     ["metadata_truncated", "not_found"].includes(
       String(failurePayload.status ?? ""),
     ) &&
-    normalizedDbtMetricName(metricName) === failedQuery.metricKey;
+    dbtMetricIdentity(metricName) === failedQuery.metricKey;
   if (!failedQuery.querySpecKey && !isScopeLessMetricLookup) return false;
   for (const [offset, result] of results.slice(index + 1).entries()) {
     if (
@@ -1303,12 +1359,11 @@ function hasMetricSpecificPartialDisclosure(
   return pages.every(({ index }) => {
     const metricName = dbtMetricName(context.toolResults?.[index]?.content);
     if (typeof metricName !== "string") return false;
-    const key = normalizedDbtMetricName(metricName);
     return (
-      key !== "" &&
+      dbtMetricIdentity(metricName) !== "" &&
       sentences.some(
         (sentence) =>
-          normalizedDbtMetricName(sentence).includes(key) &&
+          textMentionsDbtMetric(sentence, metricName) &&
           hasExplicitPartialDisclosure(sentence),
       )
     );
@@ -1432,7 +1487,7 @@ function warehouseQueryMatchesDbtScope(
   const scope = dbtInput.record;
   const metricName = String(scope.metricName ?? "").trim();
   const sql = warehouseQuery.replace(/--[^\r\n]*|\/\*[\s\S]*?\*\//g, " ");
-  if (normalizedDbtMetricName(metricName) !== failure.query.metricKey) {
+  if (dbtMetricIdentity(metricName) !== failure.query.metricKey) {
     return false;
   }
   const escapedMetricName = metricName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1478,7 +1533,7 @@ function warehouseQueryMatchesDbtScope(
   }
 
   const userText = guardUserText(context);
-  const normalizedQuestion = normalizedDbtMetricName(userText);
+  const normalizedQuestion = normalizedQueryText(userText);
   const where = sql.match(
     /\bWHERE\b([\s\S]*?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|$)/i,
   )?.[1];
@@ -1486,19 +1541,24 @@ function warehouseQueryMatchesDbtScope(
   const whereConditions = where
     ? where.split(/\s+AND\s+/i).map((condition) => condition.trim())
     : [];
+  const requestedPlans = requestedPlanNames(userText);
+  if (requestedPlans.length > 1) return false;
   const requestedPlanFilter = userText.match(
     /\b(?:for|among|within|only)\s+(?:the\s+)?(?!a\b|an\b|any\b)([a-z][a-z0-9_-]*)\s+(?:plan|tier|subscription)\b/i,
   )?.[1];
   if (requestedPlanFilter) {
-    const expectedPlan = normalizedDbtMetricName(requestedPlanFilter);
+    const expectedPlan = normalizedFilterValue(requestedPlanFilter);
+    if (requestedPlans.length !== 1 || requestedPlans[0] !== expectedPlan) {
+      return false;
+    }
     const hasMatchingPlanFilter = whereConditions.some((condition) => {
       const filter = condition.match(
         /^([`"\w.]+)\s*=\s*(?:'([^']*)'|"([^"]*)"|(-?\d+(?:\.\d+)?))$/i,
       );
-      const column = normalizedDbtMetricName(
+      const column = normalizedSqlIdentifier(
         filter?.[1]?.replace(/[`"]|\./g, ""),
       );
-      const value = normalizedDbtMetricName(
+      const value = normalizedFilterValue(
         filter?.[2] ?? filter?.[3] ?? filter?.[4],
       );
       return (
@@ -1572,10 +1632,8 @@ function warehouseQueryMatchesDbtScope(
       /^([`"\w.]+)\s*=\s*(?:'([^']*)'|"([^"]*)"|(-?\d+(?:\.\d+)?))$/i,
     );
     if (!filter) return false;
-    const columnKey = normalizedDbtMetricName(filter[1]?.replace(/[`"]/g, ""));
-    const valueKey = normalizedDbtMetricName(
-      filter[2] ?? filter[3] ?? filter[4],
-    );
+    const columnKey = normalizedQueryText(filter[1]?.replace(/[`"]/g, ""));
+    const valueKey = normalizedQueryText(filter[2] ?? filter[3] ?? filter[4]);
     const negatedValue = [
       "not" + valueKey,
       "notthe" + valueKey,
@@ -1692,12 +1750,12 @@ function claimsOwnerApprovedMetric(text: string): boolean {
 }
 
 function warehouseMetricNumbers(rows: unknown[], metricName: string): string[] {
-  const metricKey = normalizedDbtMetricName(metricName);
+  const metricKey = dbtMetricIdentity(metricName);
   return rows.flatMap((row) => {
     const record = actionSummaryRecord(row);
     if (record.kind !== "record") return [];
     return Object.entries(record.record).flatMap(([key, value]) => {
-      if (normalizedDbtMetricName(key) !== metricKey) return [];
+      if (dbtMetricIdentity(key) !== metricKey) return [];
       if (typeof value === "number" && Number.isFinite(value)) {
         return [String(value)];
       }
@@ -1791,15 +1849,10 @@ function unresolvedDbtInputTimeScopeMismatch(
 }
 
 function metricClaimNumbers(text: string, metricName: string): number[] {
-  const metricKey = normalizedDbtMetricName(metricName);
+  const metricKey = dbtMetricIdentity(metricName);
   return text
     .split(/(?<=[.!?;])\s+|[\r\n]+/)
-    .filter((sentence) =>
-      sentence
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "")
-        .includes(metricKey),
-    )
+    .filter((sentence) => textMentionsDbtMetric(sentence, metricKey))
     .flatMap((sentence) => answerResultNumbers(sentence).map(Number));
 }
 
@@ -1894,10 +1947,7 @@ function isExplicitWarehouseCalculation(
     return false;
   }
 
-  const draft = context.text.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (
-    metricNames.some((name) => !draft.includes(normalizedDbtMetricName(name)))
-  ) {
+  if (metricNames.some((name) => !textMentionsDbtMetric(context.text, name))) {
     return false;
   }
 
@@ -1958,7 +2008,7 @@ function explicitWarehouseResultEvidence(
       return null;
     }
     const outputColumns = new Set([
-      normalizedDbtMetricName(match.failure.query.metricName),
+      normalizedSqlIdentifier(match.failure.query.metricName),
     ]);
     const groups = Array.isArray(dbtInput.record.groupBy)
       ? dbtInput.record.groupBy.flatMap((item) => {
@@ -1975,9 +2025,9 @@ function explicitWarehouseResultEvidence(
           /\b(?:DATE_TRUNC|TIMESTAMP_TRUNC)\s*\([^)]*\)\s+AS\s+[`"]?([A-Za-z_]\w*)[`"]?/i,
         );
         if (!projection?.[1]) return null;
-        outputColumns.add(normalizedDbtMetricName(projection[1]));
+        outputColumns.add(normalizedSqlIdentifier(projection[1]));
       } else {
-        outputColumns.add(normalizedDbtMetricName(group.name));
+        outputColumns.add(normalizedSqlIdentifier(group.name));
       }
     }
     const rows = match.rows.map((row) => {
@@ -1985,7 +2035,7 @@ function explicitWarehouseResultEvidence(
       if (parsed.kind !== "record") return {};
       return Object.fromEntries(
         Object.entries(parsed.record).filter(([key]) =>
-          outputColumns.has(normalizedDbtMetricName(key)),
+          outputColumns.has(normalizedSqlIdentifier(key)),
         ),
       );
     });
@@ -2016,11 +2066,8 @@ function draftNamesUnresolvedDbtMetric(
   context: AgentLoopFinalResponseGuardContext,
 ): boolean {
   const names = unresolvedDbtMetricNames(context);
-  const normalizedDraft = context.text.toLowerCase().replace(/[^a-z0-9]/g, "");
   return (
-    names?.some((name) =>
-      normalizedDraft.includes(normalizedDbtMetricName(name)),
-    ) ?? false
+    names?.some((name) => textMentionsDbtMetric(context.text, name)) ?? false
   );
 }
 

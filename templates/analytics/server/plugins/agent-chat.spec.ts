@@ -1368,6 +1368,61 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(realDataFinalGuard(makeContext(999))).toMatchObject(withheld);
   });
 
+  it("does not resolve a dbt failure with a punctuation-colliding metric", () => {
+    const context = guardContext({
+      userText: "What were active accounts last month?",
+      draftText: "Active accounts were 10 last month.",
+      runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+      toolCalls: [
+        {
+          toolCallId: "dbt-active-accounts",
+          name: "query-dbt-semantic-metric",
+          input: {
+            metricName: "active_accounts",
+            timeRange: activeAccountsRange,
+            groupBy: [],
+          },
+        },
+        {
+          toolCallId: "dbt-activeaccounts",
+          name: "query-dbt-semantic-metric",
+          input: {
+            metricName: "activeaccounts",
+            timeRange: activeAccountsRange,
+            groupBy: [],
+          },
+        },
+      ],
+      toolResults: [
+        {
+          ...dbtNotFound,
+          toolCallId: "dbt-active-accounts",
+          content: JSON.stringify({
+            status: "not_found",
+            metricName: "active_accounts",
+          }),
+        },
+        {
+          name: "query-dbt-semantic-metric",
+          toolCallId: "dbt-activeaccounts",
+          isError: false,
+          content: JSON.stringify({
+            status: "success",
+            metricName: "activeaccounts",
+            truncated: false,
+            querySpec: {
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+            rows: [{ activeaccounts: 10 }],
+          }),
+        },
+      ],
+    });
+
+    expect(realDataFinalGuard(context)).toMatchObject(withheld);
+  });
+
   it("withholds warehouse entity claims absent from the exact scoped result", async () => {
     const asked: Asked[] = [];
     const context = explicitWarehouseContext(
@@ -1950,6 +2005,22 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
         query: activeAccountsSql,
         userText:
           "Show active accounts for the enterprise plan in September 2026 from BigQuery.",
+      }),
+    );
+
+    expect(result).toMatchObject(withheld);
+  });
+
+  it.each([
+    "Show active accounts for the enterprise plan and basic plan in September 2026 from BigQuery.",
+    "Show active accounts for enterprise and basic plans in September 2026 from BigQuery.",
+    "Show active accounts in enterprise or basic plans in September 2026 from BigQuery.",
+  ])("withholds a partial result for a multi-plan request: %s", (userText) => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(disclosed, {
+        query:
+          "SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01' AND plan = 'enterprise'",
+        userText,
       }),
     );
 
