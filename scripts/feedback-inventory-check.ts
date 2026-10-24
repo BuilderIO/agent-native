@@ -598,9 +598,7 @@ function matchesSlackMessageText(
     .replace(/\r?\n?Open thread button\s*$/, "");
   if (
     sourceText.trim() === "" &&
-    /^New submission: Agent(?:-|\s)Native Feedback\r?\n\*What can we improve about Agent(?:-|\s)Native\?:\*[\s\S]*?\r?\nSubmitted <!date\^\d+\^\{date_short_pretty\} at \{time\}\|[^>]+>(?: by \*[^*\r\n]+\*)?$/.test(
-      normalizedThread,
-    )
+    isBlockOnlyAgentNativeFeedbackSubmission(normalizedThread)
   ) {
     return true;
   }
@@ -1021,6 +1019,8 @@ function validatePreservedAdministrativeEye(
       sweepActorId, "exact self-owned 👀 reaction");
   require(preservation.reason === reason, "canonical preservation reason");
   require(parent.statusReply === undefined, "no active status record");
+  require(parent.reactionWriteAt ===
+    undefined, "no reaction written during this sweep");
   require(parent.ownershipSkip === undefined, "not a held-thread skip");
   require(parent.clusteredUnder === undefined, "not a clustered report");
   require(parent.otherOwnerEvidence === undefined, "no other-owner evidence");
@@ -1028,6 +1028,10 @@ function validatePreservedAdministrativeEye(
     undefined, "no active reaction decisions");
   require(parent.historicalReactionMarks ===
     undefined, "no historical ✅ or 🎫");
+  require(parent.unreconciledTicketMark ===
+    undefined, "no unreconciled 🎫 mark");
+  require(parent.unreconciledCheckmarkMark ===
+    undefined, "no unreconciled ✅ mark");
   require(!parent.fixedScopes?.length, "no fixed scopes");
   require(!parent.unfinishedScopes?.length, "no unfinished scopes");
   require(parent.handoff === undefined, "no handoff");
@@ -2347,6 +2351,38 @@ function replyExplicitlyOwnsRecordedAction(
     }
   }
   return false;
+}
+
+function isBlockOnlyAgentNativeFeedbackSubmission(text: string): boolean {
+  const lines = text.trimEnd().split(/\r?\n/);
+  if (!/^New submission: Agent(?:-|\s)Native Feedback$/.test(lines[0] ?? "")) {
+    return false;
+  }
+  const question = lines[1]?.match(
+    /^\*What can we improve about Agent(?:-|\s)Native\?:\*(.*)$/,
+  );
+  if (!question) return false;
+
+  const submittedIndex = lines.findIndex(
+    (line, index) =>
+      index > 1 &&
+      /^Submitted <!date\^\d+\^\{date_short_pretty\} at \{time\}\|[^>\r\n]*\S[^>\r\n]*>(?: by \*\S[^*\r\n]*\*)?$/.test(
+        line,
+      ),
+  );
+  if (submittedIndex < 0) return false;
+
+  // The answer is freeform, including multiline text; only the form's outer structure is fixed.
+  const answer = [question[1] ?? "", ...lines.slice(2, submittedIndex)];
+  if (!answer.some((line) => line.trim())) return false;
+
+  const metadata = new Set<string>();
+  for (const line of lines.slice(submittedIndex + 1)) {
+    const field = line.match(/^(App|Page|Source):\s+\S.*$/)?.[1];
+    if (!field || metadata.has(field)) return false;
+    metadata.add(field);
+  }
+  return true;
 }
 
 function explicitlyStatesCompletion(text: string): boolean {
@@ -11248,6 +11284,58 @@ if (args[0] === "--self-test" && args.length === 1) {
       })),
     })),
   });
+  const preservedAdministrativeSupplementalRoot = (
+    mark: "ticket" | "checkmark",
+  ): Inventory => {
+    const sourceText = [
+      "New submission: Builder Cloud Agents Waitlist",
+      "*Email:* <mailto:person@example.com|person@example.com>",
+      "*App URL:* <https://example.com/app>",
+      "*Source:* app_page",
+      "*Use case:* publish a design",
+      "Submitted <!date^1792705000^{date_short_pretty} at {time}|Oct 23, 2026 at 11:36 AM>",
+    ].join("\n");
+    const reason =
+      "Previously self-owned 👀 is retained as history because this waitlist intake is administrative; no active work is claimed.";
+    const status =
+      "Skipped for this sweep. The existing :eyes: is retained as history; no active work is claimed. No :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending. this was sent from a bot.";
+    return withSupplementalRootAudit(
+      supplementalRootAudit("8.500000", {
+        sourceText,
+        rootClassification: "administrative",
+        rootClassificationReason: "Waitlist intake, not product feedback",
+        rootClassificationJudgment: {
+          actorId: "USWEEPER",
+          decision: "administrative",
+          rationale:
+            "Structured Builder Cloud Agents waitlist intake, not a product behavior report.",
+        },
+        reactionSummary: "eyes (1): USWEEPER",
+        reactionOwners: { eyes: ["USWEEPER"] },
+        latestRelevantHumanReply: null,
+        latestOwnedReply: {
+          ts: "8.600000",
+          threadParentTs: "8.500000",
+          actorId: "USWEEPER",
+          text: status,
+        },
+        preservedAdministrativeEye: { reason },
+        ...(mark === "ticket"
+          ? {
+              unreconciledTicketMark: {
+                reason: "captured evidence does not identify a human action",
+                evidenceReplyTs: ["8.550000"],
+              },
+            }
+          : {
+              unreconciledCheckmarkMark: {
+                reason: "no verified scope supports the retained mark",
+                evidenceReplyTs: ["8.550000"],
+              },
+            }),
+      }),
+    );
+  };
   const withSweepOwnedParent = (overrides: Partial<Parent>): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
@@ -13726,6 +13814,14 @@ if (args[0] === "--self-test" && args.length === 1) {
       ),
     },
     {
+      name: "preserved administrative supplemental root cannot carry an unreconciled ticket",
+      inventory: preservedAdministrativeSupplementalRoot("ticket"),
+    },
+    {
+      name: "preserved administrative supplemental root cannot carry an unreconciled checkmark",
+      inventory: preservedAdministrativeSupplementalRoot("checkmark"),
+    },
+    {
       name: "supplemental Fixed cannot hide an unfinished scope without this actor's marks",
       inventory: withSupplementalRootAudit(
         supplementalRootAudit("8.500000", {
@@ -15489,6 +15585,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Owned elsewhere needs another actor's root 👀 and their current same-thread status",
     "administrative supplemental roots cannot carry this actor's workflow marks":
       "this actor's workflow marks cannot be placed on an administrative root",
+    "preserved administrative supplemental root cannot carry an unreconciled ticket":
+      "invalid preserved administrative 👀 evidence (no unreconciled 🎫 mark)",
+    "preserved administrative supplemental root cannot carry an unreconciled checkmark":
+      "invalid preserved administrative 👀 evidence (no unreconciled ✅ mark)",
     "supplemental Fixed cannot hide an unfinished scope without this actor's marks":
       "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "supplemental Partially fixed disposition needs an unfinished scope":
@@ -21654,6 +21754,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       "New submission: Product waitlist\n*Email:* <mailto:person@example.com|person@example.com>\n*App URL:* <https://example.com/app>\n*Original request:* Publish the example design.\n*Source:* app_page\n*Use case:* publish\nSubmitted <!date^1792705000^{date_short_pretty} at {time}|2026-10-22T21:36:40.870Z>";
     const blockOnlyFeedbackSubmission =
       "New submission: Agent-Native Feedback\n*What can we improve about Agent-Native?:* remove inactive users\nSubmitted <!date^1792493684^{date_short_pretty} at {time}|2026-10-20T10:54:44.086Z> by *person@example.com*";
+    const legacyFeedbackFormName = ["Agent", "Native"].join(" ");
+    const blockOnlyMultilineFeedbackSubmission = `New submission: ${legacyFeedbackFormName} Feedback\n*What can we improve about ${legacyFeedbackFormName}?:*\nThe first response line.\n\nA second response line.\nSubmitted <!date^1792493684^{date_short_pretty} at {time}|2026-10-20T10:54:44.086Z> by *person@example.com*\nPage: <https://example.com/app|Example app>\nSource: Web`;
     if (
       !matchesSlackMessageText(
         "Status reply. this was sent from a bot.",
@@ -21717,6 +21819,19 @@ if (args[0] === "--self-test" && args.length === 1) {
       !matchesSlackMessageText("", blockOnlyButtonFooter) ||
       !matchesSlackMessageText("", blockOnlyIntakeForm) ||
       !matchesSlackMessageText("", blockOnlyFeedbackSubmission) ||
+      !matchesSlackMessageText("", blockOnlyMultilineFeedbackSubmission) ||
+      matchesSlackMessageText(
+        "",
+        blockOnlyFeedbackSubmission.replace(" remove inactive users", ""),
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `${blockOnlyFeedbackSubmission}\nUnrelated metadata`,
+      ) ||
+      matchesSlackMessageText(
+        "",
+        `${blockOnlyFeedbackSubmission}\nSource: Web\nSource: Web`,
+      ) ||
       matchesSlackMessageText(
         "",
         `${blockOnlyIntakeForm}\nUnrelated trailing content`,
@@ -22325,6 +22440,25 @@ if (args[0] === "--self-test" && args.length === 1) {
         ],
       },
     };
+    const administrativeEyeWithSweepReactionWrite = withPageRoot(
+      integratedPreservedAdministrative,
+      "11.000000",
+      (parent) => ({
+        ...parent,
+        reactionWriteAt: new Date(
+          Date.parse(ownershipReadAt) + 500,
+        ).toISOString(),
+      }),
+    );
+    expectFocusedFailure(
+      "preserved administrative eye written during this sweep",
+      () =>
+        validateInventory(administrativeEyeWithSweepReactionWrite, {
+          ...integratedOptions,
+          rawThreadPages: freshAdministrativeThreadPages,
+        }),
+      "no reaction written during this sweep",
+    );
     expectFocusedFailure(
       "preserved administrative eye with a thread read before owned-mark search completion",
       () =>
