@@ -1696,6 +1696,21 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
+  it("rejects positional selectors when a sibling can replace itself through outerHTML", () => {
+    const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 :outerHTML="replacement">Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining(":outerhtml may inject a stylesheet"),
+    });
+  });
+
   it.each([
     ["a matching remote destination", ".card", "unsupported"],
     ["an unresolved remote destination", "getPortal()", "unsupported"],
@@ -2087,6 +2102,32 @@ describe("HTML Motion source adapter", () => {
       });
     },
   );
+
+  it("rejects :has() when runtime markup can add a matching descendant", () => {
+    const source = `<!doctype html><html><head><style>.card:has(.foo) { opacity: 0 !important; }</style></head><body><main class="card" id="hero-title" data-agent-native-node-id="hero-title"><div x-html="content"></div></main></body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-target",
+      reason: expect.stringContaining("x-html may inject a stylesheet"),
+    });
+  });
+
+  it("rejects :has() when a remote teleport can add a matching descendant", () => {
+    const source = `<!doctype html><html><head><style>.card:has(.foo) { opacity: 0 !important; }</style></head><body><main class="card" id="hero-title" data-agent-native-node-id="hero-title"></main><div x-data><template x-teleport=".card"><i class="foo"></i></template></div>${ALPINE_CDN}</body></html>`;
+
+    expect(
+      inspectMotionHtmlSourceWriteCapability({
+        source,
+        targetNodeIds: ["hero-title"],
+      }),
+    ).toMatchObject({ status: "unsupported", code: "unsupported-target" });
+  });
 
   it("allows unrelated relational CSS when a runtime class binding cannot reach the Motion target", () => {
     const source = html

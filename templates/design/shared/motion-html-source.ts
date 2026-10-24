@@ -1888,7 +1888,7 @@ function selectorPseudoMatchesNode(
       if (nthMatch === null) return { matches: true, dynamic: true };
       matches = nthMatch;
     }
-    dynamic ||= siblings.some(hasAlpineStructuralSibling);
+    dynamic ||= hasAlpineStructuralSibling(node);
     return { matches, dynamic };
   }
   if (DYNAMIC_BROWSER_PSEUDO_CLASSES.has(name)) {
@@ -1933,7 +1933,9 @@ function selectorPseudoMatchesNode(
       });
     });
     const dynamic =
-      dynamicNestedMatch || hasRuntimeMutationOnSelectorPath(node);
+      dynamicNestedMatch ||
+      hasRuntimeMutationOnSelectorPath(node) ||
+      hasRemoteAlpineTeleportTo(node);
     return {
       matches: dynamic || staticNestedMatch,
       dynamic,
