@@ -314,8 +314,8 @@ import {
 } from "./auth.js";
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
+import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
 import {
-  cliWrapperFlagsFromSource,
   discoveredActionMcpAnnotations,
   filesystemActionEntry,
 } from "./filesystem-action-entry.js";
@@ -1911,11 +1911,13 @@ export function createAgentChatPlugin(
               // fallback still mounts HTTP routes with the correct method,
               // stays hidden when asked, keeps its approval gate and keeps its
               // results out of browser storage. We can't load the .ts module to read
-              // the real defineAction object in this Node context, so this
-              // regex sniff is the best we can do until the discovery is moved
-              // into a Vite-aware codepath.
-              let sniffed: ReturnType<typeof cliWrapperFlagsFromSource> = {};
+              // the real defineAction object in this Node context, so parsing
+              // the source is the best we can do until the discovery is moved
+              // into a Vite-aware codepath. The parser loads only on this path.
+              let sniffed: CliWrapperFlags = {};
               try {
+                const { cliWrapperFlagsFromSource } =
+                  await import("./cli-wrapper-flags.js");
                 sniffed = cliWrapperFlagsFromSource(
                   _fs.readFileSync(filePath, "utf-8"),
                 );

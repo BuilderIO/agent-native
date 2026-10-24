@@ -9,10 +9,7 @@ import {
   preparedCallArguments,
 } from "../action.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
-import {
-  cliWrapperFlagsFromSource,
-  filesystemActionEntry,
-} from "./filesystem-action-entry.js";
+import { filesystemActionEntry } from "./filesystem-action-entry.js";
 
 const keyOf = (entry: object) =>
   (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
@@ -186,98 +183,6 @@ describe("filesystemActionEntry", () => {
       readOnlyHint: false,
       destructiveHint: true,
       openWorldHint: true,
-    });
-  });
-});
-
-describe("cliWrapperFlagsFromSource", () => {
-  const source = (flags: string) =>
-    [
-      "export default defineAction({",
-      '  description: "Send",',
-      flags,
-      "  run: async () => ({}),",
-      "});",
-    ].join("\n");
-
-  it("keeps the approval gate however an unimportable action declares it", () => {
-    for (const flags of [
-      "  needsApproval: true,",
-      "  needsApproval: (input) => input.to !== 'me',",
-      "  needsApproval(input) { return input.to !== 'me'; },",
-      "  needsApproval,",
-      "  needsApproval: false || shouldAsk(input),",
-      "  needsApproval: false, // reads only\n  needsApproval: true,",
-    ]) {
-      expect(cliWrapperFlagsFromSource(source(flags)), flags).toEqual({
-        needsApproval: true,
-      });
-    }
-  });
-
-  it("leaves an action ungated when it says no approval is needed", () => {
-    expect(
-      cliWrapperFlagsFromSource(source("  needsApproval: false,")),
-    ).toEqual({});
-    expect(
-      cliWrapperFlagsFromSource(
-        source("  needsApproval: false, // reads only"),
-      ),
-    ).toEqual({});
-    expect(cliWrapperFlagsFromSource(source(""))).toEqual({});
-    expect(
-      cliWrapperFlagsFromSource(
-        source("  run: async (input) => ({ ...input, sent: true }),"),
-      ),
-    ).toEqual({});
-  });
-
-  it("gates options it can't see and keeps their results out of the browser", () => {
-    const hidden = { needsApproval: true, persistInBrowser: false };
-    expect(
-      cliWrapperFlagsFromSource(source("  ...approvalFlags,")),
-      "spread",
-    ).toEqual(hidden);
-    expect(
-      cliWrapperFlagsFromSource("export default defineAction(sendOptions);"),
-      "options by name",
-    ).toEqual(hidden);
-    expect(
-      cliWrapperFlagsFromSource(
-        source("  needsApproval: false,\n  ...approvalFlags,"),
-      ),
-      "a spread can override an explicit opt-out",
-    ).toEqual(hidden);
-  });
-
-  it("keeps an unimportable action's results out of the browser when it asks", () => {
-    for (const flags of [
-      "  persistInBrowser: false,",
-      "  persistInBrowser: isPrivate,",
-      "  persistInBrowser,",
-    ]) {
-      expect(cliWrapperFlagsFromSource(source(flags)), flags).toEqual({
-        persistInBrowser: false,
-      });
-    }
-    expect(
-      cliWrapperFlagsFromSource(source("  persistInBrowser: true,")),
-    ).toEqual({});
-  });
-
-  it("reads the HTTP route and agent opt-out", () => {
-    expect(
-      cliWrapperFlagsFromSource(
-        source(
-          [
-            "  agentTool: false,",
-            '  http: { method: "GET", path: "/report" },',
-          ].join("\n"),
-        ),
-      ),
-    ).toEqual({ agentTool: false, http: { method: "GET", path: "/report" } });
-    expect(cliWrapperFlagsFromSource(source("  http: false,"))).toEqual({
-      http: false,
     });
   });
 });
