@@ -313,6 +313,19 @@ function combineRevisions(parts: NavigationRevision[]) {
 export const MAX_NAVIGATION_EXPANDED_BRANCHES = 32;
 export const MAX_NAVIGATION_EXPAND_IDS = 100;
 
+/** Sort keys a Files view can hold that aren't property IDs. */
+export const FILES_NAVIGATION_SORT_KEYS: ReadonlyMap<
+  string,
+  ContentDatabaseNavigationSort
+> = new Map([
+  ["name", "name"],
+  ["created", "created"],
+  ["created_at", "created"],
+  ["updated", "last_edited"],
+  ["updated_at", "last_edited"],
+  ["last_edited", "last_edited"],
+]);
+
 export async function getContentDatabaseNavigationPage(args: {
   database: typeof schema.contentDatabases.$inferSelect;
   userEmail: string;
@@ -362,15 +375,7 @@ export async function getContentDatabaseNavigationPage(args: {
     personalView?.filterMode ?? sharedView.filterMode ?? "and";
   const sharedSort = (personalView?.sorts ?? sharedView.sorts)[0];
   const configuredSort =
-    sharedSort?.key === "name"
-      ? "name"
-      : sharedSort?.key === "created" || sharedSort?.key === "created_at"
-        ? "created"
-        : sharedSort?.key === "updated" ||
-            sharedSort?.key === "updated_at" ||
-            sharedSort?.key === "last_edited"
-          ? "last_edited"
-          : null;
+    (sharedSort && FILES_NAVIGATION_SORT_KEYS.get(sharedSort.key)) ?? null;
   const sidebarSort = personalView?.sidebarOrder?.mode;
   const effectiveSort = sidebarSort ?? configuredSort ?? args.sort;
   const descending = sidebarSort

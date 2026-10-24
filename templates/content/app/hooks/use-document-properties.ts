@@ -37,6 +37,7 @@ import {
   contentDatabaseQueryFilter,
   contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
+  invalidateContentDatabaseNavigationQueries,
   removeDocumentPropertyFromDatabaseResponse,
 } from "./use-content-database";
 import {
@@ -766,7 +767,8 @@ export function useDeleteDocumentProperty(
       void queryClient.invalidateQueries({
         ...contentDatabaseQueryFilter(databaseDocumentId),
       });
-      // The cached personal view can still sort or filter on the property.
+      // The cached personal view, and the Files sidebar pages read through
+      // it, can still sort or filter on the property.
       void queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -774,6 +776,7 @@ export function useDeleteDocumentProperty(
           { databaseId },
         ],
       });
+      invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
     },
   });
   return withDatabaseScope(mutation, databaseId);
