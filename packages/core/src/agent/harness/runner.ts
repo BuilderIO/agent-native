@@ -63,6 +63,13 @@ export function startAgentHarnessRun(
       let storedSessionId: string | undefined;
       let harnessSessionRegistered = false;
       let keepLiveSession = false;
+      let liveSessionReleasedBeforeCheckpoint = false;
+      const releaseLiveSessionBeforeCheckpoint = () => {
+        if (storedSessionId && harnessSession) {
+          releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
+          liveSessionReleasedBeforeCheckpoint = true;
+        }
+      };
       try {
         send({
           type: "activity",
@@ -183,10 +190,9 @@ export function startAgentHarnessRun(
               harnessSession,
               opts.createSession?.resumeState,
               detachOnComplete,
+              detachOnComplete ? releaseLiveSessionBeforeCheckpoint : undefined,
             );
-            if (detachOnComplete) {
-              releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
-            } else {
+            if (!detachOnComplete) {
               keepLiveSession = true;
             }
             return;
@@ -214,8 +220,8 @@ export function startAgentHarnessRun(
           storedSessionId,
           harnessSession,
           resumeState,
+          releaseLiveSessionBeforeCheckpoint,
         );
-        releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
       } catch (error) {
         if (isAgentHarnessSessionConflictError(error)) {
           if (!harnessSessionRegistered) {
@@ -248,7 +254,11 @@ export function startAgentHarnessRun(
         }
         throw error;
       } finally {
-        if (!keepLiveSession && storedSessionId) {
+        if (
+          !keepLiveSession &&
+          !liveSessionReleasedBeforeCheckpoint &&
+          storedSessionId
+        ) {
           releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
         }
       }
@@ -271,18 +281,25 @@ async function saveHarnessCheckpoint(
   session: AgentHarnessSession,
   resumeState: unknown,
   detachOnComplete: boolean,
+  beforeCheckpoint?: () => void,
 ): Promise<void> {
   let nextResumeState = resumeState;
   if (detachOnComplete && session.detach) {
     nextResumeState = await session.detach();
   }
-  await persistHarnessCheckpoint(sessionId, session, nextResumeState);
+  await persistHarnessCheckpoint(
+    sessionId,
+    session,
+    nextResumeState,
+    beforeCheckpoint,
+  );
 }
 
 async function persistHarnessCheckpoint(
   sessionId: string,
   session: AgentHarnessSession,
   resumeState: unknown,
+  beforeCheckpoint?: () => void,
 ): Promise<void> {
   let conflict: AgentHarnessSessionConflictError | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -299,6 +316,7 @@ async function persistHarnessCheckpoint(
     }
     const pendingApproval = checkpointPendingApproval(stored);
     try {
+      beforeCheckpoint?.();
       const updated = await updateAgentHarnessSessionAtGeneration(
         sessionId,
         stored.status,
@@ -349,14 +367,24 @@ async function updateLiveAgentHarnessSession(
   session: AgentHarnessSession,
   patch: Parameters<typeof updateAgentHarnessSession>[1],
 ): Promise<void> {
-  const updated = await updateAgentHarnessSession(sessionId, patch);
-  if (updated) {
-    refreshLiveAgentHarnessSessionGeneration(
-      sessionId,
-      session,
-      updated.generation,
-    );
+  const stored = await getAgentHarnessSession(sessionId);
+  if (!stored || stored.status !== "running") {
+    throw new AgentHarnessSessionConflictError(sessionId);
   }
+  const updated = await updateAgentHarnessSessionAtGeneration(
+    sessionId,
+    "running",
+    stored.generation,
+    patch,
+    undefined,
+    true,
+  );
+  if (!updated) throw new AgentHarnessSessionConflictError(sessionId);
+  refreshLiveAgentHarnessSessionGeneration(
+    sessionId,
+    session,
+    updated.generation,
+  );
 }
 
 async function stopHarnessSession(

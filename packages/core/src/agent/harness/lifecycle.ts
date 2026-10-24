@@ -271,6 +271,7 @@ export async function resolveAgentHarnessApproval(input: {
           session.id,
           {
             followUpClaimId: session.followUpClaimId ?? undefined,
+            approvalResolutionId: input.approval.id,
             firstNext: dispatch.started.firstNext,
             iterator: dispatch.started.iterator,
             liveSession: live.session,
@@ -672,7 +673,7 @@ export async function sendAgentHarnessFollowUp(input: {
                   followUpClaimId: null,
                 };
               },
-              true,
+              { requiresNoApprovalResolution: true },
             );
             if (updatedSession) {
               refreshLiveAgentHarnessSessionGeneration(
@@ -1204,6 +1205,7 @@ async function consumeEvents(
   sessionId: string,
   options?: {
     abortSignal?: AbortSignal;
+    approvalResolutionId?: string;
     firstNext?: Promise<IteratorResult<AgentHarnessEvent>>;
     followUpClaimId?: string;
     iterator?: AsyncIterator<AgentHarnessEvent>;
@@ -1226,6 +1228,7 @@ async function consumeEvents(
               sessionId,
               options.followUpClaimId,
               { pendingApproval: event },
+              { expectedApprovalResolutionId: options.approvalResolutionId },
             )
           : await updateAgentHarnessSession(sessionId, {
               pendingApproval: event,

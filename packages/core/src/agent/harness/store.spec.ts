@@ -524,7 +524,7 @@ describe("agent harness session store", () => {
     });
   });
 
-  it("does not finalize a follow-up after approval resolution is reserved", async () => {
+  it("lets an approval owner persist a chained request without finalizing early", async () => {
     const id = "session-follow-up-approval-resolution-reserved";
     const claimId = "follow-up-approval-resolution-reserved";
     const approvalId = "approval-resolution-reserved";
@@ -560,13 +560,43 @@ describe("agent harness session store", () => {
       { approvalResolutionId: approvalId },
       claimId,
     );
+    await expect(
+      updateAgentHarnessSessionIfFollowUpClaim(id, claimId, {
+        pendingApproval: {
+          type: "approval-request",
+          id: "approval-chained",
+        },
+      }),
+    ).resolves.toBeNull();
+
+    const chained = await updateAgentHarnessSessionIfFollowUpClaim(
+      id,
+      claimId,
+      {
+        pendingApproval: {
+          type: "approval-request",
+          id: "approval-chained",
+        },
+      },
+      { expectedApprovalResolutionId: approvalId },
+    );
+    expect(chained).toMatchObject({
+      pendingApproval: { id: "approval-chained" },
+      approvalResolutionId: approvalId,
+    });
+
     let finalizeCalled = false;
 
     await expect(
-      updateAgentHarnessSessionIfFollowUpClaim(id, claimId, async () => {
-        finalizeCalled = true;
-        return { status: "idle", followUpClaimId: null };
-      }),
+      updateAgentHarnessSessionIfFollowUpClaim(
+        id,
+        claimId,
+        async () => {
+          finalizeCalled = true;
+          return { status: "idle", followUpClaimId: null };
+        },
+        { requiresNoApprovalResolution: true },
+      ),
     ).resolves.toBeNull();
 
     expect(finalizeCalled).toBe(false);
@@ -574,7 +604,8 @@ describe("agent harness session store", () => {
       status: "running",
       followUpClaimId: claimId,
       approvalResolutionId: approvalId,
-      generation: reserved!.generation,
+      pendingApproval: { id: "approval-chained" },
+      generation: reserved!.generation + 1,
     });
     expect(claimed).not.toBeNull();
   });

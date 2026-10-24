@@ -1588,7 +1588,9 @@ describe("agent harness lifecycle", () => {
       session: { status: "idle", resumeState: { token: "after-approval" } },
     });
     expect(
-      mocks.updateIfFollowUpClaim.mock.calls.some((call) => call[3] === true),
+      mocks.updateIfFollowUpClaim.mock.calls.some(
+        (call) => call[3]?.requiresNoApprovalResolution === true,
+      ),
     ).toBe(true);
     expect(order).toEqual(["continue", "detach"]);
   });

@@ -77,6 +77,7 @@ export interface SaveAgentHarnessSessionInput {
   expectedGeneration?: number;
   expectedStatus?: AgentHarnessSessionStatus;
   expectedFollowUpClaimId?: string;
+  expectedApprovalResolutionId?: string | null;
   requiresNoApprovalResolution?: boolean;
   existingSession?: StoredAgentHarnessSession | null;
 }
@@ -262,8 +263,14 @@ export async function saveAgentHarnessSession(
     conditions.push("follow_up_claim_id = ?");
     conditionArgs.push(input.expectedFollowUpClaimId);
   }
-  if (input.requiresNoApprovalResolution) {
+  if (
+    input.requiresNoApprovalResolution ||
+    input.expectedApprovalResolutionId === null
+  ) {
     conditions.push("approval_resolution_id IS NULL");
+  } else if (input.expectedApprovalResolutionId !== undefined) {
+    conditions.push("approval_resolution_id = ?");
+    conditionArgs.push(input.expectedApprovalResolutionId);
   }
   const updated = await client.execute({
     sql: `UPDATE agent_harness_sessions SET
@@ -342,7 +349,10 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
       ) =>
         | Partial<Omit<SaveAgentHarnessSessionInput, "id">>
         | Promise<Partial<Omit<SaveAgentHarnessSessionInput, "id">>>),
-  requiresNoApprovalResolution = false,
+  options: {
+    expectedApprovalResolutionId?: string;
+    requiresNoApprovalResolution?: boolean;
+  } = {},
 ): Promise<StoredAgentHarnessSession | null> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const existing = await getAgentHarnessSession(id);
@@ -350,7 +360,9 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
       !existing ||
       existing.status !== "running" ||
       existing.followUpClaimId !== claimId ||
-      existing.approvalResolutionId
+      (options.requiresNoApprovalResolution && existing.approvalResolutionId) ||
+      existing.approvalResolutionId !==
+        (options.expectedApprovalResolutionId ?? null)
     ) {
       return null;
     }
@@ -389,7 +401,9 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
         expectedGeneration: existing.generation,
         expectedStatus: "running",
         expectedFollowUpClaimId: claimId,
-        requiresNoApprovalResolution,
+        expectedApprovalResolutionId:
+          options.expectedApprovalResolutionId ?? null,
+        requiresNoApprovalResolution: options.requiresNoApprovalResolution,
         existingSession: existing,
       });
     } catch (error) {
