@@ -30,6 +30,7 @@ vi.mock("./awareness-store.js", async (importOriginal) => {
 });
 
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
+import { MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE } from "./awareness-sequence.js";
 import {
   emitAwarenessChange,
   getAwarenessEmitter,
@@ -331,6 +332,25 @@ describe("postAwareness handler", () => {
     expect(received[0]?.states).toEqual([
       { clientId: 65, state: local!.state },
     ]);
+  });
+
+  it("rejects an oversized first presence sequence during a store outage", async () => {
+    const docId = "post-doc-outage-sequence-cap";
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 66,
+      clientSequence: MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE + 1,
+      clearToken: "oversized-first-write-clear-token",
+      state: postedAwarenessState("outage-state"),
+    });
+    mockWriteAwarenessRow.mockRejectedValueOnce(new Error("db unavailable"));
+    const ev = event({ docId });
+
+    await expect(postAwareness(ev)).resolves.toMatchObject({
+      error: "Awareness persistence unavailable",
+    });
+
+    expect(ev._status).toBe(503);
+    expect(docAwareness(docId).has(66)).toBe(false);
   });
 
   it("rejects a client sequence beyond the allowed legacy clock skew", async () => {

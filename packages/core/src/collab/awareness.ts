@@ -372,6 +372,8 @@ function canApplyLocalAwarenessWrite(
   if (!existing) {
     return (
       !cleared &&
+      (clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE ||
+        clientSequence <= MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE) &&
       !isBlockedByAwarenessClear(
         docId,
         clientId,
