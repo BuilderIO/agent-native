@@ -1163,9 +1163,18 @@ describe("content database relative date ranges", () => {
       "2026-03-01",
       "2026-05-31",
     ]);
-    // 31 January plus a month is 28 February, so the month ends the day before.
+    // 31 January plus a month is 28 February, which has no 31st to stop
+    // before, so the month runs through it.
     expect(days("next_1_month", "2026-01-31")).toEqual([
       "2026-01-31",
+      "2026-02-28",
+    ]);
+    expect(days("next_1_month", "2026-01-29")).toEqual([
+      "2026-01-29",
+      "2026-02-28",
+    ]);
+    expect(days("next_1_month", "2026-01-28")).toEqual([
+      "2026-01-28",
       "2026-02-27",
     ]);
     expect(days("next_1_month", "2026-12-31")).toEqual([
@@ -1198,7 +1207,7 @@ describe("content database relative date ranges", () => {
     ]);
     expect(days("next_1_year", "2028-02-29")).toEqual([
       "2028-02-29",
-      "2029-02-27",
+      "2029-02-28",
     ]);
     expect(days("this_year", "2028-02-29")).toEqual([
       "2028-01-01",

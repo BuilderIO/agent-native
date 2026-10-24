@@ -197,8 +197,9 @@ plural otherwise (`past_7_days`, `next_1_week`, `past_2_months`,
 `this_year`). Either number reads, but write the fitting one. Ranges are
 whole calendar days counting today: `past_7_days` is today and the six days
 before it, `next_1_month` runs from today through the day before the same date
-next month, and a month or year that lands past a shorter month's end, such as
-a month back from 31 March, takes that month's last day. `this_day` is today,
+next month, and a month or year that lands past a shorter month's end takes
+that month's last day: a month back from 31 March starts on 1 March, and a
+month on from 31 January runs through 28 February. `this_day` is today,
 `this_week` runs Sunday to Saturday, and `this_month` and `this_year` are the
 calendar month and year. Store the token, not a date: it is resolved each time
 the view is read, in the caller's time zone (the browser's, or the

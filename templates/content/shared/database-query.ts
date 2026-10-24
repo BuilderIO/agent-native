@@ -276,8 +276,9 @@ export function contentDatabaseRelativeDateRangeToken(
 // Ranges are whole calendar days. Past N units end today and next N units
 // start today, each N units long counting today, so the past 7 days are today
 // and the six before it. A month or year that lands on a day its month doesn't
-// have, such as 31 February, takes that month's last day. Weeks start on
-// Sunday, like the calendar view's grid.
+// have, such as 31 February, takes that month's last day, and a next range
+// ending there keeps it, so the next month from 31 January runs through 28
+// February. Weeks start on Sunday, like the calendar view's grid.
 function relativeDateRangeDays(
   range: ContentDatabaseRelativeDateRange,
   today: string,
@@ -286,7 +287,11 @@ function relativeDateRangeDays(
     return [addDays(addUnits(today, -range.count, range.unit), 1), today];
   }
   if (range.direction === "next") {
-    return [today, addDays(addUnits(today, range.count, range.unit), -1)];
+    const end = addUnits(today, range.count, range.unit);
+    const shortened =
+      (range.unit === "month" || range.unit === "year") &&
+      end.slice(8) !== today.slice(8);
+    return [today, shortened ? end : addDays(end, -1)];
   }
   switch (range.unit) {
     case "day":
