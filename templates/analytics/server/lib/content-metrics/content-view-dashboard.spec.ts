@@ -435,9 +435,10 @@ describe("Content view dashboard", () => {
         title: "Post three",
         href: "https://www.builder.io/blog/three",
         published: daysAgo(80),
-        // The 4 from before publication count toward the total, not week 1.
+        // The 4 from before publication count toward the total, not week 1,
+        // and today's partial 100 toward neither.
         first_week: 5,
-        signups: 175,
+        signups: 75,
       },
     ]);
     // Post one has 2 signups across both windows, under the 10 a change needs.

@@ -237,7 +237,7 @@
       "source": "first-party",
       "width": 3,
       "tab": "New and rising",
-      "sql": "SELECT i.title, i.url AS href, substr(i.published_at, 1, 10) AS published, SUM(s.value) FILTER (WHERE s.metric_date >= substr(i.published_at, 1, 10) AND s.metric_date < to_char(substr(i.published_at, 1, 10)::date + 7, 'YYYY-MM-DD')) AS first_week, SUM(s.value) AS signups FROM analytics_content_items i LEFT JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND s.metric = 'signups_first_touch' WHERE i.source = 'builder_blog' AND substr(i.published_at, 1, 10)::date >= CURRENT_DATE - 90 GROUP BY i.id, i.title, i.url, i.published_at ORDER BY i.published_at DESC",
+      "sql": "SELECT i.title, i.url AS href, substr(i.published_at, 1, 10) AS published, SUM(s.value) FILTER (WHERE s.metric_date >= substr(i.published_at, 1, 10) AND s.metric_date < to_char(substr(i.published_at, 1, 10)::date + 7, 'YYYY-MM-DD')) AS first_week, SUM(s.value) AS signups FROM analytics_content_items i LEFT JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND s.metric = 'signups_first_touch' AND s.metric_date < to_char(CURRENT_DATE, 'YYYY-MM-DD') WHERE i.source = 'builder_blog' AND substr(i.published_at, 1, 10)::date >= CURRENT_DATE - 90 GROUP BY i.id, i.title, i.url, i.published_at ORDER BY i.published_at DESC",
       "config": {
         "timeScope": "fixed-window",
         "sortable": true,
