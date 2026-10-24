@@ -91,6 +91,7 @@ const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
+const WORKSPACE_DISPATCH_MOUNT_PATH = "/dispatch";
 const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 2_500;
 const WORKSPACE_APP_ACCESS_CONCURRENCY = 8;
 const MAX_PENDING_APPS = 50;
@@ -637,6 +638,20 @@ function workspaceAppUrl(appPath: string): string | null {
   } catch {
     return null;
   }
+}
+
+// The caller's own base path names the receiver's mount only when the caller is
+// that Dispatch. A root-mounted Dispatch reading another deployment's bare
+// gateway origin would otherwise address its token to the origin, while the
+// workspace's Dispatch checks tokens against `/dispatch`.
+function workspaceGatewayAudience(gatewayUrl: URL): string {
+  const audience = canonicalA2AAudience(
+    gatewayUrl.toString(),
+    getConfiguredAppBasePath() || undefined,
+  );
+  return audience === gatewayUrl.origin
+    ? `${gatewayUrl.origin}${WORKSPACE_DISPATCH_MOUNT_PATH}`
+    : audience;
 }
 
 function isLocalWorkspaceGateway(url: URL): boolean {
@@ -1958,10 +1973,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
           {
             expiresIn: "1m",
             preferGlobalSecret: !delegatedMember,
-            audience: canonicalA2AAudience(
-              baseUrl.toString(),
-              getConfiguredAppBasePath() || undefined,
-            ),
+            audience: workspaceGatewayAudience(baseUrl),
           },
         );
         authHeaders.Authorization = `Bearer ${token}`;
