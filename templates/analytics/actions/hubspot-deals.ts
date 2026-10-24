@@ -367,16 +367,66 @@ function buildHubSpotDealFilters(options: {
 const DEALS_JSON_CHAR_BUDGET = 40_000;
 
 // The agent truncates tool output at 50,000 chars, so keep the serialized page
-// well under it. Always return at least one deal so paging makes progress.
-function fitDealsToBudget<T>(deals: T[]): T[] {
-  const kept = [...deals];
+// well under it. Always return at least one deal so paging makes progress; a
+// lone deal that is still over budget has its longest string properties
+// shortened (with a visible marker) rather than being dropped or cut off.
+const MIN_KEPT_PROPERTY_CHARS = 200;
+
+function fitDealsToBudget<
+  T extends { id: string; properties: Record<string, unknown> },
+>(deals: T[]) {
+  let kept = [...deals];
   while (
     kept.length > 1 &&
     JSON.stringify(kept).length > DEALS_JSON_CHAR_BUDGET
   ) {
     kept.pop();
   }
-  return kept;
+
+  const truncatedProperties: Array<{ id: string; properties: string[] }> = [];
+  if (
+    kept.length === 1 &&
+    JSON.stringify(kept).length > DEALS_JSON_CHAR_BUDGET
+  ) {
+    const [deal] = kept;
+    const original = deal.properties;
+    const properties: Record<string, unknown> = { ...original };
+    const shortened: string[] = [];
+    for (;;) {
+      const excess =
+        JSON.stringify([{ ...deal, properties }]).length -
+        DEALS_JSON_CHAR_BUDGET;
+      if (excess <= 0) break;
+      let longest: string | null = null;
+      for (const [name, value] of Object.entries(properties)) {
+        if (
+          typeof value === "string" &&
+          value.length > MIN_KEPT_PROPERTY_CHARS &&
+          (longest == null ||
+            value.length > (properties[longest] as string).length)
+        ) {
+          longest = name;
+        }
+      }
+      if (longest == null) break;
+      const full = original[longest] as string;
+      const current = properties[longest] as string;
+      // Slack covers the marker text and JSON escaping of the cut characters.
+      const keep = Math.max(
+        MIN_KEPT_PROPERTY_CHARS,
+        current.length - excess - 100,
+      );
+      if (keep >= current.length) break;
+      properties[longest] =
+        `${full.slice(0, keep)}…[truncated ${full.length - keep} chars]`;
+      if (!shortened.includes(longest)) shortened.push(longest);
+    }
+    if (shortened.length) {
+      kept = [{ ...deal, properties }];
+      truncatedProperties.push({ id: deal.id, properties: shortened });
+    }
+  }
+  return { deals: kept, truncatedProperties };
 }
 
 function buildGuidance(options: {
@@ -390,6 +440,7 @@ function buildGuidance(options: {
   limit: number;
   searchCoverageLimited: boolean;
   sizeTrimmed: boolean;
+  truncatedProperties: Array<{ id: string; properties: string[] }>;
 }) {
   const guidance: string[] = [];
 
@@ -418,6 +469,12 @@ function buildGuidance(options: {
       options.query
         ? "The page was trimmed to fit the output size budget, so some matching deals on it were not returned and cannot be resumed with a cursor. Re-run with a smaller limit or a narrower query."
         : "The page was trimmed to fit the output size budget. Resume from nextOffset (or re-run with a smaller limit) so no deals are skipped.",
+    );
+  }
+
+  for (const entry of options.truncatedProperties) {
+    guidance.push(
+      `Deal ${entry.id} was too large for the output size budget, so these properties were shortened (marked "…[truncated N chars]"): ${entry.properties.join(", ")}. Fetch the full record through the provider API (provider-api-request with provider = hubspot) if the full values are needed.`,
     );
   }
 
@@ -644,8 +701,9 @@ export default defineAction({
         Object.entries(deal.properties).filter(([, value]) => value != null),
       ),
     }));
-    const deals = fitDealsToBudget(allDeals);
-    const sizeTrimmed = deals.length < allDeals.length;
+    const { deals, truncatedProperties } = fitDealsToBudget(allDeals);
+    const droppedDeals = deals.length < allDeals.length;
+    const sizeTrimmed = droppedDeals || truncatedProperties.length > 0;
     const searchCoverageLimited = matchedTotal >= HUBSPOT_SEARCH_RESULT_CAP;
     const nextCursor = dealResult.nextAfter
       ? Number.parseInt(dealResult.nextAfter, 10)
@@ -658,8 +716,8 @@ export default defineAction({
     // A size-trimmed offset page resumes right after the last returned deal.
     // A trimmed query page has no cursor to resume from, so it reports none.
     const hasMore = trimmedQuery
-      ? !sizeTrimmed && dealResult.nextAfter != null && nextCursorWithinCap
-      : sizeTrimmed
+      ? !droppedDeals && dealResult.nextAfter != null && nextCursorWithinCap
+      : droppedDeals
         ? nextOffsetValue < HUBSPOT_SEARCH_RESULT_CAP
         : dealResult.nextAfter != null && nextCursorWithinCap;
     const truncated = deals.length < matchedTotal || searchCoverageLimited;
@@ -678,8 +736,9 @@ export default defineAction({
             hasMore,
             nextOffset: hasMore ? nextOffsetValue : null,
           }),
-      nextAfter: hasMore && !sizeTrimmed ? dealResult.nextAfter : null,
+      nextAfter: hasMore && !droppedDeals ? dealResult.nextAfter : null,
       sizeTrimmed,
+      ...(truncatedProperties.length ? { truncatedProperties } : {}),
       deals,
       query: trimmedQuery || null,
       filters,
@@ -696,7 +755,8 @@ export default defineAction({
         offset,
         limit,
         searchCoverageLimited,
-        sizeTrimmed,
+        sizeTrimmed: droppedDeals,
+        truncatedProperties,
       }),
       searchedProperties: dealResult.properties,
       stageLabels: lookups.stageLabels,

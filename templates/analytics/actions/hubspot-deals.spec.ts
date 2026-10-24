@@ -352,6 +352,60 @@ describe("hubspot-deals action", () => {
     expect(result.nextOffset).toBe(60 + result.deals.length);
   });
 
+  it("shortens an oversized lone deal instead of returning it past the output cap", async () => {
+    searchHubSpotObjects.mockResolvedValue({
+      records: [
+        {
+          id: "huge-1",
+          properties: {
+            dealname: "Huge deal",
+            dealstage: "closed-lost",
+            pipeline: "enterprise-new-business",
+            description: "d".repeat(100_000),
+          },
+        },
+      ],
+      total: 1,
+      nextAfter: null,
+      properties: [],
+    });
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [
+          {
+            id: "closed-lost",
+            label: "Closed Lost",
+            displayOrder: 1,
+            metadata: { probability: "0" },
+          },
+        ],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({});
+
+    const result = (await hubspotDeals.run({ closedStatus: "lost" })) as Record<
+      string,
+      any
+    >;
+
+    expect(JSON.stringify(result).length).toBeLessThan(50_000);
+    expect(result.sizeTrimmed).toBe(true);
+    expect(result.count).toBe(1);
+    expect(result.deals[0].id).toBe("huge-1");
+    expect(result.deals[0].properties.description).toMatch(
+      /…\[truncated \d+ chars\]$/,
+    );
+    expect(result.deals[0].properties.dealname).toBe("Huge deal");
+    expect(result.truncatedProperties).toEqual([
+      { id: "huge-1", properties: ["description"] },
+    ]);
+    expect(result.hasMore).toBe(false);
+    expect(result.nextOffset).toBeNull();
+    expect(result.guidance).toContain("description");
+  });
+
   it("bounds an unfiltered (no query, no filters) call too", async () => {
     const deals = Array.from({ length: 40 }, (_, index) => ({
       id: `deal-${index}`,
