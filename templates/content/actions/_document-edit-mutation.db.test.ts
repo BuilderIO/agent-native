@@ -14,6 +14,8 @@ import {
   vi,
 } from "vitest";
 
+import { derivedVideoBlockId } from "../shared/comment-block-anchor.js";
+
 const { countOutcome } = vi.hoisted(() => ({ countOutcome: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
@@ -1092,6 +1094,26 @@ describe("revisioned document edit mutation", () => {
       ctx,
     });
     expect(saved.receipt.outcome).toBe("applied");
+  });
+
+  it("saves a video added without an id above one whose derived id the page saved", async () => {
+    const src = "https://example.com/a.mp4";
+    const original = `Intro\n<video src="${src}" id="${derivedVideoBlockId(src, 0)}">Demo</video>`;
+    const page = eq(schema.documents.id, DOCUMENT_ID);
+    await getDb()
+      .update(schema.documents)
+      .set({ content: original })
+      .where(page);
+    const added = await mutateDocumentBody({
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, original),
+      idempotencyKey: "video-plain-above",
+      edits: [
+        { find: "Intro", replace: `Intro\n<video src="${src}">Added</video>` },
+      ],
+      ctx,
+    });
+    expect(added.receipt.outcome).toBe("applied");
   });
 
   it("rejects legacy content drift even when its numeric body revision was not advanced", async () => {

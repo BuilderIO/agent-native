@@ -285,6 +285,30 @@ describe("add-comment with blockId", () => {
     ).toEqual({ statusCode: 400, errorCode: "comment_block_id_shared" });
   });
 
+  it("keeps a saved id on its video when a video added above derives the same one", async () => {
+    const written = derivedVideoBlockId(LEGACY, 0);
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "block-added-above",
+        ownerEmail: OWNER,
+        title: "Clips",
+        content: [
+          `<video src="${LEGACY}"></video>`,
+          `<video src="${LEGACY}" id="${written}"></video>`,
+        ].join("\n"),
+      });
+    const created = await byAgent({
+      documentId: "block-added-above",
+      content: "Still this one",
+      blockId: written,
+    });
+    expect(await storedComment(created.id)).toMatchObject({
+      blockId: written,
+      blockType: "video",
+    });
+  });
+
   it("tells an agent when no block has that id", async () => {
     const page = await seedPage("block-missing");
     expect(

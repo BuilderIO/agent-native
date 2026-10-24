@@ -41,9 +41,11 @@ export function derivedVideoBlockId(src: string, occurrence: number) {
 
 /**
  * The id each anchorable block goes by, in document order: its saved id, or
- * for a video saved without one, its derived id. `holders` counts the blocks
- * that go by it. An id more than one block goes by names none of them, since
- * nothing says which one a thread on it meant.
+ * for a video saved without one, its derived id. A saved id always wins: a
+ * video goes by none rather than derive an id another video saved, as one
+ * added above a video that got its derived id written down would. `holders`
+ * counts the blocks that go by an id. An id more than one block goes by names
+ * none of them, since nothing says which one a thread on it meant.
  */
 export function commentAnchorBlockNames(
   blocks: readonly {
@@ -51,17 +53,19 @@ export function commentAnchorBlockNames(
     attrs?: Record<string, unknown> | null;
   }[],
 ) {
+  const savedId = ({ attrs }: (typeof blocks)[number]) =>
+    typeof attrs?.blockId === "string" ? attrs.blockId : "";
+  const savedIds = new Set(blocks.map(savedId));
   const sources = new Map<string, number>();
-  const names = blocks.map(({ type, attrs }) => {
-    const src = typeof attrs?.src === "string" ? attrs.src : "";
+  const names = blocks.map((block) => {
+    const src = typeof block.attrs?.src === "string" ? block.attrs.src : "";
     const occurrence = sources.get(src) ?? 0;
     sources.set(src, occurrence + 1);
-    const saved = typeof attrs?.blockId === "string" ? attrs.blockId : "";
-    return {
-      id:
-        saved || (type === "video" ? derivedVideoBlockId(src, occurrence) : ""),
-      saved: !!saved,
-    };
+    const saved = savedId(block);
+    if (saved) return { id: saved, saved: true };
+    const derived =
+      block.type === "video" ? derivedVideoBlockId(src, occurrence) : "";
+    return { id: savedIds.has(derived) ? "" : derived, saved: false };
   });
   const holders = new Map<string, number>();
   for (const { id } of names) holders.set(id, (holders.get(id) ?? 0) + 1);
@@ -197,15 +201,15 @@ export function nfmCommentAnchorBlocks(root: PMNode) {
 }
 
 /**
- * The ids more blocks go by in `after` than in `before`, where more than one
- * does, as when a `<video>` line is copied with its id.
+ * The saved ids more blocks have in `after` than in `before`, where more than
+ * one does, as when a `<video>` line is copied with its id.
  */
 export function newlySharedCommentAnchorIds(before: string, after: string) {
   const holders = (nfm: string) =>
     new Map(
-      commentAnchorBlockNames(anchorBlocksIn(nfmToDoc(nfm))).map(
-        ({ id, holders }) => [id, holders],
-      ),
+      commentAnchorBlockNames(anchorBlocksIn(nfmToDoc(nfm)))
+        .filter(({ saved }) => saved)
+        .map(({ id, holders }) => [id, holders]),
     );
   const had = holders(before);
   return [...holders(after)]

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { derivedVideoBlockId } from "@shared/comment-block-anchor";
 import { nfmQuoteAnchor } from "@shared/comment-quote-anchor";
 import { nfmToDoc } from "@shared/nfm";
 import { Schema } from "@tiptap/pm/model";
@@ -99,6 +100,18 @@ describe("the block a thread is on", () => {
     expect(threadCommentBlock(unique, thread as never)?.blockId).toBe(
       "video-only001",
     );
+  });
+
+  it("keeps a thread on the video that saved its id when a video added above derives the same one", () => {
+    const written = derivedVideoBlockId("https://example.com/a.mp4", 0);
+    const doc = schema.node("doc", null, [video(null), video(written)]);
+    const thread = { block: { blockId: written } };
+    expect(threadCommentBlock(doc, thread as never)).toEqual({
+      blockId: written,
+      blockType: "video",
+      pos: 1,
+    });
+    expect(commentAnchorBlockAt(doc, 0)).toBeNull();
   });
 
   it("puts an older thread on no video when the page has more than one, though only one goes by its own id", () => {

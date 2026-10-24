@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   derivedVideoBlockId,
   keepVideoBlockIds,
+  newlySharedCommentAnchorIds,
   nfmCommentAnchorBlocks,
 } from "./comment-block-anchor";
 import { nfmToDoc } from "./nfm";
@@ -50,20 +51,65 @@ describe("comment anchor blocks", () => {
   });
 
   it("marks an id two blocks go by as shared, whichever comes first", () => {
-    const derived = derivedVideoBlockId("https://example.com/a.mp4", 0);
     const blocks = nfmCommentAnchorBlocks(
       nfmToDoc(
         L(
           '<video src="https://example.com/b.mp4" id="video-same0001">Copy</video>',
-          '<video src="https://example.com/a.mp4"></video>',
+          '<video src="https://example.com/a.mp4" id="video-other001"></video>',
           '<video src="https://example.com/a.mp4" id="video-same0001">Original</video>',
-          `<video src="https://example.com/c.mp4" id="${derived}"></video>`,
         ),
       ),
     );
     expect([...blocks]).toEqual([
       ["video-same0001", { blockType: "video", saved: true, shared: true }],
-      [derived, { blockType: "video", saved: false, shared: true }],
+      ["video-other001", { blockType: "video", saved: true, shared: false }],
+    ]);
+  });
+
+  it("leaves a saved id to its video when a video added above it derives the same one", () => {
+    const src = "https://example.com/a.mp4";
+    const written = derivedVideoBlockId(src, 0);
+    const original = `<video src="${src}" id="${written}">Original</video>`;
+    const plain = `<video src="${src}">Added</video>`;
+    const blocks = nfmCommentAnchorBlocks(nfmToDoc(L(plain, original)));
+    expect([...blocks]).toEqual([
+      [written, { blockType: "video", saved: true, shared: false }],
+    ]);
+    expect(newlySharedCommentAnchorIds(original, L(plain, original))).toEqual(
+      [],
+    );
+    expect(newlySharedCommentAnchorIds(original, L(original, plain))).toEqual(
+      [],
+    );
+    expect(
+      newlySharedCommentAnchorIds(original, L(original, original)),
+    ).toEqual([written]);
+  });
+
+  it("keeps the ids a page with no saved ids derives", () => {
+    const src = "https://example.com/a.mp4";
+    const blocks = nfmCommentAnchorBlocks(
+      nfmToDoc(
+        L(
+          `<video src="${src}"></video>`,
+          `<video src="${src}"></video>`,
+          '<video src="https://example.com/b.mp4"></video>',
+        ),
+      ),
+    );
+    expect([...blocks]).toEqual([
+      [
+        derivedVideoBlockId(src, 0),
+        { blockType: "video", saved: false, shared: false },
+      ],
+      [
+        derivedVideoBlockId(src, 1),
+        { blockType: "video", saved: false, shared: false },
+      ],
+      [
+        derivedVideoBlockId("https://example.com/b.mp4", 0),
+        { blockType: "video", saved: false, shared: false },
+      ],
     ]);
   });
 
