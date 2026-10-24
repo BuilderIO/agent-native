@@ -1369,9 +1369,18 @@ test.describe.serial("React Motion source browser writeback", () => {
     const positionRowBounds = await positionStyleTrigger
       .locator("xpath=..")
       .boundingBox();
-    const rightPanelBounds = await page
-      .locator('[data-design-chrome-region="right-panel"]')
-      .boundingBox();
+    const rightPanel = page.locator(
+      '[data-design-chrome-region="right-panel"]',
+    );
+    const rightPanelBounds = await rightPanel.boundingBox();
+    const rightPanelScrollbarWidth = await rightPanel.evaluate((element) => {
+      const panel = element as HTMLElement;
+      const style = window.getComputedStyle(panel);
+      const borders =
+        (Number.parseFloat(style.borderLeftWidth) || 0) +
+        (Number.parseFloat(style.borderRightWidth) || 0);
+      return panel.offsetWidth - panel.clientWidth - borders;
+    });
     if (!positionPanelBounds || !positionRowBounds || !rightPanelBounds) {
       throw new Error("Motion Position editor geometry is unavailable");
     }
@@ -1385,8 +1394,15 @@ test.describe.serial("React Motion source browser writeback", () => {
       JSON.stringify({ positionRowBounds, rightPanelBounds }),
     ).toBeLessThanOrEqual(1);
     expect(
-      Math.abs(positionRowBounds.width - rightPanelBounds.width),
-      JSON.stringify({ positionRowBounds, rightPanelBounds }),
+      Math.abs(
+        positionRowBounds.width -
+          (rightPanelBounds.width - rightPanelScrollbarWidth),
+      ),
+      JSON.stringify({
+        positionRowBounds,
+        rightPanelBounds,
+        rightPanelScrollbarWidth,
+      }),
     ).toBeLessThanOrEqual(1);
     expect(
       Math.abs(positionPanelBounds.y - positionRowBounds.y),
