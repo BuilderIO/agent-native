@@ -15,6 +15,7 @@ import {
 } from "./_builder-cms-source-adapter";
 import {
   BUILDER_CMS_EDIT_CONFLICTS_KEY,
+  BUILDER_CMS_TITLE_CONFLICT_KEY,
   BUILDER_CMS_PUBLICATION_INTENT_KEY,
   BUILDER_CMS_UNPUBLISHED_CHANGES_KEY,
   withBuilderCmsEditConflicts,
@@ -1941,7 +1942,7 @@ describe("execute Builder source execution", () => {
               {
                 ownedKeys: [],
                 conflictedKeys: [
-                  "data.title",
+                  BUILDER_CMS_TITLE_CONFLICT_KEY,
                   "data.author",
                   BUILDER_CMS_BODY_CONTENT_KEY,
                 ],
@@ -1971,7 +1972,7 @@ describe("execute Builder source execution", () => {
           proposedExcerpt: "Body",
         },
       })[BUILDER_CMS_EDIT_CONFLICTS_KEY],
-    ).toEqual(["data.author", "data.title"]);
+    ).toEqual([BUILDER_CMS_TITLE_CONFLICT_KEY, "data.author"]);
   });
 
   it("stores Builder's authoritative updated timestamp after a successful write", () => {

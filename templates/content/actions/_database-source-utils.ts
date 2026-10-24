@@ -127,7 +127,9 @@ import {
   builderCmsLiveBaselineValues,
   builderCmsLiveBodyBaseline,
   builderSourceValuesKeepingUnpublishedChanges,
+  builderCmsEditConflictKey,
   BUILDER_CMS_EDIT_CONFLICTS_KEY,
+  BUILDER_CMS_TITLE_CONFLICT_KEY,
   readBuilderCmsEditConflicts,
   readBuilderCmsPublicationIntent,
   readBuilderCmsUnpublishedChanges,
@@ -967,7 +969,7 @@ function reviewedChangeSet(args: {
         key === BUILDER_CMS_BODY_CONTENT_KEY
           ? !!args.changeSet.bodyChange
           : args.changeSet.fieldChanges.some(
-              (change) => change.sourceFieldKey === key,
+              (change) => builderCmsEditConflictKey(change) === key,
             ),
       ));
   const conflictState: ContentDatabaseSourceConflictState = sourceChanged
@@ -1118,7 +1120,9 @@ function builderPageTitleRead(args: {
       nextTitle !== previousTitle ||
       previousConflicts.state === "invalid" ||
       (previousConflicts.state === "recorded" &&
-        previousConflicts.sourceFieldKeys.includes("data.title")),
+        previousConflicts.sourceFieldKeys.includes(
+          BUILDER_CMS_TITLE_CONFLICT_KEY,
+        )),
   };
 }
 
@@ -2466,6 +2470,9 @@ async function processBuilderBodyHydrationJob(
   if (!hasBody(nextValues, nextContent)) {
     const attempts = row.attempts;
     await db.transaction(async (tx) => {
+      // The membership before the queue row and the page, as enqueue and a
+      // save take them.
+      await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
       const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
         row,
         activeSourceEntryJson,
@@ -2496,7 +2503,6 @@ async function processBuilderBodyHydrationJob(
           await markPendingIfReplaced();
           return;
         }
-        await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
         const [document] = await tx
           .select({ content: schema.documents.content })
           .from(schema.documents)
@@ -2681,6 +2687,9 @@ async function processBuilderBodyHydrationJob(
   });
   let wroteBody = false;
   await db.transaction(async (tx) => {
+    // The membership before the queue row and the page, as enqueue and a
+    // save take them.
+    await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
     const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
       row,
       activeSourceEntryJson,
@@ -2712,9 +2721,6 @@ async function processBuilderBodyHydrationJob(
       await markPendingIfReplaced();
       return;
     }
-    // The membership before the page, as a save takes them: its status and
-    // properties are written after the body.
-    await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
     if (shouldWriteBody) {
       const contentCas =
         isEffectivelyEmptyDocumentContent(currentContent) &&
@@ -2952,8 +2958,8 @@ async function materializeBodyReadFieldValues(
           .where(eq(schema.documents.id, row.documentId));
       }
       const nextSourceValues = withBuilderCmsEditConflicts(sourceValues, {
-        ownedKeys: ["data.title"],
-        conflictedKeys: read.conflicted ? ["data.title"] : [],
+        ownedKeys: [BUILDER_CMS_TITLE_CONFLICT_KEY],
+        conflictedKeys: read.conflicted ? [BUILDER_CMS_TITLE_CONFLICT_KEY] : [],
       });
       if (
         stableValueString(nextSourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY]) !==
@@ -6645,8 +6651,8 @@ async function refreshBuilderPageTitles(
         .where(eq(schema.documents.id, row.documentId));
     }
     const nextSourceValues = withBuilderCmsEditConflicts(sourceValues, {
-      ownedKeys: ["data.title"],
-      conflictedKeys: read.conflicted ? ["data.title"] : [],
+      ownedKeys: [BUILDER_CMS_TITLE_CONFLICT_KEY],
+      conflictedKeys: read.conflicted ? [BUILDER_CMS_TITLE_CONFLICT_KEY] : [],
     });
     rows.push(
       stableValueString(nextSourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY]) ===

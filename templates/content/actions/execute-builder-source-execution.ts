@@ -48,6 +48,7 @@ import {
   builderCmsReferenceIdKey,
 } from "./_builder-cms-source-adapter.js";
 import {
+  builderCmsEditConflictKey,
   builderCmsSourceFieldMatches,
   builderCmsUnpublishedChangesAfterWrite,
   readBuilderCmsEditConflicts,
@@ -503,9 +504,7 @@ export function builderCmsReconciledSourceValuesJson(args: {
       : { ...existing };
   // So does an edit conflict: the review showed it, and the push overwrote
   // Builder's change.
-  const pushedKeys = args.changeSet.fieldChanges.map(
-    (field) => field.sourceFieldKey,
-  );
+  const pushedKeys = args.changeSet.fieldChanges.map(builderCmsEditConflictKey);
   if (args.changeSet.bodyChange) pushedKeys.push(BUILDER_CMS_BODY_CONTENT_KEY);
   const next =
     readBuilderCmsEditConflicts(existing).state === "recorded"

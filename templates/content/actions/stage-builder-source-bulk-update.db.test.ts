@@ -8,7 +8,10 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { BUILDER_CMS_FIXTURE_ROW_PROVENANCE } from "./_builder-cms-source-adapter";
-import { BUILDER_CMS_EDIT_CONFLICTS_KEY } from "./_builder-cms-unpublished-changes";
+import {
+  BUILDER_CMS_EDIT_CONFLICTS_KEY,
+  BUILDER_CMS_TITLE_CONFLICT_KEY,
+} from "./_builder-cms-unpublished-changes";
 import { registerMemoryPrivateBlobProvider } from "./_builder-private-blob.test-fixture";
 
 const snapshotRead = vi.hoisted(() => ({
@@ -32,6 +35,24 @@ vi.mock("./_database-source-utils.js", async (importOriginal) => {
       snapshotRead.after = null;
       await after?.();
       return snapshot;
+    },
+  };
+});
+
+const membershipLock = vi.hoisted(() => ({
+  beforeNextLock: null as null | (() => Promise<void>),
+}));
+
+vi.mock("./_database-membership-lock.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_database-membership-lock.js")>();
+  return {
+    ...actual,
+    async lockDatabaseMemberships(tx: any, itemIds: string[]) {
+      const beforeLock = membershipLock.beforeNextLock;
+      membershipLock.beforeNextLock = null;
+      await beforeLock?.();
+      return actual.lockDatabaseMemberships(tx, itemIds);
     },
   };
 });
@@ -510,7 +531,7 @@ describe("stage-builder-source-bulk-update", () => {
           ...JSON.parse(sourceRow.sourceValuesJson),
           [BUILDER_CMS_EDIT_CONFLICTS_KEY]: [
             seeded.sourceFieldKey,
-            "data.title",
+            BUILDER_CMS_TITLE_CONFLICT_KEY,
           ],
         }),
       })
@@ -524,7 +545,7 @@ describe("stage-builder-source-bulk-update", () => {
       .where(sourceRowFilter);
     expect(
       JSON.parse(restoredRow.sourceValuesJson)[BUILDER_CMS_EDIT_CONFLICTS_KEY],
-    ).toEqual(["data.title"]);
+    ).toEqual([BUILDER_CMS_TITLE_CONFLICT_KEY]);
     await expect(
       valuesFor(seeded.propertyId, [row.documentId]),
     ).resolves.toEqual([
@@ -668,6 +689,47 @@ describe("stage-builder-source-bulk-update", () => {
       state: before.state,
       fieldChangesJson: before.fieldChangesJson,
     });
+  });
+
+  it("refuses to stage over a value saved in Content while the stage waited for the rows", async () => {
+    const seeded = await seedBuilderDatabase({});
+    const row = seeded.rows[1];
+    membershipLock.beforeNextLock = () =>
+      getDb()
+        .insert(schema.documentPropertyValues)
+        .values({
+          id: `value_${row.documentId}`,
+          ownerEmail: OWNER,
+          documentId: row.documentId,
+          propertyId: seeded.propertyId,
+          valueJson: JSON.stringify("Saved meanwhile"),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+    try {
+      await expect(
+        asOwner(() =>
+          stageBulkUpdate.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            itemIds: [row.itemId],
+            field: { propertyId: seeded.propertyId, value: "Architects" },
+            dryRun: false,
+          }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "builder_bulk_stage_rows_changed",
+      });
+    } finally {
+      membershipLock.beforeNextLock = null;
+    }
+
+    expect(
+      await valuesFor(seeded.propertyId, [row.documentId]),
+    ).not.toContainEqual(
+      expect.objectContaining({ valueJson: JSON.stringify("Architects") }),
+    );
   });
 
   it("refuses to set an edit back when Builder's value changed after the stage read it", async () => {

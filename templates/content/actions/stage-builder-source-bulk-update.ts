@@ -317,18 +317,36 @@ type LockedOpenChangeSet = {
   bodyChangeJson: string | null;
 };
 
+type LockedSourceRow = {
+  id: string;
+  documentId: string;
+  sourceValues: Record<string, DocumentPropertyValue> | null;
+};
+
 /**
- * Locks the rows a stage writes and re-reads their open review items. A push
- * starts under the database lock and needs its change set still approved, so
- * it either shows up as running here or finds its item changed.
+ * Locks the rows a stage writes, re-reads their open review items, and checks
+ * each row still has the Builder value and Content value the stage read. A
+ * push starts under the database lock and needs its change set still
+ * approved, so it either shows up as running here or finds its item changed.
  */
 async function lockRowsForStage(args: {
   db: ReturnType<typeof getDb>;
   databaseId: string;
   sourceId: string;
-  rows: Array<{ itemId: string; documentId: string }>;
-}): Promise<LockedOpenChangeSet[]> {
+  field: ContentDatabaseSourceFieldMapping;
+  propertyId: string;
+  rows: Array<{
+    itemId: string;
+    documentId: string;
+    localValueJson: string | undefined;
+    builderValue: unknown;
+  }>;
+}): Promise<{
+  openChangeSets: LockedOpenChangeSet[];
+  sourceRows: LockedSourceRow[];
+}> {
   const db = args.db;
+  const documentIds = args.rows.map((row) => row.documentId);
   await lockContentDatabaseMutation(db, args.databaseId);
   // Refreshes and pushes rewrite these rows under the same lock.
   await lockDatabaseMemberships(
@@ -346,10 +364,7 @@ async function lockRowsForStage(args: {
     .where(
       and(
         eq(schema.contentDatabaseSourceChangeSets.sourceId, args.sourceId),
-        inArray(
-          schema.contentDatabaseSourceChangeSets.documentId,
-          args.rows.map((row) => row.documentId),
-        ),
+        inArray(schema.contentDatabaseSourceChangeSets.documentId, documentIds),
         eq(schema.contentDatabaseSourceChangeSets.direction, "outbound"),
         inArray(schema.contentDatabaseSourceChangeSets.state, [
           "pending_push",
@@ -365,41 +380,25 @@ async function lockRowsForStage(args: {
     [args.sourceId],
     openChangeSets.map((changeSet) => changeSet.id),
   );
-  return openChangeSets;
-}
-
-/**
- * Sets the rows' properties back to the value Builder has and takes the field
- * out of their open review items and edit conflicts. Runs after
- * `lockRowsForStage`, in its transaction.
- */
-async function setEditsBackToBuilderValue(args: {
-  db: ReturnType<typeof getDb>;
-  openChangeSets: LockedOpenChangeSet[];
-  sourceId: string;
-  field: ContentDatabaseSourceFieldMapping;
-  rows: Array<{ itemId: string; documentId: string; localValueJson: string }>;
-  builderValue: unknown;
-  ownerEmail: string;
-  propertyId: string;
-  valueJson: string;
-  now: string;
-}) {
-  const documentIds = args.rows.map((row) => row.documentId);
-  const db = args.db;
-  const sourceRows = await db
-    .select({
-      id: schema.contentDatabaseSourceRows.id,
-      documentId: schema.contentDatabaseSourceRows.documentId,
-      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-    })
-    .from(schema.contentDatabaseSourceRows)
-    .where(
-      and(
-        eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
-        inArray(schema.contentDatabaseSourceRows.documentId, documentIds),
-      ),
-    );
+  const sourceRows = (
+    await db
+      .select({
+        id: schema.contentDatabaseSourceRows.id,
+        documentId: schema.contentDatabaseSourceRows.documentId,
+        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      })
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+          inArray(schema.contentDatabaseSourceRows.documentId, documentIds),
+        ),
+      )
+  ).map((row) => ({
+    id: row.id,
+    documentId: row.documentId,
+    sourceValues: parseBuilderEntrySourceValues(row.sourceValuesJson),
+  }));
   const localValues = await db
     .select({
       documentId: schema.documentPropertyValues.documentId,
@@ -416,10 +415,7 @@ async function setEditsBackToBuilderValue(args: {
     localValues.map((value) => [value.documentId, value.valueJson]),
   );
   const sourceValuesByDocumentId = new Map(
-    sourceRows.map((row) => [
-      row.documentId,
-      parseBuilderEntrySourceValues(row.sourceValuesJson),
-    ]),
+    sourceRows.map((row) => [row.documentId, row.sourceValues]),
   );
   // The stage compared these values before it had the locks.
   const rowChanged = args.rows.some((row) => {
@@ -429,7 +425,7 @@ async function setEditsBackToBuilderValue(args: {
       !sourceValues ||
       !sameSourceFieldValue(
         sourceValues[args.field.sourceFieldKey] ?? null,
-        args.builderValue,
+        row.builderValue,
       )
     );
   });
@@ -439,6 +435,27 @@ async function setEditsBackToBuilderValue(args: {
       { errorCode: "builder_bulk_stage_rows_changed", statusCode: 409 },
     );
   }
+  return { openChangeSets, sourceRows };
+}
+
+/**
+ * Sets the rows' properties back to the value Builder has and takes the field
+ * out of their open review items and edit conflicts. Runs after
+ * `lockRowsForStage`, in its transaction.
+ */
+async function setEditsBackToBuilderValue(args: {
+  db: ReturnType<typeof getDb>;
+  openChangeSets: LockedOpenChangeSet[];
+  sourceRows: LockedSourceRow[];
+  field: ContentDatabaseSourceFieldMapping;
+  documentIds: string[];
+  ownerEmail: string;
+  propertyId: string;
+  valueJson: string;
+  now: string;
+}) {
+  const documentIds = args.documentIds;
+  const db = args.db;
   await upsertPropertyValues({
     db,
     ownerEmail: args.ownerEmail,
@@ -473,8 +490,9 @@ async function setEditsBackToBuilderValue(args: {
       })
       .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id));
   }
-  for (const row of sourceRows) {
-    const sourceValues = sourceValuesByDocumentId.get(row.documentId);
+  for (const row of args.sourceRows) {
+    if (!documentIds.includes(row.documentId)) continue;
+    const sourceValues = row.sourceValues;
     const conflicts = readBuilderCmsEditConflicts(sourceValues);
     if (
       !sourceValues ||
@@ -711,20 +729,32 @@ async function stageBuilderSourceBulkUpdateWithDeps(
     // failed stage doesn't leave the set-back rows changed.
     await getDb().transaction(async (tx) => {
       const db = tx as unknown as ReturnType<typeof getDb>;
-      const openChangeSets = await lockRowsForStage({
+      const { openChangeSets, sourceRows } = await lockRowsForStage({
         db,
         databaseId: database.id,
         sourceId: source.id,
-        rows: [...revertedRows, ...stagedRows],
+        field,
+        propertyId,
+        rows: [
+          ...revertedRows.map((row) => ({
+            ...row,
+            builderValue: normalizedValue,
+          })),
+          ...stagedRows.map((row) => ({
+            itemId: row.itemId,
+            documentId: row.documentId,
+            localValueJson: localValueJsonByDocumentId.get(row.documentId),
+            builderValue: row.fieldChange?.currentValue ?? null,
+          })),
+        ],
       });
       if (revertedRows.length > 0) {
         await setEditsBackToBuilderValue({
           db,
           openChangeSets,
-          sourceId: source.id,
+          sourceRows,
           field,
-          rows: revertedRows,
-          builderValue: normalizedValue,
+          documentIds: revertedRows.map((row) => row.documentId),
           ownerEmail: database.ownerEmail,
           propertyId,
           valueJson,

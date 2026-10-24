@@ -64,6 +64,23 @@ export type BuilderCmsPublicationIntentRead =
 export const BUILDER_CMS_EDIT_CONFLICTS_KEY =
   "__agent_native_builder_edit_conflicts";
 
+/**
+ * The page title's entry in the edit-conflict record. A property named
+ * "Title" maps to Builder's `data.title` too, so the title keeps its own
+ * entry and neither writer clears the other's.
+ */
+export const BUILDER_CMS_TITLE_CONFLICT_KEY = "__builder.title";
+
+/** The edit-conflict entry a field change settles when it is pushed. */
+export function builderCmsEditConflictKey(change: {
+  localFieldKey: string;
+  sourceFieldKey: string;
+}) {
+  return change.localFieldKey === "title"
+    ? BUILDER_CMS_TITLE_CONFLICT_KEY
+    : change.sourceFieldKey;
+}
+
 export type BuilderCmsEditConflictsRead =
   | { state: "none" }
   | { state: "recorded"; sourceFieldKeys: string[] }

@@ -4,7 +4,7 @@ import { join } from "node:path";
 // guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
 import { getDbExec } from "@agent-native/core/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 
 import {
@@ -155,6 +155,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
 
 const membershipLock = vi.hoisted(() => ({
   beforeNextLock: null as null | (() => Promise<void>),
+  onLockExisting: null as null | ((tx: any) => Promise<void>),
 }));
 
 vi.mock("./_database-membership-lock.js", async (importOriginal) => {
@@ -167,6 +168,10 @@ vi.mock("./_database-membership-lock.js", async (importOriginal) => {
       membershipLock.beforeNextLock = null;
       await beforeLock?.();
       return actual.lockDatabaseMemberships(tx, itemIds);
+    },
+    async lockExistingDatabaseMemberships(tx: any, itemIds: string[]) {
+      await membershipLock.onLockExisting?.(tx);
+      return actual.lockExistingDatabaseMemberships(tx, itemIds);
     },
   };
 });
@@ -580,7 +585,9 @@ it("takes Builder's title for an unedited page and flags an edited one Builder r
       }),
     ],
   });
-  expect(await editConflicts("entry-c")).toEqual(["data.title"]);
+  expect(await editConflicts("entry-c")).toEqual([
+    records.BUILDER_CMS_TITLE_CONFLICT_KEY,
+  ]);
 
   await editTitle("entry-c", "Entry C, theirs");
   await refresh();
@@ -653,7 +660,9 @@ it("moves an unedited title to the one a body read brings and flags an edited on
   editInBuilder("entry-title-mine", { title: "Theirs" });
   await hydrateBody("entry-title-mine", "Body");
   expect(await localTitle("entry-title-mine")).toBe("Mine");
-  expect(await editConflicts("entry-title-mine")).toEqual(["data.title"]);
+  expect(await editConflicts("entry-title-mine")).toEqual([
+    records.BUILDER_CMS_TITLE_CONFLICT_KEY,
+  ]);
   await refresh();
   expect(await pendingEdit("entry-title-mine")).toMatchObject({
     conflictState: "source_changed",
@@ -713,4 +722,114 @@ it("moves unedited properties to the values a bulk body read brings and flags an
   expect(await localAuthor("entry-bulk-0")).toBe("New");
   expect(await localAuthor("entry-bulk-1")).toBe("Mine");
   expect(await editConflicts("entry-bulk-1")).toEqual(["data.author"]);
+});
+
+it("keeps the title's conflict apart from a property mapped to Builder's title", async () => {
+  const db = getDb();
+  const now = tick();
+  const titlePropertyId = "prop_local_edits_title";
+  const titleFieldId = "field_local_edits_title";
+  // A property named "Title" maps to Builder's `data.title`, as the page
+  // title does.
+  await db.insert(schema.documentPropertyDefinitions).values({
+    id: titlePropertyId,
+    ownerEmail: OWNER,
+    databaseId: DATABASE_ID,
+    name: "Title",
+    type: "text",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceFields).values({
+    id: titleFieldId,
+    ownerEmail: OWNER,
+    sourceId: SOURCE_ID,
+    propertyId: titlePropertyId,
+    localFieldKey: titlePropertyId,
+    sourceFieldKey: "data.title",
+    sourceFieldLabel: "Title",
+    sourceFieldType: "text",
+    mappingType: "property",
+    writeOwner: "source",
+    createdAt: now,
+    updatedAt: now,
+  });
+  try {
+    for (const id of ["entry-shared-page", "entry-shared-property"]) {
+      builder.entries.set(id, { title: id, author: "Sam", updatedAt: tick() });
+    }
+    await refresh();
+
+    await editTitle("entry-shared-page", "Page title, mine");
+    editInBuilder("entry-shared-page", { title: "Page title, theirs" });
+    await refresh();
+    expect(await localTitle("entry-shared-page")).toBe("Page title, mine");
+    expect(await editConflicts("entry-shared-page")).toEqual([
+      records.BUILDER_CMS_TITLE_CONFLICT_KEY,
+    ]);
+    expect(await pendingEdit("entry-shared-page")).toMatchObject({
+      conflictState: "source_changed",
+    });
+
+    await getDb()
+      .update(schema.documentPropertyValues)
+      .set({
+        valueJson: JSON.stringify("Property title, mine"),
+        updatedAt: tick(),
+      })
+      .where(
+        and(
+          eq(
+            schema.documentPropertyValues.documentId,
+            await documentIdFor("entry-shared-property"),
+          ),
+          eq(schema.documentPropertyValues.propertyId, titlePropertyId),
+        ),
+      );
+    editInBuilder("entry-shared-property", { title: "Property title, theirs" });
+    await refresh();
+    expect(await localTitle("entry-shared-property")).toBe(
+      "Property title, theirs",
+    );
+    expect(await editConflicts("entry-shared-property")).toEqual([
+      "data.title",
+    ]);
+  } finally {
+    await db
+      .delete(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, titleFieldId));
+    await db
+      .delete(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, titlePropertyId));
+  }
+});
+
+it("locks the membership before the hydration queue row, as enqueue does", async () => {
+  const id = "entry-lock-order";
+  builder.entries.set(id, { title: id, author: "Lou", updatedAt: tick() });
+  await refresh();
+  const documentId = await documentIdFor(id);
+  // Whether the hydration's transaction already wrote the queue row when it
+  // took the membership lock.
+  const queueRowWrittenFirst: boolean[] = [];
+  membershipLock.onLockExisting = async (tx) => {
+    const result = await tx.execute(
+      sql`select xmin::text = (txid_current() % 4294967296)::text as written
+        from content_database_body_hydration_queue
+        where document_id = ${documentId}`,
+    );
+    for (const row of result.rows ?? result) {
+      queueRowWrittenFirst.push(row.written);
+    }
+  };
+  try {
+    await hydrateBody(id, "Body L");
+    builder.emptiedBodies.set(id, "blocks");
+    await hydrateBody(id, null);
+  } finally {
+    membershipLock.onLockExisting = null;
+  }
+
+  expect(queueRowWrittenFirst.length).toBeGreaterThanOrEqual(2);
+  expect(queueRowWrittenFirst).not.toContain(true);
 });
