@@ -343,13 +343,60 @@ describe("hubspot-deals action", () => {
     expect(json.indexOf('"deals"')).toBeLessThan(
       json.indexOf('"pipelineLabels"'),
     );
-    expect(json.length).toBeLessThan(50_000);
+    expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
     expect(result.total).toBe(100);
     expect(result.sizeTrimmed).toBe(true);
     expect(result.deals.length).toBeLessThan(30);
     expect(result.count).toBe(result.deals.length);
     expect(result.hasMore).toBe(true);
     expect(result.nextOffset).toBe(60 + result.deals.length);
+  });
+
+  it("keeps the pretty-printed result the agent serializes under its cap", async () => {
+    // Compact JSON is ~36k here but the agent's 2-space pretty form is ~66k.
+    const deals = Array.from({ length: 30 }, (_, index) => ({
+      id: `narrow-${index}`,
+      properties: {
+        dealname: `Narrow deal ${index}`,
+        dealstage: "closed-lost",
+        pipeline: "enterprise-new-business",
+        ...Object.fromEntries(
+          Array.from({ length: 100 }, (_, i) => [`p${i}`, "v"]),
+        ),
+      },
+    }));
+    searchHubSpotObjects.mockResolvedValue({
+      records: deals,
+      total: 30,
+      nextAfter: null,
+      properties: [],
+    });
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [
+          {
+            id: "closed-lost",
+            label: "Closed Lost",
+            displayOrder: 1,
+            metadata: { probability: "0" },
+          },
+        ],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({});
+
+    const result = (await hubspotDeals.run({
+      closedStatus: "lost",
+      limit: 30,
+    })) as Record<string, any>;
+
+    expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
+    expect(result.sizeTrimmed).toBe(true);
+    expect(result.deals.length).toBeGreaterThan(0);
+    expect(result.deals.length).toBeLessThan(30);
+    expect(result.nextOffset).toBe(result.deals.length);
   });
 
   it("shortens an oversized lone deal instead of returning it past the output cap", async () => {
@@ -390,7 +437,7 @@ describe("hubspot-deals action", () => {
       any
     >;
 
-    expect(JSON.stringify(result).length).toBeLessThan(50_000);
+    expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
     expect(result.sizeTrimmed).toBe(true);
     expect(result.count).toBe(1);
     expect(result.deals[0].id).toBe("huge-1");
@@ -452,7 +499,7 @@ describe("hubspot-deals action", () => {
       );
       const result = await run(props);
 
-      expect(JSON.stringify(result).length).toBeLessThan(50_000);
+      expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
       expect(result.sizeTrimmed).toBe(true);
       expect(result.deals).toHaveLength(1);
       expect(result.truncatedProperties[0].id).toBe("wide-1");
@@ -468,7 +515,7 @@ describe("hubspot-deals action", () => {
       );
       const result = await run(props);
 
-      expect(JSON.stringify(result).length).toBeLessThan(50_000);
+      expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
       expect(result.sizeTrimmed).toBe(true);
       expect(result.deals).toEqual([]);
       expect(result.oversizedDealIds).toEqual(["wide-1"]);

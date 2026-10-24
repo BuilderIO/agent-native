@@ -1337,6 +1337,10 @@ export function startRun(
   };
 
   let lastRealProgressAt = Date.now();
+  // Completed model calls since the last real progress. The first one gets a
+  // grace window (its result is still being processed); repeats do not, so a
+  // loop of empty calls still trips the no-progress backstop.
+  let completedModelCallsWithoutProgress = 0;
   let inFlightWorkCount = 0;
   let inFlightMarkerSince: number | null = null;
   let inFlightMarkerWrite = Promise.resolve();
@@ -1883,7 +1887,14 @@ export function startRun(
     trackInFlightWork(runEvent.event);
     if (shouldBumpProgressForEvent(runEvent.event)) {
       lastRealProgressAt = Date.now();
+      completedModelCallsWithoutProgress = 0;
       bumpProgressIfDue();
+    } else if (
+      runEvent.event.type === "model_stream" &&
+      runEvent.event.status === "end" &&
+      completedModelCallsWithoutProgress++ === 0
+    ) {
+      lastRealProgressAt = Date.now();
     }
   };
 

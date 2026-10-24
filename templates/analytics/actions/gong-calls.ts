@@ -672,9 +672,10 @@ export default defineAction({
 
       // Key order is serialization order: keep call records ahead of the bulky
       // transcripts so the tool-result cap truncates transcripts, not calls.
+      const { calls: resultCalls, ...resultRest } = result;
       return {
-        calls: result.calls,
-        ...result,
+        calls: resultCalls,
+        ...resultRest,
         total: result.calls.length,
         ...(transcriptSearch
           ? {

@@ -366,8 +366,23 @@ function buildHubSpotDealFilters(options: {
 
 const DEALS_JSON_CHAR_BUDGET = 40_000;
 
-// The agent truncates tool output at 50,000 chars, so keep the serialized page
-// well under it. Always make paging progress: a lone deal that is still over
+// The agent pretty-prints (2-space indent) the whole result before applying its
+// 50,000-char cap, so measure `deals` as it sits inside `{ "deals": [...] }` in
+// that form: each element is two levels deep, the array adds its brackets and
+// closing indent, and elements are joined by ",\n".
+const PRETTY_ARRAY_OVERHEAD = 6;
+const PRETTY_ELEMENT_SEPARATOR = 2;
+
+function prettyChars(value: unknown, levels: number): number {
+  const text = JSON.stringify(value, null, 2) ?? "";
+  let lines = 1;
+  for (let i = text.indexOf("\n"); i !== -1; i = text.indexOf("\n", i + 1)) {
+    lines += 1;
+  }
+  return text.length + lines * 2 * levels;
+}
+
+// Keep the serialized page well under the cap. Always make paging progress: a lone deal that is still over
 // budget has its values shortened (visibly marked) rather than being cut off,
 // and one that cannot be fitted at all is reported by id instead of returned.
 const MIN_KEPT_PROPERTY_CHARS = 200;
@@ -383,11 +398,10 @@ function fitLoneDeal<
   const properties: Record<string, unknown> = { ...deal.properties };
   const shortened: string[] = [];
   let excess =
-    JSON.stringify([{ ...deal, properties }]).length - DEALS_JSON_CHAR_BUDGET;
+    PRETTY_ARRAY_OVERHEAD + prettyChars(deal, 2) - DEALS_JSON_CHAR_BUDGET;
 
   const replace = (name: string, next: string) => {
-    const delta =
-      JSON.stringify(properties[name]).length - JSON.stringify(next).length;
+    const delta = prettyChars(properties[name], 3) - prettyChars(next, 3);
     if (delta <= 0) return;
     properties[name] = next;
     shortened.push(name);
@@ -416,9 +430,7 @@ function fitLoneDeal<
   if (excess > 0) {
     const bySize = Object.entries(deal.properties)
       .filter(([name]) => !shortened.includes(name))
-      .map(
-        ([name, value]) => [name, JSON.stringify(value)?.length ?? 0] as const,
-      )
+      .map(([name, value]) => [name, prettyChars(value, 3)] as const)
       .sort((x, y) => y[1] - x[1]);
     for (const [name, size] of bySize) {
       if (excess <= 0) break;
@@ -435,19 +447,19 @@ function fitDealsToBudget<
   T extends { id: string; properties: Record<string, unknown> },
 >(deals: T[]) {
   const kept = [...deals];
-  while (
-    kept.length > 1 &&
-    JSON.stringify(kept).length > DEALS_JSON_CHAR_BUDGET
-  ) {
+  const sizes = kept.map((deal) => prettyChars(deal, 2));
+  let total =
+    PRETTY_ARRAY_OVERHEAD +
+    sizes.reduce((sum, size) => sum + size, 0) +
+    PRETTY_ELEMENT_SEPARATOR * Math.max(0, kept.length - 1);
+  while (kept.length > 1 && total > DEALS_JSON_CHAR_BUDGET) {
     kept.pop();
+    total -= (sizes.pop() ?? 0) + PRETTY_ELEMENT_SEPARATOR;
   }
 
   const truncatedProperties: Array<{ id: string; properties: string[] }> = [];
   const oversizedDealIds: string[] = [];
-  if (
-    kept.length === 1 &&
-    JSON.stringify(kept).length > DEALS_JSON_CHAR_BUDGET
-  ) {
+  if (kept.length === 1 && total > DEALS_JSON_CHAR_BUDGET) {
     const fitted = fitLoneDeal(kept[0]);
     if (fitted) {
       kept[0] = fitted.deal;
