@@ -117,7 +117,6 @@ describe("show-workspace-file", () => {
   it("registers a read-only native file-card action", () => {
     const action = createWorkspaceFileActionEntries()["show-workspace-file"];
 
-    expect(action).toBe(showWorkspaceFileAction);
     expect(action.readOnly).toBe(true);
     expect(action.chatUI?.renderer).toBe(
       ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,

@@ -39,6 +39,7 @@ describe("job resource frontmatter", () => {
       createdBy: "alice@example.com",
       orgId: "org-1",
       runAs: "creator",
+      mcpManaged: true,
       lastRun: "2026-07-29T16:00:00.000Z",
       lastHistoryId: "firing-history-1",
       lastRunManual: true,
