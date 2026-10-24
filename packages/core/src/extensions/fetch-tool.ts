@@ -573,10 +573,10 @@ export function createFetchToolEntry(
               }
               // Empty markdown/text is a raw fallback, same as a null
               // extraction. Format that body as raw so a markup-only page is
-              // not saved as an empty text/markdown file.
-              const savingRawFallback =
-                processed.fullContentFormat === "raw" ||
-                processed.rawBodyFallback === true;
+              // not saved as an empty text/markdown file. Use fullContentFormat
+              // (extraction success for the save path), not rawBodyFallback —
+              // links/metadata modes leave display content empty by design.
+              const savingRawFallback = processed.fullContentFormat === "raw";
               fileContent = formatWebContentResult({
                 ...processed,
                 mode: savingRawFallback ? "raw" : saveContentFormat,

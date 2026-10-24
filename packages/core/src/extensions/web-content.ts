@@ -191,30 +191,35 @@ export async function processWebContent(
     (mode !== "raw" ||
       hasWebContentSearch(search) ||
       options.saveContentFormat);
-  // Searches with source "extracted" (including the default) must use the
-  // same corpus as responseMode "matches": prefer markdown when extraction
-  // runs for a search, so raw+search and matches do not diverge on link
-  // targets or escaped underscores.
+  // Gate Markdown conversion on the selected corpus / response path. Explicit
+  // source:"raw" searches the original body and must not load optional Turndown.
+  // Extracted (default) searches and markdown/matches/save still convert so
+  // raw+search and matches share one corpus (link targets included).
   const includeMarkdown =
     mode === "markdown" ||
-    mode === "matches" ||
-    hasWebContentSearch(search) ||
-    options.saveContentFormat === "markdown";
+    options.saveContentFormat === "markdown" ||
+    (mode === "matches" && search?.source !== "raw") ||
+    (hasWebContentSearch(search) && search?.source !== "raw");
   const extracted = shouldExtract
     ? await safeExtractHtml(options.body, options.url, extract, includeMarkdown)
     : null;
-  const realExtractedText = extracted?.markdown || extracted?.text || "";
+  const extractedMarkdown = extracted?.markdown || "";
+  const extractedPlainText = extracted?.text || "";
+  // Prefer markdown when present so extracted searches keep link targets; fall
+  // back to plain text when conversion was skipped.
+  const realExtractedText = extractedMarkdown || extractedPlainText;
   const hasRealExtractedContent = realExtractedText.length > 0;
+  // Turndown escapes literals (snake_case → snake\_case). Unescape only for
+  // the search corpus so page-literal queries still match; display/save keep
+  // real Markdown.
+  const extractedSearchCorpus = extractedMarkdown
+    ? unescapeMarkdownLiterals(extractedMarkdown)
+    : extractedPlainText;
   // A non-null extraction with empty markdown and text is not success: text
   // mode would keep `""` (`??` does not fall through), and save would write
   // an empty file while still labeling text/markdown.
   const noUsableExtractedText = shouldExtract && !hasRealExtractedContent;
   const baseContent = contentForMode(mode, options.body, extracted);
-  // `baseContent` is the raw body for responseMode "raw", for a failed
-  // extraction, and when markdown/text came back empty. Those bytes must not
-  // be reported as extracted.
-  const hasExtractedContent =
-    hasRealExtractedContent && baseContent !== options.body;
   // The tool schema promises that an omitted `search.source` means the
   // extracted text. Keep that default even when responseMode "raw" displays
   // the raw body; only fall back to raw when extraction produced no usable
@@ -222,10 +227,12 @@ export async function processWebContent(
   const fallbackSearchSource: WebSearchSource = hasRealExtractedContent
     ? "extracted"
     : "raw";
-  const rawBodyFallback = mode !== "raw" && !hasExtractedContent;
+  // Base the fallback flag on extraction success, not on structured-mode
+  // display content (links/metadata return "" from contentForMode by design).
+  const rawBodyFallback = mode !== "raw" && !hasRealExtractedContent;
   const savedExtractedText =
     options.saveContentFormat === "text"
-      ? extracted?.text || ""
+      ? extractedPlainText
       : realExtractedText;
   const fullContent = options.saveContentFormat
     ? savedExtractedText || options.body
@@ -286,7 +293,7 @@ export async function processWebContent(
     }
     const matchResult = findWebContentMatches({
       raw: options.body,
-      extracted: hasRealExtractedContent ? realExtractedText : baseContent,
+      extracted: hasRealExtractedContent ? extractedSearchCorpus : baseContent,
       search,
       fallbackSearchSource,
       hasExtractedContent: hasRealExtractedContent,
@@ -304,7 +311,7 @@ export async function processWebContent(
   if (hasWebContentSearch(search)) {
     const matchResult = findWebContentMatches({
       raw: options.body,
-      extracted: hasRealExtractedContent ? realExtractedText : baseContent,
+      extracted: hasRealExtractedContent ? extractedSearchCorpus : baseContent,
       search,
       fallbackSearchSource,
       hasExtractedContent: hasRealExtractedContent,
@@ -927,6 +934,12 @@ function makeSnippet(source: string, index: number, contextChars: number) {
   const prefix = start > 0 ? "..." : "";
   const suffix = end < source.length ? "..." : "";
   return `${prefix}${normalizeWhitespace(source.slice(start, end))}${suffix}`;
+}
+
+function unescapeMarkdownLiterals(markdown: string): string {
+  // Turndown escapes ASCII punctuation for Markdown safety. Undo those
+  // escapes so extracted searches match page-literal text (e.g. snake_case).
+  return markdown.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, "$1");
 }
 
 function normalizeMarkdown(value: string): string {

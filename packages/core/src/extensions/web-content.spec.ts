@@ -10,6 +10,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.doUnmock("linkedom/worker");
+  vi.doUnmock("turndown");
   vi.resetModules();
 });
 
@@ -391,11 +392,11 @@ describe("processWebContent", () => {
     expect(rawOnly.matches ?? []).toHaveLength(0);
   });
 
-  it("uses the same extracted markdown corpus for raw+search and matches", async () => {
+  it("uses the same extracted corpus for raw+search and matches", async () => {
     const { processWebContent } = await import("./web-content.js");
-    // Markdown keeps the link target and escapes underscores; plain text does
-    // not. Searching either token must agree across responseMode raw + search
-    // and responseMode matches when source is extracted (or omitted).
+    // Markdown keeps the link target (plain text does not). Extracted search
+    // unescapes Turndown literals so page-literal underscore queries match,
+    // while still agreeing across responseMode raw + search and matches.
     const body = `<!doctype html><html><head><title>Parity</title></head><body>
 <article><p>See <a href="https://example.com/target-unique">click here</a> and file_name_with_underscores.</p></article>
 </body></html>`;
@@ -414,9 +415,12 @@ describe("processWebContent", () => {
     expect(markdown.content).toContain("target-unique");
     expect(markdown.content).toContain("file\\_name");
     expect(plain.content).not.toContain("target-unique");
-    expect(plain.content).not.toContain("file\\_name");
+    expect(plain.content).toContain("file_name_with_underscores");
 
-    for (const query of ["target-unique", "file\\_name"] as const) {
+    for (const query of [
+      "target-unique",
+      "file_name_with_underscores",
+    ] as const) {
       const viaRaw = await processWebContent({
         url: "https://example.com/parity",
         body,
@@ -510,6 +514,74 @@ describe("processWebContent", () => {
       "Failed to update documentElement while applying the theme.",
     );
   });
+
+  it("does not load Turndown when responseMode raw searches with source raw", async () => {
+    vi.doMock("turndown", () => {
+      throw new Error("Turndown should not be loaded for raw-source search.");
+    });
+    const { processWebContent } = await import("./web-content.js");
+
+    const result = await processWebContent({
+      url: "https://example.com/story",
+      body: html,
+      contentType: "text/html",
+      responseMode: "raw",
+      search: { query: "unsafe()", source: "raw" },
+    });
+
+    expect(result.searchSource).toBe("raw");
+    expect(result.matches?.some((match) => match.match === "unsafe()")).toBe(
+      true,
+    );
+  });
+
+  it("matches literal snake_case in extracted searches despite Markdown escaping", async () => {
+    const { processWebContent } = await import("./web-content.js");
+    const body = `<!doctype html><html><head><title>Literals</title></head><body>
+<article><p>Token snake_case appears on the page.</p></article>
+</body></html>`;
+
+    const markdown = await processWebContent({
+      url: "https://example.com/literals",
+      body,
+      contentType: "text/html",
+      responseMode: "markdown",
+    });
+    expect(markdown.content).toContain("snake\\_case");
+
+    for (const responseMode of ["raw", "matches"] as const) {
+      const result = await processWebContent({
+        url: "https://example.com/literals",
+        body,
+        contentType: "text/html",
+        responseMode,
+        search: { query: "snake_case", source: "extracted" },
+      });
+      expect(result.searchSource).toBe("extracted");
+      expect(result.totalMatches).toBeGreaterThan(0);
+      expect(
+        result.matches?.some((match) => match.match === "snake_case"),
+      ).toBe(true);
+    }
+  });
+
+  it.each(["links", "metadata"] as const)(
+    "does not label successful %s extraction as raw HTML fallback when saving markdown",
+    async (responseMode) => {
+      const { processWebContent } = await import("./web-content.js");
+      const result = await processWebContent({
+        url: "https://example.com/story",
+        body: html,
+        contentType: "text/html",
+        responseMode,
+        saveContentFormat: "markdown",
+      });
+
+      expect(result.fullContentFormat).toBe("markdown");
+      expect(result.fullContent).toContain("Story title");
+      expect(result.rawBodyFallback).toBeUndefined();
+    },
+  );
 });
 
 describe("formatWebContentResult", () => {
