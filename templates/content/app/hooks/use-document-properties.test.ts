@@ -24,6 +24,7 @@ import {
   documentPropertiesPlaceholder,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
+  useDeleteDocumentProperty,
   useDocumentProperties,
   useSetDocumentProperty,
   useUpdateDatabaseItems,
@@ -202,6 +203,75 @@ describe("useUpdateDatabaseItems", () => {
       );
     } finally {
       subscriptions.forEach((unsubscribe) => unsubscribe());
+      queryClient.clear();
+    }
+  });
+});
+
+describe("useDeleteDocumentProperty", () => {
+  beforeEach(() => {
+    useActionMutation.mockReset();
+    useQueryClient.mockReset();
+    useActionMutation.mockImplementation((_name, options) => options);
+  });
+
+  it("rereads open table rows except reads that sort or filter on the deleted property", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+    });
+    useQueryClient.mockReturnValue(queryClient);
+    const returnedPage = { items: [] };
+    const tableRead = (tableQuery: Record<string, unknown>) =>
+      [
+        "action",
+        "query-content-database-items",
+        {
+          documentId: "database-page",
+          tableQuery: { search: "", filters: [], sorts: [], ...tableQuery },
+        },
+      ] as const;
+    const searchKey = tableRead({ search: "draft" });
+    const filteredKey = tableRead({
+      filters: [
+        { key: "deleted", label: "Deleted", operator: "equals", value: "x" },
+      ],
+    });
+    const sortedKey = tableRead({
+      sorts: [{ key: "deleted", label: "Deleted", direction: "asc" }],
+    });
+    const reads = [searchKey, filteredKey, sortedKey].map((queryKey) => {
+      const queryFn = vi.fn(async () => returnedPage);
+      queryClient.setQueryData(queryKey, { items: [{ id: "item-1" }] });
+      const observer = new QueryObserver(queryClient, { queryKey, queryFn });
+      return { queryFn, unsubscribe: observer.subscribe(() => {}) };
+    });
+
+    try {
+      useDeleteDocumentProperty("database-page", "database-1");
+      const mutation = useActionMutation.mock.calls.find(
+        ([name]) => name === "delete-document-property",
+      )![1];
+      mutation.onSuccess(
+        {
+          documentId: "database-page",
+          databaseId: "database-1",
+          properties: [],
+        },
+        {
+          documentId: "database-page",
+          databaseId: "database-1",
+          propertyId: "deleted",
+        },
+      );
+
+      await vi.waitFor(() => {
+        expect(queryClient.getQueryData(searchKey)).toEqual(returnedPage);
+      });
+      expect(reads[0].queryFn).toHaveBeenCalledTimes(1);
+      expect(reads[1].queryFn).not.toHaveBeenCalled();
+      expect(reads[2].queryFn).not.toHaveBeenCalled();
+    } finally {
+      reads.forEach(({ unsubscribe }) => unsubscribe());
       queryClient.clear();
     }
   });
