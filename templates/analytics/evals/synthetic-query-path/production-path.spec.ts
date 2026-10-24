@@ -22,7 +22,8 @@ import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { compileSourceIndex } from "../../scripts/build-source-index.js";
-import { rankAnalyticsQueryCatalog } from "../../server/lib/analytics-query-catalog.js";
+import { rankAnalyticsQueryCatalogPage } from "../../server/lib/analytics-query-catalog.js";
+import { sourceIndexDictionaryEntries } from "../../server/lib/source-index-store.js";
 
 const providerBoundary = vi.hoisted(() => ({
   activeCaseKey: "",
@@ -268,6 +269,7 @@ const cases: readonly Case[] = [
               metric?: string;
               origin?: string;
               approved?: boolean;
+              aiGenerated?: boolean;
               grain?: string;
               inferredMembershipKeys?: string[];
               inferredMembershipKeyRoles?: {
@@ -276,6 +278,10 @@ const cases: readonly Case[] = [
               };
               sqlProjectedColumns?: string;
             }>;
+            searched?: number;
+            of?: number;
+            truncated?: boolean;
+            nextPage?: string | null;
           }
         | undefined;
       const roster = result?.results?.[0];
@@ -285,12 +291,17 @@ const cases: readonly Case[] = [
         roster?.metric === "model:user_organization_role" &&
         roster.origin === "source-index" &&
         roster.approved === false &&
+        roster.aiGenerated === true &&
         roster.grain?.includes("user-organization array entry") === true &&
         roster.inferredMembershipKeys?.join(",") ===
           "user_id,organization_id" &&
         roster.inferredMembershipKeyRoles?.user === "user_id" &&
         roster.inferredMembershipKeyRoles?.organization === "organization_id" &&
         roster.sqlProjectedColumns?.includes("organization_role") === true &&
+        result.searched === 3 &&
+        result.of === 1 &&
+        result.truncated === false &&
+        result.nextPage === null &&
         text.includes("row-level source") &&
         text.includes("capacity") &&
         text.includes("unapproved index suggestion") &&
@@ -1264,7 +1275,7 @@ const cases: readonly Case[] = [
   },
 ];
 
-async function buildSyntheticRosterCandidates() {
+async function buildSyntheticRosterCatalog() {
   const root = await mkdtemp(path.join(os.tmpdir(), "analytics-roster-eval-"));
   try {
     const dbtRoot = path.join(root, "dbt");
@@ -1296,19 +1307,13 @@ async function buildSyntheticRosterCandidates() {
       dbtRoots: [dbtRoot],
       generatedAt: "2026-10-24T00:00:00.000Z",
     });
-    const sourceEntries = sourceIndex.entries.map((entry) => ({
-      ...entry,
-      origin: "source-index" as const,
-      sourceIndex: true,
-      approved: false,
-      aiGenerated: true,
-    }));
-    const candidates = rankAnalyticsQueryCatalog({
+    const dictionaryEntries = sourceIndexDictionaryEntries(sourceIndex);
+    return rankAnalyticsQueryCatalogPage({
       search: "current synthetic organization user roster with roles",
       limit: 8,
       dashboards: [],
       dictionaryEntries: [
-        ...sourceEntries,
+        ...dictionaryEntries,
         {
           id: "approved-synthetic-seat-utilization",
           metric: "Synthetic Seat Utilization",
@@ -1338,7 +1343,6 @@ async function buildSyntheticRosterCandidates() {
         },
       ],
     });
-    return candidates;
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1651,9 +1655,9 @@ async function runCase(
   providerBoundary.executeProviderApiRequest.mockReset();
   const isRowLevelRosterCase =
     testCase.key === "synthetic-row-level-roster-beats-seat-utilization";
-  const syntheticRosterCandidates = isRowLevelRosterCase
-    ? await buildSyntheticRosterCandidates()
-    : [];
+  const syntheticRosterCatalog = isRowLevelRosterCase
+    ? await buildSyntheticRosterCatalog()
+    : null;
   const isCreatorSelfViewCase =
     testCase.key ===
     "synthetic-domain-exclusion-does-not-prove-creator-self-views";
@@ -1663,7 +1667,7 @@ async function runCase(
     testCase.key === "synthetic-content-api-requests-not-visual-views";
   const catalogFixture = {
     candidates: isRowLevelRosterCase
-      ? syntheticRosterCandidates
+      ? (syntheticRosterCatalog?.candidates ?? [])
       : isCreatorSelfViewCase
         ? [
             {
@@ -1724,10 +1728,10 @@ async function runCase(
                   source: "synthetic application instrumentation",
                 },
               ],
-    searched: isSingleResultCase ? 1 : 2,
-    of: isSingleResultCase ? 1 : 2,
-    truncated: false,
-    nextPage: null,
+    searched: syntheticRosterCatalog?.searched ?? (isSingleResultCase ? 1 : 2),
+    of: syntheticRosterCatalog?.of ?? (isSingleResultCase ? 1 : 2),
+    truncated: syntheticRosterCatalog?.truncated ?? false,
+    nextPage: syntheticRosterCatalog?.nextPage ?? null,
     searchedDashboardCount: 0,
     dashboardSearchTruncated: false,
     dashboardDetailHydrationTruncated: false,
