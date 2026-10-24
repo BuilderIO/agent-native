@@ -452,9 +452,10 @@ export async function liveBodyWriterGate(
  */
 export async function liveBodyWriterPageIds(
   docIds: readonly string[],
-  options: { db?: ContentDb } = {},
+  options: LiveBodyWriterReadOptions = {},
 ): Promise<Set<string>> {
-  const db = options.db ?? getDb();
+  const context = readContext(options);
+  const db = drizzleOverExec(context.executor);
   const pages: Array<LiveBodyWriterPageRow & { collabVersion: unknown }> = [];
   for (let offset = 0; offset < docIds.length; offset += GATE_PAGE_GROUP) {
     const group = docIds.slice(offset, offset + GATE_PAGE_GROUP);
@@ -475,14 +476,16 @@ export async function liveBodyWriterPageIds(
     // guard:allow-unscoped — callers check access to the pages first, and this returns only their write paths.
     const markers = await db
       .select({
-        ...liveBodyWriterPageColumns,
+        ...liveBodyWriterPageColumns(),
         collabVersion: sql<unknown>`(SELECT collab.version FROM _collab_docs AS collab WHERE collab.doc_id = documents.id)`,
       })
       .from(schema.documents)
       .where(switchedPage);
     pages.push(...markers);
   }
-  const flagsOn = flagsOnByScope({});
+  const flagsOn = flagsOnByScope(
+    context.kind === "transaction" ? { transaction: context.executor } : {},
+  );
   const ids = new Set<string>();
   for (const page of pages) {
     const gate = await gateForMarkers(

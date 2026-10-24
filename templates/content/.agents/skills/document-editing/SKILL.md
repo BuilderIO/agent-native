@@ -172,13 +172,14 @@ You can't switch the page back, so tell the user which page and file it was.
 `LIVE_BODY_WRITE_PATH_CHANGED` means the page switched while the write was in
 flight; read the page again and retry.
 Before a version restore, a move to another space, or a `pull-document`, the
-open editors of such a page save its title; its body is already in the live
-copy. `OPEN_EDITOR_TITLE_NOT_SAVED` (409, `retryable: true`) means an editor
-didn't confirm that save in time or couldn't make it, and nothing changed:
-retry, and if it refuses again, tell the user the open editor of page
-`details.documentId` didn't save. A restore, move or pull result's `titleFlush`
-says what the editors answered. `unconfirmed` means an editor too old to ask was
-open on the pages in `documentIds`, so a title it hadn't saved yet may be
+open editors of such a page that can save a title alone are asked to save it;
+its body is already in the live copy. `OPEN_EDITOR_TITLE_NOT_SAVED` (409,
+`retryable: true`) means one of them didn't confirm that save or couldn't make
+it, and nothing changed: retry, and if it refuses again, tell the user the open
+editor of page `details.documentId` didn't save its title. When editors were
+asked, a restore or move result's `titleFlush`, or a pull result's
+`editorFlush.titleFlush`, lists each page's editors. One with
+`flush: "unconfirmed"` couldn't be asked, so a title it hadn't saved yet may be
 missing; tell the user.
 
 A page in Trash refuses edits with `DOCUMENT_NOT_FOUND`, the same way
@@ -427,26 +428,26 @@ missing page or list documents to find the right id. Never retry the same id
 or invent a similar-looking one — fabricated ids cannot resolve, and repeated
 failures stop the run.
 
-| User request              | What to do                                                                        |
-| ------------------------- | --------------------------------------------------------------------------------- |
-| "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
-| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
-| "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
+| User request              | What to do                                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)                                               |
+| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen`                         |
+| "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"`                                   |
 | "Delete this page"        | ID and `updatedAt` from `<current-screen>`, `delete-document --id ... --expectedUpdatedAt ... --idempotencyKey ...` |
 
 ## Common Tasks
 
-| User says                    | What to do                                                                          |
-| ---------------------------- | ----------------------------------------------------------------------------------- |
-| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
-| "Describe what belongs here" | `update-document --id ... --description "..."`                                      |
-| "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
-| "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
-| "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`              |
+| User says                    | What to do                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen`   |
+| "Describe what belongs here" | `update-document --id ... --description "..."`                                                |
+| "Find my meeting notes"      | `search-documents --query "meeting notes"`                                                    |
+| "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"`           |
+| "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`                        |
 | "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
-| "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                               |
-| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                |
-| "Show me the document tree"  | `list-documents`                                                                    |
+| "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                                         |
+| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                          |
+| "Show me the document tree"  | `list-documents`                                                                              |
 
 Always run `refresh-list` after any create, update, or delete operation.
 

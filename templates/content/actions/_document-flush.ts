@@ -13,12 +13,16 @@ import {
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 import { parseDocumentRevisionToken } from "../server/lib/document-revision.js";
-import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import {
+  isLiveBodyWriterPage,
+  liveBodyWriterPageIds,
+} from "../server/lib/live-body-writer.js";
 import {
   DOCUMENT_FLUSH_PROTOCOL,
   flushAckKey,
   matchingFlushAck,
   type DocumentFlushAck,
+  type DocumentFlushClaim,
   type DocumentFlushRequest,
   type FlushEditorIdentity,
 } from "../shared/document-flush-protocol.js";
@@ -26,6 +30,8 @@ import { claimedEditorSave } from "../shared/editor-save-state.js";
 import {
   createDocumentFlushCapture,
   editorSaveIsInSql,
+  editorTitleIsInSql,
+  readDocumentTitleRow,
   type DocumentFlushSnapshot,
 } from "./_document-save-row.js";
 
@@ -33,6 +39,7 @@ const FLUSH_POLL_INTERVAL_MS = 200;
 // The required-editor budget covers acquisition and both handshake phases.
 const FLUSH_TIMEOUT_MS = 20_000;
 const BEST_EFFORT_FLUSH_TIMEOUT_MS = 4_000;
+const TITLE_DISCOVERY_CONCURRENCY = 10;
 
 function expiredMailbox(value: Record<string, unknown> | null): boolean {
   return (
@@ -52,9 +59,17 @@ export type OpenEditorFlushOutcome =
       verifyToken: string;
     })
   | { clientId: number; flush: "unconfirmed"; reason: "legacy_editor" };
+/**
+ * What the open editors of pages whose bodies are their live copies answered
+ * when asked to save their titles. An editor that doesn't advertise
+ * `canFlushTitle` isn't asked and stays unconfirmed.
+ */
+export type OpenEditorTitleFlush = {
+  pages: Array<{ documentId: string; editors: OpenEditorFlushOutcome[] }>;
+};
 export type OpenEditorFlushResult =
   | { status: "no_open_editor" }
-  | { status: "live_copy" }
+  | { status: "live_copy"; titleFlush?: OpenEditorTitleFlush }
   | {
       status: "flushed";
       editors: OpenEditorFlushOutcome[];
@@ -63,6 +78,7 @@ export type OpenEditorFlushResult =
 type Candidate = {
   clientId: number;
   required: boolean;
+  canFlushTitle: boolean;
   email: string | null;
   editorSessionId: string | null;
   protocol: unknown;
@@ -97,6 +113,7 @@ function candidate(entry: {
   return {
     clientId: entry.clientId,
     required,
+    canFlushTitle: state.canFlushTitle === true,
     email: typeof email === "string" && email.trim() ? email.trim() : null,
     editorSessionId:
       typeof state.editorSessionId === "string" && state.editorSessionId
@@ -104,6 +121,14 @@ function candidate(entry: {
         : null,
     protocol: state.documentFlushProtocol,
   };
+}
+async function openEditors(
+  documentId: string,
+  bounded: <T>(promise: Promise<T>) => Promise<T>,
+): Promise<Candidate[]> {
+  return (await bounded(loadAwarenessRowsStrict(documentId)))
+    .map(candidate)
+    .filter((value): value is Candidate => value !== null);
 }
 function failure(
   errorCode: string,
@@ -113,21 +138,75 @@ function failure(
   return new ActionContractError(message, { errorCode, details });
 }
 
-export async function flushOpenDocumentEditorToSql(args: {
-  documentId: string;
-  ownerEmail?: string | null;
-  propertyId?: string;
-}): Promise<OpenEditorFlushResult> {
-  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
-  let phase = "discovery";
-  let waitingEditors: FlushEditorIdentity[] = [];
-  let lastEditorError: { clientId: number; errorCode: string } | undefined;
-  const timeout = () =>
-    failure(
-      "open_editor_flush_timeout",
-      "The open document editor did not finish saving before sync timed out.",
-      { documentId: args.documentId, phase, waitingEditors, lastEditorError },
-    );
+export type OpenEditorTitleNotSavedReason =
+  | "timeout"
+  | "editor_error"
+  | "request_not_delivered"
+  | "request_not_received"
+  | "acknowledgement_unreadable"
+  | "editors_unreadable";
+
+function titleNotSavedMessage(
+  documentId: string,
+  reason: OpenEditorTitleNotSavedReason,
+) {
+  switch (reason) {
+    case "timeout":
+      return `An open editor didn't confirm in time that it saved the title of page ${documentId}.`;
+    case "editor_error":
+      return `An open editor couldn't save the title of page ${documentId}.`;
+    case "request_not_delivered":
+      return `Couldn't ask the open editor of page ${documentId} to save its title.`;
+    case "request_not_received":
+      return `An open editor of page ${documentId} never picked up the request to save its title.`;
+    case "acknowledgement_unreadable":
+      return `Couldn't read whether the open editor of page ${documentId} saved its title.`;
+    case "editors_unreadable":
+      return `Couldn't read which editors have page ${documentId} open.`;
+  }
+}
+
+/** Nothing has been written when this is thrown, so the caller can retry. */
+function titleNotSaved(
+  documentId: string,
+  reason: OpenEditorTitleNotSavedReason,
+  extra: { code?: string; cause?: unknown } = {},
+) {
+  return new ActionContractError(
+    `${titleNotSavedMessage(documentId, reason)} Nothing changed; try again.`,
+    {
+      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+      statusCode: 409,
+      details: {
+        documentId,
+        reason,
+        ...(extra.code ? { code: extra.code } : {}),
+        ...(extra.cause !== undefined
+          ? {
+              cause:
+                extra.cause instanceof Error
+                  ? extra.cause.message
+                  : String(extra.cause),
+            }
+          : {}),
+        retryable: true,
+      },
+    },
+  );
+}
+
+type FlushBudget = {
+  deadline: number;
+  timeout: () => Error;
+  bounded: <T>(promise: Promise<T>) => Promise<T>;
+  pause: () => Promise<void>;
+  finishCleanup: (
+    cleanup: Promise<unknown>,
+    requestId: string,
+  ) => Promise<void>;
+};
+
+function flushBudget(deadline: number, timeout: () => Error): FlushBudget {
   async function bounded<T>(promise: Promise<T>): Promise<T> {
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw timeout();
@@ -167,10 +246,509 @@ export async function flushOpenDocumentEditorToSql(args: {
         ),
       ),
     );
+  return { deadline, timeout, bounded, pause, finishCleanup };
+}
+
+type HandshakeState = {
+  phase: string;
+  waitingEditors: FlushEditorIdentity[];
+  lastEditorError?: { clientId: number; errorCode: string };
+  // The title scope's failure reasons: whether every session's mailbox took
+  // the first request, and which editors took the current prepare request.
+  delivered: boolean;
+  reached: Set<number>;
+};
+
+function handshakeState(): HandshakeState {
+  return {
+    phase: "discovery",
+    waitingEditors: [],
+    delivered: false,
+    reached: new Set(),
+  };
+}
+
+function editorIdentity(editor: Candidate): FlushEditorIdentity {
+  return {
+    clientId: editor.clientId,
+    editorSessionId: editor.editorSessionId!,
+  };
+}
+
+/**
+ * Runs the prepare and verify handshake with `editors`, each of which has an
+ * email, an editor session and protocol 2, until every one has a claim that
+ * the snapshot `capture` reads holds and has stayed unchanged across it.
+ */
+async function confirmEditors<S>(args: {
+  documentId: string;
+  propertyId?: string;
+  scope?: "title";
+  editors: Candidate[];
+  budget: FlushBudget;
+  state: HandshakeState;
+  capture: () => Promise<S | null>;
+  inSql: (snapshot: S, claim: DocumentFlushClaim) => boolean;
+}): Promise<{ snapshot: S; prepareToken: string; verifyToken: string }> {
+  const { documentId, propertyId, scope, editors: required, state } = args;
+  const { deadline, timeout, bounded, pause, finishCleanup } = args.budget;
+  const sessions = [...new Set(required.map((editor) => editor.email!))].sort();
+  state.waitingEditors = required.map(editorIdentity);
+  const targetsFor = (email: string) =>
+    required.filter((editor) => editor.email === email).map(editorIdentity);
+  const requestId = randomUUID();
+  const mailbox = `flush-request-${documentId}`;
+  const owned = new Map<string, DocumentFlushRequest>();
+  const leaves = new Map<string, Set<string>>();
+  const requests = (
+    phaseName: "prepare" | "verify",
+    phaseToken: string,
+    prepareToken: string,
+  ): Map<string, DocumentFlushRequest> =>
+    new Map(
+      sessions.map((email) => {
+        const request: DocumentFlushRequest = {
+          protocol: DOCUMENT_FLUSH_PROTOCOL,
+          id: documentId,
+          requestId,
+          phase: phaseName,
+          phaseToken,
+          prepareToken,
+          expiresAt: deadline,
+          targets: targetsFor(email),
+          ...(propertyId ? { propertyId } : {}),
+          ...(scope ? { scope } : {}),
+        };
+        const known = leaves.get(email) ?? new Set<string>();
+        request.targets.forEach((target) =>
+          known.add(flushAckKey(request, target.clientId)),
+        );
+        leaves.set(email, known);
+        return [email, request];
+      }),
+    );
+  async function cas(
+    email: string,
+    expected: DocumentFlushRequest | Record<string, unknown> | null,
+    next: DocumentFlushRequest,
+  ) {
+    const operation = appStateCompareAndSet(email, mailbox, expected, next, {
+      requestSource: "agent",
+    });
+    // A database operation can finish after our deadline. It may only release its own value.
+    void operation
+      .then((changed) => {
+        if (changed && Date.now() >= deadline)
+          return appStateCompareAndSet(email, mailbox, next, null, {
+            requestSource: "agent",
+          });
+      })
+      .catch((error) =>
+        console.warn("Document flush late acquisition cleanup failed", {
+          requestId,
+          error,
+        }),
+      );
+    const changed = await bounded(operation);
+    if (changed) owned.set(email, next);
+    return changed;
+  }
+  async function publish(
+    next: Map<string, DocumentFlushRequest>,
+    acquire: boolean,
+  ) {
+    for (const email of sessions) {
+      const request = next.get(email)!;
+      if (!acquire) {
+        if (!(await cas(email, owned.get(email)!, request)))
+          throw failure(
+            "open_editor_flush_contention",
+            "The open editor flush request changed before confirmation.",
+          );
+        continue;
+      }
+      while (true) {
+        const occupied = await bounded(appStateGet(email, mailbox));
+        // Expiry permits mailbox acquisition, never save confirmation.
+        // Legacy terminal values use ts and the same twenty-second budget.
+        const expired = expiredMailbox(occupied);
+        if ((!occupied || expired) && (await cas(email, occupied, request)))
+          break;
+        await pause();
+      }
+    }
+  }
+  async function acknowledgments(
+    requestsByEmail: Map<string, DocumentFlushRequest>,
+  ): Promise<Map<number, DocumentFlushAck>> {
+    const answers = new Map<number, DocumentFlushAck>();
+    state.waitingEditors = required.map(editorIdentity);
+    while (true) {
+      const reads = await bounded(
+        Promise.all(
+          sessions.map(async (email) => {
+            const request = requestsByEmail.get(email)!;
+            const keys = request.targets.map((target) =>
+              flushAckKey(request, target.clientId),
+            );
+            const known = leaves.get(email) ?? new Set<string>();
+            keys.forEach((key) => known.add(key));
+            leaves.set(email, known);
+            return {
+              email,
+              entries: await appStateGetManyEntries(email, keys),
+            };
+          }),
+        ),
+      );
+      let retry = false;
+      for (const { email, entries } of reads) {
+        const request = requestsByEmail.get(email)!;
+        for (const { key, value } of entries) {
+          if (value === null) continue;
+          const target = request.targets.find(
+            (target) => flushAckKey(request, target.clientId) === key,
+          );
+          if (
+            !target ||
+            !value ||
+            typeof value !== "object" ||
+            Array.isArray(value) ||
+            !matchingFlushAck(value, request, target)
+          )
+            throw failure(
+              "open_editor_flush_invalid_ack",
+              "The open editor returned an unrelated save confirmation.",
+              { key },
+            );
+          if (scope === "title") {
+            state.reached.add(target.clientId);
+            if (request.phase === "prepare" && value.status === "taken")
+              continue;
+            // A title save that failed is the editor's to report; asking
+            // again would only wait out the deadline.
+            if (value.status === "error") {
+              if (typeof value.errorCode !== "string")
+                throw failure(
+                  "open_editor_flush_invalid_ack",
+                  "The open editor returned an unreadable save confirmation.",
+                  { clientId: target.clientId },
+                );
+              throw titleNotSaved(documentId, "editor_error", {
+                code: value.errorCode,
+              });
+            }
+          }
+          if (value.status === "error") {
+            if (typeof value.errorCode !== "string")
+              throw failure(
+                "open_editor_flush_invalid_ack",
+                "The open editor returned an unreadable save confirmation.",
+                { clientId: target.clientId },
+              );
+            state.lastEditorError = {
+              clientId: target.clientId,
+              errorCode: value.errorCode,
+            };
+            answers.set(target.clientId, value as DocumentFlushAck);
+            retry = true;
+            continue;
+          }
+          if (value.status === "changed") {
+            answers.set(target.clientId, value as DocumentFlushAck);
+            retry = true;
+            continue;
+          }
+          const valid =
+            typeof value.stabilityToken === "string" &&
+            (request.phase === "prepare"
+              ? value.status === "prepared" &&
+                validClaim(value.claim, propertyId, scope)
+              : value.status === "verified");
+          if (!valid)
+            throw failure(
+              "open_editor_flush_invalid_ack",
+              "The open editor returned an unreadable save confirmation.",
+              { clientId: target.clientId },
+            );
+          answers.set(target.clientId, value as DocumentFlushAck);
+        }
+      }
+      state.waitingEditors = state.waitingEditors.filter(
+        (editor) => !answers.has(editor.clientId),
+      );
+      if (retry || answers.size === required.length) return answers;
+      await pause();
+    }
+  }
   try {
-    const candidates = (await bounded(loadAwarenessRowsStrict(args.documentId)))
-      .map(candidate)
-      .filter((value): value is Candidate => value !== null);
+    let acquire = true;
+    while (true) {
+      if (!acquire) await pause();
+      if (Date.now() >= deadline) throw timeout();
+      state.phase = "prepare";
+      const prepareToken = randomUUID();
+      const prepare = requests("prepare", prepareToken, prepareToken);
+      state.reached.clear();
+      await publish(prepare, acquire);
+      acquire = false;
+      state.delivered = true;
+      const prepared = await acknowledgments(prepare);
+      if (
+        [...prepared.values()].some(
+          (ack) => ack.status === "changed" || ack.status === "error",
+        )
+      )
+        continue;
+      state.phase = "capture";
+      const snapshot = await bounded(args.capture());
+      if (!snapshot)
+        throw failure(
+          "open_editor_flush_missing_document",
+          "The document was removed before save confirmation.",
+        );
+      if (
+        ![...prepared.values()].every(
+          (ack) => ack.status === "prepared" && args.inSql(snapshot, ack.claim),
+        )
+      )
+        continue;
+      // This token is created only after S exists. Every unchanged prepare-to-verify interval spans S.
+      state.phase = "verify";
+      const verifyToken = randomUUID();
+      const verify = requests("verify", verifyToken, prepareToken);
+      await publish(verify, false);
+      const verified = await acknowledgments(verify);
+      if (
+        ![...verified.values()].every(
+          (ack) =>
+            ack.status === "verified" &&
+            prepared.get(ack.clientId)?.status === "prepared" &&
+            ack.stabilityToken ===
+              (
+                prepared.get(ack.clientId) as Extract<
+                  DocumentFlushAck,
+                  { status: "prepared" }
+                >
+              ).stabilityToken,
+        )
+      )
+        continue;
+      if (Date.now() >= deadline) throw timeout();
+      return { snapshot, prepareToken, verifyToken };
+    }
+  } finally {
+    const cleanup = Promise.all(
+      sessions.map(async (email) => {
+        const own = owned.get(email);
+        if (own)
+          await appStateCompareAndSet(email, mailbox, own, null, {
+            requestSource: "agent",
+          });
+        const keys = [...(leaves.get(email) ?? [])];
+        for (const { key, value } of await appStateGetManyEntries(
+          email,
+          keys,
+        )) {
+          if (value?.requestId === requestId)
+            await appStateCompareAndSet(email, key, value, null, {
+              requestSource: "agent",
+            });
+        }
+      }),
+    );
+    // Cleanup cannot extend the confirmation deadline or delete a successor's nonce.
+    await finishCleanup(cleanup, requestId);
+  }
+}
+
+function documentClaimIsInSql(
+  snapshot: DocumentFlushSnapshot,
+  claim: DocumentFlushClaim,
+): boolean {
+  return claim.kind === "property"
+    ? snapshot.kind === "property" &&
+        snapshot.propertyId === claim.propertyId &&
+        snapshot.contentHash === claim.contentHash
+    : claim.kind === "document" &&
+        snapshot.kind === "document" &&
+        editorSaveIsInSql(snapshot, claim.save, snapshot.contentHash);
+}
+
+function titleTimeoutReason(
+  state: HandshakeState,
+): OpenEditorTitleNotSavedReason {
+  if (state.phase === "discovery") return "timeout";
+  if (!state.delivered) return "request_not_delivered";
+  // An editor marks a title request taken before it saves, so one that never
+  // did never picked the request up.
+  if (
+    state.phase === "prepare" &&
+    state.waitingEditors.some((editor) => !state.reached.has(editor.clientId))
+  )
+    return "request_not_received";
+  return "timeout";
+}
+
+/**
+ * Asks the editors of `documentId` that advertise `canFlushTitle` to save its
+ * title alone, by `deadline`. Throws OPEN_EDITOR_TITLE_NOT_SAVED when any of
+ * them doesn't confirm it.
+ */
+async function saveEditorTitle(
+  documentId: string,
+  candidates: Candidate[],
+  deadline: number,
+): Promise<OpenEditorTitleFlush["pages"][number]> {
+  const unconfirmed = (editor: Candidate): OpenEditorFlushOutcome => ({
+    clientId: editor.clientId,
+    flush: "unconfirmed",
+    reason: "legacy_editor",
+  });
+  const asked = candidates.filter((editor) => editor.canFlushTitle);
+  if (asked.length === 0)
+    return { documentId, editors: candidates.map(unconfirmed) };
+  const state = handshakeState();
+  const budget = flushBudget(deadline, () =>
+    titleNotSaved(documentId, titleTimeoutReason(state)),
+  );
+  try {
+    if (
+      asked.some(
+        (editor) =>
+          !editor.email ||
+          !editor.editorSessionId ||
+          editor.protocol !== DOCUMENT_FLUSH_PROTOCOL,
+      )
+    )
+      throw titleNotSaved(documentId, "request_not_delivered");
+    const { prepareToken, verifyToken } = await confirmEditors({
+      documentId,
+      scope: "title",
+      editors: asked,
+      budget,
+      state,
+      capture: () => readDocumentTitleRow(documentId),
+      inSql: (row, claim) =>
+        claim.kind === "title" && editorTitleIsInSql(row, claim),
+    });
+    return {
+      documentId,
+      editors: candidates.map((editor) =>
+        editor.canFlushTitle
+          ? {
+              ...editorIdentity(editor),
+              flush: "answered",
+              prepareToken,
+              verifyToken,
+            }
+          : unconfirmed(editor),
+      ),
+    };
+  } catch (error) {
+    if (!(error instanceof ActionContractError))
+      throw titleNotSaved(
+        documentId,
+        state.delivered
+          ? "acknowledgement_unreadable"
+          : "request_not_delivered",
+        { cause: error },
+      );
+    switch (error.errorCode) {
+      case "open_editor_flush_contention":
+        throw titleNotSaved(documentId, "request_not_delivered");
+      case "open_editor_flush_invalid_ack":
+        throw titleNotSaved(documentId, "acknowledgement_unreadable");
+      default:
+        throw error;
+    }
+  }
+}
+
+/**
+ * Asks the open editors of the pages among `documentIds` whose bodies are
+ * their live copies to save their titles, under one deadline, before a write
+ * that would lose a title an editor hasn't saved. Their bodies need no save:
+ * each tab's commit already wrote them. Undefined when none of those pages
+ * has an editor that advertises `canFlushTitle`, so the caller returns what
+ * main does. Throws OPEN_EDITOR_TITLE_NOT_SAVED before anything is written.
+ */
+export async function saveOpenEditorTitles(
+  documentIds: readonly string[],
+): Promise<OpenEditorTitleFlush | undefined> {
+  const switched = await liveBodyWriterPageIds(documentIds);
+  if (switched.size === 0) return undefined;
+  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
+  const ids = documentIds.filter((id) => switched.has(id));
+  const open: Array<{ documentId: string; candidates: Candidate[] }> = [];
+  for (
+    let offset = 0;
+    offset < ids.length;
+    offset += TITLE_DISCOVERY_CONCURRENCY
+  ) {
+    const group = ids.slice(offset, offset + TITLE_DISCOVERY_CONCURRENCY);
+    for (const page of await Promise.all(
+      group.map(async (documentId) => {
+        const { bounded } = flushBudget(deadline, () =>
+          titleNotSaved(documentId, "timeout"),
+        );
+        try {
+          return {
+            documentId,
+            candidates: await openEditors(documentId, bounded),
+          };
+        } catch (error) {
+          if (error instanceof ActionContractError) throw error;
+          throw titleNotSaved(documentId, "editors_unreadable", {
+            cause: error,
+          });
+        }
+      }),
+    )) {
+      if (page.candidates.length > 0) open.push(page);
+    }
+  }
+  if (
+    !open.some((page) => page.candidates.some((editor) => editor.canFlushTitle))
+  )
+    return undefined;
+  // Every page's editors finish before the caller refuses, so none is still
+  // being asked after it returns.
+  const saved = await Promise.allSettled(
+    open.map((page) =>
+      saveEditorTitle(page.documentId, page.candidates, deadline),
+    ),
+  );
+  return {
+    pages: saved.map((result) => {
+      if (result.status === "rejected") throw result.reason;
+      return result.value;
+    }),
+  };
+}
+
+export async function flushOpenDocumentEditorToSql(args: {
+  documentId: string;
+  ownerEmail?: string | null;
+  propertyId?: string;
+}): Promise<OpenEditorFlushResult> {
+  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
+  const state = handshakeState();
+  const budget = flushBudget(deadline, () =>
+    failure(
+      "open_editor_flush_timeout",
+      "The open document editor did not finish saving before sync timed out.",
+      {
+        documentId: args.documentId,
+        phase: state.phase,
+        waitingEditors: state.waitingEditors,
+        lastEditorError: state.lastEditorError,
+      },
+    ),
+  );
+  const { bounded, pause, finishCleanup } = budget;
+  try {
+    const candidates = await openEditors(args.documentId, bounded);
     if (
       args.propertyId &&
       candidates.length > 0 &&
@@ -189,13 +767,21 @@ export async function flushOpenDocumentEditorToSql(args: {
     // A switched page's body is its live copy, and each tab's commit to it
     // already wrote SQL, so its editors never answer a body save: asking
     // would wait out the deadline. Read only with an editor open, so a flush
-    // with none reads nothing beyond main's. A Blocks field outside the body
+    // with none reads nothing beyond main's. Editors that advertise
+    // canFlushTitle save the title alone. A Blocks field outside the body
     // still needs its save.
     if (
       !args.propertyId &&
       (await bounded(isLiveBodyWriterPage(args.documentId)))
     ) {
-      return { status: "live_copy" };
+      if (!candidates.some((editor) => editor.canFlushTitle))
+        return { status: "live_copy" };
+      return {
+        status: "live_copy",
+        titleFlush: {
+          pages: [await saveEditorTitle(args.documentId, candidates, deadline)],
+        },
+      };
     }
     if (required.length === 0) {
       const sessions = [
@@ -316,298 +902,34 @@ export async function flushOpenDocumentEditorToSql(args: {
           { clientId: editor.clientId },
         );
     }
-    const sessions = [
-      ...new Set(required.map((editor) => editor.email!)),
-    ].sort();
-    waitingEditors = required.map((editor) => ({
-      clientId: editor.clientId,
-      editorSessionId: editor.editorSessionId!,
-    }));
-    const targetsFor = (email: string) =>
-      required
-        .filter((editor) => editor.email === email)
-        .map((editor) => ({
-          clientId: editor.clientId,
-          editorSessionId: editor.editorSessionId!,
-        }));
-    const requestId = randomUUID();
-    const mailbox = `flush-request-${args.documentId}`;
-    const owned = new Map<string, DocumentFlushRequest>();
-    const leaves = new Map<string, Set<string>>();
     const capture = createDocumentFlushCapture();
-    const requests = (
-      phaseName: "prepare" | "verify",
-      phaseToken: string,
-      prepareToken: string,
-    ): Map<string, DocumentFlushRequest> =>
-      new Map(
-        sessions.map((email) => {
-          const request: DocumentFlushRequest = {
-            protocol: DOCUMENT_FLUSH_PROTOCOL,
-            id: args.documentId,
-            requestId,
-            phase: phaseName,
-            phaseToken,
-            prepareToken,
-            expiresAt: deadline,
-            targets: targetsFor(email),
-            ...(args.propertyId ? { propertyId: args.propertyId } : {}),
-          };
-          const known = leaves.get(email) ?? new Set<string>();
-          request.targets.forEach((target) =>
-            known.add(flushAckKey(request, target.clientId)),
-          );
-          leaves.set(email, known);
-          return [email, request];
-        }),
-      );
-    async function cas(
-      email: string,
-      expected: DocumentFlushRequest | Record<string, unknown> | null,
-      next: DocumentFlushRequest,
-    ) {
-      const operation = appStateCompareAndSet(email, mailbox, expected, next, {
-        requestSource: "agent",
-      });
-      // A database operation can finish after our deadline. It may only release its own value.
-      void operation
-        .then((changed) => {
-          if (changed && Date.now() >= deadline)
-            return appStateCompareAndSet(email, mailbox, next, null, {
-              requestSource: "agent",
-            });
-        })
-        .catch((error) =>
-          console.warn("Document flush late acquisition cleanup failed", {
-            requestId,
-            error,
-          }),
-        );
-      const changed = await bounded(operation);
-      if (changed) owned.set(email, next);
-      return changed;
-    }
-    async function publish(
-      next: Map<string, DocumentFlushRequest>,
-      acquire: boolean,
-    ) {
-      for (const email of sessions) {
-        const request = next.get(email)!;
-        if (!acquire) {
-          if (!(await cas(email, owned.get(email)!, request)))
-            throw failure(
-              "open_editor_flush_contention",
-              "The open editor flush request changed before confirmation.",
-            );
-          continue;
-        }
-        while (true) {
-          const occupied = await bounded(appStateGet(email, mailbox));
-          // Expiry permits mailbox acquisition, never save confirmation.
-          // Legacy terminal values use ts and the same twenty-second budget.
-          const expired = expiredMailbox(occupied);
-          if ((!occupied || expired) && (await cas(email, occupied, request)))
-            break;
-          await pause();
-        }
-      }
-    }
-    async function acknowledgments(
-      requestsByEmail: Map<string, DocumentFlushRequest>,
-    ): Promise<Map<number, DocumentFlushAck>> {
-      const answers = new Map<number, DocumentFlushAck>();
-      waitingEditors = required.map((editor) => ({
-        clientId: editor.clientId,
-        editorSessionId: editor.editorSessionId!,
-      }));
-      while (true) {
-        const reads = await bounded(
-          Promise.all(
-            sessions.map(async (email) => {
-              const request = requestsByEmail.get(email)!;
-              const keys = request.targets.map((target) =>
-                flushAckKey(request, target.clientId),
-              );
-              const known = leaves.get(email) ?? new Set<string>();
-              keys.forEach((key) => known.add(key));
-              leaves.set(email, known);
-              return {
-                email,
-                entries: await appStateGetManyEntries(email, keys),
-              };
-            }),
-          ),
-        );
-        let retry = false;
-        for (const { email, entries } of reads) {
-          const request = requestsByEmail.get(email)!;
-          for (const { key, value } of entries) {
-            if (value === null) continue;
-            const target = request.targets.find(
-              (target) => flushAckKey(request, target.clientId) === key,
-            );
-            if (
-              !target ||
-              !value ||
-              typeof value !== "object" ||
-              Array.isArray(value) ||
-              !matchingFlushAck(value, request, target)
-            )
-              throw failure(
-                "open_editor_flush_invalid_ack",
-                "The open editor returned an unrelated save confirmation.",
-                { key },
-              );
-            if (value.status === "error") {
-              if (typeof value.errorCode !== "string")
-                throw failure(
-                  "open_editor_flush_invalid_ack",
-                  "The open editor returned an unreadable save confirmation.",
-                  { clientId: target.clientId },
-                );
-              lastEditorError = {
-                clientId: target.clientId,
-                errorCode: value.errorCode,
-              };
-              answers.set(target.clientId, value as DocumentFlushAck);
-              retry = true;
-              continue;
+    const { snapshot, prepareToken, verifyToken } = await confirmEditors({
+      documentId: args.documentId,
+      propertyId: args.propertyId,
+      editors: required,
+      budget,
+      state,
+      capture: () => capture(args.documentId, args.propertyId),
+      inSql: documentClaimIsInSql,
+    });
+    return {
+      status: "flushed",
+      snapshot,
+      editors: candidates.map((editor) =>
+        editor.required
+          ? {
+              ...editorIdentity(editor),
+              flush: "answered",
+              prepareToken,
+              verifyToken,
             }
-            if (value.status === "changed") {
-              answers.set(target.clientId, value as DocumentFlushAck);
-              retry = true;
-              continue;
-            }
-            const valid =
-              typeof value.stabilityToken === "string" &&
-              (request.phase === "prepare"
-                ? value.status === "prepared" &&
-                  validClaim(value.claim, args.propertyId)
-                : value.status === "verified");
-            if (!valid)
-              throw failure(
-                "open_editor_flush_invalid_ack",
-                "The open editor returned an unreadable save confirmation.",
-                { clientId: target.clientId },
-              );
-            answers.set(target.clientId, value as DocumentFlushAck);
-          }
-        }
-        waitingEditors = waitingEditors.filter(
-          (editor) => !answers.has(editor.clientId),
-        );
-        if (retry || answers.size === required.length) return answers;
-        await pause();
-      }
-    }
-    try {
-      let acquire = true;
-      while (true) {
-        if (!acquire) await pause();
-        if (Date.now() >= deadline) throw timeout();
-        phase = "prepare";
-        const prepareToken = randomUUID();
-        const prepare = requests("prepare", prepareToken, prepareToken);
-        await publish(prepare, acquire);
-        acquire = false;
-        const prepared = await acknowledgments(prepare);
-        if (
-          [...prepared.values()].some(
-            (ack) => ack.status === "changed" || ack.status === "error",
-          )
-        )
-          continue;
-        phase = "capture";
-        const snapshot = await bounded(
-          capture(args.documentId, args.propertyId),
-        );
-        if (!snapshot)
-          throw failure(
-            "open_editor_flush_missing_document",
-            "The document was removed before save confirmation.",
-          );
-        if (
-          ![...prepared.values()].every(
-            (ack) =>
-              ack.status === "prepared" &&
-              (ack.claim.kind === "property"
-                ? snapshot.kind === "property" &&
-                  snapshot.propertyId === ack.claim.propertyId &&
-                  snapshot.contentHash === ack.claim.contentHash
-                : snapshot.kind === "document" &&
-                  editorSaveIsInSql(
-                    snapshot,
-                    ack.claim.save,
-                    snapshot.contentHash,
-                  )),
-          )
-        )
-          continue;
-        // This token is created only after S exists. Every unchanged prepare-to-verify interval spans S.
-        phase = "verify";
-        const verifyToken = randomUUID();
-        const verify = requests("verify", verifyToken, prepareToken);
-        await publish(verify, false);
-        const verified = await acknowledgments(verify);
-        if (
-          ![...verified.values()].every(
-            (ack) =>
-              ack.status === "verified" &&
-              prepared.get(ack.clientId)?.status === "prepared" &&
-              ack.stabilityToken ===
-                (
-                  prepared.get(ack.clientId) as Extract<
-                    DocumentFlushAck,
-                    { status: "prepared" }
-                  >
-                ).stabilityToken,
-          )
-        )
-          continue;
-        if (Date.now() >= deadline) throw timeout();
-        return {
-          status: "flushed",
-          snapshot,
-          editors: candidates.map((editor) =>
-            editor.required
-              ? {
-                  clientId: editor.clientId,
-                  editorSessionId: editor.editorSessionId!,
-                  flush: "answered",
-                  prepareToken,
-                  verifyToken,
-                }
-              : {
-                  clientId: editor.clientId,
-                  flush: "unconfirmed",
-                  reason: "legacy_editor",
-                },
-          ),
-        };
-      }
-    } finally {
-      const cleanup = Promise.all(
-        sessions.map(async (email) => {
-          const own = owned.get(email);
-          if (own)
-            await appStateCompareAndSet(email, mailbox, own, null, {
-              requestSource: "agent",
-            });
-          const keys = [...(leaves.get(email) ?? [])];
-          for (const { key, value } of await appStateGetManyEntries(
-            email,
-            keys,
-          )) {
-            if (value?.requestId === requestId)
-              await appStateCompareAndSet(email, key, value, null, {
-                requestSource: "agent",
-              });
-          }
-        }),
-      );
-      // Cleanup cannot extend the confirmation deadline or delete a successor's nonce.
-      await finishCleanup(cleanup, requestId);
-    }
+          : {
+              clientId: editor.clientId,
+              flush: "unconfirmed",
+              reason: "legacy_editor",
+            },
+      ),
+    };
   } catch (error) {
     if (error instanceof ActionContractError) throw error;
     throw failure(
@@ -615,15 +937,26 @@ export async function flushOpenDocumentEditorToSql(args: {
       "The open editor save confirmation could not be read or written.",
       {
         documentId: args.documentId,
-        phase,
+        phase: state.phase,
         cause: error instanceof Error ? error.message : String(error),
       },
     );
   }
 }
-function validClaim(value: unknown, propertyId?: string): boolean {
+function validClaim(
+  value: unknown,
+  propertyId?: string,
+  scope?: "title",
+): boolean {
   if (!value || typeof value !== "object") return false;
   const claim = value as Record<string, unknown>;
+  if (scope === "title")
+    return (
+      claim.kind === "title" &&
+      typeof claim.title === "string" &&
+      (claim.titleUpdatedAt === null ||
+        typeof claim.titleUpdatedAt === "string")
+    );
   if (propertyId)
     return (
       claim.kind === "property" &&

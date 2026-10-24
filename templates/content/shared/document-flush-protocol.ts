@@ -17,11 +17,15 @@ export type DocumentFlushRequest = {
   expiresAt: number;
   targets: FlushEditorIdentity[];
   propertyId?: string;
+  // Asks for the title alone, on a page whose body is its live copy: each
+  // tab's commit already wrote the body. Never set with propertyId.
+  scope?: "title";
 };
 
 export type DocumentFlushClaim =
   | { kind: "document"; save: ClaimedEditorSave }
-  | { kind: "property"; propertyId: string; contentHash: string };
+  | { kind: "property"; propertyId: string; contentHash: string }
+  | { kind: "title"; title: string; titleUpdatedAt: string | null };
 
 export type DocumentFlushAck = FlushEditorIdentity & {
   protocol: typeof DOCUMENT_FLUSH_PROTOCOL;
@@ -34,6 +38,11 @@ export type DocumentFlushAck = FlushEditorIdentity & {
     | { status: "verified"; stabilityToken: string }
     | { status: "changed" }
     | { status: "error"; errorCode: string }
+    // A title-scope prepare only, and never final: the editor has the request
+    // and is saving the title. It replaces this mark with its answer by
+    // compare-and-set, so the server can tell a request no editor picked up
+    // from one an editor took and didn't answer in time.
+    | { status: "taken" }
   );
 
 export function flushAckKey(
@@ -58,6 +67,8 @@ export function isDocumentFlushRequest(
     Number.isFinite(request.expiresAt) &&
     (request.propertyId === undefined ||
       typeof request.propertyId === "string") &&
+    (request.scope === undefined ||
+      (request.scope === "title" && request.propertyId === undefined)) &&
     Array.isArray(request.targets) &&
     request.targets.length > 0 &&
     request.targets.every(

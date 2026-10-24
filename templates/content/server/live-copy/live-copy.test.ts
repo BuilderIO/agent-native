@@ -2908,7 +2908,7 @@ describe("a version restore on a switched page", () => {
         ownerEmail: OWNER,
       }),
     );
-    await restore(
+    const restored = await restore(
       "restore-open",
       versionId,
       (await metadata("restore-open")).updatedAt,
@@ -2916,6 +2916,90 @@ describe("a version restore on a switched page", () => {
 
     expect(performance.now() - started).toBeLessThan(2_000);
     expect((await page("restore-open")).content).toBe("First draft");
+    expect(restored).not.toHaveProperty("titleFlush");
+  });
+
+  it("has a tab that advertises the title save save its title first, so History keeps it", async () => {
+    await switchedPage("restore-tab-title", "First draft");
+    await serverEdit("restore-tab-title", "Second draft");
+    const versionId = await versionHolding("restore-tab-title", "First draft");
+    const before = await metadata("restore-tab-title");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-title", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-tab-title", OWNER, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ title: "Tab title", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, "restore-tab-title"));
+      },
+    });
+
+    const restored = await restore(
+      "restore-tab-title",
+      versionId,
+      before.updatedAt,
+    );
+
+    await expect(answered).resolves.toMatchObject({ scope: "title" });
+    expect(restored).toMatchObject({
+      content: "First draft",
+      titleFlush: {
+        pages: [
+          {
+            documentId: "restore-tab-title",
+            editors: [
+              expect.objectContaining({ clientId: 7, flush: "answered" }),
+            ],
+          },
+        ],
+      },
+    });
+    const versions = await getDb()
+      .select({
+        title: schema.documentVersions.title,
+        content: schema.documentVersions.content,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "restore-tab-title"));
+    expect(versions).toContainEqual({
+      title: "Tab title",
+      content: "Second draft",
+    });
+  });
+
+  it("refuses a restore whose tab couldn't save its title, and changes nothing", async () => {
+    await switchedPage("restore-tab-error", "First draft");
+    await serverEdit("restore-tab-error", "Second draft");
+    const versionId = await versionHolding("restore-tab-error", "First draft");
+    const before = await metadata("restore-tab-error");
+    const version = await collabVersion("restore-tab-error");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-error", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-tab-error", OWNER, {
+      errorCode: "title_conflict",
+    });
+
+    await expect(
+      restore("restore-tab-error", versionId, before.updatedAt),
+    ).rejects.toMatchObject({
+      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+      statusCode: 409,
+      details: {
+        documentId: "restore-tab-error",
+        reason: "editor_error",
+        code: "title_conflict",
+        retryable: true,
+      },
+    });
+    await answered;
+    expect(await metadata("restore-tab-error")).toEqual(before);
+    expect((await page("restore-tab-error")).content).toBe("Second draft");
+    expect(await collabVersion("restore-tab-error")).toBe(version);
   });
 
   it("restores a version's private callout icon in the page's canonical form", async () => {

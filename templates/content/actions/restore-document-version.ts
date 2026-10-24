@@ -47,7 +47,11 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
-import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
+import {
+  flushOpenDocumentEditorToSql,
+  saveOpenEditorTitles,
+  type OpenEditorTitleFlush,
+} from "./_document-flush.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
@@ -329,7 +333,7 @@ export default defineAction({
       linkedLocalRestoreUnsupported();
     assertSourceAllowsPageEdit(access.resource);
     const db = getDb();
-    if (await isLiveBodyWriterPage(documentId)) {
+    const readCurrent = async () => {
       const [current] = await db
         .select()
         .from(schema.documents)
@@ -341,6 +345,11 @@ export default defineAction({
         )
         .limit(1);
       assertEditableDocument(current);
+      return current;
+    };
+    let titleFlush: OpenEditorTitleFlush | undefined;
+    if (await isLiveBodyWriterPage(documentId)) {
+      let current = await readCurrent();
       if (current.updatedAt !== args.expectedUpdatedAt) {
         restoreConflict(
           "The document changed after this restore was prepared.",
@@ -350,6 +359,12 @@ export default defineAction({
           },
         );
       }
+      // History records the page as it stands before the restore, and an
+      // open editor may not have saved its title yet. Its body is already in
+      // the live copy. The save it asks for moves the page on, which is no
+      // conflict.
+      titleFlush = await saveOpenEditorTitles([documentId]);
+      if (titleFlush) current = await readCurrent();
       const restored = await restoreThroughLiveCopy({
         ctx,
         documentId,
@@ -359,10 +374,10 @@ export default defineAction({
       });
       if (restored) {
         await publishRestoreRefresh();
-        return restoreResult(
-          restored.document,
-          restored.softDeletedDatabaseIds,
-        );
+        return {
+          ...restoreResult(restored.document, restored.softDeletedDatabaseIds),
+          ...(titleFlush ? { titleFlush } : {}),
+        };
       }
     }
     const [versionForScope] = await db
@@ -590,6 +605,9 @@ export default defineAction({
     });
 
     await publishRestoreRefresh();
-    return restoreResult(updated, softDeletedDatabaseIds);
+    return {
+      ...restoreResult(updated, softDeletedDatabaseIds),
+      ...(titleFlush ? { titleFlush } : {}),
+    };
   },
 });

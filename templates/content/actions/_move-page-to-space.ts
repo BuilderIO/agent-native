@@ -7,6 +7,7 @@ import { blocksFieldId } from "../shared/blocks-field-identity.js";
 import { reconcileDocuments } from "./_content-files.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { saveOpenEditorTitles } from "./_document-flush.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
   assertSubtreeCanChangeSpace,
@@ -364,6 +365,10 @@ export async function movePageToSpace(args: {
     }
   }
 
+  // The move takes these pages from the editors who lose access with it, so
+  // their open editors save the titles first. The locks below refuse a
+  // subtree that changed while they did.
+  const titleFlush = await saveOpenEditorTitles(ids);
   const now = new Date().toISOString();
   await withPositionLock(
     documentsPositionScope(userEmail, parentId),
@@ -519,5 +524,9 @@ export async function movePageToSpace(args: {
     .select()
     .from(schema.documents)
     .where(eq(schema.documents.id, root.id));
-  return { document, movedCount: ids.length };
+  return {
+    document,
+    movedCount: ids.length,
+    ...(titleFlush ? { titleFlush } : {}),
+  };
 }

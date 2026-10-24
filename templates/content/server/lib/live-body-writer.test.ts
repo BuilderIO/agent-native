@@ -88,28 +88,19 @@ async function commitThroughLiveCopy(id: string) {
     .where(eq(schema.documents.id, id));
 }
 
-// The Content database, with `commit` landing right after its first read.
-function dbCommittingAfterFirstRead(commit: () => Promise<void>) {
+// The Content database's executor, with `commit` landing right after its
+// first statement.
+function execCommittingAfterFirstRead(commit: () => Promise<void>): DbExec {
+  const exec = getDbExec();
   let reads = 0;
-  const select = (fields: never) => {
-    const builder = getDb().select(fields);
-    if (reads++ > 0) return builder;
-    const from = builder.from.bind(builder);
-    return Object.assign(builder, {
-      from: (table: never) => {
-        const query = from(table);
-        const run = query.then.bind(query);
-        return Object.assign(query, {
-          then: (...handlers: Parameters<typeof run>) =>
-            run(async (rows) => {
-              await commit();
-              return rows;
-            }).then(...handlers),
-        });
-      },
-    });
-  };
-  return { select } as unknown as Pick<ReturnType<typeof getDb>, "select">;
+  return {
+    ...exec,
+    execute: async (query: Parameters<DbExec["execute"]>[0]) => {
+      const result = await exec.execute(query);
+      if (reads++ === 0) await commit();
+      return result;
+    },
+  } as DbExec;
 }
 
 beforeAll(async () => {
@@ -495,13 +486,16 @@ describe("live-body writer gate", () => {
     const ids = await gate.liveBodyWriterPageIds(
       ["committing", "behind", "unswitched", "switching", "missing"],
       {
-        db: dbCommittingAfterFirstRead(async () => {
-          await commitThroughLiveCopy("committing");
-          await getDb()
-            .update(schema.documents)
-            .set({ liveBodySwitchedAt: new Date().toISOString() })
-            .where(eq(schema.documents.id, "switching"));
-        }),
+        context: {
+          kind: "transaction",
+          executor: execCommittingAfterFirstRead(async () => {
+            await commitThroughLiveCopy("committing");
+            await getDb()
+              .update(schema.documents)
+              .set({ liveBodySwitchedAt: new Date().toISOString() })
+              .where(eq(schema.documents.id, "switching"));
+          }),
+        },
       },
     );
 

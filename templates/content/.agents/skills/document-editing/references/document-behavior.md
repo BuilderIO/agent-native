@@ -42,11 +42,13 @@ closed if the open editor cannot save; when no active human editor is
 present, the SQL column is authoritative and the handshake is skipped. On a
 page that takes body writes through its live copy, the tabs already wrote the
 body, so the request carries `scope: "title"` and goes only to editors that
-advertise `canFlushTitle`; the editor saves its title alone, and a missing or
-failed acknowledgement fails with `OPEN_EDITOR_TITLE_NOT_SAVED`. It is
+advertise `canFlushTitle`. Each marks the request `taken`, saves its title
+alone, then answers prepare and verify as for a body save. With no such
+editor open, the handshake is skipped. A missing or failed answer fails with
+`OPEN_EDITOR_TITLE_NOT_SAVED`. It is
 GET + read-only + public-agent exposed (`requiresAuth: true`), returns
-`{ id, title, content, format, deepLink }`, plus `titleFlush` on such a page,
-and surfaces an "Open document"
+`{ id, title, content, format, deepLink }`, plus `editorFlush.titleFlush` when
+such editors were asked, and surfaces an "Open document"
 deep link for external agents. Use `--format text` for a plain-text strip of
 the markdown.
 
