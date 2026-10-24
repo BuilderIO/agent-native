@@ -95,6 +95,10 @@ import {
   filesSystemPropertyProjection,
 } from "./_files-system-properties.js";
 import {
+  propertyGenerationsFor,
+  readPropertyGenerations,
+} from "./_property-generations.js";
+import {
   listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
   parseDatabaseViewConfig,
@@ -1109,6 +1113,7 @@ export async function getContentDatabasePageResponse(
     queuedBodyHydrationItemIds,
     workspaceMemberships,
     commentSummaries,
+    storedGenerations,
   ] = await Promise.all([
     database.systemRole === "favorites"
       ? new Set(documentIds)
@@ -1177,6 +1182,7 @@ export async function getContentDatabasePageResponse(
           )
       : [],
     readOpenCommentSummaries(documentIds),
+    readPropertyGenerations(db, documentIds),
   ]);
   const shareRoleByDocumentId = new Map<string, ShareRole>();
   for (const row of shareRows) {
@@ -1237,6 +1243,10 @@ export async function getContentDatabasePageResponse(
         queued: bodyHydrationQueued,
       }),
       properties: propertiesByDocumentId.get(document.id) ?? [],
+      propertyGenerations: propertyGenerationsFor(
+        propertiesByDocumentId.get(document.id) ?? [],
+        storedGenerations.get(document.id),
+      ),
       rowRevision: databaseRowRevision({
         itemId: item.id,
         documentId: document.id,

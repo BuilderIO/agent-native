@@ -44,6 +44,7 @@ import {
   parsePropertyValue,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { readPropertyGenerations } from "./_property-generations.js";
 import { getDatabaseById } from "./_property-utils.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -345,6 +346,17 @@ export async function enqueuePropertyChangeWebhooks(
   if (!webhooks.length) return 0;
   const actor = args.actor ?? currentActor();
   const now = new Date().toISOString();
+  // Read after the values are stored, so each event names the generation its
+  // change produced.
+  const generations = await readPropertyGenerations(
+    tx,
+    rows.map((row) => row.documentId),
+    {
+      propertyIds: rows.flatMap((row) =>
+        row.changes.map((change) => change.definition.id),
+      ),
+    },
+  );
   const deliveries = rows.flatMap(({ documentId, changes }) =>
     webhooks
       .filter(
@@ -384,6 +396,8 @@ export async function enqueuePropertyChangeWebhooks(
                   newLabel: optionLabel(change.definition, newValue),
                   // True when a long text value was cut; read the page for all of it.
                   truncated: overLimit(fullOldValue) || overLimit(fullNewValue),
+                  generation:
+                    generations.get(documentId)?.[change.definition.id] ?? 0,
                 },
               },
             };

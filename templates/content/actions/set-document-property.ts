@@ -33,6 +33,10 @@ import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
+  assertPropertyGenerations,
+  readPropertyGenerations,
+} from "./_property-generations.js";
+import {
   getDatabaseById,
   listPropertiesForDatabaseDocuments,
   nanoid,
@@ -112,10 +116,25 @@ export default defineAction({
       .describe(
         "Expected Blocks field revision from list-content-database-blocks; required for Blocks field writes from anything other than the app's own UI (agents, CLI, automations, HTTP)",
       ),
+    expectedGeneration: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Write only if the value's generation still equals this one, from propertyGenerations on get-document or get-content-database (0 when the property has no value). A mismatch writes nothing and fails with PROPERTY_GENERATION_CONFLICT. Not for Blocks fields.",
+      ),
   }),
   changeResource: (input) => documentChangeResource(input.documentId),
   run: async (
-    { documentId, databaseId, propertyId, value, expectedBlocksFieldRevision },
+    {
+      documentId,
+      databaseId,
+      propertyId,
+      value,
+      expectedBlocksFieldRevision,
+      expectedGeneration,
+    },
     ctx,
   ) => {
     const db = getDb();
@@ -157,6 +176,16 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (isBlocksPropertyType(type)) {
+      if (expectedGeneration !== undefined) {
+        throw new ActionContractError(
+          "Blocks fields are guarded by expectedBlocksFieldRevision, not expectedGeneration.",
+          {
+            errorCode: "PROPERTY_GENERATION_UNSUPPORTED",
+            details: { propertyId },
+            statusCode: 400,
+          },
+        );
+      }
       // A whole-field write must name the revision it read, so a stale copy
       // can't replace newer text. Only the app's own UI (in the browser or an
       // MCP widget) and internal server calls without a caller are exempt;
@@ -402,6 +431,13 @@ export default defineAction({
         database.id,
         lockedDefinition,
       );
+      if (expectedGeneration !== undefined) {
+        await assertPropertyGenerations(
+          tx as unknown as ReturnType<typeof getDb>,
+          documentId,
+          { [propertyId]: expectedGeneration },
+        );
+      }
       if (lockedType === "relation") {
         const [stored] = await tx
           .select({ valueJson: schema.documentPropertyValues.valueJson })
@@ -572,9 +608,13 @@ export default defineAction({
     });
     if (webhookEvents) scheduleContentWebhookDelivery();
 
+    const generations = await readPropertyGenerations(db, [documentId], {
+      propertyIds: [propertyId],
+    });
     return {
       documentId,
       databaseId: database.id,
+      generation: generations.get(documentId)?.[propertyId] ?? 0,
       properties:
         (
           await listPropertiesForDatabaseDocuments(database.id, [document], {
