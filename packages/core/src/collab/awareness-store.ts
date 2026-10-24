@@ -22,6 +22,8 @@ const PURGE_INTERVAL_MS = 30_000;
 
 const PURGE_WAIT_TIMEOUT_MS = 250;
 
+const PURGE_BATCH_SIZE = 100;
+
 export const collabAwarenessStore = defineStore({
   id: "collab_awareness",
   migrations: [
@@ -97,26 +99,28 @@ export const collabAwarenessStore = defineStore({
     },
     {
       name: "expiry-indexes",
-      run: async () => {
+      run: async (exec) => {
         await ensureIndexExists(
           "_collab_awareness_active_actor_expiry_idx",
           `CREATE INDEX IF NOT EXISTS _collab_awareness_active_actor_expiry_idx
-           ON _collab_awareness (last_seen)
+           ON _collab_awareness (last_seen, doc_id, client_id)
            WHERE actor_email IS NOT NULL AND state <> ''`,
+          { injectedClient: exec },
         );
         await ensureIndexExists(
           "_collab_awareness_actor_reservation_expiry_idx",
           `CREATE INDEX IF NOT EXISTS _collab_awareness_actor_reservation_expiry_idx
-           ON _collab_awareness (
-             (COALESCE(actor_email_expires_at, last_seen + ${ACTOR_RESERVATION_TTL_MS}))
-           )
+           ON _collab_awareness
+             ((COALESCE(actor_email_expires_at, last_seen + ${ACTOR_RESERVATION_TTL_MS})), doc_id, client_id)
            WHERE actor_email IS NOT NULL`,
+          { injectedClient: exec },
         );
         await ensureIndexExists(
           "_collab_awareness_anonymous_expiry_idx",
           `CREATE INDEX IF NOT EXISTS _collab_awareness_anonymous_expiry_idx
-           ON _collab_awareness (last_seen)
+           ON _collab_awareness (last_seen, doc_id, client_id)
            WHERE actor_email IS NULL`,
+          { injectedClient: exec },
         );
       },
     },
@@ -530,23 +534,62 @@ async function maybePurge(now: number): Promise<void> {
   // Keep actor-bound IDs reserved after their transient presence state expires.
   const purge = client
     .execute({
-      sql: `UPDATE _collab_awareness
+      sql: `WITH batch AS MATERIALIZED (
+              SELECT doc_id, client_id
+              FROM _collab_awareness
+              WHERE actor_email IS NOT NULL
+                AND state <> ''
+                AND last_seen < ?
+              ORDER BY last_seen, doc_id, client_id
+              LIMIT ${PURGE_BATCH_SIZE}
+              FOR UPDATE SKIP LOCKED
+            )
+            UPDATE _collab_awareness AS awareness
             SET state = '', clear_token_hash = NULL
-            WHERE actor_email IS NOT NULL
-              AND state <> ''
-              AND last_seen < ?`,
+            FROM batch
+            WHERE awareness.doc_id = batch.doc_id
+              AND awareness.client_id = batch.client_id`,
       args: [now - ROW_TTL_MS],
     })
     .then(() =>
       client.execute({
-        sql: `DELETE FROM _collab_awareness
-              WHERE (actor_email IS NOT NULL
-                     AND COALESCE(
-                       actor_email_expires_at,
-                       last_seen + ${ACTOR_RESERVATION_TTL_MS}
-                     ) <= ?)
-                 OR (actor_email IS NULL AND last_seen < ?)`,
-        args: [now, expiredBefore],
+        sql: `WITH batch AS MATERIALIZED (
+                SELECT doc_id, client_id
+                FROM _collab_awareness
+                WHERE actor_email IS NOT NULL
+                  AND COALESCE(
+                    actor_email_expires_at,
+                    last_seen + ${ACTOR_RESERVATION_TTL_MS}
+                  ) <= ?
+                ORDER BY COALESCE(
+                  actor_email_expires_at,
+                  last_seen + ${ACTOR_RESERVATION_TTL_MS}
+                ), doc_id, client_id
+                LIMIT ${PURGE_BATCH_SIZE}
+                FOR UPDATE SKIP LOCKED
+              )
+              DELETE FROM _collab_awareness AS awareness
+              USING batch
+              WHERE awareness.doc_id = batch.doc_id
+                AND awareness.client_id = batch.client_id`,
+        args: [now],
+      }),
+    )
+    .then(() =>
+      client.execute({
+        sql: `WITH batch AS MATERIALIZED (
+                SELECT doc_id, client_id
+                FROM _collab_awareness
+                WHERE actor_email IS NULL AND last_seen < ?
+                ORDER BY last_seen, doc_id, client_id
+                LIMIT ${PURGE_BATCH_SIZE}
+                FOR UPDATE SKIP LOCKED
+              )
+              DELETE FROM _collab_awareness AS awareness
+              USING batch
+              WHERE awareness.doc_id = batch.doc_id
+                AND awareness.client_id = batch.client_id`,
+        args: [expiredBefore],
       }),
     )
     .then(() => undefined);

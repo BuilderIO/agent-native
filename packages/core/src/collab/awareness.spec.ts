@@ -609,11 +609,12 @@ describe("postAwareness handler", () => {
 
   it("reconciles outage presence after the database accepts a resynchronized write", async () => {
     const docId = "post-doc-resync-reconciles-presence";
-    const persistedState = authenticatedAwarenessState("resynchronized-state");
+    const now = Date.now();
+    const persistedState = authenticatedAwarenessState("newer-durable-state");
     docAwareness(docId).set(76, {
       clientId: 76,
       state: authenticatedAwarenessState("outage-state"),
-      lastSeen: Date.now(),
+      lastSeen: now - 1_000,
       clientSequence: 10,
       clientSequenceRaw: 0,
       actorEmail: "collaborator@example.com",
@@ -621,7 +622,7 @@ describe("postAwareness handler", () => {
     });
     mockReadBody.mockResolvedValueOnce({
       clientId: 76,
-      clientSequence: 1,
+      clientSequence: 2,
       state: postedAwarenessState("resynchronized-state"),
     });
     mockWriteAwarenessRow.mockResolvedValueOnce(true);
@@ -629,8 +630,8 @@ describe("postAwareness handler", () => {
       {
         clientId: 76,
         state: persistedState,
-        lastSeen: Date.now(),
-        clientSequence: 1,
+        lastSeen: now + 1,
+        clientSequence: 3,
         clientSequenceRaw: 0,
         actorEmail: "collaborator@example.com",
         clearTokenHash: null,
@@ -638,14 +639,31 @@ describe("postAwareness handler", () => {
       },
     ]);
 
-    const ev = event({ docId });
-    await postAwareness(ev);
+    const received: Array<Array<{ clientId: number; state: string }>> = [];
+    const onChange = (change: {
+      docId: string;
+      states: Array<{ clientId: number; state: string }>;
+    }) => {
+      if (change.docId === scopedDocId(docId)) received.push(change.states);
+    };
+    getAwarenessEmitter().on("awareness-change", onChange);
+    try {
+      const ev = event({ docId });
+      await postAwareness(ev);
 
-    expect(ev._status).toBe(200);
-    expect(docAwareness(docId).get(76)).toMatchObject({
-      state: persistedState,
-      clientSequence: 1,
-    });
+      expect(ev._status).toBe(200);
+      expect(docAwareness(docId).get(76)).toMatchObject({
+        state: persistedState,
+        clientSequence: 3,
+      });
+      expect(received.at(-1)).toContainEqual({
+        clientId: 76,
+        state: persistedState,
+      });
+    } finally {
+      getAwarenessEmitter().off("awareness-change", onChange);
+      docAwareness(docId).clear();
+    }
   });
 
   it("does not restore local presence when an older successful write resumes after a clear", async () => {
