@@ -521,7 +521,7 @@ export function MotionNativeStyleEditor({
   return (
     <div
       aria-label={t("designEditor.motion.animationStyles.title")}
-      className="space-y-0.5"
+      className="space-y-0.5 pt-2"
       data-design-inspector-section
     >
       {targetStyles.length > 0 ? (
@@ -554,7 +554,7 @@ export function MotionNativeStyleEditor({
                   }
                 }}
               >
-                <li className="flex min-w-0 items-center gap-0.5 rounded-sm">
+                <li className="flex h-8 min-w-0 items-center gap-0.5 rounded-sm pl-4">
                   <PopoverTrigger asChild>
                     <button
                       type="button"
@@ -606,7 +606,7 @@ export function MotionNativeStyleEditor({
                       align="start"
                       alignOffset={-4}
                       side="left"
-                      sideOffset={10}
+                      sideOffset={16}
                       className="w-60 p-0"
                       data-motion-native-style-settings={instance.styleKey}
                       onInteractOutside={(event) => {

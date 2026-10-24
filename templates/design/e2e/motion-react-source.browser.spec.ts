@@ -1030,6 +1030,42 @@ test.describe.serial("React Motion source browser writeback", () => {
         ],
       });
 
+    await page.getByRole("tab", { name: "List", exact: true }).click();
+    const positionStyleTrigger = page
+      .locator("[data-motion-native-style-trigger]")
+      .first();
+    await expect(positionStyleTrigger).toBeVisible();
+    await positionStyleTrigger.click();
+    const positionSettings = page.locator(
+      '[data-motion-native-style-settings="Position"]',
+    );
+    await expect(positionSettings).toBeVisible();
+    await positionSettings.evaluate(async (root) => {
+      await Promise.all(
+        root
+          .getAnimations({ subtree: true })
+          .map((animation) => animation.finished.catch(() => undefined)),
+      );
+    });
+    const positionPanelBounds = await positionSettings.boundingBox();
+    const positionRowBounds = await positionStyleTrigger
+      .locator("xpath=..")
+      .boundingBox();
+    if (!positionPanelBounds || !positionRowBounds) {
+      throw new Error("Motion Position editor geometry is unavailable");
+    }
+    expect(
+      Math.abs(
+        positionPanelBounds.x + positionPanelBounds.width - positionRowBounds.x,
+      ),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(positionPanelBounds.y - positionRowBounds.y),
+    ).toBeLessThanOrEqual(1);
+    await page.keyboard.press("Escape");
+    await expect(positionSettings).toBeHidden();
+    await expect(positionStyleTrigger).toBeVisible();
+
     const durationInput = page.getByRole("textbox", {
       name: "Duration",
       exact: true,
