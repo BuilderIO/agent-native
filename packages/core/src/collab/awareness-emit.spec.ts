@@ -22,8 +22,14 @@ import {
   type AwarenessChangeEvent,
 } from "./awareness.js";
 
+const IDENTITY = { email: "alice@ex.com", canEdit: true };
+
 function event(params: Record<string, string> = {}) {
-  return { _params: params, _status: 200 } as unknown;
+  return {
+    _params: params,
+    _status: 200,
+    context: { _collabAwarenessIdentity: IDENTITY },
+  } as unknown;
 }
 
 function scopedEvent(params: Record<string, string> = {}) {
@@ -31,6 +37,7 @@ function scopedEvent(params: Record<string, string> = {}) {
     _params: params,
     _status: 200,
     context: {
+      _collabAwarenessIdentity: IDENTITY,
       _collabAwarenessScope: {
         owner: "owner@example.com",
         orgId: "org-1",
