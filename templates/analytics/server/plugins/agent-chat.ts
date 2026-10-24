@@ -779,7 +779,7 @@ function numericMetricCell(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (
     typeof value !== "string" ||
-    !/^-?\d[\d,]*(?:\.\d+)?$/.test(value.trim())
+    !/^-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/.test(value.trim())
   ) {
     return null;
   }

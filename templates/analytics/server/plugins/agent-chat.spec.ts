@@ -3572,6 +3572,70 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
+  it("does not coerce malformed comma grouping into metric evidence", async () => {
+    const asked: Asked[] = [];
+    const result = await dbtFinalResponseGuard(
+      guardContext({
+        userText: "What were active accounts and signups last month?",
+        draftText: "There were 10 active accounts and 12 signups last month.",
+        retryCount: 1,
+        toolCalls: [
+          {
+            toolCallId: "dbt-failure",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+          {
+            toolCallId: "dbt-success",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "signups",
+              timeRange: activeAccountsRange,
+              groupBy: [],
+            },
+          },
+        ],
+        toolResults: [
+          {
+            ...dbtNotFound,
+            toolCallId: "dbt-failure",
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            toolCallId: "dbt-success",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "signups",
+              truncated: false,
+              querySpec: {
+                timeRange: activeAccountsRange,
+                groupBy: [],
+              },
+              rows: [{ signups: "1,2" }],
+            }),
+          },
+        ],
+      }),
+      recordingCheck("YES", asked),
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.input).not.toContain("PROJECTED DATA EVIDENCE:");
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+      maxRetries: 1,
+    });
+  });
+
   it("withholds an exhausted fallback that invents an independent metric value", async () => {
     const inventedDraft =
       "Signups were 999 last month. Active accounts are unavailable from the Semantic Layer because the dbt query did not complete.";
