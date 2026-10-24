@@ -9,34 +9,15 @@ import action from "./record-editor-merge";
 
 describe("editor merge counts", () => {
   afterEach(() => {
-    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.resetAllMocks();
   });
-  it("acknowledges the merge when telemetry cannot even be scheduled", async () => {
-    const original = globalThis.setTimeout;
-    const scheduler = vi
-      .spyOn(globalThis, "setTimeout")
-      .mockImplementation((...args) => {
-        if (args[1] === 0) throw new Error("scheduler unavailable");
-        return original(...args);
-      });
-    try {
-      await expect(
-        action.run({ id: "page", outcome: "kept_all" }, { caller: "frontend" }),
-      ).resolves.toEqual({ recorded: true });
-      expect(countOutcome).not.toHaveBeenCalled();
-    } finally {
-      scheduler.mockRestore();
-    }
-  });
-  it("counts each outcome after acknowledgement without the page's identity", async () => {
-    vi.useFakeTimers();
+  it("counts each outcome within the request, without the page's identity", async () => {
     for (const outcome of ["kept_all", "set_aside"] as const) {
-      await action.run({ id: "page", outcome }, { caller: "frontend" });
+      await expect(
+        action.run({ id: "page", outcome }, { caller: "frontend" }),
+      ).resolves.toEqual({ recorded: true });
     }
-    expect(countOutcome).not.toHaveBeenCalled();
-    await vi.runAllTimersAsync();
     expect(countOutcome.mock.calls).toEqual(
       ["kept_all", "set_aside"].map((outcome) => [
         "content_editor_merge_counts",
@@ -45,14 +26,14 @@ describe("editor merge counts", () => {
     );
     expect(access).toHaveBeenCalledWith("page", "viewer", "id");
   });
-  it("does not wait for slow telemetry and contains delivery failures", async () => {
-    vi.useFakeTimers();
+  it("acknowledges the merge when counting is slow or fails", async () => {
     countOutcome
       .mockReturnValueOnce(new Promise(() => {}))
+      .mockReturnValueOnce(Promise.reject(new Error("telemetry failed")))
       .mockImplementationOnce(() => {
         throw new Error("telemetry failed");
       });
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       await expect(
         action.run(
           { id: "page", outcome: "set_aside" },
@@ -60,8 +41,7 @@ describe("editor merge counts", () => {
         ),
       ).resolves.toEqual({ recorded: true });
     }
-    await vi.runAllTimersAsync();
-    expect(countOutcome).toHaveBeenCalledTimes(2);
+    expect(countOutcome).toHaveBeenCalledTimes(3);
   });
   it("rejects outcomes outside the bounded set", () => {
     expect(

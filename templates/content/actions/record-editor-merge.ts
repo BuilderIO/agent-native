@@ -22,22 +22,18 @@ export default defineAction({
   }),
   run: async (args) => {
     await assertDocumentMutationAccess(args.id, "viewer", "id");
+    // Count inside the request: a serverless instance can freeze before a
+    // timer runs. countOutcome only bumps an in-memory window, and the editor
+    // never waits for this answer.
     try {
-      setTimeout(() => {
-        try {
-          const delivery: unknown = countOutcome(
-            "content_editor_merge_counts",
-            { outcome: args.outcome },
-          );
-          void Promise.resolve(delivery).catch(() => {
-            // coercion-ok: delivery cannot change the merge acknowledgement.
-          });
-        } catch {
-          // coercion-ok: delivery cannot change the merge acknowledgement.
-        }
-      }, 0);
+      const delivery: unknown = countOutcome("content_editor_merge_counts", {
+        outcome: args.outcome,
+      });
+      void Promise.resolve(delivery).catch(() => {
+        // coercion-ok: delivery cannot change the merge acknowledgement.
+      });
     } catch {
-      // coercion-ok: scheduling telemetry cannot change the merge acknowledgement.
+      // coercion-ok: delivery cannot change the merge acknowledgement.
     }
     return { recorded: true as const };
   },
