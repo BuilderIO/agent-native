@@ -1,10 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   registerAgentSelectable,
+  releaseAgentSelection,
   useAgentSelectableSource,
   type AgentSelectable,
 } from "@agent-native/toolkit/app/agent-select";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { isLayoutSpacer } from "./slide-object-interactions";
 
@@ -153,10 +154,12 @@ export function useSlidesAgentSelect(
 ): void {
   const t = useT();
   const slideIds = slides?.map((slide) => slide.id).join("\n") ?? "";
+  const registeredSlideIdsRef = useRef<readonly string[]>([]);
 
   useEffect(() => {
     if (!deckId || !slideIds) return;
     const ids = slideIds.split("\n");
+    registeredSlideIdsRef.current = ids;
     const unregister = ids.map((slideId, index) =>
       registerAgentSelectable({
         kind: "slide",
@@ -174,6 +177,13 @@ export function useSlidesAgentSelect(
     return () => unregister.forEach((release) => release());
   }, [deckId, slideIds, t]);
 
+  // Effect cleanups run before the next render's setups, so the ref still
+  // names the deck being left when this cleanup reads it.
+  useEffect(() => {
+    if (!deckId) return;
+    return () => releaseSlidePicks(registeredSlideIdsRef.current);
+  }, [deckId]);
+
   const slideNumberOf = useCallback(
     (slideId: string) => {
       const index = slideIds.split("\n").indexOf(slideId);
@@ -185,5 +195,15 @@ export function useSlidesAgentSelect(
     deckId && slideIds
       ? (target) => slideObjectSelectable(deckId, slideNumberOf, target)
       : null,
+  );
+}
+
+/** Release picked slides of a deck and the objects picked on them. */
+export function releaseSlidePicks(slideIds: readonly string[]): void {
+  const ids = new Set(slideIds);
+  releaseAgentSelection(({ kind, id }) =>
+    kind === "slide"
+      ? ids.has(id)
+      : kind === "element" && ids.has(id.slice(0, id.indexOf("/"))),
   );
 }

@@ -1,6 +1,7 @@
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
   agentSelectionContextKey,
+  listAgentChatContext,
   parseAgentSelectionContextKey,
   removeAgentChatContextItem,
   setAgentChatContextItem,
@@ -164,30 +165,17 @@ export function useDashboardChatContext(
     isAgentSidebarOpenInDocument,
   );
   const { items } = useAgentChatContext();
-  const pickedPanelIds = useMemo(() => {
-    if (!id) return [];
-    const panelIds: string[] = [];
-    for (const item of items) {
-      const reference = parseAgentSelectionContextKey(item.key);
-      if (reference?.kind !== PANEL_SELECTION_KIND) continue;
-      const selection = parsePanelSelectionId(reference.id);
-      if (selection?.dashboardId === id) panelIds.push(selection.panelId);
-    }
-    return panelIds;
-  }, [id, items]);
+  const pickedPanelIds = useMemo(
+    () => (id ? pickedPanelIdsIn(items, id) : EMPTY_IDS),
+    [id, items],
+  );
   const selectedPanelIds = isAgentSidebarOpen ? pickedPanelIds : EMPTY_IDS;
   const selectedPanelId = selectedPanelIds[selectedPanelIds.length - 1] ?? null;
   const hasSelectedPanel = selectedPanelId !== null;
   const publishedSelectionRef = useRef<SelectedDashboardObject | null>(null);
   const suppressDashboardContextRef = useRef(false);
-  const pickedPanelIdsRef = useRef({
-    dashboardId: id ?? null,
-    panelIds: pickedPanelIds,
-  });
-  pickedPanelIdsRef.current = {
-    dashboardId: id ?? null,
-    panelIds: pickedPanelIds,
-  };
+  const dashboardIdRef = useRef(id);
+  dashboardIdRef.current = id;
 
   const panelSelectionTarget = useCallback(
     (panel: DashboardPanelChatContextArgs): AgentSelectionTarget | null => {
@@ -289,10 +277,7 @@ export function useDashboardChatContext(
         key: DASHBOARD_CONTEXT_KEY,
         openSidebar: false,
       });
-      removePickedPanels(
-        pickedPanelIdsRef.current.dashboardId,
-        pickedPanelIdsRef.current.panelIds,
-      );
+      if (dashboardIdRef.current) removePickedPanels(dashboardIdRef.current);
       const publishedSelection = publishedSelectionRef.current;
       publishedSelectionRef.current = null;
       suppressDashboardContextRef.current = true;
@@ -366,7 +351,7 @@ export function useDashboardChatContext(
         key: DASHBOARD_CONTEXT_KEY,
         openSidebar: false,
       });
-      removePickedPanels(id, pickedPanelIdsRef.current.panelIds);
+      removePickedPanels(id);
       void clearSelectedDashboardObjectIfOwned(publishedSelectionRef.current);
     };
   }, [id]);
@@ -379,12 +364,29 @@ export function useDashboardChatContext(
   };
 }
 
-function removePickedPanels(
-  dashboardId: string | null,
-  panelIds: readonly string[],
-): void {
-  if (!dashboardId) return;
-  for (const panelId of panelIds) {
+function pickedPanelIdsIn(
+  items: readonly { key: string }[],
+  dashboardId: string,
+): string[] {
+  const panelIds: string[] = [];
+  for (const item of items) {
+    const reference = parseAgentSelectionContextKey(item.key);
+    if (reference?.kind !== PANEL_SELECTION_KIND) continue;
+    const selection = parsePanelSelectionId(reference.id);
+    if (selection?.dashboardId === dashboardId) {
+      panelIds.push(selection.panelId);
+    }
+  }
+  return panelIds;
+}
+
+/**
+ * Release this dashboard's picked panels. Reads the live context rather than
+ * a render's snapshot: a dashboard switch renders the next dashboard before
+ * the previous one's cleanup runs.
+ */
+function removePickedPanels(dashboardId: string): void {
+  for (const panelId of pickedPanelIdsIn(listAgentChatContext(), dashboardId)) {
     removeAgentChatContextItem({
       key: agentSelectionContextKey(
         PANEL_SELECTION_KIND,

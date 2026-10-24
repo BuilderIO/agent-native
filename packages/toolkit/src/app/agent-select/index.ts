@@ -10,6 +10,7 @@ export {
   measureAgentSelectElement,
   registerAgentSelectable,
   registerAgentSelectableSource,
+  releaseAgentSelection,
   selectAgentSelectable,
   setAgentSelectMode,
   subscribeAgentSelect,

@@ -10,7 +10,10 @@ import {
   type AgentSelectionState,
   type AgentSelectionStateItem,
 } from "@agent-native/core/client/agent-chat";
-import { writeClientAppState } from "@agent-native/core/client/hooks";
+import {
+  getBrowserTabId,
+  writeClientAppState,
+} from "@agent-native/core/client/hooks";
 import {
   COMPOSER_CONTEXT_MAX_ITEMS,
   composerContextFits,
@@ -311,6 +314,18 @@ export function deselectAgentSelectable(kind: string, id: string): void {
   removeAgentChatContextItem(agentSelectionContextKey(kind, id));
 }
 
+/**
+ * Release every picked object `match` accepts. Adapters call this when their
+ * surface unmounts so picks never outlive the screen they point into.
+ */
+export function releaseAgentSelection(
+  match: (reference: AgentSelectionStateItem) => boolean,
+): void {
+  for (const picked of listAgentSelection()) {
+    if (match(picked)) deselectAgentSelectable(picked.kind, picked.id);
+  }
+}
+
 export function setAgentSelectMode(active: boolean): void {
   const current = store();
   const next = active && availableCount(current) > 0;
@@ -332,18 +347,28 @@ export function toggleAgentSelectMode(): void {
 // application_state mirror
 // ---------------------------------------------------------------------------
 
+/**
+ * The mirror is tab-scoped like `navigation`: actions read it with
+ * `readAppStateForCurrentTab(AGENT_SELECTION_STATE_KEY)`, so one tab's
+ * selection never overwrites another's.
+ */
+function agentSelectionStateKeyForThisTab(): string {
+  return `${AGENT_SELECTION_STATE_KEY}:${getBrowserTabId()}`;
+}
+
 function startSelectionMirror(): () => void {
   if (typeof window === "undefined") return () => {};
   let lastWritten: string | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const flush = () => {
     timer = null;
+    if (!store().snapshot.active) pruneResolved(null);
     const items = listAgentSelection();
     const serialized = JSON.stringify(items);
     if (serialized === lastWritten) return;
     lastWritten = serialized;
     const state: AgentSelectionState = { items, updatedAt: Date.now() };
-    void writeClientAppState(AGENT_SELECTION_STATE_KEY, state, {
+    void writeClientAppState(agentSelectionStateKeyForThisTab(), state, {
       keepalive: true,
     }).catch((error: unknown) => {
       // Let the next change retry instead of believing this write landed.
@@ -658,18 +683,37 @@ function startPickMode(): () => void {
   };
   // Swallow the whole press over an object so the app underneath does not
   // also select, drag, or open it; the click alone toggles the pick.
-  const onPress = (event: MouseEvent) => {
-    if (!hitTestAgentSelectable(event.clientX, event.clientY)) return;
+  // A press that starts on an object belongs to pick mode through its release
+  // and click; one that starts elsewhere (an app drag) stays the app's even if
+  // it ends over an object.
+  let pressedKey: string | null = null;
+  const keyOf = (selectable: AgentSelectable | null) =>
+    selectable
+      ? agentSelectionContextKey(selectable.kind, selectable.id)
+      : null;
+  const swallow = (event: Event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
   };
+  const onPressStart = (event: MouseEvent) => {
+    pressedKey = keyOf(hitTestAgentSelectable(event.clientX, event.clientY));
+    if (pressedKey) swallow(event);
+  };
+  const onPressEnd = (event: MouseEvent) => {
+    if (pressedKey) swallow(event);
+  };
   const onClick = (event: MouseEvent) => {
+    const key = pressedKey;
+    pressedKey = null;
+    if (!key) return;
+    swallow(event);
     const target = hitTestAgentSelectable(event.clientX, event.clientY);
-    if (!target) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
+    if (keyOf(target) !== key || !target) return;
     toggleAgentSelectable(target.kind, target.id);
     scheduleRender();
+  };
+  const onPress = (event: MouseEvent) => {
+    if (hitTestAgentSelectable(event.clientX, event.clientY)) swallow(event);
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;
@@ -686,10 +730,10 @@ function startPickMode(): () => void {
   const capture = { capture: true } as const;
   const passiveCapture = { capture: true, passive: true } as const;
   window.addEventListener("pointermove", onPointerMove, passiveCapture);
-  window.addEventListener("pointerdown", onPress, capture);
-  window.addEventListener("mousedown", onPress, capture);
-  window.addEventListener("pointerup", onPress, capture);
-  window.addEventListener("mouseup", onPress, capture);
+  window.addEventListener("pointerdown", onPressStart, capture);
+  window.addEventListener("mousedown", onPressStart, capture);
+  window.addEventListener("pointerup", onPressEnd, capture);
+  window.addEventListener("mouseup", onPressEnd, capture);
   window.addEventListener("dblclick", onPress, capture);
   window.addEventListener("contextmenu", onPress, capture);
   window.addEventListener("click", onClick, capture);
@@ -705,10 +749,10 @@ function startPickMode(): () => void {
 
   return () => {
     window.removeEventListener("pointermove", onPointerMove, passiveCapture);
-    window.removeEventListener("pointerdown", onPress, capture);
-    window.removeEventListener("mousedown", onPress, capture);
-    window.removeEventListener("pointerup", onPress, capture);
-    window.removeEventListener("mouseup", onPress, capture);
+    window.removeEventListener("pointerdown", onPressStart, capture);
+    window.removeEventListener("mousedown", onPressStart, capture);
+    window.removeEventListener("pointerup", onPressEnd, capture);
+    window.removeEventListener("mouseup", onPressEnd, capture);
     window.removeEventListener("dblclick", onPress, capture);
     window.removeEventListener("contextmenu", onPress, capture);
     window.removeEventListener("click", onClick, capture);

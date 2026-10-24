@@ -10,7 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const writeClientAppState = vi.hoisted(() =>
   vi.fn(async (_key: string, value: unknown) => value),
 );
-vi.mock("@agent-native/core/client/hooks", () => ({ writeClientAppState }));
+vi.mock("@agent-native/core/client/hooks", () => ({
+  getBrowserTabId: () => "tab-1",
+  writeClientAppState,
+}));
 
 import {
   _resetAgentSelectForTests,
@@ -20,6 +23,7 @@ import {
   listAgentSelection,
   registerAgentSelectable,
   registerAgentSelectableSource,
+  releaseAgentSelection,
   selectAgentSelectable,
   setAgentSelectMode,
   subscribeAgentSelectRejections,
@@ -79,6 +83,13 @@ function stubHitTesting(elements: Element[]) {
     }
     return hit;
   };
+}
+
+/** A full press: down, up, then click, as a real pointer delivers it. */
+function press(x: number, y: number, target: Element) {
+  return ["pointerdown", "pointerup", "click"].map((type) =>
+    pointer(type, x, y, target),
+  );
 }
 
 function pointer(type: string, x: number, y: number, target: Element) {
@@ -189,6 +200,18 @@ describe("context-item round trip", () => {
     );
   });
 
+  it("releases the picks an adapter matches", () => {
+    registerAgentSelectable(selectable("slide", "s1", null));
+    registerAgentSelectable(selectable("slide", "s2", null));
+    registerAgentSelectable(selectable("panel", "p1", null));
+    toggleAgentSelectable("slide", "s1");
+    toggleAgentSelectable("slide", "s2");
+    toggleAgentSelectable("panel", "p1");
+
+    releaseAgentSelection(({ kind }) => kind === "slide");
+    expect(listAgentSelection().map(({ id }) => id)).toEqual(["p1"]);
+  });
+
   it("can still release a pick whose object is no longer registered", () => {
     const unregister = registerAgentSelectable(selectable("panel", "p1", null));
     toggleAgentSelectable("panel", "p1");
@@ -221,7 +244,7 @@ describe("context-item round trip", () => {
       toggleAgentSelectable("slide", "s1");
       await vi.advanceTimersByTimeAsync(200);
       expect(writeClientAppState).toHaveBeenLastCalledWith(
-        "agent-selection",
+        "agent-selection:tab-1",
         {
           items: [{ kind: "slide", id: "s1", title: "slide s1" }],
           updatedAt: expect.any(Number),
@@ -255,23 +278,41 @@ describe("pick mode", () => {
 
   it("toggles on click and keeps the press from reaching the app", () => {
     const { title } = setup();
-    const appClick = vi.fn();
-    const appPress = vi.fn();
-    title.addEventListener("click", appClick);
-    title.addEventListener("pointerdown", appPress);
+    const appEvents: string[] = [];
+    for (const type of ["pointerdown", "pointerup", "click"]) {
+      title.addEventListener(type, () => appEvents.push(type));
+    }
     setAgentSelectMode(true);
     expect(
       document.documentElement.hasAttribute("data-agent-select-mode"),
     ).toBe(true);
 
-    expect(pointer("pointerdown", 50, 30, title).defaultPrevented).toBe(true);
-    expect(pointer("click", 50, 30, title).defaultPrevented).toBe(true);
-    expect(appPress).not.toHaveBeenCalled();
-    expect(appClick).not.toHaveBeenCalled();
+    expect(press(50, 30, title).map((event) => event.defaultPrevented)).toEqual(
+      [true, true, true],
+    );
+    expect(appEvents).toEqual([]);
     expect(isAgentSelectableSelected("element", "e1")).toBe(true);
 
-    pointer("click", 50, 30, title);
+    press(50, 30, title);
     expect(isAgentSelectableSelected("element", "e1")).toBe(false);
+  });
+
+  it("leaves an app drag that ends over an object to the app", () => {
+    const { slide, title } = setup();
+    const canvas = placedElement(box(0, 0, 800, 600));
+    stubHitTesting([canvas, slide, title]);
+    const appRelease = vi.fn();
+    title.addEventListener("pointerup", appRelease);
+    setAgentSelectMode(true);
+
+    // Starts on the canvas outside any object, ends on the title.
+    expect(pointer("pointerdown", 700, 500, canvas).defaultPrevented).toBe(
+      false,
+    );
+    expect(pointer("pointerup", 50, 30, title).defaultPrevented).toBe(false);
+    expect(pointer("click", 50, 30, title).defaultPrevented).toBe(false);
+    expect(appRelease).toHaveBeenCalledTimes(1);
+    expect(listAgentSelection()).toEqual([]);
   });
 
   it("lets clicks outside registered objects through", () => {
@@ -279,7 +320,9 @@ describe("pick mode", () => {
     const sidebarClick = vi.fn();
     sidebar.addEventListener("click", sidebarClick);
     setAgentSelectMode(true);
-    expect(pointer("click", 600, 100, sidebar).defaultPrevented).toBe(false);
+    expect(
+      press(600, 100, sidebar).map((event) => event.defaultPrevented),
+    ).toEqual([false, false, false]);
     expect(sidebarClick).toHaveBeenCalledTimes(1);
     expect(listAgentSelection()).toEqual([]);
   });
@@ -288,7 +331,9 @@ describe("pick mode", () => {
     const { title } = setup();
     setAgentSelectMode(true);
     setAgentSelectMode(false);
-    expect(pointer("click", 50, 30, title).defaultPrevented).toBe(false);
+    expect(press(50, 30, title).some((event) => event.defaultPrevented)).toBe(
+      false,
+    );
     expect(listAgentSelection()).toEqual([]);
   });
 
@@ -321,12 +366,12 @@ describe("pick mode", () => {
     });
     setAgentSelectMode(true);
 
-    pointer("click", 60, 110, bullet);
+    press(60, 110, bullet);
     expect(listAgentSelection()).toEqual([
       { kind: "element", id: "bullet-1", title: "element bullet-1" },
     ]);
     // Picked source objects stay toggleable after the pointer moves on.
-    pointer("click", 60, 110, bullet);
+    press(60, 110, bullet);
     expect(listAgentSelection()).toEqual([]);
   });
 

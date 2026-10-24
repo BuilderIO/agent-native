@@ -41,6 +41,7 @@ vi.mock("@agent-native/core/client/agent-chat", async () => {
     SIDEBAR_STATE_CHANGE_EVENT: clientMocks.SIDEBAR_STATE_CHANGE_EVENT,
     agentSelectionContextKey: shared.agentSelectionContextKey,
     parseAgentSelectionContextKey: shared.parseAgentSelectionContextKey,
+    listAgentChatContext: () => clientMocks.agentContextItems,
     removeAgentChatContextItem: clientMocks.removeAgentChatContextItem,
     setAgentChatContextItem: clientMocks.setAgentChatContextItem,
     useAgentChatContext: clientMocks.useAgentChatContext,
@@ -471,6 +472,27 @@ describe("useDashboardChatContext", () => {
         '[data-action="passive-select"]',
       )?.dataset.selected,
     ).toBe("true");
+  });
+
+  it("releases the previous dashboard's picks when the dashboard changes", async () => {
+    clientMocks.agentContextItems = [
+      {
+        key: agentSelectionContextKey("panel", "dash-1/panel-1"),
+        title: "ARR by month",
+        context: "Panel id: panel-1",
+      },
+    ];
+    await act(async () => {
+      root.render(<Harness id="dash-1" />);
+    });
+    await act(async () => {
+      root.render(<Harness id="dash-2" />);
+    });
+
+    expect(clientMocks.removeAgentChatContextItem).toHaveBeenCalledWith({
+      key: "agent-select:panel:dash-1%2Fpanel-1",
+      openSidebar: false,
+    });
   });
 
   it("does not report a panel picked on another dashboard", async () => {

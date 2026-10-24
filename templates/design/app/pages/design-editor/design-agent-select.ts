@@ -1,10 +1,11 @@
 import { stripInlineBytes } from "@agent-native/core/shared";
 import {
   registerAgentSelectable,
+  releaseAgentSelection,
   useAgentSelectableSource,
   type AgentSelectable,
 } from "@agent-native/toolkit/app/agent-select";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { nodeRepromptSubtreeExcerpt } from "@/lib/node-reprompt";
 
@@ -143,10 +144,13 @@ export function useDesignAgentSelect(
     .map((screen) => `${screen.id}\u0000${screen.filename}`)
     .join("\n");
 
+  const registeredScreenIdsRef = useRef<readonly string[]>([]);
+
   useEffect(() => {
     if (!designId || !screenKey) return;
-    const unregister = screenKey.split("\n").map((entry) => {
-      const [id, filename] = entry.split("\u0000");
+    const entries = screenKey.split("\n").map((entry) => entry.split("\u0000"));
+    registeredScreenIdsRef.current = entries.map(([id]) => id);
+    const unregister = entries.map(([id, filename]) => {
       return registerAgentSelectable(
         designScreenSelectable(designId, title, { id, filename }),
       );
@@ -154,9 +158,26 @@ export function useDesignAgentSelect(
     return () => unregister.forEach((release) => release());
   }, [designId, screenKey, title]);
 
+  // Effect cleanups run before the next render's setups, so the ref still
+  // names the design being left when this cleanup reads it.
+  useEffect(() => {
+    if (!designId) return;
+    return () => releaseScreenPicks(registeredScreenIdsRef.current);
+  }, [designId]);
+
   useAgentSelectableSource(
     designId && screens.length > 0
       ? (target) => designElementSelectable(designId, title, screens, target)
       : null,
+  );
+}
+
+/** Release picked screens of a design and the layers picked inside them. */
+export function releaseScreenPicks(screenIds: readonly string[]): void {
+  const ids = new Set(screenIds);
+  releaseAgentSelection(({ kind, id }) =>
+    kind === "screen"
+      ? ids.has(id)
+      : kind === "element" && ids.has(id.slice(0, id.indexOf("/"))),
   );
 }

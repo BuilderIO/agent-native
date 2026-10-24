@@ -122,10 +122,10 @@ one becomes an ordinary agent chat context chip keyed
 `agent-select:<kind>:<id>`. Every turn's context then opens with a
 `## Selected objects` block listing them. Treat that list as the target set:
 apply the request to those objects and leave the rest unchanged unless the
-message says otherwise. `agent-selection` in application state mirrors the
+message says otherwise. The tab-scoped `agent-selection` key mirrors the
 list as `{ items: [{ kind, id, title }], updatedAt }` for actions that need
-it; read it with `readAppState(AGENT_SELECTION_STATE_KEY)` (from
-`@agent-native/core/shared`).
+it; read it with `readAppStateForCurrentTab(AGENT_SELECTION_STATE_KEY)` (the
+constant is in `@agent-native/core/shared`).
 
 **UI side** — offer objects to Select with the toolkit registry; never build a
 per-app pick mode or a second selection store:
@@ -152,8 +152,10 @@ useAgentSelectableSource((target) => resolveObject(target));
 
 The Select button appears in the composer only while something is registered.
 `selectAgentSelectable(target, { exclusive: true })` stages an object from a
-plain click outside pick mode. Keep `getContext` to ids, a short label, and the
-action to use; mark chrome pick mode must skip with `data-agent-select-ignore`.
+plain click outside pick mode. When a surface unmounts or switches documents,
+call `releaseAgentSelection(match)` for its picks so they never point into a
+screen the user left. Keep `getContext` to ids, a short label, and the action
+to use; mark chrome pick mode must skip with `data-agent-select-ignore`.
 
 ### 2. Current URL (`__url__` key)
 
