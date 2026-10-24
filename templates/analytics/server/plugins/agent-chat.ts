@@ -553,9 +553,9 @@ const WAREHOUSE_INTENT_AFTER =
 const WAREHOUSE_QUESTION_BEFORE =
   /\b(?:what\s+(?:is|are|was|were)|how\s+many)\b(?:\s+[\w-]+){0,8}\s*$/i;
 const WAREHOUSE_NEGATION_BEFORE =
-  /\b(?:do\s+not|don't|dont|never|avoid|without|no|not|cannot|can't|won't|shouldn't|should\s+not)\b[^.!?;\n]{0,160}\b(?:show|give|calculate|query|use|pull|read|report|provide|find|run|check|return|answer|get|need|want|present|include|mention|fall\s+back|substitute|rely\s+on)\b[^.!?;\n]*$/i;
+  /\b(?:do\s+not|don't|dont|never|avoid|without|no|not|cannot|can't|won't|shouldn't|should\s+not)\b[^.!?;\n]*\b(?:show|give|calculate|query|use|pull|read|report|provide|find|run|check|return|answer|get|need|want|present|include|mention|fall\s+back|substitute|rely\s+on)\b[^.!?;\n]*$/i;
 const WAREHOUSE_NEGATION_AFTER =
-  /\b(?:do\s+not|don't|dont|never|avoid|cannot|can't|won't|shouldn't|should\s+not)\b[^.!?;\n]{0,160}\b(?:show|give|calculate|query|use|pull|read|report|provide|find|run|check|return|answer|get|present|include|mention|fall\s+back|substitute|rely\s+on)\b|(?:is|are|was|were|would|should|could|must|need)\s+(?:not|never)\s+(?:to\s+)?(?:be\s+)?(?:used|queried|calculated|reported|shown|included|provided|requested|allowed|wanted|needed)\b/i;
+  /\b(?:do\s+not|don't|dont|never|avoid|cannot|can't|won't|shouldn't|should\s+not)\b[^.!?;\n]*\b(?:show|give|calculate|query|use|pull|read|report|provide|find|run|check|return|answer|get|present|include|mention|fall\s+back|substitute|rely\s+on)\b|(?:is|are|was|were|would|should|could|must|need)\s+(?:not|never)\s+(?:to\s+)?(?:be\s+)?(?:used|queried|calculated|reported|shown|included|provided|requested|allowed|wanted|needed)\b/i;
 const WAREHOUSE_COMPARISON_REQUEST =
   /\b(?:compare|comparison|versus|vs\.?|difference\s+between|differ(?:s|ed)?\s+from)\b/i;
 // What the message asks, not the page context it carries: a dashboard named
@@ -576,7 +576,7 @@ function askedForWarehouseNumbers(
     const end = start + match[0].length;
     const before =
       text
-        .slice(Math.max(0, start - 100), start)
+        .slice(0, start)
         .split(/[.!?;\n]/)
         .slice(-1)[0] ?? "";
     const after = text.slice(end).split(/[.!?;\n]/)[0] ?? "";

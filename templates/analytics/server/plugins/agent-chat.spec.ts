@@ -1564,6 +1564,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     "Compare dbt and warehouse numbers.",
     "I want to compare dbt and warehouse numbers.",
     "Show the active accounts figure from BigQuery, but do not use the warehouse.",
+    "Show active accounts from BigQuery, but the owner-defined metric is the required source and this request excludes all derived values, saved reports, secondhand tables, and any substitute calculations for the defined population across the full specified period, so do not use it.",
   ])(
     "does not treat %j as an affirmative warehouse request",
     async (userText) => {
