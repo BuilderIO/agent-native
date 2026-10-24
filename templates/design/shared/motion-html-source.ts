@@ -1284,7 +1284,7 @@ for (const [shorthand, longhands] of Object.entries(CSS_SHORTHAND_LONGHANDS)) {
   }
 }
 
-function cssDeclarationAffectsMotionProperty(
+export function cssDeclarationAffectsMotionProperty(
   property: string,
   motionProperties: ReadonlySet<string> | undefined,
 ): boolean {

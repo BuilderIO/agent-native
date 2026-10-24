@@ -853,6 +853,34 @@ describe("React Motion source adapter", () => {
     expect(() => apply(authored)).toThrow(MotionReactSourceError);
   });
 
+  it("rejects CSS shorthands that override a Motion longhand", () => {
+    const authored = `function Card() {
+  return <main>
+    <style>{".hero { background: red !important; }"}</style>
+    <h1 className="hero" data-agent-native-node-id="hero-title">Hello</h1>
+  </main>;
+}`;
+    const timeline = {
+      ...makeTimeline(),
+      tracks: [
+        {
+          ...makeTimeline().tracks[0]!,
+          property: "background-size",
+        },
+      ],
+    };
+
+    expect(() =>
+      applyMotionReactSourceEdit({
+        currentSource: authored,
+        expectedSource: authored,
+        preview: previewFor(authored),
+        modulePath: "src/Card.tsx",
+        timeline,
+      }),
+    ).toThrow(MotionReactSourceError);
+  });
+
   it.each([
     ["transition shorthand", "#hero { transition: opacity 2s ease; }"],
     [
@@ -899,6 +927,22 @@ describe("React Motion source adapter", () => {
       status: "valid",
       targetNodeIds: ["hero-title"],
     });
+  });
+
+  it("allows ordinary eval and Function property reads in React components", () => {
+    const authored = source.replace(
+      "function Card() {",
+      "function Card() { const values = { eval: 1, Function: 2 }; const evalValue = values.eval; const functionValue = values.Function;",
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
   });
 
   it.each([
@@ -1476,6 +1520,22 @@ function Card(style = { animationName: "fade" }) {
       `function Card() { eval("document.querySelector('#hero-title').style.opacity = '0'");`,
     ],
     [
+      "render-body setAttribute style mutation",
+      `function Card() { document.querySelector("#hero-title").setAttribute("style", "opacity: 0");`,
+    ],
+    [
+      "render-body removeAttribute style mutation",
+      `function Card() { document.querySelector("#hero-title").removeAttribute("style");`,
+    ],
+    [
+      "render-body IIFE style mutation",
+      `function Card() { (() => { document.querySelector("#hero-title").style.opacity = "0"; })();`,
+    ],
+    [
+      "render-body synchronous callback style mutation",
+      `function Card() { [1].forEach(() => { document.querySelector("#hero-title").style.opacity = "0"; });`,
+    ],
+    [
       "render-body Object.assign style mutation",
       'function Card() { Object.assign(document.querySelector("#hero-title").style, { opacity: "0" });',
     ],
@@ -1505,6 +1565,46 @@ function Card(style = { animationName: "fade" }) {
     ],
   ])("rejects %s in a Motion component", (_label, prefix) => {
     const authored = source.replace("function Card() {", prefix);
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+  });
+
+  it("rejects timer callbacks that call a module-level style mutator", () => {
+    const authored = source.replace(
+      "function Card() {",
+      'function mutateTargetStyle() { document.querySelector("#hero-title").style.opacity = "0"; }\n\nfunction Card() {\n  window.setTimeout(() => mutateTargetStyle(), 0);',
+    );
+
+    expect(
+      inspectMotionReactSourceWriteCapability({
+        source: authored,
+        targetNodeIds: ["hero-title"],
+        modulePath: "src/components/Card.tsx",
+        moduleVersionHash: "a".repeat(64),
+      }),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "unsupported-authored-motion",
+    });
+  });
+
+  it("rejects a module-level Function alias used during render", () => {
+    const authored = source
+      .replace(
+        'import React from "react";',
+        'import React from "react";\n\nconst build = Function;',
+      )
+      .replace("function Card() {", 'function Card() { build("return 1")();');
+
     expect(
       inspectMotionReactSourceWriteCapability({
         source: authored,
