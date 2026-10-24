@@ -7,6 +7,7 @@ import type {
   AgentEngine,
   EngineContentPart,
   EngineEvent,
+  EngineMessage,
 } from "./engine/types.js";
 import { withExecutionFence } from "./execution-fence.js";
 import type { AgentLoopFinalResponseGuardContext } from "./production-agent.js";
@@ -444,6 +445,139 @@ describe("durable execution step replay", () => {
       "The create-deck action has 1 earlier attempt(s) whose outcome is unknown.",
     );
     expect(done?.unknownCause).toBeUndefined();
+  });
+
+  async function stopForUnknownStep(
+    input: Record<string, unknown>,
+    history: EngineMessage[] = [],
+  ) {
+    const { beginAgentExecutionStep } = await import("./run-store.js");
+    vi.mocked(beginAgentExecutionStep).mockImplementationOnce(async () => ({
+      status: "unknown",
+    }));
+    const events: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [[toolCall("resumed", input)], [text("Stopped.")]],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [text("Create the deck.")] },
+          ...history,
+          { role: "user", content: [text(AGENT_INTERNAL_CONTINUE_PROMPT)] },
+        ],
+        actions: {
+          "create-deck": {
+            tool: {
+              description: "Create a deck",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+              },
+            },
+            readOnly: false,
+            run: vi.fn(async () => "Deck"),
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(vi.mocked(beginAgentExecutionStep)).toHaveBeenCalled();
+    return {
+      done: events.find(
+        (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+          event.type === "tool_done",
+      ),
+      stop: events.find((event) => event.type === "error"),
+    };
+  }
+
+  const unknownStep = (
+    id: string,
+    input: Record<string, unknown>,
+    prepared: Record<string, unknown>,
+    unknownCause?: "rejection",
+  ): AgentChatEvent[] => [
+    {
+      type: "tool_start",
+      id,
+      executionStepId: `step-${id}`,
+      tool: "create-deck",
+      input,
+    },
+    {
+      type: "tool_done",
+      id,
+      executionStepId: `step-${id}`,
+      tool: "create-deck",
+      input,
+      result: "Error running create-deck: lost.",
+      isError: true,
+      outcomeUnknown: true,
+      ...(unknownCause ? { unknownCause } : {}),
+      argumentsHash: actionArgumentsHash(prepared),
+    },
+  ];
+
+  it("does not borrow a cause from other calls that sent the same arguments", async () => {
+    const input = { id: "deck-7" };
+    // Two other calls sent these arguments, prepared differently.
+    durableStep.priorEvents = [
+      ...unknownStep("a", input, { id: "deck-7", v: 1 }, "rejection"),
+      ...unknownStep("b", input, { id: "deck-7", v: 2 }, "rejection"),
+    ];
+    const { done, stop } = await stopForUnknownStep(input);
+    expect(done?.unknownCause).toBeUndefined();
+    expect(stop).toMatchObject({ blockedBy: "interruption" });
+  });
+
+  it("finds the cause the history recorded for this call when it is prepared anew", async () => {
+    const input = { id: "deck-8" };
+    // The journal recorded this call, prepared differently then, without a
+    // cause; the history recorded a rejection.
+    durableStep.priorEvents = unknownStep("earlier", input, {
+      id: "deck-8",
+      v: 1,
+    });
+    const { done, stop } = await stopForUnknownStep(input, [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "earlier",
+            name: "create-deck",
+            input,
+            executionStepId: "step-earlier",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "earlier",
+            toolName: "create-deck",
+            toolInput: JSON.stringify(input),
+            executionStepId: "step-earlier",
+            content: "Error running create-deck: upstream rejected it.",
+            isError: true,
+            outcome: "unknown",
+            unknownCause: "rejection",
+          },
+        ],
+      },
+    ]);
+    expect(done?.unknownCause).toBe("rejection");
+    expect(stop).toMatchObject({ blockedBy: "rejection" });
   });
 
   it("records no cause for a step stored as unknown that nothing explains", async () => {

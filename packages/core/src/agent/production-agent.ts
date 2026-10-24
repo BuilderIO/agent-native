@@ -5200,7 +5200,8 @@ interface UnknownOutcomes {
   uncaused: Set<string>;
   /**
    * Causes another source gave for a call this one counted, by its prepared
-   * arguments: they fill in that key where this source recorded none.
+   * or sent arguments: they fill in that key where this source recorded
+   * none and it counts only that call.
    */
   restated: Map<string, UnknownOutcomeCause>;
 }
@@ -5256,7 +5257,9 @@ function noteUnknownOutcome(
     const causeKey = `${kind}:${key}`;
     if (describedElsewhere) {
       // Only its own key: a shared one may hold another call's.
-      if (cause && kind === "call") outcomes.restated.set(causeKey, cause);
+      if (cause && kind !== "unidentified") {
+        outcomes.restated.set(causeKey, cause);
+      }
     } else if (cause) {
       recordUnknownCauseBeside(outcomes, causeKey, cause);
     } else {
@@ -5337,10 +5340,11 @@ function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
   }
   for (const key of from.uncaused) markUncaused(into, key);
   for (const [key, cause] of from.restated) {
-    // Only for the one call it restates: a sibling attempt under the same
-    // key may have no cause, or another.
-    const callKey = key.slice("call:".length);
-    if (!into.causes.has(key) && (into.calls.get(callKey) ?? 0) <= 1) {
+    // Only for the one call it restates: another call under the same key
+    // may have no cause, or another.
+    const [kind, ...rest] = key.split(":");
+    const counted = kind === "call" ? into.calls : into.inputs;
+    if (!into.causes.has(key) && (counted.get(rest.join(":")) ?? 0) <= 1) {
       into.causes.set(key, cause);
     }
   }
@@ -9690,22 +9694,27 @@ export async function runAgentLoop(opts: {
         return replayDurableExecutionStep(executionStepAdmission.resultJson);
       }
       if (executionStepAdmission?.status === "unknown") {
-        // The step records no cause; the journal may, for this exact call.
-        // Under its sent arguments when nothing was recorded under its
-        // prepared ones; a key with no single cause stops the search.
-        const recordedCauses = [
-          `call:${preparedCallKey}`,
-          `input:${toolCallCacheKey(toolCall.name, toolCall.input)}`,
-        ].map((key) =>
+        // The step records no cause. Its own journal entry may; then its
+        // prepared arguments; then its sent arguments, only when one earlier
+        // call sent them, so they can only be this call prepared anew. A key
+        // with no single cause stops the search.
+        const inputKey = toolCallCacheKey(toolCall.name, toolCall.input);
+        const keyedCause = (key: string) =>
           unknownOutcomes.causes.has(key)
             ? unknownOutcomes.causes.get(key)
             : unknownOutcomes.uncaused.has(key)
               ? null
+              : undefined;
+        const recordedCause = [
+          () => interruptedStep?.unknownCause,
+          () => keyedCause(`call:${preparedCallKey}`),
+          () =>
+            (unknownOutcomes.inputs.get(inputKey) ?? 0) <= 1
+              ? keyedCause(`input:${inputKey}`)
               : undefined,
-        );
-        const recordedCause = recordedCauses.find(
-          (cause) => cause !== undefined,
-        );
+        ]
+          .map((read) => read())
+          .find((cause) => cause !== undefined);
         unknownOutcomeCause = recordedCause ?? undefined;
         // Attempts that disagree get no cause-specific wording.
         const result = unknownRepeatResult(
