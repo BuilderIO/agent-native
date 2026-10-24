@@ -1966,8 +1966,30 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
     await expect(listUnclaimedBackgroundRunRows()).resolves.toEqual([]);
     await expect(claimBackgroundRun(successor!.id)).resolves.toBe(false);
 
+    await setStaleLiveness(successor!.id, Date.now() - STALE_PAST_MS);
     const retrySweep = await reapAllStaleRuns();
     expect(retrySweep).toEqual({ reaped: 0, failed: 0, truncated: false });
+    const reopenedSuccessor = (await pglite
+      .prepare("SELECT status, heartbeat_at FROM agent_runs WHERE id = ?")
+      .get(successor!.id)) as { status: string; heartbeat_at: number };
+    expect(reopenedSuccessor.status).toBe("running");
+    expect(Number(reopenedSuccessor.heartbeat_at)).toBeGreaterThan(
+      Date.now() - BACKGROUND_RUN_STALE_MS,
+    );
+    const postRetrySuccessorEvents = await pglite
+      .prepare(
+        "SELECT event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq",
+      )
+      .all(successor!.id);
+    expect(
+      postRetrySuccessorEvents.some((row) =>
+        String(row.event_data).includes('"errorCode":"stale_run"'),
+      ),
+    ).toBe(false);
+    await setStaleLiveness(
+      successor!.id,
+      Date.now() - UNCLAIMED_BACKGROUND_RUN_GRACE_MS - 1_000,
+    );
     await expect(listUnclaimedBackgroundRunRows()).resolves.toMatchObject([
       { id: successor!.id, hasDispatchPayload: true },
     ]);

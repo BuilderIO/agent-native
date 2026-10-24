@@ -5954,13 +5954,52 @@ async function projectRunThread(
     await bumpRunThreadProjectionRetryOrder(runId);
     return "deferred";
   }
-  await getDbExec().execute({
-    sql: `UPDATE agent_runs
-          SET thread_projection_pending = FALSE,
-              thread_projection_retry_order = NULL,
-              thread_projection_error_code = NULL
-          WHERE id = ? AND thread_projection_pending IS TRUE`,
-    args: [runId],
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error(
+      "Run thread projection completion requires transaction support",
+    );
+  }
+  await client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET thread_projection_pending = FALSE,
+                thread_projection_retry_order = NULL,
+                thread_projection_error_code = NULL
+            WHERE id = ? AND thread_projection_pending IS TRUE
+            RETURNING id`,
+      args: [runId],
+    });
+    if (rows.length === 0) return;
+    // Give queued same-turn successors a dispatch window when their gate opens.
+    await tx.execute({
+      sql: `UPDATE agent_runs AS successor
+            SET heartbeat_at = ?
+            FROM agent_runs AS predecessor
+            WHERE predecessor.id = ?
+              AND successor.thread_id = predecessor.thread_id
+              AND COALESCE(successor.turn_id, successor.id) =
+                  COALESCE(predecessor.turn_id, predecessor.id)
+              AND successor.id <> predecessor.id
+              AND successor.status = 'running'
+              AND successor.dispatch_mode = 'background'
+              AND (
+                COALESCE(predecessor.continuation_order, 0) <
+                    COALESCE(successor.continuation_order, 0)
+                OR (
+                  COALESCE(predecessor.continuation_order, 0) =
+                      COALESCE(successor.continuation_order, 0)
+                  AND (
+                    predecessor.started_at < successor.started_at
+                    OR (
+                      predecessor.started_at = successor.started_at
+                      AND predecessor.id < successor.id
+                    )
+                  )
+                )
+              )`,
+      args: [Date.now(), runId],
+    });
   });
   return "projected";
 }
