@@ -84,6 +84,7 @@ export function persistedContentBodyCommit(
 export type LiveBodyConversionErrorCode =
   | "base_changed"
   | "flag_off"
+  | "local_file"
   | "rebaseline_blocked";
 
 export class LiveBodyConversionError extends Error {
@@ -583,6 +584,13 @@ export async function persistLiveBodyConversion(
       "base_changed",
       conversion.documentId,
       `Page ${conversion.documentId} changed while it was being switched to its live copy.`,
+    );
+  }
+  if (page.sourceMode === "local-files") {
+    throw new LiveBodyConversionError(
+      "local_file",
+      conversion.documentId,
+      `Page ${conversion.documentId} is linked to a local file, so it can't take body writes through its live copy.`,
     );
   }
   if (!(await liveBodyWriterFlagsOn(page, { transaction: tx }))) {
