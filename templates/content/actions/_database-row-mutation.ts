@@ -61,6 +61,7 @@ import {
 } from "./_position-utils.js";
 import {
   assertPropertyGenerations,
+  generationNumber,
   propertyGenerationConflictError,
   propertyGenerationConflicts,
   type PropertyGenerations,
@@ -870,7 +871,7 @@ export async function rowSnapshots(
       generationsByDocument.set(value.documentId, generationMap);
     }
     valueMap.set(value.propertyId, value.valueJson);
-    generationMap.set(value.propertyId, Number(value.generation ?? 0));
+    generationMap.set(value.propertyId, generationNumber(value.generation));
   }
   const snapshots = new Map<string, RowSnapshot>();
   for (const row of found) {

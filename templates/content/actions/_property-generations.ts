@@ -27,9 +27,16 @@ export interface PropertyGenerationConflict {
   current: number;
 }
 
-function generationNumber(value: unknown): number {
-  const generation = Number(value ?? 0);
-  return Number.isSafeInteger(generation) ? generation : 0;
+/** A stored generation as a number; NULL (never changed since) is 0. */
+export function generationNumber(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  const generation = Number(value);
+  if (!Number.isSafeInteger(generation)) {
+    throw new Error(
+      `Stored property generation ${String(value)} is not an integer.`,
+    );
+  }
+  return generation;
 }
 
 /**
