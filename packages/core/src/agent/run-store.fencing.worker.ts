@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { writeSync } from "node:fs";
 
 import postgres from "postgres";
@@ -15,6 +16,14 @@ import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
+import {
+  claimAgentHarnessSessionFollowUp,
+  ensureAgentHarnessSessionTables,
+  markAgentHarnessSessionStopped,
+  startAgentHarnessSessionApprovalDispatch,
+  startAgentHarnessSessionExpiryCleanup,
+  type AgentHarnessSessionStatus,
+} from "./harness/store.js";
 import type { ActionEntry } from "./production-agent.js";
 import { abortRunAtSafeBoundaryDurably } from "./run-manager.js";
 import {
@@ -78,6 +87,14 @@ function waitForContinue(): Promise<void> {
     });
     process.stdin.resume();
   });
+}
+
+async function announceDatabaseBackend(sql: postgres.Sql): Promise<void> {
+  const [{ pid }] = await sql`SELECT pg_backend_pid() AS pid`;
+  writeSync(
+    1,
+    `${JSON.stringify({ ready: true, databaseBackendPid: Number(pid) })}\n`,
+  );
 }
 
 let databaseBackendPid: number | undefined;
@@ -175,6 +192,105 @@ async function main(): Promise<void> {
           JSON.stringify({
             status: submissionFailure ?? "submitted",
             updated,
+          }),
+        );
+        return;
+      }
+
+      if (mode === "harness-follow-up-claim") {
+        await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
+        const { expectedGeneration, claimId } = JSON.parse(extra ?? "null") as {
+          expectedGeneration: number;
+          claimId: string;
+        };
+        await announceDatabaseBackend(sql);
+        const claimed = await claimAgentHarnessSessionFollowUp(
+          threadId,
+          Number(expectedGeneration),
+          claimId,
+        );
+        writeSync(
+          1,
+          JSON.stringify({
+            claimed: Boolean(claimed),
+            generation: claimed?.generation,
+            status: claimed?.status,
+          }),
+        );
+        return;
+      }
+
+      if (mode === "harness-follow-up-stop") {
+        await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
+        await announceDatabaseBackend(sql);
+        const stopped = await markAgentHarnessSessionStopped(
+          threadId,
+          "stopped",
+        );
+        writeSync(
+          1,
+          JSON.stringify({
+            status: stopped?.status,
+            claimId: stopped?.followUpClaimId,
+          }),
+        );
+        return;
+      }
+
+      if (mode === "harness-approval-dispatch") {
+        await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
+        const { expectedStatus, expectedGeneration, approvalId } = JSON.parse(
+          extra ?? "null",
+        ) as {
+          expectedStatus: AgentHarnessSessionStatus;
+          expectedGeneration: number;
+          approvalId: string;
+        };
+        await announceDatabaseBackend(sql);
+        const dispatch = await startAgentHarnessSessionApprovalDispatch(
+          threadId,
+          expectedStatus,
+          expectedGeneration,
+          approvalId,
+          () => {
+            writeSync(1, `${JSON.stringify({ providerStarted: true })}\n`);
+            return true;
+          },
+        );
+        writeSync(
+          1,
+          JSON.stringify({
+            providerStarted: Boolean(dispatch),
+            generation: dispatch?.session.generation,
+          }),
+        );
+        return;
+      }
+
+      if (mode === "harness-expiry-cleanup") {
+        await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
+        const { expectedStatus, expectedGeneration } = JSON.parse(
+          extra ?? "null",
+        ) as {
+          expectedStatus: AgentHarnessSessionStatus;
+          expectedGeneration: number;
+        };
+        await announceDatabaseBackend(sql);
+        const cleanup = await startAgentHarnessSessionExpiryCleanup(
+          threadId,
+          expectedStatus,
+          expectedGeneration,
+          randomUUID(),
+          () => {
+            writeSync(1, `${JSON.stringify({ cleanupStarted: true })}\n`);
+            return true;
+          },
+        );
+        writeSync(
+          1,
+          JSON.stringify({
+            cleanupStarted: Boolean(cleanup),
+            generation: cleanup?.session.generation,
           }),
         );
         return;

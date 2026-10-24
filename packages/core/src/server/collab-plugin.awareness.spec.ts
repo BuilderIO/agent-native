@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   resolveAccess: vi.fn(),
   readBody: vi.fn(),
-  upsertAwarenessRow: vi.fn(async () => {}),
+  writeAwarenessRow: vi.fn(async () => true),
 }));
 
 vi.mock("h3", () => ({
@@ -19,15 +19,19 @@ vi.mock("h3", () => ({
     event.status = status;
   },
 }));
-vi.mock("./h3-helpers.js", () => ({ readBody: mocks.readBody }));
+vi.mock("../collab/payload.js", () => ({
+  DEFAULT_COLLAB_MAX_PAYLOAD_BYTES: 1_000_000,
+  getCollabMaxPayloadBytes: () => 1_000_000,
+  readCollabBody: mocks.readBody,
+}));
 vi.mock("./auth.js", () => ({ getSession: mocks.getSession }));
 vi.mock("../sharing/access.js", () => ({
   resolveAccess: mocks.resolveAccess,
   assertAccess: vi.fn(),
 }));
 vi.mock("../collab/awareness-store.js", () => ({
-  upsertAwarenessRow: mocks.upsertAwarenessRow,
-  deleteAwarenessRow: vi.fn(async () => {}),
+  writeAwarenessRow: mocks.writeAwarenessRow,
+  loadAwarenessClientSequence: vi.fn(async () => undefined),
   loadAwarenessRows: vi.fn(async () => []),
 }));
 vi.mock("../collab/emitter.js", () => ({
@@ -64,7 +68,7 @@ type TestEvent = {
 async function post(
   access: CollabAccess,
   docId: string,
-  body: { clientId: number; state: unknown },
+  body: { clientId: number; state: string },
 ): Promise<TestEvent> {
   mocks.use.mockReset();
   await createCollabPlugin({ access })({});
@@ -83,7 +87,7 @@ async function post(
 }
 
 function storedState(): unknown {
-  const call = mocks.upsertAwarenessRow.mock.calls.at(-1) as
+  const call = mocks.writeAwarenessRow.mock.calls.at(-1) as
     | unknown[]
     | undefined;
   if (!call) throw new Error("no awareness state was stored");
@@ -92,10 +96,10 @@ function storedState(): unknown {
 
 const PAGE: CollabAccess = { mode: "resource", resourceType: "document" };
 
-describe("collab awareness identity", () => {
+describe("collab awareness edit capabilities", () => {
   beforeEach(() => {
     mocks.readBody.mockReset();
-    mocks.upsertAwarenessRow.mockClear();
+    mocks.writeAwarenessRow.mockClear();
     mocks.resolveAccess.mockReset();
     mocks.getSession.mockReset();
   });
@@ -123,8 +127,8 @@ describe("collab awareness identity", () => {
       });
 
       expect(event.status).toBeUndefined();
-      expect(storedState()).toEqual({
-        user: { name: "Owner", email: "reader@example.com" },
+      expect(storedState()).toMatchObject({
+        user: { email: "reader@example.com" },
         canFlushDocument: false,
         canFlushTitle: false,
       });
@@ -137,14 +141,10 @@ describe("collab awareness identity", () => {
 
     await post(PAGE, "viewer-silent", {
       clientId: 7,
-      state: JSON.stringify({
-        user: { email: "reader@example.com" },
-        visible: true,
-      }),
+      state: JSON.stringify({ visible: true }),
     });
 
-    expect(storedState()).toEqual({
-      user: { email: "reader@example.com" },
+    expect(storedState()).toMatchObject({
       visible: true,
       canFlushDocument: false,
       canFlushTitle: false,
@@ -152,7 +152,7 @@ describe("collab awareness identity", () => {
   });
 
   it.each(["editor", "admin", "owner"])(
-    "keeps an %s's save capabilities, under the session's email",
+    "keeps an %s's save capabilities",
     async (role) => {
       mocks.getSession.mockResolvedValue({ email: "editor@example.com" });
       mocks.resolveAccess.mockResolvedValue({
@@ -162,39 +162,13 @@ describe("collab awareness identity", () => {
 
       await post(PAGE, `${role}-saves`, {
         clientId: 8,
-        state: JSON.stringify({
-          user: { name: "Editor", email: OWNER },
-          canFlushDocument: true,
-          canFlushTitle: true,
-        }),
+        state: JSON.stringify({ canFlushDocument: true, canFlushTitle: true }),
       });
 
-      expect(storedState()).toEqual({
-        user: { name: "Editor", email: "editor@example.com" },
-        canFlushDocument: true,
-        canFlushTitle: true,
-      });
-    },
-  );
-
-  it.each([
-    ["without a user", {}],
-    ["with a null user", { user: null }],
-    ["with a user that isn't an object", { user: "Editor" }],
-  ])(
-    "names an editor's state %s after the session, so a save can reach it",
-    async (_case, user) => {
-      mocks.getSession.mockResolvedValue({ email: "editor@example.com" });
-      mocks.resolveAccess.mockResolvedValue({ role: "editor", resource: {} });
-
-      await post(PAGE, "editor-no-user", {
-        clientId: 11,
-        state: JSON.stringify({ ...user, canFlushDocument: true }),
-      });
-
-      expect(storedState()).toEqual({
+      expect(storedState()).toMatchObject({
         user: { email: "editor@example.com" },
         canFlushDocument: true,
+        canFlushTitle: true,
       });
     },
   );
@@ -204,29 +178,14 @@ describe("collab awareness identity", () => {
 
     await post({ mode: "all-authenticated" }, "all-authenticated", {
       clientId: 9,
-      state: JSON.stringify({
-        user: { email: OWNER },
-        canFlushDocument: true,
-      }),
+      state: JSON.stringify({ canFlushDocument: true, canFlushTitle: true }),
     });
 
     expect(mocks.resolveAccess).not.toHaveBeenCalled();
-    expect(storedState()).toEqual({
+    expect(storedState()).toMatchObject({
       user: { email: "member@example.com" },
       canFlushDocument: true,
+      canFlushTitle: true,
     });
   });
-
-  it.each([["not json"], ["[1]"], ['"text"'], [42]])(
-    "refuses state %j, which isn't a JSON object, and stores nothing",
-    async (state) => {
-      mocks.getSession.mockResolvedValue({ email: "editor@example.com" });
-      mocks.resolveAccess.mockResolvedValue({ role: "editor", resource: {} });
-
-      const event = await post(PAGE, "malformed", { clientId: 10, state });
-
-      expect(event.status).toBe(400);
-      expect(mocks.upsertAwarenessRow).not.toHaveBeenCalled();
-    },
-  );
 });

@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Take a collaborator's awareness identity from their session: the server sets `user.email` to the session's email, adding a `user` when the state has none, and a session without edit access always advertises `canFlushDocument` and `canFlushTitle` as false. An awareness state that isn't a JSON object is refused with 400.
+A collaborator whose session can't edit the document now always advertises `canFlushDocument` and `canFlushTitle` as false in awareness, whatever its client sent.

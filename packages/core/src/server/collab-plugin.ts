@@ -5,10 +5,13 @@ import {
   type H3Event,
 } from "h3";
 
-import type { AwarenessIdentity } from "../collab/awareness-identity.js";
 import { postAwareness, getActiveUsers } from "../collab/awareness.js";
 import { getCollabEmitter } from "../collab/emitter.js";
 import { LiveCopyError, type LiveCopyBinding } from "../collab/live-copy.js";
+import {
+  DEFAULT_COLLAB_MAX_PAYLOAD_BYTES,
+  readCollabBody,
+} from "../collab/payload.js";
 import {
   getCollabState,
   postCollabUpdate,
@@ -33,8 +36,6 @@ import { recordChange } from "./poll.js";
 import { runWithRequestContext } from "./request-context.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
-
-const DEFAULT_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
 
 type CollabAwarenessScope = {
   owner?: string;
@@ -303,7 +304,7 @@ export function createCollabPlugin(
     contentColumn = "content",
     idColumn = "id",
     autoSeed = true,
-    maxPayloadBytes = DEFAULT_MAX_PAYLOAD_BYTES,
+    maxPayloadBytes = DEFAULT_COLLAB_MAX_PAYLOAD_BYTES,
   } = options;
   const resolveSourceIdFromCollabDocumentId =
     options.resolveSourceIdFromCollabDocumentId ?? ((docId: string) => docId);
@@ -517,12 +518,33 @@ export function createCollabPlugin(
         const orgId = orgCtx?.orgId ?? undefined;
 
         return runWithRequestContext({ userEmail, orgId }, async () => {
+          const isWriteAction =
+            (action === "update" && method === "POST") ||
+            (action === "text" && method === "POST") ||
+            (action === "search-replace" && method === "POST") ||
+            (action === "json" && method === "POST") ||
+            (action === "patch" && method === "POST") ||
+            (action === "awareness" && method === "POST");
+
+          if (isWriteAction && event.context) {
+            event.context._collabMaxPayloadBytes = maxPayloadBytes;
+          }
+
           let canEdit = true;
           if (resourceType) {
             const resourceId = resolveResourceId
               ? await resolveResourceId(docId)
               : docId;
             if (!resourceId) {
+              if (action === "awareness" && method === "POST") {
+                const body =
+                  await readCollabBody<Record<string, unknown>>(event);
+                if (body?.state === null) {
+                  // Disposal can race resource deletion; no presence remains to clear.
+                  setResponseStatus(event, 204);
+                  return null;
+                }
+              }
               setResponseStatus(event, 404);
               return { error: "Not found" };
             }
@@ -584,17 +606,7 @@ export function createCollabPlugin(
             }
           }
 
-          if (event.context) {
-            const identity: AwarenessIdentity = { email: userEmail, canEdit };
-            event.context._collabAwarenessIdentity = identity;
-          }
-
-          const isWriteAction =
-            (action === "update" && method === "POST") ||
-            (action === "text" && method === "POST") ||
-            (action === "search-replace" && method === "POST") ||
-            (action === "json" && method === "POST") ||
-            (action === "patch" && method === "POST");
+          if (event.context) event.context._collabAwarenessCanEdit = canEdit;
 
           if (isWriteAction) {
             const contentLength = Number(
@@ -605,9 +617,6 @@ export function createCollabPlugin(
               return {
                 error: `Payload too large. Maximum is ${maxPayloadBytes} bytes.`,
               };
-            }
-            if (event.context) {
-              event.context._collabMaxPayloadBytes = maxPayloadBytes;
             }
           }
 

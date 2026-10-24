@@ -1801,6 +1801,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   ): string | null {
     if (typeof source !== "string" || !source) return null;
     try {
+      if (!(typeof sourceRoot === "string" && sourceRoot)) {
+        var mapPath = decodeURIComponent(new URL(mapUrl).pathname);
+        var servedModulePath = mapPath.endsWith(".map")
+          ? mapPath.slice(0, -4).replace(/^\/+/, "")
+          : "";
+        var mappedSourcePath = decodeURIComponent(source).replace(/^\/+/, "");
+        if (servedModulePath && mappedSourcePath === servedModulePath) {
+          return mappedSourcePath;
+        }
+      }
       var base =
         typeof sourceRoot === "string" && sourceRoot
           ? new URL(sourceRoot, mapUrl)

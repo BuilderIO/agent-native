@@ -1,7 +1,13 @@
 import { type APIRequestContext, type Page } from "@playwright/test";
 import { parse } from "parse5";
 
-import { appPath, cdpScreenshot, expandAllLayers, gotoEditor } from "./helpers";
+import {
+  appPath,
+  cdpScreenshot,
+  expandAllLayers,
+  gotoEditor,
+  waitForDesignPreviewReady,
+} from "./helpers";
 import {
   childrenOf,
   expect,
@@ -206,6 +212,7 @@ test("free-position drag of an unselected element follows the pointer and saves 
     [],
   );
   await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForDesignPreviewReady(page);
   await expect(source).toBeVisible();
   await expect.poll(local).toEqual({ x: 180, y: 120 });
 });
@@ -505,6 +512,7 @@ test("nested auto-layout child drops into an existing root frame across Screens"
     .toEqual([sourceAfterDrop, destinationAfterDrop]);
 
   await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForDesignPreviewReady(page);
   await expect(
     screenById(page, ids[0]!)
       .contentFrame()
@@ -875,6 +883,7 @@ test("cross-Screen drops preserve Flex and default Grid-stretched sizes", async 
     });
 
   await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForDesignPreviewReady(page);
   for (const nodeId of ["flex-stretched", "grid-stretched"]) {
     const moved = screenById(page, ids[1]!)
       .contentFrame()
