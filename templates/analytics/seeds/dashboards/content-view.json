@@ -1,6 +1,6 @@
 {
   "name": "Content",
-  "description": "Blog articles with authors, daily GA4 pageviews, Search Console clicks and impressions, and first-touch signups, from Analytics' daily content collection. Reads only Analytics' own tables, so opening it calls no provider.",
+  "columns": 6,
   "filters": [
     {
       "id": "timeRange",
@@ -29,15 +29,296 @@
   ],
   "panels": [
     {
-      "id": "collection-status",
-      "title": "Collection",
+      "id": "missing-data",
+      "title": "Missing data",
+      "chartType": "callout",
+      "source": "first-party",
+      "width": 6,
+      "sql": "WITH latest AS (SELECT step, status, started_at FROM (SELECT step, status, started_at, ROW_NUMBER() OVER (PARTITION BY step ORDER BY started_at DESC) AS rn FROM analytics_content_collection_runs WHERE started_at >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) ranked WHERE rn = 1) SELECT severity, message FROM (SELECT CASE WHEN status IN ('failed', 'cost_limited') THEN 'critical' WHEN status = 'not_configured' THEN 'warning' ELSE 'info' END AS severity, '**' || CASE step WHEN 'builder_blog' THEN 'Articles' WHEN 'ga4' THEN 'Pageviews' WHEN 'search_console' THEN 'Search clicks and impressions' WHEN 'signups' THEN 'Signups' ELSE step END || CASE status WHEN 'failed' THEN ' failed' WHEN 'cost_limited' THEN ' stopped at the cost cap' WHEN 'not_configured' THEN ' aren''t connected yet' WHEN 'running' THEN ' are collecting now' ELSE ' ' || status END || '**' || CASE WHEN status = 'not_configured' AND step = 'search_console' THEN ': waiting for Search Console access.' WHEN status = 'not_configured' AND step = 'ga4' THEN ': waiting for a GA4 property.' WHEN status IN ('not_configured', 'running') THEN '.' ELSE ' on the ' || to_char(substr(started_at, 1, 10)::date, 'Mon FMDD') || ' run.' END AS message, CASE step WHEN 'builder_blog' THEN 1 WHEN 'ga4' THEN 2 WHEN 'search_console' THEN 3 WHEN 'signups' THEN 4 ELSE 5 END AS position FROM latest WHERE status <> 'succeeded' UNION ALL SELECT 'info', 'No collection has run in the last 30 days.', 0 WHERE NOT EXISTS (SELECT 1 FROM latest) UNION ALL SELECT 'info', 'Nothing is missing: every source collected on its last run.', 0 WHERE EXISTS (SELECT 1 FROM latest) AND NOT EXISTS (SELECT 1 FROM latest WHERE status <> 'succeeded')) notices ORDER BY position",
+      "config": {
+        "timeScope": "fixed-window"
+      }
+    },
+    {
+      "id": "signups-per-day",
+      "title": "Signups per day",
+      "chartType": "line",
+      "source": "first-party",
+      "width": 4,
+      "tab": "Articles",
+      "sql": "WITH RECURSIVE dates AS (SELECT CASE '{{timeRange}}' WHEN '7d' THEN CURRENT_DATE - 7 WHEN '28d' THEN CURRENT_DATE - 28 WHEN '90d' THEN CURRENT_DATE - 90 WHEN 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE (SELECT MIN(metric_date)::date FROM analytics_content_metric_snapshots) END AS day UNION ALL SELECT day + 1 FROM dates WHERE day < CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(CURRENT_DATE, NULLIF('{{timeRangeEnd}}', '')::date) ELSE CURRENT_DATE - 1 END), totals AS (SELECT s.metric_date AS date, SUM(s.value) AS signups FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE i.source = 'builder_blog' AND s.metric = 'signups_first_touch' AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) GROUP BY s.metric_date) SELECT to_char(dates.day, 'YYYY-MM-DD') AS date, totals.signups FROM dates LEFT JOIN totals ON totals.date = to_char(dates.day, 'YYYY-MM-DD') WHERE dates.day <= CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(CURRENT_DATE, NULLIF('{{timeRangeEnd}}', '')::date) ELSE CURRENT_DATE - 1 END ORDER BY dates.day",
+      "config": {
+        "timeScope": "dashboard",
+        "xKey": "date",
+        "yKeys": ["signups"],
+        "seriesLabels": {
+          "signups": "Signups"
+        }
+      }
+    },
+    {
+      "id": "signups-by-author",
+      "title": "Signups by author",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 2,
+      "tab": "Articles",
+      "sql": "WITH per_article AS (SELECT i.id, i.title, i.url AS href, COALESCE(i.author, 'No author') AS author, i.published_at, SUM(s.value) FILTER (WHERE s.metric = 'signups_first_touch') AS signups, SUM(s.value) FILTER (WHERE s.metric = 'signups_first_touch_source') AS source_signups FROM analytics_content_items i LEFT JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) WHERE i.source = 'builder_blog' GROUP BY i.id, i.title, i.url, i.author, i.published_at) SELECT author, SUM(signups) AS signups FROM per_article GROUP BY author HAVING SUM(signups) > 0 ORDER BY signups DESC LIMIT 8",
+      "config": {
+        "timeScope": "dashboard",
+        "xKey": "author",
+        "yKeys": ["signups"],
+        "seriesLabels": {
+          "signups": "Signups"
+        }
+      }
+    },
+    {
+      "id": "articles",
+      "title": "Articles",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 6,
+      "tab": "Articles",
+      "sql": "WITH per_article AS (SELECT i.id, i.title, i.url AS href, COALESCE(i.author, 'No author') AS author, i.published_at, SUM(s.value) FILTER (WHERE s.metric = 'signups_first_touch') AS signups, SUM(s.value) FILTER (WHERE s.metric = 'signups_first_touch_source') AS source_signups FROM analytics_content_items i LEFT JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) WHERE i.source = 'builder_blog' GROUP BY i.id, i.title, i.url, i.author, i.published_at) SELECT title, href, author, substr(published_at, 1, 10) AS published, signups, source_signups FROM per_article ORDER BY signups DESC NULLS LAST, published_at DESC NULLS LAST LIMIT 1000",
+      "config": {
+        "timeScope": "dashboard",
+        "sortable": true,
+        "columns": [
+          {
+            "key": "title",
+            "label": "Article",
+            "format": "link",
+            "linkKey": "href"
+          },
+          {
+            "key": "href",
+            "hidden": true
+          },
+          {
+            "key": "author",
+            "label": "Author"
+          },
+          {
+            "key": "published",
+            "label": "Published",
+            "format": "date"
+          },
+          {
+            "key": "signups",
+            "label": "Signups",
+            "format": "number"
+          },
+          {
+            "key": "source_signups",
+            "label": "Source signups",
+            "format": "number"
+          }
+        ]
+      }
+    },
+    {
+      "id": "author-weeks",
+      "title": "Signups per week by author",
+      "chartType": "line",
+      "source": "first-party",
+      "width": 6,
+      "tab": "Authors",
+      "sql": "WITH top_authors AS (SELECT COALESCE(i.author, 'No author') AS author FROM analytics_content_items i JOIN analytics_content_metric_snapshots s ON s.item_id = i.id WHERE i.source = 'builder_blog' AND s.metric = 'signups_first_touch' AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) GROUP BY COALESCE(i.author, 'No author') HAVING SUM(s.value) > 0 ORDER BY SUM(s.value) DESC LIMIT 5) SELECT COALESCE(i.author, 'No author') AS author, to_char(CURRENT_DATE - 1 - ((CURRENT_DATE - 1 - s.metric_date::date) / 7) * 7, 'Mon FMDD') AS week, SUM(s.value) AS signups FROM analytics_content_items i JOIN analytics_content_metric_snapshots s ON s.item_id = i.id JOIN top_authors t ON t.author = COALESCE(i.author, 'No author') WHERE i.source = 'builder_blog' AND s.metric = 'signups_first_touch' AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) AND s.metric_date < to_char(CURRENT_DATE, 'YYYY-MM-DD') GROUP BY COALESCE(i.author, 'No author'), CURRENT_DATE - 1 - ((CURRENT_DATE - 1 - s.metric_date::date) / 7) * 7 ORDER BY MIN(s.metric_date), author",
+      "config": {
+        "timeScope": "dashboard",
+        "xKey": "week",
+        "colors": ["#38bdf8", "#f59e0b", "#10b981", "#a78bfa", "#f43f5e"],
+        "pivot": {
+          "xKey": "week",
+          "seriesKey": "author",
+          "valueKey": "signups"
+        }
+      }
+    },
+    {
+      "id": "authors",
+      "title": "Authors",
       "chartType": "table",
       "source": "first-party",
       "width": 3,
-      "sql": "WITH latest AS ( SELECT step, status, started_at, window_end, error_message FROM ( SELECT step, status, started_at, window_end, error_message, ROW_NUMBER() OVER (PARTITION BY step ORDER BY started_at DESC) AS rn FROM analytics_content_collection_runs ) ranked WHERE rn = 1 ) SELECT CASE step WHEN 'builder_blog' THEN 'Blog articles' WHEN 'ga4' THEN 'GA4 pageviews' WHEN 'search_console' THEN 'Search Console' WHEN 'signups' THEN 'Signups' ELSE step END AS source, CASE status WHEN 'succeeded' THEN 'Collected' WHEN 'failed' THEN 'Failed' WHEN 'cost_limited' THEN 'Cost-limited' WHEN 'not_configured' THEN 'Not set up' WHEN 'running' THEN 'Running' ELSE status END AS status, started_at AS last_run, (SELECT window_end FROM analytics_content_collection_runs successful WHERE successful.step = latest.step AND successful.status = 'succeeded' ORDER BY successful.started_at DESC LIMIT 1) AS data_through, error_message AS detail FROM latest ORDER BY CASE step WHEN 'builder_blog' THEN 1 WHEN 'ga4' THEN 2 WHEN 'search_console' THEN 3 WHEN 'signups' THEN 4 ELSE 5 END",
+      "tab": "Authors",
+      "sql": "WITH per_article AS (SELECT i.id, i.title, i.url AS href, COALESCE(i.author, 'No author') AS author, i.published_at, SUM(s.value) FILTER (WHERE s.metric = 'signups_first_touch') AS signups, SUM(s.value) FILTER (WHERE s.metric = 'signups_first_touch_source') AS source_signups FROM analytics_content_items i LEFT JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) WHERE i.source = 'builder_blog' GROUP BY i.id, i.title, i.url, i.author, i.published_at) SELECT author{{?breakdown}}, {{breakdown}}{{/breakdown}}, COUNT(*) AS articles, COUNT(*) FILTER (WHERE signups > 0) AS with_signups, SUM(signups) AS signups FROM per_article GROUP BY author{{?breakdown}}, {{breakdown}}{{/breakdown}} ORDER BY signups DESC NULLS LAST",
       "config": {
-        "timeScope": "all-time",
-        "description": "Latest run across all time for each source. Data through is the last successful coverage boundary.",
+        "timeScope": "dashboard",
+        "sortable": true,
+        "breakdowns": [
+          {
+            "column": "title",
+            "label": "Article"
+          }
+        ],
+        "columns": [
+          {
+            "key": "author",
+            "label": "Author"
+          },
+          {
+            "key": "signups",
+            "label": "Signups",
+            "format": "number"
+          },
+          {
+            "key": "articles",
+            "label": "Articles",
+            "format": "number"
+          },
+          {
+            "key": "with_signups",
+            "label": "With signups",
+            "format": "number"
+          }
+        ]
+      }
+    },
+    {
+      "id": "author-articles",
+      "title": "Articles",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 3,
+      "tab": "Authors",
+      "sql": "WITH per_article AS (SELECT i.id, i.title, i.url AS href, COALESCE(i.author, 'No author') AS author, i.published_at, SUM(s.value) FILTER (WHERE s.metric = 'signups_first_touch') AS signups, SUM(s.value) FILTER (WHERE s.metric = 'signups_first_touch_source') AS source_signups FROM analytics_content_items i LEFT JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) WHERE i.source = 'builder_blog' GROUP BY i.id, i.title, i.url, i.author, i.published_at) SELECT title, href, author, signups FROM per_article ORDER BY signups DESC NULLS LAST, published_at DESC NULLS LAST LIMIT 1000",
+      "config": {
+        "timeScope": "dashboard",
+        "sortable": true,
+        "columns": [
+          {
+            "key": "title",
+            "label": "Article",
+            "format": "link",
+            "linkKey": "href"
+          },
+          {
+            "key": "href",
+            "hidden": true
+          },
+          {
+            "key": "author",
+            "label": "Author"
+          },
+          {
+            "key": "signups",
+            "label": "Signups",
+            "format": "number"
+          }
+        ]
+      }
+    },
+    {
+      "id": "new-vs-older",
+      "title": "Signups per day, new and older articles",
+      "chartType": "area",
+      "source": "first-party",
+      "width": 6,
+      "tab": "New and rising",
+      "sql": "WITH RECURSIVE dates AS (SELECT CASE '{{timeRange}}' WHEN '7d' THEN CURRENT_DATE - 7 WHEN '28d' THEN CURRENT_DATE - 28 WHEN '90d' THEN CURRENT_DATE - 90 WHEN 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE (SELECT MIN(metric_date)::date FROM analytics_content_metric_snapshots) END AS day UNION ALL SELECT day + 1 FROM dates WHERE day < CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(CURRENT_DATE, NULLIF('{{timeRangeEnd}}', '')::date) ELSE CURRENT_DATE - 1 END), totals AS (SELECT s.metric_date AS date, SUM(s.value) FILTER (WHERE i.published_at >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) AS new_articles, SUM(s.value) FILTER (WHERE i.published_at IS NULL OR i.published_at < to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) AS older FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE i.source = 'builder_blog' AND s.metric = 'signups_first_touch' AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) GROUP BY s.metric_date) SELECT to_char(dates.day, 'YYYY-MM-DD') AS date, totals.new_articles, totals.older FROM dates LEFT JOIN totals ON totals.date = to_char(dates.day, 'YYYY-MM-DD') WHERE dates.day <= CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(CURRENT_DATE, NULLIF('{{timeRangeEnd}}', '')::date) ELSE CURRENT_DATE - 1 END ORDER BY dates.day",
+      "config": {
+        "timeScope": "dashboard",
+        "xKey": "date",
+        "yKeys": ["new_articles", "older"],
+        "stacked": true,
+        "colors": ["#f59e0b", "#10b981"],
+        "seriesLabels": {
+          "new_articles": "Published in the last 90 days",
+          "older": "Older"
+        }
+      }
+    },
+    {
+      "id": "new-articles",
+      "title": "New articles",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 3,
+      "tab": "New and rising",
+      "sql": "SELECT i.title, i.url AS href, substr(i.published_at, 1, 10) AS published, SUM(s.value) FILTER (WHERE s.metric_date < to_char(substr(i.published_at, 1, 10)::date + 7, 'YYYY-MM-DD')) AS first_week, SUM(s.value) AS signups FROM analytics_content_items i LEFT JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND s.metric = 'signups_first_touch' WHERE i.source = 'builder_blog' AND substr(i.published_at, 1, 10)::date >= CURRENT_DATE - 90 GROUP BY i.id, i.title, i.url, i.published_at ORDER BY i.published_at DESC",
+      "config": {
+        "timeScope": "fixed-window",
+        "sortable": true,
+        "columns": [
+          {
+            "key": "title",
+            "label": "Article",
+            "format": "link",
+            "linkKey": "href"
+          },
+          {
+            "key": "href",
+            "hidden": true
+          },
+          {
+            "key": "published",
+            "label": "Published",
+            "format": "date"
+          },
+          {
+            "key": "first_week",
+            "label": "Week 1",
+            "format": "number"
+          },
+          {
+            "key": "signups",
+            "label": "Total",
+            "format": "number"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rising",
+      "title": "Last 28 days against the 28 before",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 3,
+      "tab": "New and rising",
+      "sql": "WITH windows AS (SELECT i.id, i.title, i.url AS href, COALESCE(SUM(s.value) FILTER (WHERE s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')), 0) AS recent, COALESCE(SUM(s.value) FILTER (WHERE s.metric_date < to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')), 0) AS previous FROM analytics_content_items i JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND s.metric = 'signups_first_touch' AND s.metric_date::date >= CURRENT_DATE - 56 WHERE i.source = 'builder_blog' GROUP BY i.id, i.title, i.url) SELECT title, href, recent, previous, CASE WHEN previous > 0 THEN (recent - previous) * 100.0 / previous END AS change FROM windows WHERE recent + previous >= 10 ORDER BY recent - previous DESC",
+      "config": {
+        "timeScope": "fixed-window",
+        "sortable": true,
+        "columns": [
+          {
+            "key": "title",
+            "label": "Article",
+            "format": "link",
+            "linkKey": "href"
+          },
+          {
+            "key": "href",
+            "hidden": true
+          },
+          {
+            "key": "recent",
+            "label": "Last 28",
+            "format": "number"
+          },
+          {
+            "key": "previous",
+            "label": "Prior 28",
+            "format": "number"
+          },
+          {
+            "key": "change",
+            "label": "Change",
+            "format": "delta"
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection-status",
+      "title": "Sources",
+      "chartType": "table",
+      "source": "first-party",
+      "width": 6,
+      "sql": "WITH latest AS ( SELECT step, status, started_at, window_end, error_message FROM ( SELECT step, status, started_at, window_end, error_message, ROW_NUMBER() OVER (PARTITION BY step ORDER BY started_at DESC) AS rn FROM analytics_content_collection_runs WHERE started_at >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') ) ranked WHERE rn = 1 ) SELECT CASE step WHEN 'builder_blog' THEN 'Blog articles' WHEN 'ga4' THEN 'GA4 pageviews' WHEN 'search_console' THEN 'Search Console' WHEN 'signups' THEN 'Signups' ELSE step END AS source, CASE status WHEN 'succeeded' THEN 'Collected' WHEN 'failed' THEN 'Failed' WHEN 'cost_limited' THEN 'Cost-limited' WHEN 'not_configured' THEN 'Not set up' WHEN 'running' THEN 'Running' ELSE status END AS status, started_at AS last_run, (SELECT window_end FROM analytics_content_collection_runs successful WHERE successful.step = latest.step AND successful.status = 'succeeded' ORDER BY successful.started_at DESC LIMIT 1) AS data_through, error_message AS detail FROM latest ORDER BY CASE step WHEN 'builder_blog' THEN 1 WHEN 'ga4' THEN 2 WHEN 'search_console' THEN 3 WHEN 'signups' THEN 4 ELSE 5 END",
+      "config": {
+        "timeScope": "fixed-window",
         "columns": [
           {
             "key": "source",
@@ -61,122 +342,8 @@
             "label": "Detail"
           }
         ]
-      }
-    },
-    {
-      "id": "articles",
-      "title": "Articles",
-      "chartType": "table",
-      "source": "first-party",
-      "width": 3,
-      "sql": "WITH latest AS ( SELECT step, status, started_at, window_end, error_message FROM ( SELECT step, status, started_at, window_end, error_message, ROW_NUMBER() OVER (PARTITION BY step ORDER BY started_at DESC) AS rn FROM analytics_content_collection_runs ) ranked WHERE rn = 1 ), totals AS ( SELECT item_id, SUM(value) FILTER (WHERE metric = 'ga4_pageviews') AS pageviews, COUNT(*) FILTER (WHERE metric = 'ga4_pageviews') AS pageview_rows, SUM(value) FILTER (WHERE metric = 'search_console_clicks') AS clicks, SUM(value) FILTER (WHERE metric = 'search_console_impressions') AS impressions, COUNT(*) FILTER (WHERE metric = 'search_console_clicks') AS search_rows, SUM(value) FILTER (WHERE metric = 'signups_first_touch') AS signups, SUM(value) FILTER (WHERE metric = 'signups_first_touch_source') AS source_signups, COUNT(*) FILTER (WHERE metric = 'signups_first_touch') AS signup_rows FROM analytics_content_metric_snapshots WHERE (metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND metric_date >= '{{timeRangeStart}}' AND metric_date <= '{{timeRangeEnd}}'))) GROUP BY item_id ) SELECT title, href, author, published, pageviews, clicks, impressions, signups, source_signups, NULLIF(COALESCE(ga4_missing, '') || CASE WHEN ga4_missing IS NOT NULL AND search_missing IS NOT NULL THEN ' · ' ELSE '' END || COALESCE(search_missing, '') || CASE WHEN signups_missing IS NOT NULL AND (ga4_missing IS NOT NULL OR search_missing IS NOT NULL) THEN ' · ' ELSE '' END || COALESCE(signups_missing, ''), '') AS not_collected FROM ( SELECT i.title, i.url AS href, i.author, i.published_at, substr(i.published_at, 1, 10) AS published, t.pageviews, t.clicks, t.impressions, t.signups, t.source_signups, CASE WHEN COALESCE(t.pageview_rows, 0) > 0 THEN NULL ELSE 'GA4: ' || CASE ga4_run.status WHEN 'failed' THEN 'failed' WHEN 'cost_limited' THEN 'cost-limited' WHEN 'not_configured' THEN 'not set up' WHEN 'running' THEN 'running' WHEN 'succeeded' THEN 'not reported in this window' ELSE 'not collected yet' END END AS ga4_missing, CASE WHEN COALESCE(t.search_rows, 0) > 0 THEN NULL ELSE 'Search Console: ' || CASE search_run.status WHEN 'failed' THEN 'failed' WHEN 'cost_limited' THEN 'cost-limited' WHEN 'not_configured' THEN 'not set up' WHEN 'running' THEN 'running' WHEN 'succeeded' THEN 'not reported in this window' ELSE 'not collected yet' END END AS search_missing, CASE WHEN COALESCE(t.signup_rows, 0) > 0 THEN NULL ELSE 'Signups: ' || CASE signups_run.status WHEN 'failed' THEN 'failed' WHEN 'cost_limited' THEN 'cost-limited' WHEN 'not_configured' THEN 'not set up' WHEN 'running' THEN 'running' WHEN 'succeeded' THEN 'not reported in this window' ELSE 'not collected yet' END END AS signups_missing FROM analytics_content_items i LEFT JOIN totals t ON t.item_id = i.id LEFT JOIN latest ga4_run ON ga4_run.step = 'ga4' LEFT JOIN latest search_run ON search_run.step = 'search_console' LEFT JOIN latest signups_run ON signups_run.step = 'signups' WHERE i.source = 'builder_blog' ) articles ORDER BY published_at DESC NULLS LAST LIMIT 1000",
-      "config": {
-        "timeScope": "dashboard",
-        "description": "The 1,000 most recently published collected blog articles. A blank number means that source has no data for the article in this window; Not collected says why.",
-        "sortable": true,
-        "columns": [
-          {
-            "key": "title",
-            "label": "Article",
-            "format": "link",
-            "linkKey": "href"
-          },
-          {
-            "key": "href",
-            "hidden": true
-          },
-          {
-            "key": "author",
-            "label": "Author"
-          },
-          {
-            "key": "published",
-            "label": "Published"
-          },
-          {
-            "key": "pageviews",
-            "label": "Pageviews",
-            "format": "number"
-          },
-          {
-            "key": "clicks",
-            "label": "Search clicks",
-            "format": "number"
-          },
-          {
-            "key": "impressions",
-            "label": "Impressions",
-            "format": "number"
-          },
-          {
-            "key": "signups",
-            "label": "Signups",
-            "format": "number"
-          },
-          {
-            "key": "source_signups",
-            "label": "Source signups",
-            "format": "number"
-          },
-          {
-            "key": "not_collected",
-            "label": "Not collected"
-          }
-        ]
-      }
-    },
-    {
-      "id": "daily-trend",
-      "title": "Daily pageviews and search clicks",
-      "chartType": "line",
-      "source": "first-party",
-      "width": 3,
-      "sql": "WITH RECURSIVE dates AS (SELECT CASE '{{timeRange}}' WHEN '7d' THEN CURRENT_DATE - 7 WHEN '28d' THEN CURRENT_DATE - 28 WHEN '90d' THEN CURRENT_DATE - 90 WHEN 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE (SELECT MIN(metric_date)::date FROM analytics_content_metric_snapshots) END AS day UNION ALL SELECT day + 1 FROM dates WHERE day < CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(CURRENT_DATE, NULLIF('{{timeRangeEnd}}', '')::date) ELSE CURRENT_DATE END), totals AS (SELECT s.metric_date AS date, SUM(s.value) FILTER (WHERE s.metric = 'ga4_pageviews') AS pageviews, SUM(s.value) FILTER (WHERE s.metric = 'search_console_clicks') AS search_clicks FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE i.source = 'builder_blog' AND s.metric IN ('ga4_pageviews', 'search_console_clicks') AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) GROUP BY s.metric_date ORDER BY s.metric_date) SELECT to_char(dates.day, 'YYYY-MM-DD') AS date, totals.pageviews, totals.search_clicks FROM dates LEFT JOIN totals ON totals.date = to_char(dates.day, 'YYYY-MM-DD') WHERE dates.day <= CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(CURRENT_DATE, NULLIF('{{timeRangeEnd}}', '')::date) ELSE CURRENT_DATE END ORDER BY dates.day",
-      "config": {
-        "timeScope": "dashboard",
-        "xKey": "date",
-        "yKeys": ["pageviews", "search_clicks"],
-        "seriesLabels": {
-          "pageviews": "Pageviews",
-          "search_clicks": "Search clicks"
-        },
-        "description": "All blog articles. A day a source hasn't reported is a gap, not a zero."
-      }
-    },
-    {
-      "id": "search-pages",
-      "title": "Other pages in search",
-      "chartType": "table",
-      "source": "first-party",
-      "width": 3,
-      "sql": "SELECT i.url AS page, i.url AS href, SUM(s.value) FILTER (WHERE s.metric = 'search_console_clicks') AS clicks, SUM(s.value) FILTER (WHERE s.metric = 'search_console_impressions') AS impressions FROM analytics_content_items i JOIN analytics_content_metric_snapshots s ON s.item_id = i.id WHERE i.source = 'search_console' AND (s.metric_date <= to_char(CURRENT_DATE, 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '28d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND s.metric_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = 'custom' AND s.metric_date >= '{{timeRangeStart}}' AND s.metric_date <= '{{timeRangeEnd}}'))) GROUP BY i.url ORDER BY clicks DESC NULLS LAST, impressions DESC NULLS LAST LIMIT 200",
-      "config": {
-        "timeScope": "dashboard",
-        "description": "Search Console pages that aren't collected blog articles.",
-        "sortable": true,
-        "columns": [
-          {
-            "key": "page",
-            "label": "Page",
-            "format": "link",
-            "linkKey": "href"
-          },
-          {
-            "key": "href",
-            "hidden": true
-          },
-          {
-            "key": "clicks",
-            "label": "Search clicks",
-            "format": "number"
-          },
-          {
-            "key": "impressions",
-            "label": "Impressions",
-            "format": "number"
-          }
-        ]
-      }
+      },
+      "tab": "Sources"
     }
   ]
 }

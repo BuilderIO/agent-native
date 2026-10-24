@@ -84,6 +84,14 @@ function daysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
 }
 
+function runDay(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 function contentView() {
   const entry = getDashboardCatalogEntry("content-view");
   if (!entry) throw new Error("content-view is not in the dashboard catalog");
@@ -134,6 +142,15 @@ describe("Content view dashboard", () => {
     `);
   });
 
+  // The database clock, not the test runner's UTC date: near midnight the two
+  // name different days.
+  async function yesterday(format: string): Promise<string> {
+    const { rows } = (await client.query(
+      `SELECT to_char(CURRENT_DATE - 1, '${format}') AS day`,
+    )) as { rows: Array<{ day: string }> };
+    return rows[0]!.day;
+  }
+
   afterEach(async () => {
     database.client = null;
     await client?.close();
@@ -148,7 +165,17 @@ describe("Content view dashboard", () => {
         ...panel.sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)/gi),
       ]
         .map((match) => match[1]!.toLowerCase())
-        .filter((name) => !["latest", "totals", "dates"].includes(name));
+        .filter(
+          (name) =>
+            ![
+              "latest",
+              "totals",
+              "dates",
+              "per_article",
+              "top_authors",
+              "windows",
+            ].includes(name),
+        );
       expect(tables.length).toBeGreaterThan(0);
       for (const table of tables) {
         expect(table).toMatch(/^analytics_content_/);
@@ -175,48 +202,68 @@ describe("Content view dashboard", () => {
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
-  it("lists articles with the reason a metric is missing instead of a zero", async () => {
-    const rows = await runPanel("articles");
-    expect(rows).toEqual([
-      expect.objectContaining({
-        title: "Post two",
-        author: "Grace",
-        published: daysAgo(0),
-        pageviews: null,
-        clicks: null,
-        signups: null,
-        source_signups: null,
-        not_collected:
-          "GA4: not reported in this window · Search Console: not set up · Signups: cost-limited",
-      }),
-      expect.objectContaining({
-        title: "Post one",
-        href: "https://www.builder.io/blog/one",
-        pageviews: 5,
-        clicks: null,
-        // Kept from an earlier run: a capped run writes nothing, so the
-        // numbers already collected still show.
-        signups: 2,
-        source_signups: 1,
-        not_collected: "Search Console: not set up",
-      }),
+  it("names each source that failed, hit the cost cap or isn't connected in one notice", async () => {
+    expect(await runPanel("missing-data")).toEqual([
+      {
+        severity: "warning",
+        message:
+          "**Search clicks and impressions aren't connected yet**: waiting for Search Console access.",
+      },
+      {
+        severity: "critical",
+        message: `**Signups stopped at the cost cap** on the ${runDay(1)} run.`,
+      },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
-  it("does not label an unreported article as still arriving after a successful search run", async () => {
+  it("says nothing is missing only after a recent run, and only from this organization's runs", async () => {
     await client.exec(
-      "UPDATE analytics_content_collection_runs SET status = 'succeeded' WHERE id = 'r4'",
+      "UPDATE analytics_content_collection_runs SET status = 'succeeded' WHERE id IN ('r4', 'r5')",
     );
-    const rows = await runPanel("articles");
-    expect(rows.find((row) => row.title === "Post one")?.not_collected).toBe(
-      "Search Console: not reported in this window",
+    expect(await runPanel("missing-data")).toEqual([
+      {
+        severity: "info",
+        message: "Nothing is missing: every source collected on its last run.",
+      },
+    ]);
+
+    await client.exec(
+      `UPDATE analytics_content_collection_runs SET started_at = '${daysAgo(40)}T07:00:00.000Z' WHERE tenant_key = 'org:org_a'`,
     );
+    expect(await runPanel("missing-data")).toEqual([
+      {
+        severity: "info",
+        message: "No collection has run in the last 30 days.",
+      },
+    ]);
+  });
+
+  it("ranks articles by signups and leaves an article with none in the window blank", async () => {
+    expect(await runPanel("articles")).toEqual([
+      {
+        title: "Post one",
+        href: "https://www.builder.io/blog/one",
+        author: "Ada",
+        published: "2026-09-01",
+        signups: 2,
+        source_signups: 1,
+      },
+      {
+        title: "Post two",
+        href: "https://www.builder.io/blog/two",
+        author: "Grace",
+        published: daysAgo(0),
+        signups: null,
+        source_signups: null,
+      },
+    ]);
+    expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
   it("rejects a custom date scaffold wider than the supported range", () => {
     const panel = contentView().panels.find(
-      (panel) => panel.id === "daily-trend",
+      (panel) => panel.id === "signups-per-day",
     )!;
     expect(
       interpolateDashboardPanelSql(
@@ -231,50 +278,84 @@ describe("Content view dashboard", () => {
     ).toBe("SELECT __invalid_custom_date_range__");
   });
 
-  it("keeps a wholly missing day between reported dates as null", async () => {
-    await client.exec(
-      "UPDATE analytics_content_metric_snapshots SET metric_date = '" +
-        daysAgo(1) +
-        "' WHERE id = 's2'",
-    );
-    const trend = await runPanel("daily-trend");
-    expect(trend.find((row) => row.date === daysAgo(2))).toEqual({
-      date: daysAgo(2),
-      pageviews: null,
-      search_clicks: null,
+  it("keeps a day with no signups as null through yesterday", async () => {
+    const days = await runPanel("signups-per-day");
+    expect(days).toHaveLength(28);
+    expect(days[days.length - 1]).toEqual({
+      date: await yesterday("YYYY-MM-DD"),
+      signups: null,
     });
-    expect(trend.find((row) => row.date === daysAgo(1))?.pageviews).toBe(0);
+    expect(days.filter((row) => row.signups !== null)).toEqual([
+      { date: daysAgo(3), signups: 2 },
+    ]);
+    const panel = contentView().panels.find(
+      (panel) => panel.id === "signups-per-day",
+    )!;
+    const plan = planPanelRender(days, panel, { timeRange: 28 });
+    expect(plan.rows.find((row) => row.date === daysAgo(2))?.signups).toBe(
+      null,
+    );
   });
 
   it("keeps the time range and the organization in every panel", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
+        ('s9', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(40)}', 'signups_first_touch', 10, 'signups', 'r0', '${daysAgo(39)}'),
+        ('s10', 'org:org_b', 'carol@example.test', 'org_b', 'b1', '${daysAgo(3)}', 'signups_first_touch', 50, 'signups', 'rb', '${daysAgo(1)}');
+    `);
     const all = await runPanel("articles", "all");
-    expect(all.find((row) => row.title === "Post one")?.pageviews).toBe(105);
+    expect(all.find((row) => row.title === "Post one")?.signups).toBe(12);
     expect(all.some((row) => row.title === "Other org post")).toBe(false);
 
-    // Search Console reported nothing on these days: null, drawn as a gap.
-    const trend = await runPanel("daily-trend");
-    expect(trend).toHaveLength(29);
-    expect(trend.filter((row) => row.pageviews !== null)).toEqual([
-      { date: daysAgo(3), pageviews: 5, search_clicks: null },
-      { date: daysAgo(2), pageviews: 0, search_clicks: null },
+    expect(await runPanel("signups-by-author")).toEqual([
+      { author: "Ada", signups: 2 },
     ]);
-    const trendPanel = contentView().panels.find(
-      (panel) => panel.id === "daily-trend",
-    )!;
-    const plan = planPanelRender(trend, trendPanel, { timeRange: 28 });
-    expect(plan.yKeys).toEqual(["pageviews", "search_clicks"]);
-    expect(plan.rows.every((row) => row.search_clicks === null)).toBe(true);
-    expect(trend.find((row) => row.date === daysAgo(1))).toEqual({
-      date: daysAgo(1),
-      pageviews: null,
-      search_clicks: null,
-    });
-    expect(await runPanel("search-pages")).toEqual([
+    expect(await runPanel("authors")).toEqual([
+      { author: "Ada", articles: 1, with_signups: 1, signups: 2 },
+      { author: "Grace", articles: 1, with_signups: 0, signups: null },
+    ]);
+    expect(await runPanel("author-weeks")).toEqual([
+      { author: "Ada", week: await yesterday("Mon FMDD"), signups: 2 },
+    ]);
+    expect((await runPanel("author-articles")).map((row) => row.title)).toEqual(
+      ["Post one", "Post two"],
+    );
+    expect(bigQuery.query).not.toHaveBeenCalled();
+  });
+
+  it("counts a new article's first week and compares each article's last 28 days with the 28 before", async () => {
+    await client.exec(`
+      UPDATE analytics_content_items SET published_at = '${daysAgo(120)}T00:00:00.000Z' WHERE id = 'a1';
+      INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, published_at, first_seen_at, updated_at) VALUES
+        ('a3', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'a3', 'https://www.builder.io/blog/three', 'Post three', 'Ada', '${daysAgo(50)}T00:00:00.000Z', '2026-09-01', '2026-09-01');
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
+        ('s11', 'org:org_a', 'alice@example.test', 'org_a', 'a3', '${daysAgo(48)}', 'signups_first_touch', 5, 'signups', 'r0', '${daysAgo(47)}'),
+        ('s12', 'org:org_a', 'alice@example.test', 'org_a', 'a3', '${daysAgo(10)}', 'signups_first_touch', 10, 'signups', 'r0', '${daysAgo(9)}');
+    `);
+    expect(await runPanel("new-articles")).toEqual([
       {
-        page: "https://agent-native.com/docs",
-        href: "https://agent-native.com/docs",
-        clicks: 2,
-        impressions: 30,
+        title: "Post two",
+        href: "https://www.builder.io/blog/two",
+        published: daysAgo(0),
+        first_week: null,
+        signups: null,
+      },
+      {
+        title: "Post three",
+        href: "https://www.builder.io/blog/three",
+        published: daysAgo(50),
+        first_week: 5,
+        signups: 15,
+      },
+    ]);
+    // Post one has 2 signups across both windows, under the 10 a change needs.
+    expect(await runPanel("rising")).toEqual([
+      {
+        title: "Post three",
+        href: "https://www.builder.io/blog/three",
+        recent: 10,
+        previous: 5,
+        change: 100,
       },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();

@@ -155,14 +155,17 @@ dry-runs first, stops as `cost_limited` without querying when the estimate is
 over the cap, and runs the join with that cap as BigQuery's billing limit.
 
 The catalog's "Content" dashboard (`content-view`) is the reference for these
-tables: start from its panels before writing new content SQL. Its Articles
-panel shows why a metric is missing (`failed`, `not set up`, `still
-arriving`) in a column next to the blank number; keep that pattern. The
+tables: start from its panels before writing new content SQL. Its Missing
+data callout has no `tab`, so it shows on every tab, and names each source
+whose latest run in the last 30 days failed, hit the cost cap or isn't
+connected, or says none ran; keep that pattern rather than letting a blank read
+as zero. The
 first-party SQL policy rejects functions outside its allow-list (for example
 `concat_ws`) and reads `CASE (` as a function call, so join a status column
-instead of a scalar subquery inside `CASE`. Its trend chart uses wide rows
-(`yKeys`), not `pivot`: a pivot fills a missing series with 0, so a day a
-source didn't report would draw as a zero instead of a gap. Content is a
+instead of a scalar subquery inside `CASE`. Its daily signups chart uses wide
+rows (`yKeys`), not `pivot`: a pivot fills a missing series with 0, so an
+uncollected day would draw as a zero instead of a gap. Pivot only where a
+missing row is a real zero, like an author's week without signups. Content is a
 built-in: turning collection on with `configure-content-collection` lists it
 in the organization's Dashboards at `content-view` (`contentDashboardId` in the
 result). It is read-only; build on it with `duplicate-dashboard`.

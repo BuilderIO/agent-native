@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   SqlPanel,
@@ -44,6 +44,20 @@ describe("SqlChart table helpers", () => {
     expect(formatCell("1234", "number")).toBe("1,234");
     expect(formatCell("0.125", "percent")).toBe("12.50%");
     expect(formatCell("-2.5", "delta")).toBe("-2.5%");
+  });
+
+  describe("in a time zone west of UTC", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("shows a bare date on its own day", () => {
+      vi.stubEnv("TZ", "America/Los_Angeles");
+      expect(formatCell("2026-10-01", "date")).toBe("Oct 1, 2026");
+      expect(formatCell("2026-10-01T12:00:00.000Z", "date")).toBe(
+        "Oct 1, 2026",
+      );
+    });
   });
 
   it("puts the sign before the dollar sign for currency cells", () => {
