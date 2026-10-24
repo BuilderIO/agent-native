@@ -111,7 +111,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import {
-  hasLiveEmbedCapabilityCookie,
+  hasEmbedSessionRequestMarker,
   hasPresentedEmbedSessionCredential,
   isExpiredMcpDirectoryWidgetSessionRequest,
   resolveEmbedSessionFromRequest,
@@ -587,7 +587,6 @@ const VISUAL_EDIT_CAPABILITY_ACTIONS = new Set([
   "get-localhost-write-consent-request",
   "get-visual-edit-pending",
   "get-visual-edit-snapshot",
-  "grant-localhost-write-consent",
   "list-design-source-capabilities",
   "list-design-states",
   "list-files",
@@ -621,6 +620,34 @@ function allowsWebMcpCapability(
   );
 }
 
+function allowsMcpDirectoryWidgetReadManifestAction(
+  name: string,
+  entry: ActionEntry,
+  session: ResolvedEmbedSession,
+  options: MountWebMcpActionRoutesOptions | undefined,
+): boolean {
+  const allowedArgumentNames =
+    options?.mcpDirectoryWidgetReadActionArguments?.[name];
+  return (
+    entry.http !== false &&
+    entry.http?.method === "GET" &&
+    (entry.readOnly === true ||
+      options?.mcpDirectoryWidgetReadOnlyActions?.includes(name) === true) &&
+    (entry.requiresAuth !== false ||
+      options?.mcpDirectoryWidgetReadPublicActions?.includes(name) === true) &&
+    allowedArgumentNames !== undefined &&
+    allowsMcpDirectoryWidgetReadAction(resolvedEmbedCapabilityScope(session), {
+      actionName: name,
+      appId: options?.mcpDirectoryWidgetAppId ?? options?.appId,
+      resourceUri: options?.mcpDirectoryWidgetResourceUri,
+      userEmail: session.email,
+      orgId: session.orgId,
+      allowedArgumentNames,
+      requireArgumentMatch: false,
+    })
+  );
+}
+
 function allowsWebMcpCapabilityResource(
   actionName: string,
   authCapability: string | undefined,
@@ -639,25 +666,17 @@ function allowsWebMcpCapabilityResource(
   }
 }
 
-async function resolveWebMcpManifestCapability(
-  event: any,
-): Promise<string | undefined> {
-  const session = await resolveRequestEmbedSession(event);
-  const capability = resolvedEmbedCapabilityScope(session);
-  if (
-    isMcpDirectoryWidgetCapabilityScope(capability) ||
-    (!session && hasLiveEmbedCapabilityCookie(event))
-  ) {
-    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
-  }
-  return capability;
-}
-
 async function resolveRequestEmbedSession(
   event: any,
+  options?: { ignoreUnresolvedCookie?: boolean },
 ): Promise<ResolvedEmbedSession | null> {
   const session = await resolveEmbedSessionFromRequest(event);
-  if (!session && hasPresentedEmbedSessionCredential(event)) {
+  if (
+    !session &&
+    (options?.ignoreUnresolvedCookie
+      ? hasEmbedSessionRequestMarker(event)
+      : hasPresentedEmbedSessionCredential(event))
+  ) {
     if (await isExpiredMcpDirectoryWidgetSessionRequest(event)) {
       setResponseHeader(
         event,
@@ -1970,7 +1989,14 @@ export function mountWebMcpActionRoutes(
           if (!isAuthResolutionFailure(error)) throw error;
         }
       }
-      const authCapability = await resolveWebMcpManifestCapability(event);
+      const embedSession = await resolveRequestEmbedSession(event, {
+        ignoreUnresolvedCookie: true,
+      });
+      const authCapability = resolvedEmbedCapabilityScope(embedSession);
+      const directoryWidgetSession =
+        embedSession && isMcpDirectoryWidgetCapabilityScope(authCapability)
+          ? embedSession
+          : null;
       const visibleCapabilityActions = authCapability
         ? Object.fromEntries(
             Object.entries(eligible).filter(([name, entry]) =>
@@ -1978,19 +2004,34 @@ export function mountWebMcpActionRoutes(
             ),
           )
         : {};
+      const visibleDirectoryWidgetReadActions = directoryWidgetSession
+        ? Object.fromEntries(
+            Object.entries(eligible).filter(([name, entry]) =>
+              allowsMcpDirectoryWidgetReadManifestAction(
+                name,
+                entry,
+                directoryWidgetSession,
+                options,
+              ),
+            ),
+          )
+        : {};
       if (
         !authenticated &&
         Object.keys(publicEligible).length === 0 &&
-        Object.keys(visibleCapabilityActions).length === 0
+        Object.keys(visibleCapabilityActions).length === 0 &&
+        Object.keys(visibleDirectoryWidgetReadActions).length === 0
       ) {
         throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
       }
       setResponseHeader(event, "Cache-Control", "no-store");
-      const visible = authCapability?.startsWith("capability:visual-edit:")
-        ? visibleCapabilityActions
-        : authenticated
-          ? eligible
-          : { ...publicEligible, ...visibleCapabilityActions };
+      const visible = directoryWidgetSession
+        ? visibleDirectoryWidgetReadActions
+        : authCapability?.startsWith("capability:visual-edit:")
+          ? visibleCapabilityActions
+          : authenticated
+            ? eligible
+            : { ...publicEligible, ...visibleCapabilityActions };
       return Object.entries(visible).map(([name, entry]) => ({
         name,
         title: agentNativeToolTitle(name, entry.tool.title),

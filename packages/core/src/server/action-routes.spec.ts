@@ -42,6 +42,15 @@ const mockHasPresentedEmbedSessionCredential = vi.hoisted(() =>
       ),
   ),
 );
+const mockHasEmbedSessionRequestMarker = vi.hoisted(() =>
+  vi.fn((event: any) =>
+    Boolean(
+      event._query?.__an_embed_token ||
+      event._query?.__an_embed_target ||
+      event._headers?.["x-agent-native-embed-target"],
+    ),
+  ),
+);
 const mockIsExpiredMcpDirectoryWidgetSessionRequest = vi.hoisted(() =>
   vi.fn(async (..._args: unknown[]) => false),
 );
@@ -134,6 +143,8 @@ vi.mock("./auth.js", () => ({
   isLoopbackRequest: () => false,
 }));
 vi.mock("./embed-session.js", () => ({
+  hasEmbedSessionRequestMarker: (event: any) =>
+    mockHasEmbedSessionRequestMarker(event),
   hasLiveEmbedCapabilityCookie: (event: any) =>
     event._hasLiveEmbedCapabilityCookie ?? false,
   hasPresentedEmbedSessionCredential: (event: any) =>
@@ -2063,14 +2074,19 @@ describe("mountActionRoutes", () => {
       },
     ].flatMap((credential) =>
       [
-        { inside: true, requiresAuth: true },
-        { inside: false, requiresAuth: true },
-        { inside: false, requiresAuth: false },
+        { inside: true, requiresAuth: true, name: "update-screen-source" },
+        { inside: false, requiresAuth: true, name: "future-visual-action" },
+        { inside: false, requiresAuth: false, name: "future-visual-action" },
+        {
+          inside: false,
+          requiresAuth: true,
+          name: "grant-localhost-write-consent",
+        },
       ].map((action) => ({ ...credential, ...action })),
     ),
   )(
-    "keeps $credential authority independent (Visual Edit: $inside, account required: $requiresAuth)",
-    async ({ browserUser, scope, inside, requiresAuth }) => {
+    "keeps $credential authority independent for $name (Visual Edit: $inside, account required: $requiresAuth)",
+    async ({ browserUser, scope, inside, requiresAuth, name }) => {
       const { createMcpDirectoryWidgetReadCapability } =
         await import("../shared/embed-auth.js");
       const { mountActionRoutes } = await import("./action-routes.js");
@@ -2105,7 +2121,6 @@ describe("mountActionRoutes", () => {
         userEmail: ctx?.userEmail,
         authCapability: getRequestAuthCapability(),
       }));
-      const name = inside ? "update-screen-source" : "future-visual-action";
       mountActionRoutes(
         {
           use: vi.fn((path: string, handler: any) =>
@@ -2137,7 +2152,10 @@ describe("mountActionRoutes", () => {
         },
         req: {
           url: `http://app.test/_agent-native/actions/${name}`,
-          json: async () => (inside ? { designId: "design_1" } : {}),
+          json: async () =>
+            inside || name === "grant-localhost-write-consent"
+              ? { designId: "design_1", connectionId: "conn_1" }
+              : {},
         },
       };
       if (scope === "card") {
@@ -7914,11 +7932,13 @@ describe("mountWebMcpActionRoutes", () => {
     },
   );
 
-  it.each([false, true])(
-    "refuses card metadata but keeps scoped reads (ineligible cookie: %s)",
-    async (ineligibleCookie) => {
-      const { createMcpDirectoryWidgetReadCapability } =
-        await import("../shared/embed-auth.js");
+  it.each(["read", "write"] as const)(
+    "keeps a %s card manifest limited to its explicit read grants",
+    async (kind) => {
+      const {
+        createMcpDirectoryWidgetReadCapability,
+        createMcpDirectoryWidgetWriteCapability,
+      } = await import("../shared/embed-auth.js");
       const { mountWebMcpActionRoutes } = await import("./action-routes.js");
       const mounted: Array<{ path: string; handler: any }> = [];
       const run = vi.fn(async (_args, context) => ({
@@ -7927,12 +7947,26 @@ describe("mountWebMcpActionRoutes", () => {
         mcpDirectoryWidgetReadOnly: context.mcpDirectoryWidgetReadOnly,
       }));
       const runUnscopedPublicRead = vi.fn();
-      const capability = createMcpDirectoryWidgetReadCapability({
+      const resource = {
         appId: "design",
         resourceUri: "ui://design/shell-v69",
         resourceIds: { designId: "d1" },
-        actionArguments: { "get-design": { id: "d1" } },
-      })!;
+      };
+      const readArguments = { "get-design": { id: "d1" } };
+      const capability = (
+        kind === "read"
+          ? createMcpDirectoryWidgetReadCapability({
+              ...resource,
+              actionArguments: readArguments,
+            })
+          : createMcpDirectoryWidgetWriteCapability({
+              ...resource,
+              userEmail: "ticket-owner@example.com",
+              expiresAtMs: Date.now() + 60_000,
+              readActionArguments: readArguments,
+              writeActionArguments: { "update-design": { id: "d1" } },
+            })
+      )!;
       mockResolveEmbedSessionFromRequest.mockResolvedValue({
         email: "ticket-owner@example.com",
         token: "signed-directory-capability",
@@ -7966,6 +8000,13 @@ describe("mountWebMcpActionRoutes", () => {
             http: { method: "GET" },
             readOnly: true,
           } as any,
+          "get-visual-edit-snapshot": {
+            tool: { description: "Visual Edit read", parameters: {} },
+            run: vi.fn(),
+            http: { method: "GET" },
+            readOnly: true,
+            capabilityScopes: ["visual-edit"],
+          } as any,
           "search-public-docs": {
             tool: { description: "Search public docs", parameters: {} },
             run: runUnscopedPublicRead,
@@ -7984,7 +8025,10 @@ describe("mountWebMcpActionRoutes", () => {
             owner: "cookie-owner@example.com",
             anonymous: false,
           }),
-          mcpDirectoryWidgetReadActionArguments: { "get-design": ["id"] },
+          mcpDirectoryWidgetReadActionArguments: {
+            "get-design": ["id"],
+            "get-visual-edit-snapshot": ["designId"],
+          },
           mcpDirectoryWidgetReadOnlyActions: ["get-design"],
           mcpDirectoryWidgetAppId: "design",
           mcpDirectoryWidgetResourceUri: "ui://design/shell-v69",
@@ -8004,15 +8048,21 @@ describe("mountWebMcpActionRoutes", () => {
       const mcpToolRoute = mounted.find(
         ({ path }) => path === "/mcp/tool/get-design",
       );
-      if (ineligibleCookie)
-        mockResolveEmbedSessionFromRequest.mockResolvedValueOnce(null);
       await expect(
         manifestRoute?.handler({
           _method: "GET",
           _headers: {},
           _hasLiveEmbedCapabilityCookie: true,
         }),
-      ).rejects.toMatchObject({ statusCode: 401 });
+      ).resolves.toEqual([
+        {
+          name: "get-design",
+          title: "Get design",
+          description: "Read this design",
+          inputSchema: {},
+          readOnly: true,
+        },
+      ]);
 
       await expect(
         webMcpRoute?.handler({
@@ -8048,6 +8098,117 @@ describe("mountWebMcpActionRoutes", () => {
         error: "This widget capability only permits its scoped data routes.",
       });
       expect(runUnscopedPublicRead).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(
+    (["card", "visual-edit"] as const).flatMap((scope) =>
+      (["unmarked", "query", "bearer", "signed-out"] as const).map(
+        (context) => ({ scope, context }),
+      ),
+    ),
+  )(
+    "separates an unresolved $scope cookie from $context manifest authority",
+    async ({ scope, context }) => {
+      const embedSessions =
+        await vi.importActual<typeof import("./embed-session.js")>(
+          "./embed-session.js",
+        );
+      const { createMcpDirectoryWidgetReadCapability, EMBED_SESSION_COOKIE } =
+        await import("../shared/embed-auth.js");
+      const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+      const capability =
+        scope === "visual-edit"
+          ? "capability:visual-edit:design:d1"
+          : createMcpDirectoryWidgetReadCapability({
+              appId: "design",
+              resourceUri: "ui://design/shell-v69",
+              resourceIds: { designId: "d1" },
+              actionArguments: { "get-design": { id: "d1" } },
+            })!;
+      const token = embedSessions.signEmbedSessionToken({
+        ownerEmail: "ticket-owner@example.com",
+        audienceHost: "design.example.com",
+        targetPath: "/design/d1",
+        scope: capability,
+        ...(scope === "card" ? { ticketCreatedAtMs: Date.now() } : {}),
+      });
+      expect(embedSessions.verifyEmbedSessionToken(token).ok).toBe(true);
+      mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+      mockHasPresentedEmbedSessionCredential.mockImplementation(
+        embedSessions.hasPresentedEmbedSessionCredential,
+      );
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn();
+      mountWebMcpActionRoutes(
+        {
+          use: (path: string, handler: any) => mounted.push({ path, handler }),
+        },
+        {
+          "get-design": {
+            tool: { description: "Read design", parameters: {} },
+            run,
+            readOnly: true,
+          } as any,
+          "update-screen-source": {
+            tool: { description: "Edit screen", parameters: {} },
+            capabilityScopes: ["visual-edit"],
+            run,
+          } as any,
+          "account-action": {
+            tool: { description: "Account action", parameters: {} },
+            run,
+          } as any,
+        },
+        {
+          getOwnerFromEvent: async () => {
+            if (context !== "signed-out") return "browser@example.com";
+            throw Object.assign(new Error("Unauthorized"), {
+              statusCode: 401,
+            });
+          },
+        },
+      );
+      const event = {
+        _method: "GET",
+        url: new URL(
+          "https://design.example.com/_agent-native/webmcp/manifest",
+        ),
+        _headers: {
+          host: "design.example.com",
+          cookie: `${context === "signed-out" ? "" : "browser-session=signed-in; "}${EMBED_SESSION_COOKIE}=${token}`,
+          origin: "https://design.example.com",
+          referer: "https://design.example.com/design/d1",
+          "sec-fetch-site": "same-origin",
+          ...(context === "bearer"
+            ? {
+                authorization: `Bearer ${token}`,
+                "x-agent-native-embed-target": "/design/d1",
+              }
+            : {}),
+        },
+        _query:
+          context === "query"
+            ? { __an_embed_token: token, __an_embed_target: "/design/d1" }
+            : {},
+        _hasLiveEmbedCapabilityCookie: true,
+      };
+      const manifest = mounted.find(
+        ({ path }) => path === "/_agent-native/webmcp/manifest",
+      )!;
+      if (context === "unmarked") {
+        const result = await manifest.handler(event);
+        expect(result.map((entry: { name: string }) => entry.name)).toEqual([
+          "get-design",
+          "update-screen-source",
+          "account-action",
+        ]);
+      } else {
+        await expect(manifest.handler(event)).rejects.toMatchObject({
+          statusCode: 401,
+        });
+      }
+      expect(run).not.toHaveBeenCalled();
     },
   );
 

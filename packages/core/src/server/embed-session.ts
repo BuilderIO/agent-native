@@ -827,7 +827,8 @@ function isEmbedCapabilityRuntimeRequest(
   const method =
     (event as any).req?.method ?? (event as any).node?.req?.method ?? "GET";
   return (
-    scope.startsWith("capability:visual-edit:design:") &&
+    (scope.startsWith("capability:visual-edit:design:") ||
+      isMcpDirectoryWidgetCapabilityScope(scope)) &&
     method === "GET" &&
     (pathname === "/_agent-native/webmcp/manifest" ||
       pathname === "/_agent-native/webmcp/manifest/")
@@ -1960,7 +1961,7 @@ export function hasExplicitEmbedSessionCredential(event: H3Event): boolean {
   );
 }
 
-export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {
+export function hasEmbedSessionRequestMarker(event: H3Event): boolean {
   if (
     queryToken(event) ||
     isEmbedModeRequest(event) ||
@@ -1972,6 +1973,11 @@ export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {
   if (verifyEmbedSessionToken(bearerToken(event), { allowExpired: true }).ok) {
     return true;
   }
+  return false;
+}
+
+export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {
+  if (hasEmbedSessionRequestMarker(event)) return true;
   const cookie = verifyEmbedSessionToken(
     getCookie(event, EMBED_SESSION_COOKIE),
   );

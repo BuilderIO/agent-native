@@ -1,5 +1,12 @@
-import { callAction } from "@agent-native/core/client/hooks";
-import { IconDeviceFloppy, IconFolderOpen } from "@tabler/icons-react";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import {
+  IconDeviceFloppy,
+  IconFolderOpen,
+  IconLock,
+  IconLogin2,
+} from "@tabler/icons-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -25,6 +32,18 @@ export interface LocalhostWriteConsentPayload {
   onError?: (error: unknown) => void;
 }
 
+type ConsentRefusal = "sign-in" | "denied";
+
+// The grant needs the visitor's own browser sign-in, which a Visual Edit link
+// or embed credential never supplies: 401 asks for that sign-in, 403 means the
+// signed-in account itself lacks editor access.
+function refusalForGrantError(error: unknown): ConsentRefusal | null {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (status === 401) return "sign-in";
+  if (status === 403) return "denied";
+  return null;
+}
+
 interface LocalhostWriteConsentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -40,10 +59,24 @@ export function LocalhostWriteConsentDialog({
   connectionId,
   payload,
 }: LocalhostWriteConsentDialogProps) {
+  const t = useT();
+  const { status: sessionStatus } = useSession();
   const [granting, setGranting] = useState(false);
+  const [refusal, setRefusal] = useState<{
+    payload: LocalhostWriteConsentPayload;
+    kind: ConsentRefusal;
+  } | null>(null);
+  const sessionPending =
+    sessionStatus === "loading" || sessionStatus === "signing-out";
+  const blocked =
+    (refusal?.payload === payload ? refusal.kind : null) ??
+    (sessionStatus === "unauthenticated" ? "sign-in" : null);
 
   async function handleAllowWrites() {
-    if (!payload || !designId || !connectionId) return;
+    if (!payload || !designId || !connectionId || sessionPending || blocked) {
+      return;
+    }
+    const requested = payload;
     setGranting(true);
     try {
       const result = await callAction<{
@@ -55,11 +88,16 @@ export function LocalhostWriteConsentDialog({
         connectionId,
       });
       onOpenChange(false);
-      payload.onGranted(result);
+      requested.onGranted(result);
     } catch (error) {
-      payload.onError?.(error);
+      const kind = refusalForGrantError(error);
+      if (kind) {
+        setRefusal({ payload: requested, kind });
+        return;
+      }
+      requested.onError?.(error);
       onOpenChange(false);
-      payload.onCancel();
+      requested.onCancel();
     } finally {
       setGranting(false);
     }
@@ -125,24 +163,52 @@ export function LocalhostWriteConsentDialog({
               "Only text and code files can be written — never secrets like .env or key files. Paths outside the root folder are always blocked." /* i18n-ignore */
             }
           </p>
+
+          {blocked ? (
+            <div
+              role="alert"
+              className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs text-foreground"
+            >
+              <IconLock className="size-3.5 shrink-0 text-muted-foreground" />
+              {
+                blocked === "sign-in"
+                  ? t("agentChat.accessGate.signedOutDescription") // i18n-key-ignore shared framework catalog
+                  : t("agentChat.accessGate.deniedTitle") // i18n-key-ignore shared framework catalog
+              }
+            </div>
+          ) : null}
         </div>
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={handleCancel} disabled={granting}>
             {"Cancel" /* i18n-ignore */}
           </Button>
-          <Button onClick={() => void handleAllowWrites()} disabled={granting}>
-            {
-              granting ? (
-                <>
-                  <Spinner className="mr-2 size-3.5" />
-                  {"Granting…" /* i18n-ignore */}
-                </>
-              ) : (
-                "Allow writes"
-              ) /* i18n-ignore */
-            }
-          </Button>
+          {blocked === "sign-in" ? (
+            <Button asChild>
+              <a href={buildSignInReturnHref()}>
+                <IconLogin2 className="size-4" />
+                {
+                  t("agentChat.accessGate.signIn") // i18n-key-ignore shared framework catalog
+                }
+              </a>
+            </Button>
+          ) : blocked === "denied" ? null : (
+            <Button
+              onClick={() => void handleAllowWrites()}
+              disabled={granting || sessionPending}
+            >
+              {
+                granting ? (
+                  <>
+                    <Spinner className="mr-2 size-3.5" />
+                    {"Granting…" /* i18n-ignore */}
+                  </>
+                ) : (
+                  "Allow writes"
+                ) /* i18n-ignore */
+              }
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

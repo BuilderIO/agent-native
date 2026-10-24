@@ -43,6 +43,7 @@ import {
   createEmbedSessionTicket as createEmbedSessionTicketForAudience,
   hasExplicitEmbedSessionCredential,
   hasPresentedEmbedSessionCredential,
+  hasEmbedSessionRequestMarker,
   isExpiredMcpDirectoryWidgetSessionRequest,
   readMcpDirectoryWidgetRenewalTicket as readMcpDirectoryWidgetRenewalTicketForAudience,
   renewMcpDirectoryWidgetSession as renewMcpDirectoryWidgetSessionForAudience,
@@ -1157,6 +1158,58 @@ describe("requestMatchesEmbedTarget", () => {
         credentialEvent("/_agent-native/webmcp/manifest", ordinary, "query"),
       ),
     ).resolves.toBeNull();
+  });
+
+  it("resolves card read metadata without admitting other framework routes", async () => {
+    const scope = createMcpDirectoryWidgetReadCapability({
+      appId: "content",
+      resourceUri: "ui://content/card",
+      resourceIds: { documentId: "doc-1" },
+      actionArguments: { "get-document": { id: "doc-1" } },
+    })!;
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "mail.test",
+      targetPath: "/page/doc-1",
+      scope,
+      ticketCreatedAtMs: Date.now(),
+    });
+    for (const path of [
+      "/_agent-native/webmcp/manifest",
+      "/_agent-native/webmcp/manifest/",
+    ]) {
+      await expect(
+        resolveEmbedSessionFromRequest(credentialEvent(path, token, "query")),
+      ).resolves.toMatchObject({ scope });
+    }
+    await expect(
+      resolveEmbedSessionFromRequest(
+        credentialEvent("/_agent-native/org/me", token, "query"),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("distinguishes explicit embed traffic from an ambient capability cookie", () => {
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      audienceHost: "mail.test",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const path = "/_agent-native/webmcp/manifest";
+    expect(
+      hasEmbedSessionRequestMarker(credentialEvent(path, token, "cookie")),
+    ).toBe(false);
+    expect(
+      hasEmbedSessionRequestMarker(credentialEvent(path, token, "query")),
+    ).toBe(true);
+    expect(
+      hasEmbedSessionRequestMarker(
+        credentialEvent(path, token, "bearer", {
+          [EMBED_TARGET_HEADER]: "/visual-edit/design_1",
+        }),
+      ),
+    ).toBe(true);
   });
 
   it.each([
