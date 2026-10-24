@@ -3746,7 +3746,15 @@ export async function builderBodyChangeForLocalContent(args: {
     stringSourceValue(sourceValues, BUILDER_CMS_BODY_SIDECARS_KEY) ?? "{}";
   const localContent = args.localContent ?? "";
   if (!currentHash && !currentContent && !localContent.trim()) return null;
-  if (!currentContent?.trim() && !losslessContent?.trim()) return null;
+  // A row with no stored body has an unknown baseline, unless the body is
+  // known to be empty.
+  if (
+    !currentContent?.trim() &&
+    !losslessContent?.trim() &&
+    !builderCmsBodyKnownEmpty(sourceValues)
+  ) {
+    return null;
+  }
   const usesCurrentMediaConverter =
     builderBodyUsesCurrentMediaConverter(localContent);
   const normalizedLocalContent =

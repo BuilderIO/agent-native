@@ -1615,6 +1615,85 @@ describe("Builder source review execution gates", () => {
     expect(changeSet.state).toBe("pending_push");
   });
 
+  it("refuses a transition on a page a collection editor can only view", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+      metadata: {
+        writeMode: "publish_updates",
+        pushMode: "publish",
+        allowPublicationTransitions: true,
+        allowedWriteModes: ["autosave", "publish"],
+      },
+    });
+    const collaborator = "collaborator@example.com";
+    await getDb()
+      .insert(schema.documentShares)
+      .values(
+        (
+          [
+            [seeded.databaseDocumentId, "editor"],
+            [seeded.rowDocumentId, "viewer"],
+          ] as const
+        ).map(([resourceId, role]) => ({
+          id: `share_${resourceId}_${collaborator}`,
+          resourceId,
+          principalType: "user" as const,
+          principalId: collaborator,
+          role,
+          createdBy: OWNER,
+          createdAt: "2026-06-29T15:00:00.000Z",
+        })),
+      );
+    const asCollaborator = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: collaborator }, fn);
+    const refusal = `Requires editor role on document ${seeded.rowDocumentId} (have viewer)`;
+
+    await expect(
+      asCollaborator(() =>
+        prepareExecution.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          changeSetId: seeded.changeSetId,
+          pushModeConfirmation: "publish",
+          publicationTransition: "publish",
+        }),
+      ),
+    ).rejects.toThrow(refusal);
+    await expect(
+      asCollaborator(() =>
+        prepareReview.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          changeSetIds: [seeded.changeSetId],
+          pushModeConfirmation: "publish",
+          transitions: {
+            [seeded.changeSetId]: { publicationTransition: "publish" },
+          },
+        }),
+      ),
+    ).rejects.toThrow(refusal);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceExecutions)
+        .where(
+          eq(schema.contentDatabaseSourceExecutions.sourceId, seeded.sourceId),
+        ),
+    ).toEqual([]);
+
+    const prepared = await asCollaborator(() =>
+      prepareReview.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        changeSetIds: [seeded.changeSetId],
+        pushModeConfirmation: "publish",
+      }),
+    );
+    expect(prepared.review.rows).toHaveLength(1);
+    expect(prepared.review.rows[0]?.effect).toBe("update_in_place");
+  });
+
   it("preserves running and response-bearing execution evidence on prepare", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,

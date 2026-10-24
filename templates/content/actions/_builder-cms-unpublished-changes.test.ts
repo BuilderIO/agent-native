@@ -611,6 +611,19 @@ describe("Builder unpublished changes", () => {
       existing,
     });
     expect(stillEmpty[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
+    // And through every refresh after that one.
+    const laterStillEmpty = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: {
+        published: "published",
+        lastUpdated: 3000,
+        [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+      },
+      existing: stillEmpty,
+    });
+    expect(laterStillEmpty[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
+    expect(builderCmsLiveBodyBaseline(laterStillEmpty)).toEqual({
+      blocksHash: null,
+    });
 
     const published = builderSourceValuesKeepingUnpublishedChanges({
       incoming: {

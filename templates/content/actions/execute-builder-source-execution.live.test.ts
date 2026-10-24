@@ -190,6 +190,7 @@ function buildDeps(args: {
     now: vi.fn(() => NOW),
     resolveDatabase: vi.fn(async () => DATABASE),
     assertEditor: vi.fn(async () => {}),
+    assertPageEditor: vi.fn(async () => {}),
     getSourceSnapshot: vi.fn(async () => args.source),
     getExecution: vi.fn(async () => args.execution),
     updateExecutionState: vi.fn(async () => {}),

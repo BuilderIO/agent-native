@@ -112,6 +112,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
     >,
   ) => Promise<DatabaseRecord | null>;
   assertEditor: (database: DatabaseRecord) => Promise<void>;
+  assertPageEditor: (documentId: string) => Promise<void>;
   getSourceSnapshot: (
     database: DatabaseRecord,
   ) => Promise<ContentDatabaseSource | null>;
@@ -1114,6 +1115,9 @@ export function realExecutionDeps(
     assertEditor: async (database) => {
       await assertAccess("document", database.documentId, "editor");
     },
+    assertPageEditor: async (documentId) => {
+      await assertAccess("document", documentId, "editor");
+    },
     getSourceSnapshot: async (database) => {
       const [target] = changeSetId
         ? await getDb()
@@ -1814,6 +1818,11 @@ export async function executeBuilderSourceExecutionWithDeps(
     if (!changeSet) throw new Error("Source change-set not found.");
     if (changeSet.direction !== "outbound") {
       throw new Error("Only outbound Builder change sets can be executed.");
+    }
+    // A collection editor may only view a page, and publishing or
+    // unpublishing one needs edit access to it, as staging the pick does.
+    if (args.publicationTransition && changeSet.documentId) {
+      await deps.assertPageEditor(changeSet.documentId);
     }
 
     const resolvedPushMode = resolveBuilderCmsExecutionPushMode({

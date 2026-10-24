@@ -254,6 +254,7 @@ function depsFor(args: {
     now: vi.fn(() => NOW),
     resolveDatabase: vi.fn(async () => DATABASE),
     assertEditor: vi.fn(async () => {}),
+    assertPageEditor: vi.fn(async () => {}),
     getSourceSnapshot: vi.fn(async () => args.source),
     getExecution: vi.fn(async () => args.execution),
     updateExecutionState: vi.fn(async () => {}),
@@ -583,6 +584,7 @@ describe("execute Builder source execution", () => {
     const successCallOrder = vi.mocked(deps.markExecutionSucceeded).mock
       .invocationCallOrder[0];
     expect(reconcileCallOrder).toBeLessThan(successCallOrder);
+    expect(deps.assertPageEditor).not.toHaveBeenCalled();
   });
 
   it("preflights update-in-place writes between the claim and the write when string baseline matches numeric live timestamp", async () => {
@@ -1050,6 +1052,42 @@ describe("execute Builder source execution", () => {
       expectedSourceConnectionId: "builder-oauth-connection-1",
       requireSourceBinding: true,
     });
+  });
+
+  it("refuses a publish from a caller who can't edit the entry's page", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      changeSets: [approvedChangeSet],
+      metadata: {
+        allowPublicationTransitions: true,
+      },
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      publicationTransition: "publish",
+    });
+    const deps = depsFor({ source: builderSource, execution });
+    vi.mocked(deps.assertPageEditor).mockRejectedValue(
+      new Error("Requires editor role on document doc-1 (have viewer)"),
+    );
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+          publicationTransition: "publish",
+        },
+        deps,
+      ),
+    ).rejects.toThrow("Requires editor role on document doc-1 (have viewer)");
+
+    expect(deps.assertPageEditor).toHaveBeenCalledWith("doc-1");
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.updateExecutionState).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
   it("publishes an approved revision when the entry is already published", async () => {
