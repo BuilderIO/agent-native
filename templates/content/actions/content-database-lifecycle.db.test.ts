@@ -375,7 +375,7 @@ describe("database-scoped document properties", () => {
     expect(renamed).toMatchObject({ propertyId: definition!.id });
   });
 
-  it("clears deleted column presentation state without dropping hidden columns", async () => {
+  it("clears a deleted property from shared views without dropping hidden columns", async () => {
     const db = getDb();
     const database = await createDatabase({});
     const deletedPropertyId = nextId("deleted_property");
@@ -413,8 +413,22 @@ describe("database-scoped document properties", () => {
               id: "table",
               name: "Table",
               type: "table",
-              sorts: [],
-              filters: [],
+              sorts: [
+                {
+                  key: deletedPropertyId,
+                  label: "Delete me",
+                  direction: "asc",
+                },
+                { key: "name", label: "Name", direction: "asc" },
+              ],
+              filters: [
+                {
+                  key: deletedPropertyId,
+                  label: "Delete me",
+                  operator: "equals",
+                  value: "draft",
+                },
+              ],
               columnWidths: {},
               hiddenPropertyIds: [hiddenPropertyId],
               columnWrapOverrides: {
@@ -440,6 +454,8 @@ describe("database-scoped document properties", () => {
       (await databaseRow(database.databaseId)).viewConfigJson,
     );
     expect(saved.views[0]).toMatchObject({
+      sorts: [{ key: "name" }],
+      filters: [],
       hiddenPropertyIds: [hiddenPropertyId],
       columnWrapOverrides: { [hiddenPropertyId]: true },
       frozenThroughColumnId: null,
@@ -484,6 +500,7 @@ describe("database-scoped document properties", () => {
             sorts: [
               { key: deletedPropertyId, label: "Deleted", direction: "asc" },
               { key: "name", label: "Name", direction: "desc" },
+              { key: "updated_at", label: "Updated", direction: "desc" },
               { key: keptPropertyId, label: "Kept", direction: "asc" },
             ],
             filters: [
@@ -523,6 +540,7 @@ describe("database-scoped document properties", () => {
     );
     expect(overrides?.views[0].sorts.map((sort) => sort.key)).toEqual([
       "name",
+      "updated_at",
       keptPropertyId,
     ]);
     expect(overrides?.views[0].filters.map((filter) => filter.key)).toEqual([

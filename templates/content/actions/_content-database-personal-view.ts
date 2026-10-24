@@ -9,6 +9,7 @@ import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
 } from "../shared/api.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import { FILES_NAVIGATION_SORT_KEYS } from "./_database-navigation.js";
 import { filesParentPropertyId } from "./_files-system-properties.js";
 
 export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION =
@@ -147,11 +148,15 @@ export async function withoutDeletedPersonalViewProperties<
     views: Array<{ sorts: { key: string }[]; filters: { key: string }[] }>;
   },
 >(databaseId: string, overrides: Overrides): Promise<Overrides> {
+  const sortsOnProperty = (sort: { key: string }) =>
+    !FILES_NAVIGATION_SORT_KEYS.has(sort.key);
+  const filtersOnProperty = (filter: { key: string }) => filter.key !== "name";
   const propertyIds = new Set(
     overrides.views.flatMap((view) =>
-      [...view.sorts, ...view.filters]
-        .map((entry) => entry.key)
-        .filter((key) => key !== "name"),
+      [
+        ...view.sorts.filter(sortsOnProperty),
+        ...view.filters.filter(filtersOnProperty),
+      ].map((entry) => entry.key),
     ),
   );
   if (propertyIds.size === 0) return overrides;
@@ -169,14 +174,16 @@ export async function withoutDeletedPersonalViewProperties<
     ).map((property) => property.id),
   );
   if ([...propertyIds].every((id) => existing.has(id))) return overrides;
-  const kept = (entry: { key: string }) =>
-    entry.key === "name" || existing.has(entry.key);
   return {
     ...overrides,
     views: overrides.views.map((view) => ({
       ...view,
-      sorts: view.sorts.filter(kept),
-      filters: view.filters.filter(kept),
+      sorts: view.sorts.filter(
+        (sort) => !sortsOnProperty(sort) || existing.has(sort.key),
+      ),
+      filters: view.filters.filter(
+        (filter) => !filtersOnProperty(filter) || existing.has(filter.key),
+      ),
     })),
   } as Overrides;
 }
