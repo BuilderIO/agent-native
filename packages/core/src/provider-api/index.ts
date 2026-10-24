@@ -68,6 +68,7 @@ export {
   assertCanMutateCustomProviderScope,
   CustomProviderAuthError,
 } from "./custom-registry.js";
+import { setBodyValueAtPath } from "./request-body.js";
 
 export const PROVIDER_API_IDS = [
   "amplitude",
@@ -2303,7 +2304,7 @@ export async function executeProviderApiRequest(
         query: queryWithCursor,
       });
       const bodyWithCursor = extra?.bodyCursor
-        ? setValueAtPath(
+        ? setBodyValueAtPath(
             substituteUnknown(args.body, placeholders),
             extra.bodyCursor.path,
             extra.bodyCursor.value,
@@ -3328,7 +3329,7 @@ async function executeCustomProviderApiRequest(
         query: queryWithCursor,
       });
       const bodyWithCursor = extra?.bodyCursor
-        ? setValueAtPath(
+        ? setBodyValueAtPath(
             args.body,
             extra.bodyCursor.path,
             extra.bodyCursor.value,
@@ -6690,51 +6691,6 @@ function mergeQueryObjects(
     return { ...(base as Record<string, unknown>), ...extra };
   }
   return extra;
-}
-
-function setValueAtPath(base: unknown, path: string, value: unknown): unknown {
-  let cursorBase = base;
-  // A blank string body is an empty body, as it was before string bodies were parsed.
-  if (typeof cursorBase === "string" && cursorBase.trim() === "") {
-    cursorBase = undefined;
-  }
-  if (typeof cursorBase === "string") {
-    try {
-      cursorBase = JSON.parse(cursorBase) as unknown;
-    } catch {
-      throw new Error(
-        "Body cursor pagination requires a JSON object request body.",
-      );
-    }
-  }
-  if (
-    cursorBase !== undefined &&
-    cursorBase !== null &&
-    (typeof cursorBase !== "object" || Array.isArray(cursorBase))
-  ) {
-    throw new Error(
-      "Body cursor pagination requires a JSON object request body.",
-    );
-  }
-  const root =
-    cursorBase && typeof cursorBase === "object" && !Array.isArray(cursorBase)
-      ? { ...(cursorBase as Record<string, unknown>) }
-      : {};
-  const parts = path.split(".").filter(Boolean);
-  if (!parts.length) return root;
-
-  let current: Record<string, unknown> = root;
-  for (const part of parts.slice(0, -1)) {
-    const existing = current[part];
-    const next =
-      existing && typeof existing === "object" && !Array.isArray(existing)
-        ? { ...(existing as Record<string, unknown>) }
-        : {};
-    current[part] = next;
-    current = next;
-  }
-  current[parts[parts.length - 1]!] = value;
-  return root;
 }
 
 function clampTimeout(timeoutMs: number | undefined): number {
