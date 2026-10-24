@@ -1397,6 +1397,8 @@ export function CommentsSidebar({
       ),
     );
   }, []);
+  const latestSelectionRef = useRef(selectedThreadId);
+  latestSelectionRef.current = selectedThreadId;
   const previousSelectionRef = useRef<string | null>(null);
   useEffect(() => {
     const previous = previousSelectionRef.current;
@@ -2517,12 +2519,13 @@ export function CommentsSidebar({
     const members = expandedStack?.threads ?? [];
     const index = members.findIndex((member) => member.threadId === threadId);
     const rest = members.filter((member) => member.threadId !== threadId);
-    setReplyingThreadId(null);
-    onSelectedThreadChange?.(
+    const next =
       index >= 0 && rest.length >= 2
         ? rest[Math.min(index, rest.length - 1)].threadId
-        : null,
-    );
+        : null;
+    setReplyingThreadId(null);
+    onSelectedThreadChange?.(next);
+    return next;
   };
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
     if (
@@ -2534,12 +2537,12 @@ export function CommentsSidebar({
       !startResolution(thread.threadId)
     )
       return;
-    if (
+    const selectionAfterClose =
       resolved &&
       presentation === "inline" &&
       thread.threadId === selectedThreadId
-    )
-      closeResolvedThread(thread.threadId);
+        ? closeResolvedThread(thread.threadId)
+        : undefined;
     try {
       await resolveComment.mutateAsync({
         id: thread.comments[0].id,
@@ -2547,6 +2550,13 @@ export function CommentsSidebar({
         resolved,
       });
     } catch (error) {
+      // A failed resolve reopens the thread, so its card opens again too,
+      // unless another thread has been selected since.
+      if (
+        selectionAfterClose !== undefined &&
+        latestSelectionRef.current === selectionAfterClose
+      )
+        onSelectedThreadChange?.(thread.threadId);
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
       });

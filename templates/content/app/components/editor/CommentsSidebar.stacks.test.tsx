@@ -21,7 +21,7 @@ import {
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const actions = vi.hoisted(() => ({ create: vi.fn() }));
+const actions = vi.hoisted(() => ({ create: vi.fn(), resolve: vi.fn() }));
 vi.mock("@/hooks/use-comments", () => ({
   useCreateComment: () => ({
     mutateAsync: actions.create,
@@ -31,7 +31,7 @@ vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteComment: () => ({ mutateAsync: vi.fn() }),
-  useResolveComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useResolveComment: () => ({ mutateAsync: actions.resolve, isPending: false }),
 }));
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
@@ -153,11 +153,13 @@ function Owner({
   scroll,
   presentation,
   canComment,
+  surface,
 }: {
   threads: CommentThread[];
   scroll: HTMLDivElement;
   presentation: "inline" | "history";
   canComment: boolean;
+  surface?: "rail" | "popover";
 }) {
   const replies = useCommentReplyDrafts("fixture", "reviewer@example.test");
   const pending = usePendingCommentDraft("fixture");
@@ -201,6 +203,7 @@ function Owner({
       alignToAnchors
       forceVisible
       presentation={presentation}
+      surface={surface}
     />
   );
 }
@@ -214,6 +217,7 @@ describe("comment stacks in the margin", () => {
   beforeEach(() => {
     queryClient = new QueryClient();
     actions.create.mockReset();
+    actions.resolve.mockReset();
     harness.activated = [];
     scroll = document.createElement("div");
     scroll.innerHTML = DOC;
@@ -234,6 +238,7 @@ describe("comment stacks in the margin", () => {
     threads: CommentThread[] = THREADS,
     presentation: "inline" | "history" = "inline",
     canComment = true,
+    surface?: "rail" | "popover",
   ) {
     act(() => {
       root.render(
@@ -248,6 +253,7 @@ describe("comment stacks in the margin", () => {
                 scroll={scroll}
                 presentation={presentation}
                 canComment={canComment}
+                surface={surface}
               />
             </CommentDraftProvider>
           </TooltipProvider>
@@ -617,6 +623,60 @@ describe("comment stacks in the margin", () => {
     expect(harness.selected).toBeNull();
     expect(collapseButton()).toBeNull();
     expect(margin()).not.toContain("l1");
+  });
+
+  it("closes the popover when its thread is resolved from it", async () => {
+    render(THREADS, "inline", true, "popover");
+    act(() => harness.select("solo"));
+    expect(container.querySelector('[data-thread-card="solo"]')).not.toBeNull();
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-thread-card="solo"] [data-comment-resolve]',
+        )!
+        .click(),
+    );
+    await wait(0);
+    expect(harness.selected).toBeNull();
+  });
+
+  it("opens a card again when its resolve fails", async () => {
+    actions.resolve.mockRejectedValueOnce(new Error("offline"));
+    render();
+    act(() => harness.select("solo"));
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-thread-card="solo"] [data-comment-resolve]',
+        )!
+        .click(),
+    );
+    await wait(0);
+    expect(harness.selected).toBe("solo");
+    expect(margin()).toContain("solo");
+  });
+
+  it("keeps a newer selection when a resolve fails", async () => {
+    let rejectResolve!: (error: Error) => void;
+    actions.resolve.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectResolve = reject;
+        }),
+    );
+    render();
+    act(() => harness.select("solo"));
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-thread-card="solo"] [data-comment-resolve]',
+        )!
+        .click(),
+    );
+    expect(harness.selected).toBeNull();
+    act(() => harness.select("a"));
+    await act(async () => rejectResolve(new Error("offline")));
+    expect(harness.selected).toBe("a");
   });
 
   it("forgets a stack resolved down to one thread", async () => {

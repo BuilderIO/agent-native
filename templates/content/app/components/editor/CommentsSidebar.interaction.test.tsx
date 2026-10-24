@@ -873,7 +873,8 @@ describe("comment review interactions", () => {
     });
     expect(actions.resolve).toHaveBeenCalledOnce();
     expect(actions.create).not.toHaveBeenCalled();
-    // Resolving in the margin closes the reply box with its card.
+    // Resolving in the margin closes the reply box with its card. A box
+    // opened while the resolve waits stays blocked until it settles.
     expect(
       container.querySelector('[aria-label="comments.submit"]'),
     ).toBeNull();
