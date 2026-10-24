@@ -950,6 +950,14 @@ function validatePreservedAdministrativeEye(
     sweepActorId,
     requireFreshReads,
   );
+  if (threadSnapshot) {
+    validateLatestHumanReplyReadback(
+      parentName,
+      threadSnapshot,
+      parent,
+      latestReply?.ts,
+    );
+  }
   const invalid: string[] = [];
   const require = (condition: unknown, label: string) => {
     if (!condition) invalid.push(label);
@@ -1420,6 +1428,45 @@ function validateThreadSnapshotStructure(
   }
 }
 
+function validateLatestHumanReplyReadback(
+  parentName: string,
+  snapshot: ThreadSnapshot,
+  parent: Parent,
+  currentReplyTs?: string,
+): void {
+  const latestHumanReply = snapshot.replies
+    .filter((reply) => reply.kind === "human")
+    .at(-1);
+  const recordedHumanReply = parent.latestRelevantHumanReply;
+  if (
+    (latestHumanReply === undefined) !== (recordedHumanReply === null) ||
+    (latestHumanReply !== undefined &&
+      (!recordedHumanReply ||
+        latestHumanReply.ts !== recordedHumanReply.ts ||
+        latestHumanReply.actorId !== recordedHumanReply.actorId ||
+        latestHumanReply.text !== recordedHumanReply.text ||
+        JSON.stringify(latestHumanReply.files ?? []) !==
+          JSON.stringify(recordedHumanReply.files ?? [])))
+  ) {
+    throw new Error(
+      `${parentName}: threadSnapshot reveals a newer or unrecorded human reply; update the status before reconciling`,
+    );
+  }
+  if (
+    latestHumanReply &&
+    currentReplyTs &&
+    slackTimestamp(currentReplyTs, `${parentName}.latestOwnedReply.ts`) <=
+      slackTimestamp(
+        latestHumanReply.ts,
+        `${parentName}.latestRelevantHumanReply.ts`,
+      )
+  ) {
+    throw new Error(
+      `${parentName}: status reply must be newer than the latest relevant human reply in the thread`,
+    );
+  }
+}
+
 function validateThreadSnapshot(
   parentName: string,
   rootTs: string,
@@ -1430,7 +1477,6 @@ function validateThreadSnapshot(
   validateThreadSnapshotStructure(parentName, rootTs, snapshot, sweepActorId);
   const replies = snapshot!.replies;
   const sweepReplies = replies.filter((reply) => reply.kind === "sweep");
-  const humanReplies = replies.filter((reply) => reply.kind === "human");
   const repliesByTimestamp = new Map(replies.map((reply) => [reply.ts, reply]));
 
   const statusReply = parent.statusReply;
@@ -1539,22 +1585,12 @@ function validateThreadSnapshot(
     }
   }
 
-  const latestHumanReply = humanReplies.at(-1);
-  const recordedHumanReply = parent.latestRelevantHumanReply;
-  if (
-    (latestHumanReply === undefined) !== (recordedHumanReply === null) ||
-    (latestHumanReply !== undefined &&
-      (!recordedHumanReply ||
-        latestHumanReply.ts !== recordedHumanReply.ts ||
-        latestHumanReply.actorId !== recordedHumanReply.actorId ||
-        latestHumanReply.text !== recordedHumanReply.text ||
-        JSON.stringify(latestHumanReply.files ?? []) !==
-          JSON.stringify(recordedHumanReply.files ?? [])))
-  ) {
-    throw new Error(
-      `${parentName}: threadSnapshot reveals a newer or unrecorded human reply; update the status before reconciling`,
-    );
-  }
+  validateLatestHumanReplyReadback(
+    parentName,
+    snapshot!,
+    parent,
+    latestOwnedReply.ts,
+  );
 
   const handoffs = parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
   for (const handoff of handoffs) {
@@ -19070,6 +19106,46 @@ if (args[0] === "--self-test" && args.length === 1) {
           },
         ),
       "latest sweep reply is current",
+    );
+    const laterAdministrativeHumanReply = {
+      ...preservedAdministrativeSnapshot.replies[0]!,
+      ts: "13.000000",
+      actorId: "UREPORTER",
+      kind: "human" as const,
+      text: "Could someone follow up on this request?",
+      workflowReactionSummary: "none",
+      workflowReactionOwners: {},
+      workflowReactionReadback: [],
+      workflowReactionReadAt: "2030-01-01T00:00:03.000Z",
+    };
+    expectFocusedFailure(
+      "preserved administrative eye with a newer human reply",
+      () =>
+        validatePreservedAdministrativeEye(
+          "self-test preserved administrative root",
+          {
+            ...preservedAdministrativeRoot,
+            latestRelevantHumanReply: {
+              ts: laterAdministrativeHumanReply.ts,
+              actorId: laterAdministrativeHumanReply.actorId,
+              text: laterAdministrativeHumanReply.text,
+            },
+          },
+          "USWEEPER",
+          {
+            ...preservedAdministrativeSnapshot,
+            readAt: "2030-01-01T00:00:02.000Z",
+            replyCount: preservedAdministrativeSnapshot.replyCount + 1,
+            replies: [
+              ...preservedAdministrativeSnapshot.replies.map((reply) => ({
+                ...reply,
+                workflowReactionReadAt: "2030-01-01T00:00:03.000Z",
+              })),
+              laterAdministrativeHumanReply,
+            ],
+          },
+        ),
+      "status reply must be newer than the latest relevant human reply",
     );
     expectFocusedFailure(
       "preserved administrative eye with a stale full-thread read",
