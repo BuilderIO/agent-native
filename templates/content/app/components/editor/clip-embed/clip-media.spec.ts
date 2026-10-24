@@ -97,6 +97,57 @@ describe("swapMediaSource", () => {
     expect(media.currentTime).toBe(20);
     expect(media.play).toHaveBeenCalledTimes(1);
   });
+
+  it("carries the reader's place through a source that failed before it loaded", () => {
+    const media = new FakeMedia();
+    Object.assign(media, {
+      currentTime: 42.5,
+      paused: false,
+      volume: 0.4,
+      playbackRate: 1.5,
+    });
+
+    swapMediaSource(
+      media as unknown as HTMLMediaElement,
+      "https://clips.example.test/v?cg=2",
+    );
+    swapMediaSource(
+      media as unknown as HTMLMediaElement,
+      "https://clips.example.test/v?cg=3",
+    );
+    media.dispatchEvent(new Event("loadedmetadata"));
+    expect(media).toMatchObject({
+      src: "https://clips.example.test/v?cg=3",
+      currentTime: 42.5,
+      volume: 0.4,
+      playbackRate: 1.5,
+    });
+    expect(media.play).toHaveBeenCalledTimes(1);
+
+    media.currentTime = 50;
+    media.dispatchEvent(new Event("loadedmetadata"));
+    expect(media.currentTime).toBe(50);
+    expect(media.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts from the reader's current place once the last source has loaded", () => {
+    const media = new FakeMedia();
+    Object.assign(media, { currentTime: 7, paused: false });
+
+    swapMediaSource(
+      media as unknown as HTMLMediaElement,
+      "https://clips.example.test/v?cg=2",
+    );
+    media.dispatchEvent(new Event("loadedmetadata"));
+    Object.assign(media, { currentTime: 30, paused: true });
+    swapMediaSource(
+      media as unknown as HTMLMediaElement,
+      "https://clips.example.test/v?cg=3",
+    );
+    media.dispatchEvent(new Event("loadedmetadata"));
+    expect(media.currentTime).toBe(30);
+    expect(media.play).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("youtubeEmbedSrc", () => {

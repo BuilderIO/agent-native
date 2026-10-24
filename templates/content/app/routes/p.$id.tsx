@@ -17,7 +17,12 @@ import {
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
-import { isRegistryBlockTag } from "@shared/nfm-registry";
+import {
+  CLIP_EMBED_BLOCK_TYPE,
+  clipEmbedRecordingIdFromRaw,
+} from "@shared/clip-embed-block";
+import { nfmToDoc, type PMNode } from "@shared/nfm";
+import { registryBlockSpecByType } from "@shared/nfm-registry";
 import { buildPublicDocumentDescription } from "@shared/og-description";
 import { IconLayoutSidebarRight, IconLock } from "@tabler/icons-react";
 import { and, eq, isNull } from "drizzle-orm";
@@ -30,6 +35,7 @@ import type {
 import { data, redirect, useLoaderData } from "react-router";
 
 import { publicContentBlockRegistry } from "@/blocks/publicBlockRegistry";
+import { clipShareUrl } from "@/components/editor/clip-embed/use-clips-links";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import {
   HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
@@ -38,6 +44,7 @@ import {
 } from "@/lib/private-link-redirect";
 
 import { getDb, schema } from "../../server/db";
+import { resolveClipsAppUrl } from "../../server/lib/clips-peer";
 import {
   buildContentDocumentAgentDiscovery,
   contentDocumentMcpInstructionText,
@@ -57,6 +64,7 @@ type PublicDocumentLoaderData =
       agentAccessToken: string | null;
       basePath: string;
       origin: string;
+      clipsAppUrl: string | null;
       unavailable?: undefined;
     }
   | {
@@ -64,6 +72,7 @@ type PublicDocumentLoaderData =
       agentAccessToken: null;
       basePath: string;
       origin: string;
+      clipsAppUrl?: undefined;
       unavailable: { reason: "private"; id: string; basePath: string };
     };
 
@@ -130,6 +139,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
         agentAccessToken: tokenAccess ? agentAccessToken : null,
         basePath,
         origin,
+        clipsAppUrl: resolveClipsAppUrl(),
       },
       tokenAccess,
     );
@@ -209,51 +219,115 @@ function formatUpdatedAt(value: string) {
   });
 }
 
-function renderMarkdownBlocks(content: string) {
-  return content.split(/\n{2,}/).map((block, index) => {
-    const trimmed = block.trim();
-    if (!trimmed) return null;
-    // A registry block draws its data once the editor mounts; until then it
-    // holds its place, as the editor's static body does, instead of showing
-    // its MDX source.
-    if (isRegistryBlockTag(trimmed.match(/^<([A-Za-z_][\w-]*)/)?.[1] ?? "")) {
-      return (
-        <div
-          key={index}
-          aria-hidden
-          className="plan-block-node__placeholder mt-4 rounded-md border border-dashed border-border px-3 py-2"
+function textOf(node: PMNode): string {
+  if (node.type === "text") return node.text ?? "";
+  if (node.type === "hardBreak") return "\n";
+  return (node.content ?? []).map(textOf).join("");
+}
+
+function savedText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * A registry block before the editor mounts. This HTML is the one public
+ * shell every visitor gets, so it is named from the block's saved source and
+ * deployment config only, never from a call to Clips or anything a reader's
+ * session decides.
+ */
+function RegistryBlockFallback({
+  node,
+  clipsAppUrl,
+}: {
+  node: PMNode;
+  clipsAppUrl: string | null;
+}) {
+  const t = useT();
+  const blockType = String(node.attrs?.blockType ?? "");
+  const title = savedText(node.attrs?.title);
+  const summary = savedText(node.attrs?.summary);
+  const recordingId =
+    blockType === CLIP_EMBED_BLOCK_TYPE
+      ? clipEmbedRecordingIdFromRaw(node.attrs?.__raw)
+      : null;
+  const name = title ?? registryBlockSpecByType(blockType)?.label ?? blockType;
+  return (
+    <div className="mt-4 rounded-md border border-border px-3 py-2 text-base leading-7 text-muted-foreground">
+      {recordingId && clipsAppUrl ? (
+        <a
+          href={clipShareUrl(clipsAppUrl, recordingId)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-foreground underline underline-offset-4"
         >
-          {" "}
-        </div>
-      );
+          {title ?? t("clipEmbed.openInClips")}
+        </a>
+      ) : (
+        <span>{name}</span>
+      )}
+      {summary ? <p className="text-sm leading-6">{summary}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * The page as plain elements, for the server and the first client render.
+ * The editor's own static body draws into the DOM, so it has nothing to send.
+ */
+function ServerRenderedBody({
+  content,
+  clipsAppUrl,
+}: {
+  content: string;
+  clipsAppUrl: string | null;
+}) {
+  return nfmToDoc(content).content.map((node, index) => {
+    switch (node.type) {
+      case "registryBlock":
+        return (
+          <RegistryBlockFallback
+            key={index}
+            node={node}
+            clipsAppUrl={clipsAppUrl}
+          />
+        );
+      case "heading":
+        return (
+          <h2
+            key={index}
+            className="mt-8 text-xl font-semibold text-foreground"
+          >
+            {textOf(node)}
+          </h2>
+        );
+      case "bulletList":
+      case "orderedList":
+      case "taskList": {
+        const List = node.type === "orderedList" ? "ol" : "ul";
+        return (
+          <List
+            key={index}
+            className={`mt-4 ${node.type === "orderedList" ? "list-decimal" : "list-disc"} space-y-2 pl-6 text-base leading-7 text-muted-foreground`}
+          >
+            {(node.content ?? []).map((item, itemIndex) => (
+              <li key={itemIndex}>{textOf(item)}</li>
+            ))}
+          </List>
+        );
+      }
+      default: {
+        const text = textOf(node);
+        if (!text.trim()) return null;
+        return (
+          <p
+            key={index}
+            className="mt-4 whitespace-pre-wrap text-base leading-7 text-muted-foreground"
+          >
+            {text}
+          </p>
+        );
+      }
     }
-    if (trimmed.startsWith("## ")) {
-      return (
-        <h2 key={index} className="mt-8 text-xl font-semibold text-foreground">
-          {trimmed.slice(3)}
-        </h2>
-      );
-    }
-    if (trimmed.startsWith("- ")) {
-      return (
-        <ul
-          key={index}
-          className="mt-4 list-disc space-y-2 pl-6 text-base leading-7 text-muted-foreground"
-        >
-          {trimmed.split("\n").map((item) => (
-            <li key={item}>{item.replace(/^- /, "")}</li>
-          ))}
-        </ul>
-      );
-    }
-    return (
-      <p
-        key={index}
-        className="mt-4 whitespace-pre-wrap text-base leading-7 text-muted-foreground"
-      >
-        {trimmed}
-      </p>
-    );
   });
 }
 
@@ -291,12 +365,14 @@ function PublicDocumentContextSync({
   return null;
 }
 
-function ReadOnlyMarkdownContent({
+export function ReadOnlyMarkdownContent({
   documentId,
   content,
+  clipsAppUrl,
 }: {
   documentId: string;
   content: string;
+  clipsAppUrl: string | null;
 }) {
   const [mounted, setMounted] = useState(false);
   const blockContext = useMemo(
@@ -308,7 +384,9 @@ function ReadOnlyMarkdownContent({
 
   if (!mounted) {
     return (
-      <div className="content-editor">{renderMarkdownBlocks(content)}</div>
+      <div className="content-editor">
+        <ServerRenderedBody content={content} clipsAppUrl={clipsAppUrl} />
+      </div>
     );
   }
 
@@ -460,6 +538,7 @@ export default function PublicDocumentPage() {
           <ReadOnlyMarkdownContent
             documentId={document.id}
             content={document.content}
+            clipsAppUrl={data.clipsAppUrl ?? null}
           />
         </div>
       </article>

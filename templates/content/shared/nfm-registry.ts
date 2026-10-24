@@ -68,6 +68,14 @@ export function registryBlockSpecByType(type: string): BlockSpec | undefined {
   return contentBlockRegistry().get(type);
 }
 
+// The ids Content mints and the editor accepts on paste; anything else isn't
+// quoted to the agent.
+const REGISTRY_BLOCK_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+
+export function isRegistryBlockId(value: unknown): value is string {
+  return typeof value === "string" && REGISTRY_BLOCK_ID.test(value);
+}
+
 export function serializeRegistryBlockToMdx(
   type: string,
   block: SerializableBlock,

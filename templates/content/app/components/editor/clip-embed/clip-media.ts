@@ -50,15 +50,27 @@ export function captureMediaState(media: SwappableMedia): MediaState {
   };
 }
 
+const pendingRestores = new WeakMap<
+  SwappableMedia,
+  { state: MediaState; restore: () => void }
+>();
+
 /**
  * Points `media` at `src` and, once the new source knows its length, puts
  * back where the reader was: time, play or pause, volume and rate. Loading a
  * source resets all of them, so they are read before the swap.
  */
 export function swapMediaSource(media: SwappableMedia, src: string): void {
-  const state = captureMediaState(media);
+  // A source swapped out before its metadata loaded never held the reader's
+  // place; the element only shows what `load()` reset it to. Carry the place
+  // read before that source forward, and drop its restore so it can't run on
+  // this one.
+  const pending = pendingRestores.get(media);
+  if (pending) media.removeEventListener("loadedmetadata", pending.restore);
+  const state = pending?.state ?? captureMediaState(media);
   const restore = () => {
     media.removeEventListener("loadedmetadata", restore);
+    pendingRestores.delete(media);
     media.currentTime = state.currentTime;
     media.volume = state.volume;
     media.muted = state.muted;
@@ -70,6 +82,7 @@ export function swapMediaSource(media: SwappableMedia, src: string): void {
       });
     }
   };
+  pendingRestores.set(media, { state, restore });
   media.addEventListener("loadedmetadata", restore);
   media.src = src;
   media.load();

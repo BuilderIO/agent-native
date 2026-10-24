@@ -82,6 +82,8 @@ export {
   RegistryBlockNodeView,
   useRegistryBlockData,
   type CreateRegistryBlockNodeOptions,
+  type PastedRegistryBlock,
+  type PastedRegistryBlockSource,
   type RegistryBlockDataChangeMeta,
   type RegistryBlockDataValue,
   type RegistryBlockEditSurfaceOptions,

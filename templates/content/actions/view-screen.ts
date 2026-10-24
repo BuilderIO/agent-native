@@ -24,12 +24,20 @@ import type {
   ContentDatabaseViewType,
   DocumentProperty,
 } from "../shared/api.js";
+import {
+  CLIP_EMBED_BLOCK_TYPE,
+  isClipRecordingId,
+} from "../shared/clip-embed-block.js";
 import { normalizeContentDatabaseItemLayout } from "../shared/database-item-layout.js";
 import {
   databaseColumnWraps,
   databaseFrozenColumnIds,
   databaseTableColumnIds,
 } from "../shared/database-table-columns.js";
+import {
+  isRegistryBlockId,
+  registryBlockSpecByType,
+} from "../shared/nfm-registry.js";
 import {
   documentPropertyDateKey,
   formulaValueText,
@@ -249,13 +257,21 @@ interface ContentSelectionAppState {
 function readSelectedBlock(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const { blockType, blockId, recordingId } = value as Record<string, unknown>;
-  if (typeof blockType !== "string" || typeof blockId !== "string") {
+  // The browser writes this state and the hint quotes it, so only values
+  // Content itself would write get through.
+  if (
+    typeof blockType !== "string" ||
+    !registryBlockSpecByType(blockType) ||
+    !isRegistryBlockId(blockId)
+  ) {
     return null;
   }
   return {
     blockType,
     blockId,
-    ...(typeof recordingId === "string" ? { recordingId } : {}),
+    ...(blockType === CLIP_EMBED_BLOCK_TYPE && isClipRecordingId(recordingId)
+      ? { recordingId }
+      : {}),
   };
 }
 
