@@ -1367,10 +1367,9 @@ function dbtFailureResolvedLater(
 
 const DBT_QUERY_TOOL = "query-dbt-semantic-metric";
 
-// The only tools that cannot return warehouse or dashboard data. Nothing else is listed:
-// a tool that can return data is not known to be safe by its name, and a tool added later
-// is treated as one that can. The dbt metric query is not listed: its rows are data, so a
-// dbt success for another metric can carry a figure the draft attributes to this one.
+// A tool added later is treated as data capable until it is proven otherwise.
+// Successful dbt queries stay data capable because another metric may carry a
+// figure the draft attributes to the failed one.
 const DBT_NON_DATA_TOOLS: ReadonlySet<string> = new Set([
   "get-dbt-connection",
   "data-source-status",
@@ -1379,8 +1378,7 @@ const DBT_NON_DATA_TOOLS: ReadonlySet<string> = new Set([
   "navigate",
 ]);
 
-// A tool result that could carry data. A failed metric query returned no rows, so it
-// cannot, and a dbt success for another metric can.
+// A failed metric query returned no rows, so it cannot count as another result.
 function canReturnData(result: {
   name?: string;
   isError?: boolean;
@@ -2025,6 +2023,7 @@ function scopedWarehouseMatches(
     const candidates = (context.toolResults ?? []).flatMap((result, index) => {
       const rows = warehouseResultRows(result);
       if (
+        index <= failure.index ||
         usedResults.has(index) ||
         !rows?.length ||
         warehouseMetricNumbers(rows, failure.query.metricName).length === 0 ||

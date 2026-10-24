@@ -1230,6 +1230,99 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(result).toMatchObject(withheld);
   });
 
+  it("does not authorize warehouse fallback from a truncated find-data page", () => {
+    const context = explicitWarehouseContext(disclosed);
+    context.toolResults = context.toolResults?.map((result, index) =>
+      index === 1
+        ? {
+            ...result,
+            content: JSON.stringify({
+              results: [
+                {
+                  kind: "data-dictionary",
+                  origin: "data-dictionary",
+                  metric: "active_accounts",
+                  approved: true,
+                  status: "active",
+                  definition:
+                    "Count unique accounts with product activity during the selected period.",
+                  table: "accounts",
+                  columnsUsed: "account_id, activity_date",
+                },
+              ],
+              truncated: true,
+              nextPage: "page-2",
+            }),
+          }
+        : result,
+    );
+
+    expect(realDataFinalGuard(context)).toMatchObject(withheld);
+  });
+
+  it("rewrites a warehouse fallback from projected evidence only", async () => {
+    const privatePayload = "UNTRUSTED_CELL_SENTINEL";
+    const context = explicitWarehouseContext(
+      "Active accounts were 999 last month from a BigQuery calculation.",
+      {
+        resultContent: JSON.stringify({
+          rows: [
+            {
+              active_accounts: 10,
+              unrelated_metric: 777,
+              note: privatePayload,
+            },
+          ],
+          truncated: false,
+          rawMetadata: privatePayload,
+        }),
+      },
+    );
+    context.retryCount = 1;
+
+    const asked: Asked[] = [];
+    let failedMetricChecks = 0;
+    const safeDraft =
+      "BigQuery calculation: 10 active accounts for September, independent of the Semantic Layer.";
+    const result = await dbtFinalResponseGuard(
+      context,
+      recordingCheck((input) => {
+        const latest = asked[asked.length - 1];
+        if (
+          latest?.systemPrompt?.startsWith("Write a concise safe replacement")
+        ) {
+          return safeDraft;
+        }
+        if (
+          latest?.systemPrompt?.includes(
+            "Check whether an Analytics answer is grounded",
+          )
+        ) {
+          return "NO";
+        }
+        if (latest?.systemPrompt?.includes("exact metric-plus-scope pairs")) {
+          failedMetricChecks += 1;
+          return failedMetricChecks === 1 ? "YES" : "NO";
+        }
+        return input;
+      }, asked),
+    );
+
+    const rewrite = asked.find((item) =>
+      item.systemPrompt?.startsWith("Write a concise safe replacement"),
+    );
+    expect(rewrite?.input).toContain('"active_accounts":10');
+    expect(rewrite?.input).not.toContain('"unrelated_metric"');
+    expect(rewrite?.input).not.toContain(privatePayload);
+    expect(asked.every((item) => !item.input.includes(privatePayload))).toBe(
+      true,
+    );
+    expect(result).toMatchObject({
+      fallbackMessage: safeDraft,
+      maxRetries: 0,
+    });
+  });
+
   it("checks the warehouse SQL against the approved metric definition", async () => {
     const query =
       "SELECT COUNT(DISTINCT activity_date) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01'";
@@ -1660,6 +1753,8 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     "Why does the dbt number differ from the warehouse?",
     "Compare dbt and warehouse numbers.",
     "I want to compare dbt and warehouse numbers.",
+    "Use dbt rather than BigQuery for the active accounts figure.",
+    "Show active accounts from dbt, not BigQuery.",
     "Show the active accounts figure from BigQuery, but do not use the warehouse.",
     "Use dbt rather than BigQuery to answer active accounts.",
     "Show active accounts from dbt, not BigQuery.",
@@ -4217,7 +4312,11 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     const earlierRows = {
       name: "bigquery",
       isError: false,
-      content: JSON.stringify({ rows: [{ n: 10 }], totalRows: 1 }),
+      content: JSON.stringify({
+        rows: [{ active_accounts: 10 }],
+        totalRows: 1,
+        truncated: false,
+      }),
     };
     const { result } = await judged(
       {
@@ -4227,7 +4326,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
           {
             toolCallId: "warehouse-read",
             name: "bigquery",
-            input: { sql: "SELECT COUNT(*) AS n FROM accounts" },
+            input: { sql: activeAccountsSql },
           },
           {
             toolCallId: "dbt-failure",
@@ -4238,6 +4337,11 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
               groupBy: [],
             },
           },
+          {
+            toolCallId: "metric-definition",
+            name: "find-data",
+            input: { question: "active accounts" },
+          },
         ],
         toolResults: [
           { ...earlierRows, toolCallId: "warehouse-read" },
@@ -4247,6 +4351,28 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
             content: JSON.stringify({
               status: "not_found",
               metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "find-data",
+            toolCallId: "metric-definition",
+            isError: false,
+            content: JSON.stringify({
+              results: [
+                {
+                  kind: "data-dictionary",
+                  origin: "data-dictionary",
+                  metric: "active_accounts",
+                  approved: true,
+                  status: "active",
+                  definition:
+                    "Count unique accounts with product activity during the selected period.",
+                  table: "accounts",
+                  columnsUsed: "account_id, activity_date",
+                },
+              ],
+              truncated: false,
+              nextPage: null,
             }),
           },
         ],
