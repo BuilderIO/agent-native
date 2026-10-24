@@ -92,6 +92,13 @@ export function slideObjectPath(
   return steps.join(" > ");
 }
 
+// innerText keeps the breaks between blocks that textContent runs together.
+function renderedText(element: Element): string {
+  // Not instanceof: an element inside a screen iframe has its own HTMLElement.
+  const rendered = (element as Partial<HTMLElement>).innerText;
+  return typeof rendered === "string" ? rendered : (element.textContent ?? "");
+}
+
 function excerpt(text: string, limit: number): string {
   const collapsed = text.replace(/\s+/g, " ").trim();
   return collapsed.length > limit
@@ -110,7 +117,7 @@ export function slideObjectSelectable(
   const objectId = element.getAttribute("data-slide-object-id");
   const path = slideObjectPath(element, contentRoot);
   const tag = element.tagName.toLowerCase();
-  const text = excerpt(element.textContent ?? "", TEXT_LIMIT);
+  const text = excerpt(renderedText(element), TEXT_LIMIT);
   const alt = element.getAttribute("alt")?.trim();
   const slideNumber = slideNumberOf(slideId);
   return {

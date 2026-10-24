@@ -44,8 +44,9 @@ export interface AgentSelectable {
  */
 export interface AgentSelectableSource {
   /**
-   * Given the deepest element under the pointer (inside same-origin iframes
-   * too), return the object it belongs to, or null.
+   * Given an element under the pointer (inside same-origin iframes too),
+   * return the object it belongs to, or null. Elements are offered topmost
+   * first until one resolves.
    */
   resolve(target: Element): AgentSelectable | null;
 }
@@ -438,13 +439,15 @@ function sameOriginFrameDocument(frame: HTMLIFrameElement): Document | null {
 }
 
 /**
- * The deepest element under a viewport point, descending into same-origin
- * iframes, or null over chrome pick mode ignores. Pick mode turns iframe
- * pointer events off, so the top document's hit lands on the frame's host.
+ * The elements under a viewport point, topmost first, descending into a
+ * same-origin iframe; empty over chrome pick mode ignores. Pick mode turns
+ * iframe pointer events off, so the top document's hit lands on the frame's
+ * host. Inside a frame the whole stack is kept: editors often lay a
+ * transparent interaction overlay over the content.
  */
-function deepElementFromPoint(x: number, y: number): Element | null {
+function elementsUnderPoint(x: number, y: number): Element[] {
   const top = document.elementFromPoint(x, y);
-  if (!top || top.closest(IGNORE_SELECTOR)) return null;
+  if (!top || top.closest(IGNORE_SELECTOR)) return [];
   const frames = [
     ...(top instanceof HTMLIFrameElement ? [top] : []),
     ...Array.from(top.querySelectorAll("iframe")),
@@ -454,16 +457,16 @@ function deepElementFromPoint(x: number, y: number): Element | null {
     const box = measureAgentSelectElement(frame);
     if (!box || !boxContains(box, x, y)) continue;
     const frameDocument = sameOriginFrameDocument(frame);
-    if (!frameDocument) return top;
+    if (!frameDocument) return [top];
     const scaleX = frame.clientWidth > 0 ? box.width / frame.clientWidth : 1;
     const scaleY = frame.clientHeight > 0 ? box.height / frame.clientHeight : 1;
-    const inner = frameDocument.elementFromPoint(
+    const inner = frameDocument.elementsFromPoint(
       (x - box.left) / scaleX - frame.clientLeft,
       (y - box.top) / scaleY - frame.clientTop,
     );
-    return inner ?? top;
+    return inner.length > 0 ? inner : [top];
   }
-  return top;
+  return [top];
 }
 
 /** Whether `element` contains `target`, looking out through iframes. */
@@ -484,14 +487,15 @@ export function hitTestAgentSelectable(
   x: number,
   y: number,
 ): AgentSelectable | null {
-  const target = deepElementFromPoint(x, y);
+  const targets = elementsUnderPoint(x, y);
+  const target = targets[0];
   if (!target) return null;
   const current = store();
   let best: AgentSelectable | null = null;
   let bestArea = Number.POSITIVE_INFINITY;
-  const consider = (selectable: AgentSelectable) => {
+  const consider = (selectable: AgentSelectable, hit: Element) => {
     for (const element of selectableElements(selectable)) {
-      if (!containsAcrossFrames(element, target)) continue;
+      if (!containsAcrossFrames(element, hit)) continue;
       const box = measureAgentSelectElement(element);
       if (!box || !boxContains(box, x, y)) continue;
       const area = box.width * box.height;
@@ -501,15 +505,20 @@ export function hitTestAgentSelectable(
       }
     }
   };
-  for (const selectable of current.selectables.values()) consider(selectable);
+  for (const selectable of current.selectables.values()) {
+    consider(selectable, target);
+  }
   for (const source of current.sources) {
-    const resolved = source.resolve(target);
-    if (!resolved) continue;
-    current.resolved.set(
-      agentSelectionContextKey(resolved.kind, resolved.id),
-      resolved,
-    );
-    consider(resolved);
+    for (const candidate of targets) {
+      const resolved = source.resolve(candidate);
+      if (!resolved) continue;
+      current.resolved.set(
+        agentSelectionContextKey(resolved.kind, resolved.id),
+        resolved,
+      );
+      consider(resolved, candidate);
+      break;
+    }
   }
   return best;
 }

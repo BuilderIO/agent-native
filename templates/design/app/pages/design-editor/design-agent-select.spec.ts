@@ -92,5 +92,15 @@ describe("Design Select adapter", () => {
         document.querySelector("[data-frame-id]")!,
       ),
     ).toBeNull();
+    // An editor overlay in the frame resolves to the root, which is the screen.
+    frameDocument.documentElement.setAttribute(
+      "data-agent-native-node-id",
+      "root",
+    );
+    const overlay = frameDocument.createElement("div");
+    frameDocument.documentElement.appendChild(overlay);
+    expect(
+      designElementSelectable("design-1", "Launch", screens, overlay),
+    ).toBeNull();
   });
 });

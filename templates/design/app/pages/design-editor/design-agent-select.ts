@@ -22,6 +22,13 @@ function escapeAttribute(value: string): string {
   return CSS.escape(value);
 }
 
+// innerText keeps the breaks between blocks that textContent runs together.
+function renderedText(element: Element): string {
+  // Not instanceof: an element inside a screen iframe has its own HTMLElement.
+  const rendered = (element as Partial<HTMLElement>).innerText;
+  return typeof rendered === "string" ? rendered : (element.textContent ?? "");
+}
+
 function excerpt(text: string, limit: number): string {
   const collapsed = text.replace(/\s+/g, " ").trim();
   return collapsed.length > limit
@@ -79,12 +86,21 @@ export function designElementSelectable(
     frame.getAttribute("data-screen-iframe-id");
   const screen = screens.find((candidate) => candidate.id === screenId);
   const element = target.closest(`[${NODE_ID_ATTRIBUTE}]`);
-  if (!screen || !element) return null;
+  // The document root carries a node id too; it is the screen, not a layer.
+  const root = target.ownerDocument;
+  if (
+    !screen ||
+    !element ||
+    element === root.documentElement ||
+    element === root.body
+  ) {
+    return null;
+  }
   const nodeId = element.getAttribute(NODE_ID_ATTRIBUTE)?.trim();
   if (!nodeId) return null;
   const layerName = element.getAttribute(LAYER_NAME_ATTRIBUTE)?.trim();
   const tag = element.tagName.toLowerCase();
-  const text = excerpt(element.textContent ?? "", TEXT_LIMIT);
+  const text = excerpt(renderedText(element), TEXT_LIMIT);
   const label = excerpt(text || layerName || tag, TITLE_LIMIT);
   return {
     kind: "element",
