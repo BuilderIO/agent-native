@@ -34,6 +34,7 @@ describe("hubspot-deals action", () => {
             dealname: "The Knot renewal",
             dealstage: "stage-1",
             amount: "250000",
+            unused_property: null,
             pipeline: "pipeline-1",
             hubspot_owner_id: "owner-1",
             createdate: "2026-01-01T00:00:00Z",
@@ -106,6 +107,10 @@ describe("hubspot-deals action", () => {
     expect(result.deals[0].properties.stage_name).toBe("Negotiation");
     expect(result.deals[0].properties.pipeline_name).toBe("Enterprise");
     expect(result.deals[0].properties.owner_name).toBe("Alice Seller");
+    expect(result.deals[0].properties).not.toHaveProperty("unused_property");
+    expect(JSON.stringify(result).indexOf('"total"')).toBeLessThan(
+      JSON.stringify(result).indexOf('"deals"'),
+    );
     expect(result.guidance).toContain("full-text deal search");
   });
 

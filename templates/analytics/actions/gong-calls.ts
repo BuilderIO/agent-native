@@ -817,7 +817,6 @@ export default defineAction({
         : undefined;
 
       return {
-        calls: returnedCalls,
         limit: exhaustive ? returnedCalls.length : limited.limit,
         pages: "pages" in result ? result.pages : 1,
         truncated,
@@ -855,6 +854,7 @@ export default defineAction({
             ? `Loaded transcript excerpts for ${transcripts?.length ?? 0} call(s). Ground qualitative claims in the transcript text and cite the inspected call count.`
             : "For deep-dive or qualitative analysis, call this action again with includeTranscripts=true before drawing conclusions from call content.",
         ].join(" "),
+        calls: returnedCalls,
       };
     }
   },

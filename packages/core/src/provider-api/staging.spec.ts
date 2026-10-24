@@ -592,10 +592,10 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
         provider: "gong",
         method: "POST",
         path: "/calls/extensive",
-        body: {
+        body: JSON.stringify({
           filter: { fromDateTime: "2026-01-01T00:00:00.000Z" },
           contentSelector: { exposedFields: { parties: true } },
-        },
+        }),
         stageAs: "gong_calls",
         itemsPath: "calls",
         pagination: {
@@ -616,6 +616,38 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
       cursor: "cursor-2",
       filter: { fromDateTime: "2026-01-01T00:00:00.000Z" },
     });
+  });
+
+  it("rejects malformed JSON when a body cursor must be added", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ calls: [{ id: "call-1" }], cursor: "next" }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+
+    await expect(
+      stagingExecuteRequest(
+        {
+          provider: "gong",
+          method: "POST",
+          path: "/calls/extensive",
+          body: "not-json",
+          stageAs: "gong_calls",
+          itemsPath: "calls",
+          pagination: {
+            nextCursorPath: "cursor",
+            cursorBodyPath: "cursor",
+            maxPages: 2,
+          },
+        },
+        makeExecutor(),
+        { appId: "testapp", ownerEmail: "ada@example.com" },
+      ),
+    ).rejects.toThrow(/requires a JSON object request body/);
   });
 
   it("handles 429 with Retry-After and retries successfully", async () => {

@@ -614,7 +614,12 @@ export default defineAction({
       });
 
     const matchedTotal = dealResult.total;
-    const deals = matchedDeals;
+    const deals = matchedDeals.map((deal) => ({
+      ...deal,
+      properties: Object.fromEntries(
+        Object.entries(deal.properties).filter(([, value]) => value != null),
+      ),
+    }));
     const searchCoverageLimited = matchedTotal >= HUBSPOT_SEARCH_RESULT_CAP;
     const nextCursor = dealResult.nextAfter
       ? Number.parseInt(dealResult.nextAfter, 10)
@@ -627,9 +632,6 @@ export default defineAction({
     const truncated = deals.length < matchedTotal || searchCoverageLimited;
 
     return {
-      deals,
-      stageLabels: lookups.stageLabels,
-      pipelineLabels: lookups.pipelineLabels,
       total: matchedTotal,
       count: deals.length,
       query: trimmedQuery || null,
@@ -659,6 +661,9 @@ export default defineAction({
         searchCoverageLimited,
       }),
       searchedProperties: dealResult.properties,
+      stageLabels: lookups.stageLabels,
+      pipelineLabels: lookups.pipelineLabels,
+      deals,
     };
   },
 });

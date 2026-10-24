@@ -4786,7 +4786,10 @@ describe("provider API runtime", () => {
         provider: "pylon",
         method: "POST",
         path: "/issues/search",
-        body: { limit: 500 },
+        body: JSON.stringify({
+          limit: 500,
+          filter: { status: "open" },
+        }),
         fetchAllPages: {
           cursorPath: "pagination.cursor",
           cursorBodyPath: "cursor",
@@ -4801,6 +4804,15 @@ describe("provider API runtime", () => {
 
     expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
       headers: expect.objectContaining({ "Content-Type": "application/json" }),
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      limit: 500,
+      filter: { status: "open" },
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      limit: 500,
+      filter: { status: "open" },
+      cursor: "page-2",
     });
   });
 

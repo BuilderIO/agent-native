@@ -158,6 +158,9 @@ describe("gong-calls action", () => {
     expect(result.truncated).toBe(false);
     expect(result.coverageTruncated).toBe(false);
     expect(result.guidance).toContain("Exhaustive discovery returned 2");
+    expect(JSON.stringify(result).indexOf('"total"')).toBeLessThan(
+      JSON.stringify(result).indexOf('"calls"'),
+    );
   });
 
   it("searches matching transcripts locally after batched retrieval", async () => {

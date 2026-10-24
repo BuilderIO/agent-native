@@ -139,9 +139,28 @@ function extractNextCursor(body: unknown, path: string): string | null {
 }
 
 function setAtPath(base: unknown, path: string, value: unknown): unknown {
+  let cursorBase = base;
+  if (typeof cursorBase === "string") {
+    try {
+      cursorBase = JSON.parse(cursorBase) as unknown;
+    } catch {
+      throw new Error(
+        "Body cursor pagination requires a JSON object request body.",
+      );
+    }
+  }
+  if (
+    cursorBase !== undefined &&
+    cursorBase !== null &&
+    (typeof cursorBase !== "object" || Array.isArray(cursorBase))
+  ) {
+    throw new Error(
+      "Body cursor pagination requires a JSON object request body.",
+    );
+  }
   const root =
-    base && typeof base === "object" && !Array.isArray(base)
-      ? { ...(base as Record<string, unknown>) }
+    cursorBase && typeof cursorBase === "object" && !Array.isArray(cursorBase)
+      ? { ...(cursorBase as Record<string, unknown>) }
       : {};
   const parts = path.split(".").filter(Boolean);
   if (!parts.length) return root;
