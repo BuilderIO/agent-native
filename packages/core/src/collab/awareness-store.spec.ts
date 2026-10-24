@@ -41,7 +41,10 @@ vi.mock("../db/client.js", async () => {
         if (
           !previous ||
           clientSequence > previous.client_sequence ||
-          (clientSequence === 0 && previous.client_sequence === 0)
+          (clientSequence === 0 &&
+            previous.client_sequence === 0 &&
+            (!/AND _collab_awareness\.cleared\s*=\s*FALSE/i.test(sql) ||
+              !previous.cleared))
         ) {
           dbRows.set(key, {
             state: String(args[2]),
@@ -221,6 +224,19 @@ describe("awareness-store", () => {
     ]);
   });
 
+  it("does not let legacy sequence-zero writes replace clear tombstones", async () => {
+    await writeAwarenessRow("doc-legacy", 3, "", 1_000, 0, true);
+
+    await upsertAwarenessRow("doc-legacy", 3, '{"visible":true}', 2_000);
+
+    expect(dbRows.get(rowKey("doc-legacy", 3))).toEqual({
+      state: "",
+      last_seen: 1_000,
+      client_sequence: 0,
+      cleared: true,
+    });
+  });
+
   it("persists higher sequences even when the awareness payload is unchanged", async () => {
     await writeAwarenessRow("doc-heartbeat", 3, "{}", 1000, 4, false);
     await writeAwarenessRow("doc-heartbeat", 3, "{}", 1500, 5, false);
@@ -240,12 +256,14 @@ describe("awareness-store", () => {
     expect(rows[0].clientId).toBe(bigClientId);
   });
 
-  it("keeps legacy agent writes best-effort and fails ordered reads and writes loudly", async () => {
+  it("fails agent presence writes, deletes, and ordered reads loudly", async () => {
     dbAvailable.value = false;
-    await expect(
-      upsertAwarenessRow("doc-6", 1, "{}", 1000),
-    ).resolves.toBeUndefined();
-    await expect(deleteAwarenessRow("doc-6", 1)).resolves.toBeUndefined();
+    await expect(upsertAwarenessRow("doc-6", 1, "{}", 1000)).rejects.toThrow(
+      "db not configured",
+    );
+    await expect(deleteAwarenessRow("doc-6", 1)).rejects.toThrow(
+      "db not configured",
+    );
     await expect(
       writeAwarenessRow("doc-6", 1, "{}", 1000, 1, false),
     ).rejects.toThrow("db not configured");

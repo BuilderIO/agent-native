@@ -72,19 +72,15 @@ export async function upsertAwarenessRow(
     return;
   }
 
-  try {
-    const applied = await writeAwarenessRow(
-      docId,
-      clientId,
-      state,
-      lastSeen,
-      0,
-      false,
-    );
-    if (applied) _lastWrites.set(key, { state, writtenAt: lastSeen });
-  } catch {
-    // Agent presence is best-effort; HTTP awareness writes use the strict API.
-  }
+  const applied = await writeAwarenessRow(
+    docId,
+    clientId,
+    state,
+    lastSeen,
+    0,
+    false,
+  );
+  if (applied) _lastWrites.set(key, { state, writtenAt: lastSeen });
 }
 
 export async function writeAwarenessRow(
@@ -108,7 +104,9 @@ export async function writeAwarenessRow(
             client_sequence = EXCLUDED.client_sequence,
             cleared = EXCLUDED.cleared
           WHERE EXCLUDED.client_sequence > _collab_awareness.client_sequence
-             OR (EXCLUDED.client_sequence = 0 AND _collab_awareness.client_sequence = 0)
+             OR (EXCLUDED.client_sequence = 0
+                 AND _collab_awareness.client_sequence = 0
+                 AND _collab_awareness.cleared = FALSE)
           RETURNING client_id`,
     args: [docId, clientId, state, lastSeen, clientSequence, cleared],
   });
@@ -125,25 +123,21 @@ export async function deleteAwarenessRow(
   clientId: number,
   maxLastSeen?: number,
 ): Promise<void> {
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    if (maxLastSeen == null) {
-      await client.execute({
-        sql: `DELETE FROM _collab_awareness WHERE doc_id = ? AND client_id = ?`,
-        args: [docId, clientId],
-      });
-    } else {
-      await client.execute({
-        sql: `DELETE FROM _collab_awareness
-              WHERE doc_id = ? AND client_id = ? AND last_seen <= ?`,
-        args: [docId, clientId, maxLastSeen],
-      });
-    }
-    _lastWrites.delete(writeKey(docId, clientId));
-  } catch {
-    // Best-effort.
+  await ensureTable();
+  const client = getDbExec();
+  if (maxLastSeen == null) {
+    await client.execute({
+      sql: `DELETE FROM _collab_awareness WHERE doc_id = ? AND client_id = ?`,
+      args: [docId, clientId],
+    });
+  } else {
+    await client.execute({
+      sql: `DELETE FROM _collab_awareness
+            WHERE doc_id = ? AND client_id = ? AND last_seen <= ?`,
+      args: [docId, clientId, maxLastSeen],
+    });
   }
+  _lastWrites.delete(writeKey(docId, clientId));
 }
 
 export async function loadAwarenessRows(

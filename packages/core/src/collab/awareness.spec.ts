@@ -145,6 +145,23 @@ describe("postAwareness handler", () => {
     expect(res).toEqual({ error: "clientId and state required" });
   });
 
+  it("rejects a sequence too far ahead of server time", async () => {
+    const map = getDocAwareness("post-doc");
+    map.set(99, { clientId: 99, state: "peer-state", lastSeen: Date.now() });
+    mockReadBody.mockResolvedValue({
+      clientId: 99,
+      clientSequence: Number.MAX_SAFE_INTEGER,
+      state: "attacker-state",
+    });
+
+    const ev = event({ docId: "post-doc" });
+    const res = await postAwareness(ev);
+
+    expect(ev._status).toBe(400);
+    expect(res).toEqual({ error: "invalid awareness state or clientSequence" });
+    expect(map.get(99)?.state).toBe("peer-state");
+  });
+
   it("stores the sender's state and returns only other clients' states", async () => {
     const map = getDocAwareness("post-doc");
     map.set(99, { clientId: 99, state: "other-state", lastSeen: Date.now() });

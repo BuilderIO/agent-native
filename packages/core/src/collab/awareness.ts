@@ -11,6 +11,7 @@ const AWARENESS_TIMEOUT = 30_000;
 const CLEAR_TOMBSTONE_TTL = AWARENESS_TIMEOUT + 5_000;
 const AWARENESS_SCOPE_TIMEOUT = AWARENESS_TIMEOUT + 5_000;
 const MAX_AWARENESS_SCOPES = 10_000;
+const AWARENESS_SEQUENCE_CLOCK_SKEW_MS = 5_000;
 
 export interface AwarenessEntry {
   clientId: number;
@@ -282,7 +283,10 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   if (
     (state !== null && typeof state !== "string") ||
     (clientSequence !== undefined &&
-      (!Number.isSafeInteger(clientSequence) || clientSequence < 0))
+      (!Number.isSafeInteger(clientSequence) ||
+        clientSequence < 0 ||
+        clientSequence >
+          (Date.now() + AWARENESS_SEQUENCE_CLOCK_SKEW_MS) * 1_000))
   ) {
     setResponseStatus(event, 400);
     return { error: "invalid awareness state or clientSequence" };
