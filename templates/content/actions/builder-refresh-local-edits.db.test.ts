@@ -635,6 +635,38 @@ it("moves an unedited property to the value a body read brings and flags an edit
   expect(await editConflicts("entry-a")).toEqual(["data.author"]);
 });
 
+it("moves an unedited title to the one a body read brings and flags an edited one", async () => {
+  for (const id of ["entry-title-kept", "entry-title-mine"]) {
+    builder.entries.set(id, { title: id, author: "Tess", updatedAt: tick() });
+  }
+  await refresh();
+
+  editInBuilder("entry-title-kept", { title: "Retitled in Builder" });
+  await hydrateBody("entry-title-kept", "Body");
+  expect(await localTitle("entry-title-kept")).toBe("Retitled in Builder");
+  // The next refresh doesn't take the old title for Content's edit.
+  await refresh();
+  expect(await localTitle("entry-title-kept")).toBe("Retitled in Builder");
+  expect(await pendingEdit("entry-title-kept")).toBeNull();
+
+  await editTitle("entry-title-mine", "Mine");
+  editInBuilder("entry-title-mine", { title: "Theirs" });
+  await hydrateBody("entry-title-mine", "Body");
+  expect(await localTitle("entry-title-mine")).toBe("Mine");
+  expect(await editConflicts("entry-title-mine")).toEqual(["data.title"]);
+  await refresh();
+  expect(await pendingEdit("entry-title-mine")).toMatchObject({
+    conflictState: "source_changed",
+    fieldChanges: [
+      expect.objectContaining({
+        sourceFieldKey: "data.title",
+        currentValue: "Theirs",
+        proposedValue: "Mine",
+      }),
+    ],
+  });
+});
+
 it.each(["blocks", "blocksString"] as const)(
   "flags a body the page keeps when Builder reports an empty %s",
   async (shape) => {

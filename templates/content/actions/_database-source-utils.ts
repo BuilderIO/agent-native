@@ -1086,6 +1086,42 @@ function builderRowTitle(
     : sourceDisplayKey.trim();
 }
 
+/**
+ * What a Builder read does to a page's title. An unedited title takes
+ * Builder's. An edited one stays, and is a conflict when Builder retitled the
+ * entry too, as a refresh does for a field.
+ */
+function builderPageTitleRead(args: {
+  localTitle: string;
+  previousValues: Record<string, DocumentPropertyValue>;
+  previousDisplayKey: string;
+  sourceValues: Record<string, DocumentPropertyValue>;
+  displayKey: string;
+}): { title: string | null; conflicted: boolean } {
+  const previousTitle = builderRowTitle(
+    args.previousValues,
+    args.previousDisplayKey,
+  );
+  const nextTitle = builderRowTitle(args.sourceValues, args.displayKey);
+  // The review lists no change for an empty title, so it isn't an edit.
+  if (!args.localTitle || args.localTitle === previousTitle) {
+    return {
+      title: nextTitle && nextTitle !== args.localTitle ? nextTitle : null,
+      conflicted: false,
+    };
+  }
+  if (args.localTitle === nextTitle) return { title: null, conflicted: false };
+  const previousConflicts = readBuilderCmsEditConflicts(args.previousValues);
+  return {
+    title: null,
+    conflicted:
+      nextTitle !== previousTitle ||
+      previousConflicts.state === "invalid" ||
+      (previousConflicts.state === "recorded" &&
+        previousConflicts.sourceFieldKeys.includes("data.title")),
+  };
+}
+
 /** The source value a mapped field's local value is compared with. */
 function builderSourceFieldComparisonValue(
   field: { sourceFieldKey: string; sourceFieldType?: string | null },
@@ -2829,11 +2865,11 @@ function withBodyReadEditConflict(args: {
 }
 
 /**
- * A live body read also returns Builder's current field values, which can be
- * newer than the refresh that queued it. The row's properties follow them as
- * a refresh's do; otherwise the next refresh would take a property left
- * behind for Content's edit. Call it under the rows' membership locks, after
- * their source rows are written.
+ * A live body read also returns Builder's current field values and title,
+ * which can be newer than the refresh that queued it. The row's properties
+ * and page title follow them as a refresh's do; otherwise the next refresh
+ * would take a value left behind for Content's edit. Call it under the rows'
+ * membership locks, after their source rows are written.
  */
 async function materializeBodyReadFieldValues(
   tx: any,
@@ -2861,6 +2897,78 @@ async function materializeBodyReadFieldValues(
       args.rows.map((row) => [row.documentId, row.previousSourceValues]),
     ),
   });
+  const previousByDocumentId = new Map(
+    args.rows.map((row) => [row.documentId, row.previousSourceValues]),
+  );
+  const documentIds = args.rows.map((row) => row.documentId);
+  await lockDocumentRows(tx as ReturnType<typeof getDb>, documentIds);
+  for (const idChunk of chunks(documentIds, idChunkSize())) {
+    // guard:allow-unscoped — reads the titles of the source's own pages, which this body read locked with their rows.
+    const documents: Array<{ id: string; title: string }> = await tx
+      .select({ id: schema.documents.id, title: schema.documents.title })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, idChunk));
+    const sourceRows: Array<{
+      id: string;
+      documentId: string;
+      sourceDisplayKey: string;
+      sourceValuesJson: string;
+    }> = await tx
+      .select({
+        id: schema.contentDatabaseSourceRows.id,
+        documentId: schema.contentDatabaseSourceRows.documentId,
+        sourceDisplayKey: schema.contentDatabaseSourceRows.sourceDisplayKey,
+        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      })
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+          inArray(schema.contentDatabaseSourceRows.documentId, idChunk),
+        ),
+      );
+    const localTitleById = new Map(
+      documents.map((document) => [document.id, document.title.trim()]),
+    );
+    for (const row of sourceRows) {
+      const localTitle = localTitleById.get(row.documentId);
+      const previousValues = previousByDocumentId.get(row.documentId);
+      if (localTitle === undefined || !previousValues) continue;
+      const sourceValues =
+        parseObject<Record<string, DocumentPropertyValue>>(
+          row.sourceValuesJson,
+        ) ?? {};
+      const read = builderPageTitleRead({
+        localTitle,
+        previousValues,
+        previousDisplayKey: row.sourceDisplayKey,
+        sourceValues,
+        displayKey: row.sourceDisplayKey,
+      });
+      if (read.title) {
+        await tx
+          .update(schema.documents)
+          .set({ title: read.title, updatedAt: args.now })
+          .where(eq(schema.documents.id, row.documentId));
+      }
+      const nextSourceValues = withBuilderCmsEditConflicts(sourceValues, {
+        ownedKeys: ["data.title"],
+        conflictedKeys: read.conflicted ? ["data.title"] : [],
+      });
+      if (
+        stableValueString(nextSourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY]) !==
+        stableValueString(sourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY])
+      ) {
+        await tx
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify(nextSourceValues),
+            updatedAt: args.now,
+          })
+          .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+      }
+    }
+  }
 }
 
 type PreparedPristineBuilderBodyHydration = {
@@ -6522,31 +6630,22 @@ async function refreshBuilderPageTitles(
       parseObject<Record<string, DocumentPropertyValue>>(
         row.sourceValuesJson,
       ) ?? {};
-    const previousTitle = builderRowTitle(
+    const read = builderPageTitleRead({
+      localTitle,
       previousValues,
-      previous.sourceDisplayKey,
-    );
-    const nextTitle = builderRowTitle(sourceValues, row.sourceDisplayKey);
-    let conflicted = false;
-    // The review lists no change for an empty title, so it isn't an edit.
-    if (!localTitle || localTitle === previousTitle) {
-      if (nextTitle && nextTitle !== localTitle) {
-        await tx
-          .update(schema.documents)
-          .set({ title: nextTitle, updatedAt: args.now })
-          .where(eq(schema.documents.id, row.documentId));
-      }
-    } else if (localTitle !== nextTitle) {
-      const previousConflicts = readBuilderCmsEditConflicts(previousValues);
-      conflicted =
-        nextTitle !== previousTitle ||
-        previousConflicts.state === "invalid" ||
-        (previousConflicts.state === "recorded" &&
-          previousConflicts.sourceFieldKeys.includes("data.title"));
+      previousDisplayKey: previous.sourceDisplayKey,
+      sourceValues,
+      displayKey: row.sourceDisplayKey,
+    });
+    if (read.title) {
+      await tx
+        .update(schema.documents)
+        .set({ title: read.title, updatedAt: args.now })
+        .where(eq(schema.documents.id, row.documentId));
     }
     const nextSourceValues = withBuilderCmsEditConflicts(sourceValues, {
       ownedKeys: ["data.title"],
-      conflictedKeys: conflicted ? ["data.title"] : [],
+      conflictedKeys: read.conflicted ? ["data.title"] : [],
     });
     rows.push(
       stableValueString(nextSourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY]) ===
