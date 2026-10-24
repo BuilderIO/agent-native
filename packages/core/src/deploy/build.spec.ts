@@ -81,6 +81,9 @@ import {
   isServerlessNativePlatformPackage,
   generateCloudflareModuleWorkerEntry,
   patchCloudflareModuleServerOutput,
+  collectNamedImportsFrom,
+  rewriteModuleImportSpecifier,
+  cloudflareExternalBundleEntry,
   generateProvidedPluginsNitroPluginSource,
   generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
@@ -1299,6 +1302,76 @@ export default {
         Reflect.deleteProperty(testGlobals, key);
       }
     }
+  });
+});
+
+describe("Cloudflare module bare externals", () => {
+  const poolContext = "@agent-native/core/db/request-pool-context";
+
+  it("finds and rewrites the Worker entry's own core import", () => {
+    const entry = generateCloudflareModuleWorkerEntry();
+
+    expect(collectNamedImportsFrom(entry, poolContext)).toEqual([
+      "runWithRequestDbPoolScope",
+    ]);
+    const rewritten = rewriteModuleImportSpecifier(
+      entry,
+      poolContext,
+      "./_libs/_agent-native_core_db_request-pool-context.mjs",
+    );
+    expect(rewritten).toContain(
+      'from"./_libs/_agent-native_core_db_request-pool-context.mjs";',
+    );
+    expect(rewritten).not.toContain(`"${poolContext}"`);
+  });
+
+  it("still matches minified imports", () => {
+    const code = 'import{a,b as c}from"pkg";export*from"pkg";';
+
+    expect(collectNamedImportsFrom(code, "pkg")).toEqual(["a", "b"]);
+    expect(rewriteModuleImportSpecifier(code, "pkg", "./_libs/pkg.mjs")).toBe(
+      'import{a,b as c}from"./_libs/pkg.mjs";export*from"./_libs/pkg.mjs";',
+    );
+  });
+
+  it("bundles ES modules without a default export and CommonJS modules", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "no-default.mjs");
+    const cjs = path.join(dir, "legacy.cjs");
+    fs.writeFileSync(esm, "export function run() { return 'esm'; }\n");
+    fs.writeFileSync(cjs, "module.exports = { run() { return 'cjs'; } };\n");
+    const esbuild = resolveEsbuildCommand();
+    const bundle = async (name: string, entryCode: string) => {
+      const outFile = path.join(dir, `${name}.mjs`);
+      execFileSync(
+        esbuild.executable,
+        [
+          ...esbuild.args,
+          "--bundle",
+          `--outfile=${outFile}`,
+          "--format=esm",
+          "--platform=neutral",
+          "--target=es2022",
+          "--log-level=error",
+        ],
+        { input: entryCode, cwd: dir, stdio: ["pipe", "pipe", "pipe"] },
+      );
+      return import(pathToFileURL(outFile).href);
+    };
+
+    const named = await bundle(
+      "named",
+      cloudflareExternalBundleEntry(esm, ["run"]),
+    );
+    expect(named.run()).toBe("esm");
+    const star = await bundle("star", cloudflareExternalBundleEntry(esm, []));
+    expect(star.run()).toBe("esm");
+    const legacy = await bundle(
+      "legacy",
+      cloudflareExternalBundleEntry(cjs, ["run"]),
+    );
+    expect(legacy.run()).toBe("cjs");
+    expect(legacy.default.run()).toBe("cjs");
   });
 });
 

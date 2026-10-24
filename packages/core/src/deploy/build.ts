@@ -4518,6 +4518,63 @@ const CF_MODULE_NODE_BUILTINS = [
   "vm",
 ];
 
+function escapeModuleSpecifier(mod: string): string {
+  return mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Names imported from `mod` with `import { a, b as c } from "mod"`. Matches
+ * both minified output and the spaced form the generated Worker entry uses.
+ */
+export function collectNamedImportsFrom(code: string, mod: string): string[] {
+  const re = new RegExp(
+    `import\\s*\\{([^}]+)\\}\\s*from\\s*["']${escapeModuleSpecifier(mod)}["']`,
+    "g",
+  );
+  const names: string[] = [];
+  for (const m of code.matchAll(re)) {
+    for (const part of m[1].split(",")) {
+      const name = part
+        .trim()
+        .split(/\s+as\s+/)[0]
+        .trim();
+      if (name && /^[a-zA-Z_$]/.test(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
+/** Points every `from "mod"` in `code` at `importPath`. */
+export function rewriteModuleImportSpecifier(
+  code: string,
+  mod: string,
+  importPath: string,
+): string {
+  const re = new RegExp(`from\\s*["']${escapeModuleSpecifier(mod)}["']`, "g");
+  return code.replace(re, `from"${importPath}"`);
+}
+
+/**
+ * esbuild entry that re-bundles a bare external for a Cloudflare Worker. A
+ * namespace import works for CommonJS and for ES modules with or without a
+ * default export; `import x from` and `export { default } from` fail to
+ * bundle an ES module that has no default export.
+ */
+export function cloudflareExternalBundleEntry(
+  resolvedMod: string,
+  neededExports: Iterable<string>,
+): string {
+  const names = Array.from(neededExports);
+  return [
+    `import * as _ns from "${resolvedMod}";`,
+    `const _mod = _ns.default ?? _ns;`,
+    `export default _mod;`,
+    ...(names.length > 0
+      ? names.map((n) => `export const ${n} = _ns.${n} ?? _mod?.${n};`)
+      : [`export * from "${resolvedMod}";`]),
+  ].join("\n");
+}
+
 /**
  * Post-build patches for `cloudflare_module` server output. Recurses (via
  * `walkServerJavaScriptFiles`) because esbuild/Nitro can emit a dependency at
@@ -6420,9 +6477,11 @@ export default bundle;
             const importPath = relPath.startsWith(".")
               ? relPath
               : "./" + relPath;
-            const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const re = new RegExp(`from["']${escaped}["']`, "g");
-            const rewritten = code.replace(re, `from"${importPath}"`);
+            const rewritten = rewriteModuleImportSpecifier(
+              code,
+              mod,
+              importPath,
+            );
             if (rewritten !== code) fs.writeFileSync(p, rewritten);
           }
         }
@@ -6463,35 +6522,17 @@ export default bundle;
               if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
                 continue;
               const code = fs.readFileSync(p, "utf-8");
-              const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              const re = new RegExp(
-                `import\\{([^}]+)\\}from["']${escaped}["']`,
-                "g",
-              );
-              for (const m2 of code.matchAll(re)) {
-                for (const part of m2[1].split(",")) {
-                  const name = part
-                    .trim()
-                    .split(/\s+as\s+/)[0]
-                    .trim();
-                  if (name && /^[a-zA-Z_$]/.test(name)) neededExports.add(name);
-                }
+              for (const name of collectNamedImportsFrom(code, mod)) {
+                neededExports.add(name);
               }
             }
           }
           findNeededExports(outputDir);
 
-          const entryCode =
-            neededExports.size > 0
-              ? [
-                  `import _mod from "${resolvedMod}";`,
-                  `export default _mod;`,
-                  ...Array.from(neededExports).map(
-                    (n) =>
-                      `export const ${n} = _mod.${n} ?? _mod?.default?.${n};`,
-                  ),
-                ].join("\n")
-              : `export * from "${resolvedMod}"; export { default } from "${resolvedMod}";`;
+          const entryCode = cloudflareExternalBundleEntry(
+            resolvedMod,
+            neededExports,
+          );
 
           execFileSync(
             esbuild.executable,
@@ -6520,21 +6561,19 @@ export default bundle;
               }
               if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
                 continue;
-              let code = fs.readFileSync(p, "utf-8");
+              const code = fs.readFileSync(p, "utf-8");
               const relPath = path
                 .relative(path.dirname(p), outFile)
                 .replace(/\\/g, "/");
               const importPath = relPath.startsWith(".")
                 ? relPath
                 : "./" + relPath;
-              const re = new RegExp(
-                `from["']${mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
-                "g",
+              const rewritten = rewriteModuleImportSpecifier(
+                code,
+                mod,
+                importPath,
               );
-              if (re.test(code)) {
-                code = code.replace(re, `from"${importPath}"`);
-                fs.writeFileSync(p, code);
-              }
+              if (rewritten !== code) fs.writeFileSync(p, rewritten);
             }
           }
           rewriteImports(outputDir);
