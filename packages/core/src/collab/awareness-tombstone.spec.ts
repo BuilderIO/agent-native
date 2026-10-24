@@ -11,6 +11,7 @@ const storedRows = vi.hoisted(
         lastSeen: number;
         clientSequence: number;
         cleared: boolean;
+        actorEmail?: string | null;
       }
     >(),
 );
@@ -26,6 +27,10 @@ vi.mock("h3", () => ({
   },
 }));
 
+vi.mock("../server/auth.js", () => ({
+  getSession: vi.fn(async () => ({ email: "collaborator@example.com" })),
+}));
+
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
 }));
@@ -35,7 +40,11 @@ vi.mock("./awareness-store.js", () => ({
     async (docId: string, clientId: number) => {
       const row = storedRows.get(rowKey(docId, clientId));
       return row
-        ? { clientSequence: row.clientSequence, cleared: row.cleared }
+        ? {
+            clientSequence: row.clientSequence,
+            cleared: row.cleared,
+            actorEmail: row.actorEmail ?? null,
+          }
         : undefined;
     },
   ),
@@ -52,6 +61,7 @@ vi.mock("./awareness-store.js", () => ({
       lastSeen: number,
       clientSequence: number,
       cleared: boolean,
+      actorEmail?: string | null,
     ) => {
       const key = rowKey(docId, clientId);
       const previous = storedRows.get(key);
@@ -68,6 +78,7 @@ vi.mock("./awareness-store.js", () => ({
         lastSeen,
         clientSequence,
         cleared,
+        actorEmail: actorEmail ?? null,
       });
       return true;
     },
@@ -87,7 +98,7 @@ function rowKey(docId: string, clientId: number): string {
 }
 
 function event(docId: string) {
-  return { _params: { docId }, _status: 200 } as any;
+  return { _params: { docId }, _status: 200, _headers: {} } as any;
 }
 
 describe("awareness clear tombstones", () => {
@@ -117,6 +128,7 @@ describe("awareness clear tombstones", () => {
       lastSeen: 9_000,
       clientSequence: 0,
       cleared: false,
+      actorEmail: null,
     });
 
     const res = (await postAwareness(event("tombstone-doc"))) as {
@@ -141,6 +153,7 @@ describe("awareness clear tombstones", () => {
       lastSeen: 10_001,
       clientSequence: 0,
       cleared: false,
+      actorEmail: null,
     });
 
     await postAwareness(event("tombstone-doc"));
@@ -162,6 +175,7 @@ describe("awareness clear tombstones", () => {
       lastSeen: 9_000,
       clientSequence: 10,
       cleared: false,
+      actorEmail: "collaborator@example.com",
     });
 
     mockReadBody.mockResolvedValueOnce({

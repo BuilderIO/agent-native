@@ -57,6 +57,16 @@ export const collabAwarenessStore = defineStore({
         );
       },
     },
+    {
+      name: "actor-email",
+      run: async () => {
+        await ensureColumnExists(
+          "_collab_awareness",
+          "actor_email",
+          "ALTER TABLE _collab_awareness ADD COLUMN IF NOT EXISTS actor_email TEXT",
+        );
+      },
+    },
   ],
 });
 
@@ -106,6 +116,7 @@ export async function writeAwarenessRow(
   lastSeen: number,
   clientSequence: number,
   cleared: boolean,
+  actorEmail?: string | null,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
@@ -132,8 +143,8 @@ export async function writeAwarenessRow(
   const { rows } = await client.execute({
     sql: `INSERT INTO _collab_awareness
             (doc_id, client_id, state, last_seen, client_sequence, cleared,
-             client_sequence_raw)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+             client_sequence_raw, actor_email)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (doc_id, client_id)
           DO UPDATE SET
             state = EXCLUDED.state,
@@ -148,8 +159,17 @@ export async function writeAwarenessRow(
               ELSE EXCLUDED.client_sequence
             END,
             client_sequence_raw = EXCLUDED.client_sequence_raw,
-            cleared = EXCLUDED.cleared
-          WHERE (EXCLUDED.client_sequence_raw > 0
+            cleared = EXCLUDED.cleared,
+            actor_email = EXCLUDED.actor_email
+          WHERE (
+                 _collab_awareness.actor_email IS NOT DISTINCT FROM EXCLUDED.actor_email
+                 OR _collab_awareness.last_seen <
+                   EXCLUDED.last_seen - CASE
+                     WHEN _collab_awareness.cleared THEN ${ROW_TTL_MS * 2}
+                     ELSE ${ROW_TTL_MS}
+                   END
+               )
+            AND ((EXCLUDED.client_sequence_raw > 0
                  AND (( _collab_awareness.client_sequence_raw > 0
                         AND EXCLUDED.client_sequence_raw > _collab_awareness.client_sequence_raw)
                    OR (_collab_awareness.client_sequence_raw = 0
@@ -171,7 +191,7 @@ export async function writeAwarenessRow(
              OR (EXCLUDED.client_sequence_raw = 0
                  AND EXCLUDED.client_sequence = 0
                  AND _collab_awareness.client_sequence = 0
-                 AND _collab_awareness.cleared = FALSE)
+                 AND _collab_awareness.cleared = FALSE))
           RETURNING client_id`,
     args: [
       docId,
@@ -181,6 +201,7 @@ export async function writeAwarenessRow(
       storedSequence,
       cleared,
       isLegacyClockSequence ? clientSequence : 0,
+      actorEmail?.trim().toLowerCase() || null,
     ],
   });
   const applied = rows.length > 0;
@@ -247,21 +268,32 @@ export async function loadAwarenessRowsStrict(
 export async function loadAwarenessClientSequence(
   docId: string,
   clientId: number,
-): Promise<{ clientSequence: number; cleared: boolean } | undefined> {
+): Promise<
+  | { clientSequence: number; cleared: boolean; actorEmail: string | null }
+  | undefined
+> {
   await ensureTable();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT client_sequence, cleared
+    sql: `SELECT client_sequence, cleared, actor_email
           FROM _collab_awareness
           WHERE doc_id = ? AND client_id = ?`,
     args: [docId, clientId],
   });
   const row = rows[0] as
-    | { client_sequence?: unknown; cleared?: unknown }
+    | {
+        client_sequence?: unknown;
+        cleared?: unknown;
+        actor_email?: unknown;
+      }
     | undefined;
   if (!row) return undefined;
   return {
     clientSequence: Number(row.client_sequence ?? 0),
     cleared: row.cleared === true,
+    actorEmail:
+      typeof row.actor_email === "string"
+        ? row.actor_email.trim().toLowerCase()
+        : null,
   };
 }
 

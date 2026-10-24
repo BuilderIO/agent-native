@@ -12,10 +12,15 @@ vi.mock("h3", () => ({
 }));
 
 const mockReadBody = vi.fn();
+const mockGetSession = vi.fn();
+vi.mock("../server/auth.js", () => ({
+  getSession: (...args: unknown[]) => mockGetSession(...args),
+}));
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
 }));
 
+import { AGENT_CLIENT_ID } from "./agent-identity.js";
 import {
   emitAwarenessChange,
   getAwarenessEmitter,
@@ -128,10 +133,17 @@ describe("awareness scope retention", () => {
 });
 
 describe("postAwareness handler", () => {
+  beforeEach(() => {
+    mockGetSession.mockResolvedValue({ email: "collaborator@example.com" });
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     mockReadBody.mockReset();
+    mockGetSession.mockReset();
     getDocAwareness("post-doc").clear();
+    getDocAwareness("post-doc-actor").clear();
+    getDocAwareness("post-doc-agent-id").clear();
   });
 
   it("returns 400 when docId is missing", async () => {
@@ -147,6 +159,58 @@ describe("postAwareness handler", () => {
     const res = await postAwareness(ev);
     expect(ev._status).toBe(400);
     expect(res).toEqual({ error: "clientId and state required" });
+  });
+
+  it("does not let a caller claim the reserved agent client id", async () => {
+    mockReadBody.mockResolvedValue({
+      clientId: AGENT_CLIENT_ID,
+      state: JSON.stringify({ user: { name: "Spoofed agent" } }),
+    });
+    const ev = event({ docId: "post-doc-agent-id" });
+
+    await expect(postAwareness(ev)).resolves.toEqual({
+      error: "invalid clientId",
+    });
+    expect(ev._status).toBe(400);
+    expect(getDocAwareness("post-doc-agent-id").has(AGENT_CLIENT_ID)).toBe(
+      false,
+    );
+  });
+
+  it("binds posted awareness to the authenticated collaborator", async () => {
+    const docId = "post-doc-actor";
+    mockGetSession.mockResolvedValueOnce({ email: "owner@example.com" });
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 51,
+      clientSequence: 1,
+      state: "owner-state",
+    });
+    await postAwareness(event({ docId }));
+
+    mockGetSession.mockResolvedValueOnce({ email: "viewer@example.com" });
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 51,
+      clientSequence: 2,
+      state: "forged-state",
+    });
+    const ev = event({ docId });
+    await expect(postAwareness(ev)).resolves.toEqual({
+      error: "Awareness client id belongs to another collaborator",
+    });
+
+    expect(ev._status).toBe(403);
+    expect(getDocAwareness(docId).get(51)?.state).toBe("owner-state");
+  });
+
+  it("requires an authenticated collaborator to post awareness", async () => {
+    mockGetSession.mockResolvedValueOnce(null);
+    mockReadBody.mockResolvedValueOnce({ clientId: 5, state: "guest-state" });
+    const ev = event({ docId: "post-doc" });
+
+    await expect(postAwareness(ev)).resolves.toEqual({
+      error: "Authentication required",
+    });
+    expect(ev._status).toBe(401);
   });
 
   it("rejects a client sequence beyond the allowed legacy clock skew", async () => {

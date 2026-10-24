@@ -10,6 +10,7 @@ import type { H3Event } from "h3";
 
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { AGENT_CLIENT_ID } from "./agent-identity.js";
 import {
   MAX_AWARENESS_CLIENT_SEQUENCE,
   MAX_LEGACY_AWARENESS_CLOCK_SKEW_MS,
@@ -283,6 +284,11 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
   const session = await getSession(event).catch(() => null);
+  if (!session?.email?.trim()) {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+  const actorEmail = session.email.trim().toLowerCase();
   const contextScope = (
     event.context as { _collabAwarenessScope?: AwarenessScope } | undefined
   )?._collabAwarenessScope;
@@ -297,6 +303,14 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   if (clientId == null || state === undefined) {
     setResponseStatus(event, 400);
     return { error: "clientId and state required" };
+  }
+  if (
+    !Number.isSafeInteger(clientId) ||
+    clientId < 0 ||
+    clientId === AGENT_CLIENT_ID
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "invalid clientId" };
   }
   if (
     (state !== null && typeof state !== "string") ||
@@ -320,13 +334,16 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     lastSeen,
     sequence,
     state === null,
+    actorEmail,
   );
-  if (
-    !applied &&
-    clientSequence !== undefined &&
-    sequence <= MAX_AWARENESS_CLIENT_SEQUENCE
-  ) {
-    const current = await loadAwarenessClientSequence(docId, clientId);
+  const current = applied
+    ? undefined
+    : await loadAwarenessClientSequence(docId, clientId);
+  if (current && current.actorEmail !== actorEmail) {
+    setResponseStatus(event, 403);
+    return { error: "Awareness client id belongs to another collaborator" };
+  }
+  if (!applied) {
     setResponseStatus(event, 409);
     setResponseHeader(
       event,

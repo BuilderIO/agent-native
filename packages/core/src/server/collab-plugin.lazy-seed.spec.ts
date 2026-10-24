@@ -362,8 +362,8 @@ describe("collab lazy source seeding", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
-  it("requires editor access for resource awareness writes", async () => {
-    mocks.assertAccess.mockResolvedValue({
+  it("allows viewers to post resource awareness within the payload limit", async () => {
+    mocks.resolveAccess.mockResolvedValue({
       resource: { ownerEmail: "owner@example.com", orgId: "org-1" },
     });
     const handler = await mountCollabHandler({
@@ -376,23 +376,25 @@ describe("collab lazy source seeding", () => {
     const event = makeEvent();
     event.method = "POST";
     event.url = new URL("http://localhost/design-file-1/awareness");
+    event.headers.set("content-length", "128");
 
-    await handler(event);
+    await expect(handler(event)).resolves.toEqual({ ok: true });
 
-    expect(mocks.assertAccess).toHaveBeenCalledWith(
+    expect(mocks.resolveAccess).toHaveBeenCalledWith(
       "design",
       "design-1",
-      "editor",
       undefined,
       { skipResourceBody: true },
     );
-    expect(mocks.resolveAccess).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.postAwareness).toHaveBeenCalledOnce();
     expect(event.context._collabAwarenessScope).toEqual({
       resourceType: "design",
       resourceId: "design-1",
       owner: "owner@example.com",
       orgId: "org-1",
     });
+    expect(event.context._collabMaxPayloadBytes).toBe(2 * 1024 * 1024);
   });
 
   it("maps a JSON collab id back to its source row", async () => {

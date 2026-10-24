@@ -15,6 +15,7 @@ const dbRows = vi.hoisted(
         client_sequence: number;
         client_sequence_raw: number;
         cleared: boolean;
+        actor_email: string | null;
       }
     >(),
 );
@@ -46,6 +47,10 @@ vi.mock("../db/client.js", async () => {
         const key = rowKey(String(args[0]), Number(args[1]));
         let clientSequence = Number(args[4]);
         const rawSequence = Number(args[6]);
+        const actorEmail =
+          typeof args[7] === "string"
+            ? String(args[7]).trim().toLowerCase()
+            : null;
         const previous = dbRows.get(key);
         let applies = false;
         if (!previous) {
@@ -81,6 +86,15 @@ vi.mock("../db/client.js", async () => {
             previous.client_sequence === 0 &&
             !previous.cleared;
         }
+        if (
+          applies &&
+          previous &&
+          previous.actor_email !== actorEmail &&
+          previous.last_seen >=
+            Number(args[3]) - (previous.cleared ? 60_000 : 30_000)
+        ) {
+          applies = false;
+        }
         if (applies) {
           dbRows.set(key, {
             state: String(args[2]),
@@ -88,6 +102,7 @@ vi.mock("../db/client.js", async () => {
             client_sequence: clientSequence,
             client_sequence_raw: rawSequence,
             cleared: Boolean(args[5]),
+            actor_email: actorEmail,
           });
           return { rows: [{ client_id: Number(args[1]) }], rowsAffected: 1 };
         }
@@ -115,6 +130,7 @@ vi.mock("../db/client.js", async () => {
                 {
                   client_sequence: row.client_sequence,
                   cleared: row.cleared,
+                  actor_email: row.actor_email,
                 },
               ]
             : [],
@@ -192,6 +208,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 import {
   _resetAwarenessStoreForTests,
   deleteAwarenessRow,
+  loadAwarenessClientSequence,
   loadAwarenessRows,
   loadAwarenessRowsStrict,
   upsertAwarenessRow,
@@ -359,7 +376,91 @@ describe("awareness-store", () => {
       client_sequence: 0,
       client_sequence_raw: 0,
       cleared: true,
+      actor_email: null,
     });
+  });
+
+  it("keeps an active client id bound to its first authenticated actor", async () => {
+    await expect(
+      writeAwarenessRow(
+        "doc-actor",
+        9,
+        "owner-state",
+        1_000,
+        1,
+        false,
+        "owner@example.com",
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      writeAwarenessRow(
+        "doc-actor",
+        9,
+        "forged-state",
+        2_000,
+        2,
+        false,
+        "viewer@example.com",
+      ),
+    ).resolves.toBe(false);
+
+    await expect(loadAwarenessClientSequence("doc-actor", 9)).resolves.toEqual({
+      clientSequence: 1,
+      cleared: false,
+      actorEmail: "owner@example.com",
+    });
+    await expect(loadAwarenessRows("doc-actor", 2_000)).resolves.toMatchObject([
+      { clientId: 9, state: "owner-state" },
+    ]);
+  });
+
+  it("lets a client claim a legacy row after its presence expires", async () => {
+    await upsertAwarenessRow("doc-legacy-owner", 9, "expired-state", 1_000);
+
+    await expect(
+      writeAwarenessRow(
+        "doc-legacy-owner",
+        9,
+        "new-owner-state",
+        31_001,
+        1,
+        false,
+        "owner@example.com",
+      ),
+    ).resolves.toBe(true);
+
+    expect(dbRows.get(rowKey("doc-legacy-owner", 9))).toMatchObject({
+      state: "new-owner-state",
+      actor_email: "owner@example.com",
+    });
+  });
+
+  it("serves awareness when the best-effort expiry purge fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    purgeFails.value = true;
+
+    await expect(
+      writeAwarenessRow(
+        "doc-purge-failure",
+        9,
+        "visible-state",
+        40_000,
+        1,
+        false,
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      loadAwarenessRowsStrict("doc-purge-failure", 40_000),
+    ).resolves.toMatchObject([{ clientId: 9, state: "visible-state" }]);
+    expect(warn).toHaveBeenCalledWith(
+      "[collab-awareness] expired presence purge failed",
+      expect.any(Error),
+    );
+    expect(purgeCalls.count).toBe(2);
+
+    warn.mockRestore();
   });
 
   it("normalizes accepted legacy wall clocks before storing their sequence", async () => {
