@@ -425,11 +425,18 @@ blocking. Use the connected Slack integration for any Slack work; never use
 computer use, a browser, screenshots, or UI automation to operate Slack.
 Shipping does not independently take ownership of new Slack feedback, except
 when the user explicitly authorizes follow-ups or reactions for a bounded scope.
-For that scope, preserve existing marks and record the authorization. Before
-the ship handoff and final disposition, enumerate every in-scope root with this
-actor's `👀`; each must have a current same-actor status after the latest human
-reply. When the user says all Slack items were replied to, report this complete
-root set. Keep all reactions in place: never remove or clean them up; add
+For that scope, preserve existing marks and record the authorization in the
+inventory checker's confirmation input. Before the ship handoff and final
+disposition, reconcile every in-scope root carrying this actor's `👀`, `✅`, or
+`🎫`; each must have a current same-actor status after the latest human reply.
+When the user says all Slack items were replied to, report the complete bounded
+set of roots carrying this actor's `👀`, with each current status confirmed.
+After merge, update an existing same-thread status that still says local
+verification passed or merge is pending when direct post-merge proof changes
+its disposition to **Fixed**. Do not post another message if the current status
+already reflects the merged disposition; the update is for the changed outcome,
+not a merge announcement.
+Keep all reactions in place: never remove or clean them up; add
 `✅` when accepted scope is complete and verified, and `🎫` only for distinct
 remaining work needing follow-up or an owner. Keep each Slack reply to one short sentence in plain, non-technical
 language, followed by the exact bot disclosure `this was sent from a bot.` Say

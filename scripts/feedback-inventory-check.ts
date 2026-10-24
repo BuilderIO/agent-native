@@ -83,6 +83,11 @@ type OwnershipSkip = {
   reason: "foreign_workflow_mark" | "mag_opt_out";
 };
 
+type AuthorizedHeldRoot = {
+  channelId: string;
+  rootTs: string;
+};
+
 type ClusteredUnder = {
   channelId: string;
   rootTs: string;
@@ -287,6 +292,7 @@ type RawThreadPages = Record<string, Record<string, RawThreadPageEvidence[]>>;
 function validateNoHeldThreadEvidence(
   channelName: string,
   heldRootTimestamps: Set<string>,
+  authorizedHeldRootTimestamps: Set<string>,
   threadSnapshots: ThreadSnapshot[],
   rawThreadRoots: string[],
 ): void {
@@ -295,7 +301,10 @@ function validateNoHeldThreadEvidence(
       snapshot.rootTs,
       `${channelName}.threadSnapshot.rootTs`,
     ).toString();
-    if (heldRootTimestamps.has(rootTs)) {
+    if (
+      heldRootTimestamps.has(rootTs) &&
+      !authorizedHeldRootTimestamps.has(rootTs)
+    ) {
       throw new Error(
         `${channelName}: held root ${slackTimestampFromMicros(BigInt(rootTs))} must not include threadSnapshot evidence`,
       );
@@ -306,7 +315,10 @@ function validateNoHeldThreadEvidence(
       rawRootTs,
       `${channelName}.rawThreadRoot`,
     ).toString();
-    if (heldRootTimestamps.has(rootTs)) {
+    if (
+      heldRootTimestamps.has(rootTs) &&
+      !authorizedHeldRootTimestamps.has(rootTs)
+    ) {
       throw new Error(
         `${channelName}: held root ${slackTimestampFromMicros(BigInt(rootTs))} must not include raw thread evidence`,
       );
@@ -544,9 +556,10 @@ function validateSourceFilesInSnapshot(
   parentName: string,
   parent: Parent,
   snapshot: ThreadSnapshot | undefined,
+  isHeldWithoutAuthorization = parent.ownershipSkip !== undefined,
 ): void {
   if (!snapshot) {
-    if (parent.ownershipSkip) return;
+    if (isHeldWithoutAuthorization) return;
     if (parent.files?.length) {
       throw new Error(
         `${parentName}: attached source files need a full thread read-back`,
@@ -835,13 +848,22 @@ function validateOwnershipSkipRecord(
   parentName: string,
   parent: Parent,
   expectedRootTs: string,
+  authorizedHeldRoot = false,
 ): boolean {
   const skip = parent.ownershipSkip;
   if (!skip) return false;
   if (
     skip.rootTs !== expectedRootTs ||
-    (skip.reason !== "foreign_workflow_mark" &&
-      skip.reason !== "mag_opt_out") ||
+    (skip.reason !== "foreign_workflow_mark" && skip.reason !== "mag_opt_out")
+  ) {
+    throw new Error(
+      `${parentName}: ownership skip must identify the exact root and safe-skip reason`,
+    );
+  }
+  if (authorizedHeldRoot) {
+    return false;
+  }
+  if (
     parent.disposition !== "Skipped" ||
     (parent.fixedScopes?.length ?? 0) > 0 ||
     (parent.unfinishedScopes?.length ?? 0) > 0 ||
@@ -1133,8 +1155,10 @@ function validatePreservedAdministrativeEye(
 
 function validateHeldMessageSkipRecords(
   channelName: string,
+  channelId: string,
   parents: Iterable<Parent>,
   rootAudits: Parent[] = [],
+  authorizedHeldRootKeys: ReadonlySet<string> = new Set(),
 ): void {
   const ownershipSkipRoots = new Map<string, Parent>();
   const parentRows = [...parents];
@@ -1166,6 +1190,25 @@ function validateHeldMessageSkipRecords(
       `${channelName} source ${parent.ts}.threadParentTs`,
     ).toString();
     const heldRoot = ownershipSkipRoots.get(rootTs);
+    if (
+      heldRoot &&
+      authorizedHeldRootKeys.has(
+        heldRootAuthorizationKey(channelId, parent.threadParentTs),
+      )
+    ) {
+      if (
+        !heldRoot ||
+        !parent.ownershipSkip ||
+        heldRoot.ownershipSkip?.rootTs !==
+          slackTimestampFromMicros(BigInt(rootTs)) ||
+        heldRoot.ownershipSkip.reason !== parent.ownershipSkip.reason
+      ) {
+        throw new Error(
+          `${channelName} source ${parent.ts}: every message under an authorized held root must preserve its exact root and held reason`,
+        );
+      }
+      continue;
+    }
     if (!heldRoot && !parent.ownershipSkip) continue;
     if (
       !heldRoot ||
@@ -3983,7 +4026,10 @@ function validateInScopeReportOwnership(
   }
 }
 
-function validateClusteredRootLinks(inventory: Inventory): void {
+function validateClusteredRootLinks(
+  inventory: Inventory,
+  authorizedHeldRootKeys: ReadonlySet<string> = new Set(),
+): void {
   const rootsByChannelAndTs = new Map<string, Parent>();
   const rootKey = (channelId: string, rootTs: string) =>
     `${channelId}\u0000${rootTs}`;
@@ -4099,22 +4145,29 @@ function validateClusteredRootLinks(inventory: Inventory): void {
       );
     }
     if (canonicalRoot.ownershipSkip) {
+      const authorizedHeldRoot = authorizedHeldRootKeys.has(
+        heldRootAuthorizationKey(link.channelId, canonicalRoot.ts),
+      );
       validateOwnershipSkipRecord(
         `${link.channelId} held root ${canonicalRoot.ts}`,
         canonicalRoot,
         canonicalRoot.ts,
+        authorizedHeldRoot,
       );
       validateOwnershipSkipRootEvidence(
         `${link.channelId} held root ${canonicalRoot.ts}`,
         canonicalRoot,
         inventory.sweepActorId,
       );
-      if (canonicalRoot.ownershipSkip.reason !== "foreign_workflow_mark") {
+      if (
+        canonicalRoot.ownershipSkip.reason !== "foreign_workflow_mark" &&
+        !authorizedHeldRoot
+      ) {
         throw new Error(
           `${parentName}: a Clustered canonical root must have an active owner, not only a local opt-out`,
         );
       }
-      continue;
+      if (!authorizedHeldRoot) continue;
     }
 
     if (canonicalRoot.disposition === "Owned elsewhere") {
@@ -4611,10 +4664,13 @@ function validateSupplementalRootAudit(
   requireFreshReads: boolean,
   finalPageReadAt: number | null,
   requireSourceText = false,
+  authorizedHeldRoot = false,
 ): void {
   const parentName = `${channelName} supplemental root ${rootTs}`;
+  const isHeldWithoutAuthorization =
+    parent.ownershipSkip !== undefined && !authorizedHeldRoot;
   validateSlackFiles(`${parentName}.files`, parent.files);
-  if (parent.ownershipSkip && parent.files !== undefined) {
+  if (isHeldWithoutAuthorization && parent.files !== undefined) {
     throw new Error(
       `${parentName}: without a source file listing, held-root attachment state must remain unknown`,
     );
@@ -4624,7 +4680,12 @@ function validateSupplementalRootAudit(
     parent.threadParentTs,
     `${parentName}.threadParentTs`,
   );
-  validateSourceFilesInSnapshot(parentName, parent, threadSnapshot);
+  validateSourceFilesInSnapshot(
+    parentName,
+    parent,
+    threadSnapshot,
+    isHeldWithoutAuthorization,
+  );
   validateRootResolution(
     parentName,
     parent,
@@ -4638,7 +4699,9 @@ function validateSupplementalRootAudit(
   if (
     parent.rootClassification !== "report" &&
     parent.rootClassification !== "administrative" &&
-    !(parent.rootClassification === "unclassified" && parent.ownershipSkip)
+    !(
+      parent.rootClassification === "unclassified" && isHeldWithoutAuthorization
+    )
   ) {
     throw new Error(
       `${parentName}: classify the root as report or administrative`,
@@ -4650,12 +4713,15 @@ function validateSupplementalRootAudit(
   ) {
     throw new Error(`${parentName}: administrative roots need a reason`);
   }
-  if (!parent.ownershipSkip || parent.rootClassification !== "unclassified") {
+  if (
+    !isHeldWithoutAuthorization ||
+    parent.rootClassification !== "unclassified"
+  ) {
     validateRootClassificationJudgment(
       parentName,
       parent,
       sweepActorId,
-      parent.ownershipSkip ? parent.sourceText : threadSnapshot?.rootText,
+      isHeldWithoutAuthorization ? parent.sourceText : threadSnapshot?.rootText,
       requireSourceText,
     );
   }
@@ -4700,14 +4766,16 @@ function validateSupplementalRootAudit(
     parent.reactionOwners,
   );
 
-  if (
-    validateOwnershipSkipRecord(
-      parentName,
-      parent,
-      slackTimestampFromMicros(timestamp),
-    )
-  ) {
+  const remainsHeld = validateOwnershipSkipRecord(
+    parentName,
+    parent,
+    slackTimestampFromMicros(timestamp),
+    authorizedHeldRoot,
+  );
+  if (parent.ownershipSkip) {
     validateOwnershipSkipRootEvidence(parentName, parent, sweepActorId);
+  }
+  if (remainsHeld) {
     return;
   }
 
@@ -5020,7 +5088,7 @@ function validateSupplementalRootAudit(
   }
 }
 
-const MAX_READ_AGE_MS = 15 * 60 * 1000;
+const MAX_READ_AGE_MS = 30 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 60 * 1000;
 
 type ValidationOptions = {
@@ -5039,13 +5107,18 @@ type OrchestratorScopeConfirmation = {
   decision: "explicitly-requested";
   userRequest: string;
   channelIds: string[];
+  authorizedHeldRoots?: AuthorizedHeldRoot[];
 };
+
+function heldRootAuthorizationKey(channelId: string, rootTs: string): string {
+  return `${channelId}\u0000${slackTimestamp(rootTs, "authorized held root timestamp").toString()}`;
+}
 
 function validateOrchestratorScopeConfirmation(
   confirmation: unknown,
   userRequest: string,
   requestedChannelIds: Set<string>,
-): void {
+): Set<string> {
   if (confirmation === undefined) {
     throw new Error(
       "narrowed scope is pending a human check; provide a separate orchestrator confirmation file",
@@ -5087,6 +5160,49 @@ function validateOrchestratorScopeConfirmation(
       "external scope confirmation must match the inventory's exact userRequest and channelIds",
     );
   }
+
+  const authorizedHeldRoots = record.authorizedHeldRoots;
+  if (authorizedHeldRoots === undefined) return new Set();
+  if (!Array.isArray(authorizedHeldRoots) || authorizedHeldRoots.length === 0) {
+    throw new Error(
+      "external scope confirmation authorizedHeldRoots must be a non-empty list of exact channel/root pairs",
+    );
+  }
+  const authorizedRootKeys = new Set<string>();
+  for (const [index, root] of authorizedHeldRoots.entries()) {
+    const label = `external scope confirmation authorizedHeldRoots[${index}]`;
+    const entry =
+      root && typeof root === "object" && !Array.isArray(root)
+        ? (root as Record<string, unknown>)
+        : undefined;
+    if (
+      !entry ||
+      Object.keys(entry).sort().join(",") !== "channelId,rootTs" ||
+      typeof entry.channelId !== "string" ||
+      !entry.channelId.trim() ||
+      typeof entry.rootTs !== "string" ||
+      !entry.rootTs.trim() ||
+      !requestedChannelIds.has(entry.channelId)
+    ) {
+      throw new Error(
+        `${label} must contain only an exact requested channelId and rootTs`,
+      );
+    }
+    const canonicalRootTs = slackTimestampFromMicros(
+      slackTimestamp(entry.rootTs, `${label}.rootTs`),
+    );
+    if (entry.rootTs !== canonicalRootTs) {
+      throw new Error(
+        `${label}.rootTs must use its exact canonical Slack timestamp`,
+      );
+    }
+    const key = heldRootAuthorizationKey(entry.channelId, entry.rootTs);
+    if (authorizedRootKeys.has(key)) {
+      throw new Error(`${label} duplicates an authorized channel/root pair`);
+    }
+    authorizedRootKeys.add(key);
+  }
+  return authorizedRootKeys;
 }
 
 function withoutQuotedScopeContext(userRequest: string): string {
@@ -5302,7 +5418,7 @@ function validateReadAt(
   }
   const age = Date.now() - readAt;
   if (age > MAX_READ_AGE_MS) {
-    throw new Error(`${label} is older than 15 minutes; ${nextAction}`);
+    throw new Error(`${label} is older than 30 minutes; ${nextAction}`);
   }
   if (age < -MAX_FUTURE_SKEW_MS) {
     throw new Error(
@@ -6940,6 +7056,7 @@ function validateSourceReceipt(
   receipt: SourceReceipt,
   rawSourcePages: RawSourcePages | undefined,
   requireSourceText: boolean,
+  authorizedHeldRootKeys: ReadonlySet<string> = new Set(),
 ): void {
   if (
     !receipt ||
@@ -7066,7 +7183,14 @@ function validateSourceReceipt(
               `${pageName} result ${rowIndex + 1}: preserve the exact raw Slack message body`,
             );
           }
-          return inventoryPage.parents[rowIndex]?.ownershipSkip
+          const parent = inventoryPage.parents[rowIndex];
+          const authorizedHeldRoot =
+            parent?.ts === parent?.threadParentTs &&
+            parent?.ownershipSkip !== undefined &&
+            authorizedHeldRootKeys.has(
+              heldRootAuthorizationKey(channel.channelId, parent.ts),
+            );
+          return parent?.ownershipSkip && !authorizedHeldRoot
             ? row.rawText
             : row.text;
         }),
@@ -7084,7 +7208,13 @@ function validateSourceReceipt(
               `${parentName}: attachment IDs, names, and MIME types must match the raw source listing`,
             );
           }
-        } else if (parent.ownershipSkip && Object.hasOwn(parent, "files")) {
+        } else if (
+          parent.ownershipSkip &&
+          !authorizedHeldRootKeys.has(
+            heldRootAuthorizationKey(channel.channelId, parent.ts),
+          ) &&
+          Object.hasOwn(parent, "files")
+        ) {
           throw new Error(
             `${parentName}: without a raw source file listing, held-root attachment state must remain unknown`,
           );
@@ -7137,6 +7267,13 @@ function validateSourceReceipt(
             channel.threadSnapshots?.find(
               (snapshot) => snapshot.rootTs === parent.threadParentTs,
             ),
+            parent.ownershipSkip !== undefined &&
+              !(
+                parent.ts === parent.threadParentTs &&
+                authorizedHeldRootKeys.has(
+                  heldRootAuthorizationKey(channel.channelId, parent.ts),
+                )
+              ),
           ))
       ) {
         throw new Error(
@@ -7151,10 +7288,11 @@ function sourceTextMatchesCapturedSearch(
   parent: Parent,
   capturedSearchText: string,
   snapshot: ThreadSnapshot | undefined,
+  isHeldWithoutAuthorization = parent.ownershipSkip !== undefined,
 ): boolean {
   if (parent.sourceText === capturedSearchText) {
     if (parent.sourceText.trim() !== "") return true;
-    if (parent.ownershipSkip) return snapshot === undefined;
+    if (isHeldWithoutAuthorization) return snapshot === undefined;
     const threadText = sourceTextFromThreadSnapshot(parent, snapshot);
     return (
       typeof threadText === "string" &&
@@ -7225,9 +7363,10 @@ function validateRootClassificationText(
   parent: Parent,
   snapshot: ThreadSnapshot | undefined,
   required: boolean,
+  isHeldWithoutAuthorization = parent.ownershipSkip !== undefined,
 ): void {
   if (!required) return;
-  if (parent.ownershipSkip) {
+  if (isHeldWithoutAuthorization) {
     if (typeof parent.sourceText !== "string") {
       throw new Error(
         `${parentName}: a held in-page root still needs its exact channel-scan source text`,
@@ -7916,6 +8055,29 @@ function validateInventory(
     );
   }
   const requestedChannelIds = new Set(scope.channelIds as string[]);
+  const scopeConfirmationRecord =
+    options.scopeConfirmation &&
+    typeof options.scopeConfirmation === "object" &&
+    !Array.isArray(options.scopeConfirmation)
+      ? (options.scopeConfirmation as Record<string, unknown>)
+      : undefined;
+  const hasHeldRootAuthorization =
+    scopeConfirmationRecord !== undefined &&
+    Object.hasOwn(scopeConfirmationRecord, "authorizedHeldRoots");
+  let authorizedHeldRootKeys = new Set<string>();
+  if (hasHeldRootAuthorization) {
+    if (typeof scope.userRequest !== "string" || !scope.userRequest.trim()) {
+      throw new Error(
+        "scope.userRequest must record the exact direct user request for authorized held roots",
+      );
+    }
+    authorizedHeldRootKeys = validateOrchestratorScopeConfirmation(
+      options.scopeConfirmation,
+      scope.userRequest,
+      requestedChannelIds,
+    );
+  }
+  const matchedAuthorizedHeldRootKeys = new Set<string>();
 
   slackTimestamp(inventory.cutoffTs, "cutoffTs");
   if (!isSlackUserId(inventory.sweepActorId)) {
@@ -8165,25 +8327,65 @@ function validateInventory(
       );
     }
     const heldThreadRootTimestamps = new Set<string>();
+    const authorizedHeldRootTimestamps = new Set<string>();
     for (const page of channel.pages) {
       for (const parent of page.parents) {
         if (parent.ts === parent.threadParentTs && parent.ownershipSkip) {
-          heldThreadRootTimestamps.add(
-            slackTimestamp(parent.ts, `${name}.heldRoot.ts`).toString(),
+          const rootTimestamp = slackTimestamp(
+            parent.ts,
+            `${name}.heldRoot.ts`,
+          ).toString();
+          const authorizationKey = heldRootAuthorizationKey(
+            channel.channelId,
+            parent.ts,
           );
+          if (authorizedHeldRootKeys.has(authorizationKey)) {
+            if (
+              parent.ownershipSkip.reason !== "foreign_workflow_mark" &&
+              parent.ownershipSkip.reason !== "mag_opt_out"
+            ) {
+              throw new Error(
+                `${name}: explicit held-root authorization needs a directly verified held-root reason`,
+              );
+            }
+            authorizedHeldRootTimestamps.add(rootTimestamp);
+            matchedAuthorizedHeldRootKeys.add(authorizationKey);
+          } else {
+            heldThreadRootTimestamps.add(rootTimestamp);
+          }
         }
       }
     }
     for (const rootAudit of channel.threadRootAudits ?? []) {
       if (rootAudit.ownershipSkip) {
-        heldThreadRootTimestamps.add(
-          slackTimestamp(rootAudit.ts, `${name}.heldRootAudit.ts`).toString(),
+        const rootTimestamp = slackTimestamp(
+          rootAudit.ts,
+          `${name}.heldRootAudit.ts`,
+        ).toString();
+        const authorizationKey = heldRootAuthorizationKey(
+          channel.channelId,
+          rootAudit.ts,
         );
+        if (authorizedHeldRootKeys.has(authorizationKey)) {
+          if (
+            rootAudit.ownershipSkip.reason !== "foreign_workflow_mark" &&
+            rootAudit.ownershipSkip.reason !== "mag_opt_out"
+          ) {
+            throw new Error(
+              `${name}: explicit held-root authorization needs a directly verified held-root reason`,
+            );
+          }
+          authorizedHeldRootTimestamps.add(rootTimestamp);
+          matchedAuthorizedHeldRootKeys.add(authorizationKey);
+        } else {
+          heldThreadRootTimestamps.add(rootTimestamp);
+        }
       }
     }
     validateNoHeldThreadEvidence(
       name,
       heldThreadRootTimestamps,
+      authorizedHeldRootTimestamps,
       channel.threadSnapshots ?? [],
       Object.keys(options.rawThreadPages?.[channel.channelName] ?? {}),
     );
@@ -8493,6 +8695,12 @@ function validateInventory(
             parent,
             threadSnapshots.get(parent.threadParentTs),
             options.requireSourceText === true,
+            !(
+              parent.ts === parent.threadParentTs &&
+              authorizedHeldRootKeys.has(
+                heldRootAuthorizationKey(channel.channelId, parent.ts),
+              )
+            ),
           );
         }
         const key = timestamp.toString();
@@ -8524,10 +8732,16 @@ function validateInventory(
           );
         }
         const isRootMessage = timestamp === threadParentTimestamp;
+        const authorizedHeldRoot =
+          isRootMessage &&
+          authorizedHeldRootKeys.has(
+            heldRootAuthorizationKey(channel.channelId, parent.ts),
+          );
         const hasOwnershipSkip = validateOwnershipSkipRecord(
           parentName,
           parent,
           slackTimestampFromMicros(threadParentTimestamp),
+          authorizedHeldRoot,
         );
         if (parent.reactionChecked !== true && !hasOwnershipSkip) {
           throw new Error(`${parentName}: check reactions before triage`);
@@ -8565,7 +8779,7 @@ function validateInventory(
           );
         }
         if (isRootMessage) {
-          if (hasOwnershipSkip) {
+          if (isRootMessage && parent.ownershipSkip) {
             validateOwnershipSkipRootEvidence(
               parentName,
               parent,
@@ -8590,7 +8804,12 @@ function validateInventory(
           }
         }
         const threadSnapshot = threadSnapshots.get(parent.threadParentTs);
-        validateSourceFilesInSnapshot(parentName, parent, threadSnapshot);
+        validateSourceFilesInSnapshot(
+          parentName,
+          parent,
+          threadSnapshot,
+          parent.ownershipSkip !== undefined && !authorizedHeldRoot,
+        );
         if (
           !isRootMessage &&
           ((parent.fixedScopes?.length ?? 0) > 0 ||
@@ -9115,6 +9334,9 @@ function validateInventory(
         options.requireFreshReads === true,
         finalPageReadAt,
         options.requireSourceText === true,
+        authorizedHeldRootKeys.has(
+          heldRootAuthorizationKey(channel.channelId, rootAudit.ts),
+        ),
       );
     }
     if (auditedSupplementalRoots.size !== supplementalRoots.size) {
@@ -9125,8 +9347,10 @@ function validateInventory(
 
     validateHeldMessageSkipRecords(
       name,
+      channel.channelId,
       parentsByTimestamp.values(),
       channel.threadRootAudits ?? [],
+      authorizedHeldRootKeys,
     );
 
     if (options.requireOwnershipDiscovery) {
@@ -9208,7 +9432,14 @@ function validateInventory(
             `${name}: owned root ${rootTs} has no source or historical disposition audit`,
           );
         }
-        if (rootAudit.ownershipSkip) continue;
+        if (
+          rootAudit.ownershipSkip &&
+          !authorizedHeldRootKeys.has(
+            heldRootAuthorizationKey(channel.channelId, rootAudit.ts),
+          )
+        ) {
+          continue;
+        }
         const snapshot = [...threadSnapshots.values()].find(
           (candidate) =>
             slackTimestamp(
@@ -9552,7 +9783,21 @@ function validateInventory(
     );
   }
 
-  validateClusteredRootLinks(inventory);
+  const unmatchedAuthorizedHeldRoots = [...authorizedHeldRootKeys].filter(
+    (rootKey) => !matchedAuthorizedHeldRootKeys.has(rootKey),
+  );
+  if (unmatchedAuthorizedHeldRoots.length > 0) {
+    throw new Error(
+      `external scope confirmation authorizedHeldRoots must match exact held roots in this inventory; unmatched: ${unmatchedAuthorizedHeldRoots
+        .map((rootKey) => {
+          const [channelId, timestampMicros] = rootKey.split("\u0000");
+          return `${channelId}/${slackTimestampFromMicros(BigInt(timestampMicros!))}`;
+        })
+        .join(", ")}`,
+    );
+  }
+
+  validateClusteredRootLinks(inventory, authorizedHeldRootKeys);
 
   const inventoryChannelIds = [...channelIds].sort();
   const requestedChannelIdsSorted = [...requestedChannelIds].sort();
@@ -9653,6 +9898,7 @@ function validateInventory(
       options.sourceReceipt,
       options.rawSourcePages,
       options.requireSourceText === true,
+      authorizedHeldRootKeys,
     );
   }
 
@@ -15799,6 +16045,7 @@ if (args[0] === "--self-test" && args.length === 1) {
   }
   const scopeConfirmationForTestInventory = (
     inventory: Inventory,
+    authorizedHeldRoots?: AuthorizedHeldRoot[],
   ): OrchestratorScopeConfirmation | undefined => {
     if (
       typeof inventory.scope?.userRequest !== "string" ||
@@ -15811,6 +16058,9 @@ if (args[0] === "--self-test" && args.length === 1) {
       decision: "explicitly-requested",
       userRequest: inventory.scope.userRequest,
       channelIds: [...inventory.scope.channelIds],
+      ...(authorizedHeldRoots?.length
+        ? { authorizedHeldRoots: [...authorizedHeldRoots] }
+        : {}),
     };
   };
   const validateTestInventory = (
@@ -16649,6 +16899,103 @@ if (args[0] === "--self-test" && args.length === 1) {
         heldReportWithoutThread,
       ),
     });
+
+    const authorizedHeldRootRequest =
+      "Scan only #test-channel (C_TEST) and explicitly authorize follow-up on the held report root 10.000000 for this synthetic self-test.";
+    const authorizedHeldRootInventory = withPageRoot(
+      valid,
+      "10.000000",
+      (parent) => ({
+        ...parent,
+        reactionSummary:
+          "eyes (2): USWEEPER, UOTHER; white_check_mark (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER", "UOTHER"],
+          white_check_mark: ["USWEEPER"],
+        },
+        ownershipSkip: {
+          rootTs: "10.000000",
+          reason: "foreign_workflow_mark",
+        },
+      }),
+    );
+    authorizedHeldRootInventory.scope = {
+      ...authorizedHeldRootInventory.scope,
+      userRequest: authorizedHeldRootRequest,
+      narrowingJudgment: {
+        instruction: authorizedHeldRootRequest,
+        channelIds: ["C_TEST"],
+        humanVerified: true,
+        rationale:
+          "The synthetic direct request names this channel and exact held root.",
+      },
+    };
+    const authorizedHeldRootSidecar = scopeConfirmationForTestInventory(
+      authorizedHeldRootInventory,
+      [{ channelId: "C_TEST", rootTs: "10.000000" }],
+    );
+    if (!authorizedHeldRootSidecar) {
+      throw new Error("self-test failed to construct held-root authorization");
+    }
+    validateInventory(authorizedHeldRootInventory, {
+      scopeConfirmation: authorizedHeldRootSidecar,
+    });
+    const authorizedMagOptOutInventory = withPageRoot(
+      authorizedHeldRootInventory,
+      "10.000000",
+      (parent) => ({
+        ...parent,
+        reactionSummary:
+          "eyes (1): USWEEPER; white_check_mark (1): USWEEPER; mag (1): USWEEPER",
+        reactionOwners: {
+          eyes: ["USWEEPER"],
+          white_check_mark: ["USWEEPER"],
+          mag: ["USWEEPER"],
+        },
+        ownershipSkip: {
+          rootTs: "10.000000",
+          reason: "mag_opt_out",
+        },
+      }),
+    );
+    validateInventory(authorizedMagOptOutInventory, {
+      scopeConfirmation: scopeConfirmationForTestInventory(
+        authorizedMagOptOutInventory,
+        [{ channelId: "C_TEST", rootTs: "10.000000" }],
+      ),
+    });
+    expectFocusedFailure(
+      "held foreign-mark root without exact authorization",
+      () =>
+        validateInventory(authorizedHeldRootInventory, {
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            authorizedHeldRootInventory,
+          ),
+        }),
+      "held root 10.000000 must not include threadSnapshot evidence",
+    );
+    expectFocusedFailure(
+      "authorized held root in the wrong channel",
+      () =>
+        validateInventory(authorizedHeldRootInventory, {
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            authorizedHeldRootInventory,
+            [{ channelId: "C_OTHER", rootTs: "10.000000" }],
+          ),
+        }),
+      "exact requested channelId and rootTs",
+    );
+    expectFocusedFailure(
+      "authorization for a different root in the same channel",
+      () =>
+        validateInventory(heldReportWithoutThread, {
+          scopeConfirmation: scopeConfirmationForTestInventory(
+            heldReportWithoutThread,
+            [{ channelId: "C_TEST", rootTs: "10.000000" }],
+          ),
+        }),
+      "must match exact held roots in this inventory",
+    );
 
     const clusteredUnderHeldRoot = withPageRoot(
       clusteredRoot(valid, "9.500000"),
@@ -19562,7 +19909,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           },
           true,
         ),
-      "is older than 15 minutes",
+      "is older than 30 minutes",
     );
     const paginatedSummary = validateTestInventory({
       ...valid,
@@ -20647,7 +20994,7 @@ if (args[0] === "--self-test" && args.length === 1) {
           new Date(now - MAX_READ_AGE_MS - 1).toISOString(),
         ),
         diagnostic:
-          "older than 15 minutes; read the complete thread again after the final channel scan",
+          "older than 30 minutes; read the complete thread again after the final channel scan",
       },
       {
         name: "thread snapshot predates the final page",
@@ -21300,7 +21647,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             ),
           },
         ),
-      "older than 15 minutes",
+      "older than 30 minutes",
     );
     const staleHeldSupplementalRoot: Inventory = {
       ...heldSupplementalRoot,
@@ -21321,7 +21668,7 @@ if (args[0] === "--self-test" && args.length === 1) {
             staleHeldSupplementalRoot,
           ),
         }),
-      "older than 15 minutes",
+      "older than 30 minutes",
     );
     expectFocusedFailure(
       "source request missing the frozen upper bound",
@@ -21794,14 +22141,14 @@ if (args[0] === "--self-test" && args.length === 1) {
         reason: "foreign_workflow_mark",
       },
     };
-    validateHeldMessageSkipRecords("self-test held reply", [
+    validateHeldMessageSkipRecords("self-test held reply", "C_TEST", [
       heldSkipRoot,
       heldSkipReply,
     ]);
     expectFocusedFailure(
       "held reply without a matching skip record",
       () =>
-        validateHeldMessageSkipRecords("self-test held reply", [
+        validateHeldMessageSkipRecords("self-test held reply", "C_TEST", [
           heldSkipRoot,
           { ...heldSkipReply, ownershipSkip: undefined },
         ]),
@@ -22876,7 +23223,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 55} negative cases; 39 positive inventory cases plus 6 source-evidence cases; 6 handoff phrase cases; 8 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 58} negative cases; 41 positive inventory cases plus 6 source-evidence cases; 6 handoff phrase cases; 11 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -22898,10 +23245,10 @@ if (
   args.length > 4
 ) {
   console.error(
-    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json] (required for narrowed scope)",
+    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json] (required for narrowed scope or authorized held roots)",
   );
   console.error(
-    'Scope confirmation JSON: {"source":"orchestrator","decision":"explicitly-requested","userRequest":"<exact user instruction>","channelIds":["<channel ID>"]}',
+    'Scope confirmation JSON: {"source":"orchestrator","decision":"explicitly-requested","userRequest":"<exact direct user request>","channelIds":["<exact requested channel IDs>"],"authorizedHeldRoots":[{"channelId":"<exact channel ID>","rootTs":"<exact held-root timestamp>"}]} (authorizedHeldRoots is optional)',
   );
   process.exit(2);
 }

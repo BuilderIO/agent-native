@@ -5,15 +5,23 @@ Use the connected Slack integration for every Slack read and write. Never use a 
 At sweep exit, reconcile every report root in the scoped inventory that has
 this actor's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Every
 root with this actor's `👀` needs a current same-actor status after the latest
-human reply; “all Slack items replied to” means this complete root set. A direct
-reaction read showing another actor's workflow mark or this actor's `:mag:`
-holds a root by default. A direct user instruction may authorize follow-ups or
-reactions for an exact root or bounded sweep scope; record that authorization,
-preserve existing marks, and reconcile those roots as owned work. Without such
-authorization, record the root and safe-skip reason, then stop: do not open the
-thread, inspect reply reactions, write any reaction, or post a status. When this actor owns both `:mag:` and a workflow
-mark, use `mag_opt_out` and preserve the exact direct root reaction-owner
-record as history; the root remains held without a thread read or status reply.
+human reply; “all Slack items replied to” means this complete owned-👀 root set,
+not roots carrying only `✅` or `🎫`. A direct reaction read showing another
+actor's workflow mark or this actor's `:mag:` holds a root by default. A direct
+user instruction may authorize follow-ups or reactions for an exact root or
+bounded sweep scope. For an authorized held root, record the exact request,
+channel IDs, and each `{channelId, rootTs}` in the separate checker
+confirmation and pass it as the inventory checker's fourth input. Retain the
+matching `ownershipSkip` as provenance; the checker validates the exact pair
+against the root and fixed window, but cannot authenticate the original chat.
+Preserve existing marks, including `:mag:`, and reconcile only the authorized
+actions. This does not transfer another person's investigation or fix
+ownership. Keep linked reply-row skip records as provenance; they are not
+separate claims. Without matching authorization, record the root and safe-skip
+reason, then stop: do not open the thread, inspect reply reactions, write any
+reaction, or post a status. When this actor owns both `:mag:` and a workflow
+mark, use `mag_opt_out` only while the root remains unauthorized; preserve the
+exact direct root reaction-owner record as history.
 Capture
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
 owned by this task only when its reaction owner ID matches that actor ID. Each
@@ -27,7 +35,11 @@ name its owner when known. Do not explain absent reactions or mention a closed,
 historical `🎫`. Keep scope, evidence, and handoff details in the internal
 ledger.
 
-Do not send a routine second reply just to announce a merge or publication.
+Do not send a routine second reply just to announce a merge or publication. If
+the current status says local verification passed and merge is pending, update
+that same status to the merged disposition after direct post-merge proof; this
+changes the report outcome. Skip another reply when the current status already
+matches the merged disposition.
 
 <!-- framework-repo-only:start -->
 
@@ -154,9 +166,13 @@ End every new or edited Slack reply with the exact sentence
 not a substitute.
 
 Reactions are permanent history and do not replace the current disposition or
-status reply. For every eligible root this sweep reviews or intentionally skips,
-use root `👀` to show the sweep has taken responsibility for its status. At the
-root, `👀` records this workflow's claim, `✅` marks one or more named scopes
+status reply. For every eligible report this sweep reviews, including one it
+intentionally dispositions after review, use root `👀` to show the sweep has taken
+responsibility for its status. Do not separately claim or reply on an unowned
+duplicate, administrative post, person-assigned root, or unauthorized held
+root. When a direct user authorization covers a held root, record it in the
+checker confirmation and reconcile only its authorized actions. At the root,
+`👀` records this workflow's claim, `✅` marks one or more named scopes
 that passed direct post-change proof, and `🎫` tracks distinct human/team or
 reporter actions, including actions with no named owner yet. Do not use `🎫` as
 a generic “not reviewed” marker; it never replaces `👀` or a current status. The eye alone
@@ -164,9 +180,9 @@ does not mean work remains open. One root `✅` covers every verified scope
 listed in `fixedScopes[]`; one root `🎫` covers every action listed in
 `handoffs[]`, including unassigned, accepted, and completed actions. Completion
 evidence changes its status, not the historical `🎫` reaction. For every
-unheld root carrying any of this actor's marks, post or reuse a current status
-in that root's thread; unclaimed items, held roots, and another actor's marks
-are not ours to reply to. Reconcile
+unheld or explicitly authorized root carrying any of this actor's marks, post
+or reuse a current status in that root's thread; unclaimed items, unauthorized
+held roots, and another actor's marks are not ours to reply to. Reconcile
 each report as one unit: send or verify its current same-thread status reply,
 then immediately update and read back each applicable root reaction before
 advancing to the next report. Add `✅` as soon as any reported scope passes the

@@ -21,16 +21,20 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. Before reading or investigating an eligible root this sweep
-reviews or intentionally skips, claim it with root `👀` and read back the mark;
-keep the eye as claim history. Every root with this actor's `👀` needs a current
-same-actor thread status after the latest human reply. At exit, enumerate this
-complete bounded set; “all Slack items replied to” means each has a current
-status. A reply eye does not claim its parent. Use `🎫` only for a distinct
-pending human/team or reporter action, never as an unreviewed or status mark.
-Keep replies short, plain, and outcome-focused; when `🎫` applies, briefly name
-the pending action and owner. Keep proof in the ledger, preserve reaction
-history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
+Output is fixes. Before investigating an eligible report root this sweep will
+review, claim it with root `👀` and read back the mark; keep the eye as claim
+history. A reviewed report that is intentionally dispositioned, such as a
+subjective proposal, still gets the eye and a current status. Do not claim an
+administrative post, an unowned duplicate, or a person-assigned or otherwise
+held root unless the user authorizes that root or bounded scope. Every root
+with this actor's `👀` needs a current same-actor thread status after the latest
+human reply. At exit, enumerate this complete bounded set; “all Slack items
+replied to” means each root in this actor-owned eye set has a current status.
+A reply eye does not claim its parent. Use `🎫` only for a distinct pending
+human/team or reporter action, never as an unreviewed or status mark. Keep
+replies short, plain, and outcome-focused; when `🎫` applies, briefly name the
+pending action and owner. Keep proof in the ledger, preserve reaction history,
+and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 ## Slack channels and ownership
 
@@ -83,22 +87,22 @@ Never let a high eye count hide a verified scope without `✅` or a missing
 current status reply.
 
 **Held-thread boundary:** A direct root reaction read showing another person's
-`👀`, `✅`, or `🎫` means the thread belongs to that workflow; this actor's
-`:mag:` means this actor opted out. Record the exact root, reaction owners, and
-one reason (`foreign_workflow_mark` or `mag_opt_out`) in `ownershipSkip`, with
-`Skipped` disposition. When this actor owns both `:mag:` and a workflow mark,
-use `mag_opt_out` and preserve the exact root reaction-owner record as history.
-Without that authorization, do not open/read the thread, inspect reply
-reactions, add or remove reactions, or post a reply. Record the root and
-reaction owners in `ownershipSkip`. For a root covered by explicit user
-authorization, do not record `ownershipSkip`; preserve existing reactions,
-read the thread, and post or reuse its current status. Apply the same default
-skip to channel reply rows linked to an unauthorized held root. A linked pre-window root without source text remains
-`unclassified`; do not infer its original report from the reply. This explicit
-exception keeps ownership boundaries intact while allowing the rest of the
-window to be reconciled. A foreign `👀` without current status is still held
-unless the user explicitly authorized that root or its bounded sweep scope;
-never read it merely to decide whether its owner is active.
+`👀`, `✅`, or `🎫` means the thread belongs to that workflow by default; this
+actor's `:mag:` is an opt-out by default. Without direct user authorization,
+record the exact root, reaction owners, and one reason
+(`foreign_workflow_mark` or `mag_opt_out`) in `ownershipSkip`, with `Skipped`
+disposition. Do not open/read the thread, inspect reply reactions, add or remove
+reactions, or post a reply. For user-authorized roots, record the exact request,
+channel IDs, and each `{channelId, rootTs}` in the checker confirmation. Keep
+the matching `ownershipSkip` record as provenance; the checker treats only the
+listed root as authorized and requires its normal thread, status, and reaction
+evidence. Preserve every existing reaction, including `:mag:`. This does not
+transfer another person's investigation or fix ownership. Keep linked channel
+reply rows' skip records as provenance too; they are not separate claims. Apply
+the default skip to every unlisted held root. A linked pre-window root without
+source text remains `unclassified`; do not infer its original report from the
+reply. Never inspect an unlisted held root just to decide whether its owner is
+active.
 
 Only Steve's `:mag:` and `:yes-party:` count (`U0GCV21HC`). When Steve invokes,
 exhaust `hasmy::mag:` and `hasmy::yes-party:` searches within each channel's
@@ -109,11 +113,14 @@ task's claim.
 
 ## Phase 0: claim and reconcile
 
-Resolve known duplicates before claiming. Check the exact root reactions, then
-add and read back this task's root `👀` before investigating an eligible
-unowned report. A root this sweep intentionally skips after reviewing it still
-gets `👀` and a current status; use `ownershipSkip` only when the root remains
-held without user authorization.
+Resolve known duplicates before claiming. Keep an unowned duplicate linked to
+its canonical report without a separate eye or status; if this actor already
+owns a workflow mark on it, reconcile that mark and status. Check exact root
+reactions and apply the held-thread boundary before investigation. Add and read
+back this task's root `👀` before investigating an eligible unowned report. A
+root intentionally dispositioned after review still gets `👀` and a current
+status; person-assigned and other held roots remain `ownershipSkip` entries
+unless the user authorizes them.
 Reconcile only owned roots inside this invocation's fixed window and older
 roots explicitly linked by an in-window reply. Never expand a finite sweep to
 all historical roots just because this actor owns an old mark; widen the range
@@ -433,7 +440,7 @@ needed.
 
 Unclaimed scope/noise gets an internal recap row. Cluster duplicates. Before
 replying, apply the Slack ownership gate; stay out of marked messages and active
-human work.
+human work unless the user has authorized that exact root or bounded scope.
 
 ### Ask only answerable questions
 
