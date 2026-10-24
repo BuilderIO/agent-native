@@ -7,18 +7,26 @@ export type CliWrapperFlags = {
   agentTool?: false;
   needsApproval?: true;
   persistInBrowser?: false;
+  uiOnly?: true;
+  toolCallable?: false;
 };
 
 type BabelNode = { type: string; [key: string]: any };
 
-const READ_FLAGS = ["needsApproval", "persistInBrowser"] as const;
-type ReadFlag = (typeof READ_FLAGS)[number];
+/** The flags the reader checks, each with the value that keeps an action safe. */
+const SAFE_VALUES = {
+  needsApproval: true,
+  persistInBrowser: false,
+  uiOnly: true,
+  toolCallable: false,
+} as const;
+type ReadFlag = keyof typeof SAFE_VALUES;
+const READ_FLAGS = Object.keys(SAFE_VALUES) as ReadFlag[];
 /** A flag's literal value, or "unknown" when the source sets it some other way. */
 type ReadFlags = Partial<Record<ReadFlag, boolean | "unknown">>;
-const UNKNOWN_FLAGS: ReadFlags = {
-  needsApproval: "unknown",
-  persistInBrowser: "unknown",
-};
+const UNKNOWN_FLAGS: ReadFlags = Object.fromEntries(
+  READ_FLAGS.map((name) => [name, "unknown"]),
+);
 
 const TYPE_ONLY_WRAPPERS = new Set([
   "TSAsExpression",
@@ -182,7 +190,22 @@ function actionOptions(program: BabelNode): BabelNode | "unknown" | null {
   if (call) return unwrap(call.arguments[0]) ?? "unknown";
   if (calls.length > 0 || exported === "unknown") return "unknown";
   if (!exported || FUNCTIONS.has(exported.type)) return null;
-  return exported.type === "ObjectExpression" ? exported : "unknown";
+  return isActionObject(exported) ? exported : "unknown";
+}
+
+/**
+ * An object literal with its own `tool` and `run`, the shape the action
+ * loaders accept without `defineAction`. Any other object might be config
+ * that happens to carry a flag's name.
+ */
+function isActionObject(node: BabelNode): boolean {
+  if (node.type !== "ObjectExpression") return false;
+  const names = new Set(
+    node.properties.map((prop: BabelNode) =>
+      prop.type === "SpreadElement" ? null : propertyName(prop),
+    ),
+  );
+  return names.has("tool") && names.has("run");
 }
 
 /** The flags an options object sets, read in order the way JavaScript would. */
@@ -210,11 +233,13 @@ function readOptionFlags(options: BabelNode | "unknown"): ReadFlags {
  * The flags the dev scan reads from an action's source when it can't import
  * the module and falls back to running it through `pnpm action`. It parses
  * the source rather than running it, so it errs toward the safe side: only a
- * literal `needsApproval: false` skips the approval gate, and only a literal
- * `persistInBrowser: true` lets the browser keep results. Any other value,
- * options it can't see (spread in, passed by name, built by another helper or
- * re-exported), or a source it can't parse asks every time and keeps results
- * out of the browser's storage. A module that defines no action gets neither.
+ * literal `needsApproval: false` skips the approval gate, only a literal
+ * `persistInBrowser: true` lets the browser keep results, only a literal
+ * `uiOnly: false` lets the agent and other callers reach it, and only a
+ * literal `toolCallable: true` lets tool calls in. Any other value sets the
+ * safe one, and so do options it can't see (spread in, passed by name, built
+ * by another helper or re-exported) and a source it can't parse. A module
+ * that defines no action gets none of them.
  */
 export function cliWrapperFlagsFromSource(src: string): CliWrapperFlags {
   const out: CliWrapperFlags = {};
@@ -222,14 +247,13 @@ export function cliWrapperFlagsFromSource(src: string): CliWrapperFlags {
   const options = program ? actionOptions(program) : "unknown";
   if (options !== null) {
     const flags = readOptionFlags(options);
-    if (flags.needsApproval !== undefined && flags.needsApproval !== false) {
-      out.needsApproval = true;
-    }
-    if (
-      flags.persistInBrowser !== undefined &&
-      flags.persistInBrowser !== true
-    ) {
-      out.persistInBrowser = false;
+    for (const name of READ_FLAGS) {
+      const value = flags[name];
+      // Only leaving a flag out, or setting it to the literal opposite of
+      // its safe value, keeps the action open.
+      if (value !== undefined && value !== !SAFE_VALUES[name]) {
+        (out as Record<ReadFlag, boolean>)[name] = SAFE_VALUES[name];
+      }
     }
   }
   if (/\bagentTool\s*:\s*false\b/.test(src)) out.agentTool = false;

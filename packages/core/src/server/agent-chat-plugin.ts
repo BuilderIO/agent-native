@@ -1907,10 +1907,11 @@ export function createAgentChatPlugin(
               }
 
               // Static-parse the source for `http`, `agentTool: false`,
-              // `needsApproval` and `persistInBrowser` so the shell-wrapper
-              // fallback still mounts HTTP routes with the correct method,
-              // stays hidden when asked, keeps its approval gate and keeps its
-              // results out of browser storage. We can't load the .ts module to read
+              // `needsApproval`, `persistInBrowser`, `uiOnly` and
+              // `toolCallable` so the shell-wrapper fallback still mounts HTTP
+              // routes with the correct method, stays hidden when asked, keeps
+              // its approval gate and UI-only limits, and keeps its results out
+              // of browser storage. We can't load the .ts module to read
               // the real defineAction object in this Node context, so parsing
               // the source is the best we can do until the discovery is moved
               // into a Vite-aware codepath. The parser loads only on this path.
@@ -1922,14 +1923,19 @@ export function createAgentChatPlugin(
                   _fs.readFileSync(filePath, "utf-8"),
                 );
               } catch (error) {
-                // Without the source there's no telling whether the action
-                // asks first or keeps results out of browser storage, so it
-                // does both. The route stays the default POST.
+                // Without the source there's no telling which limits the
+                // action sets, so it gets all of them. The route stays the
+                // default POST.
                 console.warn(
-                  `[agent-native] Could not read ${dir}/${file}; it will ask for approval before it runs.`,
+                  `[agent-native] Could not read ${dir}/${file}; it will run only from the app's UI and ask for approval first.`,
                   error,
                 );
-                sniffed = { needsApproval: true, persistInBrowser: false };
+                sniffed = {
+                  needsApproval: true,
+                  persistInBrowser: false,
+                  uiOnly: true,
+                  toolCallable: false,
+                };
               }
 
               // Fallback: bash-based wrapper for CLI-style scripts

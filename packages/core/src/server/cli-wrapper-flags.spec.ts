@@ -11,7 +11,12 @@ describe("cliWrapperFlagsFromSource", () => {
       "  run: async () => ({}),",
       "});",
     ].join("\n");
-  const hidden = { needsApproval: true, persistInBrowser: false };
+  const hidden = {
+    needsApproval: true,
+    persistInBrowser: false,
+    uiOnly: true,
+    toolCallable: false,
+  };
 
   it("keeps the approval gate however an unimportable action declares it", () => {
     for (const flags of [
@@ -80,6 +85,10 @@ describe("cliWrapperFlagsFromSource", () => {
         "an action wrapped by another helper",
         "export default withLogging(defineAction({ needsApproval: false }));",
       ],
+      [
+        "a default object that isn't an action",
+        "export default { needsApproval: false, persistInBrowser: true };",
+      ],
       ["a source it can't parse", source("  needsApproval: false,,")],
     ] as const) {
       expect(cliWrapperFlagsFromSource(src), label).toEqual(hidden);
@@ -91,7 +100,35 @@ describe("cliWrapperFlagsFromSource", () => {
       cliWrapperFlagsFromSource(
         source("  ...approvalFlags,\n  needsApproval: false,"),
       ),
-    ).toEqual({ persistInBrowser: false });
+    ).toEqual({ persistInBrowser: false, uiOnly: true, toolCallable: false });
+  });
+
+  it("reads a plain action object with its own tool and run", () => {
+    const read = (flags: string) =>
+      cliWrapperFlagsFromSource(
+        [
+          "export default {",
+          '  tool: { description: "Send" },',
+          flags,
+          "  run: async () => ({}),",
+          "};",
+        ].join("\n"),
+      );
+    expect(read("  needsApproval: false,")).toEqual({});
+    expect(read("  needsApproval: true,")).toEqual({ needsApproval: true });
+  });
+
+  it("keeps UI-only and tool-call limits unless a literal lifts them", () => {
+    for (const [flags, want] of [
+      ["  uiOnly: true,", { uiOnly: true }],
+      ["  uiOnly: isUiOnly,", { uiOnly: true }],
+      ["  uiOnly: false,", {}],
+      ["  toolCallable: false,", { toolCallable: false }],
+      ["  toolCallable: allowTools,", { toolCallable: false }],
+      ["  toolCallable: true,", {}],
+    ] as const) {
+      expect(cliWrapperFlagsFromSource(source(flags)), flags).toEqual(want);
+    }
   });
 
   it("follows a renamed defineAction import and a default export by name", () => {
