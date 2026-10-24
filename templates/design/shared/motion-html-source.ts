@@ -1667,6 +1667,7 @@ function selectorEffectOnTarget(
   target: HtmlNode,
   targetNodeId: string,
   virtualNodeIdTarget: HtmlNode | null = target,
+  unknownPseudoIsDynamic = false,
 ): SelectorMatch {
   const compounds: CssTreeSelectorNode[][] = [[]];
   const combinators: string[] = [];
@@ -1691,6 +1692,7 @@ function selectorEffectOnTarget(
         compounds[index]!,
         targetNodeId,
         virtualNodeIdTarget,
+        unknownPseudoIsDynamic,
       );
       return match.matches ? [{ candidate, match }] : [];
     });
@@ -1710,6 +1712,7 @@ function selectorCompoundMatches(
   compound: readonly CssTreeSelectorNode[],
   targetNodeId: string,
   virtualNodeIdTarget: HtmlNode | null,
+  unknownPseudoIsDynamic = false,
 ): SelectorMatch {
   if (node.tagName === "template" && isAlpineStructuralTemplate(node)) {
     for (const contentNode of descendants(node.content)) {
@@ -1718,6 +1721,7 @@ function selectorCompoundMatches(
         compound,
         targetNodeId,
         virtualNodeIdTarget,
+        unknownPseudoIsDynamic,
       );
       if (contentMatch.matches) {
         return { matches: true, dynamic: true };
@@ -1734,6 +1738,7 @@ function selectorCompoundMatches(
         selector,
         targetNodeId,
         virtualNodeIdTarget,
+        unknownPseudoIsDynamic,
       );
       if (!pseudoMatch.matches && !pseudoMatch.dynamic) {
         return { matches: false, dynamic: false };
@@ -1783,6 +1788,7 @@ function selectorPseudoMatchesNode(
   pseudo: CssTreeSelectorNode,
   targetNodeId: string,
   virtualNodeIdTarget: HtmlNode | null,
+  unknownPseudoIsDynamic = false,
 ): SelectorMatch {
   const name = pseudo.name?.toLowerCase() ?? "";
   if (name === "is" || name === "where" || name === "not") {
@@ -1797,6 +1803,7 @@ function selectorPseudoMatchesNode(
         selector,
         targetNodeId,
         virtualNodeIdTarget,
+        unknownPseudoIsDynamic,
       ),
     );
     const anyMatch = matches.some((match) => match.matches);
@@ -1819,7 +1826,8 @@ function selectorPseudoMatchesNode(
     }
 
     const sameType = name.endsWith("of-type");
-    let siblings = htmlElementSiblings(node);
+    const allSiblings = htmlElementSiblings(node);
+    let siblings = allSiblings;
     if (sameType) {
       siblings = siblings.filter(
         (sibling) =>
@@ -1830,7 +1838,9 @@ function selectorPseudoMatchesNode(
     const nthArgument = cssTreeChildren(pseudo).find(
       (child) => child.type === "Nth",
     );
-    let dynamic = hasAlpineStructuralSibling(node);
+    let dynamic =
+      hasRuntimeStructuralMutationOnSelectorPath(node) ||
+      allSiblings.some(hasRuntimeStructuralMutationInSubtree);
     if (nthArgument?.selector) {
       const siblingMatches = siblings.map((sibling) => {
         const matches = cssTreeChildren(nthArgument.selector)
@@ -1841,6 +1851,7 @@ function selectorPseudoMatchesNode(
               sibling,
               targetNodeId,
               virtualNodeIdTarget,
+              true,
             ),
           );
         return {
@@ -1851,7 +1862,8 @@ function selectorPseudoMatchesNode(
       if (
         siblingMatches.some(
           (match, index) =>
-            match.dynamic || hasRuntimeMutationOnSelectorPath(siblings[index]!),
+            match.dynamic ||
+            hasRuntimeStructuralMutationOnSelectorPath(siblings[index]!),
         )
       ) {
         return { matches: true, dynamic: true };
@@ -1910,6 +1922,7 @@ function selectorPseudoMatchesNode(
             compound,
             targetNodeId,
             virtualNodeIdTarget,
+            unknownPseudoIsDynamic,
           ).dynamic,
       );
     });
@@ -1930,6 +1943,7 @@ function selectorPseudoMatchesNode(
           compound,
           targetNodeId,
           virtualNodeIdTarget,
+          unknownPseudoIsDynamic,
         );
         return match.matches && !match.dynamic;
       });
@@ -1948,6 +1962,7 @@ function selectorPseudoMatchesNode(
   return {
     matches: true,
     dynamic:
+      unknownPseudoIsDynamic ||
       hasRuntimeMutationOnSelectorPath(node) ||
       hasRuntimeAttributeMutationInSubtree(node),
   };
@@ -1985,6 +2000,7 @@ function selectorMatchesCandidate(
   selector: CssTreeSelectorNode,
   targetNodeId: string,
   virtualNodeIdTarget: HtmlNode | null,
+  unknownPseudoIsDynamic = false,
 ): SelectorMatch {
   const compound = cssTreeChildren(selector);
   if (compound.some((child) => child.type === "Combinator")) {
@@ -1995,6 +2011,7 @@ function selectorMatchesCandidate(
     compound,
     targetNodeId,
     virtualNodeIdTarget,
+    unknownPseudoIsDynamic,
   );
 }
 
@@ -2011,6 +2028,22 @@ function selectorContainsDynamicPseudoState(
 function hasRuntimeMutationOnSelectorPath(node: HtmlNode): boolean {
   for (let candidate: HtmlNode | undefined = node; candidate?.tagName; ) {
     if (hasRuntimeHtmlMutation(candidate)) return true;
+    candidate = candidate.parentNode;
+  }
+  return false;
+}
+
+function hasRuntimeStructuralMutationOnSelectorPath(node: HtmlNode): boolean {
+  for (let candidate: HtmlNode | undefined = node; candidate?.tagName; ) {
+    if (
+      hasRuntimeStructuralMutation(candidate) ||
+      (candidate !== node &&
+        (candidate.attrs ?? []).some(({ name, value }) =>
+          isAlpineMarkupInjection(name, value),
+        ))
+    ) {
+      return true;
+    }
     candidate = candidate.parentNode;
   }
   return false;
@@ -2101,6 +2134,22 @@ function hasRuntimeHtmlMutation(node: HtmlNode): boolean {
         isEventHandlerAttribute(name)
       );
     })
+  );
+}
+
+function hasRuntimeStructuralMutation(node: HtmlNode): boolean {
+  return (
+    isAlpineStructuralTemplate(node) ||
+    (node.attrs ?? []).some(({ name }) => isEventHandlerAttribute(name))
+  );
+}
+
+function hasRuntimeStructuralMutationInSubtree(node: HtmlNode): boolean {
+  return (
+    hasRuntimeStructuralMutation(node) ||
+    descendants(node).some((candidate) =>
+      (candidate.attrs ?? []).some(({ name }) => isEventHandlerAttribute(name)),
+    )
   );
 }
 
