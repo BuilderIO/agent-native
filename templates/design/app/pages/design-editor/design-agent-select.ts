@@ -78,10 +78,13 @@ export function findDesignLayer(
   screenId: string,
   nodeId: string,
 ): Element | null {
+  // Breakpoint frames carry their own id (`<screen>::bp-<width>`), so a
+  // remounted frame is found by the id the picked one had.
+  const frameId = frame.getAttribute("data-screen-iframe-id") ?? screenId;
   const host = frame.isConnected
     ? frame
     : document.querySelector(
-        `[data-screen-iframe-id="${escapeAttribute(screenId)}"]`,
+        `[data-screen-iframe-id="${escapeAttribute(frameId)}"]`,
       );
   let frameDocument: Document | null | undefined;
   try {

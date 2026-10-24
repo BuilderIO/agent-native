@@ -6,6 +6,7 @@ import {
   designElementSelectable,
   designScreenElement,
   designScreenSelectable,
+  findDesignLayer,
 } from "./design-agent-select";
 
 const screens = [{ id: "file-1", filename: "home.html" }];
@@ -90,6 +91,30 @@ describe("Design Select adapter", () => {
 
     frameDocument.querySelector("section")!.remove();
     expect(selectable?.getElement()).toBeNull();
+  });
+
+  it("finds a layer again in a remounted breakpoint frame", () => {
+    document.body.innerHTML = `
+      <div data-frame-shell data-frame-id="file-1">
+        <iframe data-screen-iframe-id="file-1::bp-375"></iframe>
+      </div>`;
+    const frame = document.querySelector("iframe")!;
+    frame.contentDocument!.body.innerHTML =
+      '<section data-agent-native-node-id="hero">Hi</section>';
+    frame.remove();
+    document
+      .querySelector("[data-frame-id]")!
+      .insertAdjacentHTML(
+        "beforeend",
+        '<iframe data-screen-iframe-id="file-1::bp-375"></iframe>',
+      );
+    const remounted = document.querySelector("iframe")!;
+    remounted.contentDocument!.body.innerHTML =
+      '<section data-agent-native-node-id="hero">Hi</section>';
+
+    expect(findDesignLayer(frame, "file-1", "hero")).toBe(
+      remounted.contentDocument!.querySelector("section"),
+    );
   });
 
   it("ignores targets outside a screen document or a layer", () => {

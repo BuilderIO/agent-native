@@ -68,16 +68,24 @@ interface ComposerContextEntry {
   context: string;
 }
 
+interface ContextReservation {
+  items: readonly ComposerContextEntry[];
+  /** Whether this composer is the one a pick would be sent from. */
+  isActive(): boolean;
+}
+
 /**
  * Count context a composer sends besides core's items (an app's composer
  * context provider: design systems, references) against the submission
- * limits when staging a pick. Returns a release for when the composer goes.
+ * limits when staging a pick. Only active composers count: chat tabs keep
+ * inactive panes mounted but hidden. Returns a release for when it goes.
  */
 export function reserveAgentSelectContext(
   items: readonly ComposerContextEntry[],
+  isActive: () => boolean = () => true,
 ): () => void {
   const owner = Symbol("composer");
-  store().reserved.set(owner, items);
+  store().reserved.set(owner, { items, isActive });
   return () => {
     store().reserved.delete(owner);
   };
@@ -108,8 +116,8 @@ interface AgentSelectStore {
   sources: Set<AgentSelectableSource>;
   /** Source-resolved objects that were hovered or picked, by context key. */
   resolved: Map<string, AgentSelectable>;
-  /** Context the composer sends alongside core items, by the composer showing it. */
-  reserved: Map<symbol, readonly ComposerContextEntry[]>;
+  /** Context composers send alongside core items, by composer. */
+  reserved: Map<symbol, ContextReservation>;
   listeners: Set<() => void>;
   rejectionListeners: Set<(rejection: AgentSelectRejection) => void>;
   snapshot: AgentSelectSnapshot;
@@ -312,7 +320,8 @@ function addSelection(
   const coreItems = listAgentChatContext();
   const coreKeys = new Set(coreItems.map((candidate) => candidate.key));
   const reserved = [...store().reserved.values()]
-    .flat()
+    .filter((reservation) => reservation.isActive())
+    .flatMap((reservation) => reservation.items)
     .filter((candidate) => !coreKeys.has(candidate.key));
   const existing = [...coreItems, ...reserved]
     .filter(

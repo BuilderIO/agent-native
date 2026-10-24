@@ -283,6 +283,23 @@ describe("context-item round trip", () => {
     expect(toggleAgentSelectable("panel", "p1")).toBe("added");
   });
 
+  it("ignores provider context from composers that are not showing", () => {
+    for (let index = 0; index < 31; index += 1) {
+      setAgentChatContextItem({
+        key: `chip-${index}`,
+        title: `Chip ${index}`,
+        context: "x",
+      });
+    }
+    registerAgentSelectable(selectable("panel", "p1", null));
+    reserveAgentSelectContext(
+      [{ key: "design-system", title: "Design system", context: "tokens" }],
+      () => false,
+    );
+
+    expect(toggleAgentSelectable("panel", "p1")).toBe("added");
+  });
+
   it("mirrors the picked objects to application_state", async () => {
     useFakeTimers();
     try {

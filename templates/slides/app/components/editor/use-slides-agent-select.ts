@@ -94,7 +94,8 @@ export function slideObjectForTarget(target: Element): {
 }
 
 /** What a picked object looked like, to recognise it again by position. */
-function slideObjectFingerprint(element: Element): string {
+function slideObjectFingerprint(element: Element | null): string {
+  if (!element) return "";
   return [
     element.tagName,
     (element.textContent ?? "").replace(/\s+/g, " ").trim(),
@@ -106,8 +107,9 @@ export interface SlideObjectIdentity {
   objectId: string | null;
   path: string;
   fingerprint: string;
-  /** Children of the object's parent when picked. */
-  siblingCount: number;
+  /** The fingerprints of the object's neighbours when picked. */
+  previous: string;
+  next: string;
 }
 
 export function slideObjectIdentity(
@@ -118,7 +120,8 @@ export function slideObjectIdentity(
     objectId: element.getAttribute("data-slide-object-id"),
     path: slideObjectPath(element, contentRoot),
     fingerprint: slideObjectFingerprint(element),
-    siblingCount: element.parentElement?.childElementCount ?? 0,
+    previous: slideObjectFingerprint(element.previousElementSibling),
+    next: slideObjectFingerprint(element.nextElementSibling),
   };
 }
 
@@ -127,8 +130,9 @@ export function slideObjectIdentity(
  * again so a re-render of the slide HTML keeps the pick. A positional path
  * can land on a neighbour once a sibling is removed, so the path is trusted
  * when the node there still looks like the picked object, or when it was
- * edited in place: same tag and the same number of siblings. Otherwise the
- * object is searched for by its look, and is gone when nothing matches.
+ * edited in place: same tag between the same, unchanged neighbours.
+ * Otherwise the object is searched for by its look, and is gone when nothing
+ * matches.
  */
 export function findSlideObject(
   slideId: string,
@@ -166,7 +170,9 @@ export function findSlideObject(
     }
     if (
       atPath?.tagName === tag &&
-      atPath.parentElement?.childElementCount === identity.siblingCount
+      slideObjectFingerprint(atPath.previousElementSibling) ===
+        identity.previous &&
+      slideObjectFingerprint(atPath.nextElementSibling) === identity.next
     ) {
       return atPath;
     }

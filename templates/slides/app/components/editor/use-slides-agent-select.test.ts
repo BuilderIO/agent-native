@@ -97,6 +97,25 @@ describe("Slides Select adapter", () => {
     expect(selectable?.getElement()).toBe(document.querySelector("main h1"));
   });
 
+  it("does not rebind an edited pick when its neighbours shift", () => {
+    renderDeck();
+    const slide = document.querySelector<HTMLElement>("main .fmd-slide")!;
+    slide.insertAdjacentHTML(
+      "beforeend",
+      "<p>Alpha</p><p>Bravo</p><p>Charlie</p>",
+    );
+    const bravo = slide.querySelectorAll("p")[1];
+    const selectable = slideObjectSelectable("deck-1", slideNumberOf, bravo);
+
+    // Edit Bravo, delete Alpha, append one: Charlie lands on Bravo's path
+    // with the same sibling count.
+    bravo.textContent = "Bravo edited";
+    slide.querySelectorAll("p")[0].remove();
+    slide.insertAdjacentHTML("beforeend", "<p>Delta</p>");
+
+    expect(selectable?.getElement()).toBeNull();
+  });
+
   it("does not rebind a path pick to a neighbour after a sibling is removed", () => {
     renderDeck();
     const slide = document.querySelector<HTMLElement>("main .fmd-slide")!;

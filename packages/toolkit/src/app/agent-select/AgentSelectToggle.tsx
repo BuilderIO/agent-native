@@ -5,7 +5,7 @@ import {
   TooltipTrigger,
 } from "@agent-native/toolkit/ui/tooltip";
 import { IconPointer } from "@tabler/icons-react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 
 import {
@@ -38,9 +38,15 @@ export function AgentSelectToggle({
   const { active, available } = useAgentSelectMode();
   const offered = available > 0;
 
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     if (!reservedContextItems?.length) return;
-    return reserveAgentSelectContext(reservedContextItems);
+    // A hidden chat tab's composer is display:none and has no boxes.
+    return reserveAgentSelectContext(
+      reservedContextItems,
+      () => (buttonRef.current?.getClientRects().length ?? 0) > 0,
+    );
   }, [reservedContextItems]);
 
   useEffect(() => {
@@ -67,6 +73,7 @@ export function AgentSelectToggle({
     <Tooltip>
       <TooltipTrigger asChild>
         <button
+          ref={buttonRef}
           type="button"
           data-agent-composer-slot="select-button"
           onClick={toggleAgentSelectMode}
