@@ -369,7 +369,18 @@ function canApplyLocalAwarenessWrite(
   cleared: boolean,
   clearTokenHash: string | null,
 ): boolean {
-  if (!existing) return false;
+  if (!existing) {
+    return (
+      !cleared &&
+      !isBlockedByAwarenessClear(
+        docId,
+        clientId,
+        lastSeen,
+        clientSequence,
+        lastSeen,
+      )
+    );
+  }
   const sameActor = existing.actorEmail?.trim().toLowerCase() === actorEmail;
   const ownsClearToken =
     cleared &&

@@ -13,12 +13,21 @@ vi.mock("h3", () => ({
 
 const mockReadBody = vi.fn();
 const mockGetSession = vi.fn();
+const mockWriteAwarenessRow = vi.hoisted(() => vi.fn());
 vi.mock("../server/auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
 }));
+vi.mock("./awareness-store.js", async (importOriginal) => {
+  const store = await importOriginal<typeof import("./awareness-store.js")>();
+  const writeAwarenessRow = store.writeAwarenessRow;
+  mockWriteAwarenessRow.mockImplementation((...args: unknown[]) =>
+    writeAwarenessRow(...(args as Parameters<typeof writeAwarenessRow>)),
+  );
+  return { ...store, writeAwarenessRow: mockWriteAwarenessRow };
+});
 
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
 import {
@@ -284,6 +293,44 @@ describe("postAwareness handler", () => {
       error: "Authentication required",
     });
     expect(ev._status).toBe(401);
+  });
+
+  it("emits a first presence write locally when persistence is unavailable", async () => {
+    const docId = "post-doc-outage-first-write";
+    const received: Array<{
+      states: Array<{ clientId: number; state: string }>;
+    }> = [];
+    const onChange = (change: {
+      states: Array<{ clientId: number; state: string }>;
+    }) => received.push(change);
+    getAwarenessEmitter().on("awareness-change", onChange);
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 65,
+      clientSequence: 1,
+      clearToken: "first-write-clear-token",
+      state: postedAwarenessState("outage-state"),
+    });
+    mockWriteAwarenessRow.mockRejectedValueOnce(new Error("db unavailable"));
+    const ev = event({ docId });
+
+    try {
+      await expect(postAwareness(ev)).resolves.toMatchObject({
+        error: "Awareness persistence unavailable",
+      });
+    } finally {
+      getAwarenessEmitter().off("awareness-change", onChange);
+    }
+
+    const local = docAwareness(docId).get(65);
+    expect(ev._status).toBe(503);
+    expect(local?.actorEmail).toBe("collaborator@example.com");
+    expect(JSON.parse(local!.state).user.email).toBe(
+      "collaborator@example.com",
+    );
+    expect(received).toHaveLength(1);
+    expect(received[0]?.states).toEqual([
+      { clientId: 65, state: local!.state },
+    ]);
   });
 
   it("rejects a client sequence beyond the allowed legacy clock skew", async () => {
