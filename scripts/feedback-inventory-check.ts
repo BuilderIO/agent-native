@@ -1014,6 +1014,12 @@ function validatePreservedAdministrativeEye(
   require(reactionState.eyes, "self-owned 👀");
   require(!reactionState.white_check_mark, "no self-owned ✅");
   require(!reactionState.ticket, "no self-owned 🎫");
+  require(!(parent.reactionOwners.white_check_mark ?? []).some(
+    (actorId) => actorId !== sweepActorId,
+  ), "no foreign ✅ mark");
+  require(!(parent.reactionOwners.ticket ?? []).some(
+    (actorId) => actorId !== sweepActorId,
+  ), "no foreign 🎫 mark");
   require((parent.reactionOwners.eyes ?? []).length === 1 &&
     parent.reactionOwners.eyes?.[0] ===
       sweepActorId, "exact self-owned 👀 reaction");
@@ -7822,6 +7828,28 @@ function confirmedOwnedRootMarksFromReadback(
   return confirmed;
 }
 
+function inWindowReportRoots(
+  channelName: string,
+  reportRoots: Parent[],
+  supplementalRoots: Parent[],
+  channelCutoff: bigint,
+): Map<string, Parent> {
+  const roots = new Map(reportRoots.map((parent) => [parent.ts, parent]));
+  for (const root of supplementalRoots) {
+    const rootTimestamp = slackTimestamp(
+      root.ts,
+      `${channelName} summary supplemental root ${root.ts}.ts`,
+    );
+    if (
+      rootTimestamp >= channelCutoff &&
+      root.rootClassification === "report"
+    ) {
+      roots.set(root.ts, root);
+    }
+  }
+  return roots;
+}
+
 function validateInventory(
   inventory: Inventory,
   options: ValidationOptions = {},
@@ -9279,18 +9307,12 @@ function validateInventory(
         ) !==
         slackTimestamp(parent.ts, `${name} summary reply ${parent.ts}.ts`),
     );
-    const distinctReportRoots = new Map(
-      reportRoots.map((parent) => [parent.ts, parent]),
+    const distinctReportRoots = inWindowReportRoots(
+      name,
+      reportRoots,
+      channel.threadRootAudits ?? [],
+      channelCutoff,
     );
-    for (const supplementalRoot of channel.threadRootAudits ?? []) {
-      const rootTimestamp = slackTimestamp(
-        supplementalRoot.ts,
-        `${name} summary supplemental root ${supplementalRoot.ts}.ts`,
-      );
-      if (rootTimestamp >= channelCutoff) {
-        distinctReportRoots.set(supplementalRoot.ts, supplementalRoot);
-      }
-    }
     const summarizeMarks = (rows: Parent[], label: string): void => {
       const ownedEyes = rows.filter((parent) =>
         (parent.reactionOwners.eyes ?? []).includes(inventory.sweepActorId),
@@ -11285,7 +11307,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     })),
   });
   const preservedAdministrativeSupplementalRoot = (
-    mark: "ticket" | "checkmark",
+    mark: "ticket" | "checkmark" | "foreign-workflow-marks",
   ): Inventory => {
     const sourceText = [
       "New submission: Builder Cloud Agents Waitlist",
@@ -11299,6 +11321,18 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Previously self-owned 👀 is retained as history because this waitlist intake is administrative; no active work is claimed.";
     const status =
       "Skipped for this sweep. The existing :eyes: is retained as history; no active work is claimed. No :white_check_mark: — no product fix or verified behavior change is in scope. No :ticket: — no separate human or team action is pending. this was sent from a bot.";
+    const reactionOwners =
+      mark === "foreign-workflow-marks"
+        ? {
+            eyes: ["USWEEPER"],
+            white_check_mark: ["UOTHER"],
+            ticket: ["UOTHER2"],
+          }
+        : { eyes: ["USWEEPER"] };
+    const reactionSummary =
+      mark === "foreign-workflow-marks"
+        ? "eyes (1): USWEEPER; white_check_mark (1): UOTHER; ticket (1): UOTHER2"
+        : "eyes (1): USWEEPER";
     return withSupplementalRootAudit(
       supplementalRootAudit("8.500000", {
         sourceText,
@@ -11310,8 +11344,8 @@ if (args[0] === "--self-test" && args.length === 1) {
           rationale:
             "Structured Builder Cloud Agents waitlist intake, not a product behavior report.",
         },
-        reactionSummary: "eyes (1): USWEEPER",
-        reactionOwners: { eyes: ["USWEEPER"] },
+        reactionSummary,
+        reactionOwners,
         latestRelevantHumanReply: null,
         latestOwnedReply: {
           ts: "8.600000",
@@ -11327,12 +11361,14 @@ if (args[0] === "--self-test" && args.length === 1) {
                 evidenceReplyTs: ["8.550000"],
               },
             }
-          : {
-              unreconciledCheckmarkMark: {
-                reason: "no verified scope supports the retained mark",
-                evidenceReplyTs: ["8.550000"],
-              },
-            }),
+          : mark === "checkmark"
+            ? {
+                unreconciledCheckmarkMark: {
+                  reason: "no verified scope supports the retained mark",
+                  evidenceReplyTs: ["8.550000"],
+                },
+              }
+            : {}),
       }),
     );
   };
@@ -13822,6 +13858,12 @@ if (args[0] === "--self-test" && args.length === 1) {
       inventory: preservedAdministrativeSupplementalRoot("checkmark"),
     },
     {
+      name: "preserved administrative supplemental root cannot carry foreign workflow marks",
+      inventory: preservedAdministrativeSupplementalRoot(
+        "foreign-workflow-marks",
+      ),
+    },
+    {
       name: "supplemental Fixed cannot hide an unfinished scope without this actor's marks",
       inventory: withSupplementalRootAudit(
         supplementalRootAudit("8.500000", {
@@ -15589,6 +15631,8 @@ if (args[0] === "--self-test" && args.length === 1) {
       "invalid preserved administrative 👀 evidence (no unreconciled 🎫 mark)",
     "preserved administrative supplemental root cannot carry an unreconciled checkmark":
       "invalid preserved administrative 👀 evidence (no unreconciled ✅ mark)",
+    "preserved administrative supplemental root cannot carry foreign workflow marks":
+      "invalid preserved administrative 👀 evidence (no foreign ✅ mark, no foreign 🎫 mark)",
     "supplemental Fixed cannot hide an unfinished scope without this actor's marks":
       "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "supplemental Partially fixed disposition needs an unfinished scope":
@@ -19168,6 +19212,28 @@ if (args[0] === "--self-test" && args.length === 1) {
     ) {
       throw new Error(
         "self-test failed to exclude administrative posts from report-root counts",
+      );
+    }
+    const inWindowRootSummary = inWindowReportRoots(
+      "self-test supplemental root summary",
+      [],
+      [
+        supplementalRootAudit("12.000000", {
+          rootClassification: "administrative",
+        }),
+        supplementalRootAudit("13.000000", {
+          rootClassification: "report",
+        }),
+      ],
+      slackTimestamp("10.000000", "self-test summary cutoff"),
+    );
+    if (
+      inWindowRootSummary.size !== 1 ||
+      inWindowRootSummary.has("12.000000") ||
+      !inWindowRootSummary.has("13.000000")
+    ) {
+      throw new Error(
+        "self-test counted an administrative supplemental root in report totals",
       );
     }
     const preservedAdministrativeEyeInventory = structuredClone(valid);
