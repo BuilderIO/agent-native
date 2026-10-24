@@ -361,11 +361,11 @@ describe("Content view dashboard", () => {
         ('w4', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'w4', 'https://www.builder.io/blog/w4', 'W4', 'Writer 4', '2026-09-01T00:00:00.000Z', '2026-09-01', '2026-09-01'),
         ('w5', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'w5', 'https://www.builder.io/blog/w5', 'W5', 'Writer 5', '2026-09-01T00:00:00.000Z', '2026-09-01', '2026-09-01');
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
-      SELECT 'ws' || item_id, 'org:org_a', 'alice@example.test', 'org_a', item_id, to_char(CURRENT_DATE - days_ago, 'YYYY-MM-DD'), 'signups_first_touch', value, 'signups', 'r0', '2026-09-01'
-      FROM (VALUES ('w1', 2, 9), ('w2', 2, 8), ('w3', 2, 7), ('w4', 2, 6), ('w5', 0, 100)) AS rows (item_id, days_ago, value);
+      SELECT 'ws' || item_id || days_ago, 'org:org_a', 'alice@example.test', 'org_a', item_id, to_char(CURRENT_DATE - days_ago, 'YYYY-MM-DD'), 'signups_first_touch', value, 'signups', 'r0', '2026-09-01'
+      FROM (VALUES ('w1', 2, 9), ('w2', 2, 8), ('w3', 2, 7), ('w4', 2, 6), ('w5', 0, 100), ('w1', 0, 40)) AS rows (item_id, days_ago, value);
     `);
-    // Writer 5's signups are all from today, which the chart leaves out, so
-    // Ada keeps the fifth line.
+    // The chart leaves today out: Writer 5's signups are all from today, so
+    // Ada keeps the fifth line, and Writer 1's 40 today stay out of their week.
     const week = await yesterday("YYYY-MM-DD");
     const rows = await runPanel("author-weeks");
     expect(rows).toHaveLength(5);
