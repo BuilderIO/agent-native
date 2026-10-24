@@ -88,6 +88,7 @@ let validateExecution: typeof import("./validate-builder-source-execution.js").d
 let disconnectSource: typeof import("./disconnect-content-database-source.js").default;
 let replaceSourceMetadata: typeof import("./_database-source-utils.js").replaceSourceMetadata;
 let realExecutionDeps: typeof import("./execute-builder-source-execution.js").realExecutionDeps;
+let executeExecution: typeof import("./execute-builder-source-execution.js").default;
 let cleanupBuilderPrivatePayload: typeof import("./_builder-cms-blob-custody.js").cleanupBuilderPrivatePayload;
 let unregisterBuilderPayloadCleanupSweep: () => void;
 let getContentDatabaseSourceSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshot;
@@ -110,8 +111,8 @@ beforeAll(async () => {
   disconnectSource = (await import("./disconnect-content-database-source.js"))
     .default;
   ({ replaceSourceMetadata } = await import("./_database-source-utils.js"));
-  realExecutionDeps = (await import("./execute-builder-source-execution.js"))
-    .realExecutionDeps;
+  ({ realExecutionDeps, default: executeExecution } =
+    await import("./execute-builder-source-execution.js"));
   cleanupBuilderPrivatePayload = (
     await import("./_builder-cms-blob-custody.js")
   ).cleanupBuilderPrivatePayload;
@@ -485,6 +486,73 @@ describe("Builder source review execution gates", () => {
     await deps.getSourceSnapshot(database!);
 
     expect(heavySnapshotReads.documentScopes).toEqual([[seeded.rowDocumentId]]);
+  });
+
+  it("returns the executed change set when its row is past the first page", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const db = getDb();
+    const now = "2026-06-29T15:00:00.000Z";
+    const fillerItemIds = Array.from(
+      { length: 100 },
+      (_, index) => `filler_${counter}_${index}`,
+    );
+    await db.insert(schema.documents).values(
+      fillerItemIds.map((itemId) => ({
+        id: `doc_${itemId}`,
+        ownerEmail: OWNER,
+        title: itemId,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseItems).values(
+      fillerItemIds.map((itemId, position) => ({
+        id: itemId,
+        ownerEmail: OWNER,
+        databaseId: seeded.databaseId,
+        documentId: `doc_${itemId}`,
+        position,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db
+      .update(schema.contentDatabaseItems)
+      .set({ position: fillerItemIds.length })
+      .where(eq(schema.contentDatabaseItems.documentId, seeded.rowDocumentId));
+    const args = {
+      documentId: seeded.databaseDocumentId,
+      sourceId: seeded.sourceId,
+      changeSetId: seeded.changeSetId,
+      pushModeConfirmation: "autosave" as const,
+    };
+    await asOwner(() => prepareExecution.run(args));
+    await db
+      .update(schema.contentDatabaseSourceExecutions)
+      .set({ state: "succeeded" })
+      .where(
+        eq(
+          schema.contentDatabaseSourceExecutions.changeSetId,
+          seeded.changeSetId,
+        ),
+      );
+    await db
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "applied" })
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
+
+    const response = await asOwner(() => executeExecution.run(args));
+
+    const executed = response.source?.changeSets.find(
+      (changeSet) => changeSet.id === seeded.changeSetId,
+    );
+    expect(executed?.state).toBe("applied");
+    expect(executed?.executions.map((execution) => execution.state)).toEqual([
+      "succeeded",
+    ]);
   });
 
   it("claims only the execution row the gate validated and releases it intact", async () => {

@@ -324,6 +324,8 @@ const database = {
   failedToCreateRow: "فشل إنشاء الصف",
   pageCreatedCollectionRefreshFailed:
     "تم إنشاء الصفحة، لكن تعذر تحديث هذه المجموعة. أعد التحميل لرؤيتها.",
+  builderPushResultNotLoaded:
+    "وصل التحديث إلى Builder، لكن تعذر على هذه المراجعة تحميل النتيجة. أعد التحميل لرؤيتها.",
   failedToDeleteRow: "فشل حذف الصف",
   failedToDeleteSelectedRows: "فشل حذف الصفوف المحددة",
   failedToDuplicateEverySelectedRow: "تعذر تكرار كل الصفوف المحددة",

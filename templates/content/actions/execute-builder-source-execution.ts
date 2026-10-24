@@ -195,7 +195,10 @@ export interface ExecuteBuilderSourceExecutionDeps {
     writeResult: BuilderCmsWriteResult;
     now: string;
   }) => Promise<void>;
-  getResponse: (databaseId: string) => Promise<ContentDatabaseResponse>;
+  getResponse: (
+    databaseId: string,
+    changeSet: ContentDatabaseSourceChangeSet,
+  ) => Promise<ContentDatabaseResponse>;
   lookupSafeModelIntent?: (args: {
     marker?: string;
     exactTitle?: string;
@@ -1486,8 +1489,14 @@ export function realExecutionDeps(
       }
     },
     reconcileWrite: reconcileBuilderCmsWrite,
-    getResponse: (databaseId) =>
-      getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 }),
+    // A page read scopes source change sets to that page's rows, so a row past
+    // the first page would come back without the change set just executed.
+    getResponse: (databaseId, changeSet) =>
+      getContentDatabaseResponse(databaseId, {
+        limit: 100,
+        offset: 0,
+        documentIds: changeSet.documentId ? [changeSet.documentId] : undefined,
+      }),
     lookupSafeModelIntent: lookupBuilderCmsSafeModelIntent,
   };
 }
@@ -1568,7 +1577,7 @@ export async function executeBuilderSourceExecutionWithDeps(
       timing.ensure("write_dispatch");
       const response = await timing.measure(
         "reconciliation_and_persistence",
-        () => deps.getResponse(database.id),
+        () => deps.getResponse(database.id, changeSet),
       );
       const result = { ...response, timings: timing.finish() };
       timing.log("succeeded");
@@ -1772,7 +1781,7 @@ export async function executeBuilderSourceExecutionWithDeps(
         payload: payloadWithResponse,
         now: reconciledAt,
       });
-      const response = await deps.getResponse(database.id);
+      const response = await deps.getResponse(database.id, changeSet);
       timing.record("reconciliation_and_persistence", reconciliationStartedAt);
       const result = { ...response, timings: timing.finish() };
       timing.log("succeeded");
@@ -2050,7 +2059,7 @@ export async function executeBuilderSourceExecutionWithDeps(
       attemptToken,
     });
 
-    const response = await deps.getResponse(database.id);
+    const response = await deps.getResponse(database.id, changeSet);
     timing.record("reconciliation_and_persistence", reconciliationStartedAt);
     const result = { ...response, timings: timing.finish() };
     timing.log("succeeded");
