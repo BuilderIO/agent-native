@@ -895,17 +895,29 @@ function messageAssignsNamedPerson(text: string, assigneeId: string): boolean {
     /\b(?:(?:actually|correction|wait|sorry|no)\s*[,;:]?\s*)?(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s+assign\s+(?:it|that|this)\b/i;
   const ellipticalRetraction =
     /\b(?:i|we)\s+(?:did\s+not|didn't|do\s+not|don't|never)\s*$/i;
+  const correctionCue =
+    /\b(?:actually|correction|wait|sorry|no)\b[^.!?;]{0,50}\b(?:wrong|incorrect|not right|mistake|retract(?:ed)?|withdraw(?:n)?|cancel(?:led)?|scratch that)\b/i;
   let assigned = false;
+  let pendingCorrection = false;
   for (const rawClause of clauses) {
     const clause = rawClause.replace(/^\s*(?:but|and|however)\s+/i, "");
+    const hasCorrectionCue = correctionCue.test(clause);
     if (
       negatedAssignment.test(clause) ||
+      (assigned && pronounRetraction.test(clause)) ||
       (assigned &&
-        (pronounRetraction.test(clause) || ellipticalRetraction.test(clause)))
+        ellipticalRetraction.test(clause) &&
+        (pendingCorrection || hasCorrectionCue))
     ) {
       assigned = false;
+      pendingCorrection = false;
       continue;
     }
+    if (assigned && hasCorrectionCue) {
+      pendingCorrection = true;
+      continue;
+    }
+    pendingCorrection = false;
     const directAssignment = new RegExp(
       "^\\s*(?:i|we)\\s+assigned\\s+" +
         reportSubject +
@@ -5347,7 +5359,7 @@ function validateOrchestratorScopeConfirmation(
 
 function hasExplicitNoReactionRestriction(statement: string): boolean {
   return (
-    /^(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s*[.!?]*\s*$/i.test(
+    /^(?:please\s+)?(?:no|without)\s+(?:any\s+)?(?:emojis?|reactions?|marks?)(?:\s*,?\s*please)?\s*[.!?]*\s*$/i.test(
       statement.trim(),
     ) ||
     /\bno\s+(?:any\s+)?(?:emojis?|reactions?|marks?)\s+(?:are\s+)?(?:allowed|permitted|authorized|approved)\b/i.test(
@@ -5364,7 +5376,7 @@ function hasExplicitNoReactionRestriction(statement: string): boolean {
 
 function hasExplicitAuthorizationRevocation(text: string): boolean {
   return (
-    /(?:^|[.!?;\n]\s*)(?:(?:actually|wait|sorry)[,:\s]+)?(?:scratch that|never mind|nevermind|please stop\b|stop (?:that|this|the work|the follow[ -]?up)|(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send))\b/i.test(
+    /(?:^|[.!?;\n]\s*)(?:(?:actually|wait|sorry)[,:\s]+)?(?:scratch that|never mind|nevermind|please stop(?=$|[.!?;]|\s+(?:that|this|the work|the follow[ -]?up|working|doing that)\b)|stop (?:that|this|the work|the follow[ -]?up)|(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send))\b/i.test(
       text,
     ) ||
     /\b(?:actually|wait|sorry)[,:\s]+(?:do not|don't)\s+(?:do that|proceed|continue|work|handle|follow up|claim|reply|react|post|send)\b/i.test(
@@ -17276,6 +17288,13 @@ if (args[0] === "--self-test" && args.length === 1) {
           "I did not assign the migration, but I assigned this report to <@UOTHER>.",
       })),
     );
+    validateTestInventory(
+      withPageRoot(personAssignedRoot, "11.000000", (parent) => ({
+        ...parent,
+        sourceText:
+          "I assigned this report to <@UOTHER>. Did you ask me to run the migration? I did not.",
+      })),
+    );
     expectFocusedFailure(
       "person-assigned skip without a named assignment",
       () =>
@@ -17642,12 +17661,30 @@ if (args[0] === "--self-test" && args.length === 1) {
       "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
     );
 
+    const separateNoReactionAuthorization = structuredClone(authorizedMagRoot);
+    separateNoReactionAuthorization.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions, please.";
+    separateNoReactionAuthorization.scope.narrowingJudgment!.instruction =
+      separateNoReactionAuthorization.scope.userRequest;
+    expectFocusedFailure(
+      "polite separate no-reaction restriction blocks exact-root authorization",
+      () => validateTestInventory(separateNoReactionAuthorization),
+      "root authorization must explicitly permit a claim or reaction and a same-thread status reply",
+    );
+
     const unrelatedNoReactionText = structuredClone(authorizedMagRoot);
     unrelatedNoReactionText.scope.userRequest =
       "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. No reactions are needed for the demo.";
     unrelatedNoReactionText.scope.narrowingJudgment!.instruction =
       unrelatedNoReactionText.scope.userRequest;
     validateTestInventory(unrelatedNoReactionText);
+
+    const unrelatedStopByText = structuredClone(authorizedMagRoot);
+    unrelatedStopByText.scope.userRequest =
+      "Scan only #test-channel (C_TEST) for this synthetic self-test. I authorize you to work on Slack root C_TEST 10.000000, including the root claim and same-thread status reply. Please stop by the front desk after the demo.";
+    unrelatedStopByText.scope.narrowingJudgment!.instruction =
+      unrelatedStopByText.scope.userRequest;
+    validateTestInventory(unrelatedStopByText);
 
     const revokedAuthorization = structuredClone(authorizedMagRoot);
     revokedAuthorization.scope.userRequest =
@@ -24278,7 +24315,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 64} negative cases; 41 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 13 scope-gate cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 65} negative cases; 43 positive inventory cases plus 6 source-evidence cases; 7 handoff phrase cases; 14 scope-gate cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
