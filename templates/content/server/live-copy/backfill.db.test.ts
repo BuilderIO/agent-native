@@ -1273,7 +1273,7 @@ describe("the backfill sweep", () => {
     });
   });
 
-  it("sends a switched page's change event to its readers and to the collections that list it", async () => {
+  it("sends a switched page's change event to its readers and to the collections that list it, under the key a body save sends", async () => {
     const id = await insertPage(stored);
     await addToCollection(id, "files");
     changes.events.length = 0;
@@ -1285,7 +1285,7 @@ describe("the backfill sweep", () => {
     const event = {
       source: "action",
       type: "change",
-      key: "convert-page-to-live-copy-if-due",
+      key: "update-document",
       owner: ownerEmail,
       resourceType: "document",
     };

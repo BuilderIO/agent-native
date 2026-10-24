@@ -422,7 +422,9 @@ type SweepStop = Extract<
 /**
  * Sends the change event a body save sends, for the page and each collection
  * that lists it, so open pages and collection views read it again. The sweep
- * runs outside any action, so nothing else sends one.
+ * runs outside any action, so nothing else sends one. Content's client picks
+ * the queries to refresh by the event's action key, so the event carries a
+ * save's key; a key of its own would reach the client and refresh nothing.
  */
 async function announceConversion(page: { id: string; ownerEmail: string }) {
   // guard:allow-unscoped — lists the collections of a page the sweep just switched for its owner.
@@ -441,7 +443,7 @@ async function announceConversion(page: { id: string; ownerEmail: string }) {
     recordChange({
       source: "action",
       type: "change",
-      key: "convert-page-to-live-copy-if-due",
+      key: "update-document",
       owner: page.ownerEmail,
       ...documentChangeResource(documentId),
     });
