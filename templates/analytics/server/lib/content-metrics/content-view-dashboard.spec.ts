@@ -352,6 +352,34 @@ describe("Content view dashboard", () => {
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
+  it("picks the weekly chart's top authors from the days it draws, not today", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, published_at, first_seen_at, updated_at) VALUES
+        ('w1', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'w1', 'https://www.builder.io/blog/w1', 'W1', 'Writer 1', '2026-09-01T00:00:00.000Z', '2026-09-01', '2026-09-01'),
+        ('w2', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'w2', 'https://www.builder.io/blog/w2', 'W2', 'Writer 2', '2026-09-01T00:00:00.000Z', '2026-09-01', '2026-09-01'),
+        ('w3', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'w3', 'https://www.builder.io/blog/w3', 'W3', 'Writer 3', '2026-09-01T00:00:00.000Z', '2026-09-01', '2026-09-01'),
+        ('w4', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'w4', 'https://www.builder.io/blog/w4', 'W4', 'Writer 4', '2026-09-01T00:00:00.000Z', '2026-09-01', '2026-09-01'),
+        ('w5', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'w5', 'https://www.builder.io/blog/w5', 'W5', 'Writer 5', '2026-09-01T00:00:00.000Z', '2026-09-01', '2026-09-01');
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'ws' || item_id, 'org:org_a', 'alice@example.test', 'org_a', item_id, to_char(CURRENT_DATE - days_ago, 'YYYY-MM-DD'), 'signups_first_touch', value, 'signups', 'r0', '2026-09-01'
+      FROM (VALUES ('w1', 2, 9), ('w2', 2, 8), ('w3', 2, 7), ('w4', 2, 6), ('w5', 0, 100)) AS rows (item_id, days_ago, value);
+    `);
+    // Writer 5's signups are all from today, which the chart leaves out, so
+    // Ada keeps the fifth line.
+    const week = await yesterday("YYYY-MM-DD");
+    const rows = await runPanel("author-weeks");
+    expect(rows).toHaveLength(5);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { author: "Writer 1", week, signups: 9 },
+        { author: "Writer 2", week, signups: 8 },
+        { author: "Writer 3", week, signups: 7 },
+        { author: "Writer 4", week, signups: 6 },
+        { author: "Ada", week, signups: 2 },
+      ]),
+    );
+  });
+
   it("counts a new article's first week and compares each article's last 28 days with the 28 before", async () => {
     await client.exec(`
       UPDATE analytics_content_items SET published_at = '${daysAgo(120)}T00:00:00.000Z' WHERE id = 'a1';
