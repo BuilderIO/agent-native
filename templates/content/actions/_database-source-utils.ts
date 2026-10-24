@@ -3893,8 +3893,9 @@ export async function builderBodyChangeForLocalContent(args: {
   const localContent = args.localContent ?? "";
   if (!currentHash && !currentContent && !localContent.trim()) return null;
   // A row with no stored body has an unknown baseline, unless the body is
-  // known to be empty.
+  // known to be empty or Builder's live body is the baseline.
   if (
+    !liveBaseline &&
     !currentContent?.trim() &&
     !losslessContent?.trim() &&
     !builderCmsBodyKnownEmpty(sourceValues)

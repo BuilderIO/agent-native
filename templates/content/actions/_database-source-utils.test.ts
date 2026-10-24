@@ -1641,6 +1641,32 @@ describe("database source helpers", () => {
     expect(await bodyChange({})).toBeNull();
   });
 
+  it("proposes an emptied Content body over Builder's live body", async () => {
+    const bodyChange = await builderBodyChangeForSourceSnapshotDocument({
+      row: {
+        documentId: "doc-cleared",
+        sourceRowId: "entry-cleared",
+        sourceQualifiedId: "builder-cms://blog-article/entry-cleared",
+        provenance: "Builder CMS read adapter",
+        // Content saved an empty body over the live one.
+        sourceValuesJson: JSON.stringify({
+          published: "published",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "",
+        }),
+      },
+      isHydrated: true,
+      allowUnsourcedCreate: false,
+      localContent: "",
+      liveBaseline: { blocksHash: "live-hash" },
+    });
+
+    expect(bodyChange).toMatchObject({
+      currentHash: "live-hash",
+      proposedHash: expect.any(String),
+      proposedBlocksJson: "[]",
+    });
+  });
+
   it("converts a rich unsourced local body into a create-draft body payload", async () => {
     const localContent = [
       "Opening paragraph.",
