@@ -22,6 +22,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
 import {
+  activeUploadFromContent,
   contentPageUrls,
   uploadedFromContent,
 } from "../server/lib/content-uploads.js";
@@ -234,7 +235,7 @@ async function fetchLibrary({
       conditions.push(eq(schema.recordings.organizationId, organizationId));
     }
     // A folder someone moved an upload into still lists it.
-    if (fromContent) conditions.push(uploadedFromContent());
+    if (fromContent) conditions.push(activeUploadFromContent());
     else if (!folderId) conditions.push(not(uploadedFromContent()));
   }
   const resolvedDb = await Promise.resolve(db);

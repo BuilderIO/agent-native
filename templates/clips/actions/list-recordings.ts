@@ -24,6 +24,7 @@ import {
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
 import {
+  activeUploadFromContent,
   contentPageUrls,
   uploadedFromContent,
 } from "../server/lib/content-uploads.js";
@@ -197,9 +198,10 @@ export default defineAction({
     // Library = "Your personal recordings in the active org". `accessFilter`
     // admits all owner rows regardless of org, so library must add both the
     // owner-email and current-org predicates to scope correctly. A Clip
-    // uploaded from a Content page lists under From Content instead of
-    // Library's own list, but a folder someone moved it into still lists it;
-    // one linked into a page stays in Library.
+    // uploaded from a Content page is never in Library's own list, and lists
+    // under From Content only while its page binding is active. A folder
+    // someone moved it into still lists it; one linked into a page stays in
+    // Library.
     if (args.view === "library" || args.view === "from-content") {
       const email = getRequestUserEmail();
       if (email) {
@@ -211,7 +213,7 @@ export default defineAction({
         whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
       if (args.view === "from-content") {
-        whereClauses.push(uploadedFromContent());
+        whereClauses.push(activeUploadFromContent());
       } else if (args.folderId == null) {
         whereClauses.push(not(uploadedFromContent()));
       }
