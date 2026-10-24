@@ -257,6 +257,19 @@ export default defineAction({
     const explicitIds = valid.flatMap((file) => (file.id ? [file.id] : []));
     type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
     type Document = typeof schema.documents.$inferSelect;
+    const deletedFilePath = (row: SourceRow) => {
+      const values = parseJson(row.sourceValuesJson);
+      return typeof values.relativePath === "string"
+        ? values.relativePath
+        : typeof row.sourceDisplayKey === "string"
+          ? row.sourceDisplayKey
+          : row.sourceRowId;
+    };
+    const deletionChangeSetId = (row: SourceRow) =>
+      opaqueId(
+        "content_source_change",
+        `${sourceId}:${row.documentId}:source-delete:${deletedFilePath(row)}`,
+      );
     const loadSnapshot = async (queryDb: any) => {
       const storedRows = (await queryDb
         .select()
@@ -315,14 +328,22 @@ export default defineAction({
 
     await validateDocumentIds(initialSnapshot);
 
-    const metadata = parseJson(target.source.metadataJson);
-    const policy = truthPolicy(metadata.truthPolicy);
-    const localIdentity =
-      localFolderSourceIdentityFromMetadata(metadata.localIdentity) ??
-      normalizeLocalFolderSourceIdentity({
-        connectionId: target.source.sourceTable,
-        label: target.source.sourceName,
-      });
+    const sourceSettings = (source: {
+      metadataJson: string;
+      sourceName: string;
+    }) => {
+      const metadata = parseJson(source.metadataJson);
+      return {
+        policy: truthPolicy(metadata.truthPolicy),
+        localIdentity:
+          localFolderSourceIdentityFromMetadata(metadata.localIdentity) ??
+          normalizeLocalFolderSourceIdentity({
+            connectionId: target.source.sourceTable,
+            label: source.sourceName,
+          }),
+      };
+    };
+    let { policy, localIdentity } = sourceSettings(target.source);
     const now = new Date().toISOString();
     const created: Array<{ id: string; path: string; title: string }> = [];
     const updated: Array<{ id: string; path: string; title: string }> = [];
@@ -522,12 +543,19 @@ export default defineAction({
               ),
             ),
           )
-          .returning({ id: schema.contentDatabaseSources.id });
+          .returning({
+            id: schema.contentDatabaseSources.id,
+            metadataJson: schema.contentDatabaseSources.metadataJson,
+            sourceName: schema.contentDatabaseSources.sourceName,
+          });
         if (claimedSources.length !== 1) {
           throw new Error(
             `Local folder source "${sourceId}" was disconnected before sync`,
           );
         }
+        // A reconnect rewrites the policy in place, so the one read before
+        // the claim may no longer be the folder's.
+        ({ policy, localIdentity } = sourceSettings(claimedSources[0]));
         const transactionSnapshot = await loadSnapshot(tx);
         await validateDocumentIds(transactionSnapshot);
         plans = buildPlans(transactionSnapshot);
@@ -565,6 +593,22 @@ export default defineAction({
             ...missingRows.map((row) => row.databaseItemId),
           ]);
           await lockDocumentRows(tx, writtenPageIds);
+        }
+        // The snapshot read these pages before their locks, and a save that
+        // committed in between would be written over without a conflict.
+        // Planning them again from the pages as locked turns it into one.
+        if (existingPageIds.length > 0) {
+          const lockedPages = (await tx
+            .select()
+            .from(schema.documents)
+            .where(
+              inArray(schema.documents.id, existingPageIds),
+            )) as Document[];
+          for (const page of lockedPages) {
+            transactionSnapshot.documentById.set(page.id, page);
+          }
+          plans = buildPlans(transactionSnapshot);
+          classifyPlans(transactionSnapshot);
         }
         for (const plan of plans) {
           if (plan.conflict) {
@@ -874,6 +918,25 @@ export default defineAction({
             .set(rowValues)
             .where(eq(schema.contentDatabaseSourceRows.id, rowId));
         }
+        // A file back in the folder makes its open deletion proposal untrue,
+        // and accepting it would unlink the page from a file that exists.
+        const missingRowIds = new Set(missingRows.map((row) => row.id));
+        const retiredDeletionIds = transactionSnapshot.storedRows
+          .filter((row) => !missingRowIds.has(row.id))
+          .map((row) => deletionChangeSetId(row));
+        if (retiredDeletionIds.length > 0) {
+          await tx
+            .delete(schema.contentDatabaseSourceChangeSets)
+            .where(
+              and(
+                inArray(
+                  schema.contentDatabaseSourceChangeSets.id,
+                  retiredDeletionIds,
+                ),
+                eq(schema.contentDatabaseSourceChangeSets.state, "proposed"),
+              ),
+            );
+        }
         for (const row of missingRows) {
           if (policy === "source_primary") {
             await tx
@@ -917,16 +980,8 @@ export default defineAction({
             continue;
           }
           const values = parseJson(row.sourceValuesJson);
-          const path =
-            typeof values.relativePath === "string"
-              ? values.relativePath
-              : typeof row.sourceDisplayKey === "string"
-                ? row.sourceDisplayKey
-                : row.sourceRowId;
-          const changeSetId = opaqueId(
-            "content_source_change",
-            `${sourceId}:${row.documentId}:source-delete:${path}`,
-          );
+          const path = deletedFilePath(row);
+          const changeSetId = deletionChangeSetId(row);
           await tx
             .insert(schema.contentDatabaseSourceChangeSets)
             .values({

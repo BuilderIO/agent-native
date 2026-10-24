@@ -1487,6 +1487,13 @@ New body.
   return { ids, rows, sync };
 }
 
+function setFolderTruthPolicy(db: Db, sourceId: string, truthPolicy: string) {
+  return db
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: JSON.stringify({ truthPolicy }) })
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+}
+
 /**
  * Two folders in one space. Disconnecting the first clears the later page,
  * which only it links, and relinks the earlier page to the second folder.
@@ -3017,6 +3024,86 @@ describe.skipIf(!POSTGRES_URL)(
         sourcePath: "moved.md",
         sourceRootPath: `${seed.key}_folder_b`,
       });
+    });
+
+    it("plans a folder sync again from its pages as locked, so a save that lands while it waits is a conflict", async () => {
+      const seed = await seedLocalFolderPage();
+      // A folder edit applies unless the page changed too.
+      await setFolderTruthPolicy(
+        getDb(),
+        seed.ids.source,
+        "reviewed_bidirectional",
+      );
+      await seed.sync();
+      const page = seed.ids.page;
+      const saved = "Saved while the sync waited for the page.";
+      const { action } = await raceAgainst(
+        // A save: the page, then its body.
+        async (tx) => {
+          await lockDocumentRows(tx, [page]);
+          await tx
+            .update(schema.documents)
+            .set({ content: saved, updatedAt: new Date().toISOString() })
+            .where(eq(schema.documents.id, page));
+        },
+        () =>
+          asOwner(() =>
+            syncLocalFolder.run({
+              sourceId: seed.ids.source,
+              files: {
+                "page.md": `---
+id: "${page}"
+title: "Folder page"
+---
+Folder edit.
+`,
+              },
+            }),
+          ),
+      );
+      await expect(action).resolves.toMatchObject({
+        conflicts: [expect.objectContaining({ id: page })],
+      });
+      expect((await readPage(page)).content).toBe(saved);
+    });
+
+    it("syncs under the truth policy a reconnect sets while the sync waits for its folder", async () => {
+      const seed = await seedLocalFolderPage();
+      await setFolderTruthPolicy(getDb(), seed.ids.source, "source_primary");
+      await seed.sync();
+      const { action } = await raceAgainst(
+        // connect-local-folder-source run again, which rewrites the policy in
+        // place.
+        (tx) => setFolderTruthPolicy(tx, seed.ids.source, "database_primary"),
+        () =>
+          asOwner(() =>
+            syncLocalFolder.run({ sourceId: seed.ids.source, files: {} }),
+          ),
+      );
+      await expect(action).resolves.toMatchObject({
+        truthPolicy: "database_primary",
+      });
+      // A file gone from the folder: database_primary proposes unlinking its
+      // page, where source_primary unlinks it.
+      expect(
+        await getDb()
+          .select({ id: schema.contentDatabaseSourceRows.id })
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            eq(schema.contentDatabaseSourceRows.sourceId, seed.ids.source),
+          ),
+      ).toHaveLength(1);
+      expect(
+        await getDb()
+          .select({ state: schema.contentDatabaseSourceChangeSets.state })
+          .from(schema.contentDatabaseSourceChangeSets)
+          .where(
+            eq(
+              schema.contentDatabaseSourceChangeSets.sourceId,
+              seed.ids.source,
+            ),
+          ),
+      ).toEqual([{ state: "proposed" }]);
     });
 
     it.each([
