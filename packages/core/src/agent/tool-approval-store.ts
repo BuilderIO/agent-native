@@ -218,8 +218,7 @@ export async function denyAgentToolApproval(input: {
             AND owner_email = ?
             AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
             AND thread_id = ?
-            AND status = 'pending'
-            AND expires_at > ?`,
+            AND status = 'pending'`,
         args: [
           now,
           input.approvalId,
@@ -227,7 +226,6 @@ export async function denyAgentToolApproval(input: {
           input.orgId ?? null,
           input.orgId ?? null,
           input.threadId,
-          now,
         ],
       }),
     { threadId: input.threadId },

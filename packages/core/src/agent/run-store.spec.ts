@@ -1799,15 +1799,17 @@ describe("run store", () => {
     });
   });
 
-  it("replays a completed turn before deferring to a pending queued submission", async () => {
+  it("replays a completed turn before deferring to pending work", async () => {
     completedTurnRows = [{ id: "run-completed" }];
     const hasPendingQueuedSubmission = vi.fn(async () => true);
+    const hasPendingApproval = vi.fn(async () => true);
 
     await expect(
       tryClaimRunSlot("thread-completed-with-queue", "run-retry", undefined, {
         turnId: "turn-completed",
         replayCompletedTurn: true,
         hasPendingQueuedSubmission,
+        hasPendingApproval,
       }),
     ).resolves.toEqual({
       claimed: false,
@@ -1815,6 +1817,7 @@ describe("run store", () => {
       completedRunId: "run-completed",
     });
     expect(hasPendingQueuedSubmission).not.toHaveBeenCalled();
+    expect(hasPendingApproval).not.toHaveBeenCalled();
   });
 
   it("tryClaimRunSlot does not replay a completed continuation chunk", async () => {

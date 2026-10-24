@@ -2073,15 +2073,6 @@ export async function tryClaimRunSlot(
     if (activeRunId) {
       return { result: { claimed: false, activeRunId } } as const;
     }
-    if (await options?.hasPendingApproval?.(tx)) {
-      return {
-        result: {
-          claimed: false,
-          activeRunId: null,
-          approvalPending: true,
-        },
-      } as const;
-    }
     if (replayCompletedTurn) {
       const latest = await tx.execute({
         sql: `SELECT id,
@@ -2119,6 +2110,15 @@ export async function tryClaimRunSlot(
           },
         } as const;
       }
+    }
+    if (await options?.hasPendingApproval?.(tx)) {
+      return {
+        result: {
+          claimed: false,
+          activeRunId: null,
+          approvalPending: true,
+        },
+      } as const;
     }
     // Admitted under the thread's slot lock, so two tabs continuing the same
     // stop start one run and the count of continuations stays exact.
@@ -6177,11 +6177,12 @@ async function retryPendingStaleRunThreadProjections(
   client: ReturnType<typeof getDbExec>,
 ): Promise<{ failed: number; truncated: boolean }> {
   const { rows } = await client.execute({
-    sql: `SELECT id FROM agent_runs
+    sql: `SELECT id, thread_projection_error_code FROM agent_runs
           WHERE thread_projection_pending IS TRUE
-            AND thread_projection_error_code IS NULL
-            AND ${earlierTurnProjectionPendingSql()}
-          ORDER BY thread_projection_retry_order ASC NULLS FIRST,
+            AND (thread_projection_error_code IS NOT NULL
+              OR ${earlierTurnProjectionPendingSql()})
+          ORDER BY CASE WHEN thread_projection_error_code IS NULL THEN 0 ELSE 1 END,
+                   thread_projection_retry_order ASC NULLS FIRST,
                    completed_at ASC, id ASC
           LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
     args: [],
@@ -6190,7 +6191,15 @@ async function retryPendingStaleRunThreadProjections(
   const pending = truncated ? rows.slice(0, REAP_ALL_STALE_BATCH_LIMIT) : rows;
   let failed = 0;
   for (const row of pending) {
-    const runId = (row as { id?: unknown }).id;
+    const projection = row as {
+      id?: unknown;
+      thread_projection_error_code?: unknown;
+    };
+    if (projection.thread_projection_error_code != null) {
+      failed += 1;
+      continue;
+    }
+    const runId = projection.id;
     if (typeof runId !== "string") continue;
     if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) failed += 1;
   }

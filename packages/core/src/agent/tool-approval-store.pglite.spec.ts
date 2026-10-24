@@ -77,6 +77,7 @@ const {
   AgentToolApprovalNotFoundError,
   consumeAgentToolApproval,
   createAgentToolApproval,
+  denyAgentToolApproval,
   hashAgentToolApprovalKey,
   isAgentToolAlwaysAllowed,
   setAgentToolApprovalPolicy,
@@ -176,6 +177,29 @@ describe("tool approvals bound to the arguments that run", () => {
     await expect(
       consumeAgentToolApproval({ ...call, argumentsHash: "args-1" }),
     ).resolves.toBe(false);
+  });
+
+  it("allows an expired pending approval to be durably denied", async () => {
+    const approvalId = await createAgentToolApproval({
+      ...call,
+      expiresAt: Date.now() - 1,
+    });
+
+    await expect(
+      denyAgentToolApproval({
+        approvalId,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: scope.threadId,
+      }),
+    ).resolves.toBe(true);
+    await expect(consumeAgentToolApproval(call)).resolves.toBe(false);
+    await expect(
+      pglite.query<{ status: string }>(
+        "SELECT status FROM agent_tool_approvals WHERE id = ?",
+        [approvalId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ status: "denied" }] });
   });
 
   it("fences approval creation and consumption to the live worker generation", async () => {

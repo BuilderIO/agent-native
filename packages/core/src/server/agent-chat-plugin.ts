@@ -7072,7 +7072,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             callerHasThreadAccess(owner, threadId, "editor", { orgId });
 
           // Route: POST /runs/:id/retry-projection
-          // An editor may retry a quarantined fold after repairing its source.
+          // An editor may retry a pending fold after repairing its source.
           const retryProjectionMatch =
             url.match(/\/runs\/([^/?]+)\/retry-projection(?:[/?]|$)/) ||
             url.match(/^\/([^/?]+)\/retry-projection(?:[/?]|$)/);
@@ -7086,10 +7086,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!run) {
               setResponseStatus(event, 404);
               return { error: "Run not found" };
-            }
-            if (!run.threadProjectionErrorCode) {
-              setResponseStatus(event, 409);
-              return { error: "Run projection is not quarantined" };
             }
             try {
               const result = await retryRunThreadProjection(runId);

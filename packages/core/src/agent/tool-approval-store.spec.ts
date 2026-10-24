@@ -182,7 +182,7 @@ describe("agent tool approval store", () => {
     expect(dbMocks.execute).toHaveBeenCalledWith(
       expect.objectContaining({
         sql: expect.stringMatching(
-          /UPDATE agent_tool_approvals[\s\S]*status = 'pending'[\s\S]*expires_at > \?/,
+          /UPDATE agent_tool_approvals[\s\S]*status = 'pending'/,
         ),
         args: [
           expect.any(Number),
@@ -191,7 +191,6 @@ describe("agent tool approval store", () => {
           binding.orgId,
           binding.orgId,
           binding.threadId,
-          expect.any(Number),
         ],
       }),
     );

@@ -2291,8 +2291,11 @@ describe("queued submission inbox recurring sweep", () => {
       expect(retryRunThreadProjection).toHaveBeenCalledWith(runId);
     }, 20_000);
 
-    it("does not retry a projection without an operator quarantine", async () => {
+    it("lets an editor retry a deferred projection", async () => {
       const h3App = await mountAgentChatRoutes();
+      vi.mocked(retryRunThreadProjection).mockResolvedValue({
+        state: "deferred",
+      });
       vi.mocked(getRunById).mockResolvedValue({
         id: runId,
         threadId: "thread-projection-quarantine",
@@ -2306,8 +2309,12 @@ describe("queued submission inbox recurring sweep", () => {
 
       const response = await retry(h3App);
 
-      expect(response.status).toBe(409);
-      expect(retryRunThreadProjection).not.toHaveBeenCalled();
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        ok: true,
+        state: "deferred",
+      });
+      expect(retryRunThreadProjection).toHaveBeenCalledWith(runId);
     }, 20_000);
 
     it("keeps unreadable source data quarantined after an explicit retry", async () => {

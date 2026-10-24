@@ -294,11 +294,11 @@ describe("a run the server reaps after its worker died", () => {
     });
     expect(await claimBackgroundRun(successor)).toBe(false);
     await expect(reapAllStaleRuns()).resolves.toMatchObject({
-      failed: 0,
+      failed: 1,
       reaped: 0,
     });
     await expect(reapAllStaleRuns()).resolves.toMatchObject({
-      failed: 0,
+      failed: 1,
       reaped: 0,
     });
 
