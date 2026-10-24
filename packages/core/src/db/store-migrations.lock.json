@@ -47,6 +47,10 @@
     {
       "name": "agent-harness-sessions-follow-up-claim",
       "checksum": "80b46ffbdbf7f298"
+    },
+    {
+      "name": "agent-harness-sessions-follow-up-claim-id",
+      "checksum": "80b46ffbdbf7f298"
     }
   ],
   "agent_runs": [

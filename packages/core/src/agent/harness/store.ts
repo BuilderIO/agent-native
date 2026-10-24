@@ -96,7 +96,6 @@ export const agentHarnessSessionsStore = defineStore({
           resolved_approval_ids TEXT,
           owner_email TEXT,
           org_id TEXT,
-          follow_up_claim_id TEXT,
           generation BIGINT NOT NULL DEFAULT 0,
           created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL,
@@ -150,6 +149,10 @@ export const agentHarnessSessionsStore = defineStore({
       AGENT_HARNESS_SESSION_MIGRATIONS_TABLE,
       AGENT_HARNESS_SESSION_MIGRATIONS,
     ),
+    {
+      name: "agent-harness-sessions-follow-up-claim-id",
+      sql: "ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS follow_up_claim_id TEXT",
+    },
   ],
 });
 
@@ -551,12 +554,18 @@ export async function markAgentHarnessSessionStopped(
     "stopped" | "destroyed" | "errored"
   >,
 ): Promise<StoredAgentHarnessSession | null> {
-  return updateAgentHarnessSession(id, {
-    status,
-    stoppedAt: Date.now(),
-    pendingApproval: null,
-    followUpClaimId: null,
+  await ensureAgentHarnessSessionTables();
+  const stoppedAt = Date.now();
+  const { rows } = await getDbExec().execute({
+    sql: `UPDATE agent_harness_sessions
+          SET status = ?, stopped_at = ?, pending_approval = NULL,
+              follow_up_claim_id = NULL, generation = generation + 1,
+              updated_at = ?
+          WHERE id = ?
+          RETURNING *`,
+    args: [status, stoppedAt, stoppedAt, id],
   });
+  return rowToHarnessSession(rows[0]);
 }
 
 function rowToHarnessSession(row: unknown): StoredAgentHarnessSession | null {

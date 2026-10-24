@@ -240,4 +240,51 @@ describe("agent harness session store", () => {
       followUpClaimId: null,
     });
   });
+
+  it("stops the session even after a concurrent generation advance", async () => {
+    const id = "session-follow-up-stop-race";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-stop-race",
+      runId: "run-follow-up-stop-race",
+      status: "idle",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    const stored = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      stored!.generation,
+      "claim-to-stop-after-race",
+    );
+    const execute = rawClient.execute.getMockImplementation()!;
+    let generationAdvanced = false;
+    rawClient.execute.mockImplementation(async (input) => {
+      if (
+        !generationAdvanced &&
+        typeof input !== "string" &&
+        input.sql.includes("SET status = ?, stopped_at = ?")
+      ) {
+        generationAdvanced = true;
+        await pglite.exec(
+          `UPDATE agent_harness_sessions SET generation = generation + 1 WHERE id = '${id}'`,
+        );
+      }
+      return execute(input);
+    });
+
+    try {
+      const stopped = await markAgentHarnessSessionStopped(id, "stopped");
+
+      expect(generationAdvanced).toBe(true);
+      expect(stopped).toMatchObject({
+        status: "stopped",
+        followUpClaimId: null,
+        generation: claimed!.generation + 2,
+      });
+    } finally {
+      rawClient.execute.mockImplementation(execute);
+    }
+  });
 });

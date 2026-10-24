@@ -159,6 +159,67 @@ describe("agent harness lifecycle", () => {
     expect(stored.resumeState).toEqual({ token: "next" });
   });
 
+  it("preserves a chained approval already persisted during the follow-up", async () => {
+    const session = fakeSession([{ type: "done" }]);
+    register(stored, session);
+    let lookups = 0;
+    mocks.getByRunId.mockImplementation(async () => {
+      lookups += 1;
+      if (lookups === 2) {
+        stored = {
+          ...stored,
+          pendingApproval: approvalEvent("approval-chained"),
+          generation: stored.generation + 1,
+        };
+      }
+      return stored;
+    });
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      session: {
+        status: "idle",
+        pendingApproval: { id: "approval-chained" },
+      },
+    });
+    expect(session.detach).not.toHaveBeenCalled();
+  });
+
+  it("does not restore a current approval resolved before finalization", async () => {
+    const session = fakeSession([approvalEvent("approval-current")]);
+    register(stored, session);
+    let lookups = 0;
+    mocks.getByRunId.mockImplementation(async () => {
+      lookups += 1;
+      if (lookups === 2) {
+        stored = {
+          ...stored,
+          pendingApproval: null,
+          resolvedApprovalIds: ["approval-current"],
+          generation: stored.generation + 1,
+        };
+      }
+      return stored;
+    });
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      session: { status: "idle", pendingApproval: null },
+    });
+  });
+
   it("allows a live approval to unblock an active follow-up", async () => {
     let unblock!: () => void;
     const blocked = new Promise<void>((resolve) => {
@@ -241,6 +302,87 @@ describe("agent harness lifecycle", () => {
 
     expect(stored.status).toBe("errored");
     expect(stored.followUpClaimId).toBeNull();
+    expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the live session registered when error cleanup cannot persist", async () => {
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* () {
+      throw new Error("provider stream failed");
+    });
+    register(stored, session);
+    mocks.updateIfFollowUpClaim.mockRejectedValue(
+      new Error("database unavailable"),
+    );
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("Harness follow-up failed and cleanup was incomplete.");
+
+    expect(stored.status).toBe("running");
+    expect(stored.followUpClaimId).toBeTruthy();
+    expect(session.stop).not.toHaveBeenCalled();
+  });
+
+  it("retries a transient follow-up claim read failure", async () => {
+    let resume!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const session = fakeSession();
+    session.streamTurn.mockImplementation(async function* () {
+      await blocked;
+      yield { type: "done" } as AgentHarnessEvent;
+    });
+    register(stored, session);
+    mocks.getById.mockRejectedValueOnce(new Error("temporary database error"));
+
+    const followUp = sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    await vi.waitFor(() => expect(mocks.getById).toHaveBeenCalledTimes(1), {
+      timeout: 2_000,
+    });
+    await vi.waitFor(() => expect(mocks.getById).toHaveBeenCalledTimes(2), {
+      timeout: 2_000,
+    });
+    resume();
+
+    await expect(followUp).resolves.toMatchObject({ ok: true });
+    expect(stored.status).toBe("idle");
+  });
+
+  it("errors the owned claim after repeated follow-up claim read failures", async () => {
+    let resume!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const session = fakeSession();
+    session.stop.mockImplementation(async () => resume());
+    session.streamTurn.mockImplementation(async function* () {
+      await blocked;
+      yield { type: "done" } as AgentHarnessEvent;
+    });
+    register(stored, session);
+    mocks.getById.mockRejectedValue(new Error("database unavailable"));
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      session: { status: "errored", followUpClaimId: null },
+    });
     expect(session.stop).toHaveBeenCalledOnce();
   });
 

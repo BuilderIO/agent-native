@@ -354,11 +354,18 @@ export async function sendAgentHarnessFollowUp(input: {
             "The harness follow-up no longer owns the active session claim.",
           );
         }
-        const pending =
+        const currentApproval =
           approvalRequest &&
           !latest.resolvedApprovalIds?.includes(approvalRequest.id)
             ? approvalRequest
             : undefined;
+        const persistedApproval = asPendingApproval(latest.pendingApproval);
+        const pending =
+          currentApproval ??
+          (persistedApproval &&
+          !latest.resolvedApprovalIds?.includes(persistedApproval.id)
+            ? persistedApproval
+            : undefined);
         let resumeState = latest.resumeState ?? session.resumeState;
         if (!pending && acquired.live.session.detach) {
           const detached = await acquired.live.session.detach();
@@ -456,22 +463,6 @@ export async function sendAgentHarnessFollowUp(input: {
           }
         }
         if (failures.length > 1) {
-          if (!failedSession) {
-            const latest = await getAgentHarnessSession(session.id);
-            if (
-              latest?.status === "running" &&
-              latest.followUpClaimId === claimId
-            ) {
-              try {
-                await stopAcquiredHarnessSession(
-                  session.id,
-                  acquired.live.session,
-                );
-              } catch (stopError) {
-                failures.push(stopError);
-              }
-            }
-          }
           throw new AggregateError(
             failures,
             "Harness follow-up claim monitoring failed and cleanup was incomplete.",
@@ -496,21 +487,7 @@ export async function sendAgentHarnessFollowUp(input: {
           try {
             failedSession = await markOwnedFollowUpErrored(session.id, claimId);
           } catch (cleanupError) {
-            const current = await getAgentHarnessSession(session.id);
             const failures: unknown[] = [error, cleanupError];
-            if (
-              current?.status === "running" &&
-              current.followUpClaimId === claimId
-            ) {
-              try {
-                await stopAcquiredHarnessSession(
-                  session.id,
-                  acquired.live.session,
-                );
-              } catch (stopError) {
-                failures.push(stopError);
-              }
-            }
             throw new AggregateError(
               failures,
               "Harness follow-up conflict cleanup was incomplete.",
@@ -568,22 +545,6 @@ export async function sendAgentHarnessFollowUp(input: {
         }
       }
       if (failures.length > 1) {
-        if (!failedSession) {
-          const latest = await getAgentHarnessSession(session.id);
-          if (
-            latest?.status === "running" &&
-            latest.followUpClaimId === claimId
-          ) {
-            try {
-              await stopAcquiredHarnessSession(
-                session.id,
-                acquired.live.session,
-              );
-            } catch (stopError) {
-              failures.push(stopError);
-            }
-          }
-        }
         throw new AggregateError(
           failures,
           "Harness follow-up failed and cleanup was incomplete.",
@@ -796,6 +757,12 @@ function watchFollowUpClaim(
 ): () => void {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const readErrors: unknown[] = [];
+  const schedule = () => {
+    if (!stopped && !controller.signal.aborted) {
+      timer = setTimeout(() => void check(), FOLLOW_UP_CLAIM_POLL_INTERVAL_MS);
+    }
+  };
   const stop = () => {
     stopped = true;
     if (timer) clearTimeout(timer);
@@ -804,6 +771,7 @@ function watchFollowUpClaim(
     try {
       const current = await getAgentHarnessSession(sessionId);
       if (stopped) return;
+      readErrors.length = 0;
       if (
         current?.status === "idle" &&
         current.followUpClaimId == null &&
@@ -820,14 +788,23 @@ function watchFollowUpClaim(
         return;
       }
     } catch (error) {
-      if (!stopped) controller.abort(error);
+      if (stopped) return;
+      readErrors.push(error);
+      if (readErrors.length >= 3) {
+        controller.abort(
+          new AggregateError(
+            readErrors,
+            "Could not verify the harness follow-up claim after repeated reads.",
+          ),
+        );
+      } else {
+        schedule();
+      }
       return;
     }
-    if (!stopped && !controller.signal.aborted) {
-      timer = setTimeout(() => void check(), FOLLOW_UP_CLAIM_POLL_INTERVAL_MS);
-    }
+    schedule();
   };
-  timer = setTimeout(() => void check(), FOLLOW_UP_CLAIM_POLL_INTERVAL_MS);
+  schedule();
   return stop;
 }
 
