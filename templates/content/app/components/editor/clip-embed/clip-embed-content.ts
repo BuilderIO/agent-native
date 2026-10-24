@@ -6,12 +6,15 @@ import {
 
 import { createContentBlockId } from "../extensions/registryBlocks";
 
-/** A new Clip block, as editor content, with an id of its own. */
+/**
+ * A new Clip block, as editor content. It gets an id of its own unless Clips
+ * already bound the Clip to one.
+ */
 export function clipEmbedBlockContent(
   recordingId: string,
   origin: ClipEmbedOrigin,
+  blockId: string = createContentBlockId(CLIP_EMBED_BLOCK_TYPE),
 ) {
-  const blockId = createContentBlockId(CLIP_EMBED_BLOCK_TYPE);
   return {
     type: "registryBlock",
     attrs: {

@@ -3,6 +3,7 @@ import {
   useRecentEdits,
   type AttributedRecentEdit,
 } from "@agent-native/core/client/collab";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   callAction,
   getBrowserTabId,
@@ -24,6 +25,7 @@ import {
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
+import { CLIP_EMBED_FLAG } from "@shared/feature-flags";
 import { isMarkdownFilePath } from "@shared/import/paths";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
@@ -113,6 +115,7 @@ import {
 } from "@/lib/startup-timing";
 
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
+import { holdDroppedClipFile } from "./clip-embed/clip-uploads";
 import {
   buildDocText,
   resolveAnchor,
@@ -2275,6 +2278,7 @@ function insertPendingMediaNodes(
   typeName: MediaNodeType,
   files: File[],
   position: number,
+  beforeInsert?: (pending: PendingMediaUpload[]) => void,
 ): PendingMediaUpload[] {
   const nodeType = view.state.schema.nodes[typeName];
   if (!nodeType) {
@@ -2299,6 +2303,7 @@ function insertPendingMediaNodes(
     pendingUploads.push({ file, uploadId });
   }
 
+  beforeInsert?.(pendingUploads);
   view.dispatch(tr.scrollIntoView());
   return pendingUploads;
 }
@@ -2617,6 +2622,29 @@ export async function uploadAndInsertImageFiles(
       `${failed} of ${files.length} image uploads failed. ${imageUploadErrorMessage(firstError)}`,
       { id: toastId },
     );
+  }
+}
+
+/**
+ * Video files dropped or pasted while Clips in pages is on: each becomes an
+ * empty video block that uploads its file to Clips as the Upload tab does,
+ * never to Content's own file storage.
+ */
+export function insertVideoFilesForClips(
+  view: EditorView,
+  files: File[],
+  position: number,
+) {
+  try {
+    // The blocks may start as soon as they're in the page, so their files
+    // must be waiting first.
+    insertPendingMediaNodes(view, "video", files, position, (pending) => {
+      for (const { uploadId, file } of pending) {
+        holdDroppedClipFile(uploadId, file);
+      }
+    });
+  } catch (error) {
+    toast.error(videoUploadErrorMessage(error));
   }
 }
 
@@ -3230,6 +3258,9 @@ export function VisualEditor({
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
+  const clipsEnabled = useFeatureFlag(CLIP_EMBED_FLAG.key);
+  const videosGoToClipsRef = useRef(false);
+  videosGoToClipsRef.current = clipsEnabled && Boolean(documentId);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePickerRef = useRef<PendingImagePicker | null>(null);
@@ -3684,12 +3715,19 @@ export function VisualEditor({
             top: event.clientY,
           });
           const position = coords?.pos ?? view.state.selection.from;
+          const videosToClips =
+            videosGoToClipsRef.current && videoFiles.length > 0;
+          const storedVideoFiles = videosToClips ? [] : videoFiles;
+          if (videosToClips) {
+            insertVideoFilesForClips(view, videoFiles, position);
+            if (imageFiles.length === 0 && audioFiles.length === 0) return;
+          }
           if (fileStorageStateRef.current !== "configured") {
             pendingMediaFilesRef.current = {
               view,
               documentId: documentId ?? null,
               imageFiles,
-              videoFiles,
+              videoFiles: storedVideoFiles,
               audioFiles,
               position,
             };
@@ -3699,8 +3737,8 @@ export function VisualEditor({
           if (imageFiles.length > 0) {
             void uploadAndInsertImageFiles(view, imageFiles, position);
           }
-          if (videoFiles.length > 0) {
-            void uploadAndInsertVideoFiles(view, videoFiles, position);
+          if (storedVideoFiles.length > 0) {
+            void uploadAndInsertVideoFiles(view, storedVideoFiles, position);
           }
           if (audioFiles.length > 0) {
             void uploadAndInsertAudioFiles(view, audioFiles, position);
@@ -3723,12 +3761,23 @@ export function VisualEditor({
         }
         return runIfMediaCreationAllowed(suggestingRef.current, () => {
           event.preventDefault();
+          const videosToClips =
+            videosGoToClipsRef.current && videoFiles.length > 0;
+          const storedVideoFiles = videosToClips ? [] : videoFiles;
+          if (videosToClips) {
+            insertVideoFilesForClips(
+              view,
+              videoFiles,
+              view.state.selection.from,
+            );
+            if (imageFiles.length === 0 && audioFiles.length === 0) return;
+          }
           if (fileStorageStateRef.current !== "configured") {
             pendingMediaFilesRef.current = {
               view,
               documentId: documentId ?? null,
               imageFiles,
-              videoFiles,
+              videoFiles: storedVideoFiles,
               audioFiles,
               position: view.state.selection.from,
             };
@@ -3742,10 +3791,10 @@ export function VisualEditor({
               view.state.selection.from,
             );
           }
-          if (videoFiles.length > 0) {
+          if (storedVideoFiles.length > 0) {
             void uploadAndInsertVideoFiles(
               view,
-              videoFiles,
+              storedVideoFiles,
               view.state.selection.from,
             );
           }

@@ -12,6 +12,15 @@ import { grantRefreshDelay, youtubeEmbedSrc } from "./clip-media";
 /** No write changes a grant, so Clip queries refetch only when asked. */
 const CLIP_PLAYBACK_RESOURCE = "clip-playback";
 
+/** How often a Clip still being made is asked about while the tab shows it. */
+export const CLIP_MAKING_CHECK_MS = 4_000;
+
+/** Clips is still receiving the Clip's file, or making the Clip from it. */
+export function isClipBeingMade(grant: ClipPlayback | null): boolean {
+  const status = grant?.recording.status;
+  return status === "uploading" || status === "processing";
+}
+
 export type ClipPlayerError =
   | ClipPlaybackErrorCode
   /** A refresh failed with no reason Content knows. */
@@ -45,6 +54,10 @@ export interface ClipPlaybackState {
 export function useClipPlayback(
   documentId: string,
   recordingId: string,
+  options: {
+    /** Asks again while the Clip is being made, until it's ready or failed. */
+    checkWhileMaking?: boolean;
+  } = {},
 ): ClipPlaybackState {
   const query = useActionQuery(
     "get-clip-playback",
@@ -95,6 +108,29 @@ export function useClipPlayback(
     );
     return () => clearTimeout(timer);
   }, [expiresAt, failure, playsFromYoutube, refresh]);
+
+  // A Clip being made has nothing to play yet, so this asks again after each
+  // answer until it's made, and never while the tab is hidden.
+  const beingMade = isClipBeingMade(grant);
+  const checkWhileMaking = options.checkWhileMaking ?? true;
+  const [makingChecks, setMakingChecks] = useState(0);
+  useEffect(() => {
+    if (!beingMade || !checkWhileMaking || failure) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    function schedule() {
+      clearTimeout(timer);
+      if (document.visibilityState !== "visible") return;
+      timer = setTimeout(() => {
+        void refresh(false).finally(() => setMakingChecks((n) => n + 1));
+      }, CLIP_MAKING_CHECK_MS);
+    }
+    schedule();
+    document.addEventListener("visibilitychange", schedule);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", schedule);
+    };
+  }, [beingMade, checkWhileMaking, failure, makingChecks, refresh]);
 
   const videoUrl = grant?.playback.videoUrl ?? null;
   const onMediaError = useCallback(() => {

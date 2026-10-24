@@ -10,23 +10,36 @@ import {
 } from "@shared/clip-embed-block";
 import type { ClipPlayback } from "@shared/clips-peer-contract";
 import { IconMovie } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import type { TiptapEditorHTMLElement } from "@tiptap/core";
+import { useEffect, useRef, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { youtubeEmbedSrc } from "./clip-media";
+import {
+  clearClipUpload,
+  clipUploadPercent,
+  useClipUpload,
+} from "./clip-uploads";
 import { ClipPlayer } from "./ClipPlayer";
 import { msToClock } from "./scrubber";
 import {
+  isClipBeingMade,
   useClipMarkers,
   useClipPlayback,
   type ClipPlayerError,
 } from "./use-clip-playback";
-import { clipShareUrl, useClipsLinks } from "./use-clips-links";
+import {
+  clipRecordingUrl,
+  clipShareUrl,
+  useClipsLinks,
+} from "./use-clips-links";
 
 type ContentBlockRenderContext = BlockRenderContext & {
   documentId?: string | null;
+  canEdit?: boolean;
 };
 
 const ERROR_MESSAGES: Record<ClipPlayerError, string> = {
@@ -92,6 +105,93 @@ function ClipMessage({
   );
 }
 
+/** Takes a block out of the page it's in, as deleting it by hand would. */
+function removeBlockFrom(element: HTMLElement | null, blockId: string) {
+  const editor =
+    element?.closest<TiptapEditorHTMLElement>(".ProseMirror")?.editor;
+  if (!editor?.isEditable) return;
+  const ranges: Array<{ from: number; to: number }> = [];
+  editor.state.doc.descendants((node, pos) => {
+    if (ranges.length > 0) return false;
+    if (node.type.name === "registryBlock" && node.attrs.blockId === blockId) {
+      ranges.push({ from: pos, to: pos + node.nodeSize });
+      return false;
+    }
+    return true;
+  });
+  if (ranges[0]) editor.chain().focus().deleteRange(ranges[0]).run();
+}
+
+/** A Clip whose file is still on its way to Clips, or being made there. */
+function ClipBeingMade({
+  label,
+  percent,
+  fileName,
+}: {
+  label: string;
+  /** Null once the bytes are all sent, or when this tab didn't send them. */
+  percent: number | null;
+  fileName?: string;
+}) {
+  return (
+    <div
+      className="flex aspect-video w-full items-center justify-center overflow-hidden rounded-lg bg-muted"
+      role="status"
+      data-clip-upload={percent === null ? "making" : "uploading"}
+    >
+      <div className="flex w-64 max-w-full flex-col items-center gap-3 px-4 leading-normal">
+        <div className="text-sm font-medium">{label}</div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-background">
+          <div
+            className={
+              percent === null
+                ? "h-full w-full animate-pulse rounded-full bg-foreground/60"
+                : "h-full rounded-full bg-foreground transition-[width] duration-200"
+            }
+            style={percent === null ? undefined : { width: `${percent}%` }}
+          />
+        </div>
+        {fileName ? (
+          <div className="max-w-full truncate text-xs text-muted-foreground">
+            {fileName}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ClipUploadUnfinished({
+  blockId,
+  canRemove,
+}: {
+  blockId: string;
+  canRemove: boolean;
+}) {
+  const t = useT();
+  const ref = useRef<HTMLDivElement>(null);
+  return (
+    <div ref={ref} data-clip-upload="failed">
+      <ClipMessage
+        message={t("clipEmbed.uploadUnfinished")}
+        action={
+          canRemove ? (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto px-0"
+              onClick={() => removeBlockFrom(ref.current, blockId)}
+            >
+              {t("clipEmbed.remove")}
+            </Button>
+          ) : null
+        }
+      />
+    </div>
+  );
+}
+
 function ClipCaption({
   grant,
   openUrl,
@@ -132,15 +232,94 @@ function ClipCaption({
 export function ClipEmbed({
   documentId,
   recordingId,
+  blockId,
+  uploaded = false,
+  canEdit = false,
 }: {
   documentId: string;
   recordingId: string;
+  blockId?: string;
+  /** Uploaded into this page, rather than linked. */
+  uploaded?: boolean;
+  canEdit?: boolean;
 }) {
   const t = useT();
-  const playback = useClipPlayback(documentId, recordingId);
+  const tabUpload = useClipUpload(recordingId);
+  // Only the page this tab uploaded the Clip into shows its progress.
+  const upload = tabUpload?.documentId === documentId ? tabUpload : null;
+  const playback = useClipPlayback(documentId, recordingId, {
+    checkWhileMaking: upload?.phase !== "uploading",
+  });
   const { grant } = playback;
+  const status = grant?.recording.status ?? null;
   const links = useClipsLinks();
   const openUrl = links.appUrl ? clipShareUrl(links.appUrl, recordingId) : null;
+
+  // The tab that uploaded the Clip says so once Clips has made it.
+  const recordingUrl = links.appUrl
+    ? clipRecordingUrl(links.appUrl, recordingId)
+    : null;
+  const uploadPhase = upload?.phase ?? null;
+  useEffect(() => {
+    if (!uploadPhase || uploadPhase === "uploading" || status !== "ready") {
+      return;
+    }
+    clearClipUpload(recordingId);
+    toast.success(t("clipEmbed.savedAsClip"), {
+      action: recordingUrl
+        ? {
+            label: t("clipEmbed.openInClips"),
+            onClick: () =>
+              window.open(recordingUrl, "_blank", "noopener,noreferrer"),
+          }
+        : undefined,
+    });
+  }, [recordingId, recordingUrl, status, t, uploadPhase]);
+
+  const percent = upload ? clipUploadPercent(upload) : null;
+  if (percent !== null) {
+    return (
+      <ClipFrame recordingId={recordingId}>
+        <ClipBeingMade
+          label={t("clipEmbed.uploadingPercent", { percent })}
+          percent={percent}
+          fileName={upload?.fileName}
+        />
+      </ClipFrame>
+    );
+  }
+  const clipFailed = status === "failed";
+  // This tab's send failing ends the upload even while Clips, which has no
+  // way to know yet, still waits for the rest of the file.
+  const sendFailed = upload?.phase === "failed" && status !== "processing";
+  if ((uploaded && clipFailed) || (sendFailed && status !== "ready")) {
+    return (
+      <ClipFrame recordingId={recordingId}>
+        <ClipUploadUnfinished
+          blockId={blockId ?? ""}
+          canRemove={canEdit && Boolean(blockId)}
+        />
+      </ClipFrame>
+    );
+  }
+  if (
+    (upload?.phase === "making" && status !== "ready" && !playback.error) ||
+    isClipBeingMade(grant)
+  ) {
+    return (
+      <ClipFrame recordingId={recordingId}>
+        <ClipBeingMade
+          label={
+            status === "uploading" && !upload
+              ? t("clipEmbed.uploading")
+              : t("clipEmbed.making")
+          }
+          percent={null}
+          fileName={upload?.fileName}
+        />
+      </ClipFrame>
+    );
+  }
   const provider = grant?.recording.embedProvider ?? null;
   const youtubeSrc =
     provider === "youtube"
@@ -258,7 +437,11 @@ export function ClipEmbed({
   );
 }
 
-export function ClipEmbedRead({ data, ctx }: BlockReadProps<ClipEmbedData>) {
+export function ClipEmbedRead({
+  data,
+  blockId,
+  ctx,
+}: BlockReadProps<ClipEmbedData>) {
   const t = useT();
   const documentId = (ctx as ContentBlockRenderContext).documentId;
   if (!documentId) {
@@ -271,11 +454,15 @@ export function ClipEmbedRead({ data, ctx }: BlockReadProps<ClipEmbedData>) {
   // A grant answers one page's access check for one recording, and a node
   // view can outlive a page change, so a new page or recording is a new
   // player: nothing of the old grant carries over.
+  const { canEdit } = ctx as ContentBlockRenderContext;
   return (
     <ClipEmbed
       key={`${documentId}\u0000${data.recordingId}`}
       documentId={documentId}
       recordingId={data.recordingId}
+      blockId={blockId}
+      uploaded={data.origin === "upload"}
+      canEdit={canEdit === true}
     />
   );
 }

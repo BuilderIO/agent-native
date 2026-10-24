@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import type { ClipUpload } from "./clip-uploads";
 import { ClipEmbed, ClipEmbedRead } from "./ClipEmbedBlock";
 
 type FakeQuery = {
@@ -41,6 +42,21 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => <>{content}</>,
 }));
+
+const uploads = vi.hoisted(() => ({
+  current: null as ClipUpload | null,
+  clear: vi.fn(),
+}));
+
+vi.mock("./clip-uploads", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./clip-uploads")>()),
+  useClipUpload: () => uploads.current,
+  clearClipUpload: uploads.clear,
+}));
+
+const toasts = vi.hoisted(() => ({ success: vi.fn() }));
+
+vi.mock("sonner", () => ({ toast: toasts }));
 
 function fakeQuery(data?: unknown, error?: unknown): FakeQuery {
   return {
@@ -107,6 +123,9 @@ function render() {
 }
 
 beforeEach(() => {
+  uploads.current = null;
+  uploads.clear.mockReset();
+  toasts.success.mockReset();
   queries.byName = {
     "get-clip-playback": fakeQuery(playback()),
     "list-clip-comments": fakeQuery({ markers, truncated: false }),
@@ -124,6 +143,8 @@ afterEach(() => {
   act(() => root?.unmount());
   container.remove();
   root = null;
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("ClipEmbed", () => {
@@ -323,5 +344,228 @@ describe("ClipEmbed", () => {
     expect(container.querySelector("video, iframe")).toBeNull();
     expect(container.textContent).toContain("clipEmbed.playsInClipsOnly");
     expect(container.textContent).toContain("clipEmbed.openInClips");
+  });
+});
+
+describe("ClipEmbed while a Clip is uploaded", () => {
+  const sending: ClipUpload = {
+    recordingId: "rec_1",
+    documentId: "doc_1",
+    fileName: "demo.mp4",
+    phase: "uploading",
+    sentBytes: 42,
+    totalBytes: 100,
+  };
+
+  function withStatus(status: "uploading" | "processing" | "ready" | "failed") {
+    return fakeQuery(playback({ recording: { status } }));
+  }
+
+  function renderBlock(props: {
+    origin: "upload" | "link";
+    canEdit?: boolean;
+  }) {
+    act(() =>
+      root!.render(
+        <TooltipProvider>
+          <ClipEmbedRead
+            data={{ recordingId: "rec_1", origin: props.origin }}
+            blockId="clip-embed-abc12345"
+            ctx={{ documentId: "doc_1", canEdit: props.canEdit } as never}
+          />
+        </TooltipProvider>,
+      ),
+    );
+  }
+
+  async function waitMs(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  it("shows this tab's progress in the block", () => {
+    uploads.current = sending;
+    queries.byName["get-clip-playback"] = withStatus("uploading");
+    render();
+    const frame = container.querySelector('[data-clip-upload="uploading"]');
+    expect(frame?.textContent).toContain(
+      'clipEmbed.uploadingPercent {"percent":42}',
+    );
+    expect(frame?.textContent).toContain("demo.mp4");
+    expect(container.querySelector("video")).toBeNull();
+  });
+
+  it("shows another page's upload of the Clip as any reader sees it", () => {
+    uploads.current = { ...sending, documentId: "doc_2" };
+    queries.byName["get-clip-playback"] = withStatus("uploading");
+    render();
+    expect(
+      container.querySelector('[data-clip-upload="uploading"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain("clipEmbed.uploading");
+  });
+
+  it.each([
+    ["uploading", "clipEmbed.uploading"],
+    ["processing", "clipEmbed.making"],
+  ] as const)(
+    "shows other readers a Clip that is still %s",
+    (status, message) => {
+      queries.byName["get-clip-playback"] = withStatus(status);
+      render();
+      const frame = container.querySelector('[data-clip-upload="making"]');
+      expect(frame?.textContent).toBe(message);
+      expect(container.querySelector("video")).toBeNull();
+    },
+  );
+
+  it("says an uploaded Clip didn't finish, and lets only editors remove it", () => {
+    queries.byName["get-clip-playback"] = withStatus("failed");
+    renderBlock({ origin: "upload", canEdit: false });
+    const unfinished = container.querySelector('[data-clip-upload="failed"]');
+    expect(unfinished?.textContent).toContain("clipEmbed.uploadUnfinished");
+    expect(unfinished?.querySelector("button")).toBeNull();
+
+    renderBlock({ origin: "upload", canEdit: true });
+    expect(
+      container.querySelector('[data-clip-upload="failed"] button')
+        ?.textContent,
+    ).toBe("clipEmbed.remove");
+  });
+
+  it("removes the unfinished block from the page it's in", () => {
+    const run = vi.fn();
+    const deleteRange = vi.fn(() => ({ run }));
+    const blocks = [
+      { blockId: "clip-embed-other", pos: 1, nodeSize: 2 },
+      { blockId: "clip-embed-abc12345", pos: 5, nodeSize: 3 },
+    ];
+    const page = Object.assign(document.createElement("div"), {
+      editor: {
+        isEditable: true,
+        state: {
+          doc: {
+            descendants: (
+              visit: (
+                node: {
+                  type: { name: string };
+                  attrs: { blockId: string };
+                  nodeSize: number;
+                },
+                pos: number,
+              ) => boolean,
+            ) => {
+              for (const block of blocks) {
+                const node = {
+                  type: { name: "registryBlock" },
+                  attrs: { blockId: block.blockId },
+                  nodeSize: block.nodeSize,
+                };
+                if (visit(node, block.pos) === false) return;
+              }
+            },
+          },
+        },
+        chain: () => ({ focus: () => ({ deleteRange }) }),
+      },
+    });
+    page.className = "ProseMirror";
+    container.append(page);
+    act(() => root?.unmount());
+    root = createRoot(page);
+    queries.byName["get-clip-playback"] = withStatus("failed");
+    renderBlock({ origin: "upload", canEdit: true });
+
+    act(() =>
+      page
+        .querySelector<HTMLButtonElement>('[data-clip-upload="failed"] button')!
+        .click(),
+    );
+    expect(deleteRange).toHaveBeenCalledWith({ from: 5, to: 8 });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a failed linked Clip to the usual messages", () => {
+    queries.byName["get-clip-playback"] = withStatus("failed");
+    renderBlock({ origin: "link", canEdit: true });
+    expect(container.querySelector("[data-clip-upload]")).toBeNull();
+  });
+
+  it("calls a send that failed in this tab unfinished, unless Clips made the Clip", () => {
+    uploads.current = { ...sending, phase: "failed" };
+    queries.byName["get-clip-playback"] = withStatus("uploading");
+    render();
+    expect(
+      container.querySelector('[data-clip-upload="failed"]'),
+    ).not.toBeNull();
+
+    act(() => root!.unmount());
+    root = createRoot(container);
+    queries.byName["get-clip-playback"] = withStatus("ready");
+    render();
+    expect(container.querySelector("[data-clip-upload]")).toBeNull();
+    expect(container.querySelector("video")).not.toBeNull();
+  });
+
+  it("tells the uploader once the Clip is made, with a way into Clips", async () => {
+    vi.useFakeTimers();
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    uploads.current = { ...sending, phase: "making" };
+    queries.byName["get-clip-playback"] = withStatus("processing");
+    queries.byName["get-clip-playback"].refetch.mockResolvedValue({
+      isError: false,
+      data: playback(),
+    });
+    render();
+    expect(container.textContent).toContain("clipEmbed.making");
+    expect(toasts.success).not.toHaveBeenCalled();
+
+    await waitMs(4_000);
+    expect(uploads.clear).toHaveBeenCalledWith("rec_1");
+    expect(toasts.success).toHaveBeenCalledOnce();
+    const [message, options] = toasts.success.mock.calls[0]!;
+    expect(message).toBe("clipEmbed.savedAsClip");
+    expect(options.action.label).toBe("clipEmbed.openInClips");
+    options.action.onClick();
+    expect(open).toHaveBeenCalledWith(
+      "https://clips.example.test/r/rec_1",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(container.querySelector("video")).not.toBeNull();
+  });
+
+  it("asks about a Clip being made every few seconds, only while the tab shows", async () => {
+    vi.useFakeTimers();
+    queries.byName["get-clip-playback"] = withStatus("processing");
+    const { refetch } = queries.byName["get-clip-playback"];
+    refetch.mockResolvedValue({
+      isError: false,
+      data: playback({ recording: { status: "processing" } }),
+    });
+    render();
+    await waitMs(3_999);
+    expect(refetch).not.toHaveBeenCalled();
+    await waitMs(1);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    await waitMs(4_000);
+    expect(refetch).toHaveBeenCalledTimes(2);
+
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitMs(20_000);
+    expect(refetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("doesn't ask while this tab is still sending the file", async () => {
+    vi.useFakeTimers();
+    uploads.current = sending;
+    queries.byName["get-clip-playback"] = withStatus("uploading");
+    render();
+    await waitMs(20_000);
+    expect(queries.byName["get-clip-playback"].refetch).not.toHaveBeenCalled();
   });
 });
