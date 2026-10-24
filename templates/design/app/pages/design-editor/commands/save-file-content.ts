@@ -86,6 +86,7 @@ export interface SaveFileContentArgs {
     baseUpdatedAt?: string | null,
     identityMigrationSourceContent?: string,
     deferCollabReconcile?: boolean,
+    identityMigrationRefused?: boolean,
   ) => void;
   /** The server content the file's first unsaved local edit was made from. */
   getPendingBaseContent?: (fileId: string) => string | undefined;
@@ -320,6 +321,14 @@ export function runFileContentSaveKeepalive(
       await acknowledgeOutboxEntry(durableEntry);
     })
     .catch(() => {});
+}
+
+function isAccessRefusal(error: unknown): boolean {
+  const status =
+    error && typeof error === "object"
+      ? (error as { status?: unknown }).status
+      : undefined;
+  return status === 401 || status === 403;
 }
 
 const SAVE_FAILURE_REASONS: Record<DesignSaveFailureKind, CanvasOutcomeReason> =
@@ -646,6 +655,31 @@ export function runSaveFileContent(
         if (queuedOutboxEntry)
           void acknowledgeOutboxEntry(queuedOutboxEntry).catch(() => {});
         op.skip("superseded");
+        return "failed";
+      }
+      // An identity migration carries no user edit; a refused one is dropped
+      // quietly, and its marked pending entry stops the same source re-queuing.
+      if (
+        pending.identityMigrationSourceContent !== undefined &&
+        isAccessRefusal(error)
+      ) {
+        markPendingLocalFileContent(
+          pending.id,
+          pending.content,
+          undefined,
+          pending.identityMigrationSourceContent,
+          pending.deferCollabReconcile,
+          true,
+        );
+        if (queuedOutboxEntry)
+          void acknowledgeOutboxEntry(queuedOutboxEntry).catch(() => {});
+        if (latestFileSaveForUnloadRef.current[pending.id] === pending) {
+          delete latestFileSaveForUnloadRef.current[pending.id];
+        }
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-design"],
+        });
+        op.skip("no_edit_rights");
         return "failed";
       }
       const failureKind = classifyDesignSaveFailure(error, navigator.onLine);

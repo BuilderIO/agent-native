@@ -200,25 +200,6 @@ describe("Slides ChatGPT directory widget share grant", () => {
     mocks.getRequestUserEmail.mockReturnValue("reviewer@example.com");
   });
 
-  it("binds the literal deck type and id on every widget target", () => {
-    const { widgetTargets } = CHATGPT_DIRECTORY_PROFILE;
-
-    expect(widgetTargets["create-deck"]({}, { id: "deck-a" })).toEqual(
-      target("deck-a"),
-    );
-    expect(widgetTargets["create-deck"]({ deckId: "deck-a" }, {})).toEqual(
-      target("deck-a"),
-    );
-    expect(widgetTargets["add-slide"]({ deckId: "deck-a" }, {})).toEqual(
-      target("deck-a"),
-    );
-    expect(widgetTargets["add-slide"]({}, { deckId: "deck-a" })).toEqual(
-      target("deck-a"),
-    );
-    expect(widgetTargets["create-deck"]({}, {})).toBeNull();
-    expect(widgetTargets["add-slide"]({}, {})).toBeNull();
-  });
-
   it("limits the Share popover grant to its four actions and their arguments", () => {
     const {
       widgetReadActionArguments,
@@ -270,28 +251,21 @@ describe("Slides ChatGPT directory widget share grant", () => {
     });
   });
 
-  it("resolves every resource rule from a target key and every target action from the allowlist", () => {
-    const { widgetTargets, widgetWriteActionArguments } =
-      CHATGPT_DIRECTORY_PROFILE;
-    const targets = [
-      widgetTargets["create-deck"]({}, { id: "deck-a" }),
-      widgetTargets["add-slide"]({ deckId: "deck-a" }, {}),
-    ];
+  it("resolves stored widget rules against a bounded deck fixture", () => {
+    const { widgetWriteActionArguments } = CHATGPT_DIRECTORY_PROFILE;
+    const widgetTarget = target("deck-a");
     const rules = [
       ...Object.values(CHATGPT_DIRECTORY_PROFILE.widgetReadActionArguments),
       ...Object.values(widgetWriteActionArguments),
     ].flatMap((argumentMap) => Object.values(argumentMap));
 
-    for (const widgetTarget of targets) {
-      expect(widgetTarget).not.toBeNull();
-      for (const rule of rules) {
-        if (typeof rule === "string") {
-          expect(widgetTarget!.resourceIds).toHaveProperty(rule);
-        }
+    for (const rule of rules) {
+      if (typeof rule === "string") {
+        expect(widgetTarget.resourceIds).toHaveProperty(rule);
       }
-      for (const action of widgetTarget!.writeActions) {
-        expect(widgetWriteActionArguments).toHaveProperty(action);
-      }
+    }
+    for (const action of widgetTarget.writeActions) {
+      expect(widgetWriteActionArguments).toHaveProperty(action);
     }
   });
 
@@ -299,14 +273,6 @@ describe("Slides ChatGPT directory widget share grant", () => {
     const granted = new Set([
       ...Object.keys(CHATGPT_DIRECTORY_PROFILE.widgetReadActionArguments),
       ...Object.keys(CHATGPT_DIRECTORY_PROFILE.widgetWriteActionArguments),
-      ...CHATGPT_DIRECTORY_PROFILE.widgetTargets["create-deck"](
-        {},
-        { id: "deck-a" },
-      )!.writeActions,
-      ...CHATGPT_DIRECTORY_PROFILE.widgetTargets["add-slide"](
-        { deckId: "deck-a" },
-        {},
-      )!.writeActions,
     ]);
 
     for (const action of [

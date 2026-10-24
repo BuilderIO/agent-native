@@ -163,6 +163,8 @@ export interface RequestContext {
   authContextAccessed?: boolean;
   requestOrigin?: string;
   federationMembershipValidated?: boolean;
+  /** Resolves embed authority independently of the origin used for MCP links. */
+  resolveEmbedRequestOrigin?: () => string;
   /**
    * True when the request's real socket peer is loopback, captured by the
    * action-route handler while the h3 event is still in scope (nothing below

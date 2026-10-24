@@ -44,14 +44,7 @@ import {
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useTheme } from "next-themes";
-import {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useCallback,
-  useRef,
-  useMemo,
-} from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
@@ -84,6 +77,7 @@ import {
 } from "../editor-state";
 import { runAdoptDbFileContent } from "../effects/adopt-db-file-content";
 import { runObserveCollabText } from "../effects/observe-collab-text";
+import { usePublishActiveSourceContent } from "../effects/publish-active-source-content";
 import { runSeedCollabContent } from "../effects/seed-collab-content";
 import { useSyncLatestActiveContent } from "../effects/sync-latest-active-content";
 import { forwardYjsUndoStackItemMeta, MAX_DESIGN_UNDO_STACK } from "../history";
@@ -159,6 +153,7 @@ export function useEditorLiveEditsAndPresence({
     generating,
     pendingGenerationActive,
     canEditDesign,
+    canPersistDesignSource,
     canEditLiveScreens,
     publicVisualEdit,
     rawServerFilesByIdRef,
@@ -668,21 +663,16 @@ export function useEditorLiveEditsAndPresence({
       }
     },
   });
-  useLayoutEffect(() => {
-    if (activeFile?.id && rawActiveContent !== activeContent)
-      publishCanonicalContent(
-        activeFile.id,
-        rawActiveContent,
-        activeFile.fileType,
-      );
-  }, [
-    activeFile?.id,
-    activeFile?.fileType,
-    rawActiveContent,
+  usePublishActiveSourceContent({
+    activeFile,
     activeContent,
-    publishCanonicalContent,
+    rawActiveContent,
     canEditDesign,
-  ]);
+    canPersistDesignSource,
+    isSynced,
+    publishCanonicalContent,
+    ydoc,
+  });
   useSyncLatestActiveContent({
     activeContent,
     activeFile,

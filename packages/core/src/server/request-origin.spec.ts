@@ -14,6 +14,8 @@ import {
   getForwardedRequestHostnameFromHeaders,
   getForwardedRequestOrigin,
   getForwardedRequestURL,
+  hasSameOriginBrowserEvidence,
+  isSameOriginPost,
   isSameOriginRequest,
 } from "./request-origin.js";
 
@@ -331,6 +333,16 @@ describe("isSameOriginRequest", () => {
       expected: true,
     },
     {
+      name: "opaque iframe origin",
+      headers: { host: "app.example.com", origin: "null" },
+      expected: false,
+    },
+    {
+      name: "Origin without a request host",
+      headers: { origin: "https://app.example.com" },
+      expected: false,
+    },
+    {
       name: "Tauri production origin against loopback app host",
       headers: { host: "localhost:3000", origin: "tauri://localhost" },
       expected: true,
@@ -372,5 +384,22 @@ describe("isSameOriginRequest", () => {
     },
   ])("handles $name", ({ headers, expected }) => {
     expect(isSameOriginRequest(fakeEvent(headers))).toBe(expected);
+  });
+});
+
+describe("hasSameOriginBrowserEvidence", () => {
+  it.each([
+    [{}, false],
+    [{ "sec-fetch-site": "same-origin" }, true],
+    [{ "sec-fetch-site": "none" }, false],
+    [{ "sec-fetch-site": "cross-site" }, false],
+    [{ origin: "https://app.example.com" }, true],
+    [{ origin: "https://other.example.com" }, false],
+    [{ origin: "null" }, false],
+    [{ origin: "tauri://localhost" }, false],
+  ] as const)("checks %j", (headers, expected) => {
+    const event = fakeEvent(headers, { url: "https://app.example.com/action" });
+    expect(hasSameOriginBrowserEvidence(event)).toBe(expected);
+    expect(isSameOriginPost(event)).toBe(expected);
   });
 });

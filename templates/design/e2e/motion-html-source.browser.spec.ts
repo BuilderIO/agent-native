@@ -27,6 +27,7 @@ import {
   enableLab,
   enterDirectMode,
   gotoEditor,
+  grantLocalhostWriteConsent,
   installBridge,
 } from "./helpers";
 
@@ -390,7 +391,7 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     if (!Array.isArray(authoredTracks) || authoredTracks.length !== 2) {
       throw new Error("Authored HTML CSS Motion tracks were not recovered.");
     }
-    await postAction(request, "grant-localhost-write-consent", {
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });
@@ -987,7 +988,8 @@ test.describe.serial("HTML Motion source browser writeback", () => {
     }
     if (!screenId) throw new Error("HTML Motion screen is not registered");
 
-    await postAction(request, "grant-localhost-write-consent", {
+    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });

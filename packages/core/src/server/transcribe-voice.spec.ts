@@ -12,10 +12,14 @@ const state = vi.hoisted(() => ({
   orgVoiceProvider: null as string | null,
   orgVoiceProviderError: null as Error | null,
 }));
+const getSession = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => null as { email: string } | null),
+);
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: () => "POST",
+  getRequestHeader: (event: any, name: string) => event.headers?.[name],
   readMultipartFormData: vi.fn(async (event: any) => {
     // Node's IncomingMessage emits `close` as soon as its body is fully
     // read, while the client is still waiting for the response.
@@ -30,8 +34,7 @@ vi.mock("h3", () => ({
   },
 }));
 
-vi.mock("./request-origin.js", () => ({ isSameOriginRequest: () => true }));
-vi.mock("./auth.js", () => ({ getSession: async () => null }));
+vi.mock("./auth.js", () => ({ getSession }));
 vi.mock("../org/context.js", () => ({ getOrgContext: async () => null }));
 vi.mock("../application-state/store.js", () => ({
   appStateGet: async () => null,
@@ -109,6 +112,24 @@ describe("transcribe-voice Builder provider gate", () => {
 
     await expect(post()).resolves.toEqual({ text: "hello" });
     expect(transcribeWithBuilder).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a native session bearer without browser origin headers", async () => {
+    state.hasGatewayCredential = true;
+    getSession.mockResolvedValue({ email: "native@example.com" });
+    vi.stubEnv("NODE_ENV", "production");
+    const event = {
+      headers: { authorization: "Bearer test-native-session" },
+      node: {},
+    };
+    try {
+      await expect(post(event)).resolves.toEqual({ text: "hello" });
+      expect(getSession).toHaveBeenCalledWith(event);
+      expect(transcribeWithBuilder).toHaveBeenCalledOnce();
+    } finally {
+      getSession.mockResolvedValue(null);
+      vi.unstubAllEnvs();
+    }
   });
 
   it("gives a visitor the one line when no lane resolves on a credits site", async () => {

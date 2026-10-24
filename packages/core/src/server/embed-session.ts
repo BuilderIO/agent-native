@@ -13,12 +13,15 @@ import {
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { AGENT_SIDEBAR_QUERY_PARAM } from "../shared/agent-sidebar-url.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
   canRenewMcpDirectoryWidgetCapabilityScope,
   isMcpDirectoryWidgetCapabilityScope,
@@ -27,12 +30,18 @@ import {
   MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH,
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+import {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+} from "./app-base-path.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import {
+  getEmbedSessionOrigin,
+  resolveEmbedRequestOrigin,
+} from "./embed-request-origin.js";
 import { isHttpsRequest } from "./https-request.js";
 import { getRequestContext } from "./request-context.js";
-import { getForwardedRequestHostname } from "./request-origin.js";
 
 const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
@@ -41,6 +50,14 @@ const MCP_DIRECTORY_WIDGET_RENEWAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const EMBED_CAPABILITY_SCOPE_PREFIX = "capability:";
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const OPEN_ROUTE_PATH = "/_agent-native/open";
+const EMBED_PRESENTATION_QUERY_PARAMS = new Set([
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+  EMBED_TARGET_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_QUERY_PARAM,
+  AGENT_SIDEBAR_QUERY_PARAM,
+]);
 const OPEN_ROUTE_VIEW_PATHS: Record<string, string> = {
   ask: "/",
   calendar: "/",
@@ -79,6 +96,7 @@ let _devSigningKey: string | undefined;
 
 export interface EmbedSessionTicketInput {
   ownerEmail: string;
+  audienceHost?: string;
   orgId?: string | null;
   targetPath: string;
   scope?: string | null;
@@ -113,6 +131,7 @@ export type EmbedSessionTicketConsumeOutcome =
   | "expired"
   | "identity-mismatch"
   | "org-mismatch"
+  | "audience-mismatch"
   | "consumption-race"
   | "invalid-row"
   | "revoked"
@@ -131,6 +150,7 @@ export interface EmbedSessionTicketConsumeDiagnostic {
 }
 
 export interface ConsumeEmbedSessionTicketOptions {
+  audienceHost?: string;
   expectedOwnerEmail?: string | null;
   expectedOrgId?: string | null;
   allowCapabilityIdentityMismatch?: boolean;
@@ -153,6 +173,7 @@ export interface EmbedSessionTokenClaims {
   orgId?: string;
   targetPath: string;
   audienceHost?: string;
+  audienceBasePath?: string;
   scope?: string;
   iat: number;
   issuedAtMs?: number;
@@ -236,6 +257,21 @@ export const embedSessionsStore = defineStore({
             owner_hash TEXT PRIMARY KEY,
             revoked_before BIGINT NOT NULL
           )`,
+        );
+      },
+    },
+    {
+      name: "ticket-audience",
+      run: async () => {
+        await ensureColumnExists(
+          "agent_native_embed_tickets",
+          "audience_host",
+          "ALTER TABLE agent_native_embed_tickets ADD COLUMN audience_host TEXT",
+        );
+        await ensureColumnExists(
+          "agent_native_embed_tickets",
+          "audience_base_path",
+          "ALTER TABLE agent_native_embed_tickets ADD COLUMN audience_base_path TEXT",
         );
       },
     },
@@ -612,37 +648,26 @@ function requestUrlFromEvent(event: H3Event): string {
 
 function requestPathname(event: H3Event): string | null {
   const mountedPathname = event.context?._mountedPathname;
-  return stripConfiguredBasePath(
+  const pathname =
     typeof mountedPathname === "string" && mountedPathname
       ? mountedPathname
-      : event.url.pathname,
-  );
-}
-
-function headerTargetPathname(event: H3Event): string | null {
-  const direct =
-    (event as any).request?.headers?.get?.(EMBED_TARGET_HEADER) ??
-    (event as any).headers?.get?.(EMBED_TARGET_HEADER) ??
-    (event as any).node?.req?.headers?.[EMBED_TARGET_HEADER] ??
-    (event as any).node?.req?.headers?.[EMBED_TARGET_HEADER.toLowerCase()];
-  if (typeof direct === "string") return pathnameFromPath(direct);
-  try {
-    const raw = getHeader(event, EMBED_TARGET_HEADER);
-    if (typeof raw === "string") return pathnameFromPath(raw);
-    const queryValue = getQuery(event)?.[EMBED_TARGET_QUERY_PARAM];
-    const queryTarget = Array.isArray(queryValue) ? queryValue[0] : queryValue;
-    return typeof queryTarget === "string"
-      ? pathnameFromPath(queryTarget)
-      : null;
-  } catch {
+      : event.url.pathname;
+  const base = getConfiguredAppBasePath();
+  if (base && pathname !== base && !pathname.startsWith(`${base}/`)) {
     return null;
   }
+  return stripConfiguredBasePath(pathname);
+}
+
+function requestUrl(event: H3Event): URL | null {
+  return event.url ?? null;
 }
 
 function requestHostname(event: H3Event): string | null {
   try {
-    return getForwardedRequestHostname(event);
+    return new URL(resolveEmbedRequestOrigin(event)).hostname;
   } catch {
+    // coercion-ok: invalid authority cannot authenticate an embed session.
     return null;
   }
 }
@@ -652,6 +677,43 @@ function normalizedHostname(
 ): string | null {
   const normalized = hostname?.trim().toLowerCase().replace(/\.$/, "");
   return normalized || null;
+}
+
+interface EmbedTicketAudience {
+  audienceHost: string;
+  audienceBasePath: string;
+}
+
+function ticketAudience(audienceHost?: string): EmbedTicketAudience | null {
+  let hostname = audienceHost;
+  if (hostname === undefined) {
+    const origin = getEmbedSessionOrigin();
+    if (!origin || !URL.canParse(origin)) return null;
+    const url = new URL(origin);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    hostname = url.hostname;
+  }
+  const normalized = normalizedHostname(hostname);
+  if (!normalized) return null;
+  const audienceOrigin = `https://${normalized}`;
+  if (!URL.canParse(audienceOrigin)) return null;
+  const url = new URL(audienceOrigin);
+  if (url.hostname !== normalized || url.origin !== audienceOrigin) return null;
+  return {
+    audienceHost: normalized,
+    audienceBasePath: getConfiguredAppBasePath(),
+  };
+}
+
+function ticketMatchesAudience(
+  row: Record<string, unknown>,
+  audience: EmbedTicketAudience | null,
+): boolean {
+  return (
+    !!audience &&
+    row.audience_host === audience.audienceHost &&
+    row.audience_base_path === audience.audienceBasePath
+  );
 }
 
 function isFirstPartyAppHostname(hostname: string | null): boolean {
@@ -670,6 +732,8 @@ function embedTokenMatchesHostname(
   hostname: string | null | undefined,
   claims: EmbedSessionTokenClaims,
 ): boolean {
+  const basePath = getConfiguredAppBasePath();
+  if ((claims.audienceBasePath ?? "") !== basePath) return false;
   const requestHostname = normalizedHostname(hostname);
   return claims.audienceHost === undefined
     ? !isFirstPartyAppHostname(requestHostname)
@@ -683,77 +747,126 @@ function embedTokenMatchesRequestAudience(
   return embedTokenMatchesHostname(requestHostname(event), claims);
 }
 
-function referrerTargetPathname(event: H3Event): string | null {
-  let raw: string | null =
-    (event as any).request?.headers?.get?.("referer") ??
-    (event as any).request?.headers?.get?.("referrer") ??
-    (event as any).headers?.get?.("referer") ??
-    (event as any).headers?.get?.("referrer") ??
-    (event as any).node?.req?.headers?.referer ??
-    (event as any).node?.req?.headers?.referrer ??
-    null;
-  try {
-    raw =
-      raw ??
-      getHeader(event, "referer") ??
-      getHeader(event, "referrer") ??
-      null;
-  } catch {
-    raw = raw ?? null;
+function isEmbedDocumentPath(pathname: string): boolean {
+  return (
+    pathname !== "/api" &&
+    !pathname.startsWith("/api/") &&
+    (pathname === OPEN_ROUTE_PATH ||
+      (pathname !== "/_agent-native" &&
+        !pathname.startsWith("/_agent-native/")))
+  );
+}
+
+function matchesEmbedTargetQuery(
+  current: URL,
+  target: URL,
+  currentPathname: string,
+): boolean {
+  const expected = new URLSearchParams(target.search);
+  const redirectedOpen =
+    target.pathname === OPEN_ROUTE_PATH && currentPathname !== OPEN_ROUTE_PATH;
+  const requiredKeys = new Set(redirectedOpen ? [] : expected.keys());
+  if (redirectedOpen) {
+    const to = normalizeEmbedTargetPath(expected.get("to"));
+    if (to) {
+      const destination = new URL(to, "http://agent-native.invalid");
+      for (const key of new Set(destination.searchParams.keys())) {
+        requiredKeys.add(key);
+        expected.delete(key);
+        for (const value of destination.searchParams.getAll(key))
+          expected.append(key, value);
+      }
+    }
   }
-  if (!raw) return null;
-  const hostname = requestHostname(event);
-  if (!hostname || !URL.canParse(raw)) return null;
-  const referrer = new URL(raw);
-  if (
-    (referrer.protocol !== "http:" && referrer.protocol !== "https:") ||
-    referrer.hostname.toLowerCase().replace(/\.$/, "") !== hostname
-  ) {
-    return null;
+  const keys = new Set([...current.searchParams.keys(), ...requiredKeys]);
+  // Open redirects move top-level navigation selectors into application state;
+  // selectors in the destination URL remain part of the signed target.
+  for (const key of keys) {
+    if (EMBED_PRESENTATION_QUERY_PARAMS.has(key)) continue;
+    const actual = current.searchParams.getAll(key);
+    const wanted = expected.getAll(key);
+    if (
+      actual.length !== wanted.length ||
+      actual.some((value, index) => value !== wanted[index])
+    ) {
+      return false;
+    }
   }
-  return pathnameFromPath(`${referrer.pathname}${referrer.search}`);
+  return true;
 }
 
 export function requestMatchesEmbedTarget(
   event: H3Event,
   targetPath: string,
 ): boolean {
-  const allowed = allowedEmbedTargetPathnames(targetPath);
-  if (allowed.size === 0) return false;
-
-  const current = requestPathname(event);
-  if (current && allowed.has(current)) return true;
-
-  const headerTarget = headerTargetPathname(event);
-  if (headerTarget && allowed.has(headerTarget)) return true;
-
-  const referrerTarget = referrerTargetPathname(event);
-  return !!referrerTarget && allowed.has(referrerTarget);
+  const current = requestUrl(event);
+  const pathname = requestPathname(event);
+  const target = normalizeEmbedTargetPath(targetPath);
+  if (!current || !pathname || !target || !isEmbedDocumentPath(pathname))
+    return false;
+  if (!allowedEmbedTargetPathnames(target).has(pathname)) return false;
+  return matchesEmbedTargetQuery(
+    current,
+    new URL(target, "http://agent-native.invalid"),
+    pathname,
+  );
 }
 
-function isEmbedRuntimeRequest(event: H3Event): boolean {
+function isEmbedCapabilityRuntimeRequest(
+  event: H3Event,
+  scope: string,
+): boolean {
   const pathname = requestPathname(event);
+  if (!pathname) return false;
+  if (
+    ["/_agent-native/actions", "/_agent-native/webmcp/actions"].some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    )
+  )
+    return true;
+  const method =
+    (event as any).req?.method ?? (event as any).node?.req?.method ?? "GET";
   return (
-    !!pathname &&
-    (pathname === "/api" ||
-      pathname.startsWith("/api/") ||
-      pathname.startsWith("/@") ||
-      pathname.startsWith("/app/") ||
-      pathname.startsWith("/node_modules/") ||
-      pathname.startsWith("/packages/") ||
-      pathname === "/_agent-native" ||
-      pathname.startsWith("/_agent-native/"))
+    (scope.startsWith("capability:visual-edit:design:") ||
+      isMcpDirectoryWidgetCapabilityScope(scope)) &&
+    method === "GET" &&
+    (pathname === "/_agent-native/webmcp/manifest" ||
+      pathname === "/_agent-native/webmcp/manifest/")
   );
 }
 
 function isEmbedStaticRuntimeRequest(event: H3Event): boolean {
   const pathname = requestPathname(event);
+  if (!pathname) return false;
   return (
-    !!pathname &&
-    (pathname.startsWith("/@") ||
-      pathname.startsWith("/app/") ||
-      pathname.startsWith("/node_modules/") ||
-      pathname.startsWith("/packages/"))
+    pathname === "/@react-refresh" ||
+    pathname.startsWith("/@vite/") ||
+    pathname.startsWith("/@id/") ||
+    pathname.startsWith("/@fs/") ||
+    (["/assets/", "/app/", "/node_modules/", "/packages/"].some((prefix) =>
+      pathname.startsWith(prefix),
+    ) &&
+      /\.(?:[cm]?[jt]sx?|css|json|wasm|woff2?|ttf|otf|svg|png|jpe?g|gif|webp|ico|map)$/.test(
+        pathname,
+      ))
+  );
+}
+
+function embedSessionAllowsRequest(
+  event: H3Event,
+  claims: EmbedSessionTokenClaims,
+): boolean {
+  if (
+    isEmbedCapabilityScope(claims.scope) &&
+    isEmbedCapabilityRuntimeRequest(event, claims.scope!)
+  )
+    return true;
+  const method =
+    (event as any).req?.method ?? (event as any).node?.req?.method ?? "GET";
+  return (
+    (method === "GET" || method === "HEAD") &&
+    (requestMatchesEmbedTarget(event, claims.targetPath) ||
+      isEmbedStaticRuntimeRequest(event))
   );
 }
 
@@ -806,6 +919,10 @@ export async function createEmbedSessionTicket(
   const targetPath = normalizeEmbedTargetPath(input.targetPath);
   if (!targetPath)
     throw new Error("Embed session ticket requires a safe path.");
+  const audience = ticketAudience(input.audienceHost);
+  if (!audience) {
+    throw new Error("Embed session ticket requires a trusted app audience.");
+  }
 
   const now = Date.now();
   const context = getRequestContext();
@@ -916,8 +1033,8 @@ export async function createEmbedSessionTicket(
     await tx.execute({
       sql:
         "INSERT INTO agent_native_embed_tickets " +
-        "(ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at, renewal_expires_at, session_active_until) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "(ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at, renewal_expires_at, session_active_until, audience_host, audience_base_path) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       args: [
         ticketHash,
         ownerEmail,
@@ -929,6 +1046,8 @@ export async function createEmbedSessionTicket(
         null,
         renewalExpiresAt,
         sessionActiveUntil,
+        audience.audienceHost,
+        audience.audienceBasePath,
       ],
     });
   };
@@ -947,6 +1066,7 @@ export async function createEmbedSessionTicket(
 
 export async function readMcpDirectoryWidgetRenewalTicket(
   ticket: string,
+  options: { audienceHost?: string } = {},
 ): Promise<McpDirectoryWidgetRenewalTicket | null> {
   if (!ticket || ticket.length > 128 || CONTROL_CHARS.test(ticket)) {
     return null;
@@ -954,12 +1074,13 @@ export async function readMcpDirectoryWidgetRenewalTicket(
   await ensureTable();
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at, renewal_expires_at, session_active_until " +
+      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at, renewal_expires_at, session_active_until, audience_host, audience_base_path " +
       "FROM agent_native_embed_tickets WHERE ticket_hash = ? LIMIT 1",
     args: [hashTicket(ticket)],
   });
   const row = rows[0] as Record<string, unknown> | undefined;
-  if (!row) return null;
+  if (!row || !ticketMatchesAudience(row, ticketAudience(options.audienceHost)))
+    return null;
   const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
   const targetPath = normalizeEmbedTargetPath(
     stringOrUndefined(row.target_path ?? row.targetPath),
@@ -1011,6 +1132,7 @@ export async function readMcpDirectoryWidgetRenewalTicket(
 }
 
 export async function renewMcpDirectoryWidgetSession(input: {
+  audienceHost?: string;
   sourceTicket: string;
   ownerEmail: string;
   orgId?: string | null;
@@ -1037,12 +1159,13 @@ export async function renewMcpDirectoryWidgetSession(input: {
     const ticketHash = hashTicket(input.sourceTicket);
     const { rows } = await tx.execute({
       sql:
-        "SELECT owner_email, org_id, target_path, scope, created_at, consumed_at, renewal_expires_at, session_active_until " +
+        "SELECT owner_email, org_id, target_path, scope, created_at, consumed_at, renewal_expires_at, session_active_until, audience_host, audience_base_path " +
         "FROM agent_native_embed_tickets WHERE ticket_hash = ? FOR UPDATE",
       args: [ticketHash],
     });
     const row = rows[0] as Record<string, unknown> | undefined;
-    if (!row) return null;
+    if (!row || !ticketMatchesAudience(row, ticketAudience(input.audienceHost)))
+      return null;
 
     const currentOwner = stringOrUndefined(row.owner_email ?? row.ownerEmail);
     const currentOrgId = stringOrUndefined(row.org_id ?? row.orgId);
@@ -1141,17 +1264,19 @@ interface McpDirectoryWidgetSessionState {
 
 async function readMcpDirectoryWidgetSessionState(
   sessionId: string,
+  hostname: string,
 ): Promise<McpDirectoryWidgetSessionState | null> {
   if (!/^[a-f0-9]{64}$/.test(sessionId)) return null;
   await ensureTable();
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, consumed_at, renewal_expires_at, session_active_until " +
+      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, consumed_at, renewal_expires_at, session_active_until, audience_host, audience_base_path " +
       "FROM agent_native_embed_tickets WHERE ticket_hash = ? LIMIT 1",
     args: [sessionId],
   });
   const row = rows[0] as Record<string, unknown> | undefined;
-  if (!row) return null;
+  if (!row || !ticketMatchesAudience(row, ticketAudience(hostname)))
+    return null;
 
   const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
   const targetPath = normalizeEmbedTargetPath(
@@ -1215,7 +1340,10 @@ export async function resolveEmbedSessionTokenForHost(
   }
   if (claims.sessionId) {
     if (!widgetCapability) return null;
-    const session = await readMcpDirectoryWidgetSessionState(claims.sessionId);
+    const session = await readMcpDirectoryWidgetSessionState(
+      claims.sessionId,
+      hostname,
+    );
     if (
       !session ||
       normalizedEmail(session.ownerEmail) !==
@@ -1230,7 +1358,7 @@ export async function resolveEmbedSessionTokenForHost(
       return null;
     }
     scope = session.scope;
-  } else if (claims.exp < Math.floor(Date.now() / 1000)) {
+  } else if (claims.exp * 1000 <= Date.now()) {
     return null;
   }
   if (widgetCapability && !isMcpDirectoryWidgetCapabilityScope(scope)) {
@@ -1255,7 +1383,7 @@ export async function resolveEmbedSessionTokenForHost(
 export async function isExpiredMcpDirectoryWidgetSessionRequest(
   event: H3Event,
 ): Promise<boolean> {
-  const hostname = requestHostname(event) ?? "";
+  let hostname: string | undefined;
   const tokens = [
     queryToken(event),
     bearerToken(event),
@@ -1266,14 +1394,21 @@ export async function isExpiredMcpDirectoryWidgetSessionRequest(
     if (
       !verified.ok ||
       !verified.claims.sessionId ||
-      !isMcpDirectoryWidgetCapabilityScope(verified.claims.scope) ||
+      !isMcpDirectoryWidgetCapabilityScope(verified.claims.scope)
+    ) {
+      continue;
+    }
+    hostname ??= requestHostname(event) ?? undefined;
+    if (!hostname) return false;
+    if (
       !embedTokenMatchesHostname(hostname, verified.claims) ||
-      !requestMatchesEmbedTarget(event, verified.claims.targetPath)
+      !embedSessionAllowsRequest(event, verified.claims)
     ) {
       continue;
     }
     const session = await readMcpDirectoryWidgetSessionState(
       verified.claims.sessionId,
+      hostname,
     );
     if (
       !session ||
@@ -1344,7 +1479,7 @@ export async function consumeEmbedSessionTicket(
   const ticketKey = ticketHash.slice(0, 12);
   const { rows } = await getDbExec().execute({
     sql:
-      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at, renewal_expires_at " +
+      "SELECT ticket_hash, owner_email, org_id, target_path, scope, created_at, expires_at, consumed_at, renewal_expires_at, audience_host, audience_base_path " +
       "FROM agent_native_embed_tickets WHERE ticket_hash = ?",
     args: [ticketHash],
   });
@@ -1377,6 +1512,20 @@ export async function consumeEmbedSessionTicket(
   const capabilityScope = isEmbedCapabilityScope(scope);
   const widgetCapability = isMcpDirectoryWidgetCapabilityScope(scope);
   const revokesWithOwner = !capabilityScope || widgetCapability;
+  if (!ticketMatchesAudience(row, ticketAudience(options.audienceHost))) {
+    options.onResult?.({
+      outcome: "audience-mismatch",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
   if (!ownerEmail || createdAt === null || expiresAt === null) {
     options.onResult?.({
       outcome: "invalid-row",
@@ -1595,6 +1744,7 @@ export function signEmbedSessionToken(input: {
     kind: TOKEN_KIND,
     ownerEmail: input.ownerEmail,
     targetPath,
+    audienceBasePath: getConfiguredAppBasePath(),
     iat: now,
     issuedAtMs,
     exp: now + ttl,
@@ -1655,11 +1805,15 @@ export function verifyEmbedSessionToken(
       (typeof claims.sessionId !== "string" ||
         !/^[a-f0-9]{64}$/.test(claims.sessionId))) ||
     typeof claims.exp !== "number" ||
-    !Number.isFinite(claims.exp)
+    !Number.isFinite(claims.exp) ||
+    (claims.audienceBasePath !== undefined &&
+      (typeof claims.audienceBasePath !== "string" ||
+        normalizeAppBasePath(claims.audienceBasePath) !==
+          claims.audienceBasePath))
   ) {
     return { ok: false, reason: "claims" };
   }
-  if (!options.allowExpired && claims.exp < Math.floor(Date.now() / 1000)) {
+  if (!options.allowExpired && claims.exp * 1000 <= Date.now()) {
     return { ok: false, reason: "expired" };
   }
   claims.targetPath = normalizeEmbedTargetPath(claims.targetPath) ?? "/";
@@ -1703,9 +1857,18 @@ export function setEmbedSessionCookie(event: H3Event, token: string): void {
     setCookie(event, EMBED_SESSION_COOKIE, "", { ...attrs, maxAge: 0 });
     return;
   }
+  const verified = verifyEmbedSessionToken(token);
   setCookie(event, EMBED_SESSION_COOKIE, token, {
     ...attrs,
-    maxAge: DEFAULT_TOKEN_TTL_SECONDS,
+    maxAge: verified.ok
+      ? Math.max(
+          0,
+          Math.min(
+            DEFAULT_TOKEN_TTL_SECONDS,
+            Math.floor(verified.claims.exp - Date.now() / 1000),
+          ),
+        )
+      : 0,
   });
 }
 
@@ -1735,34 +1898,23 @@ function queryToken(event: H3Event): string | undefined {
 export async function resolveEmbedSessionFromRequest(
   event: H3Event,
 ): Promise<ResolvedEmbedSession | null> {
-  const hostname = requestHostname(event) ?? "";
   const candidates = [
     { token: queryToken(event), source: "query" },
     { token: bearerToken(event), source: "bearer" },
     { token: getCookie(event, EMBED_SESSION_COOKIE), source: "cookie" },
-  ];
+  ].filter(
+    ({ token }) => verifyEmbedSessionToken(token, { allowExpired: true }).ok,
+  );
+  if (!candidates.length) return null;
+  const hostname = requestHostname(event);
+  if (!hostname) return null;
   for (const candidate of candidates) {
     const claims = await resolveEmbedSessionTokenForHost(
       candidate.token,
       hostname,
     );
     if (!claims) continue;
-    const matchesTarget = requestMatchesEmbedTarget(event, claims.targetPath);
-    const isRuntimeRequest = isEmbedRuntimeRequest(event);
-    const isRuntimeCookieRequest =
-      candidate.source === "cookie" && isRuntimeRequest;
-    const isRuntimeQueryRequest =
-      candidate.source === "query" && isRuntimeRequest;
-    const capabilityScope = isEmbedCapabilityScope(claims.scope);
-    const allowsUnboundRuntimeRequest =
-      !capabilityScope || isEmbedStaticRuntimeRequest(event);
-    if (
-      !matchesTarget &&
-      (!allowsUnboundRuntimeRequest ||
-        (!isRuntimeCookieRequest && !isRuntimeQueryRequest))
-    ) {
-      continue;
-    }
+    if (!embedSessionAllowsRequest(event, claims)) continue;
     if (candidate.source === "query" && candidate.token) {
       try {
         setEmbedSessionCookie(event, candidate.token);
@@ -1797,42 +1949,72 @@ export function hasExplicitEmbedSessionCredential(event: H3Event): boolean {
     return true;
   }
 
-  const cookieClaims = verifyEmbedSessionToken(
+  return [bearerToken(event), getCookie(event, EMBED_SESSION_COOKIE)].some(
+    (token) => {
+      const verified = verifyEmbedSessionToken(token, { allowExpired: true });
+      return (
+        verified.ok &&
+        embedTokenMatchesRequestAudience(event, verified.claims) &&
+        embedSessionAllowsRequest(event, verified.claims)
+      );
+    },
+  );
+}
+
+export function hasEmbedSessionRequestMarker(event: H3Event): boolean {
+  if (
+    queryToken(event) ||
+    isEmbedModeRequest(event) ||
+    getHeader(event, EMBED_TARGET_HEADER) !== undefined ||
+    getQuery(event)?.[EMBED_TARGET_QUERY_PARAM] !== undefined
+  ) {
+    return true;
+  }
+  if (verifyEmbedSessionToken(bearerToken(event), { allowExpired: true }).ok) {
+    return true;
+  }
+  return false;
+}
+
+export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {
+  if (hasEmbedSessionRequestMarker(event)) return true;
+  const cookie = verifyEmbedSessionToken(
     getCookie(event, EMBED_SESSION_COOKIE),
   );
+  if (!cookie.ok || !embedSessionAllowsRequest(event, cookie.claims)) {
+    return false;
+  }
+  const hostname = requestHostname(event);
   return (
-    cookieClaims.ok &&
-    embedTokenMatchesRequestAudience(event, cookieClaims.claims) &&
-    requestMatchesEmbedTarget(event, cookieClaims.claims.targetPath)
+    hostname === null || embedTokenMatchesHostname(hostname, cookie.claims)
+  );
+}
+
+export function hasLiveEmbedCapabilityCookie(event: H3Event): boolean {
+  const cookie = verifyEmbedSessionToken(
+    getCookie(event, EMBED_SESSION_COOKIE),
+  );
+  if (!cookie.ok || !isEmbedCapabilityScope(cookie.claims.scope)) return false;
+  const hostname = requestHostname(event);
+  // Invalid authority cannot establish that a live capability cookie is unrelated.
+  return (
+    hostname === null || embedTokenMatchesHostname(hostname, cookie.claims)
   );
 }
 
 export function requestHasEmbedAuthMarker(event: H3Event): boolean {
   try {
-    const q = getQuery(event) ?? {};
-    const queryToken = Array.isArray(q[EMBED_TOKEN_QUERY_PARAM])
-      ? q[EMBED_TOKEN_QUERY_PARAM][0]
-      : q[EMBED_TOKEN_QUERY_PARAM];
-    const cookieToken = getCookie(event, EMBED_SESSION_COOKIE);
     const candidates = [
-      { token: queryToken, allowRuntime: true },
-      { token: bearerToken(event), allowRuntime: false },
-      { token: cookieToken, allowRuntime: true },
+      queryToken(event),
+      bearerToken(event),
+      getCookie(event, EMBED_SESSION_COOKIE),
     ];
-    const runtimeRequest = isEmbedRuntimeRequest(event);
-    for (const candidate of candidates) {
-      const verified = verifyEmbedSessionToken(candidate.token);
-      const allowsUnboundRuntimeRequest =
-        verified.ok &&
-        (!isEmbedCapabilityScope(verified.claims.scope) ||
-          isEmbedStaticRuntimeRequest(event));
+    for (const token of candidates) {
+      const verified = verifyEmbedSessionToken(token);
       if (
         verified.ok &&
         embedTokenMatchesRequestAudience(event, verified.claims) &&
-        (requestMatchesEmbedTarget(event, verified.claims.targetPath) ||
-          (candidate.allowRuntime &&
-            runtimeRequest &&
-            allowsUnboundRuntimeRequest))
+        embedSessionAllowsRequest(event, verified.claims)
       ) {
         return true;
       }
