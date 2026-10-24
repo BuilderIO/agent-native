@@ -5,6 +5,7 @@ import {
 import { loadAwarenessRowsStrict } from "@agent-native/core/collab";
 import { getDbExec } from "@agent-native/core/db";
 
+import { FLUSH_TIMEOUT_MS } from "../../actions/_document-flush.js";
 import { readDocumentTitleRow } from "../../actions/_document-save-row.js";
 import {
   flushAckKey,
@@ -46,7 +47,10 @@ async function requestFor(
   email: string,
   matches: (request: DocumentFlushRequest) => boolean,
 ): Promise<DocumentFlushRequest> {
-  const deadline = Date.now() + 4_000;
+  // A real tab waits for as long as the page is open. This bound only ends a
+  // test whose action never asks, so it leaves the action's reads before it
+  // asks as long again as the server then waits for the tab.
+  const deadline = Date.now() + 2 * FLUSH_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const request = await appStateGet(email, `flush-request-${id}`);
     if (

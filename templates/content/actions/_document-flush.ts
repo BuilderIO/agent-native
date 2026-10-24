@@ -36,7 +36,7 @@ import {
 
 const FLUSH_POLL_INTERVAL_MS = 200;
 // The required-editor budget covers acquisition and both handshake phases.
-const FLUSH_TIMEOUT_MS = 20_000;
+export const FLUSH_TIMEOUT_MS = 20_000;
 const BEST_EFFORT_FLUSH_TIMEOUT_MS = 4_000;
 const TITLE_DISCOVERY_CONCURRENCY = 10;
 // Each title handshake polls its acknowledgements every interval, so a large
