@@ -7,7 +7,11 @@ import {
 } from "@shared/clips-peer-contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { grantRefreshDelay, youtubeEmbedSrc } from "./clip-media";
+import {
+  GRANT_REFRESH_RETRY_DELAYS_MS,
+  grantRefreshDelay,
+  youtubeEmbedSrc,
+} from "./clip-media";
 
 /** No write changes a grant, so Clip queries refetch only when asked. */
 const CLIP_PLAYBACK_RESOURCE = "clip-playback";
@@ -26,6 +30,22 @@ function errorCodeOf(error: unknown): ClipPlaybackErrorCode | null {
   return isClipPlaybackErrorCode(code) ? code : null;
 }
 
+/** Clips didn't answer, or asked to be asked later: the next try may work. */
+const OUTAGES = new Set<ClipPlayerError>([
+  "clips_unreachable",
+  "clip_rate_limited",
+  "refresh_failed",
+  "failed",
+]);
+
+type RefreshCause =
+  /** The grant is about to run out, and its source still plays. */
+  | "expiring"
+  /** The source failed to load or play. */
+  | "media-error"
+  /** The reader asked again, or came back to the tab, from a failure. */
+  | "asked";
+
 export interface ClipPlaybackState {
   /** The grant the player is on. Later refetches don't move it. */
   grant: ClipPlayback | null;
@@ -40,7 +60,8 @@ export interface ClipPlaybackState {
  * Plays a Clip on one grant at a time. Any write refetches untagged action
  * queries and every answer carries new URLs, so the player swaps sources
  * only when its grant is about to run out or its source fails, never because
- * a newer answer arrived.
+ * a newer answer arrived. A refresh Clips doesn't answer leaves the source
+ * playing; the outage shows only once the source fails or the grant runs out.
  */
 export function useClipPlayback(
   documentId: string,
@@ -59,6 +80,11 @@ export function useClipPlayback(
   const { refetch } = query;
   const [held, setHeld] = useState<ClipPlayback | null>(null);
   const [failure, setFailure] = useState<ClipPlayerError | null>(null);
+  // Refreshes Clips didn't answer while the source still played.
+  const [stalled, setStalled] = useState<{
+    reason: ClipPlayerError;
+    tries: number;
+  } | null>(null);
   const [retrying, setRetrying] = useState(false);
   // The source a media error already refreshed to; failing again is final.
   const refreshedAfterErrorTo = useRef<string | null | undefined>(undefined);
@@ -69,16 +95,22 @@ export function useClipPlayback(
   }, [held, query.data]);
 
   const refresh = useCallback(
-    async (afterMediaError: boolean) => {
+    async (cause: RefreshCause) => {
       const result = await refetch();
       if (result.isError || !result.data) {
-        setFailure(errorCodeOf(result.error) ?? "refresh_failed");
+        const reason = errorCodeOf(result.error) ?? "refresh_failed";
+        if (cause === "expiring" && OUTAGES.has(reason)) {
+          setStalled((last) => ({ reason, tries: (last?.tries ?? 0) + 1 }));
+        } else {
+          setFailure(reason);
+        }
         return;
       }
-      if (afterMediaError) {
+      if (cause === "media-error") {
         refreshedAfterErrorTo.current = result.data.playback.videoUrl;
       }
       setHeld(result.data);
+      setStalled(null);
       setFailure(null);
     },
     [refetch],
@@ -89,12 +121,30 @@ export function useClipPlayback(
   useEffect(() => {
     // A YouTube player streams on its own; swapping its URL restarts it.
     if (!expiresAt || failure || playsFromYoutube) return;
-    const timer = setTimeout(
-      () => void refresh(false),
-      grantRefreshDelay(expiresAt, Date.now()),
+    const now = Date.now();
+    if (!stalled) {
+      const timer = setTimeout(
+        () => void refresh("expiring"),
+        grantRefreshDelay(expiresAt, now),
+      );
+      return () => clearTimeout(timer);
+    }
+    // Tries stop when the grant runs out, which is when its source fails.
+    const left = Date.parse(expiresAt) - now;
+    const wait = GRANT_REFRESH_RETRY_DELAYS_MS[stalled.tries - 1];
+    const retryTimer =
+      wait !== undefined && wait < left
+        ? setTimeout(() => void refresh("expiring"), wait)
+        : undefined;
+    const expiryTimer = setTimeout(
+      () => setFailure(stalled.reason),
+      Math.max(0, left),
     );
-    return () => clearTimeout(timer);
-  }, [expiresAt, failure, playsFromYoutube, refresh]);
+    return () => {
+      clearTimeout(retryTimer);
+      clearTimeout(expiryTimer);
+    };
+  }, [expiresAt, failure, playsFromYoutube, refresh, stalled]);
 
   const videoUrl = grant?.playback.videoUrl ?? null;
   const onMediaError = useCallback(() => {
@@ -102,7 +152,7 @@ export function useClipPlayback(
       setFailure("unplayable");
       return;
     }
-    void refresh(true);
+    void refresh("media-error");
   }, [refresh, videoUrl]);
 
   // The query keeps the answer a failed refetch replaced, so a retry plays
@@ -111,18 +161,41 @@ export function useClipPlayback(
   const retry = useCallback(() => {
     refreshedAfterErrorTo.current = undefined;
     setRetrying(true);
-    void refresh(false).finally(() => setRetrying(false));
+    void refresh("asked").finally(() => setRetrying(false));
   }, [refresh]);
+
+  const loadError =
+    !grant && query.isError ? (errorCodeOf(query.error) ?? "failed") : null;
+  const error = failure ?? loadError;
+
+  // Through an outage nothing asks on a timer; coming back to the tab asks
+  // once, and a hidden tab never asks.
+  const outage = !retrying && error !== null && OUTAGES.has(error);
+  useEffect(() => {
+    if (!outage) return;
+    let asking = false;
+    const askOnce = () => {
+      if (asking || document.visibilityState === "hidden") return;
+      asking = true;
+      void refresh("asked").finally(() => {
+        asking = false;
+      });
+    };
+    window.addEventListener("focus", askOnce);
+    document.addEventListener("visibilitychange", askOnce);
+    return () => {
+      window.removeEventListener("focus", askOnce);
+      document.removeEventListener("visibilitychange", askOnce);
+    };
+  }, [outage, refresh]);
 
   if (retrying) {
     return { grant: null, loading: true, error: null, onMediaError, retry };
   }
-  const loadError =
-    !grant && query.isError ? (errorCodeOf(query.error) ?? "failed") : null;
   return {
     grant,
     loading: !grant && !loadError,
-    error: failure ?? loadError,
+    error,
     onMediaError,
     retry,
   };

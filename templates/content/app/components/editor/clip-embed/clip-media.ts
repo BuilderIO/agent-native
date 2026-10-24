@@ -8,6 +8,9 @@
 export const GRANT_REFRESH_LEAD_MS = 30_000;
 /** Never ask again sooner than this, even for a grant already near its end. */
 export const MIN_GRANT_REFRESH_DELAY_MS = 5_000;
+/** After a refresh Clips didn't answer, ask again after each of these in turn,
+ *  while the grant still runs. */
+export const GRANT_REFRESH_RETRY_DELAYS_MS = [5_000, 15_000, 60_000] as const;
 
 export function grantRefreshDelay(expiresAt: string, now: number): number {
   const expiresAtMs = Date.parse(expiresAt);
@@ -56,18 +59,29 @@ const pendingRestores = new WeakMap<
 >();
 
 /**
+ * Where the reader is in `media`. A source swapped out before its metadata
+ * loaded never held the reader's place; the element only shows what `load()`
+ * reset it to, so the place read before that source is the reader's.
+ */
+export function mediaPlace(media: SwappableMedia): MediaState {
+  return pendingRestores.get(media)?.state ?? captureMediaState(media);
+}
+
+/**
  * Points `media` at `src` and, once the new source knows its length, puts
  * back where the reader was: time, play or pause, volume and rate. Loading a
- * source resets all of them, so they are read before the swap.
+ * source resets all of them, so they are read before the swap. `place` puts
+ * a new element where an earlier one left off.
  */
-export function swapMediaSource(media: SwappableMedia, src: string): void {
-  // A source swapped out before its metadata loaded never held the reader's
-  // place; the element only shows what `load()` reset it to. Carry the place
-  // read before that source forward, and drop its restore so it can't run on
-  // this one.
+export function swapMediaSource(
+  media: SwappableMedia,
+  src: string,
+  place?: MediaState,
+): void {
+  // Drop a pending restore so it can't run on this source.
   const pending = pendingRestores.get(media);
   if (pending) media.removeEventListener("loadedmetadata", pending.restore);
-  const state = pending?.state ?? captureMediaState(media);
+  const state = place ?? mediaPlace(media);
   const restore = () => {
     media.removeEventListener("loadedmetadata", restore);
     pendingRestores.delete(media);

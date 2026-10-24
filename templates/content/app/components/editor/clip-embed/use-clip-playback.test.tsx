@@ -95,10 +95,42 @@ afterEach(() => {
   root = null;
   latest = null;
   latestMarkers = null;
+  delete (document as { visibilityState?: unknown }).visibilityState;
   vi.useRealTimers();
 });
 
 const playbackQuery = () => queries.byName["get-clip-playback"]!;
+
+const down = (errorCode?: string) => ({
+  isError: true,
+  data: undefined,
+  error: Object.assign(new Error("down"), { errorCode }),
+});
+
+function setVisibility(state: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => state,
+  });
+}
+
+/**
+ * Moves the clock a second at a time, so effects that an answer schedules run
+ * before the clock passes their timers, as they would in a browser.
+ */
+async function elapse(ms: number) {
+  for (let done = 0; done < ms; done += 1_000) {
+    await act(() => vi.advanceTimersByTimeAsync(Math.min(1_000, ms - done)));
+  }
+}
+
+/** grant(1) runs until T0 + 5 min; every refresh before then fails. */
+async function playUntilClipsIsOut() {
+  playbackQuery().refetch.mockResolvedValue(down());
+  render();
+  await elapse(5 * 60_000);
+  expect(latest?.error).toBe("refresh_failed");
+}
 
 describe("useClipPlayback", () => {
   it("stays on its grant while later answers arrive", () => {
@@ -116,16 +148,16 @@ describe("useClipPlayback", () => {
     });
     render();
 
-    await act(() => vi.advanceTimersByTimeAsync(4 * 60_000 + 29_000));
+    await elapse(4 * 60_000 + 29_000);
     expect(playbackQuery().refetch).not.toHaveBeenCalled();
-    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    await elapse(1_000);
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(1);
     expect(latest?.grant?.playback.videoUrl).toBe(grant(2).playback.videoUrl);
 
     // grant(2) runs until T0 + 10 min.
-    await act(() => vi.advanceTimersByTimeAsync(4 * 60_000 + 59_000));
+    await elapse(4 * 60_000 + 59_000);
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(1);
-    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    await elapse(1_000);
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(2);
     expect(latest?.error).toBeNull();
   });
@@ -155,25 +187,117 @@ describe("useClipPlayback", () => {
     render();
 
     await act(async () => latest!.onMediaError());
-    await act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
+    await elapse(10 * 60_000);
     expect(latest?.grant?.playback.videoUrl).toBe(grant(3).playback.videoUrl);
     await act(async () => latest!.onMediaError());
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(3);
     expect(latest?.error).toBeNull();
   });
 
-  it("shows a failed refresh as its own error and stops asking", async () => {
-    playbackQuery().refetch.mockResolvedValue({
-      isError: true,
-      data: undefined,
-      error: new Error("network down"),
-    });
+  it("keeps playing through a refresh Clips doesn't answer, and asks again", async () => {
+    playbackQuery().refetch.mockResolvedValue(down());
     render();
 
-    await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
-    expect(latest?.error).toBe("refresh_failed");
-    await act(() => vi.advanceTimersByTimeAsync(30 * 60_000));
+    await elapse(4 * 60_000 + 30_000);
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(1);
+    expect(latest?.error).toBeNull();
+    expect(latest?.grant?.playback.videoUrl).toBe(grant(1).playback.videoUrl);
+    await elapse(5_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(2);
+    await elapse(15_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(3);
+    expect(latest?.error).toBeNull();
+  });
+
+  it("moves to the grant a later try brings back, then keeps its schedule", async () => {
+    playbackQuery()
+      .refetch.mockResolvedValue(down())
+      .mockResolvedValueOnce(down("clips_unreachable"))
+      .mockResolvedValueOnce(down("clip_rate_limited"))
+      .mockResolvedValueOnce({ isError: false, data: grant(2) });
+    render();
+
+    await elapse(4 * 60_000 + 50_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(3);
+    expect(latest?.grant?.playback.videoUrl).toBe(grant(2).playback.videoUrl);
+    expect(latest?.error).toBeNull();
+    // grant(2) runs until T0 + 10 min, so the next ask is at T0 + 9:30.
+    await elapse(4 * 60_000 + 39_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(3);
+    await elapse(1_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("shows the outage once the grant runs out unrefreshed, and stops asking", async () => {
+    playbackQuery().refetch.mockResolvedValue(down("clips_unreachable"));
+    render();
+
+    await elapse(5 * 60_000 - 1);
+    expect(latest?.error).toBeNull();
+    await elapse(1);
+    expect(latest?.error).toBe("clips_unreachable");
+    await elapse(30 * 60_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("shows the outage as soon as the source fails while Clips is out", async () => {
+    playbackQuery().refetch.mockResolvedValue(down());
+    render();
+    await elapse(4 * 60_000 + 30_000);
+    expect(latest?.error).toBeNull();
+
+    await act(async () => latest!.onMediaError());
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(2);
+    expect(latest?.error).toBe("refresh_failed");
+  });
+
+  it("stops at once when Clips or Content refuses a refresh", async () => {
+    playbackQuery().refetch.mockResolvedValue(down("clip_embed_disabled"));
+    render();
+    await elapse(4 * 60_000 + 30_000);
+    expect(latest?.error).toBe("clip_embed_disabled");
+    await elapse(30 * 60_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks nothing while the tab is hidden, and once when it shows again", async () => {
+    await playUntilClipsIsOut();
+    setVisibility("hidden");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+    });
+    await elapse(10 * 60_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(3);
+
+    playbackQuery().refetch.mockResolvedValueOnce({
+      isError: false,
+      data: grant(2),
+    });
+    setVisibility("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(4);
+    expect(latest?.grant?.playback.videoUrl).toBe(grant(2).playback.videoUrl);
+    expect(latest?.error).toBeNull();
+  });
+
+  it("asks again each time the window regains focus until Clips answers", async () => {
+    await playUntilClipsIsOut();
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(4);
+    expect(latest?.error).toBe("refresh_failed");
+
+    playbackQuery().refetch.mockResolvedValueOnce({
+      isError: false,
+      data: grant(2),
+    });
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(5);
+    expect(latest?.grant?.playback.videoUrl).toBe(grant(2).playback.videoUrl);
+    expect(latest?.error).toBeNull();
   });
 
   it("keeps the reason a refresh was refused", async () => {
@@ -208,20 +332,15 @@ describe("useClipPlayback", () => {
 
   it("plays the grant a retry brings back, not the one that failed", async () => {
     let answer!: (result: unknown) => void;
-    playbackQuery()
-      .refetch.mockResolvedValueOnce({
-        isError: true,
-        error: new Error("down"),
-      })
-      .mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
-    render();
-    await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
-    expect(latest?.error).toBe("refresh_failed");
+    await playUntilClipsIsOut();
+    playbackQuery().refetch.mockReturnValueOnce(
+      new Promise((resolve) => (answer = resolve)),
+    );
 
     act(() => latest!.retry());
     expect(latest).toMatchObject({ grant: null, loading: true, error: null });
-    await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
-    expect(playbackQuery().refetch).toHaveBeenCalledTimes(2);
+    await elapse(5 * 60_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(4);
 
     await act(async () => answer({ isError: false, data: grant(2) }));
     expect(latest?.grant?.playback.videoUrl).toBe(grant(2).playback.videoUrl);
@@ -229,19 +348,8 @@ describe("useClipPlayback", () => {
   });
 
   it("keeps showing a retry that fails again", async () => {
-    playbackQuery()
-      .refetch.mockResolvedValueOnce({
-        isError: true,
-        error: new Error("down"),
-      })
-      .mockResolvedValueOnce({
-        isError: true,
-        error: Object.assign(new Error("down"), {
-          errorCode: "clips_unreachable",
-        }),
-      });
-    render();
-    await act(() => vi.advanceTimersByTimeAsync(5 * 60_000));
+    await playUntilClipsIsOut();
+    playbackQuery().refetch.mockResolvedValueOnce(down("clips_unreachable"));
 
     await act(async () => latest!.retry());
     expect(latest?.error).toBe("clips_unreachable");
@@ -266,7 +374,7 @@ describe("useClipPlayback", () => {
       grant(1, { videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ" }),
     );
     render();
-    await act(() => vi.advanceTimersByTimeAsync(60 * 60_000));
+    await elapse(60 * 60_000);
     expect(playbackQuery().refetch).not.toHaveBeenCalled();
   });
 });
