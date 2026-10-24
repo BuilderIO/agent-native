@@ -785,6 +785,115 @@ describe("/api/uploads/:recordingId/abort route", () => {
     );
   });
 
+  describe("for a caller that lets an accepted final chunk win", () => {
+    const uploading = {
+      id: "rec-1",
+      status: "uploading",
+      videoUrl: null,
+      failureReason: null,
+      failureCode: null,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    const uploadState = {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    // What the chunk route publishes once it accepts the final chunk, before
+    // finalization moves the recording on.
+    const finalChunkState = { ...uploadState, status: "processing" };
+
+    function contentCancel() {
+      return handleAbortRecordingUpload({} as any, {
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        finalChunkWins: true,
+        body: {
+          failureCode: "upload_aborted",
+          reason: "The Content page gave up this upload.",
+          attemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+        },
+      });
+    }
+
+    function readStates(...states: Array<Record<string, unknown>>) {
+      mockReadAppState.mockImplementation(async (key: string) =>
+        key === "recording-media-verification-rec-1" ? null : states.shift(),
+      );
+    }
+
+    it("leaves the upload to finish once the final chunk is in", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates(finalChunkState);
+
+      await expect(contentCancel()).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        finalChunkTaken: true,
+        chunksCleared: 0,
+      });
+
+      expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+    });
+
+    it("leaves the upload to finish when the final chunk lands between its read and its claim", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates(uploadState, finalChunkState);
+      mockCompareAndSetManyAppState.mockResolvedValueOnce(false);
+
+      await expect(contentCancel()).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        finalChunkTaken: true,
+        chunksCleared: 0,
+      });
+
+      expect(mockCompareAndSetManyAppState).toHaveBeenCalledTimes(1);
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("leaves a recording that finalization moved on before verification starts", async () => {
+      mockSelectRows.rows = [{ ...uploading, status: "processing" }];
+      readStates(finalChunkState);
+
+      await expect(contentCancel()).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        finalChunkTaken: true,
+        chunksCleared: 0,
+      });
+
+      expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("still cancels while the final chunk isn't in", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates(uploadState);
+
+      await expect(contentCancel()).resolves.toMatchObject({
+        ok: true,
+        recordingId: "rec-1",
+      });
+
+      expect(mockEqCalls).toContainEqual(["recordings.status", "uploading"]);
+      expect(mockUpdateSets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: "failed",
+            failureCode: "upload_aborted",
+          }),
+        ]),
+      );
+    });
+  });
+
   it("aborts provider storage before deleting a resumable session", async () => {
     mockSelectRows.rows = [
       {

@@ -49,7 +49,11 @@ import {
   type VerifiedContentPeer,
 } from "./content-clip-peer.js";
 import { isActiveUploadBinding } from "./content-uploads.js";
-import { startRecordingUpload } from "./recording-upload-start.js";
+import {
+  reissueRecordingUpload,
+  startRecordingUpload,
+  type RecordingUploadStart,
+} from "./recording-upload-start.js";
 import {
   requireUploadTicketOwnerForToken,
   verifyRecordingUploadTicket,
@@ -60,6 +64,7 @@ import { getClipsVideoStorageStatus } from "./video-storage.js";
 const MAX_START_BODY_BYTES = 4 * 1024;
 const MAX_CLIENT_IP_CHARS = 64;
 const BLOCK_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const UPLOAD_KEY = /^[A-Za-z0-9_-]{16,64}$/;
 
 interface Uploader {
   peer: VerifiedContentPeer;
@@ -214,8 +219,12 @@ const uploadStartSchema = z
     sizeBytes: z.number().int().positive(),
     mimeType: z.enum(CONTENT_CLIP_UPLOAD_MIME_TYPES),
     blockId: z.string().regex(BLOCK_ID),
+    /** One per file the editor picks: a repeated start reaches its upload. */
+    uploadKey: z.string().regex(UPLOAD_KEY),
   })
   .strict();
+
+type UploadStart = z.infer<typeof uploadStartSchema>;
 
 /** The file's name without its extension, which Clips titles the Clip with. */
 function titleFromFileName(fileName: string): string {
@@ -236,7 +245,7 @@ const invalidStart = () => json({ error: "Invalid upload request" }, 400);
 
 async function readUploadStart(
   event: H3Event,
-): Promise<z.infer<typeof uploadStartSchema> | Response> {
+): Promise<UploadStart | Response> {
   let body: unknown;
   try {
     body = await readBodyWithSizeLimit(event, MAX_START_BODY_BYTES);
@@ -287,6 +296,75 @@ async function refusedStart(
   return null;
 }
 
+function startAnswer(upload: RecordingUploadStart): Response {
+  upload.chunkQuery.set("ticket", upload.ticket);
+  return json({
+    recordingId: upload.recordingId,
+    chunkUrl: uploadUrlFor(
+      upload.recordingId,
+      "content-chunk",
+      upload.chunkQuery,
+    ),
+    cancelUrl: uploadUrlFor(
+      upload.recordingId,
+      "content-cancel",
+      new URLSearchParams({ ticket: upload.ticket }),
+    ),
+    chunkSizeBytes: upload.chunkSizeBytes,
+    totalChunks: upload.totalChunks,
+    expiresAt: upload.expiresAt,
+  });
+}
+
+const keyUsed = () => refused(409, CONTENT_CLIP_UPLOAD_REFUSED.keyUsed);
+
+/**
+ * The answer to a start Content repeated for a file it already started: that
+ * upload, never a second recording. Null when the key is new.
+ */
+async function repeatedStart(
+  uploader: Uploader,
+  start: UploadStart,
+): Promise<Response | null> {
+  const bindings = schema.recordingContentBindings;
+  const [binding] = await getDb()
+    .select({ recordingId: bindings.recordingId, blockId: bindings.blockId })
+    .from(bindings)
+    .where(
+      and(
+        eq(bindings.contentApp, uploader.peer.contentApp),
+        eq(bindings.documentId, uploader.peer.documentId),
+        eq(bindings.createdBy, uploader.email),
+        eq(bindings.uploadKey, start.uploadKey),
+      ),
+    );
+  if (!binding) return null;
+  if (binding.blockId !== start.blockId) return keyUsed();
+  const [recording] = await getDb()
+    .select({ status: schema.recordings.status })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, binding.recordingId),
+        ownerEmailMatches(schema.recordings.ownerEmail, uploader.email),
+      ),
+    );
+  if (recording?.status === "processing" || recording?.status === "ready") {
+    return refused(409, CONTENT_CLIP_UPLOAD_REFUSED.alreadyFinished, {
+      recordingId: binding.recordingId,
+      status: recording.status,
+    });
+  }
+  if (recording?.status !== "uploading") return keyUsed();
+  return startAnswer(
+    await reissueRecordingUpload({
+      recordingId: binding.recordingId,
+      mimeType: start.mimeType,
+      sizeBytes: start.sizeBytes,
+    }),
+  );
+}
+
 export async function handleContentClipUploadStart(
   event: H3Event,
 ): Promise<Response> {
@@ -303,6 +381,11 @@ export async function handleContentClipUploadStart(
   }
 
   return runAsUploader(uploader, account, async () => {
+    // Before the storage check: the first start may have taken the last free
+    // clip.
+    const repeated = await repeatedStart(uploader, start);
+    if (repeated) return repeated;
+
     const storage = await readStorage(uploader, account);
     if (storage.state !== "ready" && storage.state !== "free") {
       return refused(409, CONTENT_CLIP_UPLOAD_REFUSED.storageRequired, {
@@ -320,19 +403,34 @@ export async function handleContentClipUploadStart(
     const recordingId = nanoid();
     const bindingId = nanoid(16);
     const now = new Date().toISOString();
-    await getDb().insert(schema.recordingContentBindings).values({
-      id: bindingId,
-      recordingId,
-      contentApp: uploader.peer.contentApp,
-      documentId: uploader.peer.documentId,
-      blockId: start.blockId,
-      origin: "upload",
-      state: "active",
-      stateChangedAt: now,
-      createdBy: uploader.email,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const bindings = schema.recordingContentBindings;
+    const [bound] = await getDb()
+      .insert(bindings)
+      .values({
+        id: bindingId,
+        recordingId,
+        contentApp: uploader.peer.contentApp,
+        documentId: uploader.peer.documentId,
+        blockId: start.blockId,
+        origin: "upload",
+        state: "active",
+        stateChangedAt: now,
+        createdBy: uploader.email,
+        uploadKey: start.uploadKey,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({
+        target: [
+          bindings.contentApp,
+          bindings.documentId,
+          bindings.createdBy,
+          bindings.uploadKey,
+        ],
+      })
+      .returning({ id: bindings.id });
+    // A start with the same key bound first, since the lookup above.
+    if (!bound) return (await repeatedStart(uploader, start)) ?? keyUsed();
 
     let upload: Awaited<ReturnType<typeof startRecordingUpload>>;
     try {
@@ -362,19 +460,7 @@ export async function handleContentClipUploadStart(
       throw error;
     }
 
-    upload.chunkQuery.set("ticket", upload.ticket);
-    return json({
-      recordingId,
-      chunkUrl: uploadUrlFor(recordingId, "content-chunk", upload.chunkQuery),
-      cancelUrl: uploadUrlFor(
-        recordingId,
-        "content-cancel",
-        new URLSearchParams({ ticket: upload.ticket }),
-      ),
-      chunkSizeBytes: upload.chunkSizeBytes,
-      totalChunks: upload.totalChunks,
-      expiresAt: upload.expiresAt,
-    });
+    return startAnswer(upload);
   });
 }
 
@@ -567,6 +653,7 @@ export async function handleContentClipCancel(
       typeof verified.ticket.authUserId === "string"
         ? verified.ticket.authUserId
         : undefined,
+    finalChunkWins: true,
     body: {
       failureCode: "upload_aborted",
       reason: "The Content page gave up this upload.",
@@ -575,10 +662,17 @@ export async function handleContentClipCancel(
     },
   })) as Record<string, unknown>;
   // The abort answers ok without failing the recording when Clips got the
-  // whole file first, so only the recording's status says what happened.
+  // whole file first, so the recording's status says what happened, or the
+  // abort does while finalization hasn't moved the recording yet.
   const after = await readRecording();
   if (!after) return json({ error: "Not found" }, 404, cors);
-  const answer = cancelAnswer(recordingId, after.status, cors);
+  const answer = cancelAnswer(
+    recordingId,
+    result.finalChunkTaken === true && after.status === "uploading"
+      ? "processing"
+      : after.status,
+    cors,
+  );
   if (answer) return answer;
   if (result.ok === true) {
     return json({ error: "Clips didn't cancel this upload" }, 409, cors);

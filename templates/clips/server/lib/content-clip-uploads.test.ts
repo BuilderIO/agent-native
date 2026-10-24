@@ -41,6 +41,11 @@ const state = vi.hoisted(() => {
       answer: Record<string, unknown>;
       httpStatus?: number;
     },
+    // The final chunk accepted, and finalization not yet run.
+    finalChunkTaken: false,
+    // Runs once inside the next storage check: another request landing
+    // between an upload start's key lookup and its binding.
+    duringStorageCheck: null as null | (() => Promise<void>),
   };
 });
 
@@ -90,6 +95,14 @@ vi.mock("../routes/api/uploads/[recordingId]/abort.post.js", () => ({
     const { schema } = await import("../db/index.js");
     const { eq } = await import("drizzle-orm");
     state.aborts.push(override);
+    if (state.finalChunkTaken && override.finalChunkWins === true) {
+      return {
+        ok: true,
+        recordingId: override.recordingId,
+        finalChunkTaken: true,
+        chunksCleared: 0,
+      };
+    }
     if (state.finalizedFirst) {
       await state.db
         .update(schema.recordings)
@@ -110,7 +123,12 @@ vi.mock("../routes/api/uploads/[recordingId]/abort.post.js", () => ({
 }));
 vi.mock("./video-storage.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./video-storage.js")>()),
-  getClipsVideoStorageStatus: async () => state.storageStatus,
+  getClipsVideoStorageStatus: async () => {
+    const during = state.duringStorageCheck;
+    state.duringStorageCheck = null;
+    await during?.();
+    return state.storageStatus;
+  },
 }));
 
 const coreRequire = createRequire(
@@ -162,7 +180,18 @@ function createTableSql(table: PgTable): string {
     }
     return parts.join(" ");
   });
-  return `CREATE TABLE IF NOT EXISTS "${config.name}" (${columns.join(", ")});`;
+  const uniqueIndexes = config.indexes
+    .filter((index) => index.config.unique)
+    .map(
+      (index) =>
+        `CREATE UNIQUE INDEX IF NOT EXISTS "${index.config.name}" ON "${config.name}" (${index.config.columns
+          .map((column) => `"${(column as { name: string }).name}"`)
+          .join(", ")});`,
+    );
+  return [
+    `CREATE TABLE IF NOT EXISTS "${config.name}" (${columns.join(", ")});`,
+    ...uniqueIndexes,
+  ].join("\n");
 }
 
 /** Core reads through its own handle; point it at this test's database. */
@@ -261,7 +290,16 @@ const START = {
   blockId: "block-video-1",
 };
 
+let uploadKeys = 0;
+
+/** A start for a newly picked file, unless the body names the pick's key. */
 function startUpload(bearer: string, body: unknown = START) {
+  if (typeof body === "object" && body !== null && !("uploadKey" in body)) {
+    body = {
+      ...body,
+      uploadKey: `picked-file-${String(++uploadKeys).padStart(8, "0")}`,
+    };
+  }
   return respond(
     uploadStartRoute,
     mockEvent(`${CLIPS_URL}/api/content-clips/uploads`, {
@@ -340,6 +378,8 @@ beforeEach(async () => {
   state.chunks = [];
   state.aborts = [];
   state.finalizedFirst = null;
+  state.finalChunkTaken = false;
+  state.duringStorageCheck = null;
   for (const table of [
     schema.recordings,
     schema.recordingShares,
@@ -517,6 +557,7 @@ describe("an editor's upload from a Content page", () => {
       { ...START, sizeBytes: 0 },
       { ...START, blockId: "has spaces" },
       { ...START, extra: true },
+      { ...START, uploadKey: "short" },
       "{not json",
     ]) {
       expect((await startUpload(bearer, body)).status).toBe(400);
@@ -598,6 +639,165 @@ describe("an editor's upload from a Content page", () => {
       maxBytes: 1024 * 1024,
     });
     expect(await rows("recordings")).toEqual([]);
+  });
+});
+
+describe("a start Content repeats for one picked file", () => {
+  const KEY = "picked-file-repeated";
+
+  async function startTwice(
+    again: Record<string, unknown> = {},
+    between?: () => Promise<unknown>,
+  ) {
+    const editor = await clipsEditor();
+    const first = await startUpload(await token({ sub: editor }), {
+      ...START,
+      uploadKey: KEY,
+    });
+    await between?.();
+    const repeat = await startUpload(await token({ sub: editor }), {
+      ...START,
+      uploadKey: KEY,
+      ...again,
+    });
+    return { editor, first, repeat };
+  }
+
+  it("answers with the same recording and a fresh ticket, and makes and binds nothing more", async () => {
+    const { first, repeat } = await startTwice();
+
+    expect(repeat.status).toBe(200);
+    expect(repeat.body).toMatchObject({
+      recordingId: first.body.recordingId,
+      totalChunks: first.body.totalChunks,
+      chunkSizeBytes: first.body.chunkSizeBytes,
+    });
+    expect(state.created).toHaveLength(1);
+    expect(await rows("recordings")).toHaveLength(1);
+    expect(await rows("recording_content_bindings")).toEqual([
+      expect.objectContaining({
+        recording_id: first.body.recordingId,
+        upload_key: KEY,
+      }),
+    ]);
+    // Only the latest answer uploads.
+    const paired = pairedContentOrigin()!;
+    const chunk = (url: string) =>
+      postChunk(`${url}&index=0&isFinal=0`, { origin: paired });
+    expect((await chunk(repeat.body.chunkUrl)).status).toBe(200);
+    expect((await chunk(first.body.chunkUrl)).status).toBe(401);
+  });
+
+  it("answers even when the first start took the last free clip", async () => {
+    const { first, repeat } = await startTwice({}, async () => {
+      state.storageStatus = {
+        mode: "none",
+        configured: false,
+        activeProvider: null,
+        localSqlChunkScratchAvailable: false,
+        hostedRemaining: 0,
+        hostedLimit: 3,
+        maxClipBytes: 250 * 1024 * 1024,
+        denyReason: "exhausted",
+      };
+    });
+
+    expect(repeat.status).toBe(200);
+    expect(repeat.body.recordingId).toBe(first.body.recordingId);
+  });
+
+  it.each(["processing", "ready"])(
+    "says the upload already finished once its recording is %s",
+    async (status) => {
+      const { first, repeat } = await startTwice({}, () =>
+        client.query("UPDATE recordings SET status = $1", [status]),
+      );
+
+      expect(repeat.status).toBe(409);
+      expect(repeat.body).toEqual({
+        error: "upload_already_finished",
+        code: "upload_already_finished",
+        recordingId: first.body.recordingId,
+        status,
+      });
+      expect(await rows("recordings")).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    [
+      "once its upload was cancelled",
+      {},
+      () => client.query("UPDATE recordings SET status = 'failed'"),
+    ],
+    ["from another block", { blockId: "block-video-2" }, undefined],
+  ])("refuses the key %s", async (_when, again, between) => {
+    const { repeat } = await startTwice(again, between);
+
+    expect(repeat.status).toBe(409);
+    expect(repeat.body).toEqual({
+      error: "upload_key_used",
+      code: "upload_key_used",
+    });
+    expect(await rows("recordings")).toHaveLength(1);
+    expect(await rows("recording_content_bindings")).toHaveLength(1);
+  });
+
+  it("makes a new upload for another key", async () => {
+    const { first, repeat } = await startTwice({
+      uploadKey: "picked-file-another",
+    });
+
+    expect(repeat.status).toBe(200);
+    expect(repeat.body.recordingId).not.toBe(first.body.recordingId);
+    expect(await rows("recordings")).toHaveLength(2);
+    expect(await rows("recording_content_bindings")).toHaveLength(2);
+  });
+
+  it("never answers another uploader's key with the first one's recording", async () => {
+    const one = await clipsEditor();
+    const two = await clipsEditor();
+    const first = await startUpload(await token({ sub: one }), {
+      ...START,
+      uploadKey: KEY,
+    });
+    const second = await startUpload(await token({ sub: two }), {
+      ...START,
+      uploadKey: KEY,
+    });
+
+    expect(second.status).toBe(200);
+    expect(second.body.recordingId).not.toBe(first.body.recordingId);
+    expect(
+      Object.fromEntries(
+        (await rows("recordings")).map((row) => [row.id, row.owner_email]),
+      ),
+    ).toEqual({
+      [first.body.recordingId]: one,
+      [second.body.recordingId]: two,
+    });
+  });
+
+  it("answers a start that raced another with the same key with the upload the other made", async () => {
+    const editor = await clipsEditor();
+    let raced: Awaited<ReturnType<typeof startUpload>> | undefined;
+    state.duringStorageCheck = async () => {
+      raced = await startUpload(await token({ sub: editor }), {
+        ...START,
+        uploadKey: KEY,
+      });
+    };
+    const result = await startUpload(await token({ sub: editor }), {
+      ...START,
+      uploadKey: KEY,
+    });
+
+    expect(raced?.status).toBe(200);
+    expect(result.status).toBe(200);
+    expect(result.body.recordingId).toBe(raced?.body.recordingId);
+    expect(state.created).toHaveLength(1);
+    expect(await rows("recordings")).toHaveLength(1);
+    expect(await rows("recording_content_bindings")).toHaveLength(1);
   });
 });
 
@@ -825,6 +1025,7 @@ describe("an upload the editor's page gives up", () => {
         ownerEmail: upload.editor,
         orgId: expect.stringMatching(/^org-/),
         authUserId: expect.stringMatching(/^user-/),
+        finalChunkWins: true,
         body: expect.objectContaining({ failureCode: "upload_aborted" }),
       }),
     ]);
@@ -887,6 +1088,23 @@ describe("an upload the editor's page gives up", () => {
       });
     },
   );
+
+  it("says the upload already finished once Clips took its final chunk, and leaves it to finish", async () => {
+    const upload = await started();
+    state.finalChunkTaken = true;
+    const result = await postCancel(upload.cancelUrl, pairedContentOrigin()!);
+
+    expect(result.status).toBe(409);
+    expect(result.body).toEqual({
+      error: "This upload is already finished",
+      outcome: "already_finished",
+      recordingId: upload.recordingId,
+      status: "processing",
+    });
+    expect((await rows("recordings"))[0]).toMatchObject({
+      status: "uploading",
+    });
+  });
 
   it("refuses another recording's ticket and an expired one", async () => {
     const one = await started();

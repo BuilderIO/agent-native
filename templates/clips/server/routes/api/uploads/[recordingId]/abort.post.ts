@@ -80,6 +80,13 @@ export async function handleAbortRecordingUpload(
     authUserId?: string;
     /** The abort request, from a caller that reads its own body. */
     body?: Record<string, unknown>;
+    /**
+     * Change nothing once the chunk route has accepted the final chunk, and
+     * answer `finalChunkTaken`. The chunk route publishes that in the upload
+     * state before finalization moves the recording, so the claim below
+     * fails for an abort that read the state first.
+     */
+    finalChunkWins?: boolean;
   },
 ) {
   const recordingId =
@@ -302,6 +309,17 @@ export async function handleAbortRecordingUpload(
         chunksCleared: 0,
       };
     }
+    const finalChunkTaken = (
+      status: string,
+      uploadState: Record<string, unknown>,
+    ) =>
+      override?.finalChunkWins === true &&
+      (status === "processing" ||
+        status === "ready" ||
+        (status === "uploading" && uploadState.status === "processing"));
+    if (finalChunkTaken(existing.status, existingUploadState)) {
+      return { ok: true, recordingId, finalChunkTaken: true, chunksCleared: 0 };
+    }
 
     let preserveRecoveryState =
       isStoredButUnservableFinalizeError(failureReason) ||
@@ -429,6 +447,14 @@ export async function handleAbortRecordingUpload(
           ok: true,
           recordingId,
           verificationPending: true,
+          chunksCleared: 0,
+        };
+      }
+      if (finalChunkTaken(latest.status, latestUploadState)) {
+        return {
+          ok: true,
+          recordingId,
+          finalChunkTaken: true,
           chunksCleared: 0,
         };
       }
