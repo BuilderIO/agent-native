@@ -10,12 +10,12 @@ import {
 } from "@shared/clip-embed-block";
 import type { ClipPlayback } from "@shared/clips-peer-contract";
 import { IconMovie } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { youtubeEmbedSrc } from "./clip-media";
+import { youtubeEmbedSrc, type MediaState } from "./clip-media";
 import { ClipPlayer } from "./ClipPlayer";
 import { msToClock } from "./scrubber";
 import {
@@ -139,6 +139,7 @@ export function ClipEmbed({
   const t = useT();
   const playback = useClipPlayback(documentId, recordingId);
   const { grant } = playback;
+  const placeRef = useRef<MediaState | null>(null);
   const links = useClipsLinks();
   const openUrl = links.appUrl ? clipShareUrl(links.appUrl, recordingId) : null;
   const provider = grant?.recording.embedProvider ?? null;
@@ -236,6 +237,7 @@ export function ClipEmbed({
         grant={grant}
         markers={"markers" in markers ? markers.markers : []}
         onMediaError={playback.onMediaError}
+        resumeRef={placeRef}
       />
       <ClipCaption
         grant={grant}

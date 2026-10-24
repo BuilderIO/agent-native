@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   grantRefreshDelay,
+  mediaPlace,
   MIN_GRANT_REFRESH_DELAY_MS,
   swapMediaSource,
   youtubeEmbedSrc,
@@ -147,6 +148,44 @@ describe("swapMediaSource", () => {
     media.dispatchEvent(new Event("loadedmetadata"));
     expect(media.currentTime).toBe(30);
     expect(media.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts a new element where an earlier one left off", () => {
+    const earlier = new FakeMedia();
+    Object.assign(earlier, { currentTime: 64, paused: false, volume: 0.3 });
+    swapMediaSource(
+      earlier as unknown as HTMLMediaElement,
+      "https://clips.example.test/v?cg=2",
+    );
+    const place = mediaPlace(earlier as unknown as HTMLMediaElement);
+
+    const next = new FakeMedia();
+    swapMediaSource(
+      next as unknown as HTMLMediaElement,
+      "https://clips.example.test/v?cg=3",
+      place,
+    );
+    next.dispatchEvent(new Event("loadedmetadata"));
+    expect(next).toMatchObject({
+      src: "https://clips.example.test/v?cg=3",
+      currentTime: 64,
+      volume: 0.3,
+    });
+    expect(next.play).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("mediaPlace", () => {
+  it("reads where the reader is once the source has loaded", () => {
+    const media = new FakeMedia();
+    Object.assign(media, { currentTime: 12, paused: true, playbackRate: 2 });
+    expect(mediaPlace(media as unknown as HTMLMediaElement)).toEqual({
+      currentTime: 12,
+      paused: true,
+      volume: 1,
+      muted: false,
+      playbackRate: 2,
+    });
   });
 });
 
