@@ -771,8 +771,9 @@ export function useDeleteDocumentProperty(
       void queryClient.invalidateQueries({
         queryKey: ["action"],
         predicate: (query) => {
-          if (databaseQueries.predicate(query)) return true;
-          if (!constrainedQueries.predicate(query)) return false;
+          if (!constrainedQueries.predicate(query)) {
+            return databaseQueries.predicate(query);
+          }
           // A table read that sorts or filters on the property reads again
           // under a new key once the refetched view drops it. Refetching it
           // first reruns a filter on a missing property, which matches no

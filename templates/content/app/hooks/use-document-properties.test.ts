@@ -221,27 +221,52 @@ describe("useDeleteDocumentProperty", () => {
     });
     useQueryClient.mockReturnValue(queryClient);
     const returnedPage = { items: [] };
-    const tableRead = (tableQuery: Record<string, unknown>) =>
-      [
-        "action",
-        "query-content-database-items",
-        {
-          documentId: "database-page",
-          tableQuery: { search: "", filters: [], sorts: [], ...tableQuery },
-        },
-      ] as const;
-    const searchKey = tableRead({ search: "draft" });
-    const filteredKey = tableRead({
+    const tableQuery = (constraints: Record<string, unknown>) => ({
+      search: "",
+      filters: [],
+      sorts: [],
+      ...constraints,
+    });
+    const deletedFilter = {
       filters: [
         { key: "deleted", label: "Deleted", operator: "equals", value: "x" },
       ],
-    });
+    };
+    const tableRead = (constraints: Record<string, unknown>) =>
+      [
+        "action",
+        "query-content-database-items",
+        { documentId: "database-page", tableQuery: tableQuery(constraints) },
+      ] as const;
+    const searchKey = tableRead({ search: "draft" });
+    const filteredKey = tableRead(deletedFilter);
     const sortedKey = tableRead({
       sorts: [{ key: "deleted", label: "Deleted", direction: "asc" }],
     });
-    const reads = [searchKey, filteredKey, sortedKey].map((queryKey) => {
+    const databaseKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page" },
+    ] as const;
+    const filteredDatabaseKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", tableQuery: tableQuery(deletedFilter) },
+    ] as const;
+    const reads = [
+      searchKey,
+      filteredKey,
+      sortedKey,
+      databaseKey,
+      filteredDatabaseKey,
+    ].map((queryKey) => {
       const queryFn = vi.fn(async () => returnedPage);
-      queryClient.setQueryData(queryKey, { items: [{ id: "item-1" }] });
+      queryClient.setQueryData(
+        queryKey,
+        queryKey[1] === "get-content-database"
+          ? { database: { id: "database-1" }, properties: [], items: [] }
+          : { items: [{ id: "item-1" }] },
+      );
       const observer = new QueryObserver(queryClient, { queryKey, queryFn });
       return { queryFn, unsubscribe: observer.subscribe(() => {}) };
     });
@@ -266,10 +291,11 @@ describe("useDeleteDocumentProperty", () => {
 
       await vi.waitFor(() => {
         expect(queryClient.getQueryData(searchKey)).toEqual(returnedPage);
+        expect(queryClient.getQueryData(databaseKey)).toEqual(returnedPage);
       });
-      expect(reads[0].queryFn).toHaveBeenCalledTimes(1);
-      expect(reads[1].queryFn).not.toHaveBeenCalled();
-      expect(reads[2].queryFn).not.toHaveBeenCalled();
+      expect(reads.map(({ queryFn }) => queryFn.mock.calls.length)).toEqual([
+        1, 0, 0, 1, 0,
+      ]);
     } finally {
       reads.forEach(({ unsubscribe }) => unsubscribe());
       queryClient.clear();
