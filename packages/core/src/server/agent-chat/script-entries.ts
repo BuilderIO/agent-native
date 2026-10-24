@@ -49,6 +49,16 @@ function wrapCliScript(
   };
 }
 
+// A script's module loads on its first call. Importing them while the entries
+// are built is mount-time work every cold instance pays on its first framework
+// request, whether or not it ever queries the database.
+function lazyCliDefault(
+  load: () => Promise<{ default: (args: string[]) => Promise<void> }>,
+): (args: string[]) => Promise<void> {
+  let loaded: ReturnType<typeof load> | undefined;
+  return async (args) => (await (loaded ??= load())).default(args);
+}
+
 export async function createDbScriptEntries(
   mode: DatabaseToolsMode = "read",
   options: { extensionTools?: boolean } = {},
@@ -59,17 +69,6 @@ export async function createDbScriptEntries(
       options.extensionTools !== true
         ? "Extension management tools are disabled for this app; do not query or mutate the legacy tools table as a workaround."
         : "For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.";
-    const [schemaMod, queryMod] = await Promise.all([
-      import("../../scripts/db/schema.js"),
-      import("../../scripts/db/query.js"),
-    ]);
-    const [execMod, patchMod] =
-      mode === "write"
-        ? await Promise.all([
-            import("../../scripts/db/exec.js"),
-            import("../../scripts/db/patch.js"),
-          ])
-        : [null, null];
 
     const entries: Record<string, ActionEntry> = {
       "db-schema": wrapCliScript(
@@ -87,7 +86,7 @@ export async function createDbScriptEntries(
             },
           },
         },
-        schemaMod.default,
+        lazyCliDefault(() => import("../../scripts/db/schema.js")),
         {
           allowedArgs: ["format"],
           readOnly: true,
@@ -123,7 +122,7 @@ export async function createDbScriptEntries(
             required: ["sql"],
           },
         },
-        queryMod.default,
+        lazyCliDefault(() => import("../../scripts/db/query.js")),
         {
           allowedArgs: ["sql", "args", "format", "limit"],
           readOnly: true,
@@ -131,14 +130,14 @@ export async function createDbScriptEntries(
       ),
     };
 
-    if (execMod && patchMod) {
+    if (mode === "write") {
       entries["db-exec"] = wrapCliScript(
         {
           description:
             "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
           parameters: dbExecToolParameters(),
         },
-        execMod.default,
+        lazyCliDefault(() => import("../../scripts/db/exec.js")),
       );
       entries["db-patch"] = wrapCliScript(
         {
@@ -190,7 +189,7 @@ export async function createDbScriptEntries(
             required: ["table", "column", "where"],
           },
         },
-        patchMod.default,
+        lazyCliDefault(() => import("../../scripts/db/patch.js")),
       );
     }
 
