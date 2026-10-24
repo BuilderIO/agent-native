@@ -61,21 +61,24 @@ export function hasStoredColumnWidths(table: ProseMirrorNode): boolean {
  * Each column's rendered width. A cell spanning several columns doesn't show
  * how the browser divided them, so a column is read from a cell it has to
  * itself, in any row; only a column without one shares out what its spanning
- * cell has left.
+ * cell has left. Null when the rendered cells don't match `node`'s yet.
  */
 export function renderedColumnWidths(
   node: ProseMirrorNode,
   table: HTMLTableElement,
-): number[] {
+): number[] | null {
+  if (table.rows.length !== node.childCount) return null;
   const map = TableMap.get(node);
   const widths: Array<number | undefined> = new Array(map.width);
   const spanning: Array<{ start: number; span: number; width: number }> = [];
   let rowPos = 0;
+  let current = true;
   node.forEach((row, _offset, rowIndex) => {
-    const cells = table.rows[rowIndex]?.cells;
+    const { cells } = table.rows[rowIndex];
+    if (cells.length !== row.childCount) current = false;
+    if (!current) return;
     row.forEach((cell, cellOffset, cellIndex) => {
-      const width = cells?.[cellIndex]?.getBoundingClientRect().width;
-      if (width === undefined) return;
+      const width = cells[cellIndex].getBoundingClientRect().width;
       const start = map.colCount(rowPos + 1 + cellOffset);
       const span: number = cell.attrs.colspan;
       if (span === 1) widths[start] ??= width;
@@ -83,6 +86,7 @@ export function renderedColumnWidths(
     });
     rowPos += row.nodeSize;
   });
+  if (!current) return null;
   for (const { start, span, width } of spanning) {
     const columns = Array.from({ length: span }, (_, index) => start + index);
     const unknown = columns.filter((column) => widths[column] === undefined);
@@ -195,8 +199,10 @@ function startContentSizedResize(view: EditorView): ContentSizedResize | null {
     map.colCount($cell.pos - $cell.start(-1)) +
     ($cell.nodeAfter?.attrs.colspan ?? 1) -
     1;
+  const widths = renderedColumnWidths(table, dom as HTMLTableElement);
+  if (!widths) return null;
   const resize = {
-    widths: renderedColumnWidths(table, dom as HTMLTableElement),
+    widths,
     flexibleColumn: dragged + 1 < map.width ? dragged + 1 : -1,
   };
   const tr = storeColumnWidths(
@@ -400,9 +406,11 @@ export class ContentTableView extends TableView {
       this.table.setAttribute(COLUMN_SIZING_ATTRIBUTE, "content");
       for (const col of cols) col.style.removeProperty("width");
       if (!hold) return;
+      // ProseMirror redraws the cells only after this update, so a table
+      // whose cells just changed stays content-sized until its next one.
       const widths = renderedColumnWidths(this.node, this.table);
-      const total = widths.reduce((sum, width) => sum + width, 0);
-      if (widths.length !== cols.length || total <= 0) return;
+      const total = widths?.reduce((sum, width) => sum + width, 0) ?? 0;
+      if (!widths || widths.length !== cols.length || total <= 0) return;
       this.heldShares = widths.map((width) => (width / total) * 100);
     }
     this.table.setAttribute(COLUMN_SIZING_ATTRIBUTE, "held");

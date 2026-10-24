@@ -195,6 +195,21 @@ describe("content-sized columns", () => {
     expect(colWidths(view)).toEqual(["", ""]);
   });
 
+  it("doesn't hold a column the cells haven't been drawn for yet", () => {
+    const node = table([{}, {}]);
+    const view = new ContentTableView(node, 25);
+    renderFirstRow(view, [100, 300]);
+    view.update(node, holdDecorations(stateWith(node, 4)));
+
+    // ProseMirror calls `update` with a column added before it draws the
+    // column's cells.
+    const wider = table([{}, {}, {}]);
+    view.update(wider, holdDecorations(stateWith(wider, 4)));
+
+    expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("content");
+    expect(colWidths(view)).toEqual(["", "", ""]);
+  });
+
   it("drops a held share once the table has stored widths", () => {
     const node = table([{}, {}]);
     const view = new ContentTableView(node, 25);
