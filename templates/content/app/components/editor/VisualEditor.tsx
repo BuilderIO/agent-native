@@ -2155,6 +2155,7 @@ interface VisualEditorExtensionOptions {
   } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onVideoComment?: ContentVideoOptions["onVideoComment"];
+  canCommentOnVideo?: ContentVideoOptions["canCommentOnVideo"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
@@ -2769,6 +2770,7 @@ export function createVisualEditorExtensions({
   user,
   onImageComment,
   onVideoComment,
+  canCommentOnVideo,
   onImageFilePickerRequest,
   canMutateMedia,
   isSuggesting,
@@ -2834,6 +2836,7 @@ export function createVisualEditorExtensions({
         HTMLAttributes: { class: "content-video" },
         documentId,
         onVideoComment,
+        canCommentOnVideo,
         canMutateMedia,
       }),
       VideoBlockIds.configure({
@@ -3399,6 +3402,17 @@ export function VisualEditor({
   const onBlockCommentRef = useRef(onBlockComment);
   onBlockCommentRef.current = onBlockComment;
   const canCommentOnBlocks = !!onBlockComment;
+  const savesVideoIds = useCallback(
+    (view: EditorView) => view.editable && !suggestingRef.current,
+    [],
+  );
+  // A tab that can't save an id comments on a video only by the id it already
+  // goes by, so a video that goes by none shows no Comment button there.
+  const canCommentOnVideo = useCallback(
+    (view: EditorView, pos: number) =>
+      savesVideoIds(view) || !!commentAnchorBlockAt(view.state.doc, pos),
+    [savesVideoIds],
+  );
   const onVideoComment = useMemo<ContentVideoOptions["onVideoComment"]>(
     () =>
       canCommentOnBlocks
@@ -3406,7 +3420,7 @@ export function VisualEditor({
             const { doc } = view.state;
             const node = doc.nodeAt(pos);
             if (!node) return;
-            const canWrite = view.editable && !suggestingRef.current;
+            const canWrite = savesVideoIds(view);
             // A video whose id another video shares goes by none, so it gets
             // an id of its own before a thread can point at it.
             const blockId =
@@ -3433,7 +3447,7 @@ export function VisualEditor({
             );
           }
         : undefined,
-    [canCommentOnBlocks],
+    [canCommentOnBlocks, savesVideoIds],
   );
   const findCommentQuote = useCallback(
     (threadId: string, doc: ProseMirrorNode) => {
@@ -3541,6 +3555,7 @@ export function VisualEditor({
         user,
         onImageComment: onComment,
         onVideoComment,
+        canCommentOnVideo,
         onImageFilePickerRequest,
         canMutateMedia,
         isSuggesting,
@@ -3588,6 +3603,7 @@ export function VisualEditor({
       user,
       onComment,
       onVideoComment,
+      canCommentOnVideo,
       onImageFilePickerRequest,
       canMutateMedia,
       isSuggesting,

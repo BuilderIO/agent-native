@@ -87,6 +87,17 @@ export function withinDocumentCreation<T>(
   return creationTransactionWrite.run({ documentId, write }, create);
 }
 
+const copiedBody = new AsyncLocalStorage<string>();
+
+/**
+ * Runs `create` for a copy of a page whose body is `source`. The copy keeps
+ * video ids the source already gives more than one video; only an id it gives
+ * to more videos than the source does is refused.
+ */
+export function creatingCopyOf<T>(source: string, create: () => T): T {
+  return copiedBody.run(source, create);
+}
+
 function nanoid(size = 12): string {
   const chars =
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -507,7 +518,7 @@ export default defineAction({
         content = content.slice(h1Match[0].length).trimStart();
       }
     }
-    assertNoNewlySharedVideoIds(null, content);
+    assertNoNewlySharedVideoIds(copiedBody.getStore(), content);
 
     let parentId = args.parentId || null;
     const icon = args.icon

@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import type {
   ContentDatabaseView,
   DocumentPropertySystemRole,
@@ -580,6 +581,11 @@ export default defineAction({
         propertyId !== primaryBlocks?.id
       );
     });
+    for (const blocks of [
+      documentContent,
+      ...additionalBlocks.map(([, value]) => value),
+    ])
+      if (typeof blocks === "string") assertNoNewlySharedVideoIds(null, blocks);
     const actor = documentAttributionActor();
     const shareCreatedBy = actor ?? database.ownerEmail;
 

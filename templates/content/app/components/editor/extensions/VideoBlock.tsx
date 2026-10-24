@@ -231,6 +231,15 @@ export function VideoBlock({
       document.removeEventListener("pointerdown", handlePointerDown, true);
   }, [selected, setSourcePanelOpen, sourcePanelOpen]);
 
+  function canComment() {
+    const position = typeof getPos === "function" ? getPos() : undefined;
+    return (
+      !!options.onVideoComment &&
+      typeof position === "number" &&
+      (options.canCommentOnVideo?.(editor.view, position) ?? true)
+    );
+  }
+
   function handleComment() {
     if (!options.onVideoComment) return;
     const position = typeof getPos === "function" ? getPos() : undefined;
@@ -665,19 +674,21 @@ export function VideoBlock({
                 event.preventDefault();
               }}
             >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleComment}
-                    className="media-block__toolbar-btn"
-                    aria-label={t("editor.media.commentOnVideo")}
-                  >
-                    <IconMessageCircle size={16} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("editor.comment")}</TooltipContent>
-              </Tooltip>
+              {canComment() ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleComment}
+                      className="media-block__toolbar-btn"
+                      aria-label={t("editor.media.commentOnVideo")}
+                    >
+                      <IconMessageCircle size={16} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("editor.comment")}</TooltipContent>
+                </Tooltip>
+              ) : null}
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -819,7 +830,7 @@ export function VideoBlock({
               </Popover>
             </div>
           </>
-        ) : options.onVideoComment ? (
+        ) : canComment() ? (
           <div
             className="media-block__toolbar"
             data-visible={isHovered ? "true" : undefined}

@@ -1096,6 +1096,35 @@ describe("revisioned document edit mutation", () => {
     expect(saved.receipt.outcome).toBe("applied");
   });
 
+  it("refuses an edit without a revision that copies a video with its id", async () => {
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const db = getDb();
+    const page = eq(schema.documents.id, DOCUMENT_ID);
+    const original = `Intro\n${video("Demo")}`;
+    await db.update(schema.documents).set({ content: original }).where(page);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocument.run(
+          {
+            id: DOCUMENT_ID,
+            find: "Intro",
+            replace: `Intro\n${video("Copy")}`,
+            reuseLabels: [],
+          },
+          { caller: "cli", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+      statusCode: 422,
+      details: { blockId: "video-original" },
+    });
+    expect(
+      (await db.select().from(schema.documents).where(page))[0].content,
+    ).toBe(original);
+  });
+
   it("saves a video added without an id above one whose derived id the page saved", async () => {
     const src = "https://example.com/a.mp4";
     const original = `Intro\n<video src="${src}" id="${derivedVideoBlockId(src, 0)}">Demo</video>`;

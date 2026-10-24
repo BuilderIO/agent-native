@@ -425,6 +425,45 @@ describe("VisualEditor comment highlights", () => {
       ]);
     });
 
+    it("shows a reader who can't edit no Comment button on a video that goes by no id", async () => {
+      const onBlockComment = vi.fn();
+      const derived = derivedVideoBlockId(VIDEO, 0);
+      const shared = `<video src="https://example.com/other.mp4" id="video-shared01"></video>`;
+      await act(async () =>
+        render(
+          [
+            "Intro.",
+            `<video src="${VIDEO}"></video>`,
+            `<video src="${VIDEO}" id="${derived}"></video>`,
+            shared,
+            shared,
+          ].join("\n"),
+          [],
+          "seed",
+          true,
+          { editable: false, onBlockComment },
+        ),
+      );
+      await settle();
+      const buttons = [
+        ...container.querySelectorAll<HTMLElement>(".ProseMirror video"),
+      ].map((video) =>
+        video
+          .closest(".media-block")
+          ?.querySelector<HTMLButtonElement>(
+            '[aria-label="editor.media.commentOnVideo"]',
+          ),
+      );
+      expect(
+        buttons.map((button) => !!button),
+        "only the video with an id of its own",
+      ).toEqual([false, true, false, false]);
+      await act(async () => buttons[1]!.click());
+      expect(onBlockComment.mock.calls.map(([target]) => target)).toEqual([
+        expect.objectContaining({ blockId: derived }),
+      ]);
+    });
+
     it("shows no Comment button on a video to a reader who can't comment", async () => {
       await act(async () =>
         render(`Intro.\n<video src="${VIDEO}"></video>`, [], "seed", true, {

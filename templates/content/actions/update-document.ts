@@ -60,6 +60,7 @@ import {
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { liveCopyHoldsSave } from "../server/live-copy/holds.js";
 import type {
   DocumentUpdateResponse,
@@ -1588,6 +1589,10 @@ const updateDocumentAction = defineAction({
           if (lockedDescriptionChanged)
             updates.description = args.description?.trim();
           if (lockedContentChanged) {
+            assertNoNewlySharedVideoIds(
+              historyBefore.content,
+              content as string,
+            );
             // Only a browser save takes a switched page's body to its live
             // copy; it reached here because the gate above chose legacy.
             const legacy = await lockLegacyBodyWrites(tx, [id], {

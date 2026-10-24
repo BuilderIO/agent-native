@@ -11,6 +11,8 @@ export interface ContentVideoOptions {
   canMutateMedia?: () => boolean;
   /** Starts a comment on the whole video at `pos` in `view`. */
   onVideoComment?: (view: EditorView, pos: number, offsetTop: number) => void;
+  /** Whether `onVideoComment` can start one on the video at `pos`. */
+  canCommentOnVideo?: (view: EditorView, pos: number) => boolean;
 }
 
 function normalizedVideoWidth(value: unknown): number | null {

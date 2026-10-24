@@ -15,7 +15,7 @@ export function assertNoNewlySharedVideoIds(
   const [blockId] = newlySharedCommentAnchorIds(before ?? "", after);
   if (!blockId) return;
   throw new ActionContractError(
-    `More than one video would have the id "${blockId}". Give the video you added a new unique id (video- and 8 letters or digits) and retry.`,
+    `More than one video would have the id "${blockId}". Give each video you add or copy a new unique id (video- and 8 letters or digits), or no id, and retry.`,
     {
       errorCode: "DOCUMENT_VIDEO_ID_SHARED",
       statusCode: 422,

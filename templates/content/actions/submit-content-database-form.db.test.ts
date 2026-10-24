@@ -390,6 +390,42 @@ describe("submit-content-database-form", () => {
     expect(after).toHaveLength(before.length);
   });
 
+  it("refuses Blocks that give two videos one id, without creating a row", async () => {
+    const seeded = await seedFormDatabase();
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const db = getDb();
+    const rows = () =>
+      db
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    const before = await rows();
+
+    for (const blocks of [
+      { Description: `${video("Demo")}\n${video("Copy")}` },
+      {
+        Description: video("Demo"),
+        "Internal notes": `${video("Demo")}\n${video("Copy")}`,
+      },
+    ])
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          submitForm.run({
+            databaseId: seeded.databaseId,
+            viewId: "request-form",
+            title: "Two clips",
+            propertyValues: { ...blocks, Priority: "P1 — High" },
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+        statusCode: 422,
+        details: { blockId: "video-original" },
+      });
+    expect(await rows()).toHaveLength(before.length);
+  });
+
   it("rejects duplicate model-safe entries before creating a row", async () => {
     const seeded = await seedFormDatabase();
 
