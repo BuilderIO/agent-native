@@ -13,7 +13,7 @@ metadata:
 
 # Review Latest Feedback
 
-Four phases, in order. Phase 0 comes before any investigation, not after.
+Follow four phases in order; gate before investigation.
 
 0. **Gate, then claim** every eligible item you intend to tackle with `👀`,
    before investigating any of it.
@@ -37,14 +37,14 @@ channels are `#product-agent-native-feedback` (`C0ATH3CCZT4`),
 `#qa-agent-native` (`C0C4U4XRT6X`), and `#dev-agent-native-feedback`
 (`C0AJ5QV0J03`); honor a narrower invocation. Scan five days by default. A
 timestamp or permalink applies its inclusive lower bound to every scoped
-channel. For a permalink, its channel ID identifies only where the exact linked
-root must appear; it does not limit the cutoff or channel scope. For an
+channel. A permalink's channel ID locates its exact root; it does not limit
+cutoff or channel scope. For an
 explicitly narrowed sweep, verify that the active request names every selected
 channel, then record its exact text and IDs in the separate scope-confirmation
 file. A request can select exactly two channels by linking one report in the
 first and directly asking for “the same in” the second, without saying “only.”
-The checker permits one adjacent-transposition typo in that target only when it
-uniquely matches a selected canonical channel; it rejects incidental or quoted
+Accept one adjacent-transposition typo only when it uniquely matches a selected
+canonical channel; it rejects incidental or quoted
 mentions and prefixes. See [`channel-inventory.md`](references/channel-inventory.md)
 for the scope gate and its confirmation requirements. `#dev-agent-native-feedback`
 is not excluded.
@@ -96,9 +96,11 @@ status gate. Check root reactions, then add and read back this task's `👀`
 before investigating an eligible unowned report. An explicitly authorized
 held root is eligible only when its exact root is listed in both
 `scope.authorizedRoots` and the separate confirmation. Authorization must be a
-direct, unconditional grant for full follow-up work, for an exact root or a
-bounded sweep whose roots are expanded in both records. Otherwise use
-`ownershipSkip` and do not read or reply.
+direct, unconditional grant for full follow-up work. Exact-root requests name
+the channel and timestamp/permalink; bounded grants expand covered roots in
+both records. Otherwise use
+`ownershipSkip` and do not read or reply. Read-only, no-write, claim-only, and
+reply-only grants do not qualify.
 
 Reconcile only roots inside this invocation's fixed window and older roots
 explicitly linked by an in-window reply. Include every root with this actor's
