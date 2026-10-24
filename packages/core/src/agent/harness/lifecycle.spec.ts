@@ -146,6 +146,68 @@ describe("agent harness lifecycle", () => {
     expect(stored.resolvedApprovalIds).toContain("approval-1");
   });
 
+  it("retries approval persistence after a concurrent session update", async () => {
+    const session = fakeSession();
+    stored.pendingApproval = approvalEvent("approval-racing-write");
+    register(stored, session);
+    mocks.updateAtGeneration.mockImplementationOnce(async () => {
+      stored = {
+        ...stored,
+        resumeState: { token: "concurrent" },
+        resolvedApprovalIds: ["approval-other"],
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      throw Object.assign(new Error("generation changed"), {
+        name: "AgentHarnessSessionConflictError",
+      });
+    });
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: "approval-racing-write", approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(session.approve).toHaveBeenCalledOnce();
+    expect(mocks.updateAtGeneration).toHaveBeenCalledTimes(2);
+    expect(stored.pendingApproval).toBeNull();
+    expect(stored.resolvedApprovalIds).toEqual([
+      "approval-other",
+      "approval-racing-write",
+    ]);
+    expect(stored.resumeState).toEqual({ token: "concurrent" });
+  });
+
+  it("preserves a newer approval while recording the resolved approval", async () => {
+    const session = fakeSession();
+    stored.pendingApproval = approvalEvent("approval-racing-write");
+    register(stored, session);
+    mocks.updateAtGeneration.mockImplementationOnce(async () => {
+      stored = {
+        ...stored,
+        pendingApproval: approvalEvent("approval-next"),
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      throw Object.assign(new Error("generation changed"), {
+        name: "AgentHarnessSessionConflictError",
+      });
+    });
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: "approval-racing-write", approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(session.approve).toHaveBeenCalledOnce();
+    expect(stored.pendingApproval).toMatchObject({ id: "approval-next" });
+    expect(stored.resolvedApprovalIds).toContain("approval-racing-write");
+  });
+
   it("runs a follow-up through a live session and persists detached state", async () => {
     const session = fakeSession([{ type: "text-delta", text: "done" }]);
     register(stored, session);
