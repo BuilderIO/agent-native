@@ -10,6 +10,7 @@ import {
   setCookie,
   deleteCookie,
   getHeader,
+  normalizeRoute,
 } from "h3";
 import type { H3Event } from "h3";
 
@@ -3219,11 +3220,9 @@ function getRequestPathAndSearch(event: H3Event): {
   if (typeof mountedPathname === "string" && mountedPathname) {
     return { rawPath: mountedPathname, search: event.url?.search || "" };
   }
-  const url = event.node?.req?.url ?? event.path ?? "/";
-  const queryStart = url.indexOf("?");
   return {
-    rawPath: queryStart >= 0 ? url.slice(0, queryStart) : url,
-    search: queryStart >= 0 ? url.slice(queryStart) : "",
+    rawPath: event.url.pathname,
+    search: event.url.search,
   };
 }
 
@@ -3901,21 +3900,42 @@ function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
 
+function getAuthGuardPath(event: H3Event): string | null {
+  const rawUrl = event.node?.req?.url;
+  if (rawUrl !== undefined) {
+    const rawPath = rawUrl.split("?")[0]!;
+    // Encoded separators are opaque route-parameter data; URL parsing must
+    // not change the path's structure before any public-route decision.
+    if (
+      !rawPath.startsWith("/") ||
+      rawPath.startsWith("//") ||
+      rawPath.includes("\\") ||
+      new URL(`http://agent-native.invalid${rawPath}`).pathname !== rawPath
+    ) {
+      return null;
+    }
+  }
+  return stripAppBasePath(canonicalFrameworkPathname(event.url.pathname));
+}
+
 function createAuthGuardFn(
   app?: object,
 ): (event: H3Event) => Promise<Response | object | string | void> {
   return async (event: H3Event) => {
     const config = _authGuardConfig;
     if (!config) return;
+    const p = getAuthGuardPath(event);
+    if (p === null) return new Response(null, { status: 400 });
     const publicPaths = resolveAuthPublicPaths(config.publicPaths);
     const exactPublicPaths = resolveAuthExactPublicPaths(app);
 
-    const url = event.node?.req?.url ?? event.path ?? "/";
-    const queryStart = url.indexOf("?");
-    const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
-    const requestPath = queryStart >= 0 ? url : rawPath;
-    const p = stripAppBasePath(canonicalFrameworkPathname(rawPath));
-    const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
+    // h3 mounts can mutate both event.url and the Node request's parsed URL.
+    const requestUrl = new URL(
+      event.node?.req?.url ?? event.req.url,
+      "http://agent-native.invalid",
+    );
+    const url = `${normalizeRoute(requestUrl.pathname)}${requestUrl.search}`;
+    const requestPath = url;
     const previewCallbackRelay =
       await netlifyPreviewGoogleOAuthCallbackRelayResponse(event);
     if (previewCallbackRelay) return previewCallbackRelay;
@@ -4199,9 +4219,7 @@ function createAuthGuardFn(
 
     if (p === SIGN_IN_ENTRY_PATH || p === SIGN_IN_LEGACY_ENTRY_PATH) {
       if (getMethod(event) === "GET") {
-        const query = new URLSearchParams(
-          queryStart >= 0 ? url.slice(queryStart + 1) : "",
-        );
+        const query = event.url.searchParams;
         const { resumeHref } = signInJourney({
           at: url,
           continuation: query.get(SIGN_IN_CONTINUATION_PARAM),
@@ -4295,7 +4313,7 @@ function createAuthGuardFn(
       ) {
         return;
       }
-    } else if (isPublicPath(normalizedUrl, publicPaths, exactPublicPaths)) {
+    } else if (isPublicPath(p, publicPaths, exactPublicPaths)) {
       return;
     }
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
@@ -4904,10 +4922,7 @@ function isMcpDirectoryWidgetCapabilityApplicationStateRequest(
 ): boolean {
   if (!isMcpDirectoryWidgetCapabilityScope(scope)) return false;
 
-  const rawUrl = event.node?.req?.url ?? event.path ?? "/";
-  const base = "http://agent-native.invalid";
-  if (!URL.canParse(rawUrl, base)) return false;
-  const pathname = new URL(rawUrl, base).pathname;
+  const { rawPath: pathname } = getRequestPathAndSearch(event);
 
   const canonicalPath = canonicalFrameworkPathname(pathname);
   const statePath = `${FRAMEWORK_INTERNAL_ROUTE_PREFIX}/application-state`;
@@ -5002,6 +5017,9 @@ function identitySsoEnabledForRequest(event: H3Event): boolean {
 }
 
 export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
+  if (getAuthGuardPath(event) === null) {
+    return new Response(null, { status: 400 });
+  }
   setResponseHeader(event, "Cache-Control", "no-store");
   if (!isReadMethod(event)) {
     setResponseStatus(event, 405);
@@ -7315,6 +7333,14 @@ export async function autoMountAuth(
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
+  app.use(
+    "",
+    defineEventHandler((event) => {
+      if (getAuthGuardPath(event) === null) {
+        return new Response(null, { status: 400 });
+      }
+    }),
+  );
   mountAuthCorsMiddleware(app);
   app.use(FIRST_TOUCH_SERVER_PATH, createFirstTouchHandler());
   app.use(CONSENT_REGION_PATH, createConsentRegionHandler());
