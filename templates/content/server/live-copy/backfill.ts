@@ -13,6 +13,7 @@ import { asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { LIVE_BODY_BACKFILL_FLAG } from "../../shared/feature-flags.js";
 import { getDb, schema } from "../db/index.js";
 import {
+  isLinkedToLocalFile,
   liveBodyBackfillFlagsOn,
   liveBodyWriterGateForRow,
   liveBodyWriterPageColumns,
@@ -40,7 +41,10 @@ export type LiveBodyBackfillOutcome =
   | { status: "converted" }
   /** Already takes body writes through its live copy. */
   | { status: "current" }
-  | { status: "skipped"; reason: "no_page" | "trashed" | "flag_off" }
+  | {
+      status: "skipped";
+      reason: "no_page" | "trashed" | "flag_off" | "local_file";
+    }
   | {
       status: "skipped";
       reason: "ineligible";
@@ -98,7 +102,8 @@ function conversionRefusal(error: unknown): LiveBodyBackfillOutcome {
   if (error instanceof LiveBodyConversionError) {
     switch (error.code) {
       case "flag_off":
-        return { status: "skipped", reason: "flag_off" };
+      case "local_file":
+        return { status: "skipped", reason: error.code };
       case "ineligible":
         if (!error.blockers) throw error;
         return {
@@ -349,7 +354,7 @@ export type LiveBodyBackfillSweepReport =
   | {
       status: "ran";
       scanned: number;
-      /** Pages the sweep read but didn't try: switched, in Trash, ineligible, recently saved. */
+      /** Pages the sweep read but didn't try: switched, in Trash, ineligible, linked to a local file, recently saved. */
       passedOver: number;
       /** Pages passed over because they're held until a later try. */
       held: number;
@@ -534,6 +539,7 @@ export async function runLiveBodyBackfillSweep(context: {
     if (
       page.trashedAt ||
       eligible === 0 ||
+      isLinkedToLocalFile(page) ||
       (page.liveBodySwitchedAt && page.collabBodyRevision === page.bodyRevision)
     ) {
       // Nothing is left to try on it, so nothing is left to hold.

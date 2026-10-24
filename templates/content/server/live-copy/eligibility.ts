@@ -16,10 +16,11 @@ import { drizzleOverExec } from "./exec-db.js";
  * which has one. They only change a body's text, which `edit-document` does
  * through the live copy, so they block no page. `migrate-historical-icon-urls`
  * defers a page it refuses.
+ *
+ * A page linked to a local file isn't listed: the gate keeps it on the legacy
+ * path, and the switch refuses it with `local_file` (`isLinkedToLocalFile`).
  */
 export type LiveBodySwitchBlocker =
-  /** The folder sync, conflict accept, import, and the file's own editor, which runs without collab. */
-  | "local_file"
   /** `share-local-file-document`, which rewrites a shared copy's body. */
   | "local_file_copy"
   /** GitHub and Builder syncs, and any source Content doesn't own. */
@@ -30,7 +31,6 @@ export type LiveBodySwitchBlocker =
   | "database_row";
 
 export const LIVE_BODY_SWITCH_BLOCKERS: readonly LiveBodySwitchBlocker[] = [
-  "local_file",
   "local_file_copy",
   "source_owned",
   "notion",
@@ -38,15 +38,15 @@ export const LIVE_BODY_SWITCH_BLOCKERS: readonly LiveBodySwitchBlocker[] = [
 ];
 
 // Built on call, not at import: tests mock the schema without these tables.
-// A source mode is allowed only when Content owns the body, so a source added
-// later is ineligible until its writers are routed.
+// A source mode is allowed only when Content owns the body, or when the switch
+// refuses it itself, so a source added later is ineligible until its writers
+// are routed.
 function blockerConditions(): Record<LiveBodySwitchBlocker, SQL> {
   const page = schema.documents;
   const links = schema.documentSyncLinks;
   const memberships = schema.contentDatabaseItems;
   const collections = schema.contentDatabases;
   return {
-    local_file: sql`${page.sourceMode} IS NOT DISTINCT FROM 'local-files'`,
     local_file_copy: sql`${page.sourceKind} IS NOT DISTINCT FROM 'local-file-copy'`,
     source_owned: sql`${page.sourceMode} IS NOT NULL AND ${page.sourceMode} NOT IN ('database', 'local-files')`,
     notion: sql`EXISTS (SELECT 1 FROM ${links} WHERE ${links.documentId} = ${page.id})`,

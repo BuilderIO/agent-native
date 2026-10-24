@@ -2,12 +2,25 @@ import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { LiveBodyConversionError } from "../server/live-copy/persist.js";
+import {
+  LiveBodyConversionError,
+  type LiveBodyConversionErrorCode,
+} from "../server/live-copy/persist.js";
 import {
   switchPageToLegacy,
   switchPageToLiveCopy,
 } from "../server/live-copy/switch.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+
+const SWITCH_REFUSALS: Record<LiveBodyConversionErrorCode, string> = {
+  flag_off: "LIVE_BODY_WRITER_OFF",
+  local_file: "LIVE_BODY_SWITCH_LOCAL_FILE",
+  ineligible: "LIVE_BODY_SWITCH_INELIGIBLE",
+  base_changed: "LIVE_BODY_SWITCH_CONFLICT",
+  // Only the backfill keeps live edits; this switch lets the stored body win.
+  live_edits: "LIVE_BODY_SWITCH_CONFLICT",
+  rebaseline_blocked: "LIVE_BODY_SWITCH_BLOCKED",
+};
 
 export default defineAction({
   description:
@@ -32,14 +45,7 @@ export default defineAction({
     } catch (error) {
       if (error instanceof LiveBodyConversionError) {
         throw new ActionContractError(error.message, {
-          errorCode:
-            error.code === "flag_off"
-              ? "LIVE_BODY_WRITER_OFF"
-              : error.code === "rebaseline_blocked"
-                ? "LIVE_BODY_SWITCH_BLOCKED"
-                : error.code === "ineligible"
-                  ? "LIVE_BODY_SWITCH_INELIGIBLE"
-                  : "LIVE_BODY_SWITCH_CONFLICT",
+          errorCode: SWITCH_REFUSALS[error.code],
           statusCode: 409,
           ...(error.blocked ? { details: error.blocked } : {}),
           ...(error.blockers ? { details: { blockers: error.blockers } } : {}),

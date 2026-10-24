@@ -420,15 +420,6 @@ describe("which pages can be switched", () => {
     >;
   }> = [
     {
-      blocker: "local_file",
-      page: {
-        sourceMode: "local-files",
-        sourceRootPath: "/docs",
-        sourcePath: "page.md",
-      },
-      setUp: () => {},
-    },
-    {
       blocker: "local_file_copy",
       page: { sourceMode: "database", sourceKind: "local-file-copy" },
       setUp: () => {},
@@ -484,6 +475,32 @@ describe("which pages can be switched", () => {
       expect(await historyOperations(id)).toEqual([]);
     });
   }
+
+  it("leaves a page linked to a local file to the switch's own local_file refusal, and commits nothing", async () => {
+    const id = await insertPage(stored, {
+      sourceMode: "local-files",
+      sourceRootPath: "/docs",
+      sourcePath: "page.md",
+    });
+
+    await expect(
+      as(ownerEmail, () => backfill.convertPageToLiveCopyIfDue(id, { ctx })),
+    ).resolves.toEqual({ status: "skipped", reason: "local_file" });
+    const refusal = await as(ownerEmail, () =>
+      setSwitch.run({ id, switched: true }, ctx),
+    ).catch((error: unknown) => error);
+    expect(refusal).toMatchObject({
+      errorCode: "LIVE_BODY_SWITCH_LOCAL_FILE",
+      statusCode: 409,
+    });
+    expect(await page(id)).toMatchObject({
+      content: stored,
+      bodyRevision: 1,
+      liveBodySwitchedAt: null,
+    });
+    expect(await collabVersion(id)).toBeUndefined();
+    expect(await historyOperations(id)).toEqual([]);
+  });
 
   it("switches a page that is a row only of its space's Files collection, as every page is", async () => {
     const id = await insertPage(stored);

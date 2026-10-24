@@ -12,11 +12,15 @@ import {
   LIVE_BODY_WRITER_FLAG,
 } from "../../shared/feature-flags.js";
 import { drizzleOverExec } from "../db/exec.js";
-import { schema } from "../db/index.js";
+import { schema, type getDb } from "../db/index.js";
 
 // Decision D2 of the stored-form rebuild: a page's body is written through its
 // live copy only when the page is switched, its live copy holds the page's
 // current body revision, and both flags are on for the page's owner.
+//
+// A page linked to a local file stays on the legacy path even when switched.
+// Its editor saves the body through SQL, never over collab, and the writers
+// that follow its file have no live-copy route.
 //
 // The flags are evaluated for the page, not the caller. Two collaborators with
 // different flags would otherwise write one body down two paths at once.
@@ -35,6 +39,7 @@ export type LiveBodyWritePath = "live_copy" | "legacy";
 export type LiveBodyLegacyReason =
   | "no_page"
   | "not_switched"
+  | "local_file"
   | "live_copy_behind"
   | "stored_body_behind"
   | "flag_off";
@@ -47,6 +52,7 @@ export type LiveBodyWriterPageRow = Pick<
   typeof schema.documents.$inferSelect,
   | "id"
   | "liveBodySwitchedAt"
+  | "sourceMode"
   | "bodyRevision"
   | "collabBodyRevision"
   | "liveCopyVersion"
@@ -60,6 +66,7 @@ export function liveBodyWriterPageColumns() {
   return {
     id: schema.documents.id,
     liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
+    sourceMode: schema.documents.sourceMode,
     bodyRevision: schema.documents.bodyRevision,
     collabBodyRevision: schema.documents.collabBodyRevision,
     liveCopyVersion: schema.documents.liveCopyVersion,
@@ -163,6 +170,64 @@ export async function assertLegacyBodyWritePath(
   throw liveBodyWritePathChanged(row.id);
 }
 
+type ContentDb = Pick<ReturnType<typeof getDb>, "select">;
+
+/**
+ * Refuses to link a page that takes body writes through its live copy to a
+ * local file. The link would take the page off its live copy unannounced,
+ * since the gate keeps a linked page on the legacy path; switching it back
+ * first is the way through. A page the gate already keeps on the legacy path
+ * links as it does on main, and stays there while it is linked. Pass the
+ * link's `getDb()` transaction to read the page under its row lock.
+ */
+export async function assertLocalFileLinkable(
+  documentId: string,
+  options: { transaction?: ContentDb } = {},
+): Promise<void> {
+  let gate: LiveBodyWriterGate;
+  if (options.transaction) {
+    // guard:allow-unscoped — the linking writer checked access to the page, and this reads only its write-path markers.
+    const [page] = await options.transaction
+      .select(liveBodyWriterPageColumns())
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId))
+      .for("update");
+    // Inside a `getDb()` transaction, `getDbExec()` runs on that transaction.
+    gate = await liveBodyWriterGateForRow(page, { transaction: getDbExec() });
+  } else {
+    gate = await liveBodyWriterGate(documentId);
+  }
+  if (gate.writePath === "legacy") return;
+  throw new ActionContractError(
+    `Page ${documentId} is switched to its live copy, so it can't be linked to a local file. Switch it back with set-live-body-switch (switched: false), then retry.`,
+    {
+      errorCode: "LOCAL_FILE_LINK_SWITCHED_PAGE",
+      statusCode: 409,
+      details: { documentId },
+    },
+  );
+}
+
+/** True for `assertLocalFileLinkable`'s refusal. */
+export function isLocalFileLinkRefused(
+  error: unknown,
+): error is ActionContractError {
+  return (
+    error instanceof ActionContractError &&
+    error.errorCode === "LOCAL_FILE_LINK_SWITCHED_PAGE"
+  );
+}
+
+/**
+ * True for a page linked to a local file. The gate keeps it on the legacy
+ * path, and a switch refuses it with `local_file`.
+ */
+export function isLinkedToLocalFile(
+  row: Pick<LiveBodyWriterPageRow, "sourceMode">,
+): boolean {
+  return row.sourceMode === "local-files";
+}
+
 async function gateForMarkers(
   row: LiveBodyWriterPageRow | null | undefined,
   readCollabVersion: (documentId: string) => Promise<unknown>,
@@ -173,6 +238,8 @@ async function gateForMarkers(
   if (!row) return { writePath: "legacy", reason: "no_page" };
   if (!row.liveBodySwitchedAt)
     return { writePath: "legacy", reason: "not_switched" };
+  if (isLinkedToLocalFile(row))
+    return { writePath: "legacy", reason: "local_file" };
   if (row.collabBodyRevision !== row.bodyRevision)
     return { writePath: "legacy", reason: "live_copy_behind" };
   // The stored version, not the one an edit was built on: a peer's commit

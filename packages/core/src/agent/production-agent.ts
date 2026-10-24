@@ -7577,6 +7577,10 @@ export async function runAgentLoop(opts: {
     priorCallIdentities,
   );
   const unknownOutcomes = opts.unknownOutcomes ?? noUnknownOutcomes();
+  // A recovered retry (a team attempt after a crash, an A2A redelivery)
+  // re-plans from the task text, so a repeated write gets a new step id and
+  // only these journal entries show it may already have run. Approval
+  // continuations stay out: their paused call is interrupted by design.
   seedUnknownOutcomes(
     unknownOutcomes,
     messages,
@@ -7584,7 +7588,9 @@ export async function runAgentLoop(opts: {
     historyReadOnlyCalls,
     priorCallEffects,
     priorCallIdentities,
-    internalContinuationTurn ? (toolCallJournal?.interrupted ?? []) : [],
+    internalContinuationTurn || opts.recoverCompletedExecutionSteps === true
+      ? (toolCallJournal?.interrupted ?? [])
+      : [],
   );
   if (internalContinuationTurn) {
     for (const entry of toolCallJournal?.completed ?? []) {
@@ -8537,10 +8543,11 @@ export async function runAgentLoop(opts: {
       const hasEmptyFinalResponse =
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
         streamedAssistantText.trim().length === 0;
-      if (
-        followUpResults.length > 0 &&
-        (terminalStopReason === "tool_use" || hasEmptyFinalResponse)
-      ) {
+      if (followUpResults.length > 0 && terminalStopReason === "tool_use") {
+        if (streamedAssistantText) send({ type: "clear" });
+        continue;
+      }
+      if (followUpResults.length > 0 && hasEmptyFinalResponse) {
         flushUnstreamedAssistantText();
         continue;
       }
@@ -8681,6 +8688,9 @@ export async function runAgentLoop(opts: {
     flushUnstreamedAssistantText();
 
     let requestedActionStop: TerminalActionStop | null = null;
+    let requestedActionStopTranscriptSent = false;
+    const approvalTranscriptCallIds = new Set<string>();
+    const sentApprovalTranscriptTexts = new Set<string>();
     let requestedConnection:
       | {
           requestId: string;
@@ -9300,6 +9310,21 @@ export async function runAgentLoop(opts: {
           }
         }
         if (mustApprove) {
+          const approvalCallMessage = [...messages]
+            .reverse()
+            .find(
+              (message) =>
+                message.role === "assistant" &&
+                message.content.some(
+                  (part) =>
+                    part.type === "tool-call" && part.id === toolCall.id,
+                ),
+            );
+          if (!approvalCallMessage) {
+            throw new Error(
+              `Approval call ${toolCall.id} is missing from assistant history.`,
+            );
+          }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
           await send({
@@ -9344,8 +9369,27 @@ export async function runAgentLoop(opts: {
           }
           const result =
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
-            `NOT execute — a human must approve this specific call before it ` +
-            `can run. The turn is paused; do not retry.`;
+            `NOT execute. The turn is paused until this specific call is ` +
+            `approved; do not retry it before then. Once approved, re-emit ` +
+            `this exact call once so it can run, then summarize its result.`;
+          requestedActionStop ??= {
+            message: `Waiting for your approval to run ${toolCall.name}.`,
+            errorCode: "needs-approval",
+          };
+          const transcriptText = `Waiting for your approval to run ${toolCall.name}.`;
+          // Keep the note with its tool call so the next turn can pair the result.
+          if (!approvalTranscriptCallIds.has(toolCall.id)) {
+            approvalCallMessage.content.push({
+              type: "text",
+              text: transcriptText,
+            });
+            approvalTranscriptCallIds.add(toolCall.id);
+          }
+          if (!sentApprovalTranscriptTexts.has(transcriptText)) {
+            await send({ type: "text", text: transcriptText });
+            sentApprovalTranscriptTexts.add(transcriptText);
+          }
+          requestedActionStopTranscriptSent = true;
           await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
@@ -9357,10 +9401,6 @@ export async function runAgentLoop(opts: {
           });
           recordToolResult(result, false);
           turnYieldedToUser = true;
-          requestedActionStop ??= {
-            message: `Waiting for your approval to run ${toolCall.name}.`,
-            errorCode: "needs-approval",
-          };
           return {
             type: "tool-result" as const,
             toolCallId: toolCall.id,
@@ -10720,7 +10760,7 @@ export async function runAgentLoop(opts: {
       terminalActionStop = stop;
       if (requestedConnection) {
         send({ type: "connection_required", ...requestedConnection });
-      } else {
+      } else if (!requestedActionStopTranscriptSent) {
         sendTerminalActionStop(stop);
       }
       break;

@@ -148,7 +148,7 @@ export function useEditorExportAndHandoff({
   } = editorHistory;
   const {
     setRuntimeLayerSnapshotRequest,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     setDrawMode,
     setPinMode,
     design,
@@ -218,7 +218,7 @@ export function useEditorExportAndHandoff({
   );
 
   const handleSelectAllFrames = useCallback(() => {
-    recordSelectionHistoryAroundChange(() => {
+    applySelectionChange(() => {
       const projection = activeFile
         ? buildCodeLayerProjection(getFreshActiveContent(), {
             source: codeLayerSourceForScreen(activeFile.id),
@@ -266,7 +266,7 @@ export function useEditorExportAndHandoff({
     files,
     getFreshActiveContent,
     overviewScreens,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     selectedLayerIdsState,
   ]);
 

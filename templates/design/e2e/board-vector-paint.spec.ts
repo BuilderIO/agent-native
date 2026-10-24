@@ -204,10 +204,10 @@ function layerTree(page: Page) {
 }
 
 async function selectLayerRow(page: Page, name: string) {
-  const input = page.getByPlaceholder("Search layers...");
+  const input = page.getByPlaceholder("Search layers");
   if (!(await input.isVisible().catch(() => false))) {
     await page
-      .getByRole("button", { name: "Search layers...", exact: true })
+      .getByRole("button", { name: "Search layers", exact: true })
       .click();
     await expect(input).toBeVisible();
   }

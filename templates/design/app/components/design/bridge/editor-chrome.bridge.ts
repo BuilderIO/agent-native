@@ -961,6 +961,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       "[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
       "[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}" +
+      // A selected line is its two ends: no box, no box handles.
+      "[data-agent-native-line-endpoint-handle],[data-agent-native-line-endpoint-segment]{display:none}" +
+      "[data-agent-native-line-endpoints]{border-color:transparent!important}" +
+      "[data-agent-native-line-endpoints]>[data-agent-native-edge-handle],[data-agent-native-line-endpoints]>[data-agent-native-edit-handle],[data-agent-native-line-endpoints]>[data-agent-native-rotate-handle],[data-agent-native-line-endpoints]>[data-agent-native-radius-handle]{display:none!important}" +
+      "[data-agent-native-line-endpoints]>[data-agent-native-line-endpoint-handle],[data-agent-native-line-endpoints]>[data-agent-native-line-endpoint-segment]{display:block}" +
       // guard:allow-raw-color — renders inside the design document, which has no app theme tokens.
       '[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}' +
       "[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}" +
@@ -3763,8 +3768,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   function isGeneratedGroupWrapper(group: Element): boolean {
     if (typeof group.getAttribute !== "function") return false;
+    // Frame selection (Alt+Cmd+G) writes the wrapper marker too, but a Frame
+    // takes clicks the way every other container does.
     var generatedGroupMarker =
       group.getAttribute("data-agent-native-group-wrapper") === "true" &&
+      group.getAttribute("data-an-primitive") !== "frame" &&
       group.getAttribute("data-agent-native-clone-root") !== "true";
     var legacyNodeId = group.getAttribute("data-agent-native-node-id");
     var legacyGeneratedGroup =
@@ -3800,7 +3808,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     );
   }
 
+  // A top-level frame on the board is open the way a screen is. Inside a
+  // screen the body is the frame, so its sections are ordinary layers.
   function opensByItself(container: Element): boolean {
+    if (!designCanvasBoardSurface) return false;
     if (container.parentElement !== document.body) return false;
     var primitive = container.getAttribute("data-an-primitive");
     return (
@@ -3897,18 +3908,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (!descendIntoGroup) {
       var group = target;
       while (group && !isDocumentRootElement(group)) {
-        if (isGeneratedGroupWrapper(group)) return group;
+        if (isGeneratedGroupWrapper(group) && !isEnteredGroup(group)) {
+          return group;
+        }
         group = group.parentElement;
       }
     }
     return target;
   }
 
-  function modifierClickSelectionTarget(hit: Element | null): Element | null {
-    var entersSelectedContainer = Boolean(
-      selectedEl && selectedEl.contains && hit && selectedEl.contains(hit),
+  // A group is entered once the selection or the drill scope is inside it;
+  // its children then take clicks at their own depth.
+  function isEnteredGroup(group: Element): boolean {
+    return Boolean(
+      (selectedEl && selectedEl !== group && group.contains(selectedEl)) ||
+      (selectionContainerScope && group.contains(selectionContainerScope)),
     );
-    return selectionTargetForHit(hit, entersSelectedContainer);
+  }
+
+  function modifierClickSelectionTarget(hit: Element | null): Element | null {
+    return selectionTargetForHit(hit, true);
   }
 
   // Climbs from `el` to the ancestor that is a direct child of `scope`
@@ -3971,18 +3990,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       node.getAttribute("data-an-primitive") === "frame"
       ? node
       : null;
-  }
-
-  /*
-   * Screen contents select the deepest block on a plain click unless an
-   * already-selected ancestor owns that hit.
-   */
-  function plainClickSelectionTarget(hit: Element | null): Element | null {
-    if (!designCanvasBoardSurface) {
-      selectionContainerScope = null;
-      return selectionTargetForHit(hit);
-    }
-    return containerFirstSelectionTarget(hit);
   }
 
   function selectedContainerForPlainClick(
@@ -6451,6 +6458,70 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return styles;
   }
 
+  var CHILD_LAYOUT_LIMIT = 200;
+  var NON_RENDERED_CHILD_TAGS = ["script", "style", "template", "link"];
+
+  // Each direct child as layout placed it, so the editor decides Hug, Fill and
+  // freeform from the same facts the page rendered with. Rects are relative to
+  // the container's padding box, the origin absolute children are placed in.
+  function collectChildLayouts(el: Element, cs: CSSStyleDeclaration) {
+    var origin = el.getBoundingClientRect();
+    var originLeft =
+      origin.left +
+      (Number.parseFloat(cs.borderLeftWidth) || 0) -
+      (el as HTMLElement).scrollLeft;
+    var originTop =
+      origin.top +
+      (Number.parseFloat(cs.borderTopWidth) || 0) -
+      (el as HTMLElement).scrollTop;
+    var children: unknown[] = [];
+    var complete = true;
+    var looseText = false;
+    Array.prototype.forEach.call(el.childNodes, function (node: Node) {
+      if (node.nodeType === 3) {
+        looseText = looseText || Boolean(node.textContent?.trim());
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      var child = node as Element;
+      if (
+        NON_RENDERED_CHILD_TAGS.indexOf(child.tagName.toLowerCase()) !== -1 ||
+        isOverlayElement(child)
+      ) {
+        return;
+      }
+      if (children.length >= CHILD_LAYOUT_LIMIT) {
+        complete = false;
+        return;
+      }
+      var childCs = window.getComputedStyle(child);
+      var rect = child.getBoundingClientRect();
+      var authored = collectAuthoredSizeStyles(child) || {};
+      var inline = (child as HTMLElement).style;
+      children.push({
+        nodeId: isRuntimeOnlyClone(child)
+          ? undefined
+          : getSourceId(child) || undefined,
+        tagName: child.tagName.toLowerCase(),
+        position: childCs.position,
+        display: childCs.display,
+        flexGrow: childCs.flexGrow,
+        alignSelf: childCs.alignSelf,
+        justifySelf: childCs.justifySelf,
+        float: childCs.cssFloat,
+        width: authored.width || (inline && inline.width) || undefined,
+        height: authored.height || (inline && inline.height) || undefined,
+        rect: {
+          x: rect.left - originLeft,
+          y: rect.top - originTop,
+          width: rect.width,
+          height: rect.height,
+        },
+      });
+    });
+    return { children: children, complete: complete, looseText: looseText };
+  }
+
   var liveVisualEditOriginalInlineStyles =
     typeof WeakMap !== "undefined"
       ? new WeakMap<Element, Record<string, string>>()
@@ -7150,6 +7221,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         el.innerHTML && el.innerHTML !== el.textContent
           ? el.innerHTML.length > 4000
           : undefined,
+      childLayouts: collectChildLayouts(el, cs),
       childElementCount: el.children ? el.children.length : 0,
       isFlexContainer: cs.display === "flex" || cs.display === "inline-flex",
       isGridContainer: cs.display === "grid" || cs.display === "inline-grid",
@@ -7301,6 +7373,35 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       metaKey: Boolean(e && e.metaKey),
       ctrlKey: Boolean(e && e.ctrlKey),
     };
+  }
+
+  // The inspector's X/Y follow a move through these; `active: false` hands it
+  // back to the selection's measured geometry.
+  var liveDragPositionEl: Element | null = null;
+  // Set while a move drag runs: measures a dragged layer where it started, so
+  // the inspector's baseline plus the live offset is the live position.
+  var measureAtMoveOrigin: (<T>(el: Element, measure: () => T) => T) | null =
+    null;
+  function postLiveDragPosition(el: Element | null, active: boolean): void {
+    var target = active ? el : liveDragPositionEl;
+    if (!active) liveDragPositionEl = null;
+    var sourceId =
+      target && typeof target.getAttribute === "function"
+        ? target.getAttribute("data-agent-native-node-id")
+        : null;
+    if (!target || !sourceId) return;
+    if (active) liveDragPositionEl = target;
+    var style = (target as HTMLElement).style;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:live-drag-position",
+        sourceId: sourceId,
+        active: active,
+        left: style.left,
+        top: style.top,
+      },
+      "*",
+    );
   }
 
   function postElementSelect(el: Element, e?: MouseEvent): void {
@@ -7625,6 +7726,33 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       selectionOverlay.appendChild(handle);
     });
   })();
+  var lineEndpointSegment = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "svg",
+  );
+  lineEndpointSegment.setAttribute(
+    "data-agent-native-line-endpoint-segment",
+    "",
+  );
+  lineEndpointSegment.style.cssText =
+    "position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none;";
+  var lineEndpointSegmentLine = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "line",
+  );
+  lineEndpointSegmentLine.setAttribute(
+    "stroke",
+    "var(--design-editor-accent-color)",
+  );
+  lineEndpointSegment.appendChild(lineEndpointSegmentLine);
+  selectionOverlay.appendChild(lineEndpointSegment);
+  ["start", "end"].forEach(function (end) {
+    var handle = document.createElement("span");
+    handle.setAttribute("data-agent-native-line-endpoint-handle", end);
+    handle.style.cssText =
+      "position:absolute;z-index:4;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:crosshair;";
+    selectionOverlay.appendChild(handle);
+  });
   var spacingOverlay = document.createElement("div");
   spacingOverlay.setAttribute("data-agent-native-spacing-overlay", "");
   spacingOverlay.style.cssText =
@@ -7955,6 +8083,15 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         { type: "agent-native:board-selection-rect", rect: null },
         "*",
       );
+    } else {
+      window.parent.postMessage(
+        {
+          type: "agent-native:screen-selection-bounds",
+          screenId: designCanvasScreenId,
+          rect: null,
+        },
+        "*",
+      );
     }
     hideSizeBadge();
     hideSpacingOverlay();
@@ -8197,6 +8334,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     timestamp: number;
   } | null = null;
   var MOUSE_DOUBLE_CLICK_WINDOW_MS = 500;
+  // The selection a plain click found, before it changed it.
+  var doubleClickStartSelection: {
+    el: Element | null;
+    timestamp: number;
+  } | null = null;
   var suppressNextShieldClick = false;
   var suppressNextShieldClickTimer: ReturnType<typeof setTimeout> | null = null;
   var lastShieldModifierCyclePoint: { x: number; y: number } | null = null;
@@ -12115,6 +12257,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         handle.style.left = overlayPoint.x - size / 2 + "px";
         handle.style.top = overlayPoint.y - size / 2 + "px";
       });
+    syncLineEndpointChrome(el);
 
     if (isNewSelectionTarget) {
       void selectionOverlay.offsetHeight;
@@ -12334,6 +12477,21 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
             height: Math.max(0, bottom - top),
           },
           rotationDeg: 0,
+        },
+        "*",
+      );
+    } else if (selectedEl) {
+      // The canvas rulers mark the selected layers' extent on the screen.
+      window.parent.postMessage(
+        {
+          type: "agent-native:screen-selection-bounds",
+          screenId: designCanvasScreenId,
+          rect: {
+            left: left,
+            top: top,
+            width: Math.max(0, right - left),
+            height: Math.max(0, bottom - top),
+          },
         },
         "*",
       );
@@ -13210,6 +13368,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           : FRAME_LABEL_IDLE_COLOR);
       label.addEventListener("mousedown", function (event) {
         event.stopPropagation();
+        if (!interactionMode && !isLayerInteractionBlocked(placement.frame)) {
+          beginPotentialShieldDrag(event, placement.frame);
+        }
       });
       label.addEventListener("click", function (event) {
         event.preventDefault();
@@ -14523,7 +14684,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       e.metaKey || e.ctrlKey
         ? modifierClickSelectionTarget(target)
         : selectedContainerForPlainClick(target, e) ||
-          plainClickSelectionTarget(target);
+          containerFirstSelectionTarget(target);
     var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
     if (toggled !== undefined) {
       postToggledSelection(toggled);
@@ -15050,10 +15211,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var layerCandidates = collected.layerCandidates;
 
     var target = candidateElements[0] || null;
+    // Empty background inside a screen is the screen itself: right-click
+    // selects the frame under the pointer and opens its menu. The board has no such
+    // owner, so its empty canvas keeps the canvas menu.
+    if (!target && !designCanvasBoardSurface && document.body) {
+      target = document.body;
+    }
     var info = null;
     if (target) {
       hoveredSpacingHandleKey = "";
-      selectedEl = selectionTargetForHit(target);
+      // Right-click inside the current selection keeps it; elsewhere it
+      // selects what a plain click would, and Cmd deep-selects.
+      var keepsSelection =
+        !!selectedEl &&
+        document.documentElement.contains(selectedEl) &&
+        (selectedEl === target || selectedEl.contains(target));
+      selectedEl = keepsSelection
+        ? selectedEl
+        : (isApplePlatformBridge() ? e.metaKey : e.ctrlKey)
+          ? selectionTargetForHit(target)
+          : containerFirstSelectionTarget(target);
       if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
         info = getElementInfo(selectedEl);
         positionOverlay(selectionOverlay, selectedEl);
@@ -16105,6 +16282,448 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   function radiusSvgLocalDelta(el, screenDx, screenDy) {
     var matrix = el.getScreenCTM();
     return matrix ? radiusInverseLinearDelta(matrix, screenDx, screenDy) : null;
+  }
+
+  // shared/line-segment.ts turns this into the path `d` and viewBox.
+  var LINE_SEGMENT_PROPERTY = "--an-line-segment";
+  var LINE_SEGMENT_PATH =
+    /^\s*M\s*(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)\s*L\s*(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)\s*$/i;
+
+  type LinePoint = { x: number; y: number };
+  type LineSegmentFrame = {
+    path: SVGPathElement;
+    /** In the svg's viewBox units. */
+    start: LinePoint;
+    end: LinePoint;
+    viewBox: { x: number; y: number; width: number; height: number };
+    width: number;
+    height: number;
+  };
+
+  // A drawn line or arrow: an svg box stretched over one M…L path.
+  function lineSegmentFrame(el: Element | null): LineSegmentFrame | null {
+    if (!el || el.tagName.toLowerCase() !== "svg") return null;
+    var kind = el.getAttribute("data-an-primitive");
+    if (kind !== "line" && kind !== "arrow") return null;
+    var path = el.querySelector(":scope > path") as SVGPathElement | null;
+    var match = path && LINE_SEGMENT_PATH.exec(path.getAttribute("d") || "");
+    if (!path || !match) return null;
+    var cs = window.getComputedStyle(el);
+    // The drag solves for the box's own `transform`, not these.
+    if (
+      (cs.rotate && cs.rotate !== "none") ||
+      (cs.scale && cs.scale !== "none") ||
+      (cs.translate && cs.translate !== "none")
+    ) {
+      return null;
+    }
+    var width = readFinitePx(cs.width);
+    var height = readFinitePx(cs.height);
+    if (width === null || height === null || !(width > 0) || !(height > 0)) {
+      return null;
+    }
+    var viewBox = { x: 0, y: 0, width: width, height: height };
+    var viewBoxAttribute = el.getAttribute("viewBox");
+    if (viewBoxAttribute) {
+      var parts = viewBoxAttribute
+        .trim()
+        .split(/[\s,]+/)
+        .map(Number);
+      if (
+        parts.length !== 4 ||
+        !parts.every(Number.isFinite) ||
+        !(parts[2]! > 0) ||
+        !(parts[3]! > 0)
+      ) {
+        return null;
+      }
+      var stretches =
+        (el.getAttribute("preserveAspectRatio") || "").trim() === "none" ||
+        Math.abs(parts[2]! / parts[3]! - width / height) < 0.001;
+      if (!stretches) return null;
+      viewBox = {
+        x: parts[0]!,
+        y: parts[1]!,
+        width: parts[2]!,
+        height: parts[3]!,
+      };
+    }
+    var n = match.slice(1, 5).map(Number);
+    return {
+      path: path,
+      start: { x: n[0]!, y: n[1]! },
+      end: { x: n[2]!, y: n[3]! },
+      viewBox: viewBox,
+      width: width,
+      height: height,
+    };
+  }
+
+  function lineFrameBoxPoint(frame: LineSegmentFrame, point: LinePoint) {
+    return {
+      x: ((point.x - frame.viewBox.x) * frame.width) / frame.viewBox.width,
+      y: ((point.y - frame.viewBox.y) * frame.height) / frame.viewBox.height,
+    };
+  }
+
+  function lineSegmentScreenPoints(el: Element, frame: LineSegmentFrame) {
+    var matrix = (el as SVGSVGElement).getScreenCTM();
+    if (!matrix) return null;
+    var at = function (point: LinePoint): LinePoint {
+      return {
+        x: matrix!.a * point.x + matrix!.c * point.y + matrix!.e,
+        y: matrix!.b * point.x + matrix!.d * point.y + matrix!.f,
+      };
+    };
+    return { start: at(frame.start), end: at(frame.end) };
+  }
+
+  // The box's own transform, whose origin is a fraction of the box.
+  function lineBoxTransform(el: Element) {
+    var cs = window.getComputedStyle(el);
+    var transform = { a: 1, b: 0, c: 0, d: 1, originX: 0.5, originY: 0.5 };
+    if (cs.transform && cs.transform !== "none" && window.DOMMatrixReadOnly) {
+      var matrix = new DOMMatrixReadOnly(cs.transform);
+      transform.a = matrix.a;
+      transform.b = matrix.b;
+      transform.c = matrix.c;
+      transform.d = matrix.d;
+    }
+    var origin = (cs.transformOrigin || "").split(/\s+/).map(parseFloat);
+    var width = readFinitePx(cs.width);
+    var height = readFinitePx(cs.height);
+    if (width && Number.isFinite(origin[0])) {
+      transform.originX = origin[0]! / width;
+    }
+    if (height && Number.isFinite(origin[1])) {
+      transform.originY = origin[1]! / height;
+    }
+    return transform;
+  }
+
+  function lineEndpointFrameFor(el: Element | null): LineSegmentFrame | null {
+    if (
+      readOnly ||
+      !el ||
+      el !== selectedEl ||
+      activeTextEditEl ||
+      passiveSelectionEls.length > 0
+    ) {
+      return null;
+    }
+    return lineSegmentFrame(el);
+  }
+
+  function lineReadoutNumber(value: number, decimals: number): string {
+    var scale = Math.pow(10, decimals);
+    var rounded = Math.round(value * scale) / scale;
+    return String(Object.is(rounded, -0) ? 0 : rounded);
+  }
+
+  // Length and Rotation as the inspector shows them.
+  function lineReadoutText(el: Element | null): string | null {
+    var frame = lineEndpointFrameFor(el);
+    if (!el || !frame) return null;
+    var start = lineFrameBoxPoint(frame, frame.start);
+    var end = lineFrameBoxPoint(frame, frame.end);
+    var dx = end.x - start.x;
+    var dy = end.y - start.y;
+    var length = Math.hypot(dx, dy);
+    if (!(length > 0)) return null;
+    var transform = lineBoxTransform(el);
+    var angle =
+      (-Math.atan2(
+        transform.b * dx + transform.d * dy,
+        transform.a * dx + transform.c * dy,
+      ) *
+        180) /
+      Math.PI;
+    return (
+      lineReadoutNumber(length, 0) + " · " + lineReadoutNumber(angle, 1) + "°"
+    );
+  }
+
+  function syncLineEndpointChrome(el: Element | null): void {
+    var frame = lineEndpointFrameFor(el);
+    var points = el && frame ? lineSegmentScreenPoints(el, frame) : null;
+    if (!points) {
+      selectionOverlay.removeAttribute("data-agent-native-line-endpoints");
+      return;
+    }
+    var overlayStyle = window.getComputedStyle(selectionOverlay);
+    var overlayBox = borderBoxDimensions(overlayStyle);
+    var overlayGeometry = radiusViewportBoxGeometry(
+      selectionOverlay,
+      overlayBox.width,
+      overlayBox.height,
+    );
+    var start = radiusViewportPointToLocalBox(
+      overlayGeometry,
+      points.start.x,
+      points.start.y,
+    );
+    var end = radiusViewportPointToLocalBox(
+      overlayGeometry,
+      points.end.x,
+      points.end.y,
+    );
+    if (!start || !end) {
+      selectionOverlay.removeAttribute("data-agent-native-line-endpoints");
+      return;
+    }
+    selectionOverlay.setAttribute("data-agent-native-line-endpoints", "");
+    // Children are placed from the padding edge, inside the border.
+    var insetX = readPx(overlayStyle.borderLeftWidth);
+    var insetY = readPx(overlayStyle.borderTopWidth);
+    var line = chromeLineScale();
+    var size = 7 * line;
+    var ends = { start: start, end: end };
+    selectionOverlay
+      .querySelectorAll("[data-agent-native-line-endpoint-handle]")
+      .forEach(function (handle) {
+        var point =
+          ends[handle.getAttribute("data-agent-native-line-endpoint-handle")!];
+        if (!point || !(handle instanceof HTMLElement)) return;
+        handle.style.width = size + "px";
+        handle.style.height = size + "px";
+        handle.style.borderWidth = 1 * line + "px";
+        handle.style.left = point.x - insetX - size / 2 + "px";
+        handle.style.top = point.y - insetY - size / 2 + "px";
+      });
+    lineEndpointSegmentLine.setAttribute("x1", String(start.x - insetX));
+    lineEndpointSegmentLine.setAttribute("y1", String(start.y - insetY));
+    lineEndpointSegmentLine.setAttribute("x2", String(end.x - insetX));
+    lineEndpointSegmentLine.setAttribute("y2", String(end.y - insetY));
+    lineEndpointSegmentLine.setAttribute("stroke-width", String(1 * line));
+  }
+
+  function startLineEndpointDrag(end: string, e) {
+    if (readOnly || !selectedEl || isLayerInteractionBlocked(selectedEl)) {
+      return;
+    }
+    var lineEl = selectedEl as SVGSVGElement;
+    var frame = lineEndpointFrameFor(lineEl);
+    var screen = frame ? lineSegmentScreenPoints(lineEl, frame) : null;
+    var ctm = lineEl.getScreenCTM();
+    if (!frame || !screen || !ctm) return;
+    var lineFrame = frame;
+    // Box px to viewport px, so a pointer delta maps back into the box.
+    var boxToScreen = {
+      a: (ctm.a * frame.viewBox.width) / frame.width,
+      b: (ctm.b * frame.viewBox.width) / frame.width,
+      c: (ctm.c * frame.viewBox.height) / frame.height,
+      d: (ctm.d * frame.viewBox.height) / frame.height,
+    };
+    if (!radiusTransformInverse(boxToScreen)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var events = dragEventNames(e);
+    var movesStart = end === "start";
+    var original = {
+      position: lineEl.style.position,
+      left: lineEl.style.left,
+      top: lineEl.style.top,
+      width: lineEl.style.width,
+      height: lineEl.style.height,
+      viewBox: lineEl.getAttribute("viewBox"),
+      d: frame.path.getAttribute("d"),
+    };
+    refreshLiveVisualEditOriginalStyles(lineEl);
+    ensurePositionable(lineEl);
+    var cs = window.getComputedStyle(lineEl);
+    var originLeft = readPx(lineEl.style.left || cs.left);
+    var originTop = readPx(lineEl.style.top || cs.top);
+    var transform = lineBoxTransform(lineEl);
+    var fixedBoxPoint = lineFrameBoxPoint(
+      frame,
+      movesStart ? frame.end : frame.start,
+    );
+    var fixedScreen = movesStart ? screen.end : screen.start;
+    var movingScreen = movesStart ? screen.start : screen.end;
+    var startX = e.clientX;
+    var startY = e.clientY;
+    var applied: {
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      segment: number[];
+    } | null = null;
+
+    function nextGeometry(ev) {
+      var vx = movingScreen.x + ev.clientX - startX - fixedScreen.x;
+      var vy = movingScreen.y + ev.clientY - startY - fixedScreen.y;
+      if (ev.shiftKey) {
+        var length = Math.hypot(vx, vy);
+        var step = Math.PI / 4;
+        var angle = Math.round(Math.atan2(vy, vx) / step) * step;
+        vx = length * Math.cos(angle);
+        vy = length * Math.sin(angle);
+      }
+      var local = radiusInverseLinearDelta(boxToScreen, vx, vy);
+      if (!local) return null;
+      var dx = Math.round(local.x) || 0;
+      var dy = Math.round(local.y) || 0;
+      if (dx === 0 && dy === 0) return null;
+      var width = Math.max(1, Math.abs(dx));
+      var height = Math.max(1, Math.abs(dy));
+      // Each end sits on a box edge, so the fixed end takes the corner the
+      // segment's direction leaves it on.
+      var fixed = { x: dx < 0 ? -dx : 0, y: dy < 0 ? -dy : 0 };
+      var moving = { x: fixed.x + dx, y: fixed.y + dy };
+      // Keep the fixed end on screen: the box transform pivots on its
+      // origin, which moves with the box.
+      var ux =
+        fixed.x -
+        transform.originX * width -
+        (fixedBoxPoint.x - transform.originX * lineFrame.width);
+      var uy =
+        fixed.y -
+        transform.originY * height -
+        (fixedBoxPoint.y - transform.originY * lineFrame.height);
+      var startPoint = movesStart ? moving : fixed;
+      var endPoint = movesStart ? fixed : moving;
+      return {
+        left: Math.round(
+          originLeft -
+            transform.originX * (width - lineFrame.width) -
+            (transform.a * ux + transform.c * uy),
+        ),
+        top: Math.round(
+          originTop -
+            transform.originY * (height - lineFrame.height) -
+            (transform.b * ux + transform.d * uy),
+        ),
+        width: width,
+        height: height,
+        segment: [startPoint.x, startPoint.y, endPoint.x, endPoint.y],
+      };
+    }
+    function boxStyles(geometry) {
+      return {
+        left: geometry.left + "px",
+        top: geometry.top + "px",
+        width: geometry.width + "px",
+        height: geometry.height + "px",
+      };
+    }
+    function postPreview(styles: Record<string, string>) {
+      (window.parent as Window).postMessage(
+        {
+          type: "visual-style-change",
+          phase: "preview",
+          selector: getSelector(lineEl),
+          styles: styles,
+          payload: getElementInfo(lineEl, undefined, false),
+        },
+        "*",
+      );
+    }
+    function restoreLine() {
+      lineEl.style.position = original.position;
+      lineEl.style.left = original.left;
+      lineEl.style.top = original.top;
+      lineEl.style.width = original.width;
+      lineEl.style.height = original.height;
+      if (original.viewBox === null) lineEl.removeAttribute("viewBox");
+      else lineEl.setAttribute("viewBox", original.viewBox);
+      if (original.d !== null) lineFrame.path.setAttribute("d", original.d);
+    }
+    function onMove(ev) {
+      var geometry = nextGeometry(ev);
+      if (!geometry) return;
+      applied = geometry;
+      var styles = boxStyles(geometry);
+      lineEl.style.left = styles.left;
+      lineEl.style.top = styles.top;
+      lineEl.style.width = styles.width;
+      lineEl.style.height = styles.height;
+      lineEl.setAttribute(
+        "viewBox",
+        "0 0 " + geometry.width + " " + geometry.height,
+      );
+      var s = geometry.segment;
+      lineFrame.path.setAttribute(
+        "d",
+        "M " + s[0] + " " + s[1] + " L " + s[2] + " " + s[3],
+      );
+      postPreview(styles);
+      refreshOverlays();
+    }
+    function cleanupLineEndpointDrag() {
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onLineEndpointKeyDown, true);
+      clearActiveDragCancel(cancelLineEndpointDrag);
+    }
+    function cancelLineEndpointDrag() {
+      cleanupLineEndpointDrag();
+      if (document.documentElement.contains(lineEl)) {
+        restoreLine();
+        if (applied) {
+          var restored = window.getComputedStyle(lineEl);
+          postPreview({
+            left: restored.left,
+            top: restored.top,
+            width: restored.width,
+            height: restored.height,
+          });
+        }
+      }
+      releaseLiveVisualEditOriginalStyles(lineEl);
+      suppressNextShieldClickBriefly();
+      refreshOverlays();
+      return true;
+    }
+    function onLineEndpointKeyDown(ev) {
+      if (ev.key !== "Escape") return;
+      stopNativeInteraction(ev);
+      cancelLineEndpointDrag();
+    }
+    function onUp() {
+      cleanupLineEndpointDrag();
+      suppressNextShieldClickBriefly();
+      var segment = applied ? applied.segment.join(" ") : "";
+      var unchanged =
+        !applied ||
+        (applied.left === originLeft &&
+          applied.top === originTop &&
+          applied.width === lineFrame.width &&
+          applied.height === lineFrame.height &&
+          (original.d || "").replace(/\s+/g, " ").trim() ===
+            "M " +
+              applied.segment.slice(0, 2).join(" ") +
+              " L " +
+              applied.segment.slice(2).join(" "));
+      if (unchanged) {
+        restoreLine();
+        releaseLiveVisualEditOriginalStyles(lineEl);
+        refreshOverlays();
+        return;
+      }
+      var styles: Record<string, string> = boxStyles(applied);
+      if (lineEl.style.position !== original.position) {
+        styles.position = lineEl.style.position;
+      }
+      styles[LINE_SEGMENT_PROPERTY] = segment;
+      (window.parent as Window).postMessage(
+        {
+          type: "visual-style-change",
+          phase: "commit",
+          selector: getSelector(lineEl),
+          styles: styles,
+          originalStyles: originalInlineStylesForPatch(lineEl, styles),
+          payload: getElementInfo(lineEl),
+        },
+        "*",
+      );
+      recordSourceOwnership(lineEl);
+      releaseLiveVisualEditOriginalStyles(lineEl);
+    }
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onLineEndpointKeyDown, true);
+    setActiveDragCancel(cancelLineEndpointDrag);
   }
 
   function cornerRadiusMap(cs, width, height) {
@@ -18431,6 +19050,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (!range || range.collapsed || !rangeBelongsToElement(range, target)) {
       return false;
     }
+    // A style for all of the text is the layer's own style, never a
+    // span around every character.
+    if (rangeCoversWholeText(range, target)) {
+      return applyWholeTextStyle(target, property, value);
+    }
     if (
       selection.rangeCount === 0 ||
       selection.isCollapsed ||
@@ -18537,6 +19161,44 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       current = walker.nextNode();
     }
     return sawText ? true : spec.isOn(window.getComputedStyle(rootEl));
+  }
+
+  function rangeCoversWholeText(range: Range, target: Element): boolean {
+    var text = target.textContent || "";
+    return !!text.trim() && range.toString() === text;
+  }
+
+  // Styles the text layer itself and commits it as a layer style; the same
+  // property on spans inside it would only override the new value, so it goes.
+  function applyWholeTextStyle(
+    target: HTMLElement,
+    property: unknown,
+    value: unknown,
+  ): boolean {
+    var cssProperty = normalizeCssPropertyName(property);
+    if (!cssProperty) return false;
+    var styles: Record<string, string> = {};
+    styles[cssProperty] = String(value ?? "");
+    var originalStyles = originalInlineStylesForPatch(target, styles);
+    if (!applyInlineStyleProperty(target, cssProperty, value)) return false;
+    Array.prototype.forEach.call(
+      target.querySelectorAll("[style]"),
+      function (child: HTMLElement) {
+        child.style.removeProperty(cssProperty);
+        if (!child.getAttribute("style")) child.removeAttribute("style");
+      },
+    );
+    (window.parent as Window).postMessage(
+      {
+        type: "visual-style-change",
+        selector: getSelector(target),
+        styles: styles,
+        originalStyles: originalStyles,
+        payload: getElementInfo(target),
+      },
+      "*",
+    );
+    return true;
   }
 
   function applyTextEditFormat(key: string): boolean {
@@ -19428,6 +20090,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   function cloneHtmlForPersistence(el: Element): string {
     var clone = el.cloneNode(true) as Element;
     clone.removeAttribute("data-agent-native-transient-drag-clone");
+    // The clone marker only tells this runtime a node has no source yet; the
+    // persisted copy is a source node like any other.
+    clone.removeAttribute("data-agent-native-clone-root");
     restoreHeldCopyFlowStyle(clone, el);
     return clone.outerHTML;
   }
@@ -23377,6 +24042,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var rect = selectionBoundsFromElements(members);
     if (!rect || rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
     var scale = chromeLineScale();
+    var text =
+      lineReadoutText(el) ||
+      Math.round(rect.width) + " × " + Math.round(rect.height);
     var key =
       rect.left +
       "|" +
@@ -23386,12 +24054,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       "|" +
       rect.height +
       "|" +
-      scale;
+      scale +
+      "|" +
+      text;
     if (key === sizeBadgeKey && sizeBadge.style.display === "block") return;
     sizeBadgeKey = key;
     if (!sizeBadge.isConnected) appendEditorChromeNode(sizeBadge);
-    sizeBadge.textContent =
-      Math.round(rect.width) + " × " + Math.round(rect.height);
+    sizeBadge.textContent = text;
     sizeBadge.style.display = "block";
     sizeBadge.style.borderRadius = 3 * scale + "px";
     sizeBadge.style.padding = 2 * scale + "px " + 4 * scale + "px";
@@ -24748,6 +25417,24 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       return snapshot;
     });
     var liftedClippingAncestors = liftOverflowOnAncestors(groupEls);
+    measureAtMoveOrigin = function (el, measure) {
+      var state = memberStates.find(function (member) {
+        return member.el === el;
+      });
+      if (!state) return measure();
+      var style = state.el.style;
+      var live = [style.position, style.left, style.top];
+      style.position = state.originalPosition;
+      style.left = state.originalLeft;
+      style.top = state.originalTop;
+      try {
+        return measure();
+      } finally {
+        style.position = live[0]!;
+        style.left = live[1]!;
+        style.top = live[2]!;
+      }
+    };
     var gestureState =
       memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
 
@@ -25291,13 +25978,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       memberStates.forEach(function (state) {
         state.el.style.left =
           (isGroupDrag
-            ? state.originLeft + groupAppliedDx
+            ? Math.round(state.originLeft + groupAppliedDx)
             : quantizeToLayoutGrid(state.originLeft + appliedDx)) + "px";
         state.el.style.top =
           (isGroupDrag
-            ? state.originTop + groupAppliedDy
+            ? Math.round(state.originTop + groupAppliedDy)
             : quantizeToLayoutGrid(state.originTop + appliedDy)) + "px";
       });
+      if (!isGroupDrag && !duplicatedForDrag) {
+        postLiveDragPosition(dragEl, true);
+      }
       if (!isGroupDrag) {
         scheduleCrossScreenDragMove(ev);
       }
@@ -25360,6 +26050,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       positionOverlay(selectionOverlay, selectedEl);
     }
     function cleanupMoveDrag() {
+      measureAtMoveOrigin = null;
+      postLiveDragPosition(null, false);
       setLayerMoveActive(false);
       cancelAutoLayoutTargetResolution();
       refreshOverlaysGeneration += 1;
@@ -25396,7 +26088,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         postCrossScreenDrag("cancel");
       } else if (dragEl && document.documentElement.contains(dragEl)) {
         restoreSourceDragPosition();
-        if (!isGroupDrag) postCrossScreenDrag("cancel");
+        if (!isGroupDrag) {
+          postCrossScreenDrag("cancel");
+          // The inspector may have measured the layer mid-drag; give it the
+          // restored geometry instead of that stale reading.
+          if (selectedEl) postElementSelect(selectedEl);
+        }
       }
       suppressNextShieldClickBriefly();
       refreshOverlays();
@@ -26334,11 +27031,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         }
         applyKScaleStyleTargets(kScaleTargetsForMove || [], kScaleFactor);
       }
-      showTransformBadge(
-        Math.round(rect.width) + " x " + Math.round(rect.height),
-        ev.clientX,
-        ev.clientY,
-      );
       var previewStyles: Record<string, string> = {
         position: resizeEl.style.position,
         left: resizeEl.style.left,
@@ -26723,13 +27415,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       if (kScaleTargetsForMove) {
         applyKScaleStyleTargets(kScaleTargetsForMove, factor.x);
       }
-      showTransformBadge(
-        Math.round(groupWidth * factor.x) +
-          " x " +
-          Math.round(groupHeight * factor.y),
-        ev.clientX,
-        ev.clientY,
-      );
+      // The size badge under the selection is the one size readout.
       refreshOverlays();
     }
 
@@ -27447,7 +28133,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   var crossScreenClaimedByHost = false;
   var lastPointerDownTimestamp = 0;
 
-  function beginPotentialShieldDrag(e) {
+  // A frame's name label sits outside the frame, so a press on it names the
+  // frame directly instead of hit testing the point.
+  function beginPotentialShieldDrag(e, labeledFrame?: Element) {
     if (readOnly) return;
     if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
       return;
@@ -27461,10 +28149,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     ) {
       return;
     }
+    var pressEndedTextEdit = false;
     if (activeTextEditEl && isTextEditElConnected()) {
       var textEditToFinish = activeTextEditEl;
       if (finishActiveTextEdit) finishActiveTextEdit(true);
       textEditToFinish.blur();
+      pressEndedTextEdit = true;
     }
     stopNativeInteraction(e);
     clearGridProjectionCaches();
@@ -27475,9 +28165,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (e.button !== 0) return;
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     var events = dragEventNames(e);
-    var hit = elementFromEditorPoint(e.clientX, e.clientY);
-    var hitTarget = selectionTargetForHit(hit);
-    var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
+    var hit = labeledFrame || elementFromEditorPoint(e.clientX, e.clientY);
+    var hitTarget = labeledFrame || selectionTargetForHit(hit);
+    var startsOnContainerBackground =
+      !labeledFrame && isContainerBackgroundHit(hitTarget, hit);
     if (
       !hit ||
       hit === document.body ||
@@ -27485,6 +28176,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       isBoardRootMarqueeSurface(hitTarget) ||
       startsOnContainerBackground
     ) {
+      // Clicking empty canvas commits a text edit and deselects. The
+      // press lands under the editor, so no shield click follows to clear it.
+      if (pressEndedTextEdit && !startsOnContainerBackground) {
+        clearRuntimeSelection();
+        (window.parent as Window).postMessage({ type: "clear-selection" }, "*");
+      }
       beginMarqueeSelection(e, startsOnContainerBackground ? hitTarget : null);
       return;
     }
@@ -27494,17 +28191,19 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       selectedAlive && selectedEl.getBoundingClientRect
         ? selectedEl.getBoundingClientRect()
         : null;
-    var dragTarget = textBlockOwningRun(
-      dragTargetForPointerDown({
-        selectedEl: selectedEl,
-        selectedAlive: selectedAlive,
-        selectedRect: selectedRect,
-        hitEl: hitTarget,
-        hitRaw: hit,
-        point: { x: e.clientX, y: e.clientY },
-        preferSelected: selectedLayerDragPriorityEnabled,
-      }),
-    );
+    var dragTarget = labeledFrame
+      ? labeledFrame
+      : textBlockOwningRun(
+          dragTargetForPointerDown({
+            selectedEl: selectedEl,
+            selectedAlive: selectedAlive,
+            selectedRect: selectedRect,
+            hitEl: hitTarget,
+            hitRaw: hit,
+            point: { x: e.clientX, y: e.clientY },
+            preferSelected: selectedLayerDragPriorityEnabled,
+          }),
+        );
     if ((window as any).__DND_DEBUG)
       dndLog("shield:down", {
         hit: getSelector(hit),
@@ -27652,6 +28351,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       if (!readOnly && !e.altKey) {
         postCrossScreenDrag("cancel");
       }
+      // The label's own click selects its frame.
+      if (labeledFrame) return;
       if (ev) stopNativeInteraction(ev);
       var cycledEl = isModifierCycleClick
         ? stackCycleTarget(e.clientX, e.clientY, selectedEl)
@@ -27659,13 +28360,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
           ? modifierClickSelectionTarget(hit)
-          : !designCanvasBoardSurface
-            ? selectedContainerForPlainClick(hit, ev) ||
-              plainClickSelectionTarget(hit)
-            : (!readOnly && !e.shiftKey
-                ? selectedContainerForPlainClick(hit, ev) ||
-                  clickThroughSelectionTarget(hit, ev, repeatedMouseClick)
-                : null) || containerFirstSelectionTarget(hit);
+          : (!readOnly && !e.shiftKey
+              ? selectedContainerForPlainClick(hit, ev) ||
+                clickThroughSelectionTarget(hit, ev, repeatedMouseClick)
+              : null) || containerFirstSelectionTarget(hit);
       var preservesNestedHit = Boolean(
         isModifierCycleClick &&
         !continuesModifierCycle &&
@@ -27680,6 +28378,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           ? cycledEl
           : null;
       var nextClickTarget = cycleTarget || primaryClickTarget || dragTarget;
+      var plainClick = !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+      if (!plainClick || !repeatedMouseClick) {
+        doubleClickStartSelection = plainClick
+          ? { el: selectedEl, timestamp: Date.now() }
+          : null;
+      }
       selectTarget(nextClickTarget, ev, true);
       if (isModifierCycleClick && selectedEl) {
         lastShieldModifierCyclePoint = {
@@ -27861,6 +28565,14 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         e.target.getAttribute("data-spacing-key");
       if (spacingKey) {
         startSpacingDrag(spacingKey, e);
+        return;
+      }
+      var lineEndpoint =
+        e.target &&
+        e.target.getAttribute &&
+        e.target.getAttribute("data-agent-native-line-endpoint-handle");
+      if (lineEndpoint) {
+        startLineEndpointDrag(lineEndpoint, e);
         return;
       }
       var resizeHandle =
@@ -28373,9 +29085,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       ) {
         return;
       }
+      // Only a branch that relays the paste may cancel the deferred Cmd+V
+      // hotkey: a paste this listener ignores (a copy that only lives in the
+      // editor's memory) still needs the editor to run its own paste.
       var content = getFigmaClipboardContent(e.clipboardData);
-      clearPendingPlainPasteHotkey();
       if (content) {
+        clearPendingPlainPasteHotkey();
         stopNativeInteraction(e);
         (window.parent as Window).postMessage(
           {
@@ -28389,12 +29104,34 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       }
       var svgHtml = e.clipboardData?.getData("text/html") || "";
       var svgText = e.clipboardData?.getData("text/plain") || "";
+      // A Design layer copy carries its payload in a comment marker; the host
+      // parses and trusts it. Relay it whole so an SVG inside the copied HTML
+      // is not pasted on its own.
+      if (
+        svgHtml.indexOf("<!--agent-native-clipboard-v1:") !== -1 ||
+        svgText.indexOf("<!--agent-native-clipboard-v1:") !== -1
+      ) {
+        clearPendingPlainPasteHotkey();
+        stopNativeInteraction(e);
+        (window.parent as Window).postMessage(
+          {
+            type: "figma-clipboard-paste",
+            content: "",
+            html: svgHtml,
+            text: svgText,
+            ...clipboardScreenContext(),
+          },
+          "*",
+        );
+        return;
+      }
       var svgSource = /<svg\b/i.test(svgHtml)
         ? svgHtml
         : /<svg\b/i.test(svgText)
           ? svgText
           : "";
       if (svgSource) {
+        clearPendingPlainPasteHotkey();
         stopNativeInteraction(e);
         (window.parent as Window).postMessage(
           {
@@ -28430,6 +29167,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         );
       });
       if (svgFiles.length > 0 || imageFiles.length > 0) {
+        clearPendingPlainPasteHotkey();
         stopNativeInteraction(e);
         var relayImageFiles = function () {
           if (imageFiles.length === 0) return;
@@ -28514,6 +29252,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         ? e.clipboardData.getData("text/plain") || ""
         : "";
       if (/figma/i.test(pastedHtml) || /figma/i.test(pastedText)) {
+        clearPendingPlainPasteHotkey();
         (window.parent as Window).postMessage(
           {
             type: "figma-clipboard-paste",
@@ -28611,15 +29350,39 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           descendHit !== document.documentElement &&
           !isLayerInteractionBlocked(descendHit)
         ) {
-          var previousSelectedElForDescend = selectedEl;
-          if (
+          var startSelection = doubleClickStartSelection;
+          doubleClickStartSelection = null;
+          // The double-click's own two clicks can each step into an
+          // auto-layout selection; the drill goes one level from where the
+          // first click began.
+          var previousSelectedElForDescend =
+            startSelection &&
+            startSelection.el &&
+            Date.now() - startSelection.timestamp <=
+              MOUSE_DOUBLE_CLICK_WINDOW_MS * 2 &&
+            document.documentElement.contains(startSelection.el) &&
+            startSelection.el !== descendHit &&
+            startSelection.el.contains(descendHit)
+              ? startSelection.el
+              : selectedEl;
+          var descendsIntoSelection = Boolean(
             previousSelectedElForDescend &&
+            previousSelectedElForDescend !== descendHit &&
             document.documentElement.contains(previousSelectedElForDescend) &&
-            previousSelectedElForDescend.contains(descendHit)
-          ) {
+            previousSelectedElForDescend.contains(descendHit),
+          );
+          if (descendsIntoSelection) {
             selectionContainerScope = previousSelectedElForDescend;
           }
-          var descendTarget = containerFirstSelectionTarget(descendHit, true);
+          // Double-click drills exactly one level into the selection. A Group
+          // never opens through the board's container-first scope, so it must
+          // not be resolved through it either.
+          var descendTarget = descendsIntoSelection
+            ? containerScopeAncestor(
+                selectionTargetForHit(descendHit, true) || descendHit,
+                previousSelectedElForDescend!,
+              )
+            : containerFirstSelectionTarget(descendHit, true);
           if (descendTarget && !isLayerInteractionBlocked(descendTarget)) {
             selectedEl = descendTarget;
             positionOverlay(selectionOverlay, selectedEl);
@@ -28943,6 +29706,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
 
     function onSelectionChange() {
+      // Editing opens with every character selected; a caret placed inside
+      // the focused editor afterwards must not keep reporting that range.
+      clearActiveTextEditRangeIfCollapsed(target);
       captureActiveTextEditRange(target);
       scheduleTextEditingChromeUpdate();
     }
@@ -29009,9 +29775,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       }
       resumedSelection.removeAllRanges();
       resumedSelection.addRange(resumedRange);
-    } else if (programmaticTextEdit) {
-      collapseSelectionIntoContents(target);
     } else {
+      // Entering a text layer (double-click or Enter) selects all of
+      // its text, so typing replaces it.
       selectAllTextContents(target);
     }
     captureActiveTextEditRange(target);
@@ -29240,7 +30006,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     deepSelect: boolean,
   ): Element | null {
     var rawHit = elementFromEditorPoint(clientX, clientY);
-    return deepSelect || !designCanvasBoardSurface
+    return deepSelect
       ? selectionTargetForHit(rawHit)
       : containerFirstSelectionTarget(rawHit);
   }
@@ -30032,7 +30798,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
               ? e.data.correlationId
               : "",
           screenId: designCanvasScreenId,
-          payload: measureTarget ? getElementInfo(measureTarget) : null,
+          payload: !measureTarget
+            ? null
+            : measureAtMoveOrigin
+              ? measureAtMoveOrigin(measureTarget, function () {
+                  return getElementInfo(measureTarget!);
+                })
+              : getElementInfo(measureTarget),
         },
         "*",
       );

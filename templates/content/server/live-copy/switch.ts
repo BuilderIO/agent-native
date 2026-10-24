@@ -52,8 +52,9 @@ async function readPage(documentId: string) {
  * with `keepLiveEdits`, a live copy that holds text the stored body lacks
  * refuses the switch with `live_edits` instead.
  * Throws `LiveBodyConversionError` `flag_off` unless both flags are on for
- * the page's owner, `ineligible` while a writer that reaches the page can't
- * write through the live copy (`liveBodySwitchBlockers`), and
+ * the page's owner, `local_file` for a page linked to a local file,
+ * `ineligible` while another writer that reaches the page can't write through
+ * the live copy (`liveBodySwitchBlockers`), and
  * `base_changed` when the body keeps moving.
  */
 export async function switchPageToLiveCopy(

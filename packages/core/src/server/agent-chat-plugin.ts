@@ -51,7 +51,10 @@ import type {
   Message as A2AMessage,
 } from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
-import { clientAbortReason } from "../agent/abort-reasons.js";
+import {
+  clientAbortReason,
+  EXECUTION_LEASE_LOST_ABORT_REASON,
+} from "../agent/abort-reasons.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
   normalizeAgentAppModelDefaultAppId,
@@ -941,8 +944,8 @@ export async function runA2AAgentLoopWithRunManager(
       reasonCode === "stale_execution_fence" ||
       reasonCode === A2A_TASK_CLAIM_LOST_ERROR_CODE
     ) {
-      run.abortReason = "execution_lease_lost";
-      run.abort.abort("execution_lease_lost");
+      run.abortReason = EXECUTION_LEASE_LOST_ABORT_REASON;
+      run.abort.abort(EXECUTION_LEASE_LOST_ABORT_REASON);
       return;
     }
     cancellation = abortRunDurably(runId, clientAbortReason(reason)).then(
