@@ -345,10 +345,7 @@ describe("startAgentHarnessRun", () => {
       input: { prompt: "work" },
       createSession: { sessionId: "stored-chained" },
     });
-    const execution = capturedRunFn?.(
-      () => {},
-      new AbortController().signal,
-    );
+    const execution = capturedRunFn?.(() => {}, new AbortController().signal);
     expect(execution).toBeDefined();
 
     await Promise.all([approvalStored, streamSuspended]);
