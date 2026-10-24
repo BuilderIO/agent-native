@@ -1683,6 +1683,7 @@ describe("HTML Motion source adapter", () => {
     ["Alpine initialization", 'x-init="$el.remove()"'],
     ["Alpine effect", 'x-effect="$el.remove()"'],
     ["Alpine x-data expression", 'x-data="createScope()"'],
+    ["Vue v-scope expression", 'v-scope="createScope()"'],
     [
       "Alpine x-data init method",
       "x-data=\"{ init() { document.querySelector('.card > h1')?.remove() } }\"",
@@ -1701,16 +1702,22 @@ describe("HTML Motion source adapter", () => {
     },
   );
 
-  it("allows positional selectors when a sibling has static Alpine data", () => {
-    const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 x-data="{ open: true }">Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
+  it.each([
+    ["Alpine", 'x-data="{ open: true }"'],
+    ["Vue", 'v-scope="{ open: true }"'],
+  ])(
+    "allows positional selectors when a sibling has static %s scope",
+    (_label, scope) => {
+      const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 ${scope}>Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;
 
-    expect(
-      inspectMotionHtmlSourceWriteCapability({
-        source,
-        targetNodeIds: ["hero-title"],
-      }),
-    ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
-  });
+      expect(
+        inspectMotionHtmlSourceWriteCapability({
+          source,
+          targetNodeIds: ["hero-title"],
+        }),
+      ).toMatchObject({ status: "supported", targetNodeIds: ["hero-title"] });
+    },
+  );
 
   it("allows positional selectors when a sibling only changes its class", () => {
     const source = `<!doctype html><html><head><style>.card > h1:nth-child(1) { opacity: 0 !important; }</style></head><body><main class="card"><h1 x-bind:class="active ? 'active' : ''">Intro</h1><h1 id="hero-title" data-agent-native-node-id="hero-title">Hello</h1></main></body></html>`;

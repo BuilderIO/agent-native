@@ -2092,7 +2092,8 @@ function hasRuntimeStructuralMutation(node: HtmlNode): boolean {
         isEventHandlerAttribute(name) ||
         directive === "x-init" ||
         directive === "x-effect" ||
-        (directive === "x-data" && !isStaticRuntimeScopeData(value))
+        (isRuntimeStyleMutationScope(directive) &&
+          !isStaticRuntimeScopeData(value))
       );
     })
   );
