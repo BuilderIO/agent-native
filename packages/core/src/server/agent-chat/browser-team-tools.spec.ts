@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ActionContractError } from "../../action.js";
 import type { AgentEngine } from "../../agent/engine/types.js";
 import {
   actionsToEngineTools,
   runAgentLoop,
 } from "../../agent/production-agent.js";
+import { BUILDER_OAUTH_SCOPE } from "../builder-oauth.js";
 import { runWithRequestContext } from "../request-context.js";
 import {
   createBuilderBrowserTool,
@@ -18,10 +20,13 @@ const mocks = vi.hoisted(() => ({
   getBuilderCredentialAuthFailure: vi.fn(),
   getBuilderBrowserConnectUrlForOwner: vi.fn(),
   getAgentTeamRunDispatchState: vi.fn(),
+  getMcpManagerForCurrentRequest: vi.fn(),
   getTask: vi.fn(),
   listTasks: vi.fn(),
+  requestBuilderBrowserConnection: vi.fn(),
   resolveBuilderBranchProjectId: vi.fn(),
   resolveBuilderCredentials: vi.fn(),
+  resolveBuilderRequestAuthorization: vi.fn(),
 }));
 
 vi.mock("../../sharing/access.js", () => ({
@@ -31,7 +36,17 @@ vi.mock("../../sharing/access.js", () => ({
 vi.mock("../builder-browser.js", () => ({
   getBuilderBrowserConnectUrlForOwner:
     mocks.getBuilderBrowserConnectUrlForOwner,
+  requestBuilderBrowserConnection: mocks.requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId: mocks.resolveBuilderBranchProjectId,
+}));
+
+vi.mock("../builder-api-auth.js", () => ({
+  resolveBuilderRequestAuthorization: mocks.resolveBuilderRequestAuthorization,
+}));
+
+vi.mock("./mcp-glue.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./mcp-glue.js")>()),
+  getMcpManagerForCurrentRequest: mocks.getMcpManagerForCurrentRequest,
 }));
 
 vi.mock("../credential-provider.js", () => ({
@@ -213,6 +228,127 @@ describe("connect-builder source-change handoff", () => {
       configured: false,
       builderEnabled: true,
     });
+  });
+});
+
+describe("Builder sign-in without a legacy key pair", () => {
+  const reconfigure = vi.fn();
+
+  beforeEach(() => {
+    mocks.getBuilderCredentialAuthFailure.mockReset().mockResolvedValue(null);
+    mocks.getBuilderBrowserConnectUrlForOwner.mockReturnValue(
+      "https://builder.example.test/connect",
+    );
+    mocks.resolveBuilderBranchProjectId.mockResolvedValue("project-1");
+    mocks.resolveBuilderCredentials.mockReset().mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      orgName: null,
+    });
+    mocks.resolveBuilderRequestAuthorization.mockReset().mockResolvedValue({
+      token: "oauth-test-token",
+      authorization: "Bearer oauth-test-token",
+      source: "oauth",
+      oauthScope: "user",
+      oauthResource: "general",
+    });
+    mocks.requestBuilderBrowserConnection
+      .mockReset()
+      .mockResolvedValue({ wsUrl: "wss://browser.example.test/session" });
+    reconfigure.mockReset();
+    mocks.getMcpManagerForCurrentRequest.mockReset().mockResolvedValue({
+      getConfig: () => ({ servers: {}, source: "runtime" }),
+      reconfigure,
+    });
+  });
+
+  afterEach(() => {
+    mocks.resolveBuilderRequestAuthorization.mockReset();
+  });
+
+  async function runBuilderTool(
+    name: "connect-builder" | "activate-browser",
+    args: Record<string, unknown>,
+  ) {
+    const entry = createBuilderBrowserTool({
+      getOrigin: () => "https://app.example.test",
+      getOwner: () => "owner@example.test",
+    })[name];
+    return JSON.parse(await entry.run(args));
+  }
+
+  it("connect-builder renders the card as connected", async () => {
+    await expect(
+      runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
+    ).resolves.toMatchObject({
+      kind: "connect-builder-card",
+      configured: true,
+      builderEnabled: true,
+    });
+    expect(mocks.resolveBuilderRequestAuthorization).toHaveBeenCalledWith({
+      requiredScope: BUILDER_OAUTH_SCOPE,
+    });
+  });
+
+  it("activate-browser opens a browser instead of asking to connect", async () => {
+    await expect(
+      runBuilderTool("activate-browser", { sessionId: "session-1" }),
+    ).resolves.toMatchObject({
+      success: true,
+      wsUrl: "wss://browser.example.test/session",
+      sessionId: "session-1",
+    });
+    expect(mocks.requestBuilderBrowserConnection).toHaveBeenCalledWith({
+      sessionId: "session-1",
+    });
+    expect(reconfigure).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fall back to a deploy key pair when the sign-in needs re-authorizing", async () => {
+    mocks.resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "private-test-key",
+      publicKey: "public-test-key",
+      orgName: "Test org",
+    });
+    mocks.resolveBuilderRequestAuthorization.mockRejectedValue(
+      new ActionContractError(
+        "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
+        {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        },
+      ),
+    );
+
+    await expect(
+      runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
+    ).resolves.toMatchObject({ configured: false });
+    await expect(
+      runBuilderTool("activate-browser", { sessionId: "session-1" }),
+    ).resolves.toMatchObject({ error: "builder-not-connected" });
+    expect(mocks.requestBuilderBrowserConnection).not.toHaveBeenCalled();
+  });
+
+  it("keeps a legacy key pair connected in both tools", async () => {
+    mocks.resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "private-test-key",
+      publicKey: "public-test-key",
+      orgName: "Test org",
+    });
+    mocks.resolveBuilderRequestAuthorization.mockResolvedValue({
+      token: "private-test-key",
+      authorization: "Bearer private-test-key",
+      source: "legacy",
+      legacyCredentialKey: "BUILDER_PRIVATE_KEY",
+      legacyPublicKey: "public-test-key",
+    });
+
+    await expect(
+      runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
+    ).resolves.toMatchObject({ configured: true, orgName: "Test org" });
+    await expect(
+      runBuilderTool("activate-browser", { sessionId: "session-1" }),
+    ).resolves.toMatchObject({ success: true });
   });
 });
 

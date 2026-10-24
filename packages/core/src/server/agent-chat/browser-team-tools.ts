@@ -5,7 +5,11 @@ import {
   ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   normalizeAgentTeamProgressResult,
 } from "../../action-ui.js";
-import { fail, type ActionRunContext } from "../../action.js";
+import {
+  fail,
+  isActionContractError,
+  type ActionRunContext,
+} from "../../action.js";
 import type { AgentEngine } from "../../agent/engine/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
@@ -151,6 +155,39 @@ function buildExtensionPromotionPrompt(
   };
 }
 
+/**
+ * New Builder connections store only an OAuth grant, so a missing legacy key
+ * pair does not mean Builder is disconnected. An unusable grant must not fall
+ * back to a deploy-level key the user never authorized.
+ */
+async function isBuilderConnectedForRequest(creds: {
+  privateKey: string | null;
+  publicKey: string | null;
+}): Promise<boolean> {
+  const [{ resolveBuilderRequestAuthorization }, { BUILDER_OAUTH_SCOPE }] =
+    await Promise.all([
+      import("../builder-api-auth.js"),
+      import("../builder-oauth.js"),
+    ]);
+  try {
+    const authorization = await resolveBuilderRequestAuthorization({
+      requiredScope: BUILDER_OAUTH_SCOPE,
+    });
+    if (authorization?.source === "oauth") return true;
+  } catch (error) {
+    // An expired or under-scoped grant needs the reconnect the card offers.
+    if (isActionContractError(error)) return false;
+    throw error;
+  }
+  const { getBuilderCredentialAuthFailure } =
+    await import("../credential-provider.js");
+  return !!(
+    creds.privateKey &&
+    creds.publicKey &&
+    !(await getBuilderCredentialAuthFailure(creds))
+  );
+}
+
 export function createBuilderBrowserTool(deps: {
   getOrigin: () => string;
   getOwner?: () => string | null | undefined;
@@ -226,15 +263,10 @@ export function createBuilderBrowserTool(deps: {
         },
       },
       run: async (args) => {
-        const { getBuilderCredentialAuthFailure, resolveBuilderCredentials } =
+        const { resolveBuilderCredentials } =
           await import("../credential-provider.js");
         const creds = await resolveBuilderCredentials();
-        const authFailure = await getBuilderCredentialAuthFailure(creds);
-        const configured = !!(
-          creds.privateKey &&
-          creds.publicKey &&
-          !authFailure
-        );
+        const configured = await isBuilderConnectedForRequest(creds);
         const branchProjectId = await resolveBuilderBranchProjectId();
         let prompt = typeof args?.prompt === "string" ? args.prompt : "";
         const extensionId =
@@ -411,7 +443,7 @@ export function createBuilderBrowserTool(deps: {
         const { resolveBuilderCredentials } =
           await import("../credential-provider.js");
         const creds = await resolveBuilderCredentials();
-        if (!creds.privateKey || !creds.publicKey) {
+        if (!(await isBuilderConnectedForRequest(creds))) {
           return JSON.stringify({
             error: "builder-not-connected",
             message:
