@@ -594,6 +594,8 @@ describe("hubspot-deals action", () => {
       expect(result.nextOffset).toBe(1);
       expect(result.guidance).toContain("provider-api-request");
       expect(result.guidance).toContain("advances past this deal");
+      // Resume text follows the final nextOffset, which skips the consumed deal.
+      expect(result.guidance).toContain("Fetch the next page with offset 1.");
     });
   });
 

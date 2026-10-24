@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { type FitStep, fitResult } from "../server/lib/fit-result";
 import {
   getAllCalls,
   getCalls,
@@ -22,7 +23,6 @@ const MAX_GONG_TRANSCRIPT_LIMIT = 50;
 const DEFAULT_TRANSCRIPT_MAX_CHARS = 8_000;
 const MAX_TRANSCRIPT_MAX_CHARS = 100_000;
 const MAX_AGGREGATE_TRANSCRIPT_CHARS = 40_000;
-const RESULT_CHAR_CAP = 50_000;
 const DEFAULT_TRANSCRIPT_SCAN_LIMIT = 50;
 const MAX_TRANSCRIPT_SCAN_LIMIT = 200;
 const DEFAULT_TRANSCRIPT_SEARCH_MAX_CHARS = MAX_TRANSCRIPT_MAX_CHARS;
@@ -89,11 +89,9 @@ function boundedTranscriptExcerptChars(
   );
 }
 
-// The agent pretty-prints (2-space indent) the whole result before applying its
-// 50,000-char cap, so the budget has to hold for the complete serialized result,
-// not the raw excerpt text. Trim in order: transcript excerpt text, then
-// search-match snippets (shorten, then drop the lowest-ranked matches).
-// transcriptCoverage and the transcriptSearch summary are never trimmed.
+// What can still be trimmed from a result that is over the size cap. Steps
+// run in this order: transcript excerpt text, search-match snippets (shortened
+// around the matched phrase), then the lowest-ranked matches.
 interface FitState {
   transcripts?: TranscriptEvidence[];
   matches?: TranscriptSearchMatch[];
@@ -101,69 +99,80 @@ interface FitState {
 }
 
 const MIN_SNIPPET_CHARS = 100;
+const FIT_MARGIN_CHARS = 1_000;
 
-function serializedChars(value: unknown): number {
-  return JSON.stringify(value, null, 2).length;
+function snippetWindow(snippet: string, query: string, maxChars: number) {
+  if (snippet.length <= maxChars) return snippet;
+  const hit = snippet.toLowerCase().indexOf(query.toLowerCase());
+  const center = hit < 0 ? 0 : hit + query.length / 2;
+  const start = Math.max(
+    0,
+    Math.min(snippet.length - maxChars, Math.floor(center - maxChars / 2)),
+  );
+  const end = start + maxChars;
+  return `${start > 0 ? "..." : ""}${snippet.slice(start, end)}${end < snippet.length ? "..." : ""}`;
 }
 
-function fitResultToCap<T>(
-  initial: Pick<FitState, "transcripts" | "matches">,
-  build: (fit: FitState) => T,
-): T {
-  let fit: FitState = { ...initial, matchesTrimmed: 0 };
-  let result = build(fit);
-  let overage = serializedChars(result) - RESULT_CHAR_CAP;
-  if (overage <= 0) return result;
-
-  // Serialized text cost (JSON escapes make newline-heavy text cost double) is
-  // what scales, so shrink each field by the fraction of it that must go.
-  const scaleText = (text: string, keep: number): string =>
-    text.slice(0, Math.floor(text.length * keep));
-
-  const transcripts = fit.transcripts;
+// Serialized cost is what must shrink (JSON escapes make newline-heavy text
+// cost double), so each step cuts the fraction of it that is over the cap.
+const trimTranscriptText: FitStep<FitState> = (fit, { overage }) => {
+  const rows = fit.transcripts;
   const textChars =
-    transcripts?.reduce(
-      (total, row) => total + JSON.stringify(row.text).length,
-      0,
-    ) ?? 0;
-  if (transcripts && textChars > 0) {
-    const keep = Math.max(0, (textChars - overage - 1_000) / textChars);
-    fit = {
-      ...fit,
-      transcripts: transcripts.map((row) => {
-        const text = scaleText(row.text, keep);
-        return text.length < row.text.length
-          ? { ...row, text, truncated: true }
-          : row;
-      }),
-    };
-    result = build(fit);
-    overage = serializedChars(result) - RESULT_CHAR_CAP;
-    if (overage <= 0) return result;
-  }
-
-  const matches = fit.matches;
-  if (!matches?.length) return result;
-  const snippetChars = matches.reduce(
-    (total, match) =>
-      total + match.snippets.reduce((n, s) => n + JSON.stringify(s).length, 0),
+    rows?.reduce((total, row) => total + JSON.stringify(row.text).length, 0) ??
+    0;
+  if (!rows || textChars === 0) return fit;
+  const keep = Math.max(
     0,
+    (textChars - overage - FIT_MARGIN_CHARS) / textChars,
   );
-  const keep = Math.max(0, (snippetChars - overage - 1_000) / snippetChars);
-  const shortened = matches.map((match) => ({
-    ...match,
-    snippets: match.snippets.map((snippet) =>
-      snippet.length <= MIN_SNIPPET_CHARS
-        ? snippet
-        : `${snippet.slice(0, Math.max(MIN_SNIPPET_CHARS, Math.floor(snippet.length * keep)))}...`,
-    ),
-  }));
-  fit = { ...fit, matches: shortened };
-  result = build(fit);
-  if (serializedChars(result) <= RESULT_CHAR_CAP) return result;
+  return {
+    ...fit,
+    transcripts: rows.map((row) => {
+      const text = row.text.slice(0, Math.floor(row.text.length * keep));
+      return text.length < row.text.length
+        ? { ...row, text, truncated: true }
+        : row;
+    }),
+  };
+};
 
-  // Still over: keep the best-ranked matches (most hits first), in call order.
-  const ranked = shortened
+const shortenSnippets =
+  (query: string): FitStep<FitState> =>
+  (fit, { overage }) => {
+    const matches = fit.matches;
+    const snippetChars =
+      matches?.reduce(
+        (total, match) =>
+          total +
+          match.snippets.reduce((n, s) => n + JSON.stringify(s).length, 0),
+        0,
+      ) ?? 0;
+    if (!matches || snippetChars === 0) return fit;
+    const keep = Math.max(
+      0,
+      (snippetChars - overage - FIT_MARGIN_CHARS) / snippetChars,
+    );
+    const floor = Math.max(MIN_SNIPPET_CHARS, query.length + 40);
+    return {
+      ...fit,
+      matches: matches.map((match) => ({
+        ...match,
+        snippets: match.snippets.map((snippet) =>
+          snippetWindow(
+            snippet,
+            query,
+            Math.max(floor, Math.floor(snippet.length * keep)),
+          ),
+        ),
+      })),
+    };
+  };
+
+// Keep the best-ranked matches (most hits first), in call order.
+const dropLowestRankedMatches: FitStep<FitState> = (fit, { fits }) => {
+  const matches = fit.matches;
+  if (!matches?.length) return fit;
+  const ranked = matches
     .map((match, index) => ({ match, index }))
     .sort(
       (a, b) => b.match.matchCount - a.match.matchCount || a.index - b.index,
@@ -174,17 +183,26 @@ function fitResultToCap<T>(
       .slice(0, count)
       .sort((a, b) => a.index - b.index)
       .map(({ match }) => match),
-    matchesTrimmed: shortened.length - count,
+    matchesTrimmed: matches.length - count,
   });
   let low = 0;
-  let high = shortened.length;
+  let high = matches.length;
   while (low < high) {
     const mid = Math.ceil((low + high) / 2);
-    if (serializedChars(build(withTop(mid))) <= RESULT_CHAR_CAP) low = mid;
+    if (fits(withTop(mid))) low = mid;
     else high = mid - 1;
   }
-  return build(withTop(low));
+  return withTop(low);
+};
+
+function matchesTrimmedGuidance(matchesTrimmed: number): string {
+  return matchesTrimmed > 0
+    ? `The transcript match list is incomplete: ${matchesTrimmed} lower-ranked matching call(s) were dropped to fit the output size budget (matchingCalls is the true count). Narrow the window or query to see them.`
+    : "";
 }
+
+const RESULT_TOO_LARGE_GUIDANCE =
+  "The call records alone exceed the output size budget. Narrow the date range or lower the limit and retry; do not treat this as an empty result.";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object"
@@ -813,6 +831,7 @@ export default defineAction({
           transcriptSearch
             ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${result.calls.length} matching call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; if coverage is incomplete, keep any retry bounded by narrowing the window, or switch broad/exhaustive work to tracker staging or provider-corpus-job.`
             : "",
+          matchesTrimmedGuidance(fit.matchesTrimmed),
           exhaustive
             ? shouldLoadTranscripts
               ? `Exhaustive discovery returned all ${result.calls.length} matching call(s) in the bounded window before loading transcripts.`
@@ -827,10 +846,25 @@ export default defineAction({
           .filter(Boolean)
           .join(" "),
       });
-      return fitResultToCap(
-        { transcripts, matches: transcriptSearch?.matches },
-        buildResult,
-      );
+      return fitResult({
+        initial: {
+          transcripts,
+          matches: transcriptSearch?.matches,
+          matchesTrimmed: 0,
+        },
+        build: buildResult,
+        steps: [
+          trimTranscriptText,
+          shortenSnippets(transcriptQuery),
+          dropLowestRankedMatches,
+        ],
+        summarize: () => ({
+          total: result.calls.length,
+          limit: result.limit,
+          truncated: result.truncated,
+        }),
+        guidance: RESULT_TOO_LARGE_GUIDANCE,
+      });
     } else {
       const days = args.days ?? 30;
       const limit = normalizeGongCallLimit(
@@ -953,18 +987,36 @@ export default defineAction({
           transcriptSearch
             ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${returnedCalls.length} returned call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; if coverage is incomplete, keep any retry bounded by narrowing the window, or switch broad/exhaustive work to tracker staging or provider-corpus-job.`
             : "",
+          matchesTrimmedGuidance(fit.matchesTrimmed),
           exhaustive
             ? `Exhaustive discovery returned ${returnedCalls.length} call(s) from the date window${truncated ? ", but Gong has more pages than this request covered" : ""}.`
             : callLimitGuidance(limited.limit, truncated),
           shouldLoadTranscripts
             ? `Loaded transcript excerpts for ${transcripts?.length ?? 0} call(s). Ground qualitative claims in the transcript text and cite the inspected call count.`
             : "For deep-dive or qualitative analysis, call this action again with includeTranscripts=true before drawing conclusions from call content.",
-        ].join(" "),
+        ]
+          .filter(Boolean)
+          .join(" "),
       });
-      return fitResultToCap(
-        { transcripts, matches: transcriptSearch?.matches },
-        buildResult,
-      );
+      return fitResult({
+        initial: {
+          transcripts,
+          matches: transcriptSearch?.matches,
+          matchesTrimmed: 0,
+        },
+        build: buildResult,
+        steps: [
+          trimTranscriptText,
+          shortenSnippets(transcriptQuery),
+          dropLowestRankedMatches,
+        ],
+        summarize: () => ({
+          total: returnedCalls.length,
+          limit: limited.limit,
+          truncated: truncated,
+        }),
+        guidance: RESULT_TOO_LARGE_GUIDANCE,
+      });
     }
   },
 });

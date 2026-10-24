@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { type FitStep, fitResult } from "../server/lib/fit-result";
 import {
   getDealPipelines,
   getDealOwners,
@@ -365,7 +366,6 @@ function buildHubSpotDealFilters(options: {
 }
 
 const DEALS_JSON_CHAR_BUDGET = 40_000;
-const RESULT_CHAR_CAP = 50_000;
 const MIN_DEALS_JSON_CHAR_BUDGET = 1_000;
 const MAX_LISTED_TRUNCATED_PROPERTIES = 20;
 
@@ -494,6 +494,7 @@ function buildGuidance(options: {
   total: number;
   returned: number;
   offset: number;
+  nextOffset: number | null;
   limit: number;
   searchCoverageLimited: boolean;
   sizeTrimmed: boolean;
@@ -552,9 +553,10 @@ function buildGuidance(options: {
         `Returned ${options.returned} of ${options.total} matching deals (limit ${options.limit}). This is a partial slice — do NOT treat it as the full cohort. ${more} Narrow the query or use provider-api-request with provider = hubspot and stageAs for a projected corpus.`,
       );
     } else {
-      const more = options.hasMore
-        ? `Fetch the next page with offset ${options.offset + options.returned}.`
-        : "This is the last page of the cohort.";
+      const more =
+        options.hasMore && options.nextOffset != null
+          ? `Fetch the next page with offset ${options.nextOffset}.`
+          : "This is the last page of the cohort.";
       guidance.push(
         `Returned ${options.returned} of ${options.total} matching deals (limit ${options.limit}, offset ${options.offset}). This is a partial slice — do NOT treat it as the full cohort. Use total for counts/aggregates. ${more} Narrow the filters or, for exhaustive cohort analysis, use provider-api-request with provider = hubspot and stageAs.`,
       );
@@ -829,6 +831,7 @@ export default defineAction({
           total: matchedTotal,
           returned: deals.length,
           offset,
+          nextOffset: hasMore ? nextOffsetValue : null,
           limit,
           searchCoverageLimited,
           sizeTrimmed: droppedDeals,
@@ -841,17 +844,17 @@ export default defineAction({
       };
     };
 
-    // Fit the complete result, not just `deals`: the agent caps the whole
-    // pretty-printed object, so shrink the deals budget by any overage once.
-    const result = buildResult(DEALS_JSON_CHAR_BUDGET);
-    const overage = prettyChars(result, 0) - RESULT_CHAR_CAP;
-    return overage > 0
-      ? buildResult(
-          Math.max(
-            MIN_DEALS_JSON_CHAR_BUDGET,
-            DEALS_JSON_CHAR_BUDGET - overage - 500,
-          ),
-        )
-      : result;
+    // Fit the complete result, not just `deals`: shrink the deals budget by the
+    // overage (a second time if the first cut was not enough).
+    const shrinkDealsBudget: FitStep<number> = (budget, { overage }) =>
+      Math.max(MIN_DEALS_JSON_CHAR_BUDGET, budget - overage - 500);
+    return fitResult({
+      initial: DEALS_JSON_CHAR_BUDGET,
+      build: buildResult,
+      steps: [shrinkDealsBudget, shrinkDealsBudget],
+      summarize: () => ({ total: matchedTotal, limit, offset }),
+      guidance:
+        "The page does not fit the output size budget even after trimming deals. Lower the limit or narrow the filters and retry; do not treat this as an empty result.",
+    });
   },
 });

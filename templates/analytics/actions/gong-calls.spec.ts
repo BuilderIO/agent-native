@@ -668,9 +668,43 @@ describe("gong-calls action", () => {
       result.transcriptSearch.matches.length +
         result.transcriptSearch.matchesTrimmed,
     ).toBe(200);
-    expect(result.transcriptSearch.matches[0].snippets[0]).toContain(
-      "Figma MCP",
+    // Shortened snippets stay centered on the matched phrase.
+    const snippets = result.transcriptSearch.matches.flatMap(
+      (match: { snippets: string[] }) => match.snippets,
     );
+    expect(
+      snippets.every((snippet: string) => snippet.includes("Figma MCP")),
+    ).toBe(true);
+    expect(
+      Math.max(...snippets.map((snippet: string) => snippet.length)),
+    ).toBeLessThan(500);
+    expect(result.guidance).toContain(
+      `${result.transcriptSearch.matchesTrimmed} lower-ranked matching call(s) were dropped`,
+    );
+    expect(result.guidance).toContain("match list is incomplete");
+  });
+
+  it("returns a typed error instead of an over-cap result when the call records alone are too large", async () => {
+    const calls = Array.from({ length: 200 }, (_, index) => ({
+      id: `c${index + 1}`,
+      title: `Acme call ${"x".repeat(400)}`,
+      started: "2026-05-03T10:00:00Z",
+    }));
+    getCalls.mockResolvedValue({ calls, cursor: undefined, pages: 1 });
+
+    const result = (await gongCalls.run({ limit: 200 })) as Record<string, any>;
+
+    expect(result).toMatchObject({
+      error: "result_too_large",
+      capChars: 50_000,
+      total: 200,
+    });
+    expect(result.sizeChars).toBeGreaterThan(50_000);
+    expect(result.guidance).toContain(
+      "Narrow the date range or lower the limit",
+    );
+    expect(result.calls).toBeUndefined();
+    expect(JSON.stringify(result, null, 2).length).toBeLessThan(2_000);
   });
 
   it("serializes date-window calls before transcripts so truncation keeps the call records", async () => {
