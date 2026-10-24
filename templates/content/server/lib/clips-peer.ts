@@ -57,7 +57,8 @@ const MAX_COMMENT_THREAD_BYTES =
 
 /**
  * The most Content reads of each answer: the longest one the contract allows,
- * with margin. A playback answer is a title, two URLs and a few short fields.
+ * with margin. A playback answer is a title Clips cuts to
+ * `CONTENT_CLIP_RECORDING_TITLE_CHARS`, two URLs and a few short fields.
  */
 export const CLIPS_ANSWER_MAX_BYTES = {
   playback: 64 * 1024,

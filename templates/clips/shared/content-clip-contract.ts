@@ -78,6 +78,9 @@ export const CONTENT_CLIP_MAX_COMMENT_THREADS = 500;
 export const CONTENT_CLIP_COMMENT_PREVIEW_CHARS = 280;
 export const CONTENT_CLIP_COMMENT_AUTHOR_CHARS = 320;
 
+/** The playback answer's recording title is cut to this many characters. */
+export const CONTENT_CLIP_RECORDING_TITLE_CHARS = 500;
+
 /** The `code` of a 403 media response refused only because its grant expired. */
 export const CONTENT_CLIP_GRANT_EXPIRED = "content_grant_expired";
 

@@ -69,9 +69,11 @@ const {
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
   CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
   CONTENT_CLIP_GRANT_EXPIRED,
+  CONTENT_CLIP_MAX_COMMENT_THREADS,
   CONTENT_CLIP_NOT_CONFIGURED,
   CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
   CONTENT_CLIP_PUBLIC_READER,
+  CONTENT_CLIP_RECORDING_TITLE_CHARS,
   CONTENT_CLIP_SCOPES: SCOPES,
 } = await import("../../shared/content-clip-contract.js");
 const { __resetContentClipRateLimitsForTests } =
@@ -488,6 +490,15 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
   it("refuses a reader once the doc's binding is trashed", async () => {
     await setBindingState("binding-doc-1", "trashed");
     expect((await playback("rec-upload", await token())).status).toBe(404);
+  });
+
+  it("cuts the Clip's title to the contract's length", async () => {
+    await updateRecording("rec-upload", { title: "T".repeat(5_000) });
+    const result = await playback("rec-upload", await token());
+    expect(result.status).toBe(200);
+    expect(result.body.recording.title).toBe(
+      "T".repeat(CONTENT_CLIP_RECORDING_TITLE_CHARS),
+    );
   });
 
   it("stops serving an issued playback URL once the binding is trashed", async () => {
@@ -1092,10 +1103,34 @@ describe("video comments through a doc", () => {
     ]);
   });
 
-  it("refuses a list without a bound it can honor", async () => {
+  it("lists at most the contract's threads when Content sends no bound", async () => {
+    await state.db.insert(schema.recordingComments).values(
+      Array.from({ length: CONTENT_CLIP_MAX_COMMENT_THREADS + 1 }, (_, i) => ({
+        id: `thread-${i}`,
+        recordingId: "rec-upload",
+        organizationId: "clips-org",
+        threadId: `thread-${i}`,
+        parentId: null,
+        authorEmail: OWNER,
+        authorName: "Owner",
+        content: `Comment ${i}`,
+        videoTimestampMs: i,
+        emojiReactionsJson: "{}",
+        resolved: false,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+      })),
+    );
+    const result = await listComments("rec-upload", await token(), null);
+    expect(result.status).toBe(200);
+    expect(result.body.comments).toHaveLength(CONTENT_CLIP_MAX_COMMENT_THREADS);
+    expect(result.body.truncated).toBe(true);
+  });
+
+  it("refuses a list whose bound it can't honor", async () => {
     await seedComment("owner-comment");
     const bearer = await token();
-    for (const limit of [null, "", "0", "-1", "1.5", "abc", "501"]) {
+    for (const limit of ["", "0", "-1", "1.5", "abc", "501"]) {
       const result = await listComments("rec-upload", bearer, limit);
       expect(result.status).toBe(400);
       expect(JSON.stringify(result.body)).not.toContain("owner-comment");
@@ -1625,7 +1660,7 @@ describe("token checks", () => {
   });
 
   it("counts only reads of a Clip it opened, so made-up ids can't fill the limiter", async () => {
-    __resetContentClipRateLimitsForTests(2);
+    __resetContentClipRateLimitsForTests({ buckets: 2 });
     for (const recordingId of ["made-up-1", "made-up-2", "made-up-3"]) {
       expect(
         (await playback(recordingId, await token({ recordingId }))).status,
@@ -1640,5 +1675,30 @@ describe("token checks", () => {
     expect(
       (await playback("rec-upload", await publicReaderToken())).status,
     ).toBe(429);
+  });
+
+  it("refuses a reader's made-up ids once their misses are spent, and still plays a Clip that opened", async () => {
+    __resetContentClipRateLimitsForTests({ misses: 2 });
+    const reader = await token();
+    expect((await playback("rec-upload", reader)).status).toBe(200);
+    for (const recordingId of ["made-up-1", "made-up-2"]) {
+      expect(
+        (await playback(recordingId, await token({ recordingId }))).status,
+      ).toBe(404);
+    }
+    expect(
+      (await playback("made-up-3", await token({ recordingId: "made-up-3" })))
+        .status,
+    ).toBe(429);
+    expect((await playback("rec-upload", reader)).status).toBe(200);
+    // Misses are one reader's on one page.
+    expect(
+      (
+        await playback(
+          "made-up-4",
+          await token({ recordingId: "made-up-4", sub: OTHER_READER }),
+        )
+      ).status,
+    ).toBe(404);
   });
 });
