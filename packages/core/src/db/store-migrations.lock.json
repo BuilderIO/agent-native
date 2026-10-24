@@ -409,6 +409,30 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "client-sequence",
+      "checksum": null
+    },
+    {
+      "name": "client-sequence-raw",
+      "checksum": null
+    },
+    {
+      "name": "actor-email",
+      "checksum": null
+    },
+    {
+      "name": "clear-token-hash",
+      "checksum": null
+    },
+    {
+      "name": "actor-reservation-expiry",
+      "checksum": null
+    },
+    {
+      "name": "expiry-indexes",
+      "checksum": null
     }
   ],
   "collab_docs": [
