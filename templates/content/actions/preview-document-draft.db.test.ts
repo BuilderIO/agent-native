@@ -1254,6 +1254,51 @@ describe("private preview document drafts", () => {
     ).toBe("Local recovery");
   });
 
+  it("saves a local draft whose videos share an id as a separate page", async () => {
+    const documentId = await createDocument();
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const local = `Local recovery\n${video("Demo")}\n${video("Copy")}`;
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload(local), deferredReason: "conflict" },
+      }),
+    );
+
+    outcomeCounter.mockClear();
+    const result = await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "save_separately",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: local,
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+      }),
+    );
+    // The page's outcome is counted after the action returns; let it land
+    // here rather than in the next test's count.
+    await vi.waitFor(() =>
+      expect(outcomeCounter).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          operation: "create_document",
+          outcome: "written",
+        }),
+      ),
+    );
+
+    expect(result).toMatchObject({ status: "resolved" });
+    const [copy] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.createdDocumentId!));
+    expect(copy.content).toBe(local);
+  });
+
   it("counts an idempotent inner create replay separately from the winning recovery write", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>

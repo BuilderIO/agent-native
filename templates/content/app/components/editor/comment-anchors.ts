@@ -1,3 +1,4 @@
+import { COMMENT_QUOTE_CONTEXT_LENGTH as CONTEXT_LEN } from "@shared/comment-quote-anchor";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 export interface CommentTextAnchor {
@@ -6,8 +7,6 @@ export interface CommentTextAnchor {
   suffix: string;
   startOffset: number;
 }
-
-const CONTEXT_LEN = 32;
 
 interface TextSegment {
   textStart: number;

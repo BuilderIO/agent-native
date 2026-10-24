@@ -2475,6 +2475,20 @@ audio.media-block__content {
   --comment-highlight-line: hsl(210 100% 52% / 0.55);
   cursor: default;
 }
+/* A thread on a whole block, such as a video, rings it: a fill would cover
+   the video. */
+.content-editor .comment-highlight.comment-highlight--block {
+  background: none;
+  padding: 0;
+  margin-inline: 0;
+  border-radius: 6px;
+  cursor: default;
+  box-shadow: 0 0 0 2px var(--comment-highlight-line);
+}
+.content-editor .comment-highlight--block.comment-highlight--hovered,
+.content-editor .comment-highlight--block.comment-highlight--active {
+  box-shadow: 0 0 0 3px var(--comment-highlight-line);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .content-editor .comment-highlight {

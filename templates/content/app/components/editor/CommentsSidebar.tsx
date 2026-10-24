@@ -35,6 +35,7 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
   commentMentionsForText,
   findCommentMentions,
@@ -80,6 +81,11 @@ import {
   primaryBlockFieldEditor,
 } from "./blockFieldTabs";
 import type { CommentTextAnchor } from "./comment-anchors";
+import {
+  commentThreadAt,
+  commentThreadMarkSelector,
+  commentThreadQuote,
+} from "./comment-block-anchors";
 import {
   draftMention,
   useCommentDraft,
@@ -290,7 +296,9 @@ export function findThreadPosition(
   )
     return null;
   const marked = (fieldEditor ?? scrollContainer).querySelector(
-    `${anchorAttribute === "data-suggestion-id" && !fieldEditor ? ".ProseMirror " : ""}[${anchorAttribute}="${cssEscape(threadId)}"]`,
+    anchorAttribute === "data-comment-thread"
+      ? commentThreadMarkSelector(threadId)
+      : `${fieldEditor ? "" : ".ProseMirror "}[${anchorAttribute}="${cssEscape(threadId)}"]`,
   ) as HTMLElement | null;
   if (marked && !inHiddenBlockFieldPanel(marked)) {
     return anchorPosition(
@@ -791,7 +799,9 @@ export type PendingCommentSelection = {
   quotedText: string;
   offsetTop: number;
   anchor?: CommentTextAnchor;
-  range?: { from: number; to: number };
+  range?: { from: number; to: number; blockId?: string };
+  /** Set when the comment is on a whole block, such as a video. */
+  block?: { blockId: string; blockType: CommentAnchorBlockType };
   /** The Blocks field tab the quoted text is in; absent is the page body. */
   fieldId?: string | null;
   /** Set when the comment is on a Property value instead of quoted text. */
@@ -1365,6 +1375,8 @@ export function CommentsSidebar({
   }, [commentStacks]);
   const stackOfThreadRef = useRef(stackOfThread);
   stackOfThreadRef.current = stackOfThread;
+  const openThreadIdRef = useRef(hoveredThreadId ?? selectedThreadId);
+  openThreadIdRef.current = hoveredThreadId ?? selectedThreadId;
   const pendingStackKey =
     displayedPendingComment && pendingBlock?.id === displayedPendingComment.id
       ? pendingBlock.key
@@ -1447,9 +1459,7 @@ export function CommentsSidebar({
     const container = scrollContainerRef?.current;
     if (!stacksEnabled || !container) return;
     const openFromHighlight = (event: MouseEvent) => {
-      const threadId = (event.target as Element | null)
-        ?.closest?.("[data-comment-thread]")
-        ?.getAttribute("data-comment-thread");
+      const threadId = commentThreadAt(event.target, openThreadIdRef.current);
       if (!threadId || !stackOfThreadRef.current.has(threadId)) return;
       touchThread(threadId);
       openStackOn(threadId);
@@ -1872,15 +1882,23 @@ export function CommentsSidebar({
               propertyId: pendingComment.property.propertyId,
               databaseId: pendingComment.databaseId ?? undefined,
             }
-          : {
-              quotedText: pendingComment.quotedText,
-              anchorPrefix: pendingComment.anchor?.prefix,
-              anchorSuffix: pendingComment.anchor?.suffix,
-              anchorStartOffset: pendingComment.anchor?.startOffset,
-              ...(pendingComment.fieldId
-                ? { fieldId: pendingComment.fieldId }
-                : {}),
-            }),
+          : pendingComment.block
+            ? {
+                blockId: pendingComment.block.blockId,
+                blockType: pendingComment.block.blockType,
+                ...(pendingComment.fieldId
+                  ? { fieldId: pendingComment.fieldId }
+                  : {}),
+              }
+            : {
+                quotedText: pendingComment.quotedText,
+                anchorPrefix: pendingComment.anchor?.prefix,
+                anchorSuffix: pendingComment.anchor?.suffix,
+                anchorStartOffset: pendingComment.anchor?.startOffset,
+                ...(pendingComment.fieldId
+                  ? { fieldId: pendingComment.fieldId }
+                  : {}),
+              }),
         mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
       });
       pendingDraft.finishSubmission(clientOperationId);
@@ -2195,7 +2213,11 @@ export function CommentsSidebar({
     // the text would reshuffle page order, so the last places measured stay.
     if (presentation === "history" && !highlightsVisible) return;
     if (highlightsReturningRef.current) {
-      if (!container.querySelector(".ProseMirror [data-comment-thread]"))
+      if (
+        !container.querySelector(
+          ".ProseMirror [data-comment-thread], .ProseMirror [data-comment-block-threads]",
+        )
+      )
         return;
       highlightsReturningRef.current = false;
     }
@@ -2297,7 +2319,11 @@ export function CommentsSidebar({
           subtree: true,
           characterData: true,
           attributes: true,
-          attributeFilter: ["hidden", "data-comment-thread"],
+          attributeFilter: [
+            "hidden",
+            "data-comment-thread",
+            "data-comment-block-threads",
+          ],
         });
       }
     } else {
@@ -2308,7 +2334,7 @@ export function CommentsSidebar({
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ["data-comment-thread"],
+        attributeFilter: ["data-comment-thread", "data-comment-block-threads"],
       });
     }
     const resizeObserver =
@@ -2793,7 +2819,7 @@ export function CommentsSidebar({
         onClose={onClose}
         threadActions={renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
-        quote={thread.quotedText}
+        quote={commentThreadQuote(thread, t)}
         showQuote={inStack}
         propertyTarget={
           thread.property
@@ -2802,7 +2828,7 @@ export function CommentsSidebar({
         }
         anchorUnavailable={
           measuredThreadIds.has(thread.threadId) &&
-          !!thread.quotedText &&
+          (!!thread.quotedText || !!thread.block) &&
           !thread.resolved &&
           !threadPositions.has(thread.threadId) &&
           !hiddenTabThreadIds.has(thread.threadId)

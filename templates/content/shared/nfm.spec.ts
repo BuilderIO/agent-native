@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalizeNfm,
+  canonicalizeNotionNfm,
   collapseExactRepeatedNfm,
   docToNfm,
   inspectNfmFidelity,
@@ -1898,5 +1899,39 @@ describe("docToNfm — long containers", () => {
     expect(lines).toHaveLength(count);
     expect(lines[0]).toBe("> p0");
     expect(lines[count - 1]).toBe(`\tp${count - 1}`);
+  });
+});
+
+describe("video block ids", () => {
+  const withId =
+    '<video src="https://example.com/demo.mp4" id="video-a1b2c3d4">Demo</video>';
+
+  it("keeps a video's block id through a round trip", () => {
+    const doc = nfmToDoc(withId);
+    expect(doc.content[0]).toMatchObject({
+      type: "video",
+      attrs: {
+        src: "https://example.com/demo.mp4",
+        title: "Demo",
+        blockId: "video-a1b2c3d4",
+      },
+    });
+    expect(docToNfm(doc)).toBe(withId);
+    expect(inspectNfmFidelity(withId)).toMatchObject({
+      normalizedChanged: false,
+      unresolved: [],
+    });
+  });
+
+  it("writes no id for a video that has none", () => {
+    const plain = '<video src="https://example.com/demo.mp4"></video>';
+    expect(nfmToDoc(plain).content[0].attrs).not.toHaveProperty("blockId");
+    expect(canonicalizeNfm(plain)).toBe(plain);
+  });
+
+  it("leaves the id out of the form Notion receives", () => {
+    expect(canonicalizeNotionNfm(withId)).toBe(
+      '<video src="https://example.com/demo.mp4">Demo</video>',
+    );
   });
 });

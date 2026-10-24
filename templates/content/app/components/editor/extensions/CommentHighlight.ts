@@ -1,3 +1,4 @@
+import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
@@ -9,15 +10,24 @@ import DiffMatchPatch, {
   DIFF_INSERT,
 } from "diff-match-patch";
 
+import {
+  commentAnchorBlockAt,
+  commentAnchorBlockById,
+  sharedCommentAnchorBlockIds,
+} from "../comment-block-anchors";
+
 export interface CommentHighlightSpec {
   threadId: string;
   from: number;
   to: number;
+  /** The block the thread is on as a whole; its range is the block's. */
+  blockId?: string;
 }
 
 interface PendingRange {
   from: number;
   to: number;
+  blockId?: string;
 }
 
 export interface CommentHighlightState {
@@ -164,6 +174,30 @@ function mapHighlight(
   return to > from ? { from, to } : null;
 }
 
+// A thread on a block follows the block's id wherever an edit or a swap moves
+// it, and goes when the block does. Where a copy shares the id, the thread
+// stays with the block it was on, but draws no mark while the id is shared
+// (see buildDecorations): a reload names neither block, so a live tab mustn't
+// pick one. Once the copy is renumbered or gone, the mark comes back.
+function mapBlock(
+  tr: Transaction,
+  doc: ProseMirrorNode,
+  blockId: string,
+  from: number,
+): PendingRange | null {
+  const mapped = tr.mapping.map(from, 1);
+  const at = doc.nodeAt(mapped);
+  const pos =
+    (at &&
+      isCommentAnchorBlockType(at.type.name) &&
+      at.attrs.blockId === blockId) ||
+    commentAnchorBlockAt(doc, mapped)?.blockId === blockId
+      ? mapped
+      : commentAnchorBlockById(doc, blockId)?.pos;
+  if (pos === undefined) return null;
+  return { from: pos, to: pos + doc.nodeAt(pos)!.nodeSize, blockId };
+}
+
 function buildDecorations(
   doc: ProseMirrorNode,
   specs: CommentHighlightSpec[],
@@ -173,7 +207,18 @@ function buildDecorations(
 ): DecorationSet {
   const decos: Decoration[] = [];
   const size = doc.content.size;
+  // Several threads on one block share one mark: a node decoration's
+  // attributes replace another's on the same node.
+  const blocks = new Map<number, { to: number; threadIds: string[] }>();
+  const shared = sharedCommentAnchorBlockIds(doc);
   for (const spec of specs) {
+    if (spec.blockId) {
+      if (shared.has(spec.blockId)) continue;
+      const block = blocks.get(spec.from);
+      if (block) block.threadIds.push(spec.threadId);
+      else blocks.set(spec.from, { to: spec.to, threadIds: [spec.threadId] });
+      continue;
+    }
     const r = clampRange(spec.from, spec.to, size);
     if (!r) continue;
     const emphasisClass =
@@ -189,9 +234,32 @@ function buildDecorations(
       }),
     );
   }
+  for (const [from, { to, threadIds }] of blocks) {
+    const r = clampRange(from, to, size);
+    if (!r) continue;
+    const emphasisClass =
+      activeId && threadIds.includes(activeId)
+        ? " comment-highlight--active"
+        : hoveredId && threadIds.includes(hoveredId)
+          ? " comment-highlight--hovered"
+          : "";
+    decos.push(
+      Decoration.node(r.from, r.to, {
+        class: `comment-highlight comment-highlight--block${emphasisClass}`,
+        "data-comment-block-threads": threadIds.join(" "),
+      }),
+    );
+  }
   if (pending) {
     const r = clampRange(pending.from, pending.to, size);
-    if (r) {
+    if (r && pending.blockId) {
+      decos.push(
+        Decoration.node(r.from, r.to, {
+          class:
+            "comment-highlight comment-highlight--block comment-highlight--pending",
+        }),
+      );
+    } else if (r) {
       decos.push(
         Decoration.inline(r.from, r.to, {
           class: "comment-highlight comment-highlight--pending",
@@ -238,6 +306,10 @@ export function createCommentHighlightPlugin({
         } else if (tr.docChanged) {
           let swap: StepMap | null | undefined;
           specs = specs.flatMap((s) => {
+            if (s.blockId) {
+              const block = mapBlock(tr, newState.doc, s.blockId, s.from);
+              return block ? [{ threadId: s.threadId, ...block }] : [];
+            }
             let range = mapHighlight(tr.mapping.maps, s.from, s.to);
             if (!range) {
               if (swap === undefined)
@@ -255,7 +327,9 @@ export function createCommentHighlightPlugin({
             }
             return range ? [{ threadId: s.threadId, ...range }] : [];
           });
-          if (pending) {
+          if (pending?.blockId) {
+            pending = mapBlock(tr, newState.doc, pending.blockId, pending.from);
+          } else if (pending) {
             const from = tr.mapping.map(pending.from, 1);
             const to = tr.mapping.map(pending.to, -1);
             pending = to > from ? { from, to } : null;

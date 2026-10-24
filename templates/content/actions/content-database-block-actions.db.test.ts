@@ -630,6 +630,30 @@ describe("exact Content database block actions", () => {
     expect(storedAdditional?.content).toBe("Notes A changed\nNotes B");
   });
 
+  it("refuses inserting a copy of a video with its id", async () => {
+    const video =
+      '<video src="https://example.com/a.mp4" id="video-original"></video>';
+    const state = await fixture(`Alpha\n${video}`);
+    await expect(
+      asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "video-copy"),
+          operation: "insert",
+          block: { kind: "video", nfm: video },
+          position: { placement: "end" },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+      details: { blockId: "video-original" },
+    });
+    const [stored] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, state.target.rowDocumentId));
+    expect(stored?.content).toBe(`Alpha\n${video}`);
+  });
+
   it("rejects a direct editor-body race without overwriting the newer body", async () => {
     const state = await fixture("Before\nSibling");
     await getDb()

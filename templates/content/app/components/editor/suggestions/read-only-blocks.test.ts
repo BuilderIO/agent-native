@@ -226,6 +226,16 @@ describe("suggesting read-only blocks", () => {
     expect(applies(state, transaction)).toBe(true);
   });
 
+  it("refuses pasting a video, which would bring its id along", () => {
+    const state = stateFor(PAGE);
+    const { to } = nodeRange(state, "table");
+    const copy = schema.nodes.video!.create({
+      src: "https://example.com/a.mp4",
+      blockId: "video-original",
+    });
+    expect(applies(state, state.tr.insert(to, copy))).toBe(false);
+  });
+
   it("refuses pasting a table into a paragraph", () => {
     const state = stateFor(PAGE);
     const at = textPosition(state, "Closing");

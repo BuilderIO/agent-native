@@ -208,6 +208,12 @@ import { flushBeforeSave } from "./collab-flush-before-save";
 import { isCommentAiWorkingOn, useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
+  commentThreadAt,
+  commentThreadHoverHandlers,
+  commentThreadMarkSelector,
+  type CommentBlockTarget,
+} from "./comment-block-anchors";
+import {
   CommentDraftProvider,
   CommentHistoryScrollContainer,
 } from "./comment-drafts";
@@ -7556,10 +7562,11 @@ function PageEditorSessionBody({
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
     useState(true);
   const pendingCommentTargetId = pendingComment?.id ?? null;
-  // A comment on a Property has no text to keep selected.
-  const pendingCommentQuotedText = pendingComment?.property
-    ? null
-    : (pendingComment?.quotedText ?? null);
+  // A comment on a Property or a whole block has no text to keep selected.
+  const pendingCommentQuotedText =
+    pendingComment?.property || pendingComment?.block
+      ? null
+      : (pendingComment?.quotedText ?? null);
   useLayoutEffect(() => {
     if (!pendingCommentTargetId || pendingCommentQuotedText === null) {
       setPendingCommentTargetValid(true);
@@ -7806,6 +7813,29 @@ function PageEditorSessionBody({
     },
     [setPendingComment],
   );
+  // A comment on a whole block, such as a video, in the body or in the
+  // Blocks field tab `fieldId`.
+  const handleBlockComment = useCallback(
+    (target: CommentBlockTarget, offsetTop: number, fieldId?: string) => {
+      setPendingComment({
+        quotedText: "",
+        offsetTop,
+        range: { from: target.from, to: target.to, blockId: target.blockId },
+        block: { blockId: target.blockId, blockType: target.blockType },
+        ...(fieldId ? { fieldId } : {}),
+      });
+      setCommentsBrowseOpen(false);
+      setUtilityPanel("comments");
+      setSelectedThreadId(null);
+      setHoveredThreadId(null);
+    },
+    [setPendingComment],
+  );
+  const handleFieldBlockComment = useCallback(
+    (fieldId: string, target: CommentBlockTarget, offsetTop: number) =>
+      handleBlockComment(target, offsetTop, fieldId),
+    [handleBlockComment],
+  );
   const blockFieldComments = useBlockFieldComments({
     expectsBlockFields: !!document.databaseMembership && !isLocalFileDocument,
     threads,
@@ -7819,6 +7849,7 @@ function PageEditorSessionBody({
     pendingComment,
     showCommentIndicators,
     onComment: canComment ? handleFieldComment : undefined,
+    onBlockComment: canComment ? handleFieldBlockComment : undefined,
     onActivateThread: !isLocalFileDocument ? activateCommentThread : undefined,
     scrollContainerRef,
   });
@@ -8346,19 +8377,14 @@ function PageEditorSessionBody({
     const update = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const escapedThreadId = selectedThreadId
-          ? globalThis.CSS?.escape
-            ? globalThis.CSS.escape(selectedThreadId)
-            : selectedThreadId.replace(/["\\]/g, "\\$&")
-          : null;
         const escapedSuggestionId = selectedSuggestionId
           ? globalThis.CSS?.escape
             ? globalThis.CSS.escape(selectedSuggestionId)
             : selectedSuggestionId.replace(/["\\]/g, "\\$&")
           : null;
         const marked = scrollContainer.querySelector(
-          escapedThreadId
-            ? `[data-comment-thread="${escapedThreadId}"]`
+          selectedThreadId
+            ? commentThreadMarkSelector(selectedThreadId)
             : escapedSuggestionId
               ? `[data-suggestion-id="${escapedSuggestionId}"]`
               : ".comment-highlight--pending",
@@ -8398,7 +8424,12 @@ function PageEditorSessionBody({
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["data-comment-thread", "data-suggestion-id", "class"],
+      attributeFilter: [
+        "data-comment-thread",
+        "data-comment-block-threads",
+        "data-suggestion-id",
+        "class",
+      ],
     });
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
@@ -9179,9 +9210,9 @@ function PageEditorSessionBody({
           // through this tree even though they render outside it. Those are
           // interactions with an open comment, not clicks on the page.
           if (target && !event.currentTarget.contains(target)) return;
-          const commentHighlight = target?.closest("[data-comment-thread]");
-          const threadId = commentHighlight?.getAttribute(
-            "data-comment-thread",
+          const threadId = commentThreadAt(
+            target,
+            hoveredThreadId ?? selectedThreadId,
           );
           if (threadId) {
             activateCommentThread(threadId);
@@ -9196,24 +9227,10 @@ function PageEditorSessionBody({
           }
           dismissCommentFocus();
         }}
-        onPointerOverCapture={(event) => {
-          const target = event.target as HTMLElement | null;
-          const threadId = target
-            ?.closest("[data-comment-thread]")
-            ?.getAttribute("data-comment-thread");
-          if (threadId) setHoveredThreadId(threadId);
-        }}
-        onPointerOutCapture={(event) => {
-          const target = event.target as HTMLElement | null;
-          const highlight = target?.closest("[data-comment-thread]");
-          if (!highlight) return;
-          const nextHighlight = (event.relatedTarget as HTMLElement | null)
-            ?.closest("[data-comment-thread]")
-            ?.getAttribute("data-comment-thread");
-          if (nextHighlight !== highlight.getAttribute("data-comment-thread")) {
-            setHoveredThreadId(null);
-          }
-        }}
+        {...commentThreadHoverHandlers(
+          hoveredThreadId ?? selectedThreadId,
+          setHoveredThreadId,
+        )}
       >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <DocumentToolbar
@@ -9948,6 +9965,9 @@ function PageEditorSessionBody({
                                 }
                                 onComment={
                                   canComment ? handleComment : undefined
+                                }
+                                onBlockComment={
+                                  canComment ? handleBlockComment : undefined
                                 }
                                 commentThreads={editorCommentThreads}
                                 activeThreadId={selectedThreadId}
