@@ -101,6 +101,11 @@ import {
 import { cn } from "@/lib/utils";
 import type { MotionAnimationStyle } from "@/pages/design-editor/motion-animation-style";
 
+import {
+  createMotionNativeStyleIdentity,
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "./motion-native-style-identity";
 import { MotionAudioTracks } from "./MotionAudioTracks";
 import { MotionEasingPicker } from "./MotionNativeStyleEditor";
 
@@ -265,7 +270,11 @@ function nativeStyleIdentityKey(
   instance: MotionNativeStyleInstance,
   index: number,
 ): string {
-  return `${instance.styleKey}\u001f${instance.targetNodeId}\u001f${index}`;
+  return createMotionNativeStyleIdentity(instance, index).key;
+}
+
+function nativeStyleAdditionKey(instance: MotionNativeStyleInstance): string {
+  return JSON.stringify(instance);
 }
 
 function nativeStyleDisplayLabel(
@@ -390,6 +399,8 @@ export interface MotionDockProps {
     instance: MotionNativeStyleInstance,
     index: number,
   ) => void;
+  selectedNativeStyle?: MotionNativeStyleIdentity | null;
+  onNativeStyleSelectionChange?: (identity: MotionNativeStyleIdentity) => void;
   onDurationChange?: (ms: number) => void;
   playbackMode?: MotionPlaybackMode;
   onPlaybackModeChange?: (mode: MotionPlaybackMode) => void;
@@ -426,6 +437,8 @@ export function MotionDock({
   onNativeStyleChange,
   onNativeStyleSpanChange,
   onNativeStyleRemove,
+  selectedNativeStyle,
+  onNativeStyleSelectionChange,
   onDurationChange,
   playbackMode: playbackModeProp,
   onPlaybackModeChange,
@@ -607,16 +620,23 @@ export function MotionDock({
   );
   // A style added while the dock was closed is already in `nativeStyles` on
   // mount, so the added-row effect below never sees it as new.
-  const [selectedNativeStyleKey, setSelectedNativeStyleKey] = useState<
-    string | null
-  >(() =>
-    nativeStyles.length > 0
-      ? nativeStyleIdentityKey(
-          nativeStyles[nativeStyles.length - 1]!,
-          nativeStyles.length - 1,
-        )
-      : null,
+  const [selectedNativeStyleIdentityInternal, setSelectedNativeStyleIdentity] =
+    useState<MotionNativeStyleIdentity | null>(() =>
+      resolveMotionNativeStyleIdentity(
+        nativeStyles,
+        selectedTarget?.nodeId ??
+          nativeStyles[nativeStyles.length - 1]?.targetNodeId,
+        null,
+      ),
+    );
+  const selectedNativeStyleIdentity = resolveMotionNativeStyleIdentity(
+    nativeStyles,
+    selectedTarget?.nodeId,
+    selectedNativeStyle !== undefined
+      ? selectedNativeStyle
+      : selectedNativeStyleIdentityInternal,
   );
+  const selectedNativeStyleKey = selectedNativeStyleIdentity?.key ?? null;
   const [selectedKeyframeKeys, setSelectedKeyframeKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -633,32 +653,98 @@ export function MotionDock({
     );
     if (addedTrack) setSelectedTrackKey(trackKey(addedTrack));
   }, [tracks]);
-  const previousNativeStyleKeysRef = useRef(
-    new Set(
-      nativeStyles.map((instance, index) =>
-        nativeStyleIdentityKey(instance, index),
-      ),
-    ),
+  const previousNativeStyleAdditionKeysRef = useRef(
+    nativeStyles.map(nativeStyleAdditionKey),
   );
   useEffect(() => {
-    const previousKeys = previousNativeStyleKeysRef.current;
-    const entries = nativeStyles.map((instance, index) => ({
-      key: nativeStyleIdentityKey(instance, index),
-    }));
-    const nextKeys = new Set(entries.map(({ key }) => key));
-    let addedKey: string | null = null;
-    for (const { key } of entries) {
-      if (!previousKeys.has(key)) addedKey = key;
-    }
-    previousNativeStyleKeysRef.current = nextKeys;
-    if (addedKey) {
-      setSelectedNativeStyleKey(addedKey);
-    } else {
-      setSelectedNativeStyleKey((selected) =>
-        selected && nextKeys.has(selected) ? selected : null,
+    const previousKeys = previousNativeStyleAdditionKeysRef.current;
+    const nextKeys = nativeStyles.map(nativeStyleAdditionKey);
+    const remainingPreviousCounts = new Map<string, number>();
+    for (const key of previousKeys) {
+      remainingPreviousCounts.set(
+        key,
+        (remainingPreviousCounts.get(key) ?? 0) + 1,
       );
     }
-  }, [nativeStyles]);
+    const addedIndices: number[] = [];
+    for (const [index, key] of nextKeys.entries()) {
+      const previousCount = remainingPreviousCounts.get(key) ?? 0;
+      if (previousCount > 0) {
+        remainingPreviousCounts.set(key, previousCount - 1);
+      } else {
+        addedIndices.push(index);
+      }
+    }
+    previousNativeStyleAdditionKeysRef.current = nextKeys;
+    if (nextKeys.length > previousKeys.length && addedIndices.length === 1) {
+      const addedIndex = addedIndices[0]!;
+      const addedStyle = nativeStyles[addedIndex];
+      if (addedStyle) {
+        const identity = createMotionNativeStyleIdentity(
+          addedStyle,
+          addedIndex,
+        );
+        setSelectedNativeStyleIdentity(identity);
+        onNativeStyleSelectionChange?.(identity);
+      }
+    }
+  }, [nativeStyles, onNativeStyleSelectionChange]);
+  const handleNativeStyleSelection = useCallback(
+    (key: string) => {
+      const index = nativeStyles.findIndex(
+        (instance, currentIndex) =>
+          nativeStyleIdentityKey(instance, currentIndex) === key,
+      );
+      const instance = nativeStyles[index];
+      if (!instance) return;
+      const identity = createMotionNativeStyleIdentity(instance, index);
+      setSelectedNativeStyleIdentity(identity);
+      onNativeStyleSelectionChange?.(identity);
+    },
+    [nativeStyles, onNativeStyleSelectionChange],
+  );
+  const handleNativeStyleRemove = useCallback(
+    (instance: MotionNativeStyleInstance, index: number) => {
+      const nextStyles = nativeStyles.filter(
+        (_style, currentIndex) => currentIndex !== index,
+      );
+      const selected = selectedNativeStyleIdentity;
+      let nextSelection: MotionNativeStyleIdentity | null = null;
+      if (selected && selected.index !== index) {
+        const nextIndex =
+          selected.index > index ? selected.index - 1 : selected.index;
+        const nextInstance = nextStyles[nextIndex];
+        if (
+          nextInstance?.styleKey === selected.styleKey &&
+          nextInstance.targetNodeId === selected.targetNodeId &&
+          (!selected.sourceInstanceId ||
+            nextInstance.sourceInstanceId === selected.sourceInstanceId)
+        ) {
+          nextSelection = createMotionNativeStyleIdentity(
+            nextInstance,
+            nextIndex,
+          );
+        }
+      }
+      if (!nextSelection) {
+        nextSelection = resolveMotionNativeStyleIdentity(
+          nextStyles,
+          selected?.targetNodeId ?? selectedTarget?.nodeId,
+          null,
+        );
+      }
+      setSelectedNativeStyleIdentity(nextSelection);
+      if (nextSelection) onNativeStyleSelectionChange?.(nextSelection);
+      onNativeStyleRemove?.(instance, index);
+    },
+    [
+      nativeStyles,
+      onNativeStyleRemove,
+      onNativeStyleSelectionChange,
+      selectedNativeStyleIdentity,
+      selectedTarget?.nodeId,
+    ],
+  );
   const selectedTrack =
     tracks.find((track) => trackKey(track) === selectedTrackKey) ?? null;
   useEffect(() => {
@@ -2550,9 +2636,9 @@ export function MotionDock({
                   onUpdateTrackEase={updateTrackEase}
                   onDeleteTrack={deleteTrackKeyframes}
                   selectedNativeStyleKey={selectedNativeStyleKey}
-                  onSelectNativeStyle={setSelectedNativeStyleKey}
+                  onSelectNativeStyle={handleNativeStyleSelection}
                   onNativeStyleChange={onNativeStyleChange}
-                  onNativeStyleRemove={onNativeStyleRemove}
+                  onNativeStyleRemove={handleNativeStyleRemove}
                 />
               ))
             ) : null}
@@ -2639,6 +2725,7 @@ export function MotionDock({
                     onEaseKeyframe={easeKeyframe}
                     onLayerSpanChange={updateLayerSpan}
                     selectedNativeStyleKey={selectedNativeStyleKey}
+                    onSelectNativeStyle={handleNativeStyleSelection}
                     onNativeStyleSpanChange={onNativeStyleSpanChange}
                   />
                 ))}
@@ -3539,6 +3626,7 @@ interface LayerTrackRowsProps {
     span: { startMs: number; durationMs: number },
   ) => void;
   selectedNativeStyleKey: string | null;
+  onSelectNativeStyle: (key: string) => void;
   onNativeStyleSpanChange?: (
     instance: MotionNativeStyleInstance,
     index: number,
@@ -3569,6 +3657,7 @@ function LayerTrackRows({
   onEaseKeyframe,
   onLayerSpanChange,
   selectedNativeStyleKey,
+  onSelectNativeStyle,
   onNativeStyleSpanChange,
 }: LayerTrackRowsProps) {
   const t = useT();
@@ -3646,6 +3735,7 @@ function LayerTrackRows({
                 timelineDurationMs={timelineExtentMs}
                 readOnly={readOnly}
                 selected={selectedNativeStyleKey === entry.key}
+                onSelect={() => onSelectNativeStyle(entry.key)}
                 onSpanChange={onNativeStyleSpanChange}
               />
             ) : null}
@@ -3661,6 +3751,7 @@ interface NativeStyleSpanBarProps {
   timelineDurationMs: number;
   readOnly: boolean;
   selected: boolean;
+  onSelect: () => void;
   onSpanChange?: (
     instance: MotionNativeStyleInstance,
     index: number,
@@ -3674,6 +3765,7 @@ function NativeStyleSpanBar({
   timelineDurationMs,
   readOnly,
   selected,
+  onSelect,
   onSpanChange,
 }: NativeStyleSpanBarProps) {
   const t = useT();
@@ -3700,6 +3792,7 @@ function NativeStyleSpanBar({
       event: ReactPointerEvent<HTMLElement>,
       kind: "move" | "left" | "right",
     ) => {
+      onSelect();
       if (disabled || !timing) return;
       const row = barRef.current?.parentElement;
       if (!row) return;
@@ -3716,7 +3809,7 @@ function NativeStyleSpanBar({
       };
       event.currentTarget.setPointerCapture?.(event.pointerId);
     },
-    [disabled, timelineDurationMs, timing],
+    [disabled, onSelect, timelineDurationMs, timing],
   );
 
   const handlePointerMove = useCallback(
@@ -3769,6 +3862,7 @@ function NativeStyleSpanBar({
 
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      onSelect();
       if (disabled || !timing || !onSpanChange) return;
       const direction =
         event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
@@ -3789,7 +3883,7 @@ function NativeStyleSpanBar({
         durationMs: timing.endMs - timing.startMs,
       });
     },
-    [changeSpan, disabled, onSpanChange, timelineDurationMs, timing],
+    [changeSpan, disabled, onSelect, onSpanChange, timelineDurationMs, timing],
   );
 
   if (!timing) return null;
