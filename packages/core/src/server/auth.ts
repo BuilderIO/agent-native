@@ -3910,7 +3910,7 @@ function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
 
-function getAuthGuardPath(event: H3Event): string | null {
+export function getAuthGuardPath(event: H3Event): string | null {
   const rawUrl = event.node?.req?.url;
   if (rawUrl !== undefined) {
     const rawPath = rawUrl.split("?")[0]!;

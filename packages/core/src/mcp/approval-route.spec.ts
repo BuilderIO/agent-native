@@ -1,4 +1,4 @@
-import { mockEvent } from "h3";
+import { H3, mockEvent } from "h3";
 import {
   afterAll,
   afterEach,
@@ -158,6 +158,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 let sequence = 0;
@@ -892,6 +893,58 @@ describe("a grant that can no longer be decided", () => {
 });
 
 describe("mounting", () => {
+  it.each([
+    ["canonical", "", 200],
+    ["noncanonical", "previous/../", 404],
+  ])(
+    "checks a %s request inside a prefixed mount",
+    async (_name, extra, status) => {
+      const base = "/workspace/calendar";
+      vi.stubEnv("APP_BASE_PATH", base);
+      vi.stubEnv("VITE_APP_BASE_PATH", "");
+      const grant = await createdGrant();
+      const csrfToken = await pageToken(grant.nonce);
+      const review = new H3();
+      const routedPaths: string[] = [];
+      review.use((event) => {
+        routedPaths.push(event.url.pathname);
+        return handleMcpApprovalRequest(event, { appId: "calendar", actions });
+      });
+      const workspace = new H3();
+      workspace.mount(`${base}/_agent-native/mcp/approvals`, review);
+
+      for (const method of ["GET", "POST"]) {
+        const rawPath = `${base}/_agent-native/mcp/approvals/${extra}${grant.nonce}`;
+        const request = new Request(`${ORIGIN}${rawPath}`, {
+          method,
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+            origin: ORIGIN,
+            "sec-fetch-site": "same-origin",
+          },
+          ...(method === "POST"
+            ? { body: JSON.stringify({ decision: "approve", csrfToken }) }
+            : {}),
+        });
+        Object.defineProperty(request, "runtime", {
+          value: { node: { req: { url: rawPath, method } } },
+        });
+        const response = await workspace.request(request);
+        expect(response.status).toBe(status);
+        expect(await response.json()).toMatchObject(
+          status === 200
+            ? { state: method === "GET" ? "pending" : "approved" }
+            : { error: "Approval not found" },
+        );
+      }
+      expect(routedPaths).toEqual([`/${grant.nonce}`, `/${grant.nonce}`]);
+      expect((await storedRow(grant.nonce)).status).toBe(
+        status === 200 ? "approved" : "pending",
+      );
+    },
+  );
+
   it("prunes grants from the platform sweep, and on its own timer on a long-lived server", async () => {
     const app = { appId: "calendar", actions };
     mountMcpApprovalRoute({}, app);

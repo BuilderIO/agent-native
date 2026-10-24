@@ -25,6 +25,7 @@ import {
 } from "../localization/shared.js";
 import { stripAppBasePath } from "../server/app-base-path.js";
 import {
+  getAuthGuardPath,
   getBrowserCookieSession,
   getBrowserSessionConfigurationError,
   getConfiguredLoginHtml,
@@ -529,8 +530,10 @@ function wantsJson(event: H3Event): boolean {
 }
 
 function grantIdFrom(event: H3Event): string | undefined {
+  const path = getAuthGuardPath(event);
+  if (path === null) return undefined;
   // A grant id is a UUID, so it never needs percent-decoding.
-  const segment = (event.path || "").split("?")[0].replace(/^\/+/, "");
+  const segment = path.slice(1);
   return GRANT_ID.test(segment) ? segment : undefined;
 }
 

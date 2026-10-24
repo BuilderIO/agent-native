@@ -3867,15 +3867,21 @@ describe("server/auth", () => {
         "/_agent-native/org/apps/mcp/approvals/grant-1",
         "/_agent-native/org/apps/mcp/approvals/12345678-1234-1123-8123-123456789abc",
         "/_agent-native/org/apps/mcp/approvals/12345678-1234-4123-7123-123456789abc",
-        String.raw`/_agent-native/org/apps/mcp/approvals/..\..\..\..\..\api\private`,
         "/_agent-native/org/apps/mcp/approvals/%2e%2e%5capi%5cprivate",
-        "/_agent-native/org/apps/mcp/approvals/../api/private",
       ]) {
         await expect
           .soft(guard(createJsonMethodEvent(path, "POST")), path)
           .resolves.toEqual({
             error: "Unauthorized",
           });
+      }
+      for (const path of [
+        String.raw`/_agent-native/org/apps/mcp/approvals/..\..\..\..\..\api\private`,
+        "/_agent-native/org/apps/mcp/approvals/../api/private",
+      ]) {
+        const result = await guard(createJsonMethodEvent(path, "POST"));
+        expect(result, path).toBeInstanceOf(Response);
+        expect(result.status, path).toBe(400);
       }
     });
 
