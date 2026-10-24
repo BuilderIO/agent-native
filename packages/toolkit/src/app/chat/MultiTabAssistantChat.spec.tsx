@@ -8087,7 +8087,7 @@ describe("MultiTabAssistantChat history popover", () => {
           document.body.querySelectorAll(".an-chat-history-row__menu-item"),
           (element) => element.textContent,
         ),
-      ).toEqual(["Copy link"]);
+      ).toEqual(["Pin to topOnly you", "Copy link", "Hide from my list"]);
     },
   );
 
@@ -8138,7 +8138,7 @@ describe("MultiTabAssistantChat history popover", () => {
     }
   });
 
-  it("previews five shared rows without owner pins or actions and switches through history", async () => {
+  it("previews five shared rows with the viewer's own actions and switches through history", async () => {
     sharedHistoryRows = Array.from({ length: 51 }, (_, index) => ({
       id: `shared-${index}`,
       title: `Shared ${index}`,
@@ -8150,7 +8150,6 @@ describe("MultiTabAssistantChat history popover", () => {
       accessBasis: index === 0 ? "organization" : "direct",
       ownerEmail: "pat@example.com",
       visibility: "org",
-      pinnedAt: 10,
     }));
     await openHistory();
     const sharedSection = container.querySelector(
@@ -8173,7 +8172,7 @@ describe("MultiTabAssistantChat history popover", () => {
         document.body.querySelectorAll(".an-chat-history-row__menu-item"),
         (element) => element.textContent,
       ),
-    ).toEqual(["Copy link"]);
+    ).toEqual(["Pin to topOnly you", "Copy link", "Hide from my list"]);
     await act(async () => {
       document.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),

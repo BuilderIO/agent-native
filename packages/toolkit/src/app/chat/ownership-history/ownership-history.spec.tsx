@@ -18,6 +18,14 @@ vi.mock("@agent-native/toolkit/clipboard", () => ({
   writeClipboardText: clipboard.write,
 }));
 
+const toasts = vi.hoisted(() => ({
+  toast: Object.assign(
+    vi.fn((_message: string, _options?: unknown) => "notice"),
+    { success: vi.fn(), error: vi.fn(), dismiss: vi.fn() },
+  ),
+}));
+vi.mock("sonner", () => ({ toast: toasts.toast }));
+
 import {
   OwnershipChatHistoryRail,
   chatThreadToHistoryItem,
@@ -165,7 +173,7 @@ describe("ownership history row boundary", () => {
   });
 
   it.each(["direct", "organization"] as const)(
-    "attributes %s rows, dropping inherited pins and actions",
+    "attributes %s rows as read-only, keeping the viewer's own pin",
     (accessBasis) => {
       const item = chatThreadToHistoryItem(
         row("shared", { accessBasis, pinnedAt: 20 }),
@@ -173,7 +181,7 @@ describe("ownership history row boundary", () => {
       );
       expect(item).toMatchObject({
         title: "shared",
-        pinned: false,
+        pinned: true,
         readOnly: true,
         accessBasis,
         ownerLabel: "owner@example.com",
@@ -391,7 +399,7 @@ describe("ownership history adapter", () => {
     }
     expect(item("mine-org")?.ownerLabel).toBeUndefined();
     expect(item("direct")).toMatchObject({
-      pinned: false,
+      pinned: true,
       readOnly: true,
       ownerLabel: "owner@example.com",
       accessLabel: "Shared with you",
@@ -896,7 +904,7 @@ describe("ownership history adapter", () => {
     expect(item("draft")?.hideActions).not.toBe(true);
     expect(
       container.querySelectorAll('button[aria-haspopup="menu"]'),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(section("shared").items.map((item) => item.id)).toEqual(["shared"]);
     expect(item("shared")?.readOnly).toBe(true);
     expect(selected).not.toHaveBeenCalled();
@@ -2707,19 +2715,20 @@ describe("ownership history adapter", () => {
     expect(section("shared").error).toBe("Couldn't load chats");
   });
 
-  it("rejects mutations on Shared and unknown ids even if a decorator exposes actions", async () => {
+  it("keeps rename and archive of Shared rows with the owner even if a decorator exposes them", async () => {
     shared = [row("shared", { accessBasis: "direct" })];
     const pin = vi.fn();
     const rename = vi.fn();
     const archive = vi.fn();
     await render({
       mutations: { pin, rename, archive },
-      decorateItem: (item) => ({ ...item, pinned: true, readOnly: false }),
+      decorateItem: (item) => ({ ...item, readOnly: false }),
     });
     expect(item("shared")).toMatchObject({ pinned: false, readOnly: true });
     await act(async () => {
-      expect(await latest.listProps.onTogglePin!("shared")).toBe(false);
       expect(await latest.listProps.onRename!("shared", "title")).toBe(false);
+      expect(await latest.listProps.onDelete!("shared")).toBe(false);
+      expect(await latest.listProps.onTogglePin!("unknown")).toBe(false);
       expect(await latest.listProps.onDelete!("unknown")).toBe(false);
     });
     expect(pin).not.toHaveBeenCalled();
@@ -2741,6 +2750,194 @@ describe("ownership history adapter", () => {
   it("offers no Copy link when the app gives no thread URL", async () => {
     await render();
     expect(latest.listProps.onCopyLink).toBeUndefined();
+  });
+
+  describe("the viewer's own pin and hide on shared chats", () => {
+    const ids = (id: string) => section(id).items.map((item) => item.id);
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+    let hideStatus: number;
+    let hideBodies: unknown[];
+
+    beforeEach(() => {
+      hideStatus = 200;
+      hideBodies = [];
+      toasts.toast.mockClear();
+      toasts.toast.error.mockClear();
+      toasts.toast.dismiss.mockClear();
+      fetchMock.mockImplementation(async (urlValue, init) => {
+        const url = new URL(String(urlValue), "http://test.local");
+        const hide = url.pathname.match(/\/threads\/([^/]+)\/hide$/);
+        if (!hide) return pageResponse(urlValue);
+        const { hidden } = JSON.parse(String(init?.body));
+        hideBodies.push({ id: hide[1], hidden });
+        if (hideStatus !== 200)
+          return new Response("refused", { status: hideStatus });
+        shared = hidden
+          ? shared.filter((row) => row.id !== hide[1])
+          : [...sharedBeforeHide];
+        return Response.json({ ok: true });
+      });
+    });
+    let sharedBeforeHide: ChatThreadListRow[] = [];
+
+    it("pins a shared chat for the viewer and lists it with their own pins", async () => {
+      mine = [row("owned", { pinnedAt: 5 })];
+      shared = [
+        row("shared", { accessBasis: "direct" }),
+        row("other", { accessBasis: "organization" }),
+      ];
+      const pin = vi.fn(async (id: string, pinned: boolean) => {
+        shared = shared.map((row) =>
+          row.id === id ? { ...row, pinnedAt: pinned ? 9 : null } : row,
+        );
+        return true;
+      });
+      const rename = vi.fn(async () => true);
+      await render({ pinned: true, mutations: { pin, rename } });
+      expect(ids("pinned")).toEqual(["owned"]);
+
+      let result!: Promise<boolean>;
+      act(() => {
+        result = latest.listProps.onTogglePin!("shared");
+      });
+      expect(ids("pinned")).toEqual(["shared", "owned"]);
+      expect(ids("shared")).toEqual(["other"]);
+      await act(async () => {
+        expect(await result).toBe(true);
+      });
+      expect(pin).toHaveBeenCalledWith("shared", true);
+      expect(ids("pinned")).toEqual(["shared", "owned"]);
+      expect(item("shared")).toMatchObject({
+        pinned: true,
+        readOnly: true,
+        ownerLabel: "owner@example.com",
+      });
+
+      await act(async () => {
+        expect(await latest.listProps.onRename!("shared", "Mine now")).toBe(
+          false,
+        );
+      });
+      expect(rename).not.toHaveBeenCalled();
+    });
+
+    it("hides a shared chat at once, and Undo brings it back in place", async () => {
+      shared = [
+        row("first", { accessBasis: "direct" }),
+        row("hidden", { accessBasis: "organization" }),
+        row("last", { accessBasis: "direct" }),
+      ];
+      sharedBeforeHide = shared;
+      await render({ apiUrl: "/test-chat" });
+
+      let result!: Promise<boolean>;
+      act(() => {
+        result = latest.listProps.onHide!("hidden");
+      });
+      expect(ids("shared")).toEqual(["first", "last"]);
+      expect(toasts.toast).toHaveBeenCalledWith(
+        "Hidden from your list",
+        expect.objectContaining({
+          action: expect.objectContaining({ label: "Undo" }),
+        }),
+      );
+      await act(async () => {
+        expect(await result).toBe(true);
+      });
+      expect(hideBodies).toEqual([{ id: "hidden", hidden: true }]);
+      expect(latest.sharedRows.map((row) => row.id)).toEqual(["first", "last"]);
+
+      const [, options] = toasts.toast.mock.calls[0]!;
+      act(() => {
+        (options as { action: { onClick: () => void } }).action.onClick();
+      });
+      expect(ids("shared")).toEqual(["first", "hidden", "last"]);
+      await settle();
+      expect(hideBodies).toEqual([
+        { id: "hidden", hidden: true },
+        { id: "hidden", hidden: false },
+      ]);
+      expect(latest.sharedRows.map((row) => row.id)).toEqual([
+        "first",
+        "hidden",
+        "last",
+      ]);
+      expect(ids("shared")).toEqual(["first", "hidden", "last"]);
+      expect(toasts.toast.error).not.toHaveBeenCalled();
+    });
+
+    it("leaves an Undo row out of a search that does not return it", async () => {
+      shared = [
+        row("first", { accessBasis: "direct" }),
+        row("hidden", { accessBasis: "organization" }),
+      ];
+      sharedBeforeHide = shared;
+      const hideAndPages = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation(async (urlValue, init) => {
+        const url = new URL(String(urlValue), "http://test.local");
+        if (
+          url.searchParams.get("q") === "beta" &&
+          url.searchParams.get("ownership") === "shared"
+        )
+          return Response.json({
+            threads: [row("beta-match", { accessBasis: "direct" })],
+            hasMore: false,
+          });
+        return hideAndPages(urlValue, init);
+      });
+      await render({ apiUrl: "/test-chat", query: "alpha" });
+      await act(async () => {
+        expect(await latest.listProps.onHide!("hidden")).toBe(true);
+      });
+      await render({ apiUrl: "/test-chat", query: "beta" });
+      await settle();
+      expect(ids("shared")).toEqual(["beta-match"]);
+
+      const [, options] = toasts.toast.mock.calls[0]!;
+      act(() => {
+        (options as { action: { onClick: () => void } }).action.onClick();
+      });
+      expect(ids("shared")).toEqual(["beta-match"]);
+      await settle();
+      expect(hideBodies).toEqual([
+        { id: "hidden", hidden: true },
+        { id: "hidden", hidden: false },
+      ]);
+      expect(ids("shared")).toEqual(["beta-match"]);
+    });
+
+    it("puts a shared chat back and says so when hiding fails", async () => {
+      shared = [row("kept", { accessBasis: "direct" })];
+      hideStatus = 404;
+      const onMutationFailed = vi.fn();
+      await render({ onMutationFailed });
+
+      let result!: Promise<boolean>;
+      act(() => {
+        result = latest.listProps.onHide!("kept");
+      });
+      expect(section("shared")).toBeUndefined();
+      await act(async () => {
+        expect(await result).toBe(false);
+      });
+      expect(ids("shared")).toEqual(["kept"]);
+      expect(toasts.toast.dismiss).toHaveBeenCalledWith("notice");
+      expect(toasts.toast.error).toHaveBeenCalledWith("Couldn't hide the chat");
+      expect(onMutationFailed).not.toHaveBeenCalled();
+    });
+
+    it("never hides the viewer's own chats", async () => {
+      mine = [row("owned")];
+      await render();
+      await act(async () => {
+        expect(await latest.listProps.onHide!("owned")).toBe(false);
+      });
+      expect(hideBodies).toEqual([]);
+      expect(toasts.toast).not.toHaveBeenCalled();
+    });
   });
 
   it("does not fetch while disabled or refresh after unmount", async () => {

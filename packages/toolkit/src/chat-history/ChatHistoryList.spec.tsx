@@ -636,9 +636,11 @@ describe("ChatHistoryList", () => {
     expect(container.querySelector(".an-chat-history-row__menu")).toBeNull();
   });
 
-  it("keeps a read-only row to its owner header and Copy link", async () => {
+  it("gives a read-only row a personal pin and Hide, but no rename or delete", async () => {
     const onCopyLink = vi.fn();
     const onDelete = vi.fn();
+    const onTogglePin = vi.fn();
+    const onHide = vi.fn();
     act(() => {
       root.render(
         <ChatHistoryList
@@ -655,8 +657,9 @@ describe("ChatHistoryList", () => {
           onSelect={() => {}}
           onRename={() => {}}
           onDelete={onDelete}
-          onTogglePin={() => {}}
+          onTogglePin={onTogglePin}
           onCopyLink={onCopyLink}
+          onHide={onHide}
         />,
       );
     });
@@ -679,11 +682,56 @@ describe("ChatHistoryList", () => {
         ?.textContent,
     ).toBe("Ppat@example.comShared with your organization");
     expect(getMenuItems().map((element) => element.textContent)).toEqual([
+      "Pin to topOnly you",
       "Copy link",
+      "Hide from my list",
     ]);
+    expect(
+      document.body.querySelectorAll(
+        ".an-chat-history-row__menu-content [role='separator']",
+      ),
+    ).toHaveLength(1);
 
     act(() => getMenuItems()[0]?.click());
+    expect(onTogglePin).toHaveBeenCalledWith("shared");
+    await openMenu(
+      row.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    act(() => getMenuItems()[1]?.click());
     expect(onCopyLink).toHaveBeenCalledWith("shared");
+    await openMenu(
+      row.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    act(() => getMenuItems()[2]?.click());
+    expect(onHide).toHaveBeenCalledWith("shared");
     expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("never offers Hide on the viewer's own chats", async () => {
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={[item({ id: "owned" })]}
+          onSelect={() => {}}
+          onTogglePin={() => {}}
+          onCopyLink={() => {}}
+          onHide={() => {}}
+        />,
+      );
+    });
+
+    await openMenu(
+      container.querySelector<HTMLButtonElement>(
+        ".an-chat-history-row__menu-trigger",
+      )!,
+    );
+    expect(getMenuItems().map((element) => element.textContent)).toEqual([
+      "Pin to top",
+      "Copy link",
+    ]);
   });
 });

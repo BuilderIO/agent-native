@@ -555,6 +555,19 @@
   color: hsl(var(--accent-foreground));
 }
 
+.an-chat-history-row__menu-hint {
+  margin-inline-start: auto;
+  padding-inline-start: 12px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+.an-chat-history-row__menu-separator {
+  height: 1px;
+  margin: 4px -4px;
+  background: hsl(var(--border));
+}
+
 .an-chat-history-row__menu-item--danger {
   color: hsl(var(--destructive));
 }
