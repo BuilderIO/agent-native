@@ -1559,6 +1559,26 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     );
   });
 
+  it.each([
+    "Why does the dbt number differ from the warehouse?",
+    "Compare dbt and warehouse numbers.",
+    "I want to compare dbt and warehouse numbers.",
+    "Show the active accounts figure from BigQuery, but do not use the warehouse.",
+  ])(
+    "does not treat %j as an affirmative warehouse request",
+    async (userText) => {
+      const { result } = await judged(
+        { userText, draftText: draft, toolResults: [dbtNotFound, bigQueryOk] },
+        "YES",
+      );
+
+      expect(result).toMatchObject(withheld);
+      expect(result?.retryMessage).not.toContain(
+        "label them as a warehouse calculation",
+      );
+    },
+  );
+
   it("passes an explanation that the figure check says contains no figure", async () => {
     const { asked, result } = await judged(
       {
@@ -1828,6 +1848,29 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(result).toBeNull();
   });
+
+  it.each([
+    "Show active accounts for the non-enterprise plan from BigQuery last month.",
+    "Show active accounts not in the enterprise plan from BigQuery last month.",
+    "Show active accounts outside the enterprise plan from BigQuery last month.",
+  ])(
+    "withholds a requested filter that reverses the population: %s",
+    (userText) => {
+      const result = realDataFinalGuard(
+        explicitWarehouseContext(disclosed, {
+          query:
+            "SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date < DATE '2026-10-01' AND plan = 'enterprise'",
+          rows: [{ active_accounts: 10 }],
+          userText,
+        }),
+      );
+
+      expect(result).toMatchObject({
+        fallbackMessage: expect.stringContaining("no owner-approved figure"),
+        retryMessage: expect.stringContaining("calculation"),
+      });
+    },
+  );
 
   it("withholds a filter that reverses the requested population", () => {
     const result = realDataFinalGuard(
@@ -2119,6 +2162,34 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       fallbackMessage: expect.stringContaining("no owner-approved figure"),
       retryMessage: expect.stringContaining("warehouse calculation"),
     });
+  });
+
+  it("does not treat a requested year as a warehouse result number", () => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(
+        "Active accounts were 10 in September 2026. This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition.",
+        {
+          userText: "Show active accounts for September 2026 from BigQuery.",
+          query:
+            "SELECT COUNT(DISTINCT account_id) AS active_accounts FROM accounts WHERE activity_date >= DATE '2026-09-01' AND activity_date <= DATE '2026-09-30'",
+        },
+      ),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not treat an ISO month in a warehouse result as a metric value", () => {
+    const result = realDataFinalGuard(
+      explicitWarehouseContext(
+        "Active accounts were 10 for 2026-09. This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition.",
+        {
+          userText: "Show active accounts for September 2026 from BigQuery.",
+        },
+      ),
+    );
+
+    expect(result).toBeNull();
   });
 
   it("does not use one warehouse query to clear two failures for the same metric", () => {
@@ -2798,13 +2869,13 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(asked).toHaveLength(1);
     expect(result).toMatchObject(withheld);
     expect(result?.retryMessage).toContain(
-      "Keep figures from other complete successful dbt metric queries",
+      "Keep figures from complete successful dbt queries at other scopes",
     );
     expect(result?.fallbackMessage).toContain(
-      'no owner-approved figure for "active_accounts from 2026-09-01 through 2026-09-30"',
+      'no owner-approved figure for "active_accounts" from 2026-09-01 through 2026-09-30',
     );
     expect(result?.fallbackMessage).toContain(
-      '"signups" from 2026-09-01 through 2026-09-30 returned 3',
+      '"signups" from 2026-09-01 through 2026-09-30: 3',
     );
   });
 
@@ -2862,10 +2933,10 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     const fallback = realDataFinalGuard(context);
     expect(fallback?.fallbackMessage).toContain(
-      'no owner-approved figure for "active_accounts from 2026-09-01 through 2026-09-30"',
+      'no owner-approved figure for "active_accounts" from 2026-09-01 through 2026-09-30',
     );
     expect(fallback?.fallbackMessage).toContain(
-      '"active_accounts" from 2026-10-01 through 2026-10-31 returned 12',
+      '"active_accounts" from 2026-10-01 through 2026-10-31: 12',
     );
 
     const asked: Asked[] = [];
@@ -2873,7 +2944,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       context,
       recordingCheck(
         (input) =>
-          input.includes("FAILED METRIC SCOPES:") &&
+          input.includes("UNRESOLVED METRIC QUERIES:") &&
           input.includes("2026-09-01 through 2026-09-30")
             ? "NO"
             : "YES",
@@ -2881,8 +2952,9 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       ),
     );
     expect(asked).toHaveLength(1);
+    expect(asked[0]?.input).toContain('"metricName":"active_accounts"');
     expect(asked[0]?.input).toContain(
-      '"active_accounts from 2026-09-01 through 2026-09-30"',
+      '"scope":" from 2026-09-01 through 2026-09-30"',
     );
     expect(result).toBeNull();
   });
@@ -2956,11 +3028,11 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     expect(firstAttempt.result).toMatchObject({
       maxRetries: 1,
       fallbackMessage: expect.stringContaining(
-        'no owner-approved figure for "active_accounts from 2026-09-01 through 2026-09-30"',
+        'no owner-approved figure for "active_accounts" from 2026-09-01 through 2026-09-30',
       ),
     });
     expect(exhaustedRetry.result?.fallbackMessage).toContain(
-      '"signups" from 2026-08-01 through 2026-08-31 returned 3',
+      '"signups" from 2026-08-01 through 2026-08-31: 3',
     );
     expect(exhaustedRetry.result?.fallbackMessage).not.toContain(
       "10 active accounts",
@@ -3024,7 +3096,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
 
     expect(asked).toHaveLength(1);
     expect(asked[0]?.systemPrompt).toContain(
-      "failed query's exact time and dimension scope",
+      "unresolved metric-plus-scope pairs",
     );
     expect(asked[0]?.input).toContain('"active_accounts"');
     expect(asked[0]?.input).toContain("Signups were 3 last month.");
@@ -3545,7 +3617,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
-  it("keeps a failed metric unresolved when a find-data candidate succeeds instead", async () => {
+  it("keeps a failed metric unresolved when find-data returns a different metric", async () => {
     const { asked, result } = await judged(
       {
         userText: "What were active accounts last month?",
@@ -4241,6 +4313,150 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       });
     },
   );
+
+  it("keeps a complete result when only the same metric at another scope failed", async () => {
+    const septemberRange = {
+      startDate: "2026-09-01",
+      endDate: "2026-09-30",
+    };
+    const octoberRange = {
+      startDate: "2026-10-01",
+      endDate: "2026-10-31",
+    };
+    const { asked, result } = await judged(
+      {
+        userText: "Summarize active accounts for the queried periods.",
+        draftText: "October active accounts were 10.",
+        toolCalls: [
+          {
+            toolCallId: "dbt-september",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: septemberRange,
+              groupBy: [],
+            },
+          },
+          {
+            toolCallId: "dbt-october",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: octoberRange,
+              groupBy: [],
+            },
+          },
+        ],
+        toolResults: [
+          {
+            ...dbtNotFound,
+            toolCallId: "dbt-september",
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            toolCallId: "dbt-october",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "active_accounts",
+              querySpec: { timeRange: octoberRange, groupBy: [] },
+              rows: [{ active_accounts: 10 }],
+              truncated: false,
+            }),
+          },
+        ],
+      },
+      "NO",
+    );
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.input).toContain("2026-09-01");
+    expect(asked[0]?.input).not.toContain("2026-10-01");
+    expect(result).toBeNull();
+  });
+
+  it("rewrites a failed scope while preserving a complete result for another scope", async () => {
+    const septemberRange = {
+      startDate: "2026-09-01",
+      endDate: "2026-09-30",
+    };
+    const octoberRange = {
+      startDate: "2026-10-01",
+      endDate: "2026-10-31",
+    };
+    const draftText =
+      "September active accounts were 8 and October active accounts were 10.";
+    const safeText =
+      "September active accounts are unavailable from the Semantic Layer. October active accounts were 10.";
+    const { asked, result } = await judged(
+      {
+        userText: "Summarize active accounts for the queried periods.",
+        draftText,
+        retryCount: 1,
+        toolCalls: [
+          {
+            toolCallId: "dbt-september",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: septemberRange,
+              groupBy: [],
+            },
+          },
+          {
+            toolCallId: "dbt-october",
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: octoberRange,
+              groupBy: [],
+            },
+          },
+        ],
+        toolResults: [
+          {
+            ...dbtNotFound,
+            toolCallId: "dbt-september",
+            content: JSON.stringify({
+              status: "not_found",
+              metricName: "active_accounts",
+            }),
+          },
+          {
+            name: "query-dbt-semantic-metric",
+            toolCallId: "dbt-october",
+            isError: false,
+            content: JSON.stringify({
+              status: "success",
+              metricName: "active_accounts",
+              querySpec: { timeRange: octoberRange, groupBy: [] },
+              rows: [{ active_accounts: 10 }],
+              truncated: false,
+            }),
+          },
+        ],
+      },
+      (input) => {
+        if (input.includes("ANSWER:")) return "NO";
+        if (input.includes("COMPLETE TOOL RESULTS:")) return safeText;
+        return input.includes(JSON.stringify(draftText)) ? "YES" : "NO";
+      },
+    );
+
+    expect(asked).toHaveLength(4);
+    expect(asked[0]?.input).toContain("2026-09-01");
+    expect(asked[1]?.input).toContain("2026-09-01");
+    expect(asked[1]?.input).toContain("2026-10-01");
+    expect(result).toMatchObject({
+      retryMessage: safeText,
+      fallbackMessage: safeText,
+      maxRetries: 0,
+    });
+  });
 
   describe("default-deny engagement", () => {
     const providerRead = {
