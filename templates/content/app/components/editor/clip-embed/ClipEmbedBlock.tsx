@@ -11,13 +11,18 @@ import {
 import type { ClipPlayback } from "@shared/clips-peer-contract";
 import { IconMovie } from "@tabler/icons-react";
 import type { TiptapEditorHTMLElement } from "@tiptap/core";
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { youtubeEmbedSrc } from "./clip-media";
+import { youtubeEmbedSrc, type MediaState } from "./clip-media";
 import {
   clearClipUpload,
   clipUploadPercent,
@@ -265,6 +270,7 @@ export function ClipEmbed({
   });
   const { grant } = playback;
   const status = grant?.recording.status ?? null;
+  const placeRef = useRef<MediaState | null>(null);
   const links = useClipsLinks();
   const openUrl = links.appUrl ? clipShareUrl(links.appUrl, recordingId) : null;
 
@@ -359,6 +365,7 @@ export function ClipEmbed({
       recordingId={recordingId}
       playback={playback}
       openUrl={openUrl}
+      resumeRef={placeRef}
     />
   );
 }
@@ -372,11 +379,13 @@ function ClipEmbedPlayer({
   recordingId,
   playback,
   openUrl,
+  resumeRef,
 }: {
   documentId: string;
   recordingId: string;
   playback: ClipPlaybackState;
   openUrl: string | null;
+  resumeRef: MutableRefObject<MediaState | null>;
 }) {
   const t = useT();
   const { grant } = playback;
@@ -475,6 +484,7 @@ function ClipEmbedPlayer({
         grant={grant}
         markers={"markers" in markers ? markers.markers : []}
         onMediaError={playback.onMediaError}
+        resumeRef={resumeRef}
       />
       <ClipCaption
         grant={grant}

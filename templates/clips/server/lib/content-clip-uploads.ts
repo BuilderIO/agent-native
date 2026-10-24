@@ -31,11 +31,13 @@ import {
 import { z } from "zod";
 
 import {
+  CONTENT_CLIP_CANCEL_OUTCOME,
   CONTENT_CLIP_CLAIMS,
   CONTENT_CLIP_SCOPES,
   CONTENT_CLIP_UPLOAD_FILE_NAME_CHARS,
   CONTENT_CLIP_UPLOAD_MIME_TYPES,
   CONTENT_CLIP_UPLOAD_REFUSED,
+  type ContentClipCancelAnswer,
   type ContentClipStorage,
 } from "../../shared/content-clip-contract.js";
 import { getDb, schema } from "../db/index.js";
@@ -46,6 +48,7 @@ import {
   verifyContentPeerToken,
   type VerifiedContentPeer,
 } from "./content-clip-peer.js";
+import { isActiveUploadBinding } from "./content-uploads.js";
 import { startRecordingUpload } from "./recording-upload-start.js";
 import {
   requireUploadTicketOwnerForToken,
@@ -402,18 +405,19 @@ const CORS_HEADER_NAMES = [
   "access-control-expose-headers",
 ];
 
-async function hasUploadBinding(recordingId: string): Promise<boolean> {
+/** The binding to the Content page a recording was uploaded from, if it was. */
+async function uploadBinding(
+  recordingId: string,
+): Promise<{ origin: string; state: string } | null> {
+  const bindings = schema.recordingContentBindings;
   const [binding] = await getDb()
-    .select({ id: schema.recordingContentBindings.id })
-    .from(schema.recordingContentBindings)
+    .select({ origin: bindings.origin, state: bindings.state })
+    .from(bindings)
     .where(
-      and(
-        eq(schema.recordingContentBindings.recordingId, recordingId),
-        eq(schema.recordingContentBindings.origin, "upload"),
-      ),
+      and(eq(bindings.recordingId, recordingId), eq(bindings.origin, "upload")),
     )
     .limit(1);
-  return Boolean(binding);
+  return binding ?? null;
 }
 
 function firstQueryValue(value: unknown): string | null {
@@ -492,8 +496,12 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
       recordingId,
       firstQueryValue(getQuery(event).ticket),
     );
-    if (!(await hasUploadBinding(recordingId))) {
+    const binding = await uploadBinding(recordingId);
+    if (!binding) {
       return json({ error: "Invalid or expired upload ticket" }, 401, cors);
+    }
+    if (!isActiveUploadBinding(binding)) {
+      return json({ error: "This upload's page is in Trash" }, 409, cors);
     }
     return await handleRecordingChunk(event, owner);
   } catch (error) {
@@ -525,37 +533,31 @@ export async function handleContentClipCancel(
     recordingId && token
       ? await verifyRecordingUploadTicket(recordingId, token)
       : null;
-  if (!recordingId || !verified || !(await hasUploadBinding(recordingId))) {
+  // A page in Trash can still give its upload up: cancelling only frees it.
+  if (!recordingId || !verified || !(await uploadBinding(recordingId))) {
     return json({ error: "Invalid or expired upload ticket" }, 401, cors);
   }
-  const [recording] = await getDb()
-    .select({
-      status: schema.recordings.status,
-      organizationId: schema.recordings.organizationId,
-      uploadAttemptId: schema.recordings.uploadAttemptId,
-      uploadGenerationId: schema.recordings.uploadGenerationId,
-    })
-    .from(schema.recordings)
-    .where(
-      and(
-        eq(schema.recordings.id, recordingId),
-        ownerEmailMatches(schema.recordings.ownerEmail, verified.ownerEmail),
-      ),
-    );
+  const readRecording = async () => {
+    const [row] = await getDb()
+      .select({
+        status: schema.recordings.status,
+        organizationId: schema.recordings.organizationId,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
+      })
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, verified.ownerEmail),
+        ),
+      );
+    return row ?? null;
+  };
+  const recording = await readRecording();
   if (!recording) return json({ error: "Not found" }, 404, cors);
-  const cancelled = { ok: true, recordingId, status: "failed" };
-  if (recording.status === "failed") return json(cancelled, 200, cors);
-  // Clips has every byte and is making the Clip: not the page's to stop.
-  if (recording.status !== "uploading") {
-    return json(
-      {
-        error: "This upload is already finished",
-        data: { recordingId, status: recording.status },
-      },
-      409,
-      cors,
-    );
-  }
+  const settled = cancelAnswer(recordingId, recording.status, cors);
+  if (settled) return settled;
 
   const result = (await handleAbortRecordingUpload(event, {
     recordingId,
@@ -572,6 +574,42 @@ export async function handleContentClipCancel(
       uploadGenerationId: recording.uploadGenerationId ?? undefined,
     },
   })) as Record<string, unknown>;
-  if (result.ok === true) return json(cancelled, 200, cors);
+  // The abort answers ok without failing the recording when Clips got the
+  // whole file first, so only the recording's status says what happened.
+  const after = await readRecording();
+  if (!after) return json({ error: "Not found" }, 404, cors);
+  const answer = cancelAnswer(recordingId, after.status, cors);
+  if (answer) return answer;
+  if (result.ok === true) {
+    return json({ error: "Clips didn't cancel this upload" }, 409, cors);
+  }
   return json(result, event.res.status ?? 409, cors);
+}
+
+/** What a cancel did, once the recording has left `uploading`. */
+function cancelAnswer(
+  recordingId: string,
+  status: string,
+  cors: Record<string, string>,
+): Response | null {
+  if (status === "failed") {
+    const cancelled: ContentClipCancelAnswer = {
+      outcome: CONTENT_CLIP_CANCEL_OUTCOME.cancelled,
+      recordingId,
+    };
+    return json(cancelled, 200, cors);
+  }
+  if (status === "processing" || status === "ready") {
+    const finished: ContentClipCancelAnswer = {
+      outcome: CONTENT_CLIP_CANCEL_OUTCOME.alreadyFinished,
+      recordingId,
+      status,
+    };
+    return json(
+      { error: "This upload is already finished", ...finished },
+      409,
+      cors,
+    );
+  }
+  return null;
 }

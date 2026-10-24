@@ -2,9 +2,15 @@ import type {
   ClipCommentMarker,
   ClipPlayback,
 } from "@shared/clips-peer-contract";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
 
-import { swapMediaSource } from "./clip-media";
+import { mediaPlace, swapMediaSource, type MediaState } from "./clip-media";
 import { PlayerControls } from "./player-controls";
 
 /** A Clip's video with Clips' controls docked under it. */
@@ -12,10 +18,14 @@ export function ClipPlayer({
   grant,
   markers,
   onMediaError,
+  resumeRef,
 }: {
   grant: ClipPlayback;
   markers: ClipCommentMarker[];
   onMediaError: () => void;
+  /** Where the reader was when an earlier player of this Clip went away,
+   *  such as behind an outage; the next player starts there. */
+  resumeRef?: MutableRefObject<MediaState | null>;
 }) {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -39,11 +49,26 @@ export function ClipPlayer({
     const video = videoRef.current;
     if (!video || !src) return;
     if (!video.getAttribute("src")) {
-      video.src = src;
+      const place = resumeRef?.current;
+      if (resumeRef && place) {
+        resumeRef.current = null;
+        swapMediaSource(video, src, place);
+      } else {
+        video.src = src;
+      }
       return;
     }
     if (video.src !== src) swapMediaSource(video, src);
-  }, [src]);
+  }, [resumeRef, src]);
+
+  // Read before React removes the element, which pauses it.
+  useLayoutEffect(() => {
+    const video = videoRef.current;
+    if (!video || !resumeRef) return;
+    return () => {
+      resumeRef.current = mediaPlace(video);
+    };
+  }, [resumeRef]);
 
   useEffect(() => {
     const onFullscreenChange = () =>

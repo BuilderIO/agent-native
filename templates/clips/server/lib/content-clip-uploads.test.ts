@@ -35,6 +35,12 @@ const state = vi.hoisted(() => {
     created: [] as Array<{ args: any; context: any; caller: any }>,
     chunks: [] as Array<{ owner: unknown }>,
     aborts: [] as Array<Record<string, any>>,
+    // Finalization winning the race: the abort finds the file complete.
+    finalizedFirst: null as null | {
+      status: "processing" | "ready";
+      answer: Record<string, unknown>;
+      httpStatus?: number;
+    },
   };
 });
 
@@ -84,6 +90,17 @@ vi.mock("../routes/api/uploads/[recordingId]/abort.post.js", () => ({
     const { schema } = await import("../db/index.js");
     const { eq } = await import("drizzle-orm");
     state.aborts.push(override);
+    if (state.finalizedFirst) {
+      await state.db
+        .update(schema.recordings)
+        .set({ status: state.finalizedFirst.status })
+        .where(eq(schema.recordings.id, override.recordingId));
+      if (state.finalizedFirst.httpStatus) {
+        const { setResponseStatus } = await import("h3");
+        setResponseStatus(_event as any, state.finalizedFirst.httpStatus);
+      }
+      return state.finalizedFirst.answer;
+    }
     await state.db
       .update(schema.recordings)
       .set({ status: "failed", failureCode: override.body?.failureCode })
@@ -109,6 +126,7 @@ const { CONTENT_CLIP_SCOPES: SCOPES, CONTENT_CLIP_PUBLIC_READER } =
   await import("../../shared/content-clip-contract.js");
 const { contentClipStorageFor, pairedContentOrigin } =
   await import("./content-clip-uploads.js");
+const { contentPageUrls } = await import("./content-uploads.js");
 const { default: uploadStartRoute } =
   await import("../routes/api/content-clips/uploads.post.js");
 const { default: uploadStatusRoute } =
@@ -321,6 +339,7 @@ beforeEach(async () => {
   state.created = [];
   state.chunks = [];
   state.aborts = [];
+  state.finalizedFirst = null;
   for (const table of [
     schema.recordings,
     schema.recordingShares,
@@ -742,6 +761,18 @@ describe("chunks posted from the editor's browser", () => {
     expect(result.status).toBe(401);
   });
 
+  it("refuses a chunk once the upload's page is in Trash", async () => {
+    const url = await upload();
+    await client.query(
+      "UPDATE recording_content_bindings SET state = 'trashed'",
+    );
+    const result = await postChunk(url, { origin: pairedContentOrigin()! });
+
+    expect(result.status).toBe(409);
+    expect(result.body).toEqual({ error: "This upload's page is in Trash" });
+    expect(state.chunks).toEqual([]);
+  });
+
   it("refuses an agent upload's ticket on the Content route", async () => {
     const editor = await clipsEditor();
     const { body } = await startUpload(await token({ sub: editor }));
@@ -785,9 +816,8 @@ describe("an upload the editor's page gives up", () => {
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual({
-      ok: true,
+      outcome: "cancelled",
       recordingId: upload.recordingId,
-      status: "failed",
     });
     expect(state.aborts).toEqual([
       expect.objectContaining({
@@ -813,6 +843,50 @@ describe("an upload the editor's page gives up", () => {
     expect(again.body).toEqual(first.body);
     expect(state.aborts).toHaveLength(1);
   });
+
+  it.each([
+    [
+      "answers ok while it verifies the file",
+      {
+        status: "processing" as const,
+        answer: { ok: true, verificationPending: true, chunksCleared: 0 },
+      },
+    ],
+    [
+      "answers ok because the Clip is ready",
+      {
+        status: "ready" as const,
+        answer: { ok: true, alreadyReady: true, chunksCleared: 0 },
+      },
+    ],
+    [
+      "refuses the abort as stale",
+      {
+        status: "processing" as const,
+        answer: { error: "A newer upload retry is already active." },
+        httpStatus: 409,
+      },
+    ],
+  ])(
+    "says the upload already finished when Clips finalized it first and the abort %s",
+    async (_how, finalizedFirst) => {
+      const upload = await started();
+      state.finalizedFirst = finalizedFirst;
+      const result = await postCancel(upload.cancelUrl, pairedContentOrigin()!);
+
+      expect(result.status).toBe(409);
+      expect(result.body).toEqual({
+        error: "This upload is already finished",
+        outcome: "already_finished",
+        recordingId: upload.recordingId,
+        status: finalizedFirst.status,
+      });
+      expect(state.aborts).toHaveLength(1);
+      expect((await rows("recordings"))[0]).toMatchObject({
+        status: finalizedFirst.status,
+      });
+    },
+  );
 
   it("refuses another recording's ticket and an expired one", async () => {
     const one = await started();
@@ -863,11 +937,23 @@ describe("an upload the editor's page gives up", () => {
     const result = await postCancel(upload.cancelUrl, pairedContentOrigin()!);
 
     expect(result.status).toBe(409);
-    expect(result.body.data).toEqual({
+    expect(result.body).toMatchObject({
+      outcome: "already_finished",
       recordingId: upload.recordingId,
       status: "processing",
     });
     expect(state.aborts).toEqual([]);
+  });
+
+  it("still cancels an upload whose page is in Trash", async () => {
+    const upload = await started();
+    await client.query(
+      "UPDATE recording_content_bindings SET state = 'trashed'",
+    );
+    const result = await postCancel(upload.cancelUrl, pairedContentOrigin()!);
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ outcome: "cancelled" });
   });
 });
 
@@ -961,6 +1047,29 @@ describe("From Content and Library in Clips", () => {
     expect(fromContent.recordings.map((r: any) => r.id).sort()).toEqual(
       [moved, kept].sort(),
     );
+  });
+
+  it("lists an upload whose page is in Trash in neither From Content nor Library", async () => {
+    const editor = await clipsEditor();
+    const bearer = await token({ sub: editor });
+    const trashed = (await startUpload(bearer)).body.recordingId;
+    const kept = (
+      await startUpload(bearer, { ...START, blockId: "block-video-2" })
+    ).body.recordingId;
+    const orgId = state.created[0]!.caller.orgId as string;
+    await client.query(
+      "UPDATE recording_content_bindings SET state = 'trashed' WHERE recording_id = $1",
+      [trashed],
+    );
+
+    const fromContent = await list(editor, orgId, "from-content");
+    expect(fromContent.recordings.map((r: any) => r.id)).toEqual([kept]);
+    expect((await list(editor, orgId, "from-content", true)).total).toBe(1);
+    expect([...(await contentPageUrls([trashed, kept])).keys()]).toEqual([
+      kept,
+    ]);
+    expect((await list(editor, orgId, "library")).recordings).toEqual([]);
+    expect((await list(editor, orgId, "library", true)).total).toBe(0);
   });
 
   it("lists only the signed-in person's own uploads", async () => {

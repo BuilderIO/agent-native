@@ -300,6 +300,42 @@ describe("ClipEmbed", () => {
     );
   });
 
+  it("picks up where the reader was once Clips answers after an outage", async () => {
+    const refetch = queries.byName["get-clip-playback"]!.refetch;
+    render();
+    const before = container.querySelector("video")!;
+    await act(async () => {
+      before.currentTime = 42;
+      await before.play();
+    });
+
+    refetch.mockResolvedValueOnce({
+      isError: true,
+      data: undefined,
+      error: refusal("clips_unreachable"),
+    });
+    await act(async () => {
+      before.dispatchEvent(new Event("error"));
+    });
+    expect(container.querySelector("video")).toBeNull();
+    expect(container.textContent).toContain("clipEmbed.unreachable");
+
+    const fresh = playback({
+      playback: { videoUrl: "https://clips.example.test/api/video/rec_1?cg=2" },
+    });
+    refetch.mockResolvedValueOnce({ isError: false, data: fresh });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    const after = container.querySelector("video")!;
+    expect(after.src).toBe(fresh.playback.videoUrl);
+    await act(async () => {
+      after.dispatchEvent(new Event("loadedmetadata"));
+    });
+    expect(after.currentTime).toBe(42);
+    expect(after.paused).toBe(false);
+  });
+
   it("plays a YouTube Clip in YouTube's player inside the frame", () => {
     queries.byName["get-clip-playback"] = fakeQuery(
       playback({

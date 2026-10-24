@@ -139,6 +139,33 @@ export type ContentClipStorage =
   | { state: "none"; reason: string }
   | { state: "account_required" };
 
+/**
+ * What `POST /api/uploads/:recordingId/content-cancel` did, as `outcome`.
+ *
+ * - `cancelled` (200): the upload is failed in Clips. Its free clip is
+ *   released once Clips confirms the upload's cleanup.
+ * - `already_finished` (409): Clips has the whole file and is making the
+ *   Clip, or made it; `status` says which. Nothing changed.
+ *
+ * Any other answer is a refusal with only `error`: the upload wasn't
+ * cancelled, and Clips fails it once its lease runs out.
+ */
+export const CONTENT_CLIP_CANCEL_OUTCOME = {
+  cancelled: "cancelled",
+  alreadyFinished: "already_finished",
+} as const;
+
+export type ContentClipCancelAnswer =
+  | {
+      outcome: typeof CONTENT_CLIP_CANCEL_OUTCOME.cancelled;
+      recordingId: string;
+    }
+  | {
+      outcome: typeof CONTENT_CLIP_CANCEL_OUTCOME.alreadyFinished;
+      recordingId: string;
+      status: "processing" | "ready";
+    };
+
 /** The `code` of an upload start Clips refused, with `storage` in the body. */
 export const CONTENT_CLIP_UPLOAD_REFUSED = {
   /** No storage takes the file: see `storage`. */
