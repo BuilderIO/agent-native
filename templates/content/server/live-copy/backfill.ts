@@ -7,11 +7,13 @@ import {
 } from "@agent-native/core/collab";
 import { getDbExec } from "@agent-native/core/db";
 import { hasActiveFeatureFlagRollout } from "@agent-native/core/feature-flags";
+import { recordChange } from "@agent-native/core/server";
 import { mutateSetting } from "@agent-native/core/settings";
 import { asc, eq, gt, inArray, sql } from "drizzle-orm";
 
 import { LIVE_BODY_BACKFILL_FLAG } from "../../shared/feature-flags.js";
 import { getDb, schema } from "../db/index.js";
+import { documentChangeResource } from "../lib/document-change-resource.js";
 import {
   isLinkedToLocalFile,
   liveBodyBackfillFlagsOn,
@@ -203,8 +205,8 @@ const DEADLINE_MARGIN_MS = 15_000;
 // failure, up to HOLD_MAX_MS.
 const HOLD_BASE_MS = 60 * 60_000;
 const HOLD_MAX_MS = 24 * 60 * 60_000;
-// More held pages than this is a bug to fix, not pages to pass over, so the
-// sweep stops rather than holding another.
+// More held pages than this is a bug to fix. The sweep goes past a page that
+// fails beyond it without holding it, and counts it in `overHoldLimit`.
 const HELD_LIMIT = 100;
 const HELD_ERROR_LENGTH = 500;
 
@@ -229,6 +231,17 @@ type SweepState = {
   inFlight: { documentId: string; startedAt: string } | null;
   /** Pages the sweep passes over until their `retryAfter`. */
   held: Record<string, HeldPage>;
+  /**
+   * Pages this pass went past after a failure without holding them, because
+   * HELD_LIMIT pages were held already. Kept until the next pass starts.
+   */
+  overHoldLimit: OverHoldLimit | null;
+};
+
+type OverHoldLimit = {
+  pages: number;
+  lastDocumentId: string;
+  lastError: string;
 };
 
 class SweepStateUnreadable extends Error {
@@ -266,6 +279,21 @@ function parseHeldPage(value: unknown): HeldPage | undefined {
   return { reason, error, attempts, retryAfter };
 }
 
+function parseOverHoldLimit(value: unknown): OverHoldLimit | undefined {
+  if (!isRecord(value)) return undefined;
+  const { pages, lastDocumentId, lastError } = value;
+  if (
+    typeof pages !== "number" ||
+    !Number.isSafeInteger(pages) ||
+    pages < 1 ||
+    typeof lastDocumentId !== "string" ||
+    typeof lastError !== "string"
+  ) {
+    return undefined;
+  }
+  return { pages, lastDocumentId, lastError };
+}
+
 function parseSweepState(value: Record<string, unknown> | null): SweepState {
   if (value === null) {
     return {
@@ -275,9 +303,15 @@ function parseSweepState(value: Record<string, unknown> | null): SweepState {
       run: null,
       inFlight: null,
       held: {},
+      overHoldLimit: null,
     };
   }
   const { version, after, passCompletedAt, run, inFlight, held } = value;
+  // State saved before this count existed went past no page.
+  const overHoldLimit =
+    value.overHoldLimit === undefined || value.overHoldLimit === null
+      ? null
+      : parseOverHoldLimit(value.overHoldLimit);
   if (
     version !== 2 ||
     (after !== null && typeof after !== "string") ||
@@ -294,7 +328,8 @@ function parseSweepState(value: Record<string, unknown> | null): SweepState {
         typeof inFlight.documentId === "string" &&
         isTime(inFlight.startedAt)
       )) ||
-    !isRecord(held)
+    !isRecord(held) ||
+    overHoldLimit === undefined
   ) {
     throw new SweepStateUnreadable(value);
   }
@@ -320,6 +355,7 @@ function parseSweepState(value: Record<string, unknown> | null): SweepState {
             startedAt: inFlight.startedAt as string,
           },
     held: heldPages,
+    overHoldLimit,
   };
 }
 
@@ -373,19 +409,44 @@ export type LiveBodyBackfillSweepReport =
       failed: Array<{ documentId: string; error: string }>;
       after: string | null;
       passComplete: boolean;
-      stoppedEarly:
-        | "deadline"
-        | "aborted"
-        | "attempts"
-        | "held_limit"
-        | "lease_lost"
-        | null;
+      /** This pass's count so far of pages it went past without holding them. */
+      overHoldLimit: OverHoldLimit | null;
+      stoppedEarly: "deadline" | "aborted" | "attempts" | "lease_lost" | null;
     };
 
 type SweepStop = Extract<
   LiveBodyBackfillSweepReport,
   { status: "ran" }
 >["stoppedEarly"];
+
+/**
+ * Sends the change event a body save sends, for the page and each collection
+ * that lists it, so open pages and collection views read it again. The sweep
+ * runs outside any action, so nothing else sends one.
+ */
+async function announceConversion(page: { id: string; ownerEmail: string }) {
+  // guard:allow-unscoped — lists the collections of a page the sweep just switched for its owner.
+  const collections = await getDb()
+    .select({ documentId: schema.contentDatabases.documentId })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabases,
+      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+    )
+    .where(eq(schema.contentDatabaseItems.documentId, page.id));
+  for (const documentId of new Set([
+    page.id,
+    ...collections.map((row) => row.documentId),
+  ])) {
+    recordChange({
+      source: "action",
+      type: "change",
+      key: "convert-page-to-live-copy-if-due",
+      owner: page.ownerEmail,
+      ...documentChangeResource(documentId),
+    });
+  }
+}
 
 function outcomeKey(outcome: LiveBodyBackfillOutcome): string {
   if (outcome.status === "converted" || outcome.status === "current")
@@ -401,7 +462,8 @@ function outcomeKey(outcome: LiveBodyBackfillOutcome): string {
  * the last page a sweep finished, and rests after a full pass. Before each
  * try it records the page it is about to try, so a sweep that dies there
  * leaves that page for the next sweep to hold. A page that throws is listed
- * in `failed`, logged and held, and the sweep goes on to the next.
+ * in `failed`, logged and held, and the sweep goes on to the next; once
+ * HELD_LIMIT pages are held, it is counted as `hold_limit` instead of held.
  */
 export async function runLiveBodyBackfillSweep(context: {
   deadlineAt: number;
@@ -443,6 +505,10 @@ export async function runLiveBodyBackfillSweep(context: {
     }
     const claimed: SweepState = {
       ...state,
+      overHoldLimit:
+        state.after === null && state.inFlight === null
+          ? null
+          : state.overHoldLimit,
       run: {
         id: runId,
         leaseUntil: new Date(context.deadlineAt).toISOString(),
@@ -457,12 +523,18 @@ export async function runLiveBodyBackfillSweep(context: {
   if (claim.status !== "claimed") return claim;
   const { state, interrupted } = claim;
   const held = { ...state.held };
-  const save = (next: Omit<SweepState, "version" | "held">) =>
+  let overHoldLimit = state.overHoldLimit;
+  const save = (next: Omit<SweepState, "version" | "held" | "overHoldLimit">) =>
     mutateSetting(SWEEP_STATE_KEY, (current) => {
       if (parseSweepState(current).run?.id !== runId) {
         throw new SweepLeaseLost();
       }
-      return { version: 2, ...next, held: { ...held } } satisfies SweepState;
+      return {
+        version: 2,
+        ...next,
+        held: { ...held },
+        overHoldLimit,
+      } satisfies SweepState;
     });
 
   // guard:allow-unscoped — the sweep acts for each page's owner, gated by that owner's flags; it reads write-path columns only.
@@ -519,8 +591,8 @@ export async function runLiveBodyBackfillSweep(context: {
       return false;
     }
   };
-  // Lists and holds a page that threw. False when the sweep stops instead,
-  // because HELD_LIMIT pages are held already.
+  // Lists and holds a page that threw. Once HELD_LIMIT pages are held, it
+  // counts the page instead, so the pass still goes past it.
   const recordFailure = (documentId: string, error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     failed.push({ documentId, error: message });
@@ -529,10 +601,16 @@ export async function runLiveBodyBackfillSweep(context: {
       error,
     );
     if (!held[documentId] && Object.keys(held).length >= HELD_LIMIT) {
+      outcomes.hold_limit = (outcomes.hold_limit ?? 0) + 1;
+      overHoldLimit = {
+        pages: (overHoldLimit?.pages ?? 0) + 1,
+        lastDocumentId: documentId,
+        lastError: message.slice(0, HELD_ERROR_LENGTH),
+      };
       console.error(
-        `[${LIVE_BODY_BACKFILL_SWEEP_ID}] ${HELD_LIMIT} pages are held already, so the sweep stops at page ${documentId}.`,
+        `[${LIVE_BODY_BACKFILL_SWEEP_ID}] ${HELD_LIMIT} pages are held already, so page ${documentId} is passed without being held; this pass has passed ${overHoldLimit.pages} that way.`,
       );
-      return false;
+      return;
     }
     held[documentId] = holdPage(
       held[documentId],
@@ -540,7 +618,6 @@ export async function runLiveBodyBackfillSweep(context: {
       message.slice(0, HELD_ERROR_LENGTH),
       now,
     );
-    return true;
   };
 
   for (const page of pages) {
@@ -590,10 +667,7 @@ export async function runLiveBodyBackfillSweep(context: {
     try {
       pageFlagsOn = await flagsOn(page);
     } catch (error) {
-      if (!recordFailure(page.id, error)) {
-        stoppedEarly = "held_limit";
-        break;
-      }
+      recordFailure(page.id, error);
       reached = page.id;
       continue;
     }
@@ -612,15 +686,27 @@ export async function runLiveBodyBackfillSweep(context: {
       stoppedEarly = "lease_lost";
       break;
     }
+    let converted = false;
     try {
       const outcome = await convert(page.id, { flagsOn });
       const key = outcomeKey(outcome);
       outcomes[key] = (outcomes[key] ?? 0) + 1;
       delete held[page.id];
+      converted = outcome.status === "converted";
     } catch (error) {
-      if (!recordFailure(page.id, error)) {
-        stoppedEarly = "held_limit";
-        break;
+      recordFailure(page.id, error);
+    }
+    if (converted) {
+      try {
+        await announceConversion(page);
+      } catch (error) {
+        // The switch committed, so the page isn't held; its open views stay
+        // stale until they read it again.
+        outcomes.change_event_failed = (outcomes.change_event_failed ?? 0) + 1;
+        console.error(
+          `[${LIVE_BODY_BACKFILL_SWEEP_ID}] page ${page.id} switched, but its change event failed:`,
+          error,
+        );
       }
     }
     reached = page.id;
@@ -660,6 +746,7 @@ export async function runLiveBodyBackfillSweep(context: {
     failed,
     after: passComplete ? null : reached,
     passComplete,
+    overHoldLimit,
     stoppedEarly,
   };
   console.info(`[${LIVE_BODY_BACKFILL_SWEEP_ID}] ${JSON.stringify(report)}`);

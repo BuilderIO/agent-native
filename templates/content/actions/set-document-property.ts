@@ -85,9 +85,11 @@ async function assertPropertyWritableByRowMutation(
 /**
  * Writes a primary Blocks value, which is the page's body, to a switched page
  * through its live copy, as edit-document does; the live copy's commit keeps
- * the identity of every primary Blocks field the page has. False when the
- * page isn't switched, left its live copy before anything committed, or
- * already has this body, which the legacy path lets through unchanged.
+ * the identity of every primary Blocks field the page has. Returns the body
+ * the commit stored, which the live copy writes in its own canonical form.
+ * False when the page isn't switched, left its live copy before anything
+ * committed, or already has this body, which the legacy path lets through
+ * unchanged.
  */
 async function setPrimaryBlocksThroughLiveCopy(args: {
   ctx: ActionRunContext | undefined;
@@ -97,7 +99,7 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
   propertyId: string;
   content: string;
   expectedRevision: number | undefined;
-}): Promise<boolean> {
+}): Promise<string | false> {
   if (!(await isLiveBodyWriterPage(args.documentId))) return false;
   // guard:allow-unscoped — the caller's editor access was checked above.
   const [current] = await getDb()
@@ -126,8 +128,12 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
     }
   }
   try {
-    await editContentLiveCopy(args.documentId, {
-      cause: { ctx: args.ctx, operation: "set-document-property" },
+    const result = await editContentLiveCopy(args.documentId, {
+      cause: {
+        ctx: args.ctx,
+        operation: "set-document-property",
+        lockCollections: [args.databaseId],
+      },
       edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
       input: { content: args.content, expected: current.content },
       persist: async (tx) => {
@@ -136,7 +142,9 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
           transaction: tx,
         });
         const db = drizzleOverExec(tx);
-        // The commit locked the page's memberships, so this read holds.
+        // The commit locked this collection, then the page's memberships,
+        // before the page. A source-policy change locks the collection first,
+        // so both reads hold until this commit ends.
         const [primary] = await db
           .select({ id: schema.contentDatabases.id })
           .from(schema.contentDatabaseItems)
@@ -171,7 +179,7 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
         );
       },
     });
-    return true;
+    return result.text;
   } catch (error) {
     if (liveCopyBaseChanged(error)) {
       throw new ActionContractError(
@@ -293,7 +301,7 @@ export default defineAction({
       let target = blocksStorageTarget(
         parsePropertyOptions(definition.optionsJson),
       );
-      const blocksResult = async () => ({
+      const blocksResult = async (stored: string) => ({
         documentId,
         databaseId: database.id,
         properties:
@@ -304,7 +312,7 @@ export default defineAction({
                 {
                   ...document,
                   content:
-                    target === "document_body" ? content : document.content,
+                    target === "document_body" ? stored : document.content,
                   updatedAt: now,
                 },
               ],
@@ -312,7 +320,7 @@ export default defineAction({
             )
           ).get(documentId) ?? [],
       });
-      if (
+      const stored =
         target === "document_body" &&
         (await setPrimaryBlocksThroughLiveCopy({
           ctx,
@@ -322,10 +330,8 @@ export default defineAction({
           propertyId,
           content,
           expectedRevision: expectedBlocksFieldRevision,
-        }))
-      ) {
-        return blocksResult();
-      }
+        }));
+      if (stored !== false) return blocksResult(stored);
       await db.transaction(async (tx) => {
         await lockContentDatabaseMutation(
           tx as unknown as ReturnType<typeof getDb>,
@@ -460,7 +466,7 @@ export default defineAction({
           });
         }
       });
-      return blocksResult();
+      return blocksResult(content);
     }
 
     let valueJson = normalizedValueJson(type, value);

@@ -33,6 +33,24 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
 
+// The change events sent to open pages. `fail` makes the next one throw, as
+// a broken event bus would.
+const changes = vi.hoisted(() => ({
+  events: [] as Array<Record<string, unknown>>,
+  fail: false,
+}));
+
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  recordChange: (event: Record<string, unknown>) => {
+    if (changes.fail) {
+      changes.fail = false;
+      throw new Error("Change events are down.");
+    }
+    changes.events.push(event);
+  },
+}));
+
 // Lets a test land a link or membership after the switch's own check, as a
 // concurrent writer would, by answering that check with no blockers.
 const blockerRace = vi.hoisted(() => ({ cleanChecks: 0 }));
@@ -883,6 +901,35 @@ describe("a primary Blocks value on a switched Files row", () => {
     expect(await fieldRevision(row)).toBeGreaterThan(revision);
   });
 
+  it("answers with the body it stored, in the live copy's form, and that body's hash and blocks", async () => {
+    const row = await switchedFilesRow();
+    const input = "First line.\n\n\n\nSecond line.";
+
+    const result = (await setPrimary(row, input, await fieldRevision(row))) as {
+      properties: Array<{
+        definition: { id: string };
+        value: unknown;
+        blocksField?: unknown;
+      }>;
+    };
+
+    const { content } = await page(row.id);
+    expect(content).not.toBe(input);
+    const { readBlocksFieldIdentity } =
+      await import("../../actions/_blocks-field-identity.js");
+    const primary = result.properties.find(
+      (property) => property.definition.id === row.propertyId,
+    );
+    expect(primary).toMatchObject({
+      value: content,
+      blocksField: await readBlocksFieldIdentity({
+        documentId: row.id,
+        propertyId: row.propertyId,
+        markdown: content,
+      }),
+    });
+  });
+
   it("refuses a write that names a stale field revision, and leaves the page as it was", async () => {
     const row = await switchedFilesRow();
     const before = await page(row.id);
@@ -935,6 +982,32 @@ describe("a primary Blocks value on a switched Files row", () => {
     expect(await page(row.id)).toEqual(before);
     expect(await collabVersion(row.id)).toBe(before.liveCopyVersion);
   });
+
+  it("refuses a write whose collection is gone when its commit locks it, and commits nothing", async () => {
+    const row = await switchedFilesRow();
+    const before = await page(row.id);
+    const { editContentLiveCopy } = await import("./write.js");
+    const { CONTENT_LIVE_COPY_EDITS } = await import("./binding.js");
+
+    await expect(
+      as(ownerEmail, () =>
+        editContentLiveCopy(row.id, {
+          cause: {
+            ctx,
+            operation: "set-document-property",
+            lockCollections: [`gone-${row.databaseId}`],
+          },
+          edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: {
+            content: "A write to a gone collection.",
+            expected: before.content,
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "DOCUMENT_METADATA_SCOPE_CHANGED" });
+    expect(await page(row.id)).toEqual(before);
+    expect(await collabVersion(row.id)).toBe(before.liveCopyVersion);
+  });
 });
 
 describe("the backfill sweep", () => {
@@ -961,6 +1034,7 @@ describe("the backfill sweep", () => {
         string,
         { reason: string; attempts: number; retryAfter: string }
       >;
+      overHoldLimit: { pages: number; lastDocumentId: string } | null;
     } | null;
   }
 
@@ -1131,6 +1205,122 @@ describe("the backfill sweep", () => {
     expect(await page(failing)).toMatchObject({ liveBodySwitchedAt: null });
   });
 
+  it("goes past a page that fails once 100 pages are held, counts it, and still finishes the pass", async () => {
+    const retryAfter = new Date(Date.now() + 60 * 60_000).toISOString();
+    await putSetting("content-live-body-backfill-sweep", {
+      version: 2,
+      after: null,
+      passCompletedAt: null,
+      run: null,
+      inFlight: null,
+      // Pages held by earlier passes and deleted since.
+      held: Object.fromEntries(
+        Array.from({ length: 100 }, (_, index) => [
+          `deleted-held-${String(index).padStart(3, "0")}`,
+          { reason: "failed", error: "It broke.", attempts: 1, retryAfter },
+        ]),
+      ),
+    });
+    const failing = await insertPage(stored, { id: "over-limit-1" });
+    const fine = await insertPage(stored, { id: "over-limit-2" });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const report = await backfill.runLiveBodyBackfillSweep({
+        deadlineAt: Date.now() + 90_000,
+        convert: (id, options) => {
+          if (id === failing) throw new Error("The conversion broke.");
+          return backfill.convertPageToLiveCopyIfDue(id, options);
+        },
+      });
+
+      expect(report).toMatchObject({
+        status: "ran",
+        outcomes: { converted: 1, hold_limit: 1 },
+        failed: [{ documentId: failing, error: "The conversion broke." }],
+        after: null,
+        passComplete: true,
+        overHoldLimit: {
+          pages: 1,
+          lastDocumentId: failing,
+          lastError: "The conversion broke.",
+        },
+        stoppedEarly: null,
+      });
+      expect(
+        logged.mock.calls.filter(([message]) =>
+          String(message).includes(
+            `page ${failing} is passed without being held`,
+          ),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      logged.mockRestore();
+    }
+    // The pass finished, so it dropped the held pages that were deleted.
+    expect(await sweepState()).toMatchObject({
+      after: null,
+      held: {},
+      overHoldLimit: { pages: 1, lastDocumentId: failing },
+    });
+    expect((await page(fine)).liveBodySwitchedAt).not.toBeNull();
+    expect(await page(failing)).toMatchObject({ liveBodySwitchedAt: null });
+
+    // The next pass starts its own count, and switches the page.
+    await expect(sweep(Date.now() + 61 * 60_000)).resolves.toMatchObject({
+      outcomes: { converted: 1 },
+      overHoldLimit: null,
+    });
+  });
+
+  it("sends a switched page's change event to its readers and to the collections that list it", async () => {
+    const id = await insertPage(stored);
+    await addToCollection(id, "files");
+    changes.events.length = 0;
+
+    await expect(sweep()).resolves.toMatchObject({
+      outcomes: { converted: 1 },
+    });
+
+    const event = {
+      source: "action",
+      type: "change",
+      key: "convert-page-to-live-copy-if-due",
+      owner: ownerEmail,
+      resourceType: "document",
+    };
+    expect(changes.events).toEqual([
+      { ...event, resourceId: id },
+      { ...event, resourceId: `database-page-${id}` },
+    ]);
+  });
+
+  it("counts and logs a change event that fails, and doesn't hold the page it switched", async () => {
+    const id = await insertPage(stored);
+    changes.fail = true;
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(sweep()).resolves.toMatchObject({
+        outcomes: { converted: 1, change_event_failed: 1 },
+        failed: [],
+        passComplete: true,
+      });
+      expect(
+        logged.mock.calls.filter(([message]) =>
+          String(message).includes(
+            `page ${id} switched, but its change event failed`,
+          ),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      changes.fail = false;
+      logged.mockRestore();
+    }
+    expect((await page(id)).liveBodySwitchedAt).not.toBeNull();
+    expect((await sweepState())?.held).toEqual({});
+  });
+
   it("reads no pages while no one has the backfill flag on", async () => {
     const id = await insertPage(stored);
     await setBackfillFlag([]);
@@ -1170,6 +1360,7 @@ describe("the backfill sweep", () => {
       failed: [],
       after: null,
       passComplete: true,
+      overHoldLimit: null,
       stoppedEarly: null,
     });
     expect((await page(idle)).content).toBe(canonicalizeNfm(stored));
