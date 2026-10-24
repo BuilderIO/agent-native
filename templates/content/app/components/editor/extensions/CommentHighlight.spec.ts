@@ -326,6 +326,37 @@ describe("CommentHighlight", () => {
       expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
     });
 
+    it("draws no mark while another block shares its id, and draws it again once it doesn't", () => {
+      // A step from elsewhere, which the editor doesn't renumber, adds a
+      // second video with the thread's id after the first.
+      const state = start();
+      const paired = state.apply(state.tr.insert(8, video("video-1")));
+      expect(commentHighlightKey.getState(paired)!.specs).toEqual([
+        { threadId: "v", from: 7, to: 8, blockId: "video-1" },
+      ]);
+      expect(commentHighlightKey.getState(paired)!.decorations.find()).toEqual(
+        [],
+      );
+
+      for (const unpaired of [
+        paired.apply(paired.tr.delete(8, 9)),
+        paired.apply(
+          paired.tr.setNodeMarkup(8, undefined, {
+            src: "https://example.com/a.mp4",
+            blockId: "video-2",
+          }),
+        ),
+      ]) {
+        const [decoration] = commentHighlightKey
+          .getState(unpaired)!
+          .decorations.find();
+        expect(decoration).toMatchObject({ from: 7, to: 8 });
+        expect(
+          (decoration as any).type.attrs["data-comment-block-threads"],
+        ).toBe("v");
+      }
+    });
+
     it("doesn't follow its id onto a block comments can't sit on", () => {
       const state = start();
       const replaced = state.apply(

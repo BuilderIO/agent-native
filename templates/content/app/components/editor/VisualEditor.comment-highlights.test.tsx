@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -514,6 +515,93 @@ describe("VisualEditor comment highlights", () => {
         expect.objectContaining({ blockId: ids[1], blockType: "video" }),
         expect.any(Number),
       );
+    });
+
+    describe("while two videos share the thread's id", () => {
+      const ORIGINAL = `<video src="${VIDEO}" id="video-demo0001"></video>`;
+      const open = async () => {
+        await act(async () =>
+          render(
+            `Intro.
+${ORIGINAL}
+After.`,
+            [onVideo("v1", "video-demo0001")],
+          ),
+        );
+        await settle();
+        return (
+          container.querySelector(".ProseMirror") as HTMLElement & {
+            editor: Editor;
+          }
+        ).editor;
+      };
+      const videos = (editor: Editor) => {
+        const found: { pos: number; id: string }[] = [];
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === "video")
+            found.push({ pos, id: node.attrs.blockId });
+        });
+        return found;
+      };
+      const fromElsewhere = (editor: Editor, change: (tr: any) => unknown) =>
+        act(async () => {
+          const tr = editor.state.tr;
+          change(tr);
+          editor.view.dispatch(
+            tr.setMeta(ySyncPluginKey, { isChangeOrigin: true }),
+          );
+        });
+
+      it("marks neither video after another tab's copy, and the original again once the copy goes", async () => {
+        const editor = await open();
+        const [original] = videos(editor);
+        const node = editor.state.doc.nodeAt(original.pos)!;
+        await fromElsewhere(editor, (tr) =>
+          tr.insert(original.pos + node.nodeSize, node),
+        );
+        await settle();
+        expect(videos(editor).map((video) => video.id)).toEqual([
+          "video-demo0001",
+          "video-demo0001",
+        ]);
+        expect(marked("v1"), "on neither video").toBeNull();
+
+        const copy = videos(editor)[1];
+        await fromElsewhere(editor, (tr) =>
+          tr.delete(copy.pos, copy.pos + node.nodeSize),
+        );
+        await settle();
+        expect(marked("v1")?.querySelector("video")).not.toBeNull();
+      });
+
+      it("keeps the mark on the original through this tab's paste of a copy", async () => {
+        const editor = await open();
+        const [original] = videos(editor);
+        const node = editor.state.doc.nodeAt(original.pos)!;
+        const rendered: boolean[] = [];
+        const updateState = editor.view.updateState.bind(editor.view);
+        vi.spyOn(editor.view, "updateState").mockImplementation((state) => {
+          rendered.push(
+            commentHighlightKey.getState(state)!.decorations.find().length > 0,
+          );
+          updateState(state);
+        });
+        await act(async () => {
+          editor.view.dispatch(
+            editor.state.tr.insert(original.pos + node.nodeSize, node),
+          );
+        });
+        await settle();
+
+        const [kept, pasted] = videos(editor);
+        expect(kept.id).toBe("video-demo0001");
+        expect(pasted.id).not.toBe("video-demo0001");
+        expect(rendered.length).toBeGreaterThan(0);
+        expect(rendered, "no state without the mark").not.toContain(false);
+        expect(marked("v1")?.querySelector("video"), "on the original").toBe(
+          container.querySelectorAll("video")[0],
+        );
+      });
     });
 
     it("anchors an old video comment to the page's only video", async () => {

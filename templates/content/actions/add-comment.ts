@@ -192,12 +192,13 @@ async function commentTargetDoc(
 
 /**
  * The type of the block a new thread is on. An id more than one video goes
- * by names none of them, so no caller starts a thread on it. An agent names a
- * block it read from the saved page, so a block that isn't there is a mistake
- * to report, as is a video known only by its derived id: that id passes to
- * another video when videos with its source are added or reordered outside an
- * editor. A person's editor can be ahead of the save, so their thread is kept
- * as they started it, and shows as unanchored if the block never arrives.
+ * by names none of them, so no caller starts a thread on it. A caller without
+ * a live editor names a block it read from the saved page, so a block that
+ * isn't there is a mistake to report, as is a video known only by its derived
+ * id: that id passes to another video when videos with its source are added
+ * or reordered outside an editor. A person's editor can be ahead of the save,
+ * so their thread is kept as they started it, and shows as unanchored if the
+ * block never arrives.
  */
 async function resolveCommentBlockType(args: {
   target: PMNode;
@@ -433,9 +434,12 @@ export async function addCommentWithGuard(
   const blockId = args.blockId;
   // A new thread on text the page has always carries context, as one started
   // in the editor does, so it can't be taken for a comment on a video from
-  // before videos had ids, which quoted the video's label with none. An
-  // agent's quote the page doesn't have is refused rather than saved with none.
-  const strict = actorKind === "agent";
+  // before videos had ids, which quoted the video's label with none. Only the
+  // live editor can name a quote or block its save doesn't have yet. Every
+  // other caller reads the saved page, so a target the page lacks is refused
+  // rather than saved with no anchor. Keyed on the caller, not actorKind: a
+  // person can run the CLI too.
+  const strict = ctx?.caller !== "frontend";
   const quotesText = !args.threadId && !!args.quotedText;
   const readsQuoteAnchor =
     quotesText &&

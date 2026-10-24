@@ -14,7 +14,7 @@ import {
   subtreeCollectionDocumentIds,
   type PageSubtreeDocument,
 } from "./_page-subtree.js";
-import createDocument, { creatingCopyOf } from "./create-document.js";
+import createDocument from "./create-document.js";
 import deleteDocument from "./delete-document.js";
 import moveDocument from "./move-document.js";
 
@@ -153,17 +153,14 @@ export default defineAction({
         const current = fresh.get(page.id) ?? page;
         const isRoot = page.id === source.id;
         const copyParentId = isRoot ? parentId : copies.get(page.parentId!)!;
-        const content = current.content ?? "";
-        const created = await creatingCopyOf(content, () =>
-          createDocument.run({
-            title: isRoot ? `Copy of ${current.title}` : current.title,
-            content,
-            ...(current.icon ? { icon: current.icon } : {}),
-            ...(copyParentId
-              ? { parentId: copyParentId }
-              : { spaceId: spaceId ?? undefined }),
-          } as any),
-        );
+        const created = await createDocument.run({
+          title: isRoot ? `Copy of ${current.title}` : current.title,
+          content: current.content ?? "",
+          ...(current.icon ? { icon: current.icon } : {}),
+          ...(copyParentId
+            ? { parentId: copyParentId }
+            : { spaceId: spaceId ?? undefined }),
+        } as any);
         copies.set(page.id, created.id);
         if (isRoot) rootCopyId = created.id;
       }

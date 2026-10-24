@@ -253,11 +253,14 @@ describe("Comments across a Collection", () => {
     const fixture = await seedCollection("counts");
     const [shared, propertyRow, privateRow] = fixture.rows;
     const text = await as(OWNER, () =>
-      (addComment as any).run({
-        documentId: shared,
-        quotedText: "Row 0",
-        content: "Typo here",
-      }),
+      (addComment as any).run(
+        {
+          documentId: shared,
+          quotedText: "Row 0",
+          content: "Typo here",
+        },
+        { caller: "frontend" },
+      ),
     );
     const first = await as(OWNER, () =>
       (addComment as any).run({
@@ -274,11 +277,14 @@ describe("Comments across a Collection", () => {
       }),
     );
     await as(OWNER, () =>
-      (addComment as any).run({
-        documentId: privateRow,
-        quotedText: "Row 2",
-        content: "Private note",
-      }),
+      (addComment as any).run(
+        {
+          documentId: privateRow,
+          quotedText: "Row 2",
+          content: "Private note",
+        },
+        { caller: "frontend" },
+      ),
     );
 
     const owner = await readItems(OWNER, fixture.databaseId);
@@ -327,11 +333,14 @@ describe("Comments across a Collection", () => {
     const fixture = await seedCollection("batch");
     const [shared, propertyRow, privateRow] = fixture.rows;
     const text = await as(OWNER, () =>
-      (addComment as any).run({
-        documentId: shared,
-        quotedText: "Row 0",
-        content: "Typo here",
-      }),
+      (addComment as any).run(
+        {
+          documentId: shared,
+          quotedText: "Row 0",
+          content: "Typo here",
+        },
+        { caller: "frontend" },
+      ),
     );
     await as(COMMENTER, () =>
       (addComment as any).run({
@@ -349,11 +358,14 @@ describe("Comments across a Collection", () => {
       }),
     );
     const hidden = await as(OWNER, () =>
-      (addComment as any).run({
-        documentId: privateRow,
-        quotedText: "Row 2",
-        content: "Private note",
-      }),
+      (addComment as any).run(
+        {
+          documentId: privateRow,
+          quotedText: "Row 2",
+          content: "Private note",
+        },
+        { caller: "frontend" },
+      ),
     );
 
     const commenterRead = await as(COMMENTER, () =>

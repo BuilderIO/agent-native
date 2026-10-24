@@ -63,11 +63,18 @@ function as<T>(run: () => Promise<T>) {
   return runWithRequestContext({ userEmail: OWNER }, run);
 }
 
-// A person comments from the app; an agent comments as a tool.
-const byPerson = (args: Record<string, unknown>) =>
-  as(() => (addComment as any).run(args));
-const byAgent = (args: Record<string, unknown>) =>
-  as(() => (addComment as any).run(args, { caller: "mcp" }));
+// A person comments from the app's live editor; an agent comments as a tool.
+const byCaller = (args: Record<string, unknown>, caller?: string) =>
+  as(() => (addComment as any).run(args, caller ? { caller } : undefined));
+const byPerson = (args: Record<string, unknown>) => byCaller(args, "frontend");
+const byAgent = (args: Record<string, unknown>) => byCaller(args, "mcp");
+// Callers that read the saved page rather than a live editor.
+const SAVED_PAGE_CALLERS = [
+  { label: "the CLI", caller: "cli" },
+  { label: "an HTTP call", caller: "http" },
+  { label: "an automation", caller: "automation" },
+  { label: "a call with no caller", caller: undefined },
+];
 
 async function seedPage(id: string) {
   await getDb()
@@ -195,6 +202,21 @@ describe("add-comment with a quote and no context", () => {
     ).toEqual({ statusCode: 400, errorCode: "comment_quote_not_found" });
   });
 
+  it.each(SAVED_PAGE_CALLERS)(
+    "tells $label when the page doesn't have its quote",
+    async ({ caller }) => {
+      const page = await seedNotes(`quote-missing-${caller ?? "none"}`);
+      expect(
+        await rejection(
+          byCaller(
+            { documentId: page, content: "Gone?", quotedText: "Intro" },
+            caller,
+          ),
+        ),
+      ).toEqual({ statusCode: 400, errorCode: "comment_quote_not_found" });
+    },
+  );
+
   it("leaves a person's quote the page doesn't have without context", async () => {
     const page = await seedNotes("quote-missing-person");
     const created = await byPerson({
@@ -289,6 +311,25 @@ describe("add-comment with blockId", () => {
       ),
     ).toEqual({ statusCode: 400, errorCode: "comment_block_id_unsaved" });
   });
+
+  it.each(SAVED_PAGE_CALLERS)(
+    "tells $label to save an id on a video that goes by a derived one",
+    async ({ caller }) => {
+      const page = await seedPage(`block-derived-${caller ?? "none"}`);
+      expect(
+        await rejection(
+          byCaller(
+            {
+              documentId: page,
+              content: "Louder",
+              blockId: derivedVideoBlockId(LEGACY, 0),
+            },
+            caller,
+          ),
+        ),
+      ).toEqual({ statusCode: 400, errorCode: "comment_block_id_unsaved" });
+    },
+  );
 
   it("finds a video saved without an id for a person, by the id every reader derives", async () => {
     const page = await seedPage("block-derived-person");
@@ -542,17 +583,27 @@ describe("add-comment with blockId", () => {
     ).toEqual({ statusCode: 400, errorCode: "comment_block_id_shared" });
   });
 
-  it("refuses a new page that gives two videos one id", async () => {
+  it("creates a page that gives two videos one id, which no thread is on yet", async () => {
     const video = `<video src="${SAVED}" id="video-twice001"></video>`;
+    const created = await as(() =>
+      (createDocument as any).run(
+        { title: "Twice", content: `${video}\n${video}` },
+        { caller: "mcp" },
+      ),
+    );
+    const [stored] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.id));
+    expect(stored.content).toBe(`${video}\n${video}`);
     expect(
       await rejection(
-        as(() =>
-          (createDocument as any).run(
-            { title: "Twice", content: `${video}\n${video}` },
-            { caller: "mcp" },
-          ),
-        ),
+        byAgent({
+          documentId: created.id,
+          content: "Which one?",
+          blockId: "video-twice001",
+        }),
       ),
-    ).toEqual({ statusCode: 422, errorCode: "DOCUMENT_VIDEO_ID_SHARED" });
+    ).toEqual({ statusCode: 400, errorCode: "comment_block_id_shared" });
   });
 });

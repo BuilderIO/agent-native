@@ -63,8 +63,9 @@ function as<T>(run: () => Promise<T>) {
   return runWithRequestContext({ userEmail: OWNER }, run);
 }
 
+// As the editor sends them, which can quote text its save doesn't have yet.
 const add = (args: Record<string, unknown>) =>
-  as(() => (addComment as any).run(args));
+  as(() => (addComment as any).run(args, { caller: "frontend" }));
 
 /**
  * A Collection with its primary Blocks field, a second Blocks field, and a

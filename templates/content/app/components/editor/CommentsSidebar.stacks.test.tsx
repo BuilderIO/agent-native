@@ -412,6 +412,33 @@ describe("comment stacks in the margin", () => {
     ).toBe("editor.media.video");
   });
 
+  it("lists a thread on a video with no mark as unanchored, and puts it beside the video once it has one", async () => {
+    const clip = thread("clip", ["2026-10-20T06:00:00Z"]);
+    clip.quotedText = null;
+    clip.comments[0].quoted_text = null;
+    clip.block = { blockId: "video-1", blockType: "video" };
+
+    const unanchored = () =>
+      container.querySelector(
+        '[data-comment-layout-thread="clip"] [data-unanchored-comments]',
+      );
+
+    render([THREADS[5], clip]);
+    await wait(50);
+    expect(unanchored()).not.toBeNull();
+
+    scroll
+      .querySelector(".ProseMirror")!
+      .insertAdjacentHTML(
+        "beforeend",
+        '<div data-comment-block-threads="clip"><video></video></div>',
+      );
+    await wait(50);
+    expect(unanchored()).toBeNull();
+    expect(margin()).toEqual(["solo", "clip"]);
+    expect(container.textContent).not.toContain("comments.unanchored");
+  });
+
   it("stacks a thread on a video with the highlights in its block", () => {
     const clip = thread("clip", ["2026-10-21T06:00:00Z"]);
     clip.quotedText = null;

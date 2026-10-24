@@ -13,6 +13,7 @@ import DiffMatchPatch, {
 import {
   commentAnchorBlockAt,
   commentAnchorBlockById,
+  sharedCommentAnchorBlockIds,
 } from "../comment-block-anchors";
 
 export interface CommentHighlightSpec {
@@ -174,8 +175,10 @@ function mapHighlight(
 }
 
 // A thread on a block follows the block's id wherever an edit or a swap moves
-// it, and goes when the block does. Where a pasted copy shares the id until
-// the editor renumbers it, the block the thread was on keeps it.
+// it, and goes when the block does. Where a copy shares the id, the thread
+// stays with the block it was on, but draws no mark while the id is shared
+// (see buildDecorations): a reload names neither block, so a live tab mustn't
+// pick one. Once the copy is renumbered or gone, the mark comes back.
 function mapBlock(
   tr: Transaction,
   doc: ProseMirrorNode,
@@ -207,8 +210,10 @@ function buildDecorations(
   // Several threads on one block share one mark: a node decoration's
   // attributes replace another's on the same node.
   const blocks = new Map<number, { to: number; threadIds: string[] }>();
+  const shared = sharedCommentAnchorBlockIds(doc);
   for (const spec of specs) {
     if (spec.blockId) {
+      if (shared.has(spec.blockId)) continue;
       const block = blocks.get(spec.from);
       if (block) block.threadIds.push(spec.threadId);
       else blocks.set(spec.from, { to: spec.to, threadIds: [spec.threadId] });
