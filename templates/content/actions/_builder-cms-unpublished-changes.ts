@@ -56,6 +56,19 @@ export type BuilderCmsPublicationIntentRead =
   | { state: "staged"; transition: BuilderCmsPublicationTransitionIntent }
   | { state: "invalid" };
 
+/**
+ * The source fields Builder changed after Content edited them, while the
+ * edit waits for a push. A refresh keeps Content's edit, so the review flags
+ * these until the edit is pushed or matches Builder.
+ */
+export const BUILDER_CMS_EDIT_CONFLICTS_KEY =
+  "__agent_native_builder_edit_conflicts";
+
+export type BuilderCmsEditConflictsRead =
+  | { state: "none" }
+  | { state: "recorded"; sourceFieldKeys: string[] }
+  | { state: "invalid" };
+
 export type BuilderCmsUnpublishedChangesRead =
   | { state: "none" }
   | { state: "pending"; changes: BuilderCmsUnpublishedChanges }
@@ -223,6 +236,41 @@ export function withBuilderCmsPublicationIntent(
   return next;
 }
 
+export function readBuilderCmsEditConflicts(
+  sourceValues: Record<string, DocumentPropertyValue> | null | undefined,
+): BuilderCmsEditConflictsRead {
+  const raw = sourceValues?.[BUILDER_CMS_EDIT_CONFLICTS_KEY];
+  if (raw === undefined || raw === null) return { state: "none" };
+  return Array.isArray(raw) &&
+    raw.length > 0 &&
+    raw.every((key) => typeof key === "string" && key)
+    ? { state: "recorded", sourceFieldKeys: raw }
+    : { state: "invalid" };
+}
+
+/**
+ * Replaces one writer's keys in the edit-conflicts record: a refresh's fields,
+ * its title, a body read, and a push each own theirs and keep the others'. An
+ * unreadable record is replaced; the review flagged it until then.
+ */
+export function withBuilderCmsEditConflicts(
+  sourceValues: Record<string, DocumentPropertyValue>,
+  args: { ownedKeys: Iterable<string>; conflictedKeys: Iterable<string> },
+): Record<string, DocumentPropertyValue> {
+  const read = readBuilderCmsEditConflicts(sourceValues);
+  const owned = new Set(args.ownedKeys);
+  const keys = new Set(
+    read.state === "recorded"
+      ? read.sourceFieldKeys.filter((key) => !owned.has(key))
+      : [],
+  );
+  for (const key of args.conflictedKeys) keys.add(key);
+  const next = { ...sourceValues };
+  if (keys.size > 0) next[BUILDER_CMS_EDIT_CONFLICTS_KEY] = [...keys].sort();
+  else delete next[BUILDER_CMS_EDIT_CONFLICTS_KEY];
+  return next;
+}
+
 /**
  * Builder's own status words for an entry, as its content list shows them.
  * Unpublished changes are Content's saves or Builder's own autosaves. An
@@ -356,7 +404,7 @@ export function builderSourceValuesKeepingUnpublishedChanges(
   args: KeepingUnpublishedChangesArgs,
 ): Record<string, DocumentPropertyValue> {
   const refreshed = sourceValuesKeepingUnpublishedChanges(args);
-  return withBuilderCmsPublicationIntent(
+  const next = withBuilderCmsPublicationIntent(
     refreshed,
     publicationIntentAfterRead({
       existing: args.existing,
@@ -364,6 +412,10 @@ export function builderSourceValuesKeepingUnpublishedChanges(
       builderValues: args.builderValues,
     }),
   );
+  // Only the writer that compares an edit with Builder settles its conflict.
+  const conflicts = args.existing?.[BUILDER_CMS_EDIT_CONFLICTS_KEY];
+  if (conflicts !== undefined) next[BUILDER_CMS_EDIT_CONFLICTS_KEY] = conflicts;
+  return next;
 }
 
 interface KeepingUnpublishedChangesArgs {

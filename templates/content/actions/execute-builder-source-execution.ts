@@ -50,8 +50,10 @@ import {
 import {
   builderCmsSourceFieldMatches,
   builderCmsUnpublishedChangesAfterWrite,
+  readBuilderCmsEditConflicts,
   readBuilderCmsPublicationIntent,
   readBuilderCmsUnpublishedChanges,
+  withBuilderCmsEditConflicts,
   withBuilderCmsPublicationIntent,
   withBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes.js";
@@ -494,10 +496,23 @@ export function builderCmsReconciledSourceValuesJson(args: {
   // A push settles only the staged change it sent. One staged while it was
   // in flight, or left out of its review, still waits for a push.
   const staged = readBuilderCmsPublicationIntent(existing);
-  const next =
+  const settledIntent =
     staged.state === "staged" && staged.transition === effect
       ? withBuilderCmsPublicationIntent(existing, null)
       : { ...existing };
+  // So does an edit conflict: the review showed it, and the push overwrote
+  // Builder's change.
+  const pushedKeys = args.changeSet.fieldChanges.map(
+    (field) => field.sourceFieldKey,
+  );
+  if (args.changeSet.bodyChange) pushedKeys.push(BUILDER_CMS_BODY_CONTENT_KEY);
+  const next =
+    readBuilderCmsEditConflicts(existing).state === "recorded"
+      ? withBuilderCmsEditConflicts(settledIntent, {
+          ownedKeys: pushedKeys,
+          conflictedKeys: [],
+        })
+      : settledIntent;
   const published = builderCmsPublishedAfterWrite({
     effect: args.plan.payload.effect,
     livePreflight: args.plan.payload.livePreflight,

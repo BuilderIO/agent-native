@@ -14,8 +14,10 @@ import {
   BUILDER_CMS_ENTRY_NAME_KEY,
 } from "./_builder-cms-source-adapter";
 import {
+  BUILDER_CMS_EDIT_CONFLICTS_KEY,
   BUILDER_CMS_PUBLICATION_INTENT_KEY,
   BUILDER_CMS_UNPUBLISHED_CHANGES_KEY,
+  withBuilderCmsEditConflicts,
   withBuilderCmsPublicationIntent,
   withBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes";
@@ -1889,6 +1891,49 @@ describe("execute Builder source execution", () => {
     expect(reconciled("update_in_place")).toMatchObject({
       [BUILDER_CMS_PUBLICATION_INTENT_KEY]: "publish",
     });
+  });
+
+  it("settles the edit conflicts a push overwrites and keeps the rest", () => {
+    const reconciled = (pushed: Partial<ContentDatabaseSourceChangeSet>) =>
+      JSON.parse(
+        builderCmsReconciledSourceValuesJson({
+          existingSourceValuesJson: JSON.stringify(
+            withBuilderCmsEditConflicts(
+              { "data.title": "Old title" },
+              {
+                ownedKeys: [],
+                conflictedKeys: [
+                  "data.title",
+                  "data.author",
+                  BUILDER_CMS_BODY_CONTENT_KEY,
+                ],
+              },
+            ),
+          ),
+          snapshotSourceValues: undefined,
+          changeSet: changeSet(pushed),
+          plan: {
+            payload: { effect: "update_in_place", request: { body: {} } },
+          } as unknown as Parameters<
+            typeof builderCmsReconciledSourceValuesJson
+          >[0]["plan"],
+        }),
+      );
+
+    expect(reconciled({})[BUILDER_CMS_EDIT_CONFLICTS_KEY]).toEqual([
+      BUILDER_CMS_BODY_CONTENT_KEY,
+      "data.author",
+    ]);
+    expect(
+      reconciled({
+        fieldChanges: [],
+        bodyChange: {
+          summary: "Body changed",
+          currentExcerpt: null,
+          proposedExcerpt: "Body",
+        },
+      })[BUILDER_CMS_EDIT_CONFLICTS_KEY],
+    ).toEqual(["data.author", "data.title"]);
   });
 
   it("stores Builder's authoritative updated timestamp after a successful write", () => {

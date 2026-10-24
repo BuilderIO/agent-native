@@ -59,6 +59,7 @@ import {
 import {
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
+  parsePropertyValue,
   serializePropertyOptions,
   serializePropertyValue,
   type DocumentPropertyOption,
@@ -125,8 +126,11 @@ import {
   builderCmsLiveBaselineValues,
   builderCmsLiveBodyBaseline,
   builderSourceValuesKeepingUnpublishedChanges,
+  BUILDER_CMS_EDIT_CONFLICTS_KEY,
+  readBuilderCmsEditConflicts,
   readBuilderCmsPublicationIntent,
   readBuilderCmsUnpublishedChanges,
+  withBuilderCmsEditConflicts,
 } from "./_builder-cms-unpublished-changes.js";
 import {
   builderCmsWriteSettingsFromJson,
@@ -942,9 +946,29 @@ function reviewedChangeSet(args: {
     riskReasons.push("publish mode");
   }
 
+  const editConflicts =
+    sourceRow &&
+    args.changeSet.direction === "outbound" &&
+    args.changeSet.state !== "applied" &&
+    args.changeSet.state !== "rejected"
+      ? readBuilderCmsEditConflicts(
+          parseObject<Record<string, DocumentPropertyValue>>(
+            sourceRow.sourceValuesJson,
+          ),
+        )
+      : null;
   const sourceChanged =
-    sourceRow?.lastSourceUpdatedAt &&
-    sourceRow.lastSourceUpdatedAt > args.changeSet.updatedAt;
+    (sourceRow?.lastSourceUpdatedAt &&
+      sourceRow.lastSourceUpdatedAt > args.changeSet.updatedAt) ||
+    editConflicts?.state === "invalid" ||
+    (editConflicts?.state === "recorded" &&
+      editConflicts.sourceFieldKeys.some((key) =>
+        key === BUILDER_CMS_BODY_CONTENT_KEY
+          ? !!args.changeSet.bodyChange
+          : args.changeSet.fieldChanges.some(
+              (change) => change.sourceFieldKey === key,
+            ),
+      ));
   const conflictState: ContentDatabaseSourceConflictState = sourceChanged
     ? "source_changed"
     : "none";
@@ -1048,6 +1072,28 @@ function sameMappedSourceFieldValue(
     );
   }
   return sameSourceFieldValue(normalizedLocalValue, normalizedSourceValue);
+}
+
+/** The Builder title a page's title is compared with. */
+function builderRowTitle(
+  values: Record<string, DocumentPropertyValue>,
+  sourceDisplayKey: string,
+) {
+  const title = values["data.title"];
+  return typeof title === "string" && title.trim()
+    ? title.trim()
+    : sourceDisplayKey.trim();
+}
+
+/** The source value a mapped field's local value is compared with. */
+function builderSourceFieldComparisonValue(
+  field: { sourceFieldKey: string; sourceFieldType?: string | null },
+  values: Record<string, DocumentPropertyValue>,
+) {
+  const value = values[field.sourceFieldKey];
+  return field.sourceFieldType?.trim().toLowerCase() === "reference"
+    ? (values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value)
+    : value;
 }
 
 function stringSourceValue(
@@ -2413,6 +2459,7 @@ async function processBuilderBodyHydrationJob(
           await markPendingIfReplaced();
           return;
         }
+        await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
         // The next refresh compares the version with the row as written.
         const writtenEntry = {
           ...emptyBodyRead.entry,
@@ -2441,6 +2488,7 @@ async function processBuilderBodyHydrationJob(
           });
           return;
         }
+        await materializeBodyReadFieldValues(tx, { row, sourceValues, now });
         const [deleted] = await tx
           .delete(schema.contentDatabaseBodyHydrationQueue)
           .where(queueRowCas)
@@ -2567,6 +2615,23 @@ async function processBuilderBodyHydrationJob(
       currentContent,
       nextContent,
     });
+  // An edited body stays, and the row records it when Builder changed the
+  // body too, as a refresh does for a field.
+  const previousConflicts = readBuilderCmsEditConflicts(sourceValues);
+  nextValues = withBuilderCmsEditConflicts(nextValues, {
+    ownedKeys: [BUILDER_CMS_BODY_CONTENT_KEY],
+    conflictedKeys:
+      !shouldWriteBody &&
+      currentContent !== nextContent &&
+      (previousContent !== nextContent ||
+        previousConflicts.state === "invalid" ||
+        (previousConflicts.state === "recorded" &&
+          previousConflicts.sourceFieldKeys.includes(
+            BUILDER_CMS_BODY_CONTENT_KEY,
+          )))
+        ? [BUILDER_CMS_BODY_CONTENT_KEY]
+        : [],
+  });
   let wroteBody = false;
   await db.transaction(async (tx) => {
     const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
@@ -2600,10 +2665,10 @@ async function processBuilderBodyHydrationJob(
       await markPendingIfReplaced();
       return;
     }
+    // The membership before the page, as a save takes them: its status and
+    // properties are written after the body.
+    await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
     if (shouldWriteBody) {
-      // The membership before the page, as a save takes them: its status
-      // is written after the body.
-      await lockExistingDatabaseMemberships(tx, [row.databaseItemId]);
       const contentCas =
         isEffectivelyEmptyDocumentContent(currentContent) &&
         isEffectivelyEmptyDocumentContent(previousContent)
@@ -2657,6 +2722,7 @@ async function processBuilderBodyHydrationJob(
       });
       return;
     }
+    await materializeBodyReadFieldValues(tx, { row, sourceValues, now });
     const [deleted] = await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(queueRowCas)
@@ -2708,6 +2774,38 @@ async function processBuilderBodyHydrationJob(
   // snapshot into its Y.Doc. Deleting collab state here can race a connected
   // client, briefly bootstrap an empty fragment, and let that stale client
   // repersist the empty state over the newly hydrated Builder body.
+}
+
+/**
+ * A live body read also returns Builder's current field values, which can be
+ * newer than the refresh that queued it. The row's properties follow them as
+ * a refresh's do; otherwise the next refresh would take a property left
+ * behind for Content's edit. Call it under the row's membership lock.
+ */
+async function materializeBodyReadFieldValues(
+  tx: any,
+  args: {
+    row: ContentDatabaseBodyHydrationQueueRowDb;
+    sourceValues: Record<string, DocumentPropertyValue>;
+    now: string;
+  },
+) {
+  await materializeSourceFieldPropertyValues({
+    database: { ownerEmail: args.row.ownerEmail },
+    sourceId: args.row.sourceId,
+    fields: await tx
+      .select()
+      .from(schema.contentDatabaseSourceFields)
+      .where(
+        eq(schema.contentDatabaseSourceFields.sourceId, args.row.sourceId),
+      ),
+    documentIds: [args.row.documentId],
+    now: args.now,
+    db: tx,
+    previousSourceValuesByDocumentId: new Map([
+      [args.row.documentId, args.sourceValues],
+    ]),
+  });
 }
 
 type PreparedPristineBuilderBodyHydration = {
@@ -3997,11 +4095,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     const rowSourceValues = stagedTransition
       ? builderCmsLiveBaselineValues(storedSourceValues)
       : storedSourceValues;
-    const sourceTitleValue = rowSourceValues["data.title"];
-    const sourceTitle =
-      typeof sourceTitleValue === "string" && sourceTitleValue.trim()
-        ? sourceTitleValue.trim()
-        : row.sourceDisplayKey.trim();
+    const sourceTitle = builderRowTitle(rowSourceValues, row.sourceDisplayKey);
     const localTitle = args.documentTitleById.get(row.documentId)?.trim() ?? "";
     const fieldChanges: ContentDatabaseSourceFieldChange[] = [];
     if (localTitle && localTitle !== sourceTitle) {
@@ -4020,16 +4114,10 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         if (!rowLocalValues.has(field.localFieldKey)) continue;
         const localValue = rowLocalValues.get(field.localFieldKey);
         const baseValue = rowSourceValues[field.sourceFieldKey];
-        const comparisonBaseValue =
-          field.sourceFieldType?.trim().toLowerCase() === "reference"
-            ? (rowSourceValues[
-                builderReferenceIdSourceValueKey(field.sourceFieldKey)
-              ] ?? baseValue)
-            : baseValue;
         if (
           sameMappedSourceFieldValue(
             localValue,
-            comparisonBaseValue,
+            builderSourceFieldComparisonValue(field, rowSourceValues),
             field.propertyType,
             field.propertyOptions,
           )
@@ -6217,6 +6305,8 @@ export async function replaceMockSourceRows(args: {
   existingBuilderRows?: Map<string, ExistingBuilderSourceRowIdentity>;
   builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry>;
   documentIds?: string[];
+  /** The source's fields, to write the refreshed values into properties. */
+  fields?: ContentDatabaseSourceFieldRowDb[];
 }) {
   if (args.sourceType === "builder-cms") {
     await ensureBuilderStatusProperty({
@@ -6249,14 +6339,14 @@ export async function replaceMockSourceRows(args: {
     ]);
     // The caller read these rows before this lock, so a save or staged status
     // change that landed since is only in the locked rows; build on those.
-    const rows = args.existingBuilderRows
-      ? mockSourceRowsForSeed({
-          ...args,
-          existingBuilderRows: await lockedExistingBuilderRows(
-            tx,
-            scope,
-            args.existingBuilderRows,
-          ),
+    const existingBuilderRows = args.existingBuilderRows
+      ? await lockedExistingBuilderRows(tx, scope, args.existingBuilderRows)
+      : null;
+    const rows = existingBuilderRows
+      ? await refreshBuilderPageTitles(tx, {
+          rows: mockSourceRowsForSeed({ ...args, existingBuilderRows }),
+          previousRows: existingBuilderRows,
+          now: args.now,
         })
       : lockRows;
     await tx.delete(schema.contentDatabaseSourceRows).where(scope);
@@ -6280,7 +6370,117 @@ export async function replaceMockSourceRows(args: {
         now: args.now,
       });
     }
+    if (args.fields && rows.length > 0) {
+      // Under the membership lock, so a property saved during the refresh's
+      // Builder read is compared, not overwritten.
+      await materializeSourceFieldPropertyValues({
+        database: { ownerEmail: args.ownerEmail },
+        sourceId: args.sourceId,
+        fields: args.fields,
+        documentIds: rows.map((row) => row.documentId),
+        now: args.now,
+        db: tx,
+        previousSourceValuesByDocumentId: existingBuilderRows
+          ? new Map(
+              Array.from(existingBuilderRows.values(), (row) => [
+                row.documentId,
+                parseObject<Record<string, DocumentPropertyValue>>(
+                  row.sourceValuesJson,
+                ) ?? {},
+              ]),
+            )
+          : undefined,
+      });
+    }
   });
+}
+
+/**
+ * Gives each refreshed page Builder's title unless Content edited it. An
+ * edited title stays, and its row records the title when Builder changed it
+ * too, as a refresh does for a field.
+ */
+async function refreshBuilderPageTitles(
+  tx: any,
+  args: {
+    rows: ReturnType<typeof mockSourceRowsForSeed>;
+    previousRows: Map<string, ExistingBuilderSourceRowIdentity>;
+    now: string;
+  },
+) {
+  const refreshed = args.rows.filter((row) =>
+    args.previousRows.has(row.documentId),
+  );
+  if (refreshed.length === 0) return args.rows;
+  // Pages after memberships, as saves take them.
+  await lockDocumentRows(
+    tx as ReturnType<typeof getDb>,
+    refreshed.map((row) => row.documentId),
+  );
+  const localTitleById = new Map<string, string>();
+  for (const idChunk of chunks(
+    refreshed.map((row) => row.documentId),
+    idChunkSize(),
+  )) {
+    // guard:allow-unscoped — reads the titles of the source's own pages, which this refresh locked with their rows.
+    const documents = await tx
+      .select({ id: schema.documents.id, title: schema.documents.title })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, idChunk));
+    for (const document of documents) {
+      localTitleById.set(document.id, document.title.trim());
+    }
+  }
+  const rows: typeof args.rows = [];
+  for (const row of args.rows) {
+    const previous = args.previousRows.get(row.documentId);
+    const localTitle = localTitleById.get(row.documentId);
+    if (!previous || localTitle === undefined) {
+      rows.push(row);
+      continue;
+    }
+    const previousValues =
+      parseObject<Record<string, DocumentPropertyValue>>(
+        previous.sourceValuesJson,
+      ) ?? {};
+    const sourceValues =
+      parseObject<Record<string, DocumentPropertyValue>>(
+        row.sourceValuesJson,
+      ) ?? {};
+    const previousTitle = builderRowTitle(
+      previousValues,
+      previous.sourceDisplayKey,
+    );
+    const nextTitle = builderRowTitle(sourceValues, row.sourceDisplayKey);
+    let conflicted = false;
+    // The review lists no change for an empty title, so it isn't an edit.
+    if (!localTitle || localTitle === previousTitle) {
+      if (nextTitle && nextTitle !== localTitle) {
+        await tx
+          .update(schema.documents)
+          .set({ title: nextTitle, updatedAt: args.now })
+          .where(eq(schema.documents.id, row.documentId));
+      }
+    } else if (localTitle !== nextTitle) {
+      const previousConflicts = readBuilderCmsEditConflicts(previousValues);
+      conflicted =
+        nextTitle !== previousTitle ||
+        previousConflicts.state === "invalid" ||
+        (previousConflicts.state === "recorded" &&
+          previousConflicts.sourceFieldKeys.includes("data.title"));
+    }
+    const nextSourceValues = withBuilderCmsEditConflicts(sourceValues, {
+      ownedKeys: ["data.title"],
+      conflictedKeys: conflicted ? ["data.title"] : [],
+    });
+    rows.push(
+      stableValueString(nextSourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY]) ===
+        stableValueString(sourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY])
+        ? row
+        : { ...row, sourceValuesJson: JSON.stringify(nextSourceValues) },
+    );
+  }
+  return rows;
 }
 
 async function lockedExistingBuilderRows(
@@ -6422,16 +6622,27 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
   return next;
 }
 
+/**
+ * Writes a source's row values into the collection's properties. A refresh
+ * passes the values its rows held before it: a property that no longer
+ * matches them is Content's unsaved edit, so it stays, and the row records
+ * the field when Builder changed it too.
+ */
 export async function materializeSourceFieldPropertyValues(args: {
-  database: ContentDatabaseRow;
+  database: Pick<ContentDatabaseRow, "ownerEmail">;
   sourceId: string;
   fields: ContentDatabaseSourceFieldRowDb[];
   documentIds?: string[];
   now: string;
+  db?: any;
+  previousSourceValuesByDocumentId?: Map<
+    string,
+    Record<string, DocumentPropertyValue>
+  >;
 }) {
   const boundFields = args.fields.filter((field) => field.propertyId);
   if (boundFields.length === 0) return;
-  const db = getDb();
+  const db = args.db ?? getDb();
   const documentIdSet =
     args.documentIds && args.documentIds.length > 0
       ? new Set(args.documentIds)
@@ -6439,7 +6650,9 @@ export async function materializeSourceFieldPropertyValues(args: {
   const propertyIds = Array.from(
     new Set(boundFields.map((field) => field.propertyId!)),
   );
-  const definitions = await db
+  const definitions: Array<
+    typeof schema.documentPropertyDefinitions.$inferSelect
+  > = await db
     .select()
     .from(schema.documentPropertyDefinitions)
     .where(inArray(schema.documentPropertyDefinitions.id, propertyIds));
@@ -6447,6 +6660,7 @@ export async function materializeSourceFieldPropertyValues(args: {
     definitions.map((definition) => [definition.id, definition]),
   );
   const scopedRows: Array<{
+    id: string;
     documentId: string;
     sourceValuesJson: string;
   }> = [];
@@ -6455,6 +6669,7 @@ export async function materializeSourceFieldPropertyValues(args: {
       scopedRows.push(
         ...(await db
           .select({
+            id: schema.contentDatabaseSourceRows.id,
             documentId: schema.contentDatabaseSourceRows.documentId,
             sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
           })
@@ -6476,6 +6691,7 @@ export async function materializeSourceFieldPropertyValues(args: {
     scopedRows.push(
       ...(await db
         .select({
+          id: schema.contentDatabaseSourceRows.id,
           documentId: schema.contentDatabaseSourceRows.documentId,
           sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
         })
@@ -6545,24 +6761,79 @@ export async function materializeSourceFieldPropertyValues(args: {
     typeof schema.documentPropertyValues.$inferInsert
   >();
 
+  const boundSourceFieldKeys = new Set(
+    boundFields.map((field) => field.sourceFieldKey),
+  );
+  const editConflictUpdates: Array<{ id: string; sourceValuesJson: string }> =
+    [];
+
   for (const row of scopedRows) {
     const sourceValues =
       parseObject<Record<string, DocumentPropertyValue>>(
         row.sourceValuesJson,
       ) ?? {};
+    const previousSourceValues = args.previousSourceValuesByDocumentId?.get(
+      row.documentId,
+    );
+    const previousConflicts = previousSourceValues
+      ? readBuilderCmsEditConflicts(previousSourceValues)
+      : null;
+    const conflicts = new Set<string>();
     for (const field of boundFields) {
       const propertyId = field.propertyId!;
       const definition = definitionById.get(propertyId);
       if (!definition) continue;
+      const type = definition.type as DocumentProperty["definition"]["type"];
+      const options = parsePropertyOptions(definition.optionsJson);
+      const key = `${row.documentId}\0${propertyId}`;
+      const existing = existingByDocumentAndProperty.get(key);
+      if (previousSourceValues && existing) {
+        const localValue = parsePropertyValue(existing.valueJson);
+        const previousValue = builderSourceFieldComparisonValue(
+          field,
+          previousSourceValues,
+        );
+        const editedInContent =
+          existing.valueJson !==
+            serializePropertyValue(
+              normalizePropertyValueWithOptions(
+                type,
+                previousSourceValues[field.sourceFieldKey],
+                options,
+              ),
+            ) &&
+          !sameMappedSourceFieldValue(localValue, previousValue, type, options);
+        if (editedInContent) {
+          const nextValue = builderSourceFieldComparisonValue(
+            field,
+            sourceValues,
+          );
+          const flaggedBefore =
+            previousConflicts?.state === "invalid" ||
+            (previousConflicts?.state === "recorded" &&
+              previousConflicts.sourceFieldKeys.includes(field.sourceFieldKey));
+          if (
+            !sameMappedSourceFieldValue(localValue, nextValue, type, options) &&
+            (flaggedBefore ||
+              !sameMappedSourceFieldValue(
+                previousValue,
+                nextValue,
+                type,
+                options,
+              ))
+          ) {
+            conflicts.add(field.sourceFieldKey);
+          }
+          continue;
+        }
+      }
       const normalized = normalizePropertyValueWithOptions(
-        definition.type as DocumentProperty["definition"]["type"],
+        type,
         sourceValues[field.sourceFieldKey],
-        parsePropertyOptions(definition.optionsJson),
+        options,
       );
       if (normalized === null) continue;
       const valueJson = serializePropertyValue(normalized);
-      const key = `${row.documentId}\0${propertyId}`;
-      const existing = existingByDocumentAndProperty.get(key);
       if (existing?.valueJson === valueJson) continue;
       upsertsByDocumentAndProperty.set(key, {
         id: existing?.id ?? nanoid(),
@@ -6574,6 +6845,26 @@ export async function materializeSourceFieldPropertyValues(args: {
         updatedAt: args.now,
       });
     }
+    if (!previousSourceValues) continue;
+    const nextSourceValues = withBuilderCmsEditConflicts(sourceValues, {
+      ownedKeys: boundSourceFieldKeys,
+      conflictedKeys: conflicts,
+    });
+    if (
+      stableValueString(nextSourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY]) !==
+      stableValueString(sourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY])
+    ) {
+      editConflictUpdates.push({
+        id: row.id,
+        sourceValuesJson: JSON.stringify(nextSourceValues),
+      });
+    }
+  }
+  for (const update of editConflictUpdates) {
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({ sourceValuesJson: update.sourceValuesJson, updatedAt: args.now })
+      .where(eq(schema.contentDatabaseSourceRows.id, update.id));
   }
   for (const chunk of chunks(
     Array.from(upsertsByDocumentAndProperty.values()),
@@ -7632,17 +7923,12 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         existingBuilderRows,
         builderEntriesByDocumentId,
         documentIds: fetchedDocumentIds,
-      });
-      const refreshedFields = await db
-        .select()
-        .from(schema.contentDatabaseSourceFields)
-        .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-      await materializeSourceFieldPropertyValues({
-        database: args.database,
-        sourceId: args.source.id,
-        fields: refreshedFields,
-        documentIds: fetchedDocumentIds,
-        now: args.now,
+        fields: await db
+          .select()
+          .from(schema.contentDatabaseSourceFields)
+          .where(
+            eq(schema.contentDatabaseSourceFields.sourceId, args.source.id),
+          ),
       });
       await enqueueBuilderBodyHydrationForItems({
         sourceId: args.source.id,
@@ -7753,17 +8039,10 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     now: args.now,
     existingBuilderRows,
     builderEntriesByDocumentId,
-  });
-  const refreshedFields = await db
-    .select()
-    .from(schema.contentDatabaseSourceFields)
-    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-  await materializeSourceFieldPropertyValues({
-    database: args.database,
-    sourceId: args.source.id,
-    fields: refreshedFields,
-    documentIds: itemsToLink.map((item) => item.document.id),
-    now: args.now,
+    fields: await db
+      .select()
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id)),
   });
   if (builderRead.state === "live") {
     await enqueueBuilderBodyHydrationForItems({
