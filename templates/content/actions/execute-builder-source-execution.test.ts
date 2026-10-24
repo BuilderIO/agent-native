@@ -14,7 +14,9 @@ import {
   BUILDER_CMS_ENTRY_NAME_KEY,
 } from "./_builder-cms-source-adapter";
 import {
+  BUILDER_CMS_PUBLICATION_INTENT_KEY,
   BUILDER_CMS_UNPUBLISHED_CHANGES_KEY,
+  withBuilderCmsPublicationIntent,
   withBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes";
 import {
@@ -1787,6 +1789,39 @@ describe("execute Builder source execution", () => {
       [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
     });
     expect(values).not.toHaveProperty("data.blocks");
+  });
+
+  it("settles a staged publish or unpublish once one is sent", () => {
+    const existingSourceValuesJson = JSON.stringify(
+      withBuilderCmsPublicationIntent(
+        { published: "draft", "data.title": "Old title" },
+        "publish",
+      ),
+    );
+    const reconciled = (effect: string) =>
+      JSON.parse(
+        builderCmsReconciledSourceValuesJson({
+          existingSourceValuesJson,
+          snapshotSourceValues: undefined,
+          changeSet: changeSet({ pushMode: "publish" }),
+          plan: {
+            payload: { effect, request: { body: {} } },
+          } as unknown as Parameters<
+            typeof builderCmsReconciledSourceValuesJson
+          >[0]["plan"],
+        }),
+      );
+
+    expect(reconciled("unpublish")).not.toHaveProperty(
+      BUILDER_CMS_PUBLICATION_INTENT_KEY,
+    );
+    expect(reconciled("publish")).not.toHaveProperty(
+      BUILDER_CMS_PUBLICATION_INTENT_KEY,
+    );
+    // A save that sends neither keeps the staged change for a later push.
+    expect(reconciled("update_in_place")).toMatchObject({
+      [BUILDER_CMS_PUBLICATION_INTENT_KEY]: "publish",
+    });
   });
 
   it("stores Builder's authoritative updated timestamp after a successful write", () => {

@@ -51,6 +51,7 @@ import {
   builderCmsSourceFieldMatches,
   builderCmsUnpublishedChangesAfterWrite,
   readBuilderCmsUnpublishedChanges,
+  withBuilderCmsPublicationIntent,
   withBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes.js";
 import type {
@@ -488,7 +489,12 @@ export function builderCmsReconciledSourceValuesJson(args: {
     ...(args.snapshotSourceValues ?? {}),
     ...parseSourceValues(args.existingSourceValuesJson),
   };
-  const next = { ...existing };
+  const effect = args.plan.payload.effect;
+  // Any publish or unpublish settles a staged one: it's the newer decision.
+  const next =
+    effect === "publish" || effect === "unpublish"
+      ? withBuilderCmsPublicationIntent(existing, null)
+      : { ...existing };
   const published = builderCmsPublishedAfterWrite({
     effect: args.plan.payload.effect,
     livePreflight: args.plan.payload.livePreflight,

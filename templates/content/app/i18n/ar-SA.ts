@@ -805,6 +805,8 @@ const editor = {
     moveColumnLeft: "نقل العمود إلى اليسار",
     moveColumnRight: "نقل العمود إلى اليمين",
     editProperty: "تحرير {{name}}",
+    builderStatusPublishInBuilder:
+      "لا يمكن نشر التغييرات المحفوظة في محرر Builder إلا من Builder.",
     editStartDate: "تحرير تاريخ البدء {{name}}",
     editValue: "تحرير قيمة {{name}}",
     empty: "فارغ",

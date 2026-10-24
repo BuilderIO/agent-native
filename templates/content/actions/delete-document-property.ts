@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
-import { withoutDatabaseColumnPresentation } from "../shared/database-table-columns.js";
+import { withoutDeletedDatabaseProperty } from "../shared/database-table-columns.js";
 import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
@@ -152,7 +152,7 @@ export default defineAction({
           viewConfigJson: serializeDatabaseViewConfig({
             ...viewConfig,
             views: viewConfig.views.map((view) =>
-              withoutDatabaseColumnPresentation(view, propertyId),
+              withoutDeletedDatabaseProperty(view, propertyId),
             ),
           }),
           updatedAt: new Date().toISOString(),

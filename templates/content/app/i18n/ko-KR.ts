@@ -820,6 +820,8 @@ const editor = {
     moveColumnLeft: "열을 왼쪽으로 이동",
     moveColumnRight: "열을 오른쪽으로 이동",
     editProperty: "{{name}} 편집",
+    builderStatusPublishInBuilder:
+      "Builder 편집기에 저장된 변경 사항은 Builder에서만 게시할 수 있습니다.",
     editStartDate: "{{name}} 시작 날짜 편집",
     editValue: "{{name}} 값 편집",
     empty: "비어 있음",

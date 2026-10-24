@@ -13,6 +13,7 @@ import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_ENTRY_NAME_KEY,
+  builderCmsReferenceIdKey,
   builderCmsSourceRowIdentityState,
 } from "./_builder-cms-source-adapter.js";
 import { builderCmsPushModeForTier } from "./_builder-cms-write-settings.js";
@@ -730,10 +731,25 @@ function builderRequiredFieldBlockers(args: {
   ) {
     effectiveData.blocks = ["reconciled-builder-body"];
   }
+  // A PATCH leaves fields it doesn't send as they are, so a reference the
+  // entry already holds stays set even when Content can't rebuild it.
+  const patchesExistingEntry =
+    args.request.method === "PATCH" && !!args.targetRow;
   return modelFields.flatMap((field) => {
     if (!field.required) return [];
     const value = effectiveData[field.name];
     if (hasBuilderRequiredValue(value, field)) return [];
+    if (
+      patchesExistingEntry &&
+      requestData[field.name] === undefined &&
+      /\b(reference|relation)\b/.test(normalizedBuilderFieldKind(field))
+    ) {
+      const referenceId =
+        args.targetRow?.sourceValues?.[
+          builderCmsReferenceIdKey(`data.${field.name}`)
+        ];
+      if (typeof referenceId === "string" && referenceId.trim()) return [];
+    }
     return [
       `Required Builder field ${field.label?.trim() || field.name} is missing or invalid.`,
     ];
@@ -773,7 +789,12 @@ function builderSafetyChecks(args: {
     );
   }
 
-  if (args.operations.length === 0 && !args.hasBodyOperation) {
+  if (
+    args.operations.length === 0 &&
+    !args.hasBodyOperation &&
+    args.effect !== "publish" &&
+    args.effect !== "unpublish"
+  ) {
     blockers.push("No Builder operations are available for this change.");
   }
   if (

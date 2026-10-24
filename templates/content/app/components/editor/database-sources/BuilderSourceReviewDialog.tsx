@@ -410,6 +410,9 @@ export function BuilderSourceReviewDialog({
   );
   const [transitionSelections, setTransitionSelections] =
     useState<BuilderReviewPublicationTransitionSelections>({});
+  // Rows whose staged status was already preselected, so clearing one sticks
+  // through a prepare that gives the row a new id.
+  const seededTransitionIdsRef = useRef(new Set<string>());
   const [cancelChangeSetId, setCancelChangeSetId] = useState<string | null>(
     null,
   );
@@ -442,8 +445,16 @@ export function BuilderSourceReviewDialog({
         : next;
     });
   }, [autoSelectReviewRows, open, reviewRowIdsKey, selectionChangeSetIdMap]);
+  const stagedTransitionsKey = reviewRows
+    .flatMap((row) =>
+      row.stagedPublicationTransition
+        ? [`${row.changeSetId}:${row.stagedPublicationTransition}`]
+        : [],
+    )
+    .join("\u0000");
   useEffect(() => {
     if (!open || !allowPublicationTransitionControls) {
+      seededTransitionIdsRef.current = new Set();
       setTransitionSelections({});
       return;
     }
@@ -451,6 +462,22 @@ export function BuilderSourceReviewDialog({
     const reviewRowIdSet = new Set(
       reviewRowIdsKey ? reviewRowIdsKey.split("\u0000") : [],
     );
+    const seeded = seededTransitionIdsRef.current;
+    for (const changeSetId of [...seeded]) {
+      const mappedChangeSetId = selectionChangeSetIdMap?.[changeSetId];
+      if (mappedChangeSetId) seeded.add(mappedChangeSetId);
+    }
+    const staged = (
+      stagedTransitionsKey ? stagedTransitionsKey.split("\u0000") : []
+    ).map((entry) => {
+      const separator = entry.lastIndexOf(":");
+      return {
+        changeSetId: entry.slice(0, separator),
+        publicationTransition: entry.slice(
+          separator + 1,
+        ) as BuilderCmsPublicationTransitionIntent,
+      };
+    });
     setTransitionSelections((current) => {
       const next: BuilderReviewPublicationTransitionSelections = {};
       for (const [changeSetId, selection] of Object.entries(current)) {
@@ -459,6 +486,15 @@ export function BuilderSourceReviewDialog({
         if (reviewRowIdSet.has(mappedChangeSetId)) {
           next[mappedChangeSetId] = selection;
         }
+      }
+      for (const { changeSetId, publicationTransition } of staged) {
+        if (seeded.has(changeSetId) || next[changeSetId]) continue;
+        seeded.add(changeSetId);
+        next[changeSetId] = {
+          publicationTransition,
+          confirmUnpublish:
+            publicationTransition === "unpublish" ? false : undefined,
+        };
       }
       return Object.keys(next).length === Object.keys(current).length &&
         Object.entries(next).every(
@@ -472,6 +508,7 @@ export function BuilderSourceReviewDialog({
     open,
     reviewRowIdsKey,
     selectionChangeSetIdMap,
+    stagedTransitionsKey,
   ]);
   const selectedChangeSetIdSet = useMemo(
     () => new Set(selectedChangeSetIds),

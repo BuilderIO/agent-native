@@ -2,12 +2,16 @@ import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { getDb } from "../server/db/index.js";
+import {
+  builderEntryStatusChoices,
+  builderEntryStatusTargets,
+} from "./_builder-entry-status.js";
 import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import {
   listPropertiesForDocument,
   resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
-import "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -52,13 +56,32 @@ export default defineAction({
       },
     );
 
+    const builderStatusChoices =
+      canEditValues &&
+      database &&
+      properties.some(
+        (property) => property.definition.systemRole === "builder_status",
+      )
+        ? builderEntryStatusChoices(
+            await builderEntryStatusTargets(getDb(), {
+              databaseId: database.id,
+              documentId,
+            }),
+          )
+        : null;
+
     return {
       documentId,
       databaseId: databaseAccess ? (database?.id ?? null) : null,
       canEditValues,
       canManageSchema,
       properties: databaseAccess
-        ? properties
+        ? properties.map((property) =>
+            builderStatusChoices &&
+            property.definition.systemRole === "builder_status"
+              ? { ...property, builderStatusChoices }
+              : property,
+          )
         : properties.map((property) => ({
             ...property,
             definition: { ...property.definition, databaseId: null },

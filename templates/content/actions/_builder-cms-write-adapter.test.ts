@@ -5,7 +5,10 @@ import type {
   ContentDatabaseSourceChangeSet,
 } from "../shared/api";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
-import { BUILDER_CMS_BODY_BLOCKS_HASH_KEY } from "./_builder-cms-source-adapter";
+import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  builderCmsReferenceIdKey,
+} from "./_builder-cms-source-adapter";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIntentMarker,
@@ -991,6 +994,87 @@ describe("Builder CMS write adapter plan", () => {
         },
       },
     });
+  });
+
+  it("publishes or unpublishes an entry with no field or body change", () => {
+    const transitionOnly = {
+      ...approvedChangeSet(),
+      kind: "metadata_update",
+      pushMode: "publish",
+      fieldChanges: [],
+    } satisfies ContentDatabaseSourceChangeSet;
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["autosave", "publish"],
+      allowPublicationTransitions: true,
+    });
+    builderSource.rows[0] = {
+      ...builderSource.rows[0]!,
+      sourceValues: { "data.title": "Old title" },
+    };
+
+    for (const publicationTransition of ["publish", "unpublish"] as const) {
+      const plan = buildBuilderCmsExecutionPlan({
+        source: builderSource,
+        changeSet: transitionOnly,
+        pushModeConfirmation: "publish",
+        publicationTransition,
+        confirmUnpublish: true,
+      });
+      expect(plan.payload.safety.blockers).toEqual([]);
+      expect(plan.state).toBe("ready");
+      expect(plan.payload.request.body.published).toBe(
+        publicationTransition === "publish" ? "published" : "draft",
+      );
+    }
+    expect(
+      buildBuilderCmsExecutionPlan({
+        source: builderSource,
+        changeSet: transitionOnly,
+        pushModeConfirmation: "publish",
+      }).payload.safety.blockers,
+    ).toContain("No Builder operations are available for this change.");
+  });
+
+  it("keeps a required reference the entry holds when a publish leaves it out", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["autosave", "publish"],
+      allowPublicationTransitions: true,
+      builderModelFields: [
+        { name: "title", type: "string", required: true },
+        { name: "author", type: "reference", required: true },
+      ],
+    });
+    const withAuthor = (referenceId: string | null) => {
+      builderSource.rows[0] = {
+        ...builderSource.rows[0]!,
+        // Builder's read gives the reference's name; Content keeps its id.
+        sourceValues: {
+          "data.title": "Old title",
+          "data.author": "Alice Moore",
+          ...(referenceId
+            ? { [builderCmsReferenceIdKey("data.author")]: referenceId }
+            : {}),
+        },
+      };
+      return buildBuilderCmsExecutionPlan({
+        source: builderSource,
+        changeSet: { ...approvedChangeSet(), pushMode: "publish" },
+        pushModeConfirmation: "publish",
+        publicationTransition: "publish",
+      });
+    };
+
+    const held = withAuthor("author-alice");
+    expect(held.payload.safety.blockers).toEqual([]);
+    expect(held.state).toBe("ready");
+    expect(held.payload.request.body.data).not.toHaveProperty("author");
+    expect(withAuthor(null).payload.safety.blockers).toEqual([
+      "Required Builder field author is missing or invalid.",
+    ]);
   });
 
   it("encodes Builder write path segments", () => {
