@@ -206,7 +206,7 @@ export async function denyAgentToolApproval(input: {
   ownerEmail: string;
   orgId?: string | null;
   threadId: string;
-}): Promise<boolean> {
+}): Promise<"denied" | "already_resolved" | "not_applied"> {
   await ensureAgentToolApprovalTable();
   const now = Date.now();
   const updated = await withFencedExecutionWrite(
@@ -230,15 +230,14 @@ export async function denyAgentToolApproval(input: {
       }),
     { threadId: input.threadId },
   );
-  if (updated.rowsAffected === 1) return true;
+  if (updated.rowsAffected === 1) return "denied";
 
   const existing = await getDbExec().execute({
-    sql: `SELECT 1 FROM agent_tool_approvals
+    sql: `SELECT status FROM agent_tool_approvals
       WHERE id = ?
         AND owner_email = ?
         AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
         AND thread_id = ?
-        AND status = 'denied'
       LIMIT 1`,
     args: [
       input.approvalId,
@@ -248,7 +247,10 @@ export async function denyAgentToolApproval(input: {
       input.threadId,
     ],
   });
-  return existing.rows.length > 0;
+  const status = (existing.rows[0] as { status?: unknown } | undefined)?.status;
+  if (status === "denied") return "denied";
+  if (status && status !== "pending") return "already_resolved";
+  return "not_applied";
 }
 
 /**

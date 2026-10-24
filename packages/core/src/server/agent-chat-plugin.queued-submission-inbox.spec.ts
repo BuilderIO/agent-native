@@ -338,6 +338,7 @@ import { createAgentToolApproval } from "../agent/tool-approval-store.js";
 import {
   createThread,
   getQueuedSubmissionReceipt,
+  grantThreadUserShare,
   listQueuedSubmissionReceipts,
   markQueuedSubmissionSubmitted,
   mutateThreadQueuedMessages,
@@ -556,6 +557,49 @@ describe("queued submission inbox recurring sweep", () => {
       args: [approvalId],
     });
     expect(stored.rows).toEqual([{ status: "denied" }]);
+  }, 20_000);
+
+  it("does not clear a shared editor's card when the approval belongs to another owner", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const approvalOwner = "approval-owner@example.com";
+    await createThread(approvalOwner, { id: threadId });
+    await grantThreadUserShare(
+      threadId,
+      "user@example.com",
+      "editor",
+      approvalOwner,
+    );
+    const approvalId = await createAgentToolApproval({
+      ownerEmail: approvalOwner,
+      threadId,
+      turnId: `turn-${randomUUID()}`,
+      toolName: "publish-release",
+      callId: `call-${randomUUID()}`,
+      approvalKey: `publish-release:${randomUUID()}`,
+    });
+    const h3App = await mountAgentChatRoutes();
+
+    const response = await h3App.fetch(
+      new Request(
+        `http://example.test/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}/approval-resolution`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ approvalId, decision: "deny" }),
+        },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "approval_denial_not_applied",
+      retryable: false,
+    });
+    const stored = await getDbExec().execute({
+      sql: `SELECT status FROM agent_tool_approvals WHERE id = ?`,
+      args: [approvalId],
+    });
+    expect(stored.rows).toEqual([{ status: "pending" }]);
   }, 20_000);
 
   it("cancels a promoted queue item using its submitted run receipt", async () => {

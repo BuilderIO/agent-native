@@ -178,7 +178,7 @@ describe("agent tool approval store", () => {
         orgId: binding.orgId,
         threadId: binding.threadId,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe("denied");
     expect(dbMocks.execute).toHaveBeenCalledWith(
       expect.objectContaining({
         sql: expect.stringMatching(
@@ -209,7 +209,7 @@ describe("agent tool approval store", () => {
         orgId: binding.orgId,
         threadId: binding.threadId,
       }),
-    ).resolves.toBe(false);
+    ).resolves.toBe("not_applied");
   });
 
   it("does not guess between pending approvals from different turns", async () => {

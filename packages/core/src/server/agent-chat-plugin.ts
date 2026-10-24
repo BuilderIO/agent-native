@@ -7952,7 +7952,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 orgId,
                 threadId,
               });
-              if (!resolved) {
+              if (resolved === "not_applied") {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Approval denial could not be applied",
+                  code: "approval_denial_not_applied",
+                  retryable: false,
+                };
+              }
+              if (resolved === "already_resolved") {
                 setResponseStatus(event, 409);
                 return {
                   error: "Approval is no longer pending",

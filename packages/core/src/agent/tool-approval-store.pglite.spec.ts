@@ -192,7 +192,7 @@ describe("tool approvals bound to the arguments that run", () => {
         orgId: scope.orgId,
         threadId: scope.threadId,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe("denied");
     await expect(consumeAgentToolApproval(call)).resolves.toBe(false);
     await expect(
       pglite.query<{ status: string }>(
@@ -200,6 +200,20 @@ describe("tool approvals bound to the arguments that run", () => {
         [approvalId],
       ),
     ).resolves.toMatchObject({ rows: [{ status: "denied" }] });
+  });
+
+  it("distinguishes a consumed approval from a denial that was not applied", async () => {
+    const approvalId = await createAgentToolApproval(call);
+    await expect(consumeAgentToolApproval(call)).resolves.toBe(true);
+
+    await expect(
+      denyAgentToolApproval({
+        approvalId,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: scope.threadId,
+      }),
+    ).resolves.toBe("already_resolved");
   });
 
   it("fences approval creation and consumption to the live worker generation", async () => {

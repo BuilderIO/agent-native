@@ -7253,7 +7253,7 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
-  it("does not complete a denied approval when server resolution fails", async () => {
+  it("does not complete a denied approval when the server did not apply it", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -7269,7 +7269,11 @@ describe("createAgentNativeChatRuntime", () => {
       )
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ error: "Approval is no longer pending" }),
+          JSON.stringify({
+            error: "Approval denial could not be applied",
+            code: "approval_denial_not_applied",
+            retryable: false,
+          }),
           {
             status: 409,
           },
@@ -7292,7 +7296,7 @@ describe("createAgentNativeChatRuntime", () => {
           approved: false,
         },
       }),
-    ).rejects.toThrow("Approval is no longer pending");
+    ).rejects.toThrow("Approval denial could not be applied");
   });
 
   it("dismisses a denial card when the approval was already resolved", async () => {
