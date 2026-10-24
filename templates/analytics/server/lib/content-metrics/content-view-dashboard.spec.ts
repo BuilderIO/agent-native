@@ -356,10 +356,14 @@ describe("Content view dashboard", () => {
     await client.exec(`
       UPDATE analytics_content_items SET published_at = '${daysAgo(120)}T00:00:00.000Z' WHERE id = 'a1';
       INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, published_at, first_seen_at, updated_at) VALUES
-        ('a3', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'a3', 'https://www.builder.io/blog/three', 'Post three', 'Ada', '${daysAgo(50)}T00:00:00.000Z', '2026-09-01', '2026-09-01');
+        ('a3', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'a3', 'https://www.builder.io/blog/three', 'Post three', 'Ada', '${daysAgo(80)}T00:00:00.000Z', '2026-09-01', '2026-09-01');
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
-        ('s11', 'org:org_a', 'alice@example.test', 'org_a', 'a3', '${daysAgo(48)}', 'signups_first_touch', 5, 'signups', 'r0', '${daysAgo(47)}'),
+        ('s11', 'org:org_a', 'alice@example.test', 'org_a', 'a3', '${daysAgo(78)}', 'signups_first_touch', 5, 'signups', 'r0', '${daysAgo(77)}'),
         ('s12', 'org:org_a', 'alice@example.test', 'org_a', 'a3', '${daysAgo(10)}', 'signups_first_touch', 10, 'signups', 'r0', '${daysAgo(9)}');
+      -- Each window's edges, dated by the database clock so midnight can't shift them.
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'edge' || days_ago, 'org:org_a', 'alice@example.test', 'org_a', 'a3', to_char(CURRENT_DATE - days_ago, 'YYYY-MM-DD'), 'signups_first_touch', value, 'signups', 'r0', '2026-09-01'
+      FROM (VALUES (57, 50), (56, 3), (29, 2), (28, 1), (0, 100)) AS edges (days_ago, value);
     `);
     expect(await runPanel("new-articles")).toEqual([
       {
@@ -372,19 +376,21 @@ describe("Content view dashboard", () => {
       {
         title: "Post three",
         href: "https://www.builder.io/blog/three",
-        published: daysAgo(50),
+        published: daysAgo(80),
         first_week: 5,
-        signups: 15,
+        signups: 171,
       },
     ]);
     // Post one has 2 signups across both windows, under the 10 a change needs.
+    // Recent is the 28 days through yesterday and previous the 28 before it:
+    // today's partial day and the day before the earlier window stay out.
     expect(await runPanel("rising")).toEqual([
       {
         title: "Post three",
         href: "https://www.builder.io/blog/three",
-        recent: 10,
+        recent: 11,
         previous: 5,
-        change: 100,
+        change: 120,
       },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();

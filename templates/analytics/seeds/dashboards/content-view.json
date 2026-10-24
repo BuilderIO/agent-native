@@ -277,7 +277,7 @@
       "source": "first-party",
       "width": 3,
       "tab": "New and rising",
-      "sql": "WITH windows AS (SELECT i.id, i.title, i.url AS href, COALESCE(SUM(s.value) FILTER (WHERE s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')), 0) AS recent, COALESCE(SUM(s.value) FILTER (WHERE s.metric_date < to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')), 0) AS previous FROM analytics_content_items i JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND s.metric = 'signups_first_touch' AND s.metric_date::date >= CURRENT_DATE - 56 WHERE i.source = 'builder_blog' GROUP BY i.id, i.title, i.url) SELECT title, href, recent, previous, CASE WHEN previous > 0 THEN (recent - previous) * 100.0 / previous END AS change FROM windows WHERE recent + previous >= 10 ORDER BY recent - previous DESC",
+      "sql": "WITH windows AS (SELECT i.id, i.title, i.url AS href, COALESCE(SUM(s.value) FILTER (WHERE s.metric_date >= to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')), 0) AS recent, COALESCE(SUM(s.value) FILTER (WHERE s.metric_date < to_char(CURRENT_DATE - INTERVAL '28 days', 'YYYY-MM-DD')), 0) AS previous FROM analytics_content_items i JOIN analytics_content_metric_snapshots s ON s.item_id = i.id AND s.metric = 'signups_first_touch' AND s.metric_date::date >= CURRENT_DATE - 56 AND s.metric_date::date < CURRENT_DATE WHERE i.source = 'builder_blog' GROUP BY i.id, i.title, i.url) SELECT title, href, recent, previous, CASE WHEN previous > 0 THEN (recent - previous) * 100.0 / previous END AS change FROM windows WHERE recent + previous >= 10 ORDER BY recent - previous DESC",
       "config": {
         "timeScope": "fixed-window",
         "sortable": true,
