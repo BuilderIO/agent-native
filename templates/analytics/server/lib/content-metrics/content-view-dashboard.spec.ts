@@ -387,6 +387,7 @@ describe("Content view dashboard", () => {
         ('a3', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'a3', 'https://www.builder.io/blog/three', 'Post three', 'Ada', '${daysAgo(80)}T00:00:00.000Z', '2026-09-01', '2026-09-01');
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
         ('s11', 'org:org_a', 'alice@example.test', 'org_a', 'a3', '${daysAgo(78)}', 'signups_first_touch', 5, 'signups', 'r0', '${daysAgo(77)}'),
+        ('s13', 'org:org_a', 'alice@example.test', 'org_a', 'a3', '${daysAgo(85)}', 'signups_first_touch', 4, 'signups', 'r0', '${daysAgo(84)}'),
         ('s12', 'org:org_a', 'alice@example.test', 'org_a', 'a3', '${daysAgo(10)}', 'signups_first_touch', 10, 'signups', 'r0', '${daysAgo(9)}');
       -- Each window's edges, dated by the database clock so midnight can't shift them.
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
@@ -405,8 +406,9 @@ describe("Content view dashboard", () => {
         title: "Post three",
         href: "https://www.builder.io/blog/three",
         published: daysAgo(80),
+        // The 4 from before publication count toward the total, not week 1.
         first_week: 5,
-        signups: 171,
+        signups: 175,
       },
     ]);
     // Post one has 2 signups across both windows, under the 10 a change needs.
