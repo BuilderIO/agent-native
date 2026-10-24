@@ -81,7 +81,10 @@ function envelope(request: DocumentFlushRequest) {
  * it taken, runs `save`, and answers with the title SQL now holds (or
  * `claimTitle`), or with `errorCode`. It answers each prepare round the same
  * way until the server verifies, which it confirms, or gives the request up.
- * It returns the first prepare request. It reads the mailbox itself, not
+ * With `onAskedAgain`, it answers only the first: when the server asks again,
+ * which it does only after it read the claim and found SQL without it, the tab
+ * runs `onAskedAgain` and answers nothing more. It returns the first prepare
+ * request. It reads the mailbox itself, not
  * through the editor's sync wake, so a test using it proves nothing about a
  * real tab hearing of the request.
  */
@@ -92,6 +95,7 @@ export async function answerTitleRequest(
     save?: () => Promise<void>;
     errorCode?: string;
     claimTitle?: string;
+    onAskedAgain?: (request: DocumentFlushRequest) => void | Promise<void>;
   } = {},
 ): Promise<DocumentFlushRequest> {
   const first = await requestFor(
@@ -126,6 +130,7 @@ export async function answerTitleRequest(
   await answer(first);
   if (options.errorCode) return first;
   let prepare = first;
+  let askedAgain = false;
   while (Date.now() < first.expiresAt + 1_000) {
     const request = await appStateGet(email, `flush-request-${id}`);
     if (
@@ -150,9 +155,15 @@ export async function answerTitleRequest(
       return first;
     }
     if (
+      !askedAgain &&
       request.phase === "prepare" &&
       request.phaseToken !== prepare.phaseToken
     ) {
+      if (options.onAskedAgain) {
+        askedAgain = true;
+        await options.onAskedAgain(request);
+        continue;
+      }
       prepare = request;
       await answer(prepare);
       continue;

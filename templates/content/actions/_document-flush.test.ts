@@ -1711,23 +1711,75 @@ describe("flushOpenDocumentEditorToSql", () => {
       expect(mocks.many.mock.calls.length).toBeGreaterThan(2);
     });
 
-    it.each(["prepare", "verify"])(
-      "refuses as unreadable, not as never received, when the %s answers are still being read at the deadline",
-      async (phase) => {
+    it("refuses as unreadable, not as never received, when no read of the answers finishes before the deadline", async () => {
+      mocks.awareness.mockResolvedValue([
+        editorRow(123, "owner@example.com", TITLE_EDITOR),
+      ]);
+      mocks.many.mockImplementation(() => new Promise(() => {}));
+
+      expect(await settle()).toMatchObject({
+        error: {
+          errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+          details: { reason: "acknowledgement_unreadable" },
+        },
+      });
+    });
+
+    it.each([
+      [
+        "a read is still running at the deadline after reads that saw the request taken",
+        undefined,
+        () => {
+          respond = (request, target) =>
+            request.phase === "prepare" ? taken(request, target) : null;
+          const read = mocks.many.getMockImplementation()!;
+          let reads = 0;
+          mocks.many.mockImplementation((email: string, keys: string[]) =>
+            ++reads > 3 ? new Promise(() => {}) : read(email, keys),
+          );
+        },
+      ],
+      [
+        "the verify answers are still being read at the deadline",
+        undefined,
+        () => {
+          const read = mocks.many.getMockImplementation()!;
+          mocks.many.mockImplementation((email: string, keys: string[]) =>
+            store.get(address(email, "flush-request-doc-1"))?.phase === "verify"
+              ? new Promise(() => {})
+              : read(email, keys),
+          );
+        },
+      ],
+      [
+        "every read fails up to the deadline after one that saw the request taken",
+        "ack store down",
+        () => {
+          vi.spyOn(console, "warn").mockImplementation(() => {});
+          respond = (request, target) =>
+            request.phase === "prepare" ? taken(request, target) : null;
+          const read = mocks.many.getMockImplementation()!;
+          let reads = 0;
+          mocks.many.mockImplementation(
+            async (email: string, keys: string[]) => {
+              if (++reads > 1) throw new Error("ack store down");
+              return read(email, keys);
+            },
+          );
+        },
+      ],
+    ])(
+      "refuses with a timeout, not as unreadable, when %s",
+      async (_label, cause, setup) => {
         mocks.awareness.mockResolvedValue([
           editorRow(123, "owner@example.com", TITLE_EDITOR),
         ]);
-        const read = mocks.many.getMockImplementation()!;
-        mocks.many.mockImplementation((email: string, keys: string[]) =>
-          store.get(address(email, "flush-request-doc-1"))?.phase === phase
-            ? new Promise(() => {})
-            : read(email, keys),
-        );
+        setup();
 
         expect(await settle()).toMatchObject({
           error: {
             errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
-            details: { reason: "acknowledgement_unreadable" },
+            details: { reason: "timeout", ...(cause ? { cause } : {}) },
           },
         });
       },

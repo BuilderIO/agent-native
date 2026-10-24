@@ -733,6 +733,76 @@ describe("moving a page that takes body writes through its live copy", () => {
     ]);
   });
 
+  it.each([
+    ["already existed", true],
+    ["is added while it waits", false],
+  ])(
+    "refuses a move to another space when a Files field that %s gets content while the page's editor saves its title",
+    async (_label, fieldFirst) => {
+      const orgSpaceId = organizationContentSpaceId(ORG_ID);
+      const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));
+      await liveCopy.putPageOnLiveCopy(page.id);
+      await tabs.openEditorTab(page.id, EDITOR, { canFlushTitle: true });
+      const answered = tabs.answerTitleRequest(page.id, EDITOR);
+      const [files] = await getDb()
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.systemRole, "files"),
+            eq(schema.contentDatabases.spaceId, personalContentSpaceId(OWNER)),
+          ),
+        );
+      const propertyId = `files-notes-${page.id}`;
+      const addField = () =>
+        getDb().insert(schema.documentPropertyDefinitions).values({
+          id: propertyId,
+          ownerEmail: OWNER,
+          databaseId: files.id,
+          name: "Notes",
+          type: "blocks",
+        });
+      if (fieldFirst) await addField();
+      titleSave.after = async () => {
+        if (!fieldFirst) await addField();
+        await getDb()
+          .insert(schema.documentBlockFieldContents)
+          .values({
+            id: `notes-${page.id}`,
+            ownerEmail: OWNER,
+            documentId: page.id,
+            propertyId,
+            content: "Draft notes",
+          });
+      };
+
+      try {
+        await expect(
+          as(OWNER, () =>
+            moveDocument.run({ id: page.id, spaceId: orgSpaceId }),
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "PAGE_HAS_FILES_BLOCKS_FIELDS",
+          statusCode: 409,
+        });
+      } finally {
+        await getDb()
+          .delete(schema.documentBlockFieldContents)
+          .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));
+        await getDb()
+          .delete(schema.documentPropertyDefinitions)
+          .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+      }
+      await answered;
+      expect(await documentRows([page.id])).toEqual([
+        expect.objectContaining({
+          spaceId: personalContentSpaceId(OWNER),
+          ownerEmail: OWNER,
+        }),
+      ]);
+    },
+  );
+
   it("moves to another space as main does once the page's flags are off (SF-11)", async () => {
     const orgSpaceId = organizationContentSpaceId(ORG_ID);
     const page = await as(OWNER, () => createDocument.run({ title: "Plan" }));

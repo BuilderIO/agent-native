@@ -3073,25 +3073,34 @@ describe("a version restore on a switched page", () => {
     const answered = tabs.answerTitleRequest("restore-tab-unsaved", OWNER, {
       claimTitle: "Typed title",
       save: () => serverEdit("restore-tab-unsaved", "Third draft"),
-    });
-
-    await expect(
-      restore("restore-tab-unsaved", versionId, before.updatedAt),
-    ).rejects.toMatchObject({
-      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
-      statusCode: 409,
-      details: {
-        documentId: "restore-tab-unsaved",
-        reason: "timeout",
-        retryable: true,
+      // The clock stops at the deadline once the server has read the claim
+      // and found SQL without it, so the restore refuses there on any runner.
+      onAskedAgain: (request) => {
+        vi.useFakeTimers({ toFake: ["Date"], now: request.expiresAt });
       },
     });
-    await answered;
+
+    try {
+      await expect(
+        restore("restore-tab-unsaved", versionId, before.updatedAt),
+      ).rejects.toMatchObject({
+        errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+        statusCode: 409,
+        details: {
+          documentId: "restore-tab-unsaved",
+          reason: "timeout",
+          retryable: true,
+        },
+      });
+      await answered;
+    } finally {
+      vi.useRealTimers();
+    }
     const after = await metadata("restore-tab-unsaved");
     expect(after.updatedAt).not.toBe(before.updatedAt);
     expect(after.title).toBe(before.title);
     expect((await page("restore-tab-unsaved")).content).toBe("Third draft");
-  }, 40_000);
+  });
 
   it("refuses a restore when a body edit lands while its tab saves the title", async () => {
     await switchedPage("restore-tab-edit", "First draft");

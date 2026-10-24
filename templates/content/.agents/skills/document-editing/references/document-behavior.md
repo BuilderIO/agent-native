@@ -49,7 +49,7 @@ answer `taken`, saves its title alone, then replaces the mark with
 `prepared` and the title it saved; the server prepares again until SQL holds
 that title, then verifies. With no such editor open, the handshake is
 skipped. A missing or failed answer fails with
-`OPEN_EDITOR_TITLE_NOT_SAVED`. It is
+`OPEN_EDITOR_TITLE_NOT_SAVED`. `pull-document` is
 GET + read-only + public-agent exposed (`requiresAuth: true`), returns
 `{ id, title, content, format, deepLink }`, plus `editorFlush.titleFlush` when
 such editors were asked, and surfaces an "Open document"

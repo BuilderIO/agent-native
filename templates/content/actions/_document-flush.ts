@@ -272,11 +272,12 @@ type HandshakeState = {
   waitingEditors: FlushEditorIdentity[];
   lastEditorError?: { clientId: number; errorCode: string };
   // The title scope's failure reasons: the step the handshake is on, which
-  // editors have answered any of its requests, whether a read of the
-  // acknowledgements is still running, and why they couldn't be read, while
-  // no read has succeeded since.
+  // editors have answered any of its requests, whether any read of its
+  // acknowledgements has succeeded, whether one is still running, and why
+  // they couldn't be read, while no read has succeeded since.
   operation: "publish" | "acknowledge" | "capture" | null;
   reached: Set<number>;
+  acknowledgementsRead: boolean;
   readingAcknowledgements: boolean;
   unreadAcknowledgements?: { cause: unknown };
 };
@@ -287,6 +288,7 @@ function handshakeState(): HandshakeState {
     waitingEditors: [],
     operation: null,
     reached: new Set(),
+    acknowledgementsRead: false,
     readingAcknowledgements: false,
   };
 }
@@ -448,6 +450,7 @@ async function confirmEditors<S>(args: {
         await pause();
         continue;
       }
+      state.acknowledgementsRead = true;
       state.readingAcknowledgements = false;
       state.unreadAcknowledgements = undefined;
       let retry = false;
@@ -632,7 +635,12 @@ function titleTimeoutReason(
 ): OpenEditorTitleNotSavedReason {
   if (state.operation === "publish") return "request_not_delivered";
   if (state.operation !== "acknowledge") return "timeout";
-  if (state.readingAcknowledgements || state.unreadAcknowledgements)
+  // Answers read earlier show the editors hadn't confirmed, so a read still
+  // running or failing when the deadline passes doesn't make them unreadable.
+  if (
+    !state.acknowledgementsRead &&
+    (state.readingAcknowledgements || state.unreadAcknowledgements)
+  )
     return "acknowledgement_unreadable";
   // An editor marks a title request taken before it saves, so one that never
   // answered any of this handshake's requests never picked it up. One that

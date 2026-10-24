@@ -28,6 +28,7 @@ import {
 
 type ContentDb = ReturnType<typeof getDb>;
 type ContentTx = Parameters<Parameters<ContentDb["transaction"]>[0]>[0];
+type FilesForMove = Awaited<ReturnType<typeof readFilesForMove>>;
 
 function groups<T>(values: T[], size = 90): T[][] {
   const result: T[][] = [];
@@ -119,6 +120,78 @@ async function readLockedPages(tx: ContentDb, ids: string[]) {
   return pages;
 }
 
+/**
+ * The two spaces' Files databases and the old one's properties, which the move
+ * rekeys and reconciles. Refuses a subtree with content in the old space's
+ * extra Files fields, which the move can't carry yet.
+ */
+async function readFilesForMove(
+  db: ContentDb,
+  args: {
+    fromSpaceId: string | null;
+    toSpaceId: string;
+    spaceIds: string[];
+    ids: string[];
+  },
+) {
+  const filesDatabases = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.systemRole, "files"),
+        inArray(schema.contentDatabases.spaceId, args.spaceIds),
+      ),
+    );
+  const fromFiles = filesDatabases.find(
+    (database) => database.spaceId === args.fromSpaceId,
+  );
+  const toFiles = filesDatabases.find(
+    (database) => database.spaceId === args.toSpaceId,
+  );
+  if (!toFiles) {
+    throw contractError(
+      "Content space has no Files database",
+      "SPACE_FILES_MISSING",
+    );
+  }
+  const fromFilesPropertyIds = fromFiles
+    ? (
+        await db
+          .select({ id: schema.documentPropertyDefinitions.id })
+          .from(schema.documentPropertyDefinitions)
+          .where(
+            eq(schema.documentPropertyDefinitions.databaseId, fromFiles.id),
+          )
+      ).map((property) => property.id)
+    : [];
+  if (fromFilesPropertyIds.length > 0) {
+    for (const idGroup of groups(args.ids)) {
+      const [extraContent] = await db
+        .select({ id: schema.documentBlockFieldContents.id })
+        .from(schema.documentBlockFieldContents)
+        .where(
+          and(
+            inArray(schema.documentBlockFieldContents.documentId, idGroup),
+            inArray(
+              schema.documentBlockFieldContents.propertyId,
+              fromFilesPropertyIds,
+            ),
+            ne(schema.documentBlockFieldContents.content, ""),
+          ),
+        )
+        .limit(1);
+      if (extraContent) {
+        throw contractError(
+          "Pages with content in this workspace's extra Files fields can't move to another workspace yet.",
+          "PAGE_HAS_FILES_BLOCKS_FIELDS",
+        );
+      }
+    }
+  }
+  return { fromFiles, toFiles, fromFilesPropertyIds };
+}
+
 /** A page read under the root that has since left it would move with it. */
 function pagesLeftSubtree(
   lockedPages: PageSubtreeDocument[],
@@ -154,6 +227,8 @@ async function lockMoveBetweenSpaces(args: {
   parentId: string | null;
   userEmail: string;
   confirmedTitles: ReadonlyMap<string, string>;
+  files: FilesForMove;
+  filesSpaceIds: string[];
 }) {
   const { tx, root, ids, spaceId, parentId, userEmail, confirmedTitles } = args;
   for (const ownerEmail of sortRowIds([root.ownerEmail as string, userEmail])) {
@@ -193,9 +268,17 @@ async function lockMoveBetweenSpaces(args: {
     );
   }
   // The checks before the open editors saved their titles read the
-  // destination, which could be archived or closed to the mover since.
-  if (confirmedTitles.size > 0)
+  // destination and the Files fields, which could have changed since.
+  let files = args.files;
+  if (confirmedTitles.size > 0) {
     await resolveContentSpaceAccess(spaceId, "contributor", { db: tx });
+    files = await readFilesForMove(tx, {
+      fromSpaceId: root.spaceId,
+      toSpaceId: spaceId,
+      spaceIds: args.filesSpaceIds,
+      ids,
+    });
+  }
   // A page turned into a collection while the move waited would leave the
   // collection behind in the old space.
   await assertSubtreeCanChangeSpace(tx, lockedPages);
@@ -231,7 +314,7 @@ async function lockMoveBetweenSpaces(args: {
     if (moverEmail && ownerEmail === moverEmail) continue;
     await assertDocumentMutationAccess(id, "editor", "id");
   }
-  if (!parentId) return null;
+  if (!parentId) return { parent: null, files };
   const [parent] = await tx
     .select({
       spaceId: schema.documents.spaceId,
@@ -258,7 +341,7 @@ async function lockMoveBetweenSpaces(args: {
       "DOCUMENT_MOVE_SCOPE_CHANGED",
     );
   }
-  return parent;
+  return { parent, files };
 }
 
 export async function movePageToSpace(args: {
@@ -328,65 +411,13 @@ export async function movePageToSpace(args: {
     }
   }
 
-  const filesDatabases = await db
-    .select()
-    .from(schema.contentDatabases)
-    .where(
-      and(
-        eq(schema.contentDatabases.systemRole, "files"),
-        inArray(
-          schema.contentDatabases.spaceId,
-          spaces.map((space) => space.id),
-        ),
-      ),
-    );
-  const fromFiles = filesDatabases.find(
-    (database) => database.spaceId === root.spaceId,
-  );
-  const toFiles = filesDatabases.find(
-    (database) => database.spaceId === spaceId,
-  );
-  if (!toFiles) {
-    throw contractError(
-      "Content space has no Files database",
-      "SPACE_FILES_MISSING",
-    );
-  }
-  const fromFilesPropertyIds = fromFiles
-    ? (
-        await db
-          .select({ id: schema.documentPropertyDefinitions.id })
-          .from(schema.documentPropertyDefinitions)
-          .where(
-            eq(schema.documentPropertyDefinitions.databaseId, fromFiles.id),
-          )
-      ).map((property) => property.id)
-    : [];
-
-  if (fromFilesPropertyIds.length > 0) {
-    for (const idGroup of groups(ids)) {
-      const [extraContent] = await db
-        .select({ id: schema.documentBlockFieldContents.id })
-        .from(schema.documentBlockFieldContents)
-        .where(
-          and(
-            inArray(schema.documentBlockFieldContents.documentId, idGroup),
-            inArray(
-              schema.documentBlockFieldContents.propertyId,
-              fromFilesPropertyIds,
-            ),
-            ne(schema.documentBlockFieldContents.content, ""),
-          ),
-        )
-        .limit(1);
-      if (extraContent) {
-        throw contractError(
-          "Pages with content in this workspace's extra Files fields can't move to another workspace yet.",
-          "PAGE_HAS_FILES_BLOCKS_FIELDS",
-        );
-      }
-    }
-  }
+  const filesSpaceIds = spaces.map((space) => space.id);
+  const filesBeforeTitles = await readFilesForMove(db, {
+    fromSpaceId: root.spaceId,
+    toSpaceId: spaceId,
+    spaceIds: filesSpaceIds,
+    ids,
+  });
 
   // The move takes these pages from the editors who lose access with it, so
   // their open editors save the titles first. The locks below refuse a
@@ -404,7 +435,7 @@ export async function movePageToSpace(args: {
     documentsPositionScope(userEmail, parentId),
     async () => {
       await db.transaction(async (tx) => {
-        const parent = await lockMoveBetweenSpaces({
+        const { parent, files } = await lockMoveBetweenSpaces({
           tx: tx as unknown as ContentDb,
           root,
           ids,
@@ -412,7 +443,10 @@ export async function movePageToSpace(args: {
           parentId,
           userEmail,
           confirmedTitles,
+          files: filesBeforeTitles,
+          filesSpaceIds,
         });
+        const { fromFiles, toFiles, fromFilesPropertyIds } = files;
         // Read under the parent's lock: the subtree takes the parent's access.
         if (parent && parentId) {
           orgId = parent.orgId ?? null;
