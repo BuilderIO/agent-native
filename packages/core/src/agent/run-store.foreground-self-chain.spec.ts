@@ -413,7 +413,7 @@ describe("execution lease revocation by control-plane transitions", () => {
     });
   });
 
-  it("keeps a late terminal event out of a completed turn replay", async () => {
+  it("rejects a terminal event write after the run completes", async () => {
     const { successor: runId, thread } = ids();
     const turnId = `${thread}-turn`;
     await insertRun(runId, thread, turnId);
@@ -425,9 +425,16 @@ describe("execution lease revocation by control-plane transitions", () => {
     await withExecutionFence(fence, () =>
       updateRunStatusIfRunning(runId, "completed"),
     );
-    await withExecutionFence(fence, () =>
-      insertRunEvent(runId, 1, JSON.stringify({ type: "done" })),
-    );
+    await expect(
+      withExecutionFence(fence, () =>
+        insertRunEvent(runId, 1, JSON.stringify({ type: "done" }), {
+          requireInserted: true,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
 
     const replay = await getCurrentTurnRunEventsForThread(thread, turnId);
     expect(replay.map(({ event }) => event)).toEqual([
@@ -435,32 +442,26 @@ describe("execution lease revocation by control-plane transitions", () => {
     ]);
   });
 
-  it("does not replay a terminal event persisted after run completion", async () => {
+  it("replays events by sequence despite a future application timestamp", async () => {
     const { successor: runId, thread } = ids();
     const turnId = `${thread}-turn`;
     await insertRun(runId, thread, turnId);
     const fence = await claimTurnExecutionLease(thread, turnId, runId);
 
+    const futureEventAt = Date.now() + 60_000;
     await withExecutionFence(fence, () =>
-      insertRunEvent(runId, 0, JSON.stringify({ type: "text", text: "saved" })),
+      insertRunEvent(
+        runId,
+        0,
+        JSON.stringify({ type: "text", text: "saved" }),
+        {
+          eventAt: futureEventAt,
+        },
+      ),
     );
     await withExecutionFence(fence, () =>
       updateRunStatusIfRunning(runId, "completed"),
     );
-    const completed = await getRunById(runId);
-    expect(completed?.completedAt).not.toBeNull();
-
-    await pglite
-      .prepare(
-        `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
-       VALUES (?, ?, ?, ?)`,
-      )
-      .run(
-        runId,
-        1,
-        (completed?.completedAt ?? Date.now()) + 1,
-        JSON.stringify({ type: "done" }),
-      );
 
     const replay = await getCurrentTurnRunEventsForThread(thread, turnId);
     expect(replay.map(({ event }) => event)).toEqual([

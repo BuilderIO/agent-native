@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getById: vi.fn(),
   update: vi.fn(),
   updateIfFollowUpClaim: vi.fn(),
+  failFollowUp: vi.fn(),
   updateAtGeneration: vi.fn(),
   claimFollowUp: vi.fn(),
   claimApprovalResolution: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock("./store.js", () => ({
     error instanceof Error && error.name === "AgentHarnessSessionConflictError",
   updateAgentHarnessSession: mocks.update,
   updateAgentHarnessSessionIfFollowUpClaim: mocks.updateIfFollowUpClaim,
+  failAgentHarnessSessionFollowUp: mocks.failFollowUp,
   updateAgentHarnessSessionAtGeneration: mocks.updateAtGeneration,
   claimAgentHarnessSessionFollowUp: mocks.claimFollowUp,
   claimAgentHarnessSessionApprovalResolution: mocks.claimApprovalResolution,
@@ -131,6 +133,29 @@ describe("agent harness lifecycle", () => {
         return null;
       },
     );
+    mocks.failFollowUp.mockImplementation(async ({ claimId, outcome }) => {
+      if (
+        stored.status !== "running" ||
+        stored.followUpClaimId !== claimId ||
+        stored.approvalResolutionId != null
+      ) {
+        return null;
+      }
+      stored = {
+        ...stored,
+        status: outcome === "not_dispatched" ? "idle" : "errored",
+        pendingApproval: null,
+        approvalResolutionId: null,
+        approvalResolutionClaimExpiresAt: null,
+        followUpClaimId: null,
+        followUpClaimExpiresAt: null,
+        followUpDeadlineAt: null,
+        followUpOutcome: outcome,
+        generation: stored.generation + 1,
+        updatedAt: Date.now(),
+      };
+      return stored;
+    });
     mocks.updateAtGeneration.mockImplementation(
       async (
         _id,
@@ -1491,7 +1516,7 @@ describe("agent harness lifecycle", () => {
     expect(stored.status).toBe("errored");
   });
 
-  it("terminalizes a failed follow-up while approval resolution is reserved", async () => {
+  it("preserves a follow-up while an approval resolution lease is active", async () => {
     const session = fakeSession();
     session.streamTurn.mockImplementation(async function* () {
       stored = { ...stored, approvalResolutionId: "approval-in-flight" };
@@ -1508,21 +1533,16 @@ describe("agent harness lifecycle", () => {
     ).rejects.toThrow("provider stream failed");
 
     expect(stored).toMatchObject({
-      status: "errored",
-      followUpClaimId: null,
-      approvalResolutionId: null,
-      pendingApproval: null,
+      status: "running",
+      followUpClaimId: expect.any(String),
+      approvalResolutionId: "approval-in-flight",
     });
-    expect(mocks.updateIfFollowUpClaim).toHaveBeenCalledWith(
-      stored.id,
-      expect.any(String),
+    expect(mocks.failFollowUp).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: "errored",
-        approvalResolutionId: null,
+        outcome: "unknown",
       }),
-      { expectedApprovalResolutionId: "approval-in-flight" },
     );
-    expect(session.stop).toHaveBeenCalledOnce();
+    expect(session.stop).not.toHaveBeenCalled();
   });
 
   it("retains a failed provider stop for a later cleanup attempt", async () => {
@@ -1557,7 +1577,7 @@ describe("agent harness lifecycle", () => {
       throw new Error("provider stream failed");
     });
     register(stored, session);
-    mocks.updateIfFollowUpClaim.mockImplementationOnce(async () => {
+    mocks.failFollowUp.mockImplementationOnce(async () => {
       stored = {
         ...stored,
         generation: stored.generation + 1,
@@ -1587,9 +1607,7 @@ describe("agent harness lifecycle", () => {
       throw new Error("provider stream failed");
     });
     register(stored, session);
-    mocks.updateIfFollowUpClaim.mockRejectedValue(
-      new Error("database unavailable"),
-    );
+    mocks.failFollowUp.mockRejectedValue(new Error("database unavailable"));
 
     await expect(
       sendAgentHarnessFollowUp({
@@ -1632,6 +1650,50 @@ describe("agent harness lifecycle", () => {
 
     await expect(followUp).resolves.toMatchObject({ ok: true });
     expect(stored.status).toBe("idle");
+  });
+
+  it("journals an admission failure when claim monitoring aborts during acquisition", async () => {
+    vi.useFakeTimers();
+    stored.resumeState = { token: "saved" };
+    releaseLiveAgentHarnessSession(stored.id);
+    let finishCreateSession!: () => void;
+    let reportCreateStarted!: () => void;
+    const createStarted = new Promise<void>((resolve) => {
+      reportCreateStarted = resolve;
+    });
+    const session = fakeSession();
+    const adapter = fakeAdapter(session);
+    adapter.createSession = vi.fn(() => {
+      reportCreateStarted();
+      return new Promise<AgentHarnessSession>((resolve) => {
+        finishCreateSession = () => resolve(session);
+      });
+    });
+    mocks.resolveAdapter.mockReturnValue(adapter);
+
+    const followUp = sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+    await createStarted;
+    mocks.getById
+      .mockRejectedValueOnce(new Error("database unavailable"))
+      .mockRejectedValueOnce(new Error("database unavailable"))
+      .mockRejectedValueOnce(new Error("database unavailable"));
+    await vi.advanceTimersByTimeAsync(1_500);
+    finishCreateSession();
+
+    await expect(followUp).resolves.toMatchObject({
+      ok: false,
+      errorCode: "unavailable",
+      session: { status: "idle", followUpOutcome: "not_dispatched" },
+    });
+    expect(mocks.failFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "not_dispatched" }),
+    );
+    expect(session.streamTurn).not.toHaveBeenCalled();
+    expect(session.stop).not.toHaveBeenCalled();
   });
 
   it("errors the owned claim after repeated follow-up claim read failures", async () => {
@@ -1839,6 +1901,9 @@ describe("agent harness lifecycle", () => {
       followUpClaimId: null,
       followUpOutcome: "not_dispatched",
     });
+    expect(mocks.failFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "not_dispatched" }),
+    );
     expect(session.stop).not.toHaveBeenCalled();
   });
 
@@ -1875,7 +1940,7 @@ describe("agent harness lifecycle", () => {
       throw new Error("provider stream failed");
     });
     register(stored, session);
-    mocks.updateIfFollowUpClaim.mockImplementationOnce(async () => {
+    mocks.failFollowUp.mockImplementationOnce(async () => {
       stored = {
         ...stored,
         status: "running",

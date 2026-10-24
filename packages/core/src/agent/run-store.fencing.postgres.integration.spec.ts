@@ -32,13 +32,14 @@ import {
   sendAgentHarnessFollowUp,
 } from "./harness/lifecycle.js";
 import {
+  claimAgentHarnessSessionApprovalResolution,
   ensureAgentHarnessSessionTables,
   getAgentHarnessSession,
   listAgentHarnessSessionEvents,
   markAgentHarnessSessionStopped,
+  persistAgentHarnessApprovalEvent,
   reconcileExpiredAgentHarnessFollowUp,
   saveAgentHarnessSession,
-  updateAgentHarnessSessionAtGeneration,
 } from "./harness/store.js";
 import type {
   AgentHarnessAdapter,
@@ -532,7 +533,7 @@ describe.skipIf(!databaseUrl)(
             listAgentHarnessSessionEvents(sessionId),
           );
           expect(transcript.map((entry) => entry.event)).toEqual([
-            { type: "text", text: "Send the requested update" },
+            { type: "user_input", text: "Send the requested update" },
             { type: "text", text: "External effect completed" },
             expect.objectContaining({
               type: "error",
@@ -544,6 +545,79 @@ describe.skipIf(!databaseUrl)(
         }
       });
     }, 45_000);
+
+    it("orders run and session transcript events by the shared session counter", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:transcript-thread`;
+        const turnId = `${prefix}:transcript-turn`;
+        const runId = `${prefix}:transcript-run`;
+        const sessionId = `${prefix}:transcript-session`;
+        const approvalId = `${prefix}:transcript-approval`;
+        await withDbExec(executor(sql), () =>
+          insertRun(runId, threadId, turnId),
+        );
+        const session = await withDbExec(executor(sql), () =>
+          saveAgentHarnessSession({
+            id: sessionId,
+            harnessName: "test",
+            threadId,
+            runId,
+            status: "idle",
+            pendingApproval: { type: "approval-request", id: approvalId },
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        const approval = await withDbExec(executor(sql), () =>
+          claimAgentHarnessSessionApprovalResolution(
+            sessionId,
+            approvalId,
+            "idle",
+            session.generation,
+            null,
+          ),
+        );
+        expect(approval).not.toBeNull();
+        await withDbExec(executor(sql), () =>
+          persistAgentHarnessApprovalEvent(
+            sessionId,
+            approvalId,
+            { type: "text", text: "Session journal first" },
+            8_000,
+          ),
+        );
+        await withDbExec(executor(sql), () =>
+          insertRunEvent(
+            runId,
+            0,
+            JSON.stringify({ type: "text", text: "Run journal second" }),
+            { eventAt: 2_000 },
+          ),
+        );
+
+        const transcript = await withDbExec(executor(sql), () =>
+          listAgentHarnessBackgroundTranscriptEvents(runId, {
+            ownerEmail: "owner@example.com",
+            orgId: prefix,
+          }),
+        );
+        expect(transcript.map((event) => event.message)).toEqual([
+          "Session journal first",
+          "Run journal second",
+        ]);
+        const [sessionOrder] = await sql`
+          SELECT transcript_order FROM agent_harness_session_events
+          WHERE session_id = ${sessionId}
+        `;
+        const [runOrder] = await sql`
+          SELECT transcript_order FROM agent_run_events
+          WHERE run_id = ${runId}
+        `;
+        expect(Number(sessionOrder.transcript_order)).toBeLessThan(
+          Number(runOrder.transcript_order),
+        );
+      });
+    });
 
     it("replays approval continuation events after the harness process dies", async () => {
       await withTestDatabase(async (sql, prefix) => {
@@ -569,13 +643,15 @@ describe.skipIf(!databaseUrl)(
           }),
         );
         const resolving = await withDbExec(executor(sql), () =>
-          updateAgentHarnessSessionAtGeneration(
+          claimAgentHarnessSessionApprovalResolution(
             sessionId,
+            approvalId,
             "idle",
             session.generation,
-            { approvalResolutionId: approvalId },
+            null,
           ),
         );
+        expect(resolving).not.toBeNull();
         expect(resolving?.approvalResolutionId).toBe(approvalId);
         const worker = startBarrierWorker(
           "harness-approval-crash-after-event",
@@ -789,13 +865,15 @@ describe.skipIf(!databaseUrl)(
           }),
         );
         const reserved = await withDbExec(executor(sql), () =>
-          updateAgentHarnessSessionAtGeneration(
+          claimAgentHarnessSessionApprovalResolution(
             sessionId,
+            approvalId,
             "idle",
             session.generation,
-            { approvalResolutionId: approvalId },
+            null,
           ),
         );
+        expect(reserved).not.toBeNull();
         const gate = await installHarnessSessionUpdateGate(sql, sessionId);
         let approvalWorker: BarrierWorker | undefined;
         let stopWorker: BarrierWorker | undefined;
@@ -886,13 +964,15 @@ describe.skipIf(!databaseUrl)(
           }),
         );
         const reserved = await withDbExec(executor(sql), () =>
-          updateAgentHarnessSessionAtGeneration(
+          claimAgentHarnessSessionApprovalResolution(
             sessionId,
+            approvalId,
             "idle",
             session.generation,
-            { approvalResolutionId: approvalId },
+            null,
           ),
         );
+        expect(reserved).not.toBeNull();
 
         const stop = await runWorker(
           "harness-follow-up-stop",

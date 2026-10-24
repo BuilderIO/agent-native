@@ -37,6 +37,7 @@ const {
   claimAgentHarnessSessionFollowUp: claimAgentHarnessSessionFollowUpInStore,
   finalizeAgentHarnessSessionApprovalResolution,
   finishAgentHarnessSessionExpiryCleanup,
+  failAgentHarnessSessionFollowUp,
   getAgentHarnessSession,
   listAgentHarnessSessionEvents,
   listExpiredAgentHarnessApprovalResolutions,
@@ -255,6 +256,76 @@ describe("agent harness session store", () => {
     expect(
       transcript.filter((entry) => entry.event.type === "user_input"),
     ).toHaveLength(1);
+  });
+
+  it("journals a typed failure when follow-up admission is not dispatched", async () => {
+    const id = "session-follow-up-not-dispatched";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-follow-up-not-dispatched",
+      runId: "run-follow-up-not-dispatched",
+      status: "idle",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claimed = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      "claim-not-dispatched",
+    );
+
+    const failed = await failAgentHarnessSessionFollowUp({
+      sessionId: id,
+      claimId: "claim-not-dispatched",
+      outcome: "not_dispatched",
+    });
+
+    expect(failed).toMatchObject({
+      status: "idle",
+      followUpClaimId: null,
+      followUpOutcome: "not_dispatched",
+    });
+    expect(claimed).not.toBeNull();
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toMatchObject([
+      { event: { type: "user_input", text: "Follow-up claim-not-dispatched" } },
+      {
+        event: {
+          type: "error",
+          errorCode: "harness_follow_up_not_dispatched",
+        },
+      },
+    ]);
+  });
+
+  it("keeps long journal text replayable while redacting embedded credentials", async () => {
+    const id = "session-long-journal-text";
+    await saveAgentHarnessSession({
+      id,
+      harnessName: "fake",
+      threadId: "thread-long-journal-text",
+      runId: "run-long-journal-text",
+      status: "idle",
+    });
+    const initial = await getAgentHarnessSession(id);
+    const claim = await claimAgentHarnessSessionFollowUp(
+      id,
+      initial!.generation,
+      "claim-long-journal-text",
+    );
+    const longText = `${"x".repeat(12_000)} Authorization: Bearer example-secret-value`;
+    await persistAgentHarnessFollowUpEvent(
+      id,
+      "claim-long-journal-text",
+      "claim-long-journal-text",
+      { type: "text", text: longText },
+    );
+
+    const events = await listAgentHarnessSessionEvents(id);
+    expect(claim).not.toBeNull();
+    expect(events[1]?.event).toEqual({
+      type: "text",
+      text: `${"x".repeat(12_000)} Authorization: Bearer [redacted]`,
+    });
   });
 
   it("recovers a persisted completion without appending an unknown outcome", async () => {
@@ -1135,7 +1206,7 @@ describe("agent harness session store", () => {
     ]);
   });
 
-  it("clears a nested approval claim when its follow-up expires", async () => {
+  it("does not clear an active nested approval claim during follow-up recovery", async () => {
     const id = "session-expired-follow-up-with-approval";
     const followUpId = "follow-up-expired-with-approval";
     const approvalId = "approval-expired-with-follow-up";
@@ -1172,6 +1243,30 @@ describe("agent harness session store", () => {
       )
       .run(id);
 
+    const expired = await listExpiredAgentHarnessFollowUps(Date.now());
+    expect(expired).not.toContainEqual(expect.objectContaining({ id }));
+    const stillClaimed = await reconcileExpiredAgentHarnessFollowUp(
+      id,
+      followUpId,
+      approval!.generation,
+      Date.now(),
+    );
+    expect(stillClaimed).toBeNull();
+    await expect(getAgentHarnessSession(id)).resolves.toMatchObject({
+      status: "running",
+      followUpClaimId: followUpId,
+      approvalResolutionId: approvalId,
+      approvalResolutionClaimExpiresAt: expect.any(Number),
+    });
+    await expect(listAgentHarnessSessionEvents(id)).resolves.toMatchObject([
+      { event: { type: "user_input" } },
+    ]);
+
+    await pglite
+      .prepare(
+        "UPDATE agent_harness_sessions SET approval_resolution_claim_expires_at = 0 WHERE id = ?",
+      )
+      .run(id);
     const recovered = await reconcileExpiredAgentHarnessFollowUp(
       id,
       followUpId,
@@ -1188,7 +1283,20 @@ describe("agent harness session store", () => {
     });
     expect(recovered?.pendingApproval ?? null).toBeNull();
     const events = await listAgentHarnessSessionEvents(id);
-    expect(events.some((entry) => entry.event.type === "error")).toBe(true);
+    expect(
+      events.some(
+        (entry) =>
+          entry.event.type === "error" &&
+          entry.event.errorCode === "harness_approval_outcome_unknown",
+      ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (entry) =>
+          entry.event.type === "error" &&
+          entry.event.errorCode === "harness_follow_up_not_dispatched",
+      ),
+    ).toBe(true);
     expect(claimed).not.toBeNull();
   });
 

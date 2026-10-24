@@ -38,12 +38,19 @@ function looksSecret(value: string): boolean {
   return false;
 }
 
-function redactString(value: string, maxString: number): string {
+function redactString(
+  value: string,
+  limits: Required<Pick<RedactLimits, "maxString" | "overflow">> &
+    Pick<RedactLimits, "redactEmbeddedSecrets">,
+): string {
   if (looksSecret(value)) return REDACTED;
-  if (value.length > maxString) {
-    return `${value.slice(0, maxString)}…(${value.length - maxString} more chars)`;
+  if (value.length > limits.maxString) {
+    if (limits.overflow === "throw") {
+      throw new Error("Redacted value exceeds the configured string limit.");
+    }
+    return `${value.slice(0, limits.maxString)}…(${value.length - limits.maxString} more chars)`;
   }
-  return value;
+  return limits.redactEmbeddedSecrets ? redactEmbeddedSecrets(value) : value;
 }
 
 function redactEmbeddedSecrets(value: string): string {
@@ -55,33 +62,55 @@ function redactEmbeddedSecrets(value: string): string {
   return bearer.replace(credentialField, `$1$2${REDACTED}$2`);
 }
 
-function redact(value: unknown, depth: number, maxString: number): unknown {
+function redact(
+  value: unknown,
+  depth: number,
+  limits: Required<
+    Pick<
+      RedactLimits,
+      "maxString" | "maxDepth" | "maxKeys" | "maxArray" | "overflow"
+    >
+  > &
+    Pick<RedactLimits, "redactEmbeddedSecrets">,
+): unknown {
   if (value == null) return value;
-  if (typeof value === "string") return redactString(value, maxString);
+  if (typeof value === "string") return redactString(value, limits);
   if (typeof value === "number" || typeof value === "boolean") return value;
-  if (depth >= MAX_DEPTH) return "[…]";
+  if (depth >= limits.maxDepth) {
+    if (limits.overflow === "throw") {
+      throw new Error("Redacted value exceeds the configured depth limit.");
+    }
+    return "[…]";
+  }
   if (Array.isArray(value)) {
+    if (value.length > limits.maxArray && limits.overflow === "throw") {
+      throw new Error("Redacted value exceeds the configured array limit.");
+    }
     const out = value
-      .slice(0, MAX_ARRAY)
-      .map((v) => redact(v, depth + 1, maxString));
-    if (value.length > MAX_ARRAY)
-      out.push(`…(${value.length - MAX_ARRAY} more)`);
+      .slice(0, limits.maxArray)
+      .map((v) => redact(v, depth + 1, limits));
+    if (value.length > limits.maxArray)
+      out.push(`…(${value.length - limits.maxArray} more)`);
     return out;
   }
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};
     let n = 0;
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (n >= MAX_KEYS) {
+      if (n >= limits.maxKeys) {
+        if (limits.overflow === "throw") {
+          throw new Error("Redacted value exceeds the configured key limit.");
+        }
         out["…"] = "(truncated)";
         break;
       }
       n += 1;
-      out[k] = SENSITIVE_KEY.test(k)
-        ? REDACTED
-        : redact(v, depth + 1, maxString);
+      out[k] = SENSITIVE_KEY.test(k) ? REDACTED : redact(v, depth + 1, limits);
     }
     return out;
+  }
+  if (limits.overflow === "throw") {
+    throw new Error("Redacted value contains a non-JSON value.");
   }
   return undefined;
 }
@@ -89,6 +118,11 @@ function redact(value: unknown, depth: number, maxString: number): unknown {
 export interface RedactLimits {
   maxJson?: number;
   maxString?: number;
+  maxDepth?: number;
+  maxKeys?: number;
+  maxArray?: number;
+  overflow?: "truncate" | "throw";
+  redactEmbeddedSecrets?: boolean;
 }
 
 export function redactArgsToJson(
@@ -96,14 +130,30 @@ export function redactArgsToJson(
   limits?: RedactLimits,
 ): string | null {
   const maxJson = Math.max(MARKER_SLACK * 4, limits?.maxJson ?? MAX_JSON);
-  const maxString = limits?.maxString ?? MAX_STRING;
+  const normalizedLimits = {
+    maxString: limits?.maxString ?? MAX_STRING,
+    maxDepth: limits?.maxDepth ?? MAX_DEPTH,
+    maxKeys: limits?.maxKeys ?? MAX_KEYS,
+    maxArray: limits?.maxArray ?? MAX_ARRAY,
+    overflow: limits?.overflow ?? "truncate",
+    redactEmbeddedSecrets: limits?.redactEmbeddedSecrets,
+  } satisfies Required<
+    Pick<
+      RedactLimits,
+      "maxString" | "maxDepth" | "maxKeys" | "maxArray" | "overflow"
+    >
+  > &
+    Pick<RedactLimits, "redactEmbeddedSecrets">;
   try {
     if (args == null) return null;
-    const redacted = redact(args, 0, maxString);
+    const redacted = redact(args, 0, normalizedLimits);
     if (redacted === undefined) return null;
     const json = JSON.stringify(redacted);
     if (json == null) return null;
     if (json.length <= maxJson) return json;
+    if (normalizedLimits.overflow === "throw") {
+      throw new Error("Redacted value exceeds the configured JSON limit.");
+    }
     const envelope = (preview: string) =>
       JSON.stringify({
         _auditTruncated: true,
@@ -117,7 +167,8 @@ export function redactArgsToJson(
       out = envelope(json.slice(0, take));
     }
     return out;
-  } catch {
+  } catch (error) {
+    if (normalizedLimits.overflow === "throw") throw error;
     return null;
   }
 }

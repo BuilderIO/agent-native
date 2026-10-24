@@ -6,6 +6,7 @@ import {
   AgentHarnessSessionConflictError,
   claimAgentHarnessSessionFollowUp,
   claimAgentHarnessSessionApprovalResolution,
+  failAgentHarnessSessionFollowUp,
   finalizeAgentHarnessSessionApprovalResolution,
   finalizeAgentHarnessSessionFollowUp,
   finishAgentHarnessSessionExpiryCleanup,
@@ -654,9 +655,32 @@ export async function sendAgentHarnessFollowUp(input: {
       return { ...acquired.result, session: latest ?? acquired.result.session };
     }
     if (followUpAbort.signal.aborted) {
-      await stopAcquiredHarnessSession(session.id, acquired.live.session);
-      stopWatchingClaim();
-      const latest = await getAgentHarnessSessionByRunId(input.runId);
+      let failedSession: StoredAgentHarnessSession | null = null;
+      try {
+        failedSession = await markOwnedFollowUpErrored(
+          session.id,
+          claimId,
+          acquired.live.session,
+          "not_dispatched",
+        );
+      } catch (error) {
+        try {
+          await stopAcquiredHarnessSession(session.id, acquired.live.session);
+        } catch (stopError) {
+          throw new AggregateError(
+            [error, stopError],
+            "Harness follow-up acquisition was interrupted and cleanup was incomplete.",
+          );
+        }
+        throw error;
+      } finally {
+        stopWatchingClaim();
+      }
+      if (!failedSession) {
+        await stopAcquiredHarnessSession(session.id, acquired.live.session);
+      }
+      const latest =
+        failedSession ?? (await getAgentHarnessSessionByRunId(input.runId));
       return failure(
         input.runId,
         latest ?? session,
@@ -1742,25 +1766,13 @@ async function markOwnedFollowUpErrored(
   outcome: "not_dispatched" | "unknown",
 ): Promise<StoredAgentHarnessSession | null> {
   let conflict: AgentHarnessSessionConflictError | undefined;
-  let expectedApprovalResolutionId: string | null = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const updated = await updateAgentHarnessSessionIfFollowUpClaim(
+      const updated = await failAgentHarnessSessionFollowUp({
         sessionId,
         claimId,
-        {
-          status: outcome === "not_dispatched" ? "idle" : "errored",
-          pendingApproval: null,
-          approvalResolutionId: null,
-          followUpClaimId: null,
-          followUpClaimExpiresAt: null,
-          followUpDeadlineAt: null,
-          followUpOutcome: outcome,
-        },
-        {
-          expectedApprovalResolutionId,
-        },
-      );
+        outcome,
+      });
       if (updated) {
         refreshLiveAgentHarnessSessionGeneration(
           sessionId,
@@ -1769,15 +1781,12 @@ async function markOwnedFollowUpErrored(
         );
         return updated;
       }
+      return null;
     } catch (error) {
       if (!isAgentHarnessSessionConflictError(error)) throw error;
       conflict = error;
+      if (attempt === 2) throw error;
     }
-    const latest = await getAgentHarnessSession(sessionId);
-    if (latest?.status !== "running" || latest.followUpClaimId !== claimId) {
-      return null;
-    }
-    expectedApprovalResolutionId = latest.approvalResolutionId ?? null;
   }
   throw conflict ?? new AgentHarnessSessionConflictError(sessionId);
 }

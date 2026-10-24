@@ -2,11 +2,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   abortRunDurablyMock,
+  getRunEventsSinceMock,
   getAgentHarnessSessionByRunIdMock,
   listAgentHarnessSessionEventsMock,
   stopAndPersistAgentHarnessSessionMock,
 } = vi.hoisted(() => ({
   abortRunDurablyMock: vi.fn(),
+  getRunEventsSinceMock: vi.fn<
+    () => Promise<
+      Array<{
+        seq: number;
+        eventAt: number | null;
+        transcriptOrder?: number | null;
+        eventData: string;
+      }>
+    >
+  >(async () => []),
   getAgentHarnessSessionByRunIdMock: vi.fn(),
   listAgentHarnessSessionEventsMock: vi.fn<() => Promise<unknown[]>>(
     async () => [],
@@ -18,7 +29,7 @@ vi.mock("../run-manager.js", () => ({
   abortRunDurably: abortRunDurablyMock,
 }));
 vi.mock("../run-store.js", () => ({
-  getRunEventsSince: vi.fn(async () => []),
+  getRunEventsSince: getRunEventsSinceMock,
 }));
 vi.mock("./lifecycle.js", () => ({
   resolveAgentHarnessApproval: vi.fn(),
@@ -38,6 +49,7 @@ import {
 
 beforeEach(() => {
   abortRunDurablyMock.mockReset();
+  getRunEventsSinceMock.mockReset().mockResolvedValue([]);
   listAgentHarnessSessionEventsMock.mockReset().mockResolvedValue([]);
   getAgentHarnessSessionByRunIdMock.mockReset().mockResolvedValue({
     id: "session-1",
@@ -107,6 +119,118 @@ it("projects a submitted follow-up as user input in the transcript", async () =>
       }),
     }),
   );
+});
+
+it("assigns canonical order from the shared database journal order", async () => {
+  getAgentHarnessSessionByRunIdMock.mockResolvedValueOnce({
+    id: "session-1",
+    runId: "run-1",
+    harnessName: "Fake Harness",
+    ownerEmail: "owner@example.com",
+    orgId: "org-1",
+    status: "idle",
+    createdAt: 1_000,
+    updatedAt: 9_000,
+  });
+  getRunEventsSinceMock.mockResolvedValueOnce([
+    {
+      seq: 4,
+      eventAt: 3_000,
+      transcriptOrder: 1,
+      eventData: JSON.stringify({ type: "text", text: "Initial" }),
+    },
+    {
+      seq: 8,
+      eventAt: 4_000,
+      transcriptOrder: 4,
+      eventData: JSON.stringify({ type: "done" }),
+    },
+  ]);
+  listAgentHarnessSessionEventsMock.mockResolvedValueOnce([
+    {
+      operationId: "follow-up:follow-up-1",
+      seq: 0,
+      eventAt: 8_000,
+      transcriptOrder: 2,
+      event: { type: "user_input", text: "Continue" },
+    },
+    {
+      operationId: "follow-up:follow-up-1",
+      seq: 1,
+      eventAt: 2_000,
+      transcriptOrder: 3,
+      event: { type: "text", text: "Continued" },
+    },
+  ]);
+
+  const transcript = await listAgentHarnessBackgroundTranscriptEvents("run-1", {
+    ownerEmail: "owner@example.com",
+    orgId: "org-1",
+  });
+
+  expect(transcript.map(({ id, message }) => [id, message])).toEqual([
+    ["run-1:4", "Initial"],
+    ["run-1:operation:follow-up:follow-up-1:0", "Continue"],
+    ["run-1:operation:follow-up:follow-up-1:1", "Continued"],
+    ["run-1:8", "Run completed"],
+  ]);
+  expect(transcript.map(({ createdAt }) => createdAt)).toEqual([
+    new Date(3_000).toISOString(),
+    new Date(8_000).toISOString(),
+    new Date(2_000).toISOString(),
+    new Date(4_000).toISOString(),
+  ]);
+  expect(
+    transcript.map(({ sourceRecord, metadata }) => [
+      sourceRecord.seq,
+      metadata?.seq,
+      metadata?.sourceSeq,
+    ]),
+  ).toEqual([
+    [0, 0, 4],
+    [1, 1, 0],
+    [2, 2, 1],
+    [3, 3, 8],
+  ]);
+});
+
+it("marks the session start timestamp fallback for legacy run events", async () => {
+  getAgentHarnessSessionByRunIdMock.mockResolvedValueOnce({
+    id: "session-1",
+    runId: "run-1",
+    harnessName: "Fake Harness",
+    ownerEmail: "owner@example.com",
+    orgId: "org-1",
+    status: "idle",
+    createdAt: 1_000,
+    updatedAt: 9_000,
+  });
+  getRunEventsSinceMock.mockResolvedValueOnce([
+    {
+      seq: 4,
+      eventAt: null,
+      transcriptOrder: null,
+      eventData: JSON.stringify({ type: "text", text: "Legacy event" }),
+    },
+  ]);
+
+  const transcript = await listAgentHarnessBackgroundTranscriptEvents("run-1", {
+    ownerEmail: "owner@example.com",
+    orgId: "org-1",
+  });
+
+  expect(transcript).toMatchObject([
+    {
+      id: "run-1:4",
+      createdAt: new Date(1_000).toISOString(),
+      sourceRecord: { seq: 0 },
+      metadata: {
+        seq: 0,
+        sourceSeq: 4,
+        createdAtFallback: "session-created-at",
+      },
+    },
+  ]);
 });
 
 describe("Agent Harness background stop", () => {

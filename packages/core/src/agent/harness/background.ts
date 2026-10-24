@@ -97,15 +97,53 @@ export async function listAgentHarnessBackgroundTranscriptEvents(
   const events = await getRunEventsSince(session.runId, 0);
   const runTranscript = events
     .map((event) => parseRunEvent(event))
-    .filter((event): event is RunEvent => Boolean(event))
-    .map((event) => toAgentHarnessBackgroundTranscriptEvent(session, event))
-    .filter((event): event is BackgroundAgentTranscriptEvent => Boolean(event));
+    .filter((event): event is ParsedRunEvent => Boolean(event))
+    .map(({ runEvent, eventAt, transcriptOrder }) => ({
+      transcriptOrder,
+      sourceRank: 0,
+      sourceSeq: runEvent.seq,
+      event: toAgentHarnessBackgroundTranscriptEvent(
+        session,
+        runEvent,
+        eventAt,
+      ),
+    }))
+    .filter(
+      (
+        entry,
+      ): entry is typeof entry & {
+        event: BackgroundAgentTranscriptEvent;
+      } => Boolean(entry.event),
+    );
   const sessionTranscript = (await listAgentHarnessSessionEvents(session.id))
-    .map((event) =>
-      toAgentHarnessBackgroundSessionTranscriptEvent(session, event),
-    )
-    .filter((event): event is BackgroundAgentTranscriptEvent => Boolean(event));
-  return [...runTranscript, ...sessionTranscript];
+    .map((event) => ({
+      transcriptOrder: event.transcriptOrder,
+      sourceRank: 1,
+      sourceSeq: event.seq,
+      event: toAgentHarnessBackgroundSessionTranscriptEvent(session, event),
+    }))
+    .filter(
+      (
+        entry,
+      ): entry is typeof entry & {
+        event: BackgroundAgentTranscriptEvent;
+      } => Boolean(entry.event),
+    );
+  return assignCanonicalTranscriptSequence(
+    [...runTranscript, ...sessionTranscript]
+      .sort(compareTranscriptOrder)
+      .map(({ event, transcriptOrder }) =>
+        transcriptOrder === null
+          ? {
+              ...event,
+              metadata: {
+                ...(event.metadata ?? {}),
+                transcriptOrderFallback: "legacy_source_order",
+              },
+            }
+          : event,
+      ),
+  );
 }
 
 export async function stopAgentHarnessBackgroundRun(
@@ -208,14 +246,18 @@ function toAgentHarnessBackgroundRun(
 function toAgentHarnessBackgroundTranscriptEvent(
   session: StoredAgentHarnessSession,
   runEvent: RunEvent,
+  eventAt: number | null,
 ): BackgroundAgentTranscriptEvent | null {
   return toAgentHarnessTranscriptEvent({
     session,
     event: runEvent.event,
     eventId: `${session.runId ?? session.id}:${runEvent.seq}`,
     seq: runEvent.seq,
-    createdAt: session.updatedAt,
+    createdAt: eventAt ?? session.createdAt,
     sourceRecordType: "agent-harness-run-event",
+    ...(eventAt === null
+      ? { metadata: { createdAtFallback: "session-created-at" } }
+      : {}),
   });
 }
 
@@ -243,6 +285,7 @@ function toAgentHarnessTranscriptEvent(input: {
   seq: number;
   createdAt: number;
   sourceRecordType: "agent-harness-run-event" | "agent-harness-session-event";
+  metadata?: Record<string, unknown>;
   operationId?: string;
 }): BackgroundAgentTranscriptEvent | null {
   const { session } = input;
@@ -265,12 +308,30 @@ function toAgentHarnessTranscriptEvent(input: {
     createdAt: new Date(input.createdAt).toISOString(),
     metadata: {
       ...(summary.metadata ?? {}),
+      ...(input.metadata ?? {}),
       seq: input.seq,
       harnessName: session.harnessName,
       sessionId: session.id,
       ...(input.operationId ? { operationId: input.operationId } : {}),
     },
   };
+}
+
+function assignCanonicalTranscriptSequence(
+  events: BackgroundAgentTranscriptEvent[],
+): BackgroundAgentTranscriptEvent[] {
+  return events.map((event, seq) => {
+    const sourceSeq = event.sourceRecord.seq;
+    return {
+      ...event,
+      sourceRecord: { ...event.sourceRecord, seq },
+      metadata: {
+        ...(event.metadata ?? {}),
+        seq,
+        ...(sourceSeq === undefined ? {} : { sourceSeq }),
+      },
+    };
+  });
 }
 
 function summarizeAgentChatEvent(event: AgentHarnessSessionJournalEvent): {
@@ -337,16 +398,57 @@ function summarizeAgentChatEvent(event: AgentHarnessSessionJournalEvent): {
   }
 }
 
+interface ParsedRunEvent {
+  runEvent: RunEvent;
+  eventAt: number | null;
+  transcriptOrder: number | null;
+}
+
 function parseRunEvent(row: {
   seq: number;
   eventData: string;
-}): RunEvent | null {
+  eventAt: number | null;
+  transcriptOrder: number | null;
+}): ParsedRunEvent | null {
   try {
     const event = JSON.parse(row.eventData) as AgentChatEvent;
-    return { seq: Number(row.seq), event };
+    const eventAt =
+      typeof row.eventAt === "number" && Number.isFinite(row.eventAt)
+        ? row.eventAt
+        : null;
+    const transcriptOrder =
+      typeof row.transcriptOrder === "number" &&
+      Number.isFinite(row.transcriptOrder)
+        ? row.transcriptOrder
+        : null;
+    return {
+      runEvent: { seq: Number(row.seq), event },
+      eventAt,
+      transcriptOrder,
+    };
   } catch {
     return null;
   }
+}
+
+function compareTranscriptOrder(
+  left: {
+    transcriptOrder: number | null;
+    sourceRank: number;
+    sourceSeq: number;
+  },
+  right: {
+    transcriptOrder: number | null;
+    sourceRank: number;
+    sourceSeq: number;
+  },
+): number {
+  if (left.transcriptOrder != null && right.transcriptOrder != null) {
+    return left.transcriptOrder - right.transcriptOrder;
+  }
+  if (left.transcriptOrder == null && right.transcriptOrder != null) return -1;
+  if (left.transcriptOrder != null && right.transcriptOrder == null) return 1;
+  return left.sourceRank - right.sourceRank || left.sourceSeq - right.sourceSeq;
 }
 
 function backgroundStatus(
