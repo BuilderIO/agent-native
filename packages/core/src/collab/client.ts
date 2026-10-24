@@ -16,6 +16,7 @@ import {
   REALTIME_CAP_NO_AWARENESS,
   REALTIME_CAP_POLL_LIVE,
 } from "../realtime-protocol.js";
+import { postAwarenessState } from "./awareness-post.js";
 import { dedupeCollabUsersByEmail, type CollabUser } from "./types.js";
 export {
   dedupeCollabUsersByEmail,
@@ -212,14 +213,7 @@ function scheduleAwarenessPush(
   const timer = setTimeout(() => {
     _awarenessThrottleTimers.delete(key);
     const state = getState();
-    fetch(`${baseUrl}/${docId}/awareness`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientId,
-        state: state ? JSON.stringify(state) : null,
-      }),
-    }).catch(() => {});
+    void postAwarenessState(baseUrl, docId, clientId, state).catch(() => {});
   }, 150);
 
   _awarenessThrottleTimers.set(key, timer);
@@ -414,12 +408,13 @@ class CollabDocConnection {
     this.awareness.off("change", this.handleAwarenessChange);
     cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
     if (this.awareness.getLocalState()) {
-      fetch(`${this.baseUrl}/${this.docId}/awareness`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: this.ydoc.clientID, state: null }),
-        keepalive: true,
-      }).catch(() => {});
+      void postAwarenessState(
+        this.baseUrl,
+        this.docId,
+        this.ydoc.clientID,
+        null,
+        true,
+      ).catch(() => {});
     }
     this.awareness.destroy();
     this.ydoc.destroy();
