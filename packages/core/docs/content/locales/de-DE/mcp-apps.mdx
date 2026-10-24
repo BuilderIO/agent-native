@@ -264,6 +264,12 @@ Verwenden Sie im Claude Code-Terminal, in Cowork, in Code auf claude.ai und in d
 
 Claude und ChatGPT können Tool- und Ressourcenmetadaten für einen vorhandenen benutzerdefinierten Connector zwischenspeichern. Nachdem Sie die Metadaten der MCP-App geändert haben, überprüfen Sie dies mit einem neuen Tool-Aufruf. Wenn der Host immer noch den alten Deskriptor verwendet, schließen Sie den Claude-Anschluss erneut an oder scannen/überprüfen Sie den ChatGPT-Anschluss erneut, damit der Katalog aktualisiert wird. Wenn Claude nach einer Bereitstellung eine Warnung darüber protokolliert, dass `_meta.ui.csp` oder `_meta.ui.permissions` im Tool-Deskriptor vorhanden sind, verwendet dieser Connector veraltete Metadaten: Löschen Sie den Claude-Connector, verbinden Sie ihn erneut und starten Sie einen neuen Chat.
 
+## Wer Karten erhält {#who-gets-cards}
+
+Eine verbundene Chat-App erhält MCP-App-Karten (die `_meta.ui`-Tool-Metadaten und die zugehörigen `ui://`-Ressourcen) nur, wenn die Person, als die sie angemeldet ist, das Lab **App-Karten in Chat-Apps** unter Einstellungen → Labs aktiviert hat. Das Lab ist standardmäßig deaktiviert, und die Wahl jeder Person gilt nur für ihre eigenen Verbindungen. Verbinden Sie die App nach einer Änderung in der Chat-App neu, damit sie die Tool-Liste neu lädt. Ist das Lab deaktiviert, liefern Tools einfache Ergebnisse mit `link`-Deep-Links.
+
+Der ChatGPT-App-Verzeichniskatalog (`/mcp/directory`) und die eigenen First-Party-Clients von Agent-Native, die den Header `x-agent-native-mcp-inline-apps` senden, erhalten Karten mit oder ohne Lab. Die Umgebungsvariablen `AGENT_NATIVE_MCP_APPS_INLINE` und `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` werden nicht mehr gelesen; ist eine davon gesetzt, protokolliert der Server eine Warnung.
+
 ## Testen {#testing}
 
 Testen Sie MCP-Apps mit den leichten Geräten rund um `embedApp()` und `McpAppRenderer`; Sie decken CSP, Hostkontext, App-Start und Bridge-Nachrichtenverhalten ab, ohne dass ein echter externer Host erforderlich ist. Lösen Sie bei der Validierung des ChatGPT- oder Claude-Webs nach Shell-Änderungen einen neuen Tool-Aufruf aus und messen Sie den sichtbaren Iframe. Zuvor gerenderte Frames in derselben Konversation zeigen möglicherweise immer noch die zwischengespeicherte Höhe oder das Startverhalten.

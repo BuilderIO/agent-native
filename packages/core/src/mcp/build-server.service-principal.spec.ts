@@ -17,6 +17,26 @@ vi.mock("../org/service-principal-policy.js", async (importActual) => ({
   evaluateServicePrincipal: (...a: any[]) => evaluateServicePrincipalMock(...a),
 }));
 const recordActionAuditMock = vi.fn(async (_input: any) => {});
+// People who turned on the "App cards in chat apps" lab. Other labs read the
+// real store.
+const appCardsLab = vi.hoisted(() => ({ optedIn: new Set<string>() }));
+
+vi.mock("../labs/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../labs/store.js")>();
+  return {
+    ...actual,
+    getUserLabEnabled: vi.fn(
+      async (...args: Parameters<typeof actual.getUserLabEnabled>) => {
+        const [email, lab] = args;
+        const key = typeof lab === "string" ? lab : lab.key;
+        return key === "mcp-app-cards"
+          ? appCardsLab.optedIn.has(email)
+          : actual.getUserLabEnabled(...args);
+      },
+    ),
+  };
+});
+
 vi.mock("../audit/record.js", () => ({
   recordActionAudit: (input: any) => recordActionAuditMock(input),
 }));
@@ -309,11 +329,11 @@ describe("MCP App resources for a service principal", () => {
   }
 
   beforeEach(() => {
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    appCardsLab.optedIn = new Set(["alice@example.com", SVC]);
   });
 
   afterEach(() => {
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+    appCardsLab.optedIn.clear();
   });
 
   it("lists, templates, and reads only widgets inside the grant", async () => {

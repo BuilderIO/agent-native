@@ -264,6 +264,12 @@ Claude 預設使用單幀移植路徑。在偵錯主機模組載入行為時，�
 
 Claude 和 ChatGPT 可以快取現有自訂連線器的工具和資源中繼資料。更改 MCP App 中繼資料後，使用新的工具呼叫進行驗證；如果主機仍使用舊描述符，請重新連線 Claude 連線器或重新掃描/檢查 ChatGPT 連線器，以便重新整理目錄。如果部署後 Claude 在工具描述符上紀錄了有關 `_meta.ui.csp` 或 `_meta.ui.permissions` 的警告，則該連線器正在使用過時的中繼資料：刪除/重新連線 Claude 連線器並開始新的聊天。
 
+## 誰會收到卡片 {#who-gets-cards}
+
+只有當已連接聊天應用程式所登入的使用者在 設定 → 實驗室 中開啟了 **聊天應用程式中的應用程式卡片** 實驗功能時，該聊天應用程式才會收到 MCP App 卡片（`_meta.ui` 工具中繼資料及其 `ui://` 資源）。此實驗功能預設為關閉，每個人的選擇只會套用到自己的連線。變更後，請在聊天應用程式中重新連接此應用程式，以重新載入工具清單。實驗功能關閉時，工具會傳回帶有 `link` 深層連結的一般結果。
+
+ChatGPT 應用程式目錄的目錄（`/mcp/directory`）以及傳送 `x-agent-native-mcp-inline-apps` 標頭的 Agent-Native 自有第一方用戶端，無論是否開啟實驗功能都會收到卡片。系統不再讀取 `AGENT_NATIVE_MCP_APPS_INLINE` 和 `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` 環境變數；如果設定了其中任何一個，伺服器會記錄一次警告。
+
 ## 測試 {#testing}
 
 使用`embedApp()`和`McpAppRenderer`週圍的輕量級夾具測試 MCP 應用程式；它們涵蓋 CSP、主機脈絡、應用程式啟動和橋接訊息行為，而無需真正的外部主機。驗證 ChatGPT 或 Claude Web 時，在 shell 更改後觸發新的工具呼叫並測量可見的 iframe。同一對話中先前渲染的幀可能仍會顯示快取的高度或啟動行為。
