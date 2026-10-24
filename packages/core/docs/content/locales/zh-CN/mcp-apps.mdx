@@ -264,6 +264,12 @@ Claude默认使用单帧移植路径。在调试主机模块加载行为时，�
 
 Claude 和 ChatGPT 可以缓存现有自定义连接器的工具和资源元数据。更改MCP App元数据后，使用新的工具调用进行验证；如果主机仍使用旧描述符，请重新连接 Claude 连接器或重新扫描/检查 ChatGPT 连接器，以便刷新目录。如果部署后 Claude 在工具描述符上记录了有关 `_meta.ui.csp` 或 `_meta.ui.permissions` 的警告，则该连接器正在使用过时的元数据：删除/重新连接 Claude 连接器并开始新的聊天。
 
+## 谁会收到卡片 {#who-gets-cards}
+
+只有当已连接聊天应用所登录的用户在 设置 → 实验室 中开启了 **聊天应用中的应用卡片** 实验功能时，该聊天应用才会收到 MCP App 卡片（`_meta.ui` 工具元数据及其 `ui://` 资源）。该实验功能默认关闭，每个人的选择只作用于自己的连接。更改后，请在聊天应用中重新连接此应用，以便重新加载工具列表。实验功能关闭时，工具返回带有 `link` 深层链接的普通结果。
+
+ChatGPT 应用目录的目录（`/mcp/directory`）以及发送 `x-agent-native-mcp-inline-apps` 请求头的 Agent-Native 自有第一方客户端，无论是否开启实验功能都会收到卡片。系统不再读取 `AGENT_NATIVE_MCP_APPS_INLINE` 和 `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` 环境变量；如果设置了其中任何一个，服务器会记录一次警告。
+
 ## 测试 {#testing}
 
 使用`embedApp()`和`McpAppRenderer`周围的轻量级夹具测试MCP应用程序；它们涵盖 CSP、主机上下文、应用程序启动和桥接消息行为，而无需真正的外部主机。验证 ChatGPT 或 Claude Web 时，在 shell 更改后触发新的工具调用并测量可见的 iframe。同一对话中先前渲染的帧可能仍会显示缓存的高度或启动行为。

@@ -264,6 +264,12 @@ Claude Code 터미널, Cowork, claude.ai 웹의 Code 및 Codex CLI에서는 딥 
 
 Claude 및 ChatGPT는 기존 사용자 정의 커넥터에 대한 도구 및 리소스 메타데이터를 캐시할 수 있습니다. MCP 앱 메타데이터를 변경한 후 새로운 도구 호출로 확인하세요. 호스트가 여전히 이전 설명자를 사용하는 경우 Claude 커넥터를 다시 연결하거나 ChatGPT 커넥터를 다시 검색/검토하여 카탈로그를 새로 고치십시오. Claude가 배포 후 도구 설명자에 있는 `_meta.ui.csp` 또는 `_meta.ui.permissions`에 대한 경고를 기록하는 경우 해당 커넥터는 오래된 메타데이터를 사용하고 있는 것입니다. Claude 커넥터를 삭제/다시 연결하고 새로운 채팅을 시작하세요.
 
+## 카드를 받는 사람 {#who-gets-cards}
+
+연결된 채팅 앱은 해당 앱이 로그인한 사람이 설정 → 실험실에서 **채팅 앱의 앱 카드** 랩을 켠 경우에만 MCP App 카드(`_meta.ui` 도구 메타데이터와 해당 `ui://` 리소스)를 받습니다. 이 랩은 기본적으로 꺼져 있으며, 각 사람의 선택은 그 사람의 연결에만 적용됩니다. 설정을 바꾼 후에는 채팅 앱에서 앱을 다시 연결해 도구 목록을 다시 불러오세요. 랩이 꺼져 있으면 도구는 `link` 딥 링크가 포함된 일반 결과를 반환합니다.
+
+ChatGPT 앱 디렉터리 카탈로그(`/mcp/directory`)와 `x-agent-native-mcp-inline-apps` 헤더를 보내는 Agent-Native 자체 퍼스트 파티 클라이언트는 랩 설정과 관계없이 카드를 받습니다. `AGENT_NATIVE_MCP_APPS_INLINE` 및 `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` 환경 변수는 더 이상 읽지 않으며, 둘 중 하나라도 설정되어 있으면 서버가 경고를 한 번 기록합니다.
+
 ## 테스트 {#testing}
 
 `embedApp()` 및 `McpAppRenderer` 주변의 경량 픽스처로 MCP 앱을 테스트하세요. 실제 외부 호스트 없이도 CSP, 호스트 컨텍스트, 앱 실행 및 브리지 메시지 동작을 다룹니다. ChatGPT 또는 Claude 웹을 검증할 때 셸 변경 후 새로운 도구 호출을 트리거하고 표시되는 iframe을 측정하세요. 동일한 대화에서 이전에 렌더링된 프레임에는 여전히 캐시된 높이 또는 실행 동작이 표시될 수 있습니다.

@@ -2036,6 +2036,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsSaveError": "无法更改 {{lab}}。请重试。",
   "settingsShell.appGroup.mcpAbout":
     "将 {{app}} 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 {{app}} 中工作。它只能看到你有权看到的内容。",
+  "settingsShell.appGroup.mcpAppCards": "聊天应用中的应用卡片",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "在支持 MCP Apps 的聊天应用（如 Claude 和 ChatGPT）中，工具会显示可交互的卡片，例如可以编辑并发送的邮件草稿。更改此设置后，请在聊天应用中重新连接此应用。",
   "settingsShell.appGroup.mcpFootnote":
     "如需了解智能体自身使用的工具，请参阅{{integrations}}。",
   "settingsShell.appGroup.newAutomation": "新建自动化",
