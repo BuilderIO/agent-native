@@ -350,7 +350,7 @@ export async function updateAgentHarnessSessionIfFollowUpClaim(
       !existing ||
       existing.status !== "running" ||
       existing.followUpClaimId !== claimId ||
-      existing.approvalResolutionId
+      (requiresNoApprovalResolution && existing.approvalResolutionId)
     ) {
       return null;
     }

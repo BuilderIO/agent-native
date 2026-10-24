@@ -6,6 +6,7 @@ import type {
 import { startRun } from "../run-manager.js";
 import type { AgentChatEvent } from "../types.js";
 import {
+  getLiveAgentHarnessSessionGeneration,
   registerLiveAgentHarnessSession,
   refreshLiveAgentHarnessSessionGeneration,
   releaseLiveAgentHarnessSession,
@@ -184,9 +185,7 @@ export function startAgentHarnessRun(
               opts.createSession?.resumeState,
               detachOnComplete,
             );
-            if (detachOnComplete) {
-              releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
-            } else {
+            if (!detachOnComplete) {
               keepLiveSession = true;
             }
             return;
@@ -210,12 +209,12 @@ export function startAgentHarnessRun(
         if (detachOnComplete && harnessSession.detach) {
           resumeState = await harnessSession.detach();
         }
+        releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
         await persistHarnessCheckpoint(
           storedSessionId,
           harnessSession,
           resumeState,
         );
-        releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
       } catch (error) {
         if (isAgentHarnessSessionConflictError(error)) {
           if (!harnessSessionRegistered) {
@@ -232,6 +231,7 @@ export function startAgentHarnessRun(
             latest?.status === "destroyed";
           keepLiveSession = !terminal;
           if (terminal && storedSessionId) {
+            await stopHarnessSession(harnessSession).catch(() => undefined);
             releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
           }
           return;
@@ -275,6 +275,9 @@ async function saveHarnessCheckpoint(
   let nextResumeState = resumeState;
   if (detachOnComplete && session.detach) {
     nextResumeState = await session.detach();
+  }
+  if (detachOnComplete) {
+    releaseLiveAgentHarnessSession(sessionId, session);
   }
   await persistHarnessCheckpoint(sessionId, session, nextResumeState);
 }
@@ -349,14 +352,25 @@ async function updateLiveAgentHarnessSession(
   session: AgentHarnessSession,
   patch: Parameters<typeof updateAgentHarnessSession>[1],
 ): Promise<void> {
-  const updated = await updateAgentHarnessSession(sessionId, patch);
-  if (updated) {
-    refreshLiveAgentHarnessSessionGeneration(
-      sessionId,
-      session,
-      updated.generation,
-    );
+  const expectedGeneration = getLiveAgentHarnessSessionGeneration(
+    sessionId,
+    session,
+  );
+  if (expectedGeneration === null) {
+    throw new AgentHarnessSessionConflictError(sessionId);
   }
+  const updated = await updateAgentHarnessSessionAtGeneration(
+    sessionId,
+    "running",
+    expectedGeneration,
+    patch,
+  );
+  if (!updated) throw new AgentHarnessSessionConflictError(sessionId);
+  refreshLiveAgentHarnessSessionGeneration(
+    sessionId,
+    session,
+    updated.generation,
+  );
 }
 
 async function stopHarnessSession(

@@ -106,6 +106,16 @@ export function refreshLiveAgentHarnessSessionGeneration(
   }
 }
 
+export function getLiveAgentHarnessSessionGeneration(
+  sessionId: string,
+  session: AgentHarnessSession,
+): number | null {
+  const live = liveSessions.get(sessionId);
+  return live?.session === session && Number.isSafeInteger(live.generation)
+    ? live.generation
+    : null;
+}
+
 function refreshLiveAgentHarnessSessionGenerationById(
   sessionId: string,
   generation: number,

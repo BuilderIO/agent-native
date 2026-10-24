@@ -524,7 +524,7 @@ describe("agent harness session store", () => {
     });
   });
 
-  it("does not finalize a follow-up after approval resolution is reserved", async () => {
+  it("allows claimed approval writes but blocks finalization after resolution is reserved", async () => {
     const id = "session-follow-up-approval-resolution-reserved";
     const claimId = "follow-up-approval-resolution-reserved";
     const approvalId = "approval-resolution-reserved";
@@ -562,11 +562,31 @@ describe("agent harness session store", () => {
     );
     let finalizeCalled = false;
 
+    const chainedApproval = {
+      type: "approval-request",
+      id: "approval-resolution-reserved-chained",
+    };
+    const persisted = await updateAgentHarnessSessionIfFollowUpClaim(
+      id,
+      claimId,
+      { pendingApproval: chainedApproval },
+    );
+    expect(persisted).toMatchObject({
+      pendingApproval: chainedApproval,
+      approvalResolutionId: approvalId,
+      followUpClaimId: claimId,
+    });
+
     await expect(
-      updateAgentHarnessSessionIfFollowUpClaim(id, claimId, async () => {
-        finalizeCalled = true;
-        return { status: "idle", followUpClaimId: null };
-      }),
+      updateAgentHarnessSessionIfFollowUpClaim(
+        id,
+        claimId,
+        async () => {
+          finalizeCalled = true;
+          return { status: "idle", followUpClaimId: null };
+        },
+        true,
+      ),
     ).resolves.toBeNull();
 
     expect(finalizeCalled).toBe(false);
@@ -574,7 +594,7 @@ describe("agent harness session store", () => {
       status: "running",
       followUpClaimId: claimId,
       approvalResolutionId: approvalId,
-      generation: reserved!.generation,
+      generation: persisted!.generation,
     });
     expect(claimed).not.toBeNull();
   });
