@@ -36,6 +36,9 @@ vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
   readBodyWithSizeLimit: (...args: unknown[]) => mockReadBody(...args),
 }));
+vi.mock("./payload.js", () => ({
+  readCollabBody: (...args: unknown[]) => mockReadBody(...args),
+}));
 
 vi.mock("./awareness-store.js", () => ({
   loadAwarenessClientSequence: vi.fn(
@@ -350,6 +353,44 @@ describe("awareness clear tombstones", () => {
       getAwarenessEmitter().off("awareness-change", onChange);
       map.clear();
     }
+  });
+
+  it("keeps an outage clear tombstone when no stored row exists", async () => {
+    const docId = "awareness-store-outage-clear-without-row";
+    let finishPresenceWrite!: (applied: boolean) => void;
+    vi.mocked(writeAwarenessRow)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishPresenceWrite = resolve;
+          }),
+      )
+      .mockRejectedValueOnce(new Error("database unavailable"));
+    mockReadBody
+      .mockResolvedValueOnce({
+        clientId: 46,
+        clientSequence: 1,
+        state: JSON.stringify({ visible: true }),
+      })
+      .mockResolvedValueOnce({
+        clientId: 46,
+        clientSequence: 2,
+        state: null,
+      });
+
+    const presence = postAwareness(event(docId));
+    await vi.waitFor(() => expect(finishPresenceWrite).toBeTypeOf("function"));
+    const clearEvent = event(docId);
+    await expect(postAwareness(clearEvent)).resolves.toMatchObject({
+      error: "Awareness persistence unavailable",
+    });
+    expect(clearEvent._status).toBe(503);
+    expect(storedRows.has(rowKey(docId, 46))).toBe(false);
+
+    finishPresenceWrite(true);
+    await presence;
+
+    expect(getDocAwareness(docId).has(46)).toBe(false);
   });
 
   it("clears local presence before the follow-up store read", async () => {

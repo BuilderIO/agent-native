@@ -133,20 +133,63 @@ describe("postAwarenessState", () => {
     ]);
   });
 
-  it("does not rewind issued sequences when a 409 races another post", async () => {
-    let finishFirst!: (response: Response) => void;
-    const firstResponse = new Promise<Response>((resolve) => {
-      finishFirst = resolve;
-    });
-    const fetchMock = vi.fn<typeof fetch>();
+  it("resets failed posts to the server sequence after a 409", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    for (let i = 0; i < 257; i += 1) {
+      await postAwarenessState(
+        "/collab",
+        "sequence-recovery-after-failures",
+        8,
+        {
+          visible: true,
+        },
+      );
+    }
     fetchMock
-      .mockReturnValueOnce(firstResponse)
       .mockResolvedValueOnce(
         new Response(null, {
           status: 409,
           headers: { "x-awareness-client-sequence": "0" },
         }),
       )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await postAwarenessState("/collab", "sequence-recovery-after-failures", 8, {
+      visible: true,
+    });
+    await postAwarenessState("/collab", "sequence-recovery-after-failures", 8, {
+      visible: true,
+    });
+
+    const requests = fetchMock.mock.calls.map((call) =>
+      JSON.parse(String(call[1]?.body)),
+    );
+    expect(requests.at(-2)?.clientSequence).toBe(258);
+    expect(requests.at(-1)?.clientSequence).toBe(1);
+  });
+
+  it("preserves higher sequences while they are still in flight", async () => {
+    let finishFirst!: (response: Response) => void;
+    let finishRejected!: (response: Response) => void;
+    let finishLater!: (response: Response) => void;
+    const firstResponse = new Promise<Response>((resolve) => {
+      finishFirst = resolve;
+    });
+    const rejectedResponse = new Promise<Response>((resolve) => {
+      finishRejected = resolve;
+    });
+    const laterResponse = new Promise<Response>((resolve) => {
+      finishLater = resolve;
+    });
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock
+      .mockReturnValueOnce(firstResponse)
+      .mockReturnValueOnce(rejectedResponse)
+      .mockReturnValueOnce(laterResponse)
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -158,18 +201,29 @@ describe("postAwarenessState", () => {
       visible: false,
     });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const later = postAwarenessState("/collab", "sequence-race", 8, {
+      visible: true,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    finishRejected(
+      new Response(null, {
+        status: 409,
+        headers: { "x-awareness-client-sequence": "0" },
+      }),
+    );
     await rejected;
 
-    const clear = postAwarenessState("/collab", "sequence-race", 8, null);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const latest = postAwarenessState("/collab", "sequence-race", 8, null);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     finishFirst(new Response(null, { status: 204 }));
-    await Promise.all([first, clear]);
+    finishLater(new Response(null, { status: 204 }));
+    await Promise.all([first, later, latest]);
 
     const requests = fetchMock.mock.calls.map((call) =>
       JSON.parse(String(call[1]?.body)),
     );
     expect(requests.map(({ clientSequence }) => clientSequence)).toEqual([
-      1, 2, 3,
+      1, 2, 3, 4,
     ]);
   });
 

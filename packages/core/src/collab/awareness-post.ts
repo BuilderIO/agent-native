@@ -5,6 +5,7 @@ const AWARENESS_POST_TIMEOUT_MS = 5_000;
 const clientSequences = new Map<string, number>();
 const clearTokens = new Map<string, string>();
 const inFlightPosts = new Map<string, number>();
+const inFlightSequences = new Map<string, Set<number>>();
 const cleanupWhenIdle = new Set<string>();
 
 function sequenceKey(baseUrl: string, docId: string, clientId: number): string {
@@ -35,7 +36,10 @@ function clearTokenFor(key: string): string {
   return token;
 }
 
-function finishPost(key: string): void {
+function finishPost(key: string, clientSequence: number): void {
+  const sequences = inFlightSequences.get(key);
+  sequences?.delete(clientSequence);
+  if (sequences?.size === 0) inFlightSequences.delete(key);
   const remaining = (inFlightPosts.get(key) ?? 1) - 1;
   if (remaining > 0) {
     inFlightPosts.set(key, remaining);
@@ -73,6 +77,9 @@ export function postAwarenessState(
   const clientSequence = nextClientSequence(key);
   const clearToken = clearTokenFor(key);
   inFlightPosts.set(key, (inFlightPosts.get(key) ?? 0) + 1);
+  const sequences = inFlightSequences.get(key) ?? new Set<number>();
+  sequences.add(clientSequence);
+  inFlightSequences.set(key, sequences);
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
@@ -104,9 +111,15 @@ export function postAwarenessState(
           parsedSequence <= MAX_AWARENESS_CLIENT_SEQUENCE
         ) {
           if (!cleanupWhenIdle.has(key)) {
+            const highestPendingSequence = Math.max(
+              0,
+              ...[...(inFlightSequences.get(key) ?? [])].filter(
+                (sequence) => sequence !== clientSequence,
+              ),
+            );
             clientSequences.set(
               key,
-              Math.max(clientSequences.get(key) ?? 0, parsedSequence),
+              Math.max(parsedSequence, highestPendingSequence),
             );
           }
         }
@@ -115,6 +128,6 @@ export function postAwarenessState(
     })
     .finally(() => {
       clearTimeout(timeout);
-      finishPost(key);
+      finishPost(key, clientSequence);
     });
 }

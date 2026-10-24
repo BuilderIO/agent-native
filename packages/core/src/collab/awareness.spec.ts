@@ -12,9 +12,7 @@ vi.mock("h3", () => ({
 }));
 
 const mockReadBody = vi.fn();
-const mockReadBodyWithSizeLimit = vi.fn((event: unknown, _maxBytes?: number) =>
-  mockReadBody(event),
-);
+const mockReadCollabBody = vi.fn((event: unknown) => mockReadBody(event));
 const mockGetSession = vi.fn();
 const mockWriteAwarenessRow = vi.hoisted(() => vi.fn());
 const mockLoadAwarenessClientSequence = vi.hoisted(() => vi.fn());
@@ -24,8 +22,9 @@ vi.mock("../server/auth.js", () => ({
 }));
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
-  readBodyWithSizeLimit: (...args: unknown[]) =>
-    mockReadBodyWithSizeLimit(...args),
+}));
+vi.mock("./payload.js", () => ({
+  readCollabBody: (...args: unknown[]) => mockReadCollabBody(...args),
 }));
 vi.mock("./awareness-store.js", async (importOriginal) => {
   const store = await importOriginal<typeof import("./awareness-store.js")>();
@@ -213,7 +212,7 @@ describe("postAwareness handler", () => {
   afterEach(() => {
     vi.useRealTimers();
     mockReadBody.mockReset();
-    mockReadBodyWithSizeLimit.mockClear();
+    mockReadCollabBody.mockClear();
     mockGetSession.mockReset();
     mockLoadAwarenessRows.mockClear();
     docAwareness("post-doc").clear();
@@ -253,19 +252,20 @@ describe("postAwareness handler", () => {
     expect(res).toEqual({ error: "clientId and state required" });
   });
 
-  it("reads the body through the configured byte limit", async () => {
+  it("uses the bounded payload reader for awareness writes", async () => {
     mockReadBody.mockResolvedValueOnce({
       clientId: 76,
       clientSequence: 1,
       state: JSON.stringify({ visible: true }),
     });
     mockWriteAwarenessRow.mockResolvedValueOnce(true);
+    mockLoadAwarenessRows.mockResolvedValueOnce([]);
     const ev = event({ docId: "post-doc-payload-limit" });
     ev.context = { _collabMaxPayloadBytes: 128 };
 
     await postAwareness(ev);
 
-    expect(mockReadBodyWithSizeLimit).toHaveBeenCalledWith(ev, 128);
+    expect(mockReadCollabBody).toHaveBeenCalledWith(ev);
   });
 
   it("does not let a caller claim the reserved agent client id", async () => {

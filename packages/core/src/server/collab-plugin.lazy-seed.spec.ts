@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   hasCollabState: vi.fn(),
   resolveAccess: vi.fn(),
   assertAccess: vi.fn(),
+  readCollabBody: vi.fn(async (event: { body?: unknown }) => event.body ?? {}),
   postAwareness: vi.fn(async () => ({ ok: true })),
   getActiveUsers: vi.fn(async () => ({ users: [] })),
   getCollabState: vi.fn(async () => ({ state: "" })),
@@ -44,6 +45,10 @@ vi.mock("h3", () => ({
 vi.mock("../collab/awareness.js", () => ({
   postAwareness: mocks.postAwareness,
   getActiveUsers: mocks.getActiveUsers,
+}));
+vi.mock("../collab/payload.js", () => ({
+  DEFAULT_COLLAB_MAX_PAYLOAD_BYTES: 2 * 1024 * 1024,
+  readCollabBody: mocks.readCollabBody,
 }));
 vi.mock("../collab/emitter.js", () => ({
   getCollabEmitter: () => mocks.emitter,
@@ -395,6 +400,45 @@ describe("collab lazy source seeding", () => {
       orgId: "org-1",
     });
     expect(event.context._collabMaxPayloadBytes).toBe(2 * 1024 * 1024);
+  });
+
+  it("accepts a stale awareness clear after its resource is deleted", async () => {
+    const handler = await mountCollabHandler({
+      access: {
+        mode: "resource",
+        resourceType: "design",
+        resolveResourceId: () => null,
+      },
+    });
+    const event = makeEvent();
+    event.method = "POST";
+    event.url = new URL("http://localhost/design-file-1/awareness");
+    event.body = { state: null };
+
+    await expect(handler(event)).resolves.toBeNull();
+
+    expect(event.status).toBe(204);
+    expect(mocks.readCollabBody).toHaveBeenCalledWith(event);
+    expect(mocks.postAwareness).not.toHaveBeenCalled();
+  });
+
+  it("keeps presence writes to a deleted resource as not found", async () => {
+    const handler = await mountCollabHandler({
+      access: {
+        mode: "resource",
+        resourceType: "design",
+        resolveResourceId: () => null,
+      },
+    });
+    const event = makeEvent();
+    event.method = "POST";
+    event.url = new URL("http://localhost/design-file-1/awareness");
+    event.body = { state: JSON.stringify({ visible: true }) };
+
+    await expect(handler(event)).resolves.toEqual({ error: "Not found" });
+
+    expect(event.status).toBe(404);
+    expect(mocks.postAwareness).not.toHaveBeenCalled();
   });
 
   it("maps a JSON collab id back to its source row", async () => {
