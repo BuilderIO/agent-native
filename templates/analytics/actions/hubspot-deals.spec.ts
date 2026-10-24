@@ -399,6 +399,46 @@ describe("hubspot-deals action", () => {
     expect(result.nextOffset).toBe(result.deals.length);
   });
 
+  it("refits the deals when the rest of the result pushes the whole past the cap", async () => {
+    const deals = Array.from({ length: 30 }, (_, index) => ({
+      id: `fat-${index}`,
+      properties: {
+        dealname: `Fat deal ${index} ${"x".repeat(1_300)}`,
+        dealstage: "stage-0",
+        pipeline: "enterprise-new-business",
+      },
+    }));
+    searchHubSpotObjects.mockResolvedValue({
+      records: deals,
+      total: 30,
+      nextAfter: null,
+      properties: [],
+    });
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: Array.from({ length: 300 }, (_, i) => ({
+          id: `stage-${i}`,
+          label: `Stage ${i} ${"s".repeat(30)}`,
+          displayOrder: i,
+          metadata: { probability: "0.5" },
+        })),
+      },
+    ]);
+    getDealOwners.mockResolvedValue({});
+
+    const result = (await hubspotDeals.run({ limit: 30 })) as Record<
+      string,
+      any
+    >;
+
+    expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
+    expect(result.sizeTrimmed).toBe(true);
+    expect(result.deals.length).toBeGreaterThan(0);
+    expect(result.nextOffset).toBe(result.deals.length);
+  });
+
   it("shortens an oversized lone deal instead of returning it past the output cap", async () => {
     searchHubSpotObjects.mockResolvedValue({
       records: [
@@ -450,7 +490,7 @@ describe("hubspot-deals action", () => {
     ]);
     expect(result.hasMore).toBe(false);
     expect(result.nextOffset).toBeNull();
-    expect(result.guidance).toContain("description");
+    expect(result.guidance).toContain("1 property was shortened");
   });
 
   describe("lone deal that cannot be shortened by prefix", () => {
@@ -520,7 +560,25 @@ describe("hubspot-deals action", () => {
       expect(result.deals).toHaveLength(1);
       const listed = result.truncatedProperties[0].properties as string[];
       expect(new Set(listed).size).toBe(listed.length);
-      expect(listed.length).toBe(250);
+      expect(listed.length + result.truncatedProperties[0].moreTruncated).toBe(
+        250,
+      );
+    });
+
+    it("keeps the complete result under the cap when ~1,000 properties are truncated", async () => {
+      const props = Object.fromEntries(
+        Array.from({ length: 950 }, (_, i) => [`p${i}`, "h".repeat(400)]),
+      );
+      const result = await run(props);
+
+      expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
+      expect(result.oversizedDealIds).toBeUndefined();
+      expect(result.deals).toHaveLength(1);
+      expect(result.truncatedProperties).toHaveLength(1);
+      expect(result.truncatedProperties[0].properties).toHaveLength(20);
+      expect(result.truncatedProperties[0].moreTruncated).toBe(930);
+      expect(result.guidance).toContain("950 properties were shortened");
+      expect(result.guidance).not.toContain("p999");
     });
 
     it("terminates on thousands of short properties and reports the deal as oversized", async () => {
