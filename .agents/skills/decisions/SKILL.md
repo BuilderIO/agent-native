@@ -61,6 +61,15 @@ Builder Jev first, then a personal Jev key, then OpenAI. Within Jev, the
 Builder gateway is tried before falling back to a direct key. If no provider
 is configured, `decide()` returns `not_configured`.
 
+`getDecisionsStatus()` reports credential readiness separately from provider
+capabilities. The Builder Jev proxy is verified for `predicate` and `choice`.
+Jev `score` remains unverified and disabled by its capability flag, so
+`decide()` skips Jev for score questions and continues to the next configured
+provider. A Jev-only score request returns `failed` with
+`unverified_capability`. The OpenAI Decisions API supports scores with 2–10
+ordered levels; its request and response mapping is covered by documented
+fixtures.
+
 Key any per-provider threshold or cache by both provider and model. `cacheKey`
 enables caching only when supplied. Cache identity includes the owner,
 organization, provider, model, cache key, input, and questions. The in-memory

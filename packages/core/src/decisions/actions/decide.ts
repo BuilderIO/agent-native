@@ -4,7 +4,7 @@ import { DecideInputSchema } from "../validation.js";
 
 export default defineAction({
   description:
-    "Make a read-only typed decision from text, JSON, or an image URL using the configured decision provider order. Returns keyed predicate probabilities, choices, or rubric scores. It does not execute the decision or change app state.",
+    "Make a read-only typed decision from text, JSON, or an image URL using the configured provider order. The Builder Jev proxy is verified for predicate and choice; Jev score is unverified and disabled, so score questions skip Jev and continue to the next provider. Returns keyed answers without executing the decision or changing app state.",
   schema: DecideInputSchema,
   readOnly: true,
   grounding: true,

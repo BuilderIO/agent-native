@@ -7,6 +7,10 @@ import {
 import { getAppConfig } from "../app-config/index.js";
 import { getRequestOrgId } from "../server/request-context.js";
 import {
+  DECISION_PROVIDER_CAPABILITIES,
+  getDecisionQuestionCapability,
+} from "./capabilities.js";
+import {
   isJevEnabled,
   requestJev,
   type JevQuestion,
@@ -207,8 +211,30 @@ export async function decide(input: {
   const timeoutMs = input.options?.timeoutMs ?? configured.timeoutMs;
   const missingProviders: DecisionProvider[] = [];
   let compatibleProviderCount = 0;
+  let unverifiedCapability: {
+    provider: DecisionProvider;
+    questionNames: string[];
+  } | null = null;
 
   for (const provider of providers) {
+    const unavailableQuestions = input.questions.filter(
+      (question) =>
+        !getDecisionQuestionCapability(provider, question.type).enabled,
+    );
+    if (unavailableQuestions.length > 0) {
+      const unverifiedQuestions = unavailableQuestions.filter(
+        (question) =>
+          getDecisionQuestionCapability(provider, question.type).status ===
+          "unverified",
+      );
+      if (unverifiedQuestions.length > 0) {
+        unverifiedCapability = {
+          provider,
+          questionNames: unverifiedQuestions.map(({ name }) => name),
+        };
+      }
+      continue;
+    }
     if (provider === "jev" && hasImageInput(input.input)) {
       continue;
     }
@@ -316,6 +342,13 @@ export async function decide(input: {
   }
 
   if (compatibleProviderCount === 0) {
+    if (unverifiedCapability) {
+      return {
+        status: "failed",
+        reason: "unverified_capability",
+        ...unverifiedCapability,
+      };
+    }
     return { status: "failed", reason: "unsupported_input" };
   }
   return {
@@ -351,6 +384,7 @@ export async function getDecisionsStatus(
 
   return {
     providerOrder,
+    capabilities: DECISION_PROVIDER_CAPABILITIES,
     providers: [
       {
         provider: "openai",

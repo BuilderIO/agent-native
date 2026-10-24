@@ -32,6 +32,22 @@ export type DecisionQuestion =
   | ChoiceQuestion
   | ScoreQuestion;
 
+export type DecisionQuestionType = DecisionQuestion["type"];
+
+export interface DecisionQuestionCapability {
+  status: "verified" | "unverified";
+  enabled: boolean;
+}
+
+export interface DecisionsCapabilities {
+  jev: {
+    builderProxy: Record<DecisionQuestionType, DecisionQuestionCapability>;
+  };
+  openai: {
+    decisionsApi: Record<DecisionQuestionType, DecisionQuestionCapability>;
+  };
+}
+
 export interface DecisionProbability<Value extends string | number = string> {
   value: Value;
   probability: number;
@@ -65,6 +81,7 @@ export type DecisionFailureReason =
   | "credentials_unavailable"
   | "invalid_input"
   | "unsupported_input"
+  | "unverified_capability"
   | "provider_error"
   | "invalid_response"
   | "refusal";
@@ -101,6 +118,7 @@ export interface DecideOptions {
 
 export interface DecisionsStatus {
   providerOrder: DecisionProvider[];
+  capabilities: DecisionsCapabilities;
   providers: Array<{
     provider: DecisionProvider;
     status: "ready" | "not_configured" | "unknown";

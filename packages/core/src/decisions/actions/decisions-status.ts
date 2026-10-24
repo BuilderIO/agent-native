@@ -5,7 +5,7 @@ import { getDecisionsStatus } from "../decide.js";
 
 export default defineAction({
   description:
-    "Check which configured decision providers are ready for this workspace. Returns provider order and ready, not_configured, or unknown status without revealing API keys.",
+    "Check decision provider readiness and question capabilities for this workspace. Returns provider order, capability verification/enabled states, and credential readiness without revealing API keys.",
   schema: z.object({}),
   readOnly: true,
   run: async (_args, ctx) => {
