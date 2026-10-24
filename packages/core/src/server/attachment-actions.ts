@@ -95,8 +95,6 @@ interface StoredAttachmentReference {
   url: string;
   contentType?: string;
   name?: string;
-  /** Set when the stored file is pasted text inside its prompt envelope. */
-  unwrapEnvelope?: true;
 }
 
 // Paging re-reads the file from storage, so a file being read page by page
@@ -160,16 +158,21 @@ export function attachmentRereadCacheStats(): {
   return { entries: rereadCache.size, chars: rereadCacheChars };
 }
 
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
 /** An upload already lives in file storage, so SQL keeps only where it is. */
-function storedAttachmentReference(
-  att: {
-    url?: string;
-    uploadProvider?: string;
-    contentType?: string;
-    name?: string;
-  },
-  unwrapEnvelope: boolean,
-): StoredAttachmentReference | null {
+function storedAttachmentReference(att: {
+  url?: string;
+  uploadProvider?: string;
+  contentType?: string;
+  name?: string;
+}): StoredAttachmentReference | null {
   if (!att.uploadProvider || !att.url?.startsWith("https://")) return null;
   return {
     url: att.url,
@@ -179,7 +182,6 @@ function storedAttachmentReference(
       ? att.contentType
       : "text/plain",
     name: att.name,
-    ...(unwrapEnvelope ? { unwrapEnvelope: true as const } : {}),
   };
 }
 
@@ -214,11 +216,7 @@ async function readStoredAttachmentReference(
           : "the stored file is no longer a text file",
     };
   }
-  return {
-    text: reference.unwrapEnvelope
-      ? unwrapTextAttachmentEnvelope(decoded.text)
-      : decoded.text,
-  };
+  return { text: decoded.text };
 }
 
 export async function persistTextAttachmentsAsResources(opts: {
@@ -254,7 +252,7 @@ export async function persistTextAttachmentsAsResources(opts: {
           : undefined;
     if (!text) continue;
 
-    const reference = storedAttachmentReference(att, decoded.kind !== "text");
+    const reference = storedAttachmentReference(att);
     // A partial copy would let read-attachment report "End of attachment"
     // for a file whose tail was never stored.
     if (
@@ -483,17 +481,32 @@ export function createCoreAttachmentActionEntries(): Record<
             }
           }
           const totalChars = content.length;
-          const slice = content.slice(offset, offset + limit);
+          // Page edges never split a surrogate pair: start before a low half
+          // and stop before a high half, and report the real next offset.
+          const start =
+            offset > 0 &&
+            offset < totalChars &&
+            isLowSurrogate(content.charCodeAt(offset))
+              ? offset - 1
+              : offset;
+          let end = Math.min(totalChars, start + limit);
+          if (
+            end < totalChars &&
+            isHighSurrogate(content.charCodeAt(end - 1))
+          ) {
+            end -= 1;
+          }
+          const slice = content.slice(start, end);
           return {
             name,
             content: slice,
-            offset,
-            limit,
+            offset: start,
+            limit: end - start,
             totalChars,
-            hasMore: offset + limit < totalChars,
+            hasMore: end < totalChars,
             note:
-              offset + limit < totalChars
-                ? `${totalChars - offset - limit} chars remain. Call again with offset=${offset + limit}.`
+              end < totalChars
+                ? `${totalChars - end} chars remain. Call again with offset=${end}.`
                 : "End of attachment.",
           };
         } catch (err) {

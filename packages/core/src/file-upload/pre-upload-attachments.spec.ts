@@ -853,6 +853,30 @@ describe("preUploadAttachments", () => {
     expect(att.url).toBe("https://cdn.example.com/notes.txt");
   });
 
+  it("uploads the file body, not the composer's attachment wrapper", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/notes.txt",
+      provider: "builder",
+    });
+
+    await preUploadAttachments({
+      attachments: [
+        makeFileAtt({
+          data: undefined,
+          name: "notes.txt",
+          contentType: "text/plain",
+          text: '<attachment name="notes.txt" contentType="text/plain">\nbody\n</attachment>',
+        }),
+      ],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(
+      Buffer.from(uploadFileMock.mock.calls[0]![0].data).toString("utf8"),
+    ).toBe("body");
+  });
+
   it("does not fetch a text attachment that already has readable extracted text", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

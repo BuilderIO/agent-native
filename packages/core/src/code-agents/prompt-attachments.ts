@@ -16,6 +16,9 @@ export interface AgentPromptAttachment {
   dataUrl?: string;
 }
 
+const INLINE_IMAGE_DATA_URL =
+  /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]*={0,2}$/i;
+
 const MAX_INLINE_TEXT_CHARS = 60_000;
 const MAX_TOTAL_TEXT_CHARS = 80_000;
 
@@ -34,14 +37,16 @@ export function formatPromptWithAttachments(
       if (attachment.readError) {
         return `<attached-file-error name="${escapePromptAttachmentAttribute(
           attachment.name,
-        )}" code="${attachment.readError}"${type}${size}>\n${describeAgentPromptAttachmentReadError(
+        )}" code="${escapePromptAttachmentAttribute(attachment.readError)}"${type}${size}>\n${describeAgentPromptAttachmentReadError(
           attachment.readError,
         )}\n</attached-file-error>`;
       }
+      // Only a well-formed base64 image data URL is pasted: it cannot hold
+      // "<", so it cannot close its tag or forge prompt text.
       if (attachment.dataUrl && attachment.text === undefined) {
         return `<attached-image name="${escapePromptAttachmentAttribute(
           attachment.name,
-        )}"${type}${size}>\n${attachment.dataUrl}\n</attached-image>`;
+        )}"${type}${size}>\n${INLINE_IMAGE_DATA_URL.test(attachment.dataUrl) ? attachment.dataUrl : "[The image data was not a valid base64 image data URL, so it was not included.]"}\n</attached-image>`;
       }
       const { body, usedChars } = budgetAttachedFileText(
         attachment,

@@ -35,10 +35,12 @@ export function formatPromptWithAttachments(
         ? ` type="${escapePromptAttachmentAttribute(attachment.type)}"`
         : "";
       if (attachment.readError) {
-        return `<attached-file-error name="${escapePromptAttachmentAttribute(attachment.name)}" code="${attachment.readError}"${type}${size}>\n${describeAgentPromptAttachmentReadError(attachment.readError)}\n</attached-file-error>`;
+        return `<attached-file-error name="${escapePromptAttachmentAttribute(attachment.name)}" code="${escapePromptAttachmentAttribute(attachment.readError)}"${type}${size}>\n${describeAgentPromptAttachmentReadError(attachment.readError)}\n</attached-file-error>`;
       }
+      // Only a well-formed base64 image data URL is pasted: it cannot hold
+      // "<", so it cannot close its tag or forge prompt text.
       if (attachment.dataUrl && attachment.text === undefined) {
-        return `<attached-image name="${escapePromptAttachmentAttribute(attachment.name)}"${type}${size}>\n${attachment.dataUrl}\n</attached-image>`;
+        return `<attached-image name="${escapePromptAttachmentAttribute(attachment.name)}"${type}${size}>\n${INLINE_IMAGE_DATA_URL.test(attachment.dataUrl) ? attachment.dataUrl : "[The image data was not a valid base64 image data URL, so it was not included.]"}\n</attached-image>`;
       }
       const { body, usedChars } = budgetAttachedFileText(
         attachment,
@@ -89,6 +91,9 @@ function budgetAttachedFileText(
       : `[Only the first ${shown.length.toLocaleString()} of ${totalChars.toLocaleString()} characters of this file were attached, and the rest is not available to you. Tell the user up front that you could read only part of it, and do not report finished work that depends on the rest.]`;
   return { body: head ? `${head}\n\n${note}` : note, usedChars: shown.length };
 }
+
+const INLINE_IMAGE_DATA_URL =
+  /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]*={0,2}$/i;
 
 /** Cuts at `end` without leaving half of a surrogate pair at the edge. */
 function sliceTextHead(text: string, end: number): string {

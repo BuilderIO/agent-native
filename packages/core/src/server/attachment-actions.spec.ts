@@ -882,6 +882,32 @@ describe("createCoreAttachmentActionEntries / read-attachment", () => {
     expect(attachmentRereadCacheStats()).toEqual({ entries: 32, chars: 32 });
   });
 
+  it("never splits a surrogate pair at a page edge", async () => {
+    const content = "a😀b";
+    resourceListMock.mockResolvedValue([
+      { id: "res-1", path: "attachments/thread-1/mfh2a1b2-0-data.csv" },
+    ]);
+    resourceGetMock.mockResolvedValue(makeResource(content));
+    const entries = createCoreAttachmentActionEntries();
+
+    const first = await entries["read-attachment"].run(
+      { path: "attachments/thread-1/mfh2a1b2-0-data.csv", limit: "2" },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(first).toMatchObject({ content: "a", hasMore: true });
+    expect(first.note).toContain("offset=1");
+
+    const mid = await entries["read-attachment"].run(
+      {
+        path: "attachments/thread-1/mfh2a1b2-0-data.csv",
+        offset: "2",
+        limit: "3",
+      },
+      { caller: "tool", userEmail: "user@example.com" },
+    );
+    expect(mid).toMatchObject({ content: "😀b", offset: 1 });
+  });
+
   it("rejects a path outside stored attachments", async () => {
     const result = await createCoreAttachmentActionEntries()[
       "read-attachment"

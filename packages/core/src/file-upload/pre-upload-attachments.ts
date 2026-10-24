@@ -9,6 +9,7 @@ import {
   decodeTextAttachmentData,
   isTextLikeFilename,
   MAX_INLINE_TEXT_ATTACHMENT_CHARS,
+  unwrapTextAttachmentEnvelope,
 } from "./attachment-text.js";
 import {
   classifyInlineAttachment,
@@ -396,7 +397,12 @@ export async function preUploadAttachments(opts: {
       typeof att.text === "string" &&
       att.text.length > 0
     ) {
-      const encoded = Buffer.from(att.text, "utf8").toString("base64");
+      // Upload the file body, not the composer's <attachment> wrapper, so a
+      // later re-read from storage sees the same text and offsets as now.
+      const encoded = Buffer.from(
+        unwrapTextAttachmentEnvelope(att.text),
+        "utf8",
+      ).toString("base64");
       data = `data:${normalizeContentType(att.contentType) || "text/plain"};base64,${encoded}`;
     }
 
