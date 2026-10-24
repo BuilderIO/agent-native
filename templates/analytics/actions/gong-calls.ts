@@ -22,6 +22,7 @@ const MAX_GONG_TRANSCRIPT_LIMIT = 50;
 const DEFAULT_TRANSCRIPT_MAX_CHARS = 8_000;
 const MAX_TRANSCRIPT_MAX_CHARS = 100_000;
 const MAX_AGGREGATE_TRANSCRIPT_CHARS = 40_000;
+const RESULT_CHAR_CAP = 50_000;
 const DEFAULT_TRANSCRIPT_SCAN_LIMIT = 50;
 const MAX_TRANSCRIPT_SCAN_LIMIT = 200;
 const DEFAULT_TRANSCRIPT_SEARCH_MAX_CHARS = MAX_TRANSCRIPT_MAX_CHARS;
@@ -85,6 +86,32 @@ function boundedTranscriptExcerptChars(
   return Math.min(
     requestedChars,
     Math.max(500, Math.floor(MAX_AGGREGATE_TRANSCRIPT_CHARS / transcriptCount)),
+  );
+}
+
+// The agent pretty-prints (2-space indent) the whole result before applying its
+// 50,000-char cap, so the transcript budget has to hold for the complete
+// serialized result, not the raw excerpt text. Refit once, proportionally, by
+// the serialized overage (JSON escapes make newline-heavy text cost double).
+function fitResultToCap<T>(
+  transcripts: TranscriptEvidence[] | undefined,
+  build: (evidence: TranscriptEvidence[] | undefined) => T,
+): T {
+  const result = build(transcripts);
+  if (!transcripts?.length) return result;
+  const overage = JSON.stringify(result, null, 2).length - RESULT_CHAR_CAP;
+  if (overage <= 0) return result;
+  const textChars = transcripts.reduce(
+    (total, transcript) => total + JSON.stringify(transcript.text).length,
+    0,
+  );
+  const keep = Math.max(0, (textChars - overage - 1_000) / textChars);
+  return build(
+    transcripts.map((transcript) => ({
+      ...transcript,
+      text: transcript.text.slice(0, Math.floor(transcript.text.length * keep)),
+      truncated: true,
+    })),
   );
 }
 
@@ -673,7 +700,7 @@ export default defineAction({
       // Key order is serialization order: keep call records ahead of the bulky
       // transcripts so the tool-result cap truncates transcripts, not calls.
       const { calls: resultCalls, ...resultRest } = result;
-      return {
+      const buildResult = (evidence: TranscriptEvidence[] | undefined) => ({
         calls: resultCalls,
         ...resultRest,
         total: result.calls.length,
@@ -697,7 +724,6 @@ export default defineAction({
               },
             }
           : {}),
-        ...(transcripts ? { transcripts } : {}),
         ...(transcripts
           ? {
               transcriptCoverage: {
@@ -710,6 +736,7 @@ export default defineAction({
               },
             }
           : {}),
+        ...(evidence ? { transcripts: evidence } : {}),
         guidance: [
           transcriptSearch
             ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${result.calls.length} matching call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; if coverage is incomplete, keep any retry bounded by narrowing the window, or switch broad/exhaustive work to tracker staging or provider-corpus-job.`
@@ -727,7 +754,8 @@ export default defineAction({
         ]
           .filter(Boolean)
           .join(" "),
-      };
+      });
+      return fitResultToCap(transcripts, buildResult);
     } else {
       const days = args.days ?? 30;
       const limit = normalizeGongCallLimit(
@@ -817,7 +845,7 @@ export default defineAction({
           )
         : undefined;
 
-      return {
+      const buildResult = (evidence: TranscriptEvidence[] | undefined) => ({
         limit: exhaustive ? returnedCalls.length : limited.limit,
         pages: "pages" in result ? result.pages : 1,
         truncated,
@@ -844,7 +872,7 @@ export default defineAction({
               },
             }
           : {}),
-        ...(transcripts ? { transcripts } : {}),
+        ...(evidence ? { transcripts: evidence } : {}),
         guidance: [
           transcriptSearch
             ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${returnedCalls.length} returned call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; if coverage is incomplete, keep any retry bounded by narrowing the window, or switch broad/exhaustive work to tracker staging or provider-corpus-job.`
@@ -856,7 +884,8 @@ export default defineAction({
             ? `Loaded transcript excerpts for ${transcripts?.length ?? 0} call(s). Ground qualitative claims in the transcript text and cite the inspected call count.`
             : "For deep-dive or qualitative analysis, call this action again with includeTranscripts=true before drawing conclusions from call content.",
         ].join(" "),
-      };
+      });
+      return fitResultToCap(transcripts, buildResult);
     }
   },
 });

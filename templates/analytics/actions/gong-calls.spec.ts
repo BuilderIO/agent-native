@@ -515,6 +515,59 @@ describe("gong-calls action", () => {
     expect(maxActiveTranscriptRequests).toBe(3);
   });
 
+  it("keeps the complete pretty-printed result under the cap for newline-heavy transcripts", async () => {
+    const calls = Array.from({ length: 50 }, (_, index) => ({
+      id: `c${index + 1}`,
+      title: `Acme call ${index + 1}`,
+      started: "2026-05-03T10:00:00Z",
+    }));
+    searchCalls.mockResolvedValue({
+      calls,
+      limit: calls.length,
+      truncated: false,
+      matchedCallCount: calls.length,
+      coverageTruncated: false,
+    });
+    // Many short utterances: every line break is escaped in the JSON result.
+    getCallTranscripts.mockImplementation(async (callIds: string[]) => ({
+      callTranscripts: callIds.map((callId) => ({
+        callId,
+        transcript: [
+          {
+            speakerId: "buyer",
+            sentences: Array.from({ length: 500 }, (_, start) => ({
+              start: start * 1_000,
+              text: "ok",
+            })),
+          },
+        ],
+      })),
+    }));
+
+    const result = (await gongCalls.run({
+      company: "Acme",
+      exhaustive: true,
+      includeTranscripts: true,
+      transcriptMaxChars: 100_000,
+    })) as Record<string, any>;
+
+    expect(JSON.stringify(result, null, 2).length).toBeLessThan(50_000);
+    expect(result.transcripts).toHaveLength(50);
+    expect(result.transcripts.every((t: any) => t.truncated)).toBe(true);
+    expect(result.transcriptCoverage).toEqual({
+      availableCalls: 50,
+      inspectedCalls: 50,
+      successfulCalls: 50,
+      errorCount: 0,
+      coverageComplete: true,
+      scanLimited: false,
+    });
+    const keys = Object.keys(result);
+    expect(keys.indexOf("transcriptCoverage")).toBeLessThan(
+      keys.indexOf("transcripts"),
+    );
+  });
+
   it("serializes date-window calls before transcripts so truncation keeps the call records", async () => {
     getCalls.mockResolvedValue({
       calls: [

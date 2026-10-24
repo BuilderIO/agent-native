@@ -215,6 +215,8 @@ export function resolveRunNoProgressTimeoutMs(params: {
   return override === 0 ? 0 : Math.min(override, ceiling);
 }
 
+const MAX_CONSECUTIVE_EMPTY_MODEL_CALLS = 3;
+
 function inFlightWorkDelta(event: AgentChatEvent): -1 | 0 | 1 {
   switch (event.type) {
     case "tool_start":
@@ -901,6 +903,7 @@ export function startRun(
       chunkAbort = new AbortController();
       armChunkSoftTimeout();
       lastRealProgressAt = Date.now();
+      consecutiveEmptyModelCalls = 0;
       return chunkAbort.signal;
     },
   };
@@ -1337,10 +1340,11 @@ export function startRun(
   };
 
   let lastRealProgressAt = Date.now();
-  // Completed model calls since the last real progress. The first one gets a
-  // grace window (its result is still being processed); repeats do not, so a
-  // loop of empty calls still trips the no-progress backstop.
-  let completedModelCallsWithoutProgress = 0;
+  // Every completed model call refreshes the silence clock (its result is still
+  // being processed), so a loop of calls that produce no text, tool call or
+  // result is caught by counting consecutive empty calls instead.
+  let consecutiveEmptyModelCalls = 0;
+  let modelCallHadProgress = false;
   let inFlightWorkCount = 0;
   let inFlightMarkerSince: number | null = null;
   let inFlightMarkerWrite = Promise.resolve();
@@ -1615,7 +1619,9 @@ export function startRun(
     if (run.status !== "running" || abort.signal.aborted) return;
     if (inFlightWorkCount > 0) return;
     const silentForMs = Date.now() - lastRealProgressAt;
-    if (silentForMs < noProgressTimeoutMs) return;
+    const emptyCallLoop =
+      consecutiveEmptyModelCalls > MAX_CONSECUTIVE_EMPTY_MODEL_CALLS;
+    if (!emptyCallLoop && silentForMs < noProgressTimeoutMs) return;
     const lastEventType = run.events.at(-1)?.event.type;
     if (!chunkAbort) {
       console.error(
@@ -1887,14 +1893,16 @@ export function startRun(
     trackInFlightWork(runEvent.event);
     if (shouldBumpProgressForEvent(runEvent.event)) {
       lastRealProgressAt = Date.now();
-      completedModelCallsWithoutProgress = 0;
+      consecutiveEmptyModelCalls = 0;
+      modelCallHadProgress = true;
       bumpProgressIfDue();
-    } else if (
-      runEvent.event.type === "model_stream" &&
-      runEvent.event.status === "end" &&
-      completedModelCallsWithoutProgress++ === 0
-    ) {
-      lastRealProgressAt = Date.now();
+    } else if (runEvent.event.type === "model_stream") {
+      if (runEvent.event.status === "start") {
+        modelCallHadProgress = false;
+      } else {
+        lastRealProgressAt = Date.now();
+        if (!modelCallHadProgress) consecutiveEmptyModelCalls++;
+      }
     }
   };
 
