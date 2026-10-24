@@ -1,3 +1,5 @@
+import type { RecoveryAttempt } from "./recovery-attempt";
+
 export interface PageDraftJournalScope {
   accountId: string;
   orgId: string | null;
@@ -284,10 +286,12 @@ export function updatePageDraftJournalTitle(
 export async function syncPageDraftJournalBeforePersistingRecoveryDraft(input: {
   persist: () => Promise<void>;
   scope: PageDraftJournalScope | null;
+  owner: Pick<RecoveryAttempt, "isActive" | "assertActive">;
   title: string;
   editGeneration: number;
   content: string;
 }): Promise<boolean> {
+  input.owner.assertActive();
   const scope = input.scope;
   let synchronized = false;
   let journalWriteError: unknown;
@@ -343,7 +347,10 @@ export async function syncPageDraftJournalBeforePersistingRecoveryDraft(input: {
   try {
     await input.persist();
   } catch (persistError) {
+    // Matching bytes do not make the entry this writer's to restore once its
+    // owner has ended: the SQL write it raced may already have landed.
     if (
+      input.owner.isActive() &&
       synchronized &&
       journalItemKey !== null &&
       previousRaw !== null &&

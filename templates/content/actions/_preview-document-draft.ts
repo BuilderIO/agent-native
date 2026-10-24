@@ -11,10 +11,13 @@ export async function readPreviewDocumentDraft(
 ) {
   const [draft] = await db
     .select({
+      id: schema.documentPreviewDrafts.id,
       documentId: schema.documentPreviewDrafts.documentId,
       title: schema.documentPreviewDrafts.title,
+      baseTitle: schema.documentPreviewDrafts.baseTitle,
       content: schema.documentPreviewDrafts.content,
       baseDocumentUpdatedAt: schema.documentPreviewDrafts.baseDocumentUpdatedAt,
+      baseContentHash: schema.documentPreviewDrafts.baseContentHash,
       loadedContentWasEmpty: schema.documentPreviewDrafts.loadedContentWasEmpty,
       deferredReason: schema.documentPreviewDrafts.deferredReason,
       editorSessionId: schema.documentPreviewDrafts.editorSessionId,

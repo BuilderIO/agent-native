@@ -137,8 +137,10 @@ const page = {
   id: "page",
   title: "Saved",
   content: "Saved body",
+  createdAt: "created",
   updatedAt: "v2",
   revision: "saved-body-revision",
+  contentHash: "sha256:saved-body",
   canEdit: true,
 } as Document;
 
@@ -295,8 +297,10 @@ describe("Page draft recovery on a page open", () => {
       draft: {
         documentId: "page",
         title: "Saved",
+        baseTitle: "Saved",
         content: "Unsaved words",
         baseDocumentUpdatedAt: "v2",
+        baseContentHash: "sha256:saved-body",
         loadedContentWasEmpty: 0,
         deferredReason: "conflict",
         editorSessionId: "tab:other",
@@ -320,7 +324,12 @@ describe("Page draft recovery on a page open", () => {
 
     await vi.waitFor(() => expect(server.mutate).toHaveBeenCalled());
     expect(server.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "page", content: "Unsaved words" }),
+      expect.objectContaining({
+        documentId: "page",
+        choice: "keep_mine",
+        expectedDraftContent: "Unsaved words",
+        expectedDraftBaseTitle: "Saved",
+      }),
     );
     expect(container.querySelector("textarea")).toBeNull();
     expect(draftReads()).toBe(2);

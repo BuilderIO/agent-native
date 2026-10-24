@@ -113,6 +113,8 @@ import {
   serializeDocumentSource,
 } from "./_document-source.js";
 import {
+  assertAutomaticPreviewDraftGeneration,
+  isAutomaticPreviewDraftRecovery,
   lockPreviewDocumentDraftSettlement,
   readDiscardedPreviewDraftGeneration,
   settlePreviewDocumentDraft,
@@ -1202,6 +1204,17 @@ const updateDocumentAction = defineAction({
           // still gets its receipt. The page lock above makes this see Trash.
           if (!favoriteOnly) assertEditableDocument(existing);
           if (settlesPreviewDraft) {
+            if (isAutomaticPreviewDraftRecovery(ctx)) {
+              await assertAutomaticPreviewDraftGeneration({
+                db: tx,
+                ownerEmail: requestUserEmail as string,
+                orgId: requestOrgId,
+                documentId: id,
+                editorSessionId: args.editorSessionId as string,
+                editGeneration: args.editorEditGeneration as number,
+                now: new Date().toISOString(),
+              });
+            }
             await lockPreviewDocumentDraftSettlement({
               db: tx,
               ownerEmail: requestUserEmail as string,
@@ -1332,6 +1345,10 @@ const updateDocumentAction = defineAction({
             if (liveCopyBodySave && !settlesLiveCopyBody) return;
             if (
               settlesPreviewDraft &&
+              // Automatic recovery settles this generation when its claim
+              // resolves, after checking for a draft the generation saved
+              // since the claim took its own.
+              !isAutomaticPreviewDraftRecovery(ctx) &&
               args.editorSnapshotTitle !== undefined &&
               args.editorSnapshotContent !== undefined &&
               // A title the editor never edited is not lost when a peer's

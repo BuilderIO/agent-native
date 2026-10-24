@@ -1477,6 +1477,8 @@ const enUS = {
     previewDraftViewFullVersions: "View full versions",
     previewDraftShowChanges: "Show changes",
     restorePreviewDraft: "Restore draft",
+    previewDraftTitleUnknown:
+      "This draft's original title is unknown. Use the saved page or save the draft separately.",
     previewDraftConflict:
       "This draft conflicts with a newer page version. It was not restored.",
     pageSaveBeforeNavigationFailed:

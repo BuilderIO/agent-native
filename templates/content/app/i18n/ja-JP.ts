@@ -1069,6 +1069,8 @@ const rawLiterals = {
     previewDraftMoreOptions: "その他のオプション",
     previewDraftViewFullVersions: "全文を表示",
     previewDraftShowChanges: "変更箇所を表示",
+    previewDraftTitleUnknown:
+      "この下書きの元のタイトルは不明です。保存済みのページを使うか、下書きを別に保存してください。",
     previewDraftConflict:
       "この下書きは新しいページのバージョンと競合しているため、復元されませんでした。",
     restorePreviewDraft: "下書きを復元",

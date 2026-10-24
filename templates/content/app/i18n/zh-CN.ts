@@ -1073,6 +1073,8 @@ const rawLiterals = {
     previewDraftMoreOptions: "更多选项",
     previewDraftViewFullVersions: "查看完整版本",
     previewDraftShowChanges: "显示更改",
+    previewDraftTitleUnknown:
+      "此草稿的原始标题未知。请使用已保存的页面或单独保存草稿。",
     previewDraftConflict: "此草稿与较新的页面版本冲突，因此未恢复。",
     restorePreviewDraft: "恢复草稿",
     pageSaveBeforeNavigationFailed:

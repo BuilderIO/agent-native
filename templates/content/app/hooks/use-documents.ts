@@ -505,13 +505,18 @@ function patchDocumentWithFavoriteMembershipInDatabaseCache(
     : setDocumentFavoriteInDatabaseCache(patched, documentId, patch.isFavorite);
 }
 
+// Only the page's own reads are a source for its body. Lists, database rows
+// and navigation can still hold a body an earlier patch gave them, but nothing
+// edits or saves from it. `pagePatch` lets the page copies keep a body and its
+// revision together while the rest take the answer's metadata.
 export function patchDocumentCaches(
   queryClient: Pick<QueryClient, "setQueryData" | "setQueriesData">,
   documentId: string,
   patch: PageOwnedDocumentCachePatch,
+  pagePatch: PageOwnedDocumentCachePatch = patch,
 ) {
   queryClient.setQueriesData(documentQueryFilter(documentId), (old: unknown) =>
-    old && typeof old === "object" ? { ...old, ...patch } : old,
+    old && typeof old === "object" ? { ...old, ...pagePatch } : old,
   );
   queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
     patchDocumentInListDocumentsCache(old, documentId, patch),
@@ -717,15 +722,48 @@ export function removeCreatedDocumentNavigation(
   }
 }
 
+// A save that sends no body still answers with the page's current body
+// revision, hash and timestamp. If another writer moved the body since the
+// cache read it, those name a body the cache does not hold: beside the cached
+// body they make every later save's base invalid and stamp a draft with a body
+// it was not written on. The page's own reads keep their body and the fields
+// that go with it until a fresh read brings the new body.
+export function documentUpdateMovedBody(
+  data: Pick<DocumentUpdateResponse, "bodyRevision">,
+  variables: Pick<DocumentUpdateRequestWithCas, "content">,
+  cachedBodyRevisions: readonly (number | undefined)[],
+): boolean {
+  return (
+    variables.content === undefined &&
+    cachedBodyRevisions.some((revision) => revision !== data.bodyRevision)
+  );
+}
+
+function cachedDocumentBodyRevisions(
+  queryClient: Pick<QueryClient, "getQueriesData">,
+  documentId: string,
+): Array<number | undefined> {
+  return queryClient
+    .getQueriesData<Document>(documentQueryFilter(documentId))
+    .flatMap(([, cached]) =>
+      cached && typeof cached === "object" ? [cached.bodyRevision] : [],
+    );
+}
+
 export function documentUpdateSuccessPatch(
   data: DocumentUpdateResponse,
   variables: DocumentUpdateRequestWithCas,
+  bodyMovedElsewhere = false,
 ): PageOwnedDocumentCachePatch {
   return {
-    updatedAt: data.updatedAt,
-    revision: data.revision,
-    bodyRevision: data.bodyRevision,
-    contentHash: data.contentHash,
+    ...(bodyMovedElsewhere
+      ? {}
+      : {
+          updatedAt: data.updatedAt,
+          revision: data.revision,
+          bodyRevision: data.bodyRevision,
+          contentHash: data.contentHash,
+        }),
     ...(variables.title !== undefined ? { title: data.title } : {}),
     ...(variables.content !== undefined ? { content: data.content } : {}),
     ...(variables.description !== undefined
@@ -997,10 +1035,13 @@ export function startPageOpenCompanionReads(
 }
 
 export interface PreviewDocumentDraftRecord {
+  id: string;
   documentId: string;
   title: string;
+  baseTitle: string | null;
   content: string;
   baseDocumentUpdatedAt: string | null;
+  baseContentHash?: string | null;
   loadedContentWasEmpty: number;
   deferredReason: string | null;
   editorSessionId: string | null;
@@ -1106,26 +1147,32 @@ export function useUpdatePreviewDocumentDraft() {
       status: "saved" | "deleted" | "conflict" | "superseded";
       draft: PreviewDocumentDraftRecord | null;
     },
-    | {
+    | ({
         operation: "upsert";
         documentId: string;
-        expectedVersion: number | null;
         draft: {
           title: string;
+          baseTitle: string | null;
           content: string;
           baseDocumentUpdatedAt: string | null;
+          baseContentHash: string | null;
           loadedContentWasEmpty: boolean;
           deferredReason: "hydration" | "conflict" | null;
           editorSessionId?: string;
           editGeneration?: number;
         };
-      }
+      } & (
+        | { expectedVersion: null }
+        | { expectedVersion: number; expectedDraftId: string }
+      ))
     | {
         operation: "delete";
         documentId: string;
         expectedVersion: number;
+        expectedDraftId: string;
         expectedTitle: string;
         expectedContent: string;
+        expectedBaseTitle?: string | null;
         expectedEditorSessionId?: string;
         expectedEditGeneration?: number;
       }
@@ -1144,7 +1191,9 @@ export function useUpdatePreviewDocumentDraft() {
 export function useResolvePreviewDocumentDraft() {
   return useContentActionMutation<
     {
-      status: "resolved" | "document_conflict";
+      status: "resolved" | "document_conflict" | "recovery_required";
+      reason?: "prior_choice" | "draft_changed";
+      recoveryVersionId?: string;
       choice?: "keep_mine" | "use_saved" | "save_separately";
       document?: Document;
       createdDocumentId?: string;
@@ -1152,9 +1201,15 @@ export function useResolvePreviewDocumentDraft() {
     },
     {
       choice: "keep_mine" | "use_saved" | "save_separately";
+      trigger: "automatic" | "reviewed";
       documentId: string;
+      expectedDraftId: string;
+      expectedDraftEditorSessionId: string | null;
+      expectedDraftEditGeneration: number | null;
       expectedDraftVersion: number;
       expectedDraftTitle: string;
+      expectedDraftBaseTitle?: string | null;
+      expectedDocumentTitle?: string;
       expectedDraftContent: string;
       expectedDocumentUpdatedAt?: string;
     }
@@ -1559,11 +1614,19 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
           return;
         }
 
+        const bodyMovedElsewhere = documentUpdateMovedBody(
+          data,
+          variables,
+          cachedDocumentBodyRevisions(queryClient, variables.id),
+        );
         patchDocumentCaches(
           queryClient,
           variables.id,
           documentUpdateSuccessPatch(data, variables),
+          documentUpdateSuccessPatch(data, variables, bodyMovedElsewhere),
         );
+        if (bodyMovedElsewhere)
+          void queryClient.invalidateQueries(documentQueryFilter(variables.id));
         if (variables.title !== undefined) {
           invalidateContentQueries(queryClient, [
             contentDatabaseConstrainedQueryFilter(),

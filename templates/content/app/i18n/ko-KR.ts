@@ -1059,6 +1059,8 @@ const rawLiterals = {
     previewDraftMoreOptions: "추가 옵션",
     previewDraftViewFullVersions: "전체 버전 보기",
     previewDraftShowChanges: "변경 사항 보기",
+    previewDraftTitleUnknown:
+      "이 초안의 원래 제목을 알 수 없습니다. 저장된 페이지를 사용하거나 초안을 따로 저장하세요.",
     previewDraftConflict:
       "이 초안은 더 최신 페이지 버전과 충돌하여 복원되지 않았습니다.",
     restorePreviewDraft: "초안 복원",

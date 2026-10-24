@@ -1084,6 +1084,8 @@ const rawLiterals = {
     previewDraftMoreOptions: "Mais opções",
     previewDraftViewFullVersions: "Ver versões completas",
     previewDraftShowChanges: "Mostrar alterações",
+    previewDraftTitleUnknown:
+      "O título original deste rascunho é desconhecido. Use a página salva ou salve o rascunho separadamente.",
     previewDraftConflict:
       "Este rascunho está em conflito com uma versão mais recente da página. Ele não foi restaurado.",
     restorePreviewDraft: "Restaurar rascunho",

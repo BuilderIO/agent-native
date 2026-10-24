@@ -1039,6 +1039,8 @@ const rawLiterals = {
     previewDraftMoreOptions: "ज़्यादा विकल्प",
     previewDraftViewFullVersions: "पूरे वर्शन देखें",
     previewDraftShowChanges: "बदलाव देखें",
+    previewDraftTitleUnknown:
+      "इस ड्राफ़्ट का मूल शीर्षक अज्ञात है। सहेजा गया पेज इस्तेमाल करें या ड्राफ़्ट अलग से सहेजें।",
     previewDraftConflict:
       "यह ड्राफ़्ट पेज के नए वर्शन से मेल नहीं खाता। इसे बहाल नहीं किया गया।",
     restorePreviewDraft: "ड्राफ़्ट बहाल करें",

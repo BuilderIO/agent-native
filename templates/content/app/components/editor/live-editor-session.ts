@@ -1,6 +1,22 @@
 import { createContext, useContext, useEffect } from "react";
 
+import type { FlushLocalSnapshot } from "./document-flush-participant";
 import { holdPageDraftWriter } from "./page-draft-journal";
+
+/**
+ * The editor's own save state, read the way the agent's document flush reads
+ * it: `drain` saves every edit it holds, and `snapshot` names its current edit
+ * and whether that edit is saved.
+ */
+export interface LiveEditorFlush {
+  snapshot(): FlushLocalSnapshot;
+  drain(): Promise<void>;
+}
+
+export interface LiveEditor {
+  editorSessionId: string;
+  flush: LiveEditorFlush | null;
+}
 
 /**
  * Lets the mounted editor tell PageDraftRecovery which editor session is live.
@@ -9,15 +25,18 @@ import { holdPageDraftWriter } from "./page-draft-journal";
  * learn the session is live through its writer lock.
  */
 export const LiveEditorSessionContext = createContext<
-  ((editorSessionId: string | null) => void) | null
+  ((editor: LiveEditor | null) => void) | null
 >(null);
 
-export function useRegisterLiveEditorSession(editorSessionId: string): void {
+export function useRegisterLiveEditorSession(
+  editorSessionId: string,
+  flush: LiveEditorFlush | null = null,
+): void {
   const register = useContext(LiveEditorSessionContext);
   useEffect(() => {
     if (!register) return;
-    register(editorSessionId);
+    register({ editorSessionId, flush });
     return () => register(null);
-  }, [editorSessionId, register]);
+  }, [editorSessionId, flush, register]);
   useEffect(() => holdPageDraftWriter(editorSessionId), [editorSessionId]);
 }

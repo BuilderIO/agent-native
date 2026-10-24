@@ -15,6 +15,7 @@ import {
   writePageDraftJournal,
   type PageDraftJournalScope,
 } from "./page-draft-journal";
+import { RecoveryAttemptEnded } from "./recovery-attempt";
 
 const values = new Map<string, string>();
 const store: Storage = {
@@ -46,6 +47,19 @@ const snapshot = {
   baseUpdatedAt: "version-one",
   editGeneration: 1,
 };
+
+function recoveryOwner() {
+  let active = true;
+  return {
+    isActive: () => active,
+    assertActive: () => {
+      if (!active) throw new RecoveryAttemptEnded();
+    },
+    end: () => {
+      active = false;
+    },
+  };
+}
 
 beforeEach(() => {
   values.clear();
@@ -81,6 +95,7 @@ describe("Page draft journal", () => {
       syncPageDraftJournalBeforePersistingRecoveryDraft({
         persist,
         scope,
+        owner: recoveryOwner(),
         title: "Peer title",
         editGeneration: clean.editGeneration,
         content: "Local body",
@@ -114,6 +129,7 @@ describe("Page draft journal", () => {
       syncPageDraftJournalBeforePersistingRecoveryDraft({
         persist: () => Promise.reject(new Error("SQL unavailable")),
         scope,
+        owner: recoveryOwner(),
         title: "Peer title",
         editGeneration: clean.editGeneration,
         content: clean.content,
@@ -145,6 +161,7 @@ describe("Page draft journal", () => {
         syncPageDraftJournalBeforePersistingRecoveryDraft({
           persist: () => Promise.reject(persistError),
           scope,
+          owner: recoveryOwner(),
           title: "Peer title",
           editGeneration: clean.editGeneration,
           content: clean.content,
@@ -165,6 +182,7 @@ describe("Page draft journal", () => {
       syncPageDraftJournalBeforePersistingRecoveryDraft({
         persist: () => Promise.resolve(),
         scope,
+        owner: recoveryOwner(),
         title: "Peer title",
         editGeneration: snapshot.editGeneration,
         content: snapshot.content,
@@ -192,6 +210,7 @@ describe("Page draft journal", () => {
         syncPageDraftJournalBeforePersistingRecoveryDraft({
           persist,
           scope,
+          owner: recoveryOwner(),
           title: "Peer title",
           editGeneration: clean.editGeneration,
           content: clean.content,
@@ -220,6 +239,7 @@ describe("Page draft journal", () => {
           throw new Error("SQL unavailable");
         },
         scope,
+        owner: recoveryOwner(),
         title: "Peer title",
         editGeneration: snapshot.editGeneration,
         content: snapshot.content,
@@ -227,6 +247,69 @@ describe("Page draft journal", () => {
     ).rejects.toThrow("SQL unavailable");
 
     expect(readPageDraftJournal(scope)?.snapshot).toEqual(newer);
+  });
+
+  it.each([
+    ["its SQL write landed", () => new RecoveryAttemptEnded()],
+    ["its SQL write failed", () => new Error("SQL unavailable")],
+  ])(
+    "leaves the journal as written when its owner ends before persisting settles and %s",
+    async (_, settledError) => {
+      const clean = {
+        ...snapshot,
+        title: "Earlier title",
+        baseTitle: "Earlier title",
+      };
+      writePageDraftJournal({ scope, snapshot: clean });
+      const owner = recoveryOwner();
+      const error = settledError();
+
+      await expect(
+        syncPageDraftJournalBeforePersistingRecoveryDraft({
+          persist: async () => {
+            owner.end();
+            throw error;
+          },
+          scope,
+          owner,
+          title: "Peer title",
+          editGeneration: clean.editGeneration,
+          content: clean.content,
+        }),
+      ).rejects.toBe(error);
+
+      expect(readPageDraftJournal(scope)?.snapshot).toMatchObject({
+        title: "Peer title",
+        baseTitle: "Peer title",
+        content: clean.content,
+      });
+    },
+  );
+
+  it("neither writes the journal nor persists for an owner that already ended", async () => {
+    const clean = {
+      ...snapshot,
+      title: "Earlier title",
+      baseTitle: "Earlier title",
+    };
+    const original = writePageDraftJournal({ scope, snapshot: clean });
+    const owner = recoveryOwner();
+    owner.end();
+    const persist = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      syncPageDraftJournalBeforePersistingRecoveryDraft({
+        persist,
+        scope,
+        owner,
+        title: "Peer title",
+        editGeneration: clean.editGeneration,
+        content: clean.content,
+      }),
+    ).rejects.toBeInstanceOf(RecoveryAttemptEnded);
+
+    expect(persist).not.toHaveBeenCalled();
+    expect(readPageDraftJournal(scope)).toEqual(original);
   });
 
   it("writes synchronously and isolates account, organization, Page, and writer", () => {

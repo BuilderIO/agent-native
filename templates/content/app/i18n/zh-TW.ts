@@ -439,6 +439,8 @@ const overrides = {
     previewDraftMoreOptions: "更多選項",
     previewDraftViewFullVersions: "檢視完整版本",
     previewDraftShowChanges: "顯示變更",
+    previewDraftTitleUnknown:
+      "此草稿的原始標題未知。請使用已儲存的頁面或另存草稿。",
     previewDraftConflict: "此草稿與較新的頁面版本衝突，因此未還原。",
     restorePreviewDraft: "還原草稿",
     pageSaveBeforeNavigationFailed:

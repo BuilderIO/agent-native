@@ -243,11 +243,10 @@ describe("document editor layout", () => {
     let releaseRetention!: () => void;
     const currentVersion = 1;
     let currentGeneration = 1;
-    const retain = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseRetention = resolve;
-        }),
+    const retain = vi.fn((adoptOnceKept: () => boolean) =>
+      new Promise<void>((resolve) => {
+        releaseRetention = resolve;
+      }).then(adoptOnceKept),
     );
     const adopt = vi.fn();
     const result = retainThenAdoptDisplacedWinner({
@@ -1564,8 +1563,9 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("if (reconcileRecoveryStateRef.current) return;");
     expect(handler).toContain("retainActiveRecoveryDraft({");
-    expect(source).toContain(
-      "void reconcileRetainRef.current(draft).catch(reportRetentionFailure)",
+    expect(source).toContain(".current(draft, beginRecoveryAttempt())");
+    expect(source).toMatch(
+      /if \(!\(error instanceof RecoveryAttemptEnded\)\)\s+reportRetentionFailure\(\);/,
     );
     expect(source).toContain("<DocumentReconcileRecovery");
     expect(source).toContain("onKeepMine={handleResolveReconcile}");
@@ -3186,7 +3186,7 @@ describe("document editor layout", () => {
       save.indexOf("shouldAttestUnchangedEditorSave("),
     );
     expect(journal).toBeLessThan(
-      save.indexOf("saved = await persistDocumentUpdates(updates, options);"),
+      save.indexOf("persistDocumentUpdates(updates, options)"),
     );
   });
 
@@ -3206,10 +3206,10 @@ describe("document editor layout", () => {
     expect(displaced).toContain("await retainThenAdoptDisplacedWinner");
     expect(displaced).toContain("if (!adopted)");
     const save = source.slice(
-      source.indexOf("result = await saveDocumentWithRebase"),
+      source.indexOf("saveDocumentWithRebase({"),
       source.indexOf(
         "if (result.status",
-        source.indexOf("result = await saveDocumentWithRebase"),
+        source.indexOf("saveDocumentWithRebase({"),
       ),
     );
     expect(save).toContain(

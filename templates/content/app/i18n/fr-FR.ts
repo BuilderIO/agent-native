@@ -1093,6 +1093,8 @@ const rawLiterals = {
     previewDraftMoreOptions: "Plus d’options",
     previewDraftViewFullVersions: "Afficher les versions complètes",
     previewDraftShowChanges: "Afficher les modifications",
+    previewDraftTitleUnknown:
+      "Le titre d’origine de ce brouillon est inconnu. Utilisez la page enregistrée ou enregistrez le brouillon séparément.",
     previewDraftConflict:
       "Ce brouillon est en conflit avec une version plus récente de la page. Il n’a pas été restauré.",
     restorePreviewDraft: "Restaurer le brouillon",

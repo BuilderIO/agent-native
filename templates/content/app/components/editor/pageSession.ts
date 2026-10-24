@@ -1,3 +1,5 @@
+import { RecoveryAttemptEnded } from "./recovery-attempt";
+
 export function mayClearRecoveryDraft(
   draft: { title: string; content: string } | null,
   persisted: { title: string; content: string },
@@ -39,6 +41,7 @@ export interface PageSaveResult {
     | "pending_collaboration_flush";
   recoveryDraft?: {
     title: string;
+    baseTitle?: string | null;
     content: string;
     baseContent?: string;
     baseUpdatedAt?: string | null;
@@ -50,6 +53,26 @@ export class AbandonedPageSaveError extends Error {
   constructor() {
     super("The editor session is no longer active.");
     this.name = "AbandonedPageSaveError";
+  }
+}
+
+/**
+ * A save that outlived the attempt that owned it: the editor left, or its
+ * account, org or page changed. What the server answered goes with it: the
+ * request's answer when the owner ended inside the save, or null when no
+ * request had gone out, and the save's result when only its recovery step was
+ * left. Nothing after that ran, so the recovery draft was neither kept nor
+ * cleared and the page's journal and its next open carry the text. Never a
+ * success to report; a request that failed is reported as itself instead.
+ */
+export class PageSaveHandedOff extends Error {
+  constructor(
+    readonly handoff:
+      | { during: "save"; answer: PromiseFulfilledResult<unknown> | null }
+      | { during: "recovery"; result: PageSaveResult },
+  ) {
+    super("The save's recovery outlived the editor that started it.");
+    this.name = "PageSaveHandedOff";
   }
 }
 
@@ -77,17 +100,33 @@ export async function savePageWithRecovery({
     if (error instanceof AbandonedPageSaveError) {
       return { contentPersisted: false, outcome: "abandoned" };
     }
-    await retain(null);
+    if (error instanceof RecoveryAttemptEnded) {
+      if (error.answer?.status === "rejected") throw error.answer.reason;
+      throw new PageSaveHandedOff({ during: "save", answer: error.answer });
+    }
+    try {
+      await retain(null);
+    } catch (retainError) {
+      // An ended attempt keeps nothing, so the save's failure is still the one
+      // to report.
+      if (!(retainError instanceof RecoveryAttemptEnded)) throw retainError;
+    }
     throw error;
   }
 
-  if (!result.contentPersisted) {
-    if (result.outcome === "superseded" || result.outcome === "abandoned")
+  try {
+    if (!result.contentPersisted) {
+      if (result.outcome === "superseded" || result.outcome === "abandoned")
+        return result;
+      await retain(result.recoveryDraft ? null : "conflict", result);
       return result;
-    await retain(result.recoveryDraft ? null : "conflict", result);
-    return result;
-  }
+    }
 
-  await clear();
-  return result;
+    await clear();
+    return result;
+  } catch (error) {
+    if (error instanceof RecoveryAttemptEnded)
+      throw new PageSaveHandedOff({ during: "recovery", result });
+    throw error;
+  }
 }

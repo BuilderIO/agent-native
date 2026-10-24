@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RecoveryIdentity } from "./recovery-attempt";
 import {
   useDocumentReconcileRecovery,
   type ReconcileSaveBase,
@@ -64,6 +65,51 @@ function deferred() {
 }
 
 describe("document reconcile recovery", () => {
+  it.each(["choice", "save", "automatic"] as const)(
+    "ends the whole %s workflow before late retention or state writes",
+    async (flow) => {
+      const old = deferred();
+      const retain = vi.fn().mockResolvedValue(undefined);
+      let identity: RecoveryIdentity = ["account-a", "org-a", "page"];
+      function Scoped() {
+        recovery = useDocumentReconcileRecovery({
+          identity,
+          save: () => old.promise,
+          retain,
+          getDraft: () => draft,
+        });
+        return null;
+      }
+      act(() => root.render(<Scoped />));
+      let pending!: Promise<boolean>;
+      if (flow !== "automatic")
+        act(() => recovery.report("conflict", "A unsaved"));
+      act(() => {
+        pending =
+          flow === "choice"
+            ? recovery.resolveChoice(base, () => old.promise)
+            : flow === "save"
+              ? recovery.resolve(base)
+              : recovery.resolveAutomatically(
+                  { localDraft: "A unsaved", localTitle: "A" },
+                  base,
+                );
+      });
+      identity = ["account-b", "org-b", "page"];
+      draft = "B unsaved";
+      act(() => root.render(<Scoped />));
+      act(() => recovery.report("conflict", draft));
+      await act(async () => old.resolve(false));
+      expect(await pending).toBe(false);
+      expect(retain).not.toHaveBeenCalled();
+      expect(recovery.state).toMatchObject({
+        localDraft: "B unsaved",
+        reason: "conflict",
+        saving: false,
+      });
+    },
+  );
+
   it("persists an automatic merge without publishing recovery UI", async () => {
     const savePending = deferred();
     const save = vi.fn(() => savePending.promise);

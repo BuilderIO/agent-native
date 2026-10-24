@@ -1,7 +1,3 @@
-import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { parseIconValue } from "@agent-native/core/icons";
 import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -10,6 +6,7 @@ import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createAuthoredContentBase } from "../app/components/editor/authored-content-base";
+import { expectedPreviewDraftIdentity } from "../shared/preview-draft-identity.js";
 
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
@@ -23,11 +20,6 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   >()),
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
-
-const TEST_DB_PATH = join(
-  tmpdir(),
-  `update-document-cas-${process.pid}-${Date.now()}.pglite`,
-);
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -44,7 +36,12 @@ const VIEWER = "viewer@example.com";
 
 beforeAll(async () => {
   registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
-  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = "pglite:memory";
+  console.info("Update test database target", {
+    host: "embedded PGlite",
+    database: "memory",
+    env: { DATABASE_URL: "pglite:memory" },
+  });
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -61,8 +58,8 @@ beforeAll(async () => {
   await plugin(undefined as any);
 }, 60000);
 
-afterAll(() => {
-  rmSync(TEST_DB_PATH, { force: true, recursive: true });
+afterAll(async () => {
+  await (await import("@agent-native/core/db")).closeDbExec();
 });
 
 let counter = 0;
@@ -3546,8 +3543,17 @@ describe("update-document save outcome counts", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       outcomeCounter.mockClear();
       const request = {
+        trigger: "reviewed" as const,
         choice: "save_separately" as const,
         documentId: id,
+        ...expectedPreviewDraftIdentity(
+          (
+            await getDb()
+              .select()
+              .from(schema.documentPreviewDrafts)
+              .where(eq(schema.documentPreviewDrafts.documentId, id))
+          )[0],
+        ),
         expectedDraftVersion: 1,
         expectedDraftTitle: "Recovered page",
         expectedDraftContent: "Recovered body",
@@ -3747,14 +3753,24 @@ describe("update-document save outcome counts", () => {
         orgId: "",
         documentId: id,
         title: "Page",
+        baseTitle: "Page",
         content: "Recovered body",
         baseDocumentUpdatedAt: before.updatedAt,
       });
     await new Promise((resolve) => setTimeout(resolve, 0));
     outcomeCounter.mockClear();
     const request = {
+      trigger: "reviewed" as const,
       choice: "keep_mine" as const,
       documentId: id,
+      ...expectedPreviewDraftIdentity(
+        (
+          await getDb()
+            .select()
+            .from(schema.documentPreviewDrafts)
+            .where(eq(schema.documentPreviewDrafts.documentId, id))
+        )[0],
+      ),
       expectedDraftVersion: 1,
       expectedDraftTitle: "Page",
       expectedDraftContent: "Recovered body",
