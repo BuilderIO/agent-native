@@ -21,7 +21,16 @@
  * Protocol (iframe → parent, only when enabled):
  *
  *   { type: 'embedded-canvas-wheel', deltaX, deltaY, deltaZ, deltaMode,
- *     clientX, clientY, ctrlKey, metaKey, shiftKey, altKey }
+ *     clientX, clientY, ctrlKey, metaKey, shiftKey, altKey, steps, seq }
+ *
+ *   Until the host answers the last one with 'embedded-canvas-wheel-read'
+ *   and its `seq`, later wheels fold into one pending message per kind of
+ *   step, with deltas summed over `steps` wheels (at most 32 per message),
+ *   so a host that falls behind doesn't work through a queue of stale steps
+ *   after the fingers stop. At most 16 steps wait; wheels past that are
+ *   dropped. A
+ *   host that hasn't answered in 100 ms (1 s once it has answered before) is
+ *   sent the next step anyway.
  *
  *   { type: 'embedded-canvas-pan', phase: 'start'|'move'|'end'|'cancel',
  *     pointerId, button, buttons, clientX, clientY, movementX, movementY,
@@ -30,6 +39,7 @@
  * Protocol (parent → iframe):
  *
  *   { type: 'embedded-canvas-pan-mode', leftButtonEnabled }
+ *   { type: 'embedded-canvas-wheel-read', seq }
  *   { type: 'embedded-canvas-gesture-mode', wheelEnabled,
  *     spaceKeyForwardingEnabled }
  *   { type: 'embedded-canvas-pan-cancel' }
@@ -65,6 +75,27 @@ declare var __INTERACTION_MODE__: boolean;
   var lastShiftKey = false;
   var lastAltKey = false;
   var freezeStyle: HTMLStyleElement | null = null;
+  type ForwardedWheel = {
+    deltaX: number;
+    deltaY: number;
+    deltaZ: number;
+    deltaMode: number;
+    clientX: number;
+    clientY: number;
+    ctrlKey: boolean;
+    metaKey: boolean;
+    shiftKey: boolean;
+    altKey: boolean;
+    steps: number;
+  };
+  // Folded steps waiting for the host in arrival order: a new one for each
+  // change of kind and every 32 wheels, and at most 16.
+  var pendingWheels: ForwardedWheel[] = [];
+  var wheelAwaitingHost = false;
+  var wheelReadTimer: number | null = null;
+  // The id of the last step sent; the host echoes it when it reads the step.
+  var wheelSeq = 0;
+  var hostAnswersWheels = false;
 
   function syncEditingSafetyStyle(): void {
     var currentStyle =
@@ -127,13 +158,68 @@ declare var __INTERACTION_MODE__: boolean;
     } catch {}
   }
 
+  function sendWheel(wheel: ForwardedWheel): void {
+    wheelSeq += 1;
+    wheelAwaitingHost = true;
+    if (wheelReadTimer !== null) window.clearTimeout(wheelReadTimer);
+    // A host that never answers (the single-screen view reads pinches from the
+    // zoom bridge instead) still gets the folded wheels, a few times a second.
+    // One that has answered is waited on for up to a second, so slow frames
+    // don't let a second step through; past that the answer is taken as lost.
+    wheelReadTimer = window.setTimeout(
+      sendNextWheel,
+      hostAnswersWheels ? 1000 : 100,
+    );
+    postToParent({
+      type: "embedded-canvas-wheel",
+      deltaX: wheel.deltaX,
+      deltaY: wheel.deltaY,
+      deltaZ: wheel.deltaZ,
+      deltaMode: wheel.deltaMode,
+      clientX: wheel.clientX,
+      clientY: wheel.clientY,
+      ctrlKey: wheel.ctrlKey,
+      metaKey: wheel.metaKey,
+      shiftKey: wheel.shiftKey,
+      altKey: wheel.altKey,
+      steps: wheel.steps,
+      seq: wheelSeq,
+    });
+  }
+
+  function sendNextWheel(): void {
+    if (wheelReadTimer !== null) {
+      window.clearTimeout(wheelReadTimer);
+      wheelReadTimer = null;
+    }
+    wheelAwaitingHost = false;
+    var next = pendingWheels.shift();
+    if (next) sendWheel(next);
+  }
+
+  function onWheelRead(seq: unknown): void {
+    // An answer to a step the timer already gave up on frees nothing: the
+    // step sent after it is still unread.
+    if (seq !== wheelSeq) return;
+    hostAnswersWheels = true;
+    sendNextWheel();
+  }
+
+  function resetWheelForwarding(): void {
+    if (wheelReadTimer !== null) {
+      window.clearTimeout(wheelReadTimer);
+      wheelReadTimer = null;
+    }
+    wheelAwaitingHost = false;
+    pendingWheels = [];
+  }
+
   function onWheel(e: WheelEvent): void {
     if (interactionMode) return;
     var zoomIntent = !!(e.ctrlKey || e.metaKey);
     if (!wheelEnabled && !zoomIntent) return;
     stopNativeInteraction(e);
-    postToParent({
-      type: "embedded-canvas-wheel",
+    var wheel: ForwardedWheel = {
       deltaX: clamp(e.deltaX, 240),
       deltaY: clamp(e.deltaY, 240),
       deltaZ: clamp(e.deltaZ, 240),
@@ -144,7 +230,38 @@ declare var __INTERACTION_MODE__: boolean;
       metaKey: !!e.metaKey,
       shiftKey: !!e.shiftKey,
       altKey: !!e.altKey,
-    });
+      steps: 1,
+    };
+    if (!wheelAwaitingHost) {
+      sendWheel(wheel);
+      return;
+    }
+    var pending = pendingWheels[pendingWheels.length - 1];
+    // The host bounds a step's pan by 32 wheels' worth, so a longer wait
+    // queues further steps rather than folding travel it would clip.
+    if (
+      pending &&
+      pending.steps < 32 &&
+      pending.deltaMode === wheel.deltaMode &&
+      pending.ctrlKey === wheel.ctrlKey &&
+      pending.metaKey === wheel.metaKey &&
+      pending.shiftKey === wheel.shiftKey &&
+      pending.altKey === wheel.altKey
+    ) {
+      pending.deltaX += wheel.deltaX;
+      pending.deltaY += wheel.deltaY;
+      pending.deltaZ += wheel.deltaZ;
+      pending.clientX = wheel.clientX;
+      pending.clientY = wheel.clientY;
+      pending.steps += 1;
+      return;
+    }
+    // A pinch turning into a scroll is a new kind of step: queue it behind
+    // the folded one rather than mix the two. A host that leaves 16 steps
+    // unread has stopped keeping up, and more would only play out after the
+    // fingers stop.
+    if (pendingWheels.length >= 16) return;
+    pendingWheels.push(wheel);
   }
 
   function shouldStartPan(e: PointerEvent): boolean {
@@ -324,6 +441,10 @@ declare var __INTERACTION_MODE__: boolean;
       cancelActivePan();
       return;
     }
+    if (e.data.type === "embedded-canvas-wheel-read") {
+      onWheelRead(e.data.seq);
+      return;
+    }
     if (e.data.type === "embedded-canvas-pan-mode") {
       leftButtonEnabled = !!e.data.leftButtonEnabled;
       return;
@@ -331,6 +452,7 @@ declare var __INTERACTION_MODE__: boolean;
     if (e.data.type === "set-interaction-mode") {
       interactionMode = e.data.interact === true;
       if (interactionMode) {
+        resetWheelForwarding();
         cancelActivePan();
         if (forwardedSpaceKeyDown) {
           forwardedSpaceKeyDown = false;
