@@ -15,6 +15,11 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../../db/index.js";
+import {
+  hasFinalChunk,
+  readFinalChunkClaim,
+  requestCancelOfClaimedUpload,
+} from "../../../../lib/final-chunk-claim.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
@@ -81,10 +86,11 @@ export async function handleAbortRecordingUpload(
     /** The abort request, from a caller that reads its own body. */
     body?: Record<string, unknown>;
     /**
-     * Change nothing once the chunk route has accepted the final chunk, and
-     * answer `finalChunkTaken`. The chunk route publishes that in the upload
-     * state before finalization moves the recording, so the claim below
-     * fails for an abort that read the state first.
+     * Change nothing once Clips has the final chunk, and answer
+     * `finalChunkTaken`. A final chunk claims the upload before Clips takes
+     * its bytes, changing the upload state, so the claim below fails for an
+     * abort that read the state first. A cancel that finds the claim notes
+     * itself on it, for the final chunk to carry out if it fails.
      */
     finalChunkWins?: boolean;
   },
@@ -309,15 +315,12 @@ export async function handleAbortRecordingUpload(
         chunksCleared: 0,
       };
     }
-    const finalChunkTaken = (
-      status: string,
-      uploadState: Record<string, unknown>,
-    ) =>
+    const finalChunkTaken = async (status: string) =>
       override?.finalChunkWins === true &&
-      (status === "processing" ||
-        status === "ready" ||
-        (status === "uploading" && uploadState.status === "processing"));
-    if (finalChunkTaken(existing.status, existingUploadState)) {
+      hasFinalChunk(status, await readFinalChunkClaim(recordingId)) &&
+      (status !== "uploading" ||
+        (await requestCancelOfClaimedUpload(recordingId)));
+    if (await finalChunkTaken(existing.status)) {
       return { ok: true, recordingId, finalChunkTaken: true, chunksCleared: 0 };
     }
 
@@ -450,7 +453,7 @@ export async function handleAbortRecordingUpload(
           chunksCleared: 0,
         };
       }
-      if (finalChunkTaken(latest.status, latestUploadState)) {
+      if (await finalChunkTaken(latest.status)) {
         return {
           ok: true,
           recordingId,

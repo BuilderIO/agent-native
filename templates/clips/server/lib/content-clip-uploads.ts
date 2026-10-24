@@ -26,6 +26,7 @@ import {
   getRequestHeader,
   getRouterParam,
   HTTPError,
+  setResponseStatus,
   type H3Event,
 } from "h3";
 import { z } from "zod";
@@ -50,13 +51,21 @@ import {
 } from "./content-clip-peer.js";
 import { isActiveUploadBinding } from "./content-uploads.js";
 import {
+  claimFinalChunk,
+  hasFinalChunk,
+  readFinalChunkClaim,
+  releaseFinalChunk,
+} from "./final-chunk-claim.js";
+import {
   reissueRecordingUpload,
   startRecordingUpload,
   type RecordingUploadStart,
 } from "./recording-upload-start.js";
 import {
+  RESERVATION_GRACE_MS,
   requireUploadTicketOwnerForToken,
   verifyRecordingUploadTicket,
+  type RecordingUploadTicketOwner,
 } from "./recording-upload-ticket.js";
 import { nanoid, ownerEmailMatches } from "./recordings.js";
 import { getClipsVideoStorageStatus } from "./video-storage.js";
@@ -328,7 +337,13 @@ async function repeatedStart(
 ): Promise<Response | null> {
   const bindings = schema.recordingContentBindings;
   const [binding] = await getDb()
-    .select({ recordingId: bindings.recordingId, blockId: bindings.blockId })
+    .select({
+      recordingId: bindings.recordingId,
+      blockId: bindings.blockId,
+      uploadMimeType: bindings.uploadMimeType,
+      uploadSizeBytes: bindings.uploadSizeBytes,
+      createdAt: bindings.createdAt,
+    })
     .from(bindings)
     .where(
       and(
@@ -339,7 +354,13 @@ async function repeatedStart(
       ),
     );
   if (!binding) return null;
-  if (binding.blockId !== start.blockId) return keyUsed();
+  if (
+    binding.blockId !== start.blockId ||
+    binding.uploadMimeType !== start.mimeType ||
+    binding.uploadSizeBytes !== start.sizeBytes
+  ) {
+    return keyUsed();
+  }
   const [recording] = await getDb()
     .select({ status: schema.recordings.status })
     .from(schema.recordings)
@@ -349,18 +370,29 @@ async function repeatedStart(
         ownerEmailMatches(schema.recordings.ownerEmail, uploader.email),
       ),
     );
-  if (recording?.status === "processing" || recording?.status === "ready") {
+  if (!recording) {
+    // The first start bound the key and is making its recording.
+    return Date.now() - Date.parse(binding.createdAt) < RESERVATION_GRACE_MS
+      ? refused(409, CONTENT_CLIP_UPLOAD_REFUSED.uploadStarting)
+      : keyUsed();
+  }
+  if (
+    hasFinalChunk(
+      recording.status,
+      await readFinalChunkClaim(binding.recordingId),
+    )
+  ) {
     return refused(409, CONTENT_CLIP_UPLOAD_REFUSED.alreadyFinished, {
       recordingId: binding.recordingId,
-      status: recording.status,
+      status: recording.status === "ready" ? "ready" : "processing",
     });
   }
-  if (recording?.status !== "uploading") return keyUsed();
+  if (recording.status !== "uploading") return keyUsed();
   return startAnswer(
     await reissueRecordingUpload({
       recordingId: binding.recordingId,
-      mimeType: start.mimeType,
-      sizeBytes: start.sizeBytes,
+      mimeType: binding.uploadMimeType,
+      sizeBytes: binding.uploadSizeBytes,
     }),
   );
 }
@@ -417,6 +449,8 @@ export async function handleContentClipUploadStart(
         stateChangedAt: now,
         createdBy: uploader.email,
         uploadKey: start.uploadKey,
+        uploadMimeType: start.mimeType,
+        uploadSizeBytes: start.sizeBytes,
         createdAt: now,
         updatedAt: now,
       })
@@ -589,6 +623,10 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
     if (!isActiveUploadBinding(binding)) {
       return json({ error: "This upload's page is in Trash" }, 409, cors);
     }
+    const { isFinal } = getQuery(event);
+    if (isFinal === "1" || isFinal === "true") {
+      return await takeFinalChunk(event, owner, cors);
+    }
     return await handleRecordingChunk(event, owner);
   } catch (error) {
     if (!HTTPError.isError(error)) throw error;
@@ -597,6 +635,50 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
       error.status,
       cors,
     );
+  }
+}
+
+/**
+ * The final chunk, claimed before Clips takes its bytes: a cancel that comes
+ * after the claim leaves the upload to finish, and one that came before it
+ * refuses the chunk. A chunk that fails gives the claim up, cancelling the
+ * upload if a cancel came meanwhile.
+ */
+async function takeFinalChunk(
+  event: H3Event,
+  owner: RecordingUploadTicketOwner,
+  cors: Record<string, string>,
+): Promise<unknown> {
+  const asOwner = <T>(run: () => Promise<T>) =>
+    runWithRequestContext(
+      {
+        userEmail: owner.ownerEmail,
+        orgId: owner.orgId,
+        authUserId: owner.authUserId,
+      },
+      run,
+    );
+  const claim = await asOwner(() => claimFinalChunk(owner.recordingId));
+  if (!claim) return json({ error: "This upload was cancelled" }, 409, cors);
+  let answer: unknown;
+  try {
+    answer = await handleRecordingChunk(event, owner);
+    return answer;
+  } finally {
+    const cancelRequested = await asOwner(() =>
+      releaseFinalChunk(owner.recordingId, claim),
+    );
+    if (cancelRequested && (answer as { ok?: unknown })?.ok !== true) {
+      const chunkStatus = event.res.status;
+      await giveUp(
+        event,
+        owner.recordingId,
+        owner.ownerEmail,
+        owner.authUserId,
+        cors,
+      );
+      if (chunkStatus !== undefined) setResponseStatus(event, chunkStatus);
+    }
   }
 }
 
@@ -623,6 +705,25 @@ export async function handleContentClipCancel(
   if (!recordingId || !verified || !(await uploadBinding(recordingId))) {
     return json({ error: "Invalid or expired upload ticket" }, 401, cors);
   }
+  return giveUp(
+    event,
+    recordingId,
+    verified.ownerEmail,
+    typeof verified.ticket.authUserId === "string"
+      ? verified.ticket.authUserId
+      : undefined,
+    cors,
+  );
+}
+
+/** Fails the upload through Clips' own abort, unless Clips has the file. */
+async function giveUp(
+  event: H3Event,
+  recordingId: string,
+  ownerEmail: string,
+  authUserId: string | undefined,
+  cors: Record<string, string>,
+): Promise<Response> {
   const readRecording = async () => {
     const [row] = await getDb()
       .select({
@@ -635,7 +736,7 @@ export async function handleContentClipCancel(
       .where(
         and(
           eq(schema.recordings.id, recordingId),
-          ownerEmailMatches(schema.recordings.ownerEmail, verified.ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
     return row ?? null;
@@ -647,12 +748,9 @@ export async function handleContentClipCancel(
 
   const result = (await handleAbortRecordingUpload(event, {
     recordingId,
-    ownerEmail: verified.ownerEmail,
+    ownerEmail,
     orgId: recording.organizationId,
-    authUserId:
-      typeof verified.ticket.authUserId === "string"
-        ? verified.ticket.authUserId
-        : undefined,
+    authUserId,
     finalChunkWins: true,
     body: {
       failureCode: "upload_aborted",

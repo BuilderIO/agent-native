@@ -20,15 +20,26 @@ const MAX_CAS_ATTEMPTS = 8;
 // How long a reservation whose recording row is still missing counts toward the
 // cap: ample for create-recording, short enough that a deleted recording or a
 // failed release does not hold a slot for the ticket's whole lifetime.
-const RESERVATION_GRACE_MS = 10 * 60 * 1000;
+export const RESERVATION_GRACE_MS = 10 * 60 * 1000;
+// The most tokens one recording's ticket keeps live when a start is repeated,
+// counting the newest.
+const MAX_TOKENS_PER_TICKET = 4;
+
+interface UploadToken {
+  tokenHash: string;
+  expiresAt: number;
+}
 
 export interface RecordingUploadTicket extends Record<string, unknown> {
   recordingId: string;
+  /** The newest token's hash; the ticket expires with it. */
   tokenHash: string;
   reservedAt: number;
   expiresAt: number;
   /** The creator's auth user id, which a hosted-storage reservation is held under. */
   authUserId?: string;
+  /** Tokens an earlier answer to a repeated start returned, newest first. */
+  earlierTokens?: UploadToken[];
 }
 
 interface RecordingUploadTickets extends Record<string, unknown> {
@@ -176,29 +187,80 @@ async function compareAndSwapTickets(
   return result.rowsAffected === 1;
 }
 
+function liveTokens(ticket: RecordingUploadTicket | undefined): UploadToken[] {
+  if (!ticket) return [];
+  const now = Date.now();
+  return [
+    { tokenHash: ticket.tokenHash, expiresAt: ticket.expiresAt },
+    ...(Array.isArray(ticket.earlierTokens) ? ticket.earlierTokens : []),
+  ].filter(
+    (token): token is UploadToken =>
+      typeof token?.tokenHash === "string" &&
+      Number.isFinite(token.expiresAt) &&
+      token.expiresAt >= now,
+  );
+}
+
 /**
  * Reserve before creating the recording: the cap is enforced inside the same
- * compare-and-swap, so a refusal or a failed write leaves nothing behind.
+ * compare-and-swap, so a refusal or a failed write leaves nothing behind. The
+ * new token replaces the recording's earlier ones.
  */
-export async function createRecordingUploadTicket(
+export function createRecordingUploadTicket(
   ownerEmail: string,
   recordingId: string,
   authUserId?: string,
 ): Promise<RecordingUploadTicket & { token: string }> {
+  return issueRecordingUploadTicket(ownerEmail, recordingId, authUserId, false);
+}
+
+/**
+ * Another token for a recording's upload, for a repeated start. The earlier
+ * tokens keep working, since overlapping repeats each hand one back, up to
+ * `MAX_TOKENS_PER_TICKET` with the oldest retired first. The recording still
+ * holds one slot.
+ */
+export function addRecordingUploadTicket(
+  ownerEmail: string,
+  recordingId: string,
+  authUserId?: string,
+): Promise<RecordingUploadTicket & { token: string }> {
+  return issueRecordingUploadTicket(ownerEmail, recordingId, authUserId, true);
+}
+
+async function issueRecordingUploadTicket(
+  ownerEmail: string,
+  recordingId: string,
+  authUserId: string | undefined,
+  keepEarlier: boolean,
+): Promise<RecordingUploadTicket & { token: string }> {
   const token = `${TOKEN_PREFIX}${encodeOwner(ownerEmail)}.${crypto.randomBytes(32).toString("base64url")}`;
-  const reservedAt = Date.now();
-  const ticket: RecordingUploadTicket = {
-    recordingId,
-    tokenHash: tokenHash(token),
-    reservedAt,
-    expiresAt: reservedAt + RECORDING_UPLOAD_TICKET_TTL_MS,
-    ...(authUserId ? { authUserId } : {}),
-  };
+  const issuedAt = Date.now();
 
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const { raw, collection } = await readTicketsRow(ownerEmail);
     const live = await liveTickets(ownerEmail, collection.tickets);
+    const earlier = keepEarlier ? live[recordingId] : undefined;
     delete live[recordingId];
+    const earlierAuthUserId =
+      typeof earlier?.authUserId === "string" ? earlier.authUserId : undefined;
+    const ticket: RecordingUploadTicket = {
+      recordingId,
+      tokenHash: tokenHash(token),
+      reservedAt: earlier?.reservedAt ?? issuedAt,
+      expiresAt: issuedAt + RECORDING_UPLOAD_TICKET_TTL_MS,
+      ...(earlierAuthUserId || authUserId
+        ? { authUserId: earlierAuthUserId ?? authUserId }
+        : {}),
+      ...(earlier
+        ? {
+            earlierTokens: liveTokens(earlier).slice(
+              0,
+              MAX_TOKENS_PER_TICKET - 1,
+            ),
+          }
+        : {}),
+    };
     if (Object.keys(live).length >= MAX_PENDING_TICKETS) {
       throw createError({
         statusCode: 429,
@@ -236,12 +298,10 @@ export async function verifyRecordingUploadTicket(
   if (!ownerEmail) return null;
   const { collection } = await readTicketsRow(ownerEmail);
   const ticket = collection.tickets[recordingId];
+  const presented = tokenHash(token);
   if (
     !ticket ||
-    typeof ticket.tokenHash !== "string" ||
-    !hashesMatch(ticket.tokenHash, tokenHash(token)) ||
-    !Number.isFinite(ticket.expiresAt) ||
-    ticket.expiresAt < Date.now()
+    !liveTokens(ticket).some((live) => hashesMatch(live.tokenHash, presented))
   ) {
     return null;
   }

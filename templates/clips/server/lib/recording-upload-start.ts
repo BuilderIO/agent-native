@@ -6,6 +6,7 @@ import type { z } from "zod";
 import createRecording from "../../actions/create-recording.js";
 import type { createRecordingSchema } from "../../actions/lib/create-recording-schema.js";
 import {
+  addRecordingUploadTicket,
   createRecordingUploadTicket,
   releaseRecordingUploadTicket,
 } from "./recording-upload-ticket.js";
@@ -98,13 +99,13 @@ export async function startRecordingUpload(
 }
 
 /**
- * A fresh ticket for an upload already in "uploading". It replaces the
- * earlier ticket, so only the latest answer uploads.
+ * Another ticket for an upload already in "uploading", planned for the file
+ * its first start described. Earlier tickets keep working.
  */
 export async function reissueRecordingUpload(
   input: { recordingId: string } & UploadFile,
 ): Promise<RecordingUploadStart> {
-  const ticket = await createRecordingUploadTicket(
+  const ticket = await addRecordingUploadTicket(
     getCurrentOwnerEmail(),
     input.recordingId,
     getRequestContext()?.authUserId,

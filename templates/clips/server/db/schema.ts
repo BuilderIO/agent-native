@@ -377,6 +377,10 @@ export const recordingContentBindings = table(
     // The file an editor picked, from Content: a start repeated with it
     // reaches the same upload. Null for a link.
     uploadKey: text("upload_key"),
+    // What the first start said of that file. A repeat must say the same,
+    // and gets the plan made for it.
+    uploadMimeType: text("upload_mime_type"),
+    uploadSizeBytes: bigint("upload_size_bytes", { mode: "number" }),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },

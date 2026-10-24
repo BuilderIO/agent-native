@@ -181,8 +181,15 @@ export const CONTENT_CLIP_UPLOAD_REFUSED = {
    */
   alreadyFinished: "upload_already_finished",
   /**
+   * A start repeated with an `uploadKey` while the first start is still
+   * making its recording. Repeat it again in a few seconds; after about ten
+   * minutes without a recording the answer becomes `upload_key_used`.
+   */
+  uploadStarting: "upload_starting",
+  /**
    * A start repeated with an `uploadKey` that can't continue: its upload
-   * was cancelled or failed, is still starting, or began in another block.
+   * was cancelled or failed, never got its recording, began in another
+   * block, or was for a file of another type or size.
    */
   keyUsed: "upload_key_used",
 } as const;
