@@ -5,16 +5,19 @@ import {
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
+import { roleSatisfies } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import type { ClipReader } from "../server/lib/clips-peer.js";
+import type { ClipReader, ClipUploader } from "../server/lib/clips-peer.js";
 import { isPublicViewerOwner } from "../server/lib/public-documents.js";
 import { isClipRecordingId } from "../shared/clip-embed-block.js";
 import {
   CLIP_PLAYBACK_ERRORS,
+  CLIP_UPLOAD_ERRORS,
   type ClipPlaybackErrorCode,
+  type ClipUploadErrorCode,
 } from "../shared/clips-peer-contract.js";
 import { CLIP_EMBED_FLAG } from "../shared/feature-flags.js";
 import { resolveDocumentAccess } from "./_document-access.js";
@@ -28,7 +31,7 @@ export const clipEmbedArgsSchema = z.object({
 });
 
 const FAILURES: Record<
-  ClipPlaybackErrorCode,
+  ClipPlaybackErrorCode | ClipUploadErrorCode,
   { statusCode: number; message: string }
 > = {
   [CLIP_PLAYBACK_ERRORS.disabled]: {
@@ -38,6 +41,10 @@ const FAILURES: Record<
   [CLIP_PLAYBACK_ERRORS.documentNotFound]: {
     statusCode: 404,
     message: "Page not found",
+  },
+  [CLIP_UPLOAD_ERRORS.editRequired]: {
+    statusCode: 403,
+    message: "Only the page's editors can upload to it",
   },
   [CLIP_PLAYBACK_ERRORS.notConfigured]: {
     statusCode: 503,
@@ -79,9 +86,15 @@ const FAILURES: Record<
     statusCode: 502,
     message: "Clips did not answer",
   },
+  [CLIP_UPLOAD_ERRORS.failed]: {
+    statusCode: 502,
+    message: "Clips answered with an error",
+  },
 };
 
-export function failClip(code: ClipPlaybackErrorCode): never {
+export function failClip(
+  code: ClipPlaybackErrorCode | ClipUploadErrorCode,
+): never {
   const { message, statusCode } = FAILURES[code];
   fail(message, { errorCode: code, statusCode });
 }
@@ -136,4 +149,35 @@ export async function authorizeClipReader(
   return signedIn
     ? { kind: "signed-in", email: email!, name: getRequestUserName() ?? null }
     : { kind: "public" };
+}
+
+/**
+ * The editor Content may vouch for to Clips to upload a Clip into this page,
+ * after checking they can edit it. Nothing reaches Clips, and no token is
+ * signed, before this returns.
+ */
+export async function authorizeClipUploader(
+  documentId: string,
+): Promise<ClipUploader> {
+  const email = getRequestUserEmail();
+  if (!email || isPublicViewerOwner(email)) {
+    failClip(CLIP_UPLOAD_ERRORS.documentNotFound);
+  }
+  const access = await resolveDocumentAccess(documentId, {
+    skipResourceBody: true,
+  });
+  if (!access) failClip(CLIP_UPLOAD_ERRORS.documentNotFound);
+  if (!roleSatisfies(access.role, "editor")) {
+    failClip(CLIP_UPLOAD_ERRORS.editRequired);
+  }
+  const state = await documentState(documentId);
+  if (!state || state.trashedAt) failClip(CLIP_UPLOAD_ERRORS.documentNotFound);
+
+  const enabled = await isFeatureFlagEnabled(CLIP_EMBED_FLAG, {
+    userEmail: email,
+    orgId: getRequestOrgId(),
+  });
+  if (!enabled) failClip(CLIP_UPLOAD_ERRORS.disabled);
+
+  return { kind: "signed-in", email, name: getRequestUserName() ?? null };
 }

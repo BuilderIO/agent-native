@@ -12,6 +12,8 @@ export const CONTENT_CLIP_SCOPES = {
   comment: "content-clip:comment",
   /** A signed-out reader of a public page: playback and the comment list. */
   publicRead: "content-clip:public-read",
+  /** A signed-in editor of the page: their Clips storage, and uploads. */
+  upload: "content-clip:upload",
 } as const;
 
 export type ContentClipScope =
@@ -24,6 +26,8 @@ export const CONTENT_CLIP_CLAIMS = {
   documentId: "document_id",
   recordingId: "recording_id",
   viewerName: "name",
+  /** Optional, on an upload token: the uploader's IP address. */
+  clientIp: "client_ip",
 } as const;
 
 /** The most comment threads one comment-list call returns. */
@@ -113,3 +117,113 @@ export interface ClipCommentMarker {
   content: string;
   authorName: string | null;
 }
+
+/** The video types an upload to Clips may be. */
+export const CONTENT_CLIP_UPLOAD_MIME_TYPES = [
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+] as const;
+
+export type ContentClipUploadMimeType =
+  (typeof CONTENT_CLIP_UPLOAD_MIME_TYPES)[number];
+
+export function isContentClipUploadMimeType(
+  value: unknown,
+): value is ContentClipUploadMimeType {
+  return (CONTENT_CLIP_UPLOAD_MIME_TYPES as readonly unknown[]).includes(value);
+}
+
+/** The longest file name Clips takes with an upload; Content cuts to it. */
+export const CONTENT_CLIP_UPLOAD_FILE_NAME_CHARS = 255;
+
+/**
+ * Where an editor's uploads would go, as Clips says. Content shows it as it
+ * is and never works out a count of its own.
+ */
+export type ContentClipStorage =
+  | { state: "ready"; provider: "builder" | "custom" | "local" }
+  | { state: "free"; remaining: number; limit: number; maxClipBytes: number }
+  | { state: "used_up"; limit: number }
+  | { state: "none"; reason: string }
+  | { state: "account_required" };
+
+/** The `code` of an upload start Clips refused. */
+export const CONTENT_CLIP_UPLOAD_REFUSED = {
+  storageRequired: "storage_required",
+  tooLarge: "upload_too_large",
+  tooMany: "too_many_uploads",
+} as const;
+
+/**
+ * Why Content could not read an editor's Clips storage or start an upload.
+ * Each is its own `errorCode`, so the Upload tab can say which; none of them
+ * is a storage state.
+ */
+export const CLIP_UPLOAD_ERRORS = {
+  disabled: CLIP_PLAYBACK_ERRORS.disabled,
+  documentNotFound: CLIP_PLAYBACK_ERRORS.documentNotFound,
+  /** The caller can read the page but not edit it. */
+  editRequired: "document_edit_required",
+  notConfigured: CLIP_PLAYBACK_ERRORS.notConfigured,
+  unauthorized: CLIP_PLAYBACK_ERRORS.unauthorized,
+  /** Too many uploads in progress, or too many requests. */
+  rateLimited: CLIP_PLAYBACK_ERRORS.rateLimited,
+  unreachable: CLIP_PLAYBACK_ERRORS.unreachable,
+  /** Clips answered, but with a refusal or an answer Content can't read. */
+  failed: "clip_upload_failed",
+} as const;
+
+export type ClipUploadErrorCode =
+  (typeof CLIP_UPLOAD_ERRORS)[keyof typeof CLIP_UPLOAD_ERRORS];
+
+const UPLOAD_ERROR_CODES: ReadonlySet<string> = new Set(
+  Object.values(CLIP_UPLOAD_ERRORS),
+);
+
+export function isClipUploadErrorCode(
+  value: unknown,
+): value is ClipUploadErrorCode {
+  return typeof value === "string" && UPLOAD_ERROR_CODES.has(value);
+}
+
+/** The ticketed upload Clips started, for the browser to post chunks to. */
+export interface ClipUploadTicket {
+  recordingId: string;
+  /** On the Clips app; carries the ticket, so it is the only authority. */
+  chunkUrl: string;
+  /**
+   * On the Clips app, with the same ticket: gives the upload up, so Clips
+   * releases its free clip now rather than when its cleanup finds it.
+   */
+  cancelUrl: string;
+  chunkSizeBytes: number;
+  totalChunks: number;
+  expiresAt: string;
+}
+
+export type CreateClipUploadResult =
+  | ({ status: "started" } & ClipUploadTicket)
+  | { status: "storage_required"; storage: ContentClipStorage }
+  | { status: "too_large"; maxBytes: number };
+
+/**
+ * The `outcome` a ticket's `cancelUrl` answers with: `cancelled` (200), the
+ * upload failed in Clips and its free clip released; `already_finished`
+ * (409), Clips had the whole file first and kept the Clip, with `status`
+ * `processing` or `ready`. Any other answer is a refusal with only `error`.
+ */
+export const CLIP_CANCEL_OUTCOME = {
+  cancelled: "cancelled",
+  alreadyFinished: "already_finished",
+} as const;
+
+/** What giving an upload up did, as this tab knows it. */
+export type ClipCancelResult =
+  | { outcome: typeof CLIP_CANCEL_OUTCOME.cancelled }
+  | {
+      outcome: typeof CLIP_CANCEL_OUTCOME.alreadyFinished;
+      status: "processing" | "ready";
+    }
+  /** Clips refused, or didn't answer: its cleanup fails the upload later. */
+  | { outcome: "not_cancelled" };
