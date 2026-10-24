@@ -1579,9 +1579,11 @@ export const runContentMigrations = runMigrations(
     {
       version: 130,
       name: "content-property-value-generations",
-      // A trigger stamps every write, so no writer can forget to. Existing
+      // Triggers stamp every write, so no writer can forget to. Existing
       // values keep a NULL generation, which reads as 0, until they change.
-      // The function body is one quoted string: the runner splits on
+      // Deleting values records a new generation for each page they were on,
+      // so a cleared value can't make an old generation current again.
+      // Function bodies are one quoted string: the runner splits on
       // semicolons outside quotes.
       sql: `CREATE SEQUENCE IF NOT EXISTS content_property_value_generation_seq;
         ALTER TABLE document_property_values ADD COLUMN IF NOT EXISTS generation BIGINT;
@@ -1601,7 +1603,29 @@ export const runContentMigrations = runMigrations(
         CREATE TRIGGER content_property_value_generation
           BEFORE INSERT OR UPDATE ON document_property_values
           FOR EACH ROW
-          EXECUTE FUNCTION content_property_value_generation()`,
+          EXECUTE FUNCTION content_property_value_generation();
+        CREATE TABLE IF NOT EXISTS document_property_value_deletions (
+          document_id TEXT PRIMARY KEY,
+          generation BIGINT NOT NULL
+        );
+        CREATE OR REPLACE FUNCTION content_property_value_deletion()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS 'BEGIN
+            INSERT INTO document_property_value_deletions (document_id, generation)
+              SELECT document_id, nextval(''content_property_value_generation_seq'')
+              FROM (SELECT DISTINCT document_id FROM deleted_values) AS pages
+            ON CONFLICT (document_id)
+              DO UPDATE SET generation = EXCLUDED.generation;
+            RETURN NULL;
+          END';
+        DROP TRIGGER IF EXISTS content_property_value_deletion
+          ON document_property_values;
+        CREATE TRIGGER content_property_value_deletion
+          AFTER DELETE ON document_property_values
+          REFERENCING OLD TABLE AS deleted_values
+          FOR EACH STATEMENT
+          EXECUTE FUNCTION content_property_value_deletion()`,
     },
   ],
   { table: "content_migrations" },

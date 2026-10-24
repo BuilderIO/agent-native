@@ -335,7 +335,7 @@ pnpm action delete-content-webhook --id wh_abc
 
 ### Property generations
 
-Every stored property value has a generation that goes up each time the value changes, including a change that returns to an earlier value (A → B → A). `get-document` and each `get-content-database` item return `propertyGenerations: { [propertyId]: number }`; a property with no value is 0. `set-document-property` returns the new `generation`, and `property.changed` events carry it in `data.generation`. Compare generations for equality only, since they come from one shared counter.
+Every property on a page has a generation that goes up each time its value changes, including a change that returns to an earlier value (A → B → A). `get-document` and each `get-content-database` item return `propertyGenerations: { [propertyId]: number }`, empty properties included. `set-document-property` returns the generation its write produced, and `property.changed` events carry it in `data.generation`. Compare generations for equality only, since they come from one shared counter. Deleting any value on a page outright, for example by a type change that clears a field, moves every generation on that page once.
 
 To act on a value only while it is still the one you read, pass it back: `set-document-property --expectedGeneration`, or `expectedPropertyGenerations: { [propertyId]: number }` on `update-database-item` and on each `patch-database-items` row. If any named value has changed since, nothing is written and the call fails with `PROPERTY_GENERATION_CONFLICT` (409), listing `{ propertyId, expected, current }`. Reread and decide again. `expectedRowRevision` can't catch this case, because it hashes values. Blocks fields use their own revision instead.
 

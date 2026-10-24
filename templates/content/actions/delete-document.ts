@@ -1167,6 +1167,15 @@ async function deleteCollectedDocuments(
           eq(schema.documentPropertyValues.ownerEmail, ownerEmail),
         ),
       );
+    // After the values: deleting them records a row for each page.
+    await db
+      .delete(schema.documentPropertyValueDeletions)
+      .where(
+        inArray(
+          schema.documentPropertyValueDeletions.documentId,
+          documentIdBatch,
+        ),
+      );
     await db
       .delete(schema.documentBlockFieldContents)
       .where(

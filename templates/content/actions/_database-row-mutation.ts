@@ -61,9 +61,9 @@ import {
 } from "./_position-utils.js";
 import {
   assertPropertyGenerations,
-  generationNumber,
   propertyGenerationConflictError,
   propertyGenerationConflicts,
+  readPropertyGenerations,
   type PropertyGenerations,
 } from "./_property-generations.js";
 import { nanoid } from "./_property-utils.js";
@@ -860,24 +860,28 @@ export async function rowSnapshots(
             ),
           );
   const valuesByDocument = new Map<string, Map<string, string>>();
-  const generationsByDocument = new Map<string, Map<string, number>>();
   for (const value of values) {
     let valueMap = valuesByDocument.get(value.documentId);
-    let generationMap = generationsByDocument.get(value.documentId);
-    if (!valueMap || !generationMap) {
+    if (!valueMap) {
       valueMap = new Map();
-      generationMap = new Map();
       valuesByDocument.set(value.documentId, valueMap);
-      generationsByDocument.set(value.documentId, generationMap);
     }
     valueMap.set(value.propertyId, value.valueJson);
-    generationMap.set(value.propertyId, generationNumber(value.generation));
   }
+  const stored = await readPropertyGenerations(
+    db,
+    found.map((row) => row.item.documentId),
+    { propertyIds: [...revisionPropertyIds] },
+  );
   const snapshots = new Map<string, RowSnapshot>();
   for (const row of found) {
     const valueMap = valuesByDocument.get(row.item.documentId) ?? new Map();
-    const generations =
-      generationsByDocument.get(row.item.documentId) ?? new Map();
+    const generations = new Map(
+      [...valueMap.keys()].map((propertyId) => [
+        propertyId,
+        stored.of(row.item.documentId, propertyId),
+      ]),
+    );
     const revision = databaseRowRevision({
       itemId: row.item.id,
       documentId: row.item.documentId,

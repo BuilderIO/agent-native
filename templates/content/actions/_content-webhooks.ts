@@ -396,8 +396,7 @@ export async function enqueuePropertyChangeWebhooks(
                   newLabel: optionLabel(change.definition, newValue),
                   // True when a long text value was cut; read the page for all of it.
                   truncated: overLimit(fullOldValue) || overLimit(fullNewValue),
-                  generation:
-                    generations.get(documentId)?.[change.definition.id] ?? 0,
+                  generation: generations.of(documentId, change.definition.id),
                 },
               },
             };

@@ -122,7 +122,7 @@ export default defineAction({
       .nonnegative()
       .optional()
       .describe(
-        "Write only if the value's generation still equals this one, from propertyGenerations on get-document or get-content-database (0 when the property has no value). A mismatch writes nothing and fails with PROPERTY_GENERATION_CONFLICT. Not for Blocks fields.",
+        "Write only if the property's generation still equals this one, from propertyGenerations on get-document or get-content-database. A mismatch writes nothing and fails with PROPERTY_GENERATION_CONFLICT. Not for Blocks fields.",
       ),
   }),
   changeResource: (input) => documentChangeResource(input.documentId),
@@ -371,6 +371,7 @@ export default defineAction({
 
     let valueJson = normalizedValueJson(type, value);
     let webhookEvents = 0;
+    let generation = 0;
     await db.transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as ReturnType<typeof getDb>,
@@ -605,16 +606,22 @@ export default defineAction({
           actor: contentChangeActor(ctx),
         },
       );
+      // Read before commit, while this write still holds the value's row, so
+      // a later writer's generation can't be returned as this one's.
+      generation = (
+        await readPropertyGenerations(
+          tx as unknown as ReturnType<typeof getDb>,
+          [documentId],
+          { propertyIds: [propertyId] },
+        )
+      ).of(documentId, propertyId);
     });
     if (webhookEvents) scheduleContentWebhookDelivery();
 
-    const generations = await readPropertyGenerations(db, [documentId], {
-      propertyIds: [propertyId],
-    });
     return {
       documentId,
       databaseId: database.id,
-      generation: generations.get(documentId)?.[propertyId] ?? 0,
+      generation,
       properties:
         (
           await listPropertiesForDatabaseDocuments(database.id, [document], {

@@ -1058,6 +1058,20 @@ export const documentPropertyValues = table("document_property_values", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+/**
+ * One row per page that has had a property value deleted, holding a
+ * generation from the same sequence as the values. A trigger writes it, so a
+ * cleared value can't make an old generation current again; see
+ * _property-generations.ts.
+ */
+export const documentPropertyValueDeletions = table(
+  "document_property_value_deletions",
+  {
+    documentId: text("document_id").primaryKey(),
+    generation: integer("generation").notNull(),
+  },
+);
+
 export const documentBlockFieldContents = table(
   "document_block_field_contents",
   {
