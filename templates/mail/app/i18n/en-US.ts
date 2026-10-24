@@ -759,6 +759,15 @@ const messages = {
       emailThread: "Email thread",
       unableToLoadThread: "Unable to load thread",
       openInApp: "Open in app",
+      draft: "Email draft - Mail",
+    },
+    draftCard: {
+      loadFailed: "Couldn't load this draft.",
+      notFoundTitle: "Draft not found",
+      threadUnavailable:
+        "Couldn't load the earlier messages in this conversation.",
+      earlierMessages: "Earlier messages ({{count}})",
+      deleted: "Draft deleted.",
     },
     agentEngine: {
       activeEngine: "Active engine",

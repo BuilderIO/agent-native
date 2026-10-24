@@ -169,7 +169,7 @@ const ComposeModal = lazy(async () => {
   return { default: ComposeModal };
 });
 
-const BARE_ROUTES = new Set(["/email"]);
+const BARE_ROUTES = new Set(["/email", "/draft"]);
 const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
 
 type SnoozeTarget = {

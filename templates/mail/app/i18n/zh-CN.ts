@@ -732,6 +732,14 @@ const messages = {
       emailThread: "邮件会话",
       unableToLoadThread: "无法加载会话",
       openInApp: "在应用中打开",
+      draft: "邮件草稿 - Mail",
+    },
+    draftCard: {
+      loadFailed: "无法加载此草稿。",
+      notFoundTitle: "找不到草稿",
+      threadUnavailable: "无法加载此对话中较早的邮件。",
+      earlierMessages: "较早的邮件（{{count}}）",
+      deleted: "草稿已删除。",
     },
     agentEngine: {
       activeEngine: "当前引擎",

@@ -755,6 +755,14 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "مسودة بريد إلكتروني - Mail",
+    },
+    draftCard: {
+      loadFailed: "تعذّر تحميل هذه المسودة.",
+      notFoundTitle: "لم يتم العثور على المسودة",
+      threadUnavailable: "تعذّر تحميل الرسائل السابقة في هذه المحادثة.",
+      earlierMessages: "الرسائل السابقة ({{count}})",
+      deleted: "تم حذف المسودة.",
     },
     agentEngine: {
       activeEngine: "Motor activo",
