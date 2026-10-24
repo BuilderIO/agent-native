@@ -20,6 +20,7 @@ const dbRows = vi.hoisted(
 );
 const dbAvailable = vi.hoisted(() => ({ value: true }));
 const purgeCalls = vi.hoisted(() => ({ count: 0 }));
+const purgeFails = vi.hoisted(() => ({ value: false }));
 
 function rowKey(docId: string, clientId: number): string {
   return `${docId}|${clientId}`;
@@ -138,6 +139,7 @@ vi.mock("../db/client.js", async () => {
       }
       if (/^\s*DELETE FROM _collab_awareness WHERE last_seen < \?/i.test(sql)) {
         purgeCalls.count += 1;
+        if (purgeFails.value) throw new Error("purge unavailable");
         for (const [key, row] of dbRows) {
           if (row.last_seen < Number(args[0])) dbRows.delete(key);
         }
@@ -200,10 +202,12 @@ beforeEach(() => {
   dbRows.clear();
   dbAvailable.value = true;
   purgeCalls.count = 0;
+  purgeFails.value = false;
   _resetAwarenessStoreForTests();
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   _resetAwarenessStoreForTests();
 });
 
@@ -227,6 +231,50 @@ describe("awareness-store", () => {
     await upsertAwarenessRow("doc-2", 2, "{}", 50_000);
     const rows = await loadAwarenessRows("doc-2", 60_000);
     expect(rows.map((r) => r.clientId)).toEqual([2]);
+  });
+
+  it("returns rows when best-effort expiry cleanup fails", async () => {
+    const cleanupFailure = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    dbRows.set(rowKey("doc-purge-read", 3), {
+      state: "active-state",
+      last_seen: 60_000,
+      client_sequence: 1,
+      client_sequence_raw: 0,
+      cleared: false,
+    });
+    purgeFails.value = true;
+
+    await expect(
+      loadAwarenessRows("doc-purge-read", 60_000),
+    ).resolves.toMatchObject([{ clientId: 3, state: "active-state" }]);
+
+    expect(cleanupFailure).toHaveBeenCalledWith(
+      "Failed to purge expired collaboration awareness rows",
+      expect.objectContaining({ message: "purge unavailable" }),
+    );
+  });
+
+  it("keeps an applied presence write successful when expiry cleanup fails", async () => {
+    const cleanupFailure = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    purgeFails.value = true;
+
+    await expect(
+      writeAwarenessRow("doc-purge-write", 4, "active-state", 60_000, 1, false),
+    ).resolves.toBe(true);
+
+    expect(dbRows.get(rowKey("doc-purge-write", 4))).toMatchObject({
+      state: "active-state",
+      client_sequence: 1,
+      cleared: false,
+    });
+    expect(cleanupFailure).toHaveBeenCalledWith(
+      "Failed to purge expired collaboration awareness rows",
+      expect.objectContaining({ message: "purge unavailable" }),
+    );
   });
 
   it("purges expired tombstones across documents on unrelated reads", async () => {

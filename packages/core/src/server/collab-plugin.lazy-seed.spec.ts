@@ -362,6 +362,39 @@ describe("collab lazy source seeding", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
+  it("requires editor access for resource awareness writes", async () => {
+    mocks.assertAccess.mockResolvedValue({
+      resource: { ownerEmail: "owner@example.com", orgId: "org-1" },
+    });
+    const handler = await mountCollabHandler({
+      access: {
+        mode: "resource",
+        resourceType: "design",
+        resolveResourceId: () => "design-1",
+      },
+    });
+    const event = makeEvent();
+    event.method = "POST";
+    event.url = new URL("http://localhost/design-file-1/awareness");
+
+    await handler(event);
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "design-1",
+      "editor",
+      undefined,
+      { skipResourceBody: true },
+    );
+    expect(mocks.resolveAccess).not.toHaveBeenCalled();
+    expect(event.context._collabAwarenessScope).toEqual({
+      resourceType: "design",
+      resourceId: "design-1",
+      owner: "owner@example.com",
+      orgId: "org-1",
+    });
+  });
+
   it("maps a JSON collab id back to its source row", async () => {
     mocks.execute.mockResolvedValue({
       rows: [{ config: '{"title":"Legacy dashboard"}' }],

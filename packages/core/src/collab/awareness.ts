@@ -12,7 +12,6 @@ import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   MAX_AWARENESS_CLIENT_SEQUENCE,
-  MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE,
   MAX_LEGACY_AWARENESS_CLOCK_SKEW_MS,
 } from "./awareness-sequence.js";
 import {
@@ -324,22 +323,16 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   );
   if (
     !applied &&
-    sequence > MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE &&
+    clientSequence !== undefined &&
     sequence <= MAX_AWARENESS_CLIENT_SEQUENCE
   ) {
     const current = await loadAwarenessClientSequence(docId, clientId);
-    if (
-      !current?.cleared &&
-      sequence >
-        (current?.clientSequence ?? 0) + MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
-    ) {
-      setResponseStatus(event, 409);
-      setResponseHeader(
-        event,
-        "x-awareness-client-sequence",
-        String(current?.clientSequence ?? 0),
-      );
-    }
+    setResponseStatus(event, 409);
+    setResponseHeader(
+      event,
+      "x-awareness-client-sequence",
+      String(current?.clientSequence ?? 0),
+    );
   }
 
   const map = getDocAwareness(docId);

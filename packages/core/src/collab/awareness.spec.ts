@@ -207,6 +207,29 @@ describe("postAwareness handler", () => {
     getDocAwareness(docId).clear();
   });
 
+  it("asks clients to resynchronize after any rejected bounded sequence", async () => {
+    const docId = "post-doc-stale-sequence";
+    mockReadBody.mockResolvedValue({
+      clientId: 16,
+      clientSequence: 7,
+      state: "current-state",
+    });
+    await postAwareness(event({ docId }));
+
+    mockReadBody.mockResolvedValue({
+      clientId: 16,
+      clientSequence: 6,
+      state: "stale-state",
+    });
+    const ev = event({ docId });
+    await postAwareness(ev);
+
+    expect(ev._status).toBe(409);
+    expect(ev._headers).toMatchObject({ "x-awareness-client-sequence": "7" });
+    expect(getDocAwareness(docId).get(16)?.state).toBe("current-state");
+    getDocAwareness(docId).clear();
+  });
+
   it("stores the sender's state and returns only other clients' states", async () => {
     const map = getDocAwareness("post-doc");
     map.set(99, { clientId: 99, state: "other-state", lastSeen: Date.now() });

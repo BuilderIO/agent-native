@@ -186,7 +186,7 @@ export async function writeAwarenessRow(
   const applied = rows.length > 0;
   if (applied) {
     _lastWrites.delete(writeKey(docId, clientId));
-    await maybePurge(lastSeen);
+    await maybePurgeBestEffort(lastSeen);
   }
   return applied;
 }
@@ -225,7 +225,7 @@ export async function loadAwarenessRowsStrict(
   now: number = Date.now(),
 ): Promise<AwarenessRow[]> {
   await ensureTable();
-  await maybePurge(now);
+  await maybePurgeBestEffort(now);
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT client_id, state, last_seen, client_sequence, cleared
@@ -281,6 +281,17 @@ async function maybePurge(now: number): Promise<void> {
       _purgeInFlight = undefined;
     });
   await _purgeInFlight;
+}
+
+async function maybePurgeBestEffort(now: number): Promise<void> {
+  try {
+    await maybePurge(now);
+  } catch (error) {
+    console.error(
+      "Failed to purge expired collaboration awareness rows",
+      error,
+    );
+  }
 }
 
 export function _resetAwarenessStoreForTests(): void {

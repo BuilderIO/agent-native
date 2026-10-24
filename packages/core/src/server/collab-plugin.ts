@@ -528,7 +528,8 @@ export function createCollabPlugin(
               (action === "text" && method === "POST") ||
               (action === "search-replace" && method === "POST") ||
               (action === "json" && method === "POST") ||
-              (action === "patch" && method === "POST");
+              (action === "patch" && method === "POST") ||
+              (action === "awareness" && method === "POST");
 
             if (isWrite) {
               const access = await assertAccess(
@@ -585,7 +586,8 @@ export function createCollabPlugin(
             (action === "text" && method === "POST") ||
             (action === "search-replace" && method === "POST") ||
             (action === "json" && method === "POST") ||
-            (action === "patch" && method === "POST");
+            (action === "patch" && method === "POST") ||
+            (action === "awareness" && method === "POST");
 
           if (isWriteAction) {
             const contentLength = Number(

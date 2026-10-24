@@ -21,6 +21,9 @@ vi.mock("h3", () => ({
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
   },
+  setResponseHeader: (event: any, name: string, value: string) => {
+    (event._headers ??= {})[name.toLowerCase()] = value;
+  },
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
@@ -28,6 +31,14 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 vi.mock("./awareness-store.js", () => ({
+  loadAwarenessClientSequence: vi.fn(
+    async (docId: string, clientId: number) => {
+      const row = storedRows.get(rowKey(docId, clientId));
+      return row
+        ? { clientSequence: row.clientSequence, cleared: row.cleared }
+        : undefined;
+    },
+  ),
   loadAwarenessRows: vi.fn(async (docId: string) =>
     Array.from(storedRows.entries())
       .filter(([key]) => key.startsWith(`${docId}:`))
