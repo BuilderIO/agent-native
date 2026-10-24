@@ -315,4 +315,44 @@ describe("route chunk recovery bootstrap", () => {
     expect(event.type).toBe(STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT);
     expect(event.detail).toEqual({ reason: "external-embed" });
   });
+
+  it("in an MCP App embed, reports the app's own failed files but not another site's", () => {
+    const embedUrl =
+      "https://abc123.claudemcpcontent.com/crm/records/1?embedded=1";
+    const beacon = installBootstrap(embedUrl);
+    const ownChunk = installBootstrap(embedUrl);
+    for (const { windowState } of [beacon, ownChunk]) {
+      windowState[EXTERNAL_EMBED_WINDOW_KEY] = {
+        origin: "https://app.example.test",
+      };
+    }
+
+    beacon.onError({
+      target: {
+        src: "https://static.cloudflareinsights.com/beacon.min.js",
+        tagName: "SCRIPT",
+        type: "module",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+    // The transplant points the app's root-relative links at its own origin.
+    ownChunk.onError({
+      target: {
+        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        hasAttribute: () => false,
+        href: "https://app.example.test/assets/records-1a2b.js",
+        rel: "modulepreload",
+        tagName: "LINK",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(beacon.windowState[STALE_CHUNK_EXHAUSTED_KEY]).toBeUndefined();
+    expect(beacon.dispatchEvent).not.toHaveBeenCalled();
+    expect(ownChunk.windowState[STALE_CHUNK_EXHAUSTED_KEY]).toEqual({
+      reason: "external-embed",
+    });
+    expect(beacon.assign).not.toHaveBeenCalled();
+    expect(ownChunk.assign).not.toHaveBeenCalled();
+  });
 });

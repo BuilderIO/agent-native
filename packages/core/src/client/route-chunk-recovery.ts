@@ -235,6 +235,21 @@ function clearChunkRecoveryCacheBuster(win: Window): void {
   );
 }
 
+// The app's own files are on the page's origin, or in an MCP App embed on the
+// app origin embedApp records, because the embed document runs on the host's.
+function isAppAssetHref(win: Window, href: string): boolean {
+  if (sameOriginHref(win, href)) return true;
+  const embed = (win as unknown as Record<string, unknown>)[
+    EXTERNAL_EMBED_WINDOW_KEY
+  ] as { origin?: unknown } | undefined;
+  // embedApp records it as a URL origin, so a prefix match is exact.
+  return (
+    typeof embed?.origin === "string" &&
+    embed.origin !== "" &&
+    href.startsWith(`${embed.origin}/`)
+  );
+}
+
 function isModuleAssetLoadFailure(win: Window, event: Event): boolean {
   const target = event.target as
     | (EventTarget & {
@@ -250,7 +265,7 @@ function isModuleAssetLoadFailure(win: Window, event: Event): boolean {
   const tagName = target?.tagName?.toUpperCase();
   if (tagName === "LINK" && target) {
     if (target.hasAttribute?.(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)) return false;
-    if (target.href && !sameOriginHref(win, target.href)) return false;
+    if (target.href && !isAppAssetHref(win, target.href)) return false;
     return /(?:^|\s)modulepreload(?:\s|$)/i.test(
       target.getAttribute?.("rel") ?? target.rel ?? "",
     );
@@ -259,7 +274,7 @@ function isModuleAssetLoadFailure(win: Window, event: Event): boolean {
     return false;
   }
   // Inline module scripts have no src and are the app's own.
-  return !target.src || sameOriginHref(win, target.src) !== null;
+  return !target.src || isAppAssetHref(win, target.src);
 }
 
 function isAgentNativeDesktop(win: Window): boolean {

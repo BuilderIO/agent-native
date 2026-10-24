@@ -32,8 +32,11 @@ export function isLegacyChunkRecoveryRequest(url: URL): boolean {
 
 // Only the app's own module files count as stale chunks. A content blocker
 // stopping a cross-origin module script, such as an analytics beacon a CDN
-// injects, would otherwise send every page load through recovery. Inline module
-// scripts have no src and are the app's own.
+// injects, would otherwise send every page load through recovery, or report a
+// false exhaustion inside an MCP App embed. The app's files are on the page's
+// origin, or in an embed on the app origin embedApp records, because the embed
+// document runs on the host's. Inline module scripts have no src and are the
+// app's own.
 export const ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT = `(()=>{
 const queryParam=${JSON.stringify(CHUNK_RECOVERY_QUERY_PARAM)};
 const queryValue=${JSON.stringify(CHUNK_RECOVERY_QUERY_VALUE)};
@@ -51,7 +54,12 @@ const tag=target?.tagName?.toUpperCase();
 const failedModuleScript=tag==="SCRIPT"&&target.type?.toLowerCase()==="module";
 const failedModulePreload=tag==="LINK"&&/(?:^|\\s)modulepreload(?:\\s|$)/i.test(target.getAttribute?.("rel")||target.rel||"")&&!target.hasAttribute?.(warmupAttr);
 if(!failedModuleScript&&!failedModulePreload||/AgentNativeDesktop/i.test(navigator.userAgent))return;
-if(window[externalEmbedKey]){
+const url=new URL(location.href);
+const embed=window[externalEmbedKey];
+const failedUrl=String((failedModuleScript?target.src:target.href)||"");
+const isOwn=origin=>typeof origin==="string"&&origin!==""&&failedUrl.startsWith(origin+"/");
+if(failedUrl&&!isOwn(url.origin)&&!isOwn(embed&&embed.origin))return;
+if(embed){
 if(!window[exhaustedKey]){
 const detail={reason:"external-embed"};
 window[exhaustedKey]=detail;
@@ -60,9 +68,6 @@ if(typeof window.dispatchEvent==="function"&&typeof CustomEvent==="function")win
 return;
 }
 if(/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname))return;
-const url=new URL(location.href);
-const failedUrl=failedModuleScript?target.src:target.href;
-if(failedUrl&&!String(failedUrl).startsWith(url.origin+"/"))return;
 if(url.pathname.endsWith(pathSuffix)||url.pathname.endsWith(pathSuffix+"/")||url.searchParams.get(queryParam)===queryValue)return;
 const now=Date.now();
 let last=Number(window[reloadKey])||0;
