@@ -62,6 +62,7 @@ C'est tout. Le corps est une invite que l'agent exécute à chaque déclenchemen
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"`     | `"creator"` s'exécute avec l'identité du propriétaire de la tâche et `ANTHROPIC_API_KEY`. `"shared"` utilise la clé de l'organisation.    |
 | `createdBy`  | e-mail                        | _(auto)_        | Rempli lorsque le travail est créé via l'ressources de l'agent UI ou par l'agent.                                                         |
 | `orgId`      | chaîne                        | _(auto)_        | Portée de l'organisation ; hérité de l'organisation active du créateur.                                                                   |
+| `appId`      | chaîne                        | _(auto)_        | L'application dont le planificateur exécute la tâche. Un planificateur ignore les tâches qui désignent une autre application.             |
 | `lastRun`    | Horodatage ISO                | _(géré)_        | Écrit par le planificateur après chaque exécution.                                                                                        |
 | `lastStatus` | `"success"` \| `"error"` \| … | _(géré)_        | Dernier résultat.                                                                                                                         |
 | `lastError`  | chaîne                        | _(géré)_        | Message d'erreur si la dernière exécution a échoué.                                                                                       |
@@ -240,6 +241,20 @@ la raison.
 **`AGENT_NATIVE_DISABLE_RECURRING_JOBS` est lu dans deux contextes.** Sur Netlify, Vercel et Cloudflare, c'est l'environnement de **build** qui décide : le déclencheur de la plateforme continue de se déclencher pour vider les automatisations par événement et nettoyer les exécutions, mais un build avec l'interrupteur activé ignore les tâches planifiées, quoi qu'en dise l'environnement déployé. Sur un serveur à exécution continue, c'est l'environnement d'**exécution** qui contrôle le minuteur en cours de processus. Définissez-le là où votre hôte le lit. Le build enregistre sa décision, afin que la page **Automations** puisse indiquer que les planifications ne s'exécuteront jamais au lieu d'afficher une date de prochaine exécution que rien ne respectera.
 
 </Callout>
+
+### Exécuter des tâches sous un autre `appId` {#additional-job-app-ids}
+
+Un planificateur exécute une tâche lorsque le `appId` de la tâche correspond au `appId` de sa propre application. Pour exécuter aussi les fichiers de tâche étiquetés avec un autre `appId`, listez les étiquettes supplémentaires dans `additionalJobAppIds` :
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  appId: "my-app",
+  additionalJobAppIds: ["my-app-reports"],
+  // ...
+});
+```
+
+Un build qui n'inclut pas l'étiquette ignore ces fichiers sans les lire ni les écrire, ce qui permet à deux déploiements sur une même base de données de répartir leurs tâches. L'option n'élargit que les fichiers que cette application récupère. Le lease du planificateur, l'historique des exécutions et les lignes de santé restent sous `appId`, de sorte que les déploiements qui partagent une base de données se relaient toujours sur un même lease. Si l'application met **Run now** en file d'attente pour ces tâches, transmettez la même liste en tant que `additionalJobAppIds` à `queueAutomationRunNow`.
 
 ## Débogage d'une tâche {#debugging}
 

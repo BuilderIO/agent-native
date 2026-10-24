@@ -62,6 +62,7 @@ description: "Cron 調度提示代理自行執行 - 每日摘要、每週報告�
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"` | `"creator"` 以作業所有者的身分和 `ANTHROPIC_API_KEY` 執行。 `"shared"` 使用組織的金鑰。 |
 | `createdBy`  | 電子郵件                      | _（自動）_  | 當透過代理資源 UI 或代理建立作業時填充。                                                |
 | `orgId`      | 字串                          | _（自動）_  | 組織範圍；從建立者的活動組織繼承。                                                      |
+| `appId`      | 字串                          | _（自動）_  | 執行該作業的調度程式所屬的應用程式。調度程式會略過指定了其他應用程式的作業。            |
 | `lastRun`    | ISO時間戳                     | _（託管）_  | 由調度程式在每次執行後寫入。                                                            |
 | `lastStatus` | `"success"` \| `"error"` \| … | _（託管）_  | 最新結果。                                                                              |
 | `lastError`  | 字串                          | _（託管）_  | 如果上次執行失敗，則會出現錯誤訊息。                                                    |
@@ -228,6 +229,20 @@ Summarize overnight emails.`,
 **`AGENT_NATIVE_DISABLE_RECURRING_JOBS` 會在兩個範圍中讀取。** 在 Netlify、Vercel 和 Cloudflare 上，由**建置**環境決定：平台觸發器會繼續觸發，以處理佇列中的事件自動化並清理執行，但開啟此開關的建置會略過排程作業，無論已部署環境如何設定。在長時間執行的伺服器上，由**執行時期**環境控制行程內計時器。請在你的託管環境讀取它的地方設定它。建置會記錄這項決定，因此 **Automations** 頁面可以明確說明排程永遠不會執行，而不是顯示一個不會被遵守的下次執行時間。
 
 </Callout>
+
+### 在其他 `appId` 下執行作業 {#additional-job-app-ids}
+
+當作業的 `appId` 與其應用程式本身的 `appId` 相同時，調度程式會執行該作業。若還要執行帶有其他 `appId` 標籤的作業檔案，請在 `additionalJobAppIds` 中列出額外的標籤：
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  appId: "my-app",
+  additionalJobAppIds: ["my-app-reports"],
+  // ...
+});
+```
+
+未列出該標籤的建置會略過這些檔案，既不讀取也不寫入。如此一來，共用同一個資料庫的兩個部署便能拆分各自的作業。此選項只會擴大本應用程式納入的檔案範圍。調度程式的 lease、執行歷史和健康狀態資料列仍保留在 `appId` 下，因此共用同一個資料庫的部署仍會輪流持有同一個 lease。如果應用程式將這些作業的 **Run now** 排入佇列，請將同一份清單以 `additionalJobAppIds` 形式傳給 `queueAutomationRunNow`。
 
 ## 偵錯作業 {#debugging}
 
