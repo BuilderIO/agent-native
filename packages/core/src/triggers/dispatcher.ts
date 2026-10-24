@@ -373,10 +373,13 @@ function startTriggerQueueWorker(): void {
   registerBackgroundJobStop(stopTriggerQueueWorker);
 }
 
-export function stopTriggerQueueWorker(): void {
-  _triggerQueueWorker?.stop();
+export async function stopTriggerQueueWorker(): Promise<void> {
+  const worker = _triggerQueueWorker;
   _triggerQueueWorker = null;
   _triggerQueueWorkerStarted = false;
+  if (worker) await worker.stop();
+  const drains = [..._drainingTriggers.values()];
+  if (drains.length > 0) await Promise.allSettled(drains);
 }
 
 async function drainReadyTriggerQueue(

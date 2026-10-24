@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import * as dbClient from "../db/client.js";
 import {
   registerBackgroundJobStop,
   stopBackgroundJobs,
@@ -19,12 +20,13 @@ const backgroundJobsModule = pathToFileURL(
 ).href;
 
 describe("background job shutdown", () => {
-  afterEach(() => {
-    stopBackgroundJobs();
+  afterEach(async () => {
+    await stopBackgroundJobs();
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
-  it("runs each registered stopper once and forgets it", () => {
+  it("runs each registered stopper once and forgets it", async () => {
     const first = vi.fn();
     const second = vi.fn(() => {
       throw new Error("stopper failed");
@@ -33,15 +35,25 @@ describe("background job shutdown", () => {
     registerBackgroundJobStop(first);
     registerBackgroundJobStop(second);
 
-    stopBackgroundJobs();
+    await stopBackgroundJobs();
     expect(first).toHaveBeenCalledTimes(1);
     expect(second).toHaveBeenCalledTimes(1);
     expect(error).toHaveBeenCalled();
 
-    stopBackgroundJobs();
+    await stopBackgroundJobs();
     expect(first).toHaveBeenCalledTimes(1);
     expect(second).toHaveBeenCalledTimes(1);
-    error.mockRestore();
+  });
+
+  it("awaits async stoppers before resolving", async () => {
+    let finished = false;
+    registerBackgroundJobStop(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      finished = true;
+    });
+
+    await stopBackgroundJobs();
+    expect(finished).toBe(true);
   });
 
   it("installs the Nitro close hook on production Node hosts", () => {
@@ -57,10 +69,27 @@ describe("background job shutdown", () => {
     expect(closeHooks).toHaveLength(1);
   });
 
-  it("stops background jobs from the Nitro close hook before closing the database", async () => {
+  it("awaits registered stoppers before pausing the database on Nitro close", async () => {
     vi.stubEnv("NODE_ENV", "production");
-    const stopper = vi.fn();
-    registerBackgroundJobStop(stopper);
+    const order: string[] = [];
+    let releaseStop!: () => void;
+    const stopGate = new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+    registerBackgroundJobStop(async () => {
+      order.push("stop-start");
+      await stopGate;
+      order.push("stop-done");
+    });
+
+    vi.spyOn(dbClient, "beginPgliteClientShutdown").mockImplementation(() => {
+      order.push("db-shutdown");
+    });
+    vi.spyOn(dbClient, "waitForPgliteClientOperations").mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(dbClient, "closeDbExec").mockResolvedValue(undefined);
+
     const closeHooks: Array<() => void | Promise<void>> = [];
     installDevDatabaseCloseHook({
       hooks: {
@@ -70,9 +99,15 @@ describe("background job shutdown", () => {
       },
     });
 
-    await closeHooks[0]!();
+    const closing = closeHooks[0]!();
+    await Promise.resolve();
+    expect(order).toEqual(["stop-start"]);
+    expect(order).not.toContain("db-shutdown");
 
-    expect(stopper).toHaveBeenCalledTimes(1);
+    releaseStop();
+    await closing;
+
+    expect(order).toEqual(["stop-start", "stop-done", "db-shutdown"]);
   });
 
   it("clears registered referenced timers so the process can exit", async () => {
@@ -80,7 +115,7 @@ describe("background job shutdown", () => {
       import { registerBackgroundJobStop, stopBackgroundJobs } from ${JSON.stringify(backgroundJobsModule)};
       const timer = setInterval(() => {}, 60_000);
       registerBackgroundJobStop(() => clearInterval(timer));
-      stopBackgroundJobs();
+      await stopBackgroundJobs();
     `;
     const child = spawn(
       process.execPath,

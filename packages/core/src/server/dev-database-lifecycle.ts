@@ -69,7 +69,7 @@ export function installDevDatabaseCloseHook(nitroApp: any): void {
   // Vite HMR restart closes/resumes the DB through that same function and
   // nothing restarts jobs on resume.
   nitroApp.hooks.hook("close", async () => {
-    stopBackgroundJobs();
+    await stopBackgroundJobs();
     await closeDevDatabase();
   });
 }

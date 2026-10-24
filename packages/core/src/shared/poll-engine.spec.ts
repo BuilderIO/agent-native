@@ -210,6 +210,30 @@ describe("createPollEngine", () => {
     expect(attempt).toHaveBeenCalledTimes(1);
   });
 
+  it("stop() resolves only after the in-flight attempt settles", async () => {
+    let resolveFirst: (() => void) | undefined;
+    const attempt = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (resolveFirst = resolve)),
+      );
+    const engine = createPollEngine(attempt, { intervalMs: 1000 });
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(attempt).toHaveBeenCalledTimes(1);
+
+    let stopped = false;
+    const stopping = engine.stop().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    resolveFirst?.();
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+
   it("stop() aborts the in-flight attempt's signal", async () => {
     let seenSignal: AbortSignal | undefined;
     const attempt = vi.fn().mockImplementation(

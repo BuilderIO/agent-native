@@ -47,11 +47,12 @@ export function startRemoteCommandsRetryJob(): void {
   registerBackgroundJobStop(stopRemoteCommandsRetryJob);
 }
 
-export function stopRemoteCommandsRetryJob(): void {
+export async function stopRemoteCommandsRetryJob(): Promise<void> {
   if (startupTimer) {
     clearTimeout(startupTimer);
     startupTimer = null;
   }
-  job?.stop();
+  const running = job;
   job = null;
+  if (running) await running.stop();
 }

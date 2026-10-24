@@ -325,12 +325,13 @@ export function startPendingTasksRetryJob(options?: {
   }
 }
 
-export function stopPendingTasksRetryJob(): void {
+export async function stopPendingTasksRetryJob(): Promise<void> {
   if (startupTimer) {
     clearTimeout(startupTimer);
     startupTimer = null;
   }
-  job?.stop();
+  const running = job;
   job = null;
   activeWebhookBaseUrl = undefined;
+  if (running) await running.stop();
 }

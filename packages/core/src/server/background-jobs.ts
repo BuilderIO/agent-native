@@ -1,17 +1,21 @@
-const stoppers = new Set<() => void>();
+export type BackgroundJobStop = () => void | Promise<void>;
 
-export function registerBackgroundJobStop(stop: () => void): void {
+const stoppers = new Set<BackgroundJobStop>();
+
+export function registerBackgroundJobStop(stop: BackgroundJobStop): void {
   stoppers.add(stop);
 }
 
-export function stopBackgroundJobs(): void {
+export async function stopBackgroundJobs(): Promise<void> {
   const toStop = [...stoppers];
   stoppers.clear();
-  for (const stop of toStop) {
-    try {
-      stop();
-    } catch (error) {
-      console.error("[agent-native] background job stop failed:", error);
-    }
-  }
+  await Promise.all(
+    toStop.map(async (stop) => {
+      try {
+        await stop();
+      } catch (error) {
+        console.error("[agent-native] background job stop failed:", error);
+      }
+    }),
+  );
 }

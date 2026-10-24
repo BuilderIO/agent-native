@@ -386,13 +386,14 @@ function startA2AContinuationRetryJob(
   registerBackgroundJobStop(stopA2AContinuationRetryJob);
 }
 
-function stopA2AContinuationRetryJob(): void {
+async function stopA2AContinuationRetryJob(): Promise<void> {
   if (a2aContinuationStartupTimer) {
     clearTimeout(a2aContinuationStartupTimer);
     a2aContinuationStartupTimer = null;
   }
-  a2aContinuationJob?.stop();
+  const running = a2aContinuationJob;
   a2aContinuationJob = null;
+  if (running) await running.stop();
 }
 
 export const BUILT_IN_INTEGRATION_ADAPTER_FACTORIES = Object.freeze([
@@ -3658,17 +3659,19 @@ export function createIntegrationsPlugin(
         googleDocsStartTimer.unref?.();
       }
 
-      const stopIntegrationBackgroundJobs = () => {
-        stopPendingTasksRetryJob();
-        stopA2AContinuationRetryJob();
-        stopRemoteCommandsRetryJob();
-        stopRemotePushDeliveryJob();
+      const stopIntegrationBackgroundJobs = async () => {
+        await Promise.all([
+          stopPendingTasksRetryJob(),
+          stopA2AContinuationRetryJob(),
+          stopRemoteCommandsRetryJob(),
+          stopRemotePushDeliveryJob(),
+        ]);
         if (googleDocsStartTimer) {
           clearTimeout(googleDocsStartTimer);
           googleDocsStartTimer = null;
         }
         if (adapterMap.has("google-docs")) {
-          void runGoogleDocsPollerTransition(() => stopGoogleDocsPoller());
+          await runGoogleDocsPollerTransition(() => stopGoogleDocsPoller());
         }
       };
       registerBackgroundJobStop(stopIntegrationBackgroundJobs);

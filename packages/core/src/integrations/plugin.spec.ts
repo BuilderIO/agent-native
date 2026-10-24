@@ -523,6 +523,38 @@ describe("integrations plugin routes", () => {
     resumePgliteClientAccess();
   });
 
+  it("awaits Google Docs poller cleanup on Nitro close before resolving", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const nitroApp = createNitroApp({ withCloseHook: true });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const order: string[] = [];
+    stopGoogleDocsPollerMock.mockImplementationOnce(async () => {
+      order.push("stop-start");
+      await gate;
+      order.push("stop-done");
+    });
+
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+
+    const closing = nitroApp.hooks.callHook("close").then(() => {
+      order.push("closed");
+    });
+    await vi.waitFor(() => {
+      expect(order).toContain("stop-start");
+    });
+    expect(order).not.toContain("closed");
+
+    release();
+    await closing;
+    expect(order).toEqual(["stop-start", "stop-done", "closed"]);
+    resumePgliteClientAccess();
+  });
+
   it("requires a session for integration status", async () => {
     getSessionMock.mockResolvedValueOnce(null);
     const nitroApp = createNitroApp();

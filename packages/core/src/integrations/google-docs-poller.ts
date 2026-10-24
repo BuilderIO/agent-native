@@ -1041,8 +1041,9 @@ export async function stopGoogleDocsPoller(): Promise<void> {
     pollerStartTimer = null;
   }
   if (pollerJob) {
-    pollerJob.stop();
+    const running = pollerJob;
     pollerJob = null;
+    await running.stop();
   }
   if (watchRenewalTimer) {
     clearTimeout(watchRenewalTimer);

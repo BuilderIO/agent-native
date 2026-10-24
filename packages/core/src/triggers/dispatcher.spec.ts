@@ -1114,12 +1114,12 @@ Respond to the fanout event.`,
     ).toThrow("Delegated automation policy IDs");
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     // Module-level worker flag survives across tests; clearAllMocks only
     // resets the startIntervalJob mock, so stop the worker or later inits
     // early-return and never register a new handle.
-    stopTriggerQueueWorker();
+    await stopTriggerQueueWorker();
     isProductionServerlessRuntimeMock.mockReturnValue(false);
     triggerQueueMocks.reset();
     resourceFingerprintAllOwnersMock.mockResolvedValue("fingerprint-unchanged");
@@ -1570,8 +1570,52 @@ Respond to the event.`,
       | undefined;
     expect(handle?.stop).toEqual(expect.any(Function));
 
-    stopTriggerQueueWorker();
+    await stopTriggerQueueWorker();
     expect(handle?.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("awaits in-flight trigger drains when the queue worker stops", async () => {
+    let releaseDrain!: () => void;
+    // Resolve to null so drainTriggerQueue exits after the in-flight claim;
+    // a truthy value would loop forever and OOM the suite.
+    const drainGate = new Promise<null>((resolve) => {
+      releaseDrain = () => resolve(null);
+    });
+    triggerQueueMocks.ready.mockResolvedValueOnce(["trigger-drain-wait"]);
+    triggerQueueMocks.claim.mockImplementationOnce(() => drainGate);
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const handle = vi.mocked(startIntervalJob).mock.results.at(-1)?.value as
+      | {
+          stop: ReturnType<typeof vi.fn>;
+          run?: (signal: AbortSignal) => Promise<void>;
+        }
+      | undefined;
+    // Drive one worker tick so startTriggerDrain registers an in-flight promise.
+    const runOnce = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+    expect(runOnce).toEqual(expect.any(Function));
+    const tick = runOnce!(new AbortController().signal);
+    await vi.waitFor(() => {
+      expect(triggerQueueMocks.claim).toHaveBeenCalled();
+    });
+
+    let stopped = false;
+    const stopping = stopTriggerQueueWorker().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    releaseDrain();
+    await tick.catch(() => undefined);
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(handle?.stop).toHaveBeenCalled();
   });
 
   it("backs off the interval worker when no trigger is claimable", async () => {
