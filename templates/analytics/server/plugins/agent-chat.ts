@@ -1993,7 +1993,6 @@ export async function dbtFinalResponseGuard(
     context.executionMode !== "plan" &&
     hasUnresolvedDbtFailureInTurn(context);
   if (!checkDraft) return realDataFinalGuard(context);
-  const unresolvedMetricNames = unresolvedDbtMetricNames(context);
   const unresolvedMetricQueries = unresolvedDbtMetricQueries(context);
   if (isExplicitWarehouseCalculation(context)) {
     const evidence = explicitWarehouseResultEvidence(context);
