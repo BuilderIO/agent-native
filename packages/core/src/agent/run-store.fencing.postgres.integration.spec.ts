@@ -113,13 +113,21 @@ function runWorkerWithTimeout(
   timeout: number,
   ...args: string[]
 ): Promise<WorkerResult> {
+  return runWorkerWithEnvironment(timeout, {}, ...args);
+}
+
+function runWorkerWithEnvironment(
+  timeout: number,
+  environment: NodeJS.ProcessEnv,
+  ...args: string[]
+): Promise<WorkerResult> {
   return new Promise((resolveResult) => {
     execFile(
       process.execPath,
       ["--import", "tsx", workerPath, ...args],
       {
         cwd: repositoryRoot,
-        env: process.env,
+        env: { ...process.env, ...environment },
         maxBuffer: 1024 * 1024,
         timeout,
       },
@@ -177,7 +185,7 @@ function startBarrierWorker(...args: string[]): BarrierWorker {
         `Execution worker did not reach its barrier: ${output.stderr || output.stdout || "no output"}`,
       ),
     );
-  }, 15_000);
+  }, 30_000);
   const closed = new Promise<BarrierWorkerResult>((resolve) => {
     child.once("close", (exitCode, signal) => {
       resolve({ ...output, exitCode, signal });
@@ -242,7 +250,7 @@ function workerJson<T>(result: WorkerResult): T {
     return JSON.parse(output.slice(output.lastIndexOf("\n") + 1)) as T;
   } catch {
     throw new Error(
-      `Execution worker returned no JSON (exit ${result.exitCode}): ${result.stderr || result.stdout}`,
+      `Execution worker returned no JSON (exit ${result.exitCode}): ${result.error ?? (result.stderr || result.stdout)}`,
     );
   }
 }
@@ -311,8 +319,17 @@ async function withTestDatabase<T>(
     await sql`DELETE FROM chat_threads WHERE id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_execution_steps WHERE thread_id LIKE ${`${prefix}%`}`;
     await sql`DELETE FROM agent_execution_leases WHERE thread_id LIKE ${`${prefix}%`}`;
-    await sql`DELETE FROM agent_run_events WHERE run_id LIKE ${`${prefix}%`}`;
-    await sql`DELETE FROM agent_runs WHERE id LIKE ${`${prefix}%`}`;
+    await sql`
+      DELETE FROM agent_run_events
+      WHERE run_id LIKE ${`${prefix}%`}
+         OR run_id IN (
+           SELECT id FROM agent_runs WHERE thread_id LIKE ${`${prefix}%`}
+         )
+    `;
+    await sql`
+      DELETE FROM agent_runs
+      WHERE id LIKE ${`${prefix}%`} OR thread_id LIKE ${`${prefix}%`}
+    `;
     await sql.end();
   }
 }
@@ -327,6 +344,20 @@ async function forceLeaseExpiry(
     SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
     WHERE thread_id = ${threadId} AND turn_id = ${turnId}
   `;
+}
+
+async function keepLeaseLive(
+  sql: postgres.Sql,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  const rows = await sql`
+    UPDATE agent_execution_leases
+    SET lease_expires_at = clock_timestamp() + INTERVAL '5 minutes'
+    WHERE thread_id = ${threadId} AND turn_id = ${turnId}
+    RETURNING thread_id
+  `;
+  expect(rows).toHaveLength(1);
 }
 
 async function claimInProcess(
@@ -365,6 +396,7 @@ describe.skipIf(!databaseUrl)(
         expect(loser?.candidate.exitCode).toBe(3);
         expect(loser?.payload.code).toBe("turn_execution_lease_busy");
         const firstFence = winner!.payload.fence!;
+        await keepLeaseLive(sql, threadId, turnId);
 
         const stillBusy = await runWorker(
           "claim",
@@ -754,6 +786,141 @@ describe.skipIf(!databaseUrl)(
         }
       }, 2);
     }, 45_000);
+
+    it("recovers and projects a checkpointed continuation after its worker dies", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:checkpoint-thread`;
+        const turnId = `${prefix}:checkpoint-turn`;
+        const runId = `${prefix}:checkpoint-run`;
+        const submitted = applySubmittedUserMessage(
+          {},
+          buildUserMessage({
+            text: "Resume the checkpointed turn",
+            runId,
+            turnId,
+          }),
+        );
+        if (!("repo" in submitted)) {
+          throw new Error("Checkpoint test prompt was not submitted");
+        }
+        const threadMeta = extractThreadMeta(submitted.repo);
+        await createThread("checkpoint-recovery@example.com", {
+          id: threadId,
+          initialData: {
+            threadData: JSON.stringify(submitted.repo),
+            preview: threadMeta.preview,
+            messageCount: submitted.repo.messages.length,
+          },
+        });
+
+        const crashedWorker = await runWorkerWithTimeout(
+          90_000,
+          "checkpoint-crash",
+          threadId,
+          turnId,
+          runId,
+          "unused-step",
+          JSON.stringify({ prompt: "Resume the checkpointed turn" }),
+        );
+        expect(crashedWorker.exitCode).toBe(83);
+        expect(workerJson<{ status: string }>(crashedWorker).status).toBe(
+          "checkpointed",
+        );
+
+        const checkpointEvents = await sql`
+          SELECT seq, event_data::jsonb AS event_data
+          FROM agent_run_events WHERE run_id = ${runId} ORDER BY seq
+        `;
+        expect(checkpointEvents.at(-1)?.event_data).toMatchObject({
+          type: "auto_continue",
+          reason: "run_timeout",
+        });
+
+        const staleAt = Date.now() - 60 * 60_000;
+        await sql`
+          UPDATE agent_runs
+          SET started_at = ${staleAt}, heartbeat_at = ${staleAt},
+              last_progress_at = ${staleAt}
+          WHERE id = ${runId}
+        `;
+        await forceLeaseExpiry(sql, threadId, turnId);
+
+        const recoveryWorker = await runWorkerWithEnvironment(
+          90_000,
+          { AGENT_NATIVE_SELF_DISPATCH_URL: "http://127.0.0.1:1" },
+          "stale-reap",
+          threadId,
+          turnId,
+          runId,
+        );
+        expect(recoveryWorker.exitCode).toBe(0);
+        expect(workerJson<{ reaped: boolean }>(recoveryWorker).reaped).toBe(
+          false,
+        );
+
+        const [repairedRun] = await sql`
+          SELECT status, terminal_reason, thread_projection_pending
+          FROM agent_runs WHERE id = ${runId}
+        `;
+        expect(repairedRun).toMatchObject({
+          status: "truncated",
+          terminal_reason: "run_timeout",
+          thread_projection_pending: false,
+        });
+        const successors = await sql`
+          SELECT id, dispatch_payload
+          FROM agent_runs
+          WHERE thread_id = ${threadId}
+            AND COALESCE(turn_id, id) = ${turnId}
+            AND id <> ${runId}
+            AND status = 'running'
+            AND dispatch_mode = 'background'
+        `;
+        expect(successors).toHaveLength(1);
+        expect(
+          JSON.parse(String(successors[0]!.dispatch_payload)),
+        ).toMatchObject({
+          prompt: "Resume the checkpointed turn",
+          internalContinuation: true,
+          __agentChatRecoveryOfRunId: runId,
+        });
+
+        const projectedThread = await getThread(threadId);
+        expect(projectedThread).not.toBeNull();
+        const projectedMessages = JSON.parse(
+          projectedThread!.threadData,
+        ).messages;
+        expect(
+          projectedMessages.filter(
+            (entry: any) => (entry.message ?? entry).role === "user",
+          ),
+        ).toHaveLength(1);
+        expect(
+          projectedMessages.filter(
+            (entry: any) => (entry.message ?? entry).role === "assistant",
+          ),
+        ).toHaveLength(1);
+
+        await expect(
+          withDbExec(executor(sql), () => reapIfStale(runId)),
+        ).resolves.toBe(false);
+        const successorsAfterRetry = await sql`
+          SELECT id FROM agent_runs
+          WHERE thread_id = ${threadId}
+            AND COALESCE(turn_id, id) = ${turnId}
+            AND id <> ${runId}
+            AND dispatch_mode = 'background'
+        `;
+        expect(successorsAfterRetry).toHaveLength(1);
+        const finalThread = await getThread(threadId);
+        const finalMessages = JSON.parse(finalThread!.threadData).messages;
+        expect(
+          finalMessages.filter(
+            (entry: any) => (entry.message ?? entry).role === "assistant",
+          ),
+        ).toHaveLength(1);
+      }, 2);
+    }, 180_000);
 
     it("records a late outcome only while its captured lease generation is current", async () => {
       await withTestDatabase(async (sql, prefix) => {

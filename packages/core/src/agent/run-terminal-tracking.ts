@@ -1,5 +1,6 @@
 import type { TrackingMeta } from "../tracking/registry.js";
 import { runErrorTelemetryProperties } from "./engine/error-telemetry.js";
+import type { UnknownWriteCause } from "./types.js";
 
 export interface RunTerminalTrackingFields {
   runId: string;
@@ -16,7 +17,7 @@ export interface RunTerminalTrackingFields {
   attemptCount?: number;
   /** For `write_tool_outcome_unknown`: the call held back, and why. */
   blockedTool?: string;
-  blockedBy?: "rejection" | "interruption";
+  blockedBy?: UnknownWriteCause;
   /** Set only by a reap, which ends a run outside the process running it. */
   reap?: { source: string; recoveryOutcome?: string };
 }

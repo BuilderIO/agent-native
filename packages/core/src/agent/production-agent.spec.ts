@@ -20122,7 +20122,7 @@ describe("runAgentLoop", () => {
         }
       }
 
-      expect(text).toContain("could not recover its result");
+      expect(text).toContain("without confirming whether it saved changes");
       expect(ran).toEqual(["check", "other"]);
     } finally {
       findProfile.mockRestore();
@@ -20587,13 +20587,19 @@ describe("runAgentLoop", () => {
     const run = vi.fn(async () => "delivered");
     const events: any[] = [];
     const outcomes: AgentLoopOutcome[] = [];
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "go" }],
+      },
+    ];
 
     await runAgentLoop({
       engine,
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages,
       actions: {
         "send-email": {
           ...actionEntry({ readOnly: false }),
@@ -20624,13 +20630,60 @@ describe("runAgentLoop", () => {
       expect.objectContaining({
         type: "tool_done",
         tool: "send-email",
-        result: expect.stringContaining("did NOT execute"),
+        result: expect.stringContaining(
+          "NOT execute. The turn is paused until this specific call is approved; do not retry it before then. Once approved, re-emit this exact call once so it can run, then summarize its result.",
+        ),
       }),
     );
     expect(events).toContainEqual({
       type: "text",
       text: "Waiting for your approval to run send-email.",
     });
+    const waitingTextIndex = events.findIndex(
+      (event) =>
+        event.type === "text" &&
+        event.text === "Waiting for your approval to run send-email.",
+    );
+    const approvalResultIndex = events.findIndex(
+      (event) => event.type === "tool_done" && event.approvalPause === true,
+    );
+    expect(waitingTextIndex).toBeGreaterThanOrEqual(0);
+    expect(waitingTextIndex).toBeLessThan(approvalResultIndex);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "text" &&
+          event.text === "Waiting for your approval to run send-email.",
+      ),
+    ).toHaveLength(1);
+
+    const waitingHistoryIndex = messages.findIndex(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (part) =>
+            part.type === "text" &&
+            part.text === "Waiting for your approval to run send-email.",
+        ),
+    );
+    const approvalResultHistoryIndex = messages.findIndex(
+      (message) =>
+        message.role === "user" &&
+        message.content.some(
+          (part) =>
+            part.type === "tool-result" &&
+            part.toolCallId === "approval-call-1" &&
+            part.content.includes("Awaiting human approval"),
+        ),
+    );
+    expect(waitingHistoryIndex).toBeGreaterThanOrEqual(0);
+    expect(messages[waitingHistoryIndex]?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        id: "approval-call-1",
+      }),
+    );
+    expect(waitingHistoryIndex).toBeLessThan(approvalResultHistoryIndex);
     expect(events.some((event) => event.type === "done")).toBe(false);
     expect(outcomes).toEqual([
       {
@@ -20639,6 +20692,180 @@ describe("runAgentLoop", () => {
         message: "Waiting for your approval to run send-email.",
       },
     ]);
+  });
+
+  it("uses the pending approval call's note after the repeat guard records an unrelated stop", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `repeated-approval-call-${streamCalls}`,
+              name: "send-email",
+              input: { to: "a@b.com" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    let approvalChecks = 0;
+    const run = vi.fn(async () => "delivered");
+    const events: any[] = [];
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "go" }],
+      },
+    ];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: () => ++approvalChecks === 8,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // The loop-breaker closeout gets one final model response after the stop.
+    expect(streamCalls).toBe(9);
+    expect(approvalChecks).toBe(8);
+    expect(run).toHaveBeenCalledTimes(7);
+    expect(
+      events.filter((event) => event.type === "approval_required"),
+    ).toHaveLength(1);
+    expect(
+      events
+        .filter((event) => event.type === "text")
+        .map((event) => event.text),
+    ).toEqual(["Waiting for your approval to run send-email."]);
+    expect(
+      messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text === "Waiting for your approval to run send-email.",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps one call-specific note when multiple approval-gated calls are returned", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "approval-call-1",
+              name: "send-email",
+              input: { to: "a@b.com" },
+            },
+            {
+              type: "tool-call" as const,
+              id: "approval-call-2",
+              name: "delete-records",
+              input: { id: "42" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const sendEmail = vi.fn(async () => "delivered");
+    const deleteRecords = vi.fn(async () => "deleted");
+    const events: any[] = [];
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "go" }],
+      },
+    ];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: sendEmail,
+        },
+        "delete-records": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: deleteRecords,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(deleteRecords).not.toHaveBeenCalled();
+    expect(
+      events.filter((event) => event.type === "approval_required"),
+    ).toEqual([
+      expect.objectContaining({
+        tool: "send-email",
+        toolCallId: "approval-call-1",
+      }),
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === "text")
+        .map((event) => event.text),
+    ).toEqual(["Waiting for your approval to run send-email."]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "approval-call-2",
+        result: expect.stringContaining(
+          "after an earlier action stopped or paused this turn",
+        ),
+      }),
+    );
   });
 
   it("requires fresh approval before shared resource and organization-memory writes", async () => {
@@ -20992,6 +21219,9 @@ describe("runAgentLoop", () => {
   it("runs an approved call when the continuation has a new provider call id", async () => {
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
     const actions = {
       "send-email": {
         ...actionEntry({ readOnly: false }),
@@ -21006,7 +21236,7 @@ describe("runAgentLoop", () => {
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages,
       actions,
       send: (event) => events1.push(event),
       signal: new AbortController().signal,
@@ -21022,6 +21252,18 @@ describe("runAgentLoop", () => {
       async *stream(): AsyncIterable<EngineEvent> {
         continuationStreamCalls += 1;
         if (continuationStreamCalls === 1) {
+          const approvalPause = messages
+            .flatMap((message) => message.content)
+            .find(
+              (part) =>
+                part.type === "tool-result" &&
+                part.content.includes("Awaiting human approval"),
+            );
+          expect(approvalPause).toMatchObject({
+            content: expect.stringContaining(
+              "Once approved, re-emit this exact call once so it can run, then summarize its result.",
+            ),
+          });
           yield {
             type: "assistant-content",
             parts: [
@@ -21061,7 +21303,7 @@ describe("runAgentLoop", () => {
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages,
       actions,
       approvedToolCalls: [approvalKey],
       approvedToolCallAskId: approvalId,
@@ -21075,6 +21317,15 @@ describe("runAgentLoop", () => {
     expect(run).toHaveBeenCalledOnce();
     expect(events2.some((event) => event.type === "approval_required")).toBe(
       false,
+    );
+    expect(
+      events2.findIndex(
+        (event) => event.type === "tool_done" && event.tool === "send-email",
+      ),
+    ).toBeLessThan(
+      events2.findIndex(
+        (event) => event.type === "text" && event.text === "sent the email",
+      ),
     );
   });
 
@@ -21691,6 +21942,74 @@ describe("runAgentLoop endsTurn", () => {
         message: "Waiting for your answer before continuing: Which range?",
       },
     ]);
+  });
+
+  it("keeps an earlier user-input stop visible when a later approval call is skipped", async () => {
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "ask-1",
+              name: "ask-question",
+              input: { question: "Which range?", options: "[]" },
+            },
+            {
+              type: "tool-call" as const,
+              id: "email-1",
+              name: "send-email",
+              input: { to: "person@example.com" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const ask = vi.fn(async () => "asked");
+    const sendEmail = vi.fn(async () => "sent");
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "ask-question": {
+          ...actionEntry({ readOnly: false }),
+          endsTurn: true,
+          run: ask,
+        },
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: sendEmail,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(ask).toHaveBeenCalledOnce();
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(events.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+    expect(events.filter((event) => event.type === "text")).toEqual([
+      { type: "text", text: "Waiting for your answer before continuing." },
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "email-1",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
+    expect(events.some((event) => event.type === "done")).toBe(false);
   });
 
   it("keeps the turn running when the endsTurn action fails", async () => {

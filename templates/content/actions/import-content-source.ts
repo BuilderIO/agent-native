@@ -9,12 +9,12 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  assertLegacyBodyWriter,
-  isUnsupportedBodyWriter,
-  lockLegacyBodyWrites,
-} from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import {
+  assertLocalFileLinkable,
+  isLocalFileLinkRefused,
+} from "../server/lib/live-body-writer.js";
 import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
@@ -421,12 +421,13 @@ export default defineAction({
           continue;
         }
 
-        // A page on its live copy refuses the file's body, and a membership
-        // added while it locked refuses the file. Earlier files have committed;
-        // none of this one lands, and the rest of the import still does.
+        // A page switched to its live copy refuses the link to its file, and a
+        // membership added while it locked refuses the file. Earlier files have
+        // committed; none of this one lands, and the rest of the import still
+        // does.
         const refuseFile = (error: unknown) => {
           if (
-            !isUnsupportedBodyWriter(error) &&
+            !isLocalFileLinkRefused(error) &&
             !(
               error instanceof ActionContractError &&
               error.errorCode === "DATABASE_MEMBERSHIPS_CHANGED"
@@ -439,11 +440,9 @@ export default defineAction({
           desiredPositionById.delete(id);
           return null;
         };
-        if (contentChanged) {
+        if (sourceChanged) {
           try {
-            await assertLegacyBodyWriter(id, {
-              operation: "import-content-source",
-            });
+            await assertLocalFileLinkable(id);
           } catch (error) {
             refuseFile(error);
             continue;
@@ -493,6 +492,7 @@ export default defineAction({
               trashed: true,
             };
           }
+          await assertLocalFileLinkable(id, { transaction: tx });
 
           const lockedTitleChanged = file.title !== locked.title;
           const lockedContentChanged = file.content !== locked.content;

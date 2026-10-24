@@ -30,6 +30,23 @@ export function isWaitingOnConnectionRequest(
   );
 }
 
+/** An approval pauses an active run until the user responds. */
+export function isWaitingOnApprovalRequest(thread: AgentThreadState): boolean {
+  const openApprovalRunIds = new Set(
+    Object.entries(thread.approvalRunIds).flatMap(([id, runId]) =>
+      thread.approvals[id] ? [runId] : [],
+    ),
+  );
+  return (
+    thread.activeRunIds.length > 0 &&
+    thread.activeRunIds.every(
+      (runId) =>
+        thread.runs[runId]?.status === "awaiting_approval" &&
+        openApprovalRunIds.has(runId),
+    )
+  );
+}
+
 /**
  * The server stopped tracking a run this chat still shows as running, so the
  * run's ending, and the tool-done events that refresh the app's data, never

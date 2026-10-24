@@ -5,6 +5,7 @@ import {
 } from "../../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import {
+  AgentRunJournalUnreadableError,
   getCompletedAgentExecutionSteps,
   getCurrentTurnEventsForThread,
 } from "../run-store.js";
@@ -112,6 +113,7 @@ function durableStepToolDone(
     inputJson: string;
     resultJson: string;
   },
+  unreadable: (message: string, cause?: unknown) => never,
 ): Extract<AgentChatEvent, { type: "tool_done" }> {
   const executionStepId = event.executionStepId ?? event.id;
   if (
@@ -119,12 +121,12 @@ function durableStepToolDone(
     executionStepId !== row.stepId ||
     row.operationId !== row.stepId
   ) {
-    throw new Error(
+    return unreadable(
       `Completed execution step ${row.stepId} does not match its ledger identity`,
     );
   }
   if (event.tool !== row.toolName) {
-    throw new Error(
+    return unreadable(
       `Completed execution step ${row.stepId} does not match ledger tool ${event.tool}`,
     );
   }
@@ -135,9 +137,9 @@ function durableStepToolDone(
     input = JSON.parse(row.inputJson);
     outcome = JSON.parse(row.resultJson);
   } catch (error) {
-    throw new Error(
+    return unreadable(
       `Completed execution step ${row.stepId} has unreadable stored intent or result`,
-      { cause: error },
+      error,
     );
   }
   if (
@@ -150,7 +152,7 @@ function durableStepToolDone(
     typeof outcome.isError !== "boolean" ||
     typeof outcome.completedSideEffect !== "boolean"
   ) {
-    throw new Error(
+    return unreadable(
       `Completed execution step ${row.stepId} is missing replay identity or outcome fields`,
     );
   }
@@ -158,7 +160,7 @@ function durableStepToolDone(
     outcome.errorCode !== undefined &&
     typeof outcome.errorCode !== "string"
   ) {
-    throw new Error(
+    return unreadable(
       `Completed execution step ${row.stepId} has an invalid error code`,
     );
   }
@@ -243,25 +245,38 @@ export async function overlayCompletedExecutionStepOutcomes(
   const replacedIndexes = new Set<number>();
   const replacementsAt = new Map<number, AgentChatEvent>();
   const replacementsAfter = new Map<number, AgentChatEvent>();
-  for (const row of rows) {
+  for (const [rowIndex, row] of rows.entries()) {
+    const unreadable = (message: string, cause?: unknown): never => {
+      const detail = new Error(
+        message,
+        cause === undefined ? undefined : { cause },
+      );
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_execution_step",
+        { cause: detail },
+      );
+    };
     if (!candidateIds.includes(row.stepId)) {
-      throw new Error(
+      return unreadable(
         `Completed execution step ${row.stepId} was not requested by the ledger`,
       );
     }
     if (rowsById.has(row.stepId)) {
-      throw new Error(
+      return unreadable(
         `Completed execution step ${row.stepId} has ambiguous stored rows`,
       );
     }
     const starts = startsById.get(row.stepId);
     if (!starts || starts.length === 0) {
-      throw new Error(
+      return unreadable(
         `Completed execution step ${row.stepId} has no matching ledger call`,
       );
     }
     const canonicalStart = starts[0]!.event;
-    const canonicalDone = durableStepToolDone(canonicalStart, row);
+    const canonicalDone = durableStepToolDone(canonicalStart, row, unreadable);
     if (
       !isConsistentToolCallInputFingerprint(
         canonicalStart.input,
@@ -269,7 +284,7 @@ export async function overlayCompletedExecutionStepOutcomes(
         canonicalStart.inputStoredFingerprint,
       )
     ) {
-      throw new Error(
+      return unreadable(
         `Completed execution step ${row.stepId} has unreadable ledger call identity`,
       );
     }
@@ -284,7 +299,7 @@ export async function overlayCompletedExecutionStepOutcomes(
         ) ||
         getToolCallEventFingerprint(event) !== canonicalFingerprint
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} has conflicting ledger call identities`,
         );
       }
@@ -300,7 +315,7 @@ export async function overlayCompletedExecutionStepOutcomes(
           event.inputStoredFingerprint,
         )
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done identity`,
         );
       }
@@ -310,7 +325,7 @@ export async function overlayCompletedExecutionStepOutcomes(
         doneFingerprint !== undefined &&
         doneFingerprint !== canonicalFingerprint
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done input`,
         );
       }
@@ -318,7 +333,7 @@ export async function overlayCompletedExecutionStepOutcomes(
         event.argumentsHash !== undefined &&
         event.argumentsHash !== canonicalDone.argumentsHash
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done arguments`,
         );
       }
@@ -326,12 +341,12 @@ export async function overlayCompletedExecutionStepOutcomes(
         event.completedSideEffect !== undefined &&
         event.completedSideEffect !== canonicalDone.completedSideEffect
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done side-effect outcome`,
         );
       }
       if (event.isError === true && canonicalDone.isError !== true) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done error outcome`,
         );
       }
@@ -339,7 +354,7 @@ export async function overlayCompletedExecutionStepOutcomes(
         event.errorCode !== undefined &&
         event.errorCode !== canonicalDone.errorCode
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done error code`,
         );
       }

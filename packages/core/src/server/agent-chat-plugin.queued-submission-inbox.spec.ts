@@ -8,6 +8,14 @@ const sweepHarness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
   settingsEmitter: null as EventEmitter | null,
   closeHooks: [] as Array<() => void | Promise<void>>,
+  staleReapResult: {
+    scanned: 0,
+    reaped: 0,
+    failed: 0,
+    truncated: false,
+  } as { scanned: number; reaped: number; failed: number; truncated: boolean },
+  staleReapError: null as Error | null,
+  runAccess: true,
 }));
 
 const inboxHarness = vi.hoisted(() => ({
@@ -84,13 +92,12 @@ vi.mock("../agent/run-store.js", async (importOriginal) => {
   return {
     ...actual,
     getRunById: vi.fn(async () => null),
+    retryRunThreadProjection: vi.fn(async () => ({ state: "projected" })),
     listUnclaimedBackgroundRunRows: vi.fn(async () => []),
-    reapAllStaleRuns: vi.fn(async () => ({
-      scanned: 0,
-      reaped: 0,
-      failed: 0,
-      truncated: false,
-    })),
+    reapAllStaleRuns: vi.fn(async () => {
+      if (sweepHarness.staleReapError) throw sweepHarness.staleReapError;
+      return sweepHarness.staleReapResult;
+    }),
   };
 });
 
@@ -137,7 +144,7 @@ vi.mock("../agent/run-ownership.js", async (importOriginal) => {
     await importOriginal<typeof import("../agent/run-ownership.js")>();
   return {
     ...actual,
-    callerHasRunAccess: () => true,
+    callerHasRunAccess: () => sweepHarness.runAccess,
     callerHasThreadAccess: () => true,
   };
 });
@@ -335,20 +342,24 @@ vi.mock("../scripts/dev/index.js", () => ({
 }));
 
 import {
+  AgentRunJournalUnreadableError,
   getRunById,
   insertRun,
   insertRunEvent,
   markTurnAborted,
+  retryRunThreadProjection,
   tryClaimRunSlot,
   updateRunStatus,
 } from "../agent/run-store.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  hasPendingCurrentTurnApproval,
 } from "../agent/tool-approval-store.js";
 import {
   createThread,
   getQueuedSubmissionReceipt,
+  grantThreadUserShare,
   listQueuedSubmissionReceipts,
   markQueuedSubmissionSubmitted,
   mutateThreadQueuedMessages,
@@ -386,6 +397,29 @@ async function createSweepHandler() {
     );
 }
 
+async function mountAgentChatRoutes() {
+  const h3App = createApp();
+  createAgentChatPlugin({
+    actions: () => ({}),
+    a2aAgentDelegation: false,
+    frameworkTools: "minimal",
+    leanPrompt: true,
+    mcp: { enabled: false },
+  })({
+    h3App,
+    hooks: {
+      hook(name, callback) {
+        if (name === "close") sweepHarness.closeHooks.push(callback);
+      },
+    },
+  });
+  const initPromise = sweepHarness.initPromises.at(-1);
+  if (!initPromise)
+    throw new Error("Agent chat initialization was not registered");
+  await initPromise;
+  return h3App;
+}
+
 describe("queued submission inbox recurring sweep", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "test");
@@ -395,6 +429,14 @@ describe("queued submission inbox recurring sweep", () => {
     sweepHarness.initPromises.length = 0;
     sweepHarness.settingsEmitter = new EventEmitter();
     sweepHarness.closeHooks.length = 0;
+    sweepHarness.staleReapResult = {
+      scanned: 0,
+      reaped: 0,
+      failed: 0,
+      truncated: false,
+    };
+    sweepHarness.staleReapError = null;
+    sweepHarness.runAccess = true;
     inboxHarness.admissions.length = 0;
     inboxHarness.admissionOwnerContexts.length = 0;
     inboxHarness.admissionAttempts.length = 0;
@@ -411,6 +453,10 @@ describe("queued submission inbox recurring sweep", () => {
     inboxHarness.failActiveRunCheckThreadId = null;
     vi.mocked(getRunById).mockReset();
     vi.mocked(getRunById).mockResolvedValue(null);
+    vi.mocked(retryRunThreadProjection).mockReset();
+    vi.mocked(retryRunThreadProjection).mockResolvedValue({
+      state: "projected",
+    });
   });
 
   afterEach(async () => {
@@ -420,6 +466,41 @@ describe("queued submission inbox recurring sweep", () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
+
+  it.each([
+    {
+      label: "throws",
+      result: { scanned: 0, reaped: 0, failed: 0, truncated: false },
+      error: new Error("stale reaper unavailable"),
+      expected: null,
+    },
+    {
+      label: "reports failed rows",
+      result: { scanned: 1, reaped: 0, failed: 1, truncated: false },
+      error: null,
+      expected: { scanned: 1, reaped: 0, failed: 1, truncated: false },
+    },
+    {
+      label: "reaches its batch cap",
+      result: { scanned: 201, reaped: 200, failed: 0, truncated: true },
+      error: null,
+      expected: { scanned: 201, reaped: 200, failed: 0, truncated: true },
+    },
+  ])(
+    "reports an incomplete stale-run sweep when it $label",
+    async ({ result, error, expected }) => {
+      sweepHarness.staleReapResult = result;
+      sweepHarness.staleReapError = error;
+      const sweep = await createSweepHandler();
+      const response = await sweep();
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        staleRunsReaped: expected,
+      });
+    },
+  );
 
   it("reads queued receipt status only after resolving thread access", async () => {
     const threadId = `thread-${randomUUID()}`;
@@ -464,6 +545,82 @@ describe("queued submission inbox recurring sweep", () => {
     );
     expect(inaccessibleResponse.status).toBe(404);
     expect(inboxHarness.receiptReads).toEqual([[threadId, messageId]]);
+  }, 20_000);
+
+  it("persists approval denial before draining queued submissions", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    await createThread("user@example.com", { id: threadId });
+    const approvalId = await createAgentToolApproval({
+      ownerEmail: "user@example.com",
+      threadId,
+      turnId: `turn-${randomUUID()}`,
+      toolName: "publish-release",
+      callId: `call-${randomUUID()}`,
+      approvalKey: `publish-release:${randomUUID()}`,
+    });
+    const h3App = await mountAgentChatRoutes();
+
+    const response = await h3App.fetch(
+      new Request(
+        `http://example.test/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}/approval-resolution`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ approvalId, decision: "deny" }),
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
+    const stored = await getDbExec().execute({
+      sql: `SELECT status FROM agent_tool_approvals WHERE id = ?`,
+      args: [approvalId],
+    });
+    expect(stored.rows).toEqual([{ status: "denied" }]);
+  }, 20_000);
+
+  it("does not clear a shared editor's card when the approval belongs to another owner", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const approvalOwner = "approval-owner@example.com";
+    await createThread(approvalOwner, { id: threadId });
+    await grantThreadUserShare(
+      threadId,
+      "user@example.com",
+      "editor",
+      approvalOwner,
+    );
+    const approvalId = await createAgentToolApproval({
+      ownerEmail: approvalOwner,
+      threadId,
+      turnId: `turn-${randomUUID()}`,
+      toolName: "publish-release",
+      callId: `call-${randomUUID()}`,
+      approvalKey: `publish-release:${randomUUID()}`,
+    });
+    const h3App = await mountAgentChatRoutes();
+
+    const response = await h3App.fetch(
+      new Request(
+        `http://example.test/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}/approval-resolution`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ approvalId, decision: "deny" }),
+        },
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "approval_denial_not_applied",
+      retryable: false,
+    });
+    const stored = await getDbExec().execute({
+      sql: `SELECT status FROM agent_tool_approvals WHERE id = ?`,
+      args: [approvalId],
+    });
+    expect(stored.rows).toEqual([{ status: "pending" }]);
   }, 20_000);
 
   it("cancels a promoted queue item using its submitted run receipt", async () => {
@@ -979,7 +1136,8 @@ describe("queued submission inbox recurring sweep", () => {
           throw new Error("Queued receipt disappeared before admit");
         const slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: `queued-${messageId}`,
-          deferForPendingApproval: true,
+          hasPendingApproval: (tx) =>
+            hasPendingCurrentTurnApproval(threadId, tx),
           afterInsert: (tx) =>
             markQueuedSubmissionSubmitted(tx, {
               threadId,
@@ -1090,7 +1248,12 @@ describe("queued submission inbox recurring sweep", () => {
           throw new Error("Queued receipt disappeared before admit");
         const slot = await tryClaimRunSlot(threadId, "queued-run", undefined, {
           turnId: "queued-turn",
-          deferForPendingApproval: state !== "interrupted",
+          ...(state !== "interrupted"
+            ? {
+                hasPendingApproval: (tx) =>
+                  hasPendingCurrentTurnApproval(threadId, tx),
+              }
+            : {}),
           afterInsert: (tx) =>
             markQueuedSubmissionSubmitted(tx, {
               threadId,
@@ -2347,4 +2510,105 @@ describe("queued submission inbox recurring sweep", () => {
     expect(inboxHarness.turnAbort).toHaveBeenCalledTimes(2);
     expect(inboxHarness.turnAbort).toHaveBeenLastCalledWith(runId, "user");
   }, 20_000);
+  describe("run thread projection recovery route", () => {
+    const runId = "run-projection-quarantine";
+
+    const retry = (app: ReturnType<typeof createApp>) =>
+      app.fetch(
+        new Request(
+          `http://example.test/_agent-native/agent-chat/runs/${runId}/retry-projection`,
+          { method: "POST" },
+        ),
+      );
+
+    it("requires editor access without revealing an inaccessible run", async () => {
+      const h3App = await mountAgentChatRoutes();
+      sweepHarness.runAccess = false;
+
+      const response = await retry(h3App);
+
+      expect(response.status).toBe(404);
+      expect(getRunById).not.toHaveBeenCalled();
+      expect(retryRunThreadProjection).not.toHaveBeenCalled();
+    }, 20_000);
+
+    it("lets an editor retry a quarantined projection", async () => {
+      const h3App = await mountAgentChatRoutes();
+      vi.mocked(getRunById).mockResolvedValue({
+        id: runId,
+        threadId: "thread-projection-quarantine",
+        status: "completed",
+        startedAt: 1,
+        errorCode: null,
+        errorDetail: null,
+        terminalReason: null,
+        threadProjectionErrorCode: "tool_call_journal_unreadable",
+      });
+
+      const response = await retry(h3App);
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        ok: true,
+        state: "projected",
+      });
+      expect(retryRunThreadProjection).toHaveBeenCalledWith(runId);
+    }, 20_000);
+
+    it("lets an editor retry a deferred projection", async () => {
+      const h3App = await mountAgentChatRoutes();
+      vi.mocked(retryRunThreadProjection).mockResolvedValue({
+        state: "deferred",
+      });
+      vi.mocked(getRunById).mockResolvedValue({
+        id: runId,
+        threadId: "thread-projection-quarantine",
+        status: "completed",
+        startedAt: 1,
+        errorCode: null,
+        errorDetail: null,
+        terminalReason: null,
+        threadProjectionErrorCode: null,
+      });
+
+      const response = await retry(h3App);
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        ok: true,
+        state: "deferred",
+      });
+      expect(retryRunThreadProjection).toHaveBeenCalledWith(runId);
+    }, 20_000);
+
+    it("keeps unreadable source data quarantined after an explicit retry", async () => {
+      const h3App = await mountAgentChatRoutes();
+      vi.mocked(getRunById).mockResolvedValue({
+        id: runId,
+        threadId: "thread-projection-quarantine",
+        status: "completed",
+        startedAt: 1,
+        errorCode: null,
+        errorDetail: null,
+        terminalReason: null,
+        threadProjectionErrorCode: "tool_call_journal_unreadable",
+      });
+      vi.mocked(retryRunThreadProjection).mockRejectedValue(
+        new AgentRunJournalUnreadableError(
+          "thread-projection-quarantine",
+          undefined,
+          0,
+          "invalid_thread_data",
+        ),
+      );
+
+      const response = await retry(h3App);
+
+      expect(response.status).toBe(422);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        threadProjectionErrorCode: "tool_call_journal_unreadable",
+      });
+    }, 20_000);
+  });
 });
