@@ -406,3 +406,35 @@ describe("collab lazy source seeding", () => {
     expect(mocks.seedFromJson).not.toHaveBeenCalled();
   });
 });
+
+describe("collab presence access", () => {
+  it.each([
+    ["viewer", true],
+    ["commenter", true],
+    ["editor", undefined],
+    ["owner", undefined],
+  ])("marks presence from a %s as read-only: %s", async (role, readOnly) => {
+    mocks.resolveAccess.mockResolvedValue({
+      role,
+      resource: { ownerEmail: "owner@example.com" },
+    });
+    const handler = await mountCollabHandler({
+      access: {
+        mode: "resource",
+        resourceType: "design",
+        resolveResourceId: () => "design-1",
+      },
+    });
+    const event = {
+      method: "POST",
+      url: new URL("http://localhost/design-file-1/awareness"),
+      headers: new Headers(),
+      context: {} as Record<string, unknown>,
+    };
+
+    await handler(event);
+
+    expect(mocks.postAwareness).toHaveBeenCalledOnce();
+    expect(event.context._collabAwarenessReadOnly).toBe(readOnly);
+  });
+});

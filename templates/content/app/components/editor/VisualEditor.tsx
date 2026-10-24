@@ -206,6 +206,25 @@ function compareDocumentBodyRevisions(
   return Number(firstMatch[1]) - Number(secondMatch[1]);
 }
 
+async function documentBodyMatchesRevision(
+  revision: string,
+  markdown: string,
+): Promise<boolean | null> {
+  const match = /^body:(0|[1-9]\d*):sha256:([a-f0-9]{64})$/.exec(revision);
+  if (!match || !Number.isSafeInteger(Number(match[1]))) return null;
+  for (const candidate of new Set([markdown, canonicalizeNfm(markdown)])) {
+    const bytes = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(candidate),
+    );
+    const hash = Array.from(new Uint8Array(bytes), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    if (hash === match[2]) return true;
+  }
+  return false;
+}
+
 export const EmptyLineParagraph = TiptapNode.create({
   name: "paragraph",
 
@@ -1697,6 +1716,12 @@ interface VisualEditorProps {
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
   }>;
+  discoverCollabPeers?: () => Promise<{
+    status: "ready" | "failed" | "unavailable";
+    error?: unknown;
+    current?: () => boolean;
+  }>;
+  flushCollabUpdates?: () => Promise<boolean>;
   onBaseAwareReconcile?: (result: {
     status: "merged" | "conflict" | "failed";
     content: string;
@@ -3185,6 +3210,8 @@ export function VisualEditor({
   acknowledgedLocalSnapshot,
   collabContentRevision,
   requestCollabSync,
+  discoverCollabPeers,
+  flushCollabUpdates,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
   isEditorClean,
@@ -3571,7 +3598,8 @@ export function VisualEditor({
       },
     ) => {
       const guards = guardsRef.current;
-      if (!guards) return "failed" as const;
+      // Commands and uploads reach here without an update the guards see.
+      if (!guards || guards.isJoinPending()) return "failed" as const;
       try {
         const serialized = serializeEditorDraftForPersistence(editorToPersist);
         if (serialized === null)
@@ -4408,11 +4436,14 @@ export function VisualEditor({
       ? acknowledgedRestore!.contentRevision
       : contentRevision,
     compareContentRevisions: compareDocumentBodyRevisions,
+    contentMatchesRevision: documentBodyMatchesRevision,
     acknowledgedLocalSnapshot,
     collabContentRevision: propsPredateAcknowledgedRestore
       ? null
       : collabContentRevision,
     requestCollabSync,
+    discoverCollabPeers,
+    flushCollabUpdates,
     onBaseAwareReconcile,
     onRemoteSnapshotChange: onRemoteSnapshotChange
       ? reportRemoteSnapshot
@@ -5126,7 +5157,7 @@ export function VisualEditor({
         ) : null}
         <EditorContent editor={editor} hidden={showStoredBody} />
       </RegistryBlockDataProvider>
-      {collabState.initialSeedFailed ? (
+      {collabState.initialSeedFailed || collabState.joinEvidenceFailed ? (
         <div
           role="alert"
           className="flex items-center gap-2 px-4 py-2 text-sm text-destructive"
@@ -5136,7 +5167,11 @@ export function VisualEditor({
             type="button"
             variant="outline"
             size="sm"
-            onClick={collabState.retryInitialSeed}
+            onClick={
+              collabState.initialSeedFailed
+                ? collabState.retryInitialSeed
+                : collabState.retryJoinEvidence
+            }
           >
             {t("comments.retry")}
           </Button>

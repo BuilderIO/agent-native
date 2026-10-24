@@ -631,21 +631,16 @@ test.describe(
       );
     });
 
-    // C can apply the older stored body over the live copy as it opens, deleting
-    // A's word, and two tabs then put it back. The fix to how a tab joins a
-    // populated live copy (useCollabReconcile) drops this tag.
-    test(
-      "a tab opened while another tab's save is on its way keeps that tab's word once",
-      { tag: "@known-loss" },
-      async ({ context }, testInfo) => {
-        await runScenario(
-          "open-during-peer-save-text",
-          testInfo,
-          context,
-          openDuringPeerSave,
-        );
-      },
-    );
+    test("a tab opened while another tab's save is on its way keeps that tab's word once", async ({
+      context,
+    }, testInfo) => {
+      await runScenario(
+        "open-during-peer-save-text",
+        testInfo,
+        context,
+        openDuringPeerSave,
+      );
+    });
 
     test("a tab opened after a save met another tab's edit sends no save", async ({
       context,

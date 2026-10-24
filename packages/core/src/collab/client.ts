@@ -54,6 +54,11 @@ export type CollaborativeDocSyncResult =
   | { status: "failed"; error: Error }
   | { status: "unavailable" };
 
+export type CollabPeerDiscoveryResult =
+  | { status: "ready"; current: () => boolean }
+  | { status: "failed"; error: Error }
+  | { status: "unavailable" };
+
 export interface UseCollaborativeDocResult {
   ydoc: Y.Doc | null;
   awareness: Awareness | null;
@@ -62,6 +67,17 @@ export interface UseCollaborativeDocResult {
   initialization: CollabInitializationState;
   retry: () => void;
   requestSync: () => Promise<CollaborativeDocSyncResult>;
+  /**
+   * Exchanges presence with the server once, outside the poll a hidden tab
+   * skips. Resolves `ready` after the collaborators' awareness states are
+   * applied, so a caller can learn who else holds the document before acting.
+   * Every later answer or event replaces them as it arrives, an older or
+   * partial one included, so a caller that must not lose a collaborator keeps
+   * what it saw. Its `current()` turns false once a presence answer this
+   * client could not read arrives after the exchange was sent, or its sync
+   * lifecycle ends: neither is evidence for the next lifecycle's join.
+   */
+  discoverPeers: () => Promise<CollabPeerDiscoveryResult>;
   /**
    * Sends every local edit the server has not yet acknowledged. Resolves `true`
    * once none are outstanding and `false` when delivery failed (offline), so a
@@ -255,6 +271,9 @@ const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
 const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
   Promise.resolve({ status: "unavailable" });
 
+const discoverPeersUnavailable = (): Promise<CollabPeerDiscoveryResult> =>
+  Promise.resolve({ status: "unavailable" });
+
 // Nothing is outstanding without a connection.
 const flushUpdatesUnavailable = (): Promise<boolean> => Promise.resolve(true);
 
@@ -281,6 +300,13 @@ class CollabDocConnection {
   private updateAbortController: AbortController | null = null;
   private updateHandlerAttached = false;
 
+  /**
+   * Presence answers this client did not get or could not read, and events
+   * it refused as unreadable: any of them may name a collaborator it does not
+   * know.
+   */
+  private awarenessGaps = 0;
+
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private pollGeneration = 0;
@@ -295,6 +321,8 @@ class CollabDocConnection {
   private pollActivityBaselineReady = false;
   private stateVectorFetch: Promise<CollaborativeDocSyncResult> | null = null;
   private stateVectorAbortControllers = new Set<AbortController>();
+  private peerDiscovery: Promise<CollabPeerDiscoveryResult> | null = null;
+  private peerDiscoveryAbortController: AbortController | null = null;
   private sseActive = false;
   private sseAwarenessCovered = false;
   private ssePollLive = false;
@@ -715,6 +743,128 @@ class CollabDocConnection {
     return this.performStateVectorFetch();
   };
 
+  discoverPeers = (): Promise<CollabPeerDiscoveryResult> => {
+    if (
+      !this.isPollCurrent(this.pollGeneration) ||
+      this.snapshot.initialization.status !== "ready" ||
+      !this.awareness.getLocalState()
+    ) {
+      return Promise.resolve({ status: "unavailable" });
+    }
+    if (this.peerDiscovery) return this.peerDiscovery;
+    const request = this.performPeerDiscovery(this.pollGeneration);
+    this.peerDiscovery = request;
+    void request.finally(() => {
+      if (this.peerDiscovery === request) this.peerDiscovery = null;
+    });
+    return request;
+  };
+
+  private async performPeerDiscovery(
+    generation: number,
+  ): Promise<CollabPeerDiscoveryResult> {
+    const isCurrent = () => this.isPollCurrent(generation);
+    const controller = new AbortController();
+    this.peerDiscoveryAbortController = controller;
+    const timeout = setTimeout(
+      () => controller.abort(),
+      STATE_VECTOR_FETCH_TIMEOUT_MS,
+    );
+    const gaps = this.awarenessGaps;
+    try {
+      const exchanged = await this.exchangeAwareness({
+        signal: controller.signal,
+        isCurrent,
+      });
+      return exchanged && isCurrent()
+        ? {
+            status: "ready",
+            current: () => isCurrent() && this.awarenessGaps === gaps,
+          }
+        : { status: "unavailable" };
+    } catch (error) {
+      if (!isCurrent()) return { status: "unavailable" };
+      return {
+        status: "failed",
+        error:
+          error instanceof Error
+            ? error
+            : new Error("Awareness request failed"),
+      };
+    } finally {
+      clearTimeout(timeout);
+      if (this.peerDiscoveryAbortController === controller)
+        this.peerDiscoveryAbortController = null;
+    }
+  }
+
+  /**
+   * Throws when the request fails or any of the answer is unreadable, changing
+   * nothing: an answer replaces the collaborators this client knows, and one
+   * applied without an unreadable collaborator would remove that collaborator.
+   * False when there was nothing to exchange.
+   */
+  private async exchangeAwareness({
+    signal,
+    isCurrent = () => !this.disposed,
+  }: {
+    signal?: AbortSignal;
+    isCurrent?: () => boolean;
+  } = {}): Promise<boolean> {
+    const localState = this.awareness.getLocalState();
+    if (!localState || !isCurrent()) return false;
+    let remoteStates: RemoteAwarenessSnapshot[];
+    try {
+      remoteStates = await this.requestAwareness(localState, signal);
+    } catch (error) {
+      if (isCurrent()) this.awarenessGaps++;
+      throw error;
+    }
+    if (!isCurrent()) return false;
+    const changes = reconcileRemoteAwarenessStates(
+      this.awareness.getStates() as Map<number, unknown>,
+      this.ydoc.clientID,
+      remoteStates,
+    );
+    if (
+      changes.added.length ||
+      changes.updated.length ||
+      changes.removed.length
+    ) {
+      this.awareness.emit("change", [changes, "remote"]);
+    }
+    return true;
+  }
+
+  private async requestAwareness(
+    localState: unknown,
+    signal: AbortSignal | undefined,
+  ): Promise<RemoteAwarenessSnapshot[]> {
+    const response = await fetch(`${this.baseUrl}/${this.docId}/awareness`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId: this.ydoc.clientID,
+        state: JSON.stringify(localState),
+      }),
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) {
+      throw new Error(`Awareness request failed: HTTP ${response.status}`);
+    }
+    let answer: { states?: unknown } | null;
+    try {
+      answer = (await response.json()) as { states?: unknown } | null;
+    } catch {
+      throw new Error("Awareness response is unreadable");
+    }
+    const remoteStates = readRemoteAwarenessStates(answer?.states);
+    if (!remoteStates) {
+      throw new Error("Awareness response has an unreadable state");
+    }
+    return remoteStates;
+  }
+
   flushUpdates = async (): Promise<boolean> => {
     while (!this.disposed && this.pendingUpdates.length > 0) {
       if (this.updateInFlight) {
@@ -865,6 +1015,9 @@ class CollabDocConnection {
   }
 
   private stopSync(): void {
+    this.peerDiscovery = null;
+    this.peerDiscoveryAbortController?.abort();
+    this.peerDiscoveryAbortController = null;
     if (!this.syncActive) return;
     this.syncActive = false;
     this.pollGeneration++;
@@ -1178,54 +1331,16 @@ class CollabDocConnection {
       }
 
       if (!this.isPollCurrent(generation)) return;
-      const localState = this.awareness.getLocalState();
-      if (localState && this.isPollCurrent(generation)) {
-        try {
-          const awarenessRes = await fetch(
-            `${this.baseUrl}/${this.docId}/awareness`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                clientId: this.ydoc.clientID,
-                state: JSON.stringify(localState),
-              }),
-            },
-          );
-          if (!this.isPollCurrent(generation)) return;
-          if (awarenessRes.ok) {
-            const awarenessData = await awarenessRes.json();
-            if (!this.isPollCurrent(generation)) return;
-            const remoteStates: RemoteAwarenessSnapshot[] = [];
-            for (const remote of awarenessData.states || []) {
-              try {
-                const remoteState = JSON.parse(remote.state);
-                remoteStates.push({
-                  clientId: Number(remote.clientId),
-                  state: remoteState,
-                });
-              } catch {
-                // Invalid state — skip
-              }
-            }
-            if (!this.isPollCurrent(generation)) return;
-            const changes = reconcileRemoteAwarenessStates(
-              this.awareness.getStates() as Map<number, unknown>,
-              this.ydoc.clientID,
-              remoteStates,
-            );
-            if (
-              changes.added.length ||
-              changes.updated.length ||
-              changes.removed.length
-            ) {
-              this.awareness.emit("change", [changes, "remote"]);
-            }
-          }
-        } catch {
-          // Awareness sync failure is non-fatal
-        }
+      try {
+        await this.exchangeAwareness({
+          signal: pollAbort.signal,
+          isCurrent: () => this.isPollCurrent(generation),
+        });
+        // coercion-ok: the next poll retries; discoverPeers reports its own failure.
+      } catch {
+        // Awareness sync failure is non-fatal
       }
+      if (!this.isPollCurrent(generation)) return;
     } catch {
       if (!this.isPollCurrent(generation)) return;
       this.consecutiveErrors++;
@@ -1288,19 +1403,11 @@ class CollabDocConnection {
     ) {
       return;
     }
-    const states = Array.isArray(data.states)
-      ? (data.states as Array<{ clientId: number; state: string }>)
-      : [];
-    const remoteStates: RemoteAwarenessSnapshot[] = [];
-    for (const remote of states) {
-      try {
-        remoteStates.push({
-          clientId: Number(remote.clientId),
-          state: JSON.parse(remote.state),
-        });
-      } catch {
-        // Invalid state entry — skip
-      }
+    // An event replaces the collaborators this client knows, as an answer does.
+    const remoteStates = readRemoteAwarenessStates(data.states);
+    if (!remoteStates) {
+      this.awarenessGaps++;
+      return;
     }
     const changes = reconcileRemoteAwarenessStates(
       this.awareness.getStates() as Map<number, unknown>,
@@ -1315,6 +1422,36 @@ class CollabDocConnection {
       this.awareness.emit("change", [changes, "remote"]);
     }
   }
+}
+
+/**
+ * The states a presence answer or event lists, or null when any of it is
+ * unreadable: applied without an unreadable collaborator, the list would
+ * remove that collaborator, and a list missing altogether would remove all.
+ */
+function readRemoteAwarenessStates(
+  states: unknown,
+): RemoteAwarenessSnapshot[] | null {
+  if (!Array.isArray(states)) return null;
+  const remoteStates: RemoteAwarenessSnapshot[] = [];
+  for (const remote of states as Array<{
+    clientId?: unknown;
+    state?: unknown;
+  }>) {
+    let state: unknown;
+    try {
+      state = JSON.parse(String(remote?.state));
+      // coercion-ok: null is the unreadable case, which callers refuse.
+    } catch {
+      return null;
+    }
+    const clientId = Number(remote?.clientId);
+    if (!Number.isInteger(clientId) || !state || typeof state !== "object") {
+      return null;
+    }
+    remoteStates.push({ clientId, state });
+  }
+  return remoteStates;
 }
 
 const collabConnectionRegistry = new Map<string, CollabDocConnection>();
@@ -1450,6 +1587,7 @@ export function useCollaborativeDoc(
         }
       : () => {},
     requestSync: conn ? conn.requestSync : requestSyncUnavailable,
+    discoverPeers: conn ? conn.discoverPeers : discoverPeersUnavailable,
     flushUpdates: conn ? conn.flushUpdates : flushUpdatesUnavailable,
     activeUsers: snapshot.activeUsers,
     agentActive: snapshot.agentActive,

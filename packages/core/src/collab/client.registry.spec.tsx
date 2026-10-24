@@ -24,6 +24,7 @@ import {
   useCollaborativeDoc,
   _collabDocRegistrySizeForTests,
   _resetCollabDocRegistryForTests,
+  type CollabPeerDiscoveryResult,
   type CollabUser,
   type UseCollaborativeDocResult,
 } from "./client.js";
@@ -102,6 +103,21 @@ function Probe({
   const result = useCollaborativeDoc({ docId, user });
   onResult(result);
   return null;
+}
+
+function isCurrent(discovery: CollabPeerDiscoveryResult | null): boolean {
+  return discovery?.status === "ready" && discovery.current();
+}
+
+function awarenessEvent(docId: string, states: unknown) {
+  return {
+    data: JSON.stringify({
+      source: "awareness",
+      type: "awareness-change",
+      docId,
+      ...(states === undefined ? {} : { states }),
+    }),
+  };
 }
 
 describe("useCollaborativeDoc connection registry", () => {
@@ -994,6 +1010,588 @@ describe("useCollaborativeDoc connection registry", () => {
     });
   });
 
+  it("discovers peers with one presence request while hidden, when no poll runs", async () => {
+    const { mock: fallback } = makeFetchMock();
+    let presenceRequests = 0;
+    const peer = {
+      user: { name: "Peer", email: "peer@example.com", color: "peer-color" },
+      reconciledRevision: "body:1:abc",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/awareness") && init?.method === "POST") {
+          presenceRequests += 1;
+          return new Response(
+            JSON.stringify({
+              states: [{ clientId: 77, state: JSON.stringify(peer) }],
+            }),
+          );
+        }
+        return fallback(input);
+      }),
+    );
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    try {
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="doc-discover"
+          onResult={(next) => (result = next)}
+          user={{
+            name: "Local",
+            email: "local@example.com",
+            color: "local-color",
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result?.awareness?.getStates().has(77)).toBe(false);
+      expect(presenceRequests).toBe(0);
+
+      let discovery: Awaited<ReturnType<typeof result.discoverPeers>> | null =
+        null;
+      await act(async () => {
+        discovery = await result!.discoverPeers();
+      });
+
+      expect(discovery).toMatchObject({ status: "ready" });
+      expect(isCurrent(discovery)).toBe(true);
+      expect(result?.awareness?.getStates().get(77)).toEqual(peer);
+      expect(presenceRequests).toBe(1);
+    } finally {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+  });
+
+  it.each([
+    {
+      answer: "an HTTP error",
+      response: () => new Response(null, { status: 503 }),
+      message: "Awareness request failed: HTTP 503",
+    },
+    {
+      answer: "a body that is not JSON",
+      response: () => new Response("{broken"),
+      message: "Awareness response is unreadable",
+    },
+    {
+      answer: "no states",
+      response: () => Response.json({}),
+      message: "Awareness response has an unreadable state",
+    },
+    {
+      answer: "an unreadable state",
+      response: () =>
+        Response.json({
+          states: [
+            { clientId: 76, state: JSON.stringify({ user: { name: "Ok" } }) },
+            { clientId: 77, state: "{broken" },
+          ],
+        }),
+      message: "Awareness response has an unreadable state",
+    },
+  ])(
+    "reports a presence answer with $answer as failed, not as no peers",
+    async ({ response, message }) => {
+      const { mock: fallback } = makeFetchMock();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).includes("/awareness") && init?.method === "POST") {
+            return response();
+          }
+          return fallback(input);
+        }),
+      );
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="doc-discover-failed"
+          onResult={(next) => (result = next)}
+          user={{ name: "Local", email: "local@example.com", color: "c" }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      let discovery: Awaited<ReturnType<typeof result.discoverPeers>> | null =
+        null;
+      await act(async () => {
+        discovery = await result!.discoverPeers();
+      });
+
+      expect(discovery).toMatchObject({
+        status: "failed",
+        error: expect.objectContaining({ message }),
+      });
+    },
+  );
+
+  it.each([
+    { answer: "null", body: "null" },
+    { answer: "not JSON", body: "{broken" },
+    { answer: "no states", body: "{}" },
+    {
+      answer: "an unreadable state",
+      body: JSON.stringify({ states: [{ clientId: 78, state: "{broken" }] }),
+    },
+  ])(
+    "keeps the collaborators it knows when a poll's presence answer is $answer",
+    async ({ body }) => {
+      const { mock: fallback } = makeFetchMock();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).includes("/awareness") && init?.method === "POST") {
+            return new Response(body);
+          }
+          return fallback(input);
+        }),
+      );
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="doc-poll-unreadable"
+          onResult={(next) => (result = next)}
+          user={{ name: "Local", email: "local@example.com", color: "c" }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const peer = { user: { name: "Peer" }, reconciledRevision: "body:1:abc" };
+      result!.awareness!.getStates().set(77, peer);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+
+      expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+    },
+  );
+
+  it("applies discovery's presence answer though a poll's sent after it answered first", async () => {
+    const { mock: fallback } = makeFetchMock();
+    const peer = { user: { name: "Peer" }, reconciledRevision: "body:1:abc" };
+    const answers: Array<
+      (states: Array<{ clientId: number; state: string }>) => void
+    > = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/awareness") && init?.method === "POST") {
+          return new Promise<Response>((resolve) => {
+            answers.push((states) => resolve(Response.json({ states })));
+          });
+        }
+        return fallback(input);
+      }),
+    );
+    let result: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="doc-discover-answers-late"
+        onResult={(next) => (result = next)}
+        user={{ name: "Local", email: "local@example.com", color: "c" }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(answers).toHaveLength(1);
+    await act(async () => {
+      answers[0]!([]);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    let discovery: Awaited<ReturnType<typeof result.discoverPeers>> | null =
+      null;
+    const discovering = result!.discoverPeers().then((next) => {
+      discovery = next;
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    // Discovery's presence request waits; the next poll's goes out after it.
+    expect(answers).toHaveLength(3);
+
+    await act(async () => {
+      answers[2]!([]);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      answers[1]!([{ clientId: 77, state: JSON.stringify(peer) }]);
+      await discovering;
+    });
+
+    expect(discovery).toMatchObject({ status: "ready" });
+    expect(isCurrent(discovery)).toBe(true);
+    expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+  });
+
+  it.each([
+    {
+      answer: "lists an unreadable state",
+      response: () =>
+        Response.json({ states: [{ clientId: 77, state: "{broken" }] }),
+    },
+    { answer: "is not JSON", response: () => new Response("{broken") },
+    {
+      answer: "is an HTTP error",
+      response: () => new Response(null, { status: 503 }),
+    },
+    {
+      answer: "never arrives",
+      response: () => new TypeError("Failed to fetch"),
+    },
+  ])(
+    "keeps a collaborator an older discovery reports when a newer poll's answer $answer, and counts that discovery stale",
+    async ({ response }) => {
+      const { mock: fallback } = makeFetchMock();
+      const peer = {
+        user: { name: "Peer" },
+        canFlushDocument: true,
+        reconciledRevision: "body:2:c",
+      };
+      const answers: Array<(response: Response | Error) => void> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).includes("/awareness") && init?.method === "POST") {
+            return new Promise<Response>((resolve, reject) =>
+              answers.push((answer) =>
+                answer instanceof Error ? reject(answer) : resolve(answer),
+              ),
+            );
+          }
+          return fallback(input);
+        }),
+      );
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="doc-discover-after-unreadable-poll"
+          onResult={(next) => (result = next)}
+          user={{ name: "Local", email: "local@example.com", color: "c" }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await act(async () => {
+        answers[0]!(Response.json({ states: [] }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      let discovery: Awaited<ReturnType<typeof result.discoverPeers>> | null =
+        null;
+      const discovering = result!.discoverPeers().then((next) => {
+        discovery = next;
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+      // Discovery's request waits; the next poll's goes out after it.
+      expect(answers).toHaveLength(3);
+
+      await act(async () => {
+        answers[2]!(response());
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await act(async () => {
+        answers[1]!(
+          Response.json({
+            states: [{ clientId: 77, state: JSON.stringify(peer) }],
+          }),
+        );
+        await discovering;
+      });
+
+      expect(discovery).toMatchObject({ status: "ready" });
+      // The newer answer it could not read may name a collaborator this one
+      // did not, so a join asks again.
+      expect(isCurrent(discovery)).toBe(false);
+      expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+    },
+  );
+
+  it.each([
+    { answer: "no states", states: undefined },
+    { answer: "states that are not a list", states: {} },
+    {
+      answer: "an unreadable state",
+      states: [
+        { clientId: 76, state: JSON.stringify({ user: { name: "Ok" } }) },
+        { clientId: 77, state: "{broken" },
+      ],
+    },
+    {
+      answer: "a state that is not an object",
+      states: [{ clientId: 77, state: "null" }],
+    },
+  ])(
+    "keeps the collaborators it knows when a presence event lists $answer",
+    async ({ states }) => {
+      const { mock } = makeFetchMock();
+      vi.stubGlobal("fetch", mock);
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="doc-event-unreadable"
+          onResult={(next) => (result = next)}
+          user={{ name: "Local", email: "local@example.com", color: "c" }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      const source = FakeEventSource.instances.at(-1);
+      source!.onopen?.();
+      const peer = { user: { name: "Peer" }, reconciledRevision: "body:1:abc" };
+      result!.awareness!.getStates().set(77, peer);
+
+      await act(async () => {
+        source!.onmessage?.(awarenessEvent("doc-event-unreadable", states));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+      expect(result!.awareness!.getStates().has(76)).toBe(false);
+    },
+  );
+
+  it("counts a discovery stale once a presence event it cannot read arrives after it", async () => {
+    const { mock: fallback } = makeFetchMock();
+    const docId = "doc-discover-stale-event";
+    const peer = { user: { name: "Peer" }, reconciledRevision: "body:1:abc" };
+    const listed = { clientId: 77, state: JSON.stringify(peer) };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/awareness") && init?.method === "POST") {
+          return Response.json({ states: [listed] });
+        }
+        return fallback(input);
+      }),
+    );
+    let result: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId={docId}
+        onResult={(next) => (result = next)}
+        user={{ name: "Local", email: "local@example.com", color: "c" }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    const source = FakeEventSource.instances.at(-1);
+    source!.onopen?.();
+    let discovery: CollabPeerDiscoveryResult | null = null;
+    await act(async () => {
+      discovery = await result!.discoverPeers();
+    });
+    expect(isCurrent(discovery)).toBe(true);
+
+    await act(async () => {
+      source!.onmessage?.(awarenessEvent(docId, [listed]));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(isCurrent(discovery)).toBe(true);
+
+    await act(async () => {
+      source!.onmessage?.(
+        awarenessEvent(docId, [listed, { clientId: 78, state: "{broken" }]),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(isCurrent(discovery)).toBe(false);
+    expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+
+    await act(async () => {
+      discovery = await result!.discoverPeers();
+    });
+    expect(isCurrent(discovery)).toBe(true);
+  });
+
+  it.each([
+    { order: "retired-first", unreadable: false },
+    { order: "fresh-first", unreadable: false },
+    { order: "retired-first", unreadable: true },
+    { order: "fresh-first", unreadable: true },
+  ])(
+    "retires discovery across remount ($order, unreadable=$unreadable)",
+    async ({ order, unreadable }) => {
+      const retired = deferredResponse();
+      const fresh = deferredResponse();
+      const signals: AbortSignal[] = [];
+      const { mock: fallback } = makeFetchMock();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input).endsWith("/awareness") && init?.method === "POST") {
+            signals.push(init.signal!);
+            // The transport can finish an answer despite cancellation.
+            return signals.length === 1 ? retired.promise : fresh.promise;
+          }
+          return fallback(input);
+        }),
+      );
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "hidden",
+      });
+      try {
+        let result: UseCollaborativeDocResult | undefined;
+        const probe = () => (
+          <Probe
+            docId="doc-discovery-remount"
+            user={{ name: "Local", email: "local@example.test", color: "c" }}
+            onResult={(next) => (result = next)}
+          />
+        );
+        const first = mount(probe());
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        const ydoc = result!.ydoc;
+        const previous = result!.discoverPeers();
+        act(() => first.unmount());
+        roots = roots.filter((candidate) => candidate !== first);
+        expect.soft(signals[0].aborted).toBe(true);
+        mount(probe());
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(result!.ydoc).toBe(ydoc);
+        const current = result!.discoverPeers();
+        const coalesced = result!.discoverPeers();
+        let settled = false;
+        void current.then(() => (settled = true));
+        expect.soft(current).not.toBe(previous);
+        expect.soft(coalesced).toBe(current);
+        expect.soft(signals).toHaveLength(2);
+        const peer = {
+          user: { name: "Current" },
+          reconciledRevision: "body:2:new",
+        };
+        const finishFresh = async () => {
+          await act(async () => {
+            fresh.resolve(
+              Response.json({
+                states: [{ clientId: 77, state: JSON.stringify(peer) }],
+              }),
+            );
+            await vi.advanceTimersByTimeAsync(0);
+          });
+        };
+        const finishRetired = async () => {
+          await act(async () => {
+            retired.resolve(
+              unreadable
+                ? new Response("{broken")
+                : Response.json({ states: [] }),
+            );
+            await previous;
+          });
+        };
+        if (order === "fresh-first") {
+          await finishFresh();
+          expect.soft(result!.awareness!.getStates().get(77)).toEqual(peer);
+          await finishRetired();
+        } else {
+          await finishRetired();
+          expect.soft(settled).toBe(false);
+          expect.soft(result!.discoverPeers()).toBe(current);
+          expect.soft(signals).toHaveLength(2);
+          await finishFresh();
+        }
+        const retiredResult = await previous;
+        const currentResult = await current;
+        expect.soft(result!.awareness!.getStates().get(77)).toEqual(peer);
+        expect(retiredResult).toEqual({ status: "unavailable" });
+        expect(currentResult).toMatchObject({ status: "ready" });
+        expect(isCurrent(currentResult)).toBe(true);
+        expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+        expect(signals).toHaveLength(2);
+        expect(signals[1].aborted).toBe(false);
+      } finally {
+        Reflect.deleteProperty(document, "visibilityState");
+      }
+    },
+  );
+
+  it("keeps discovery owned by remaining subscribers and retires its evidence on the last unmount", async () => {
+    const answer = deferredResponse();
+    const { mock: fallback } = makeFetchMock();
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith("/awareness") && init?.method === "POST") {
+          signals.push(init.signal!);
+          return answer.promise;
+        }
+        return fallback(input);
+      }),
+    );
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    try {
+      let result: UseCollaborativeDocResult | undefined;
+      const probe = () => (
+        <Probe
+          docId="doc-discovery-owners"
+          user={{ name: "Local", email: "local@example.test", color: "c" }}
+          onResult={(next) => (result = next)}
+        />
+      );
+      const first = mount(probe());
+      const second = mount(probe());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const discovering = result!.discoverPeers();
+      act(() => first.unmount());
+      roots = roots.filter((candidate) => candidate !== first);
+      expect(result!.discoverPeers()).toBe(discovering);
+      expect(signals).toHaveLength(1);
+      expect(signals[0].aborted).toBe(false);
+      let discovery: CollabPeerDiscoveryResult | null = null;
+      await act(async () => {
+        answer.resolve(Response.json({ states: [] }));
+        discovery = await discovering;
+      });
+      expect(isCurrent(discovery)).toBe(true);
+      act(() => second.unmount());
+      roots = roots.filter((candidate) => candidate !== second);
+      expect(isCurrent(discovery)).toBe(false);
+      await expect(result!.discoverPeers()).resolves.toEqual({
+        status: "unavailable",
+      });
+    } finally {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+  });
+
+  it("reports discovery unavailable without a document", async () => {
+    let result: UseCollaborativeDocResult | undefined;
+    mount(<Probe docId={null} onResult={(next) => (result = next)} />);
+    await expect(result!.discoverPeers()).resolves.toEqual({
+      status: "unavailable",
+    });
+  });
+
   it("does not re-broadcast local awareness state when a REMOTE awareness event arrives (no storm)", async () => {
     const { mock } = makeFetchMock();
     vi.stubGlobal("fetch", mock);
@@ -1179,6 +1777,78 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(
       awarenessPosts.every((url) => url.endsWith("doc-poll-unmount/awareness")),
     ).toBe(true);
+  });
+
+  it("keeps current peer evidence when a retired poll's presence answer arrives after remount", async () => {
+    const retired = deferredResponse();
+    const peer = { user: { name: "Peer" }, reconciledRevision: "body:1:peer" };
+    let awarenessRequests = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (/\/collab\/[^/]+\/state/.test(url)) return emptyStateResponse();
+        if (url.includes("/_agent-native/poll")) {
+          return new Response(JSON.stringify({ version: 1, events: [] }));
+        }
+        if (url.endsWith("/awareness")) {
+          awarenessRequests++;
+          if (awarenessRequests === 1) return retired.promise;
+          return new Response(
+            JSON.stringify({
+              states: [{ clientId: 77, state: JSON.stringify(peer) }],
+            }),
+          );
+        }
+        return new Response(JSON.stringify({}));
+      }),
+    );
+    const user = {
+      name: "Editor",
+      email: "editor@example.test",
+      color: "#123456",
+    };
+    let result: UseCollaborativeDocResult | null = null;
+    const first = mount(
+      <Probe
+        docId="doc-presence-remount"
+        user={user}
+        onResult={(value) => {
+          result = value;
+        }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(awarenessRequests).toBe(1);
+    act(() => first.unmount());
+    roots = roots.filter((candidate) => candidate !== first);
+    mount(
+      <Probe
+        docId="doc-presence-remount"
+        user={user}
+        onResult={(value) => {
+          result = value;
+        }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+    let discovery: CollabPeerDiscoveryResult | null = null;
+    await act(async () => {
+      discovery = await result!.discoverPeers();
+    });
+    expect(isCurrent(discovery)).toBe(true);
+    await act(async () => {
+      retired.resolve(new Response(JSON.stringify({ states: [] })));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+    expect(isCurrent(discovery)).toBe(true);
   });
 
   it("does not let an old in-flight poll schedule another chain after remount", async () => {

@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
@@ -8,9 +9,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import {
   expect,
+  test,
   type APIRequestContext,
   type BrowserContext,
   type Page,
@@ -705,21 +708,21 @@ export class TabSet {
   /** Wait until a tab has had `count` save answers in total. */
   async waitForSaveAnswers(page: Page, count: number): Promise<void> {
     const record = this.record(page);
-    await expect
-      .poll(
-        async () => {
-          await this.settled();
-          return Object.values(record.saveOutcomes).reduce(
-            (sum, value) => sum + (value ?? 0),
-            0,
-          );
-        },
-        {
-          message: `${record.label} should have ${count} save answers`,
-          timeout: 30_000,
-        },
-      )
-      .toBeGreaterThanOrEqual(count);
+    const message = `${record.label} should have ${count} save answers`;
+    await withDatabaseActivityOnFailure(message, () =>
+      expect
+        .poll(
+          async () => {
+            await this.settled();
+            return Object.values(record.saveOutcomes).reduce(
+              (sum, value) => sum + (value ?? 0),
+              0,
+            );
+          },
+          { message, timeout: 30_000 },
+        )
+        .toBeGreaterThanOrEqual(count),
+    );
   }
 
   /**
@@ -776,16 +779,19 @@ export class TabSet {
    * before both settle would race the refresh check with the last save.
    */
   async quiet(): Promise<void> {
-    await expect
-      .poll(
-        async () => [...(await this.unsettledClients()), ...this.unanswered()],
-        {
-          message:
-            "a client, outbox or save answer is still pending after the scenario ended",
-          timeout: CONVERGENCE_DEADLINE_MS,
-        },
-      )
-      .toEqual([]);
+    const message =
+      "a client, outbox or save answer is still pending after the scenario ended";
+    await withDatabaseActivityOnFailure(message, () =>
+      expect
+        .poll(
+          async () => [
+            ...(await this.unsettledClients()),
+            ...this.unanswered(),
+          ],
+          { message, timeout: CONVERGENCE_DEADLINE_MS },
+        )
+        .toEqual([]),
+    );
     await this.settled();
   }
 
@@ -1838,6 +1844,91 @@ export interface ScenarioRecord {
   /** Why the scenario stopped before its last step, if it did. */
   stoppedEarly?: string;
   tabs: TabRecord[];
+}
+
+const DATABASE_ACTIVITY_QUERIES = [
+  `SELECT a.pid, pg_blocking_pids(a.pid) AS blocked_by, a.state,
+     a.wait_event_type, a.wait_event,
+     round(extract(epoch FROM now() - a.xact_start)::numeric, 1) AS xact_open_s,
+     round(extract(epoch FROM now() - a.query_start)::numeric, 1) AS query_s,
+     left(regexp_replace(a.query, '\\s+', ' ', 'g'), 2000) AS query
+   FROM pg_stat_activity a
+   WHERE a.datname = current_database() AND a.pid <> pg_backend_pid()
+   ORDER BY a.xact_start NULLS LAST`,
+  `SELECT l.pid, l.locktype, l.mode, l.granted, l.relation::regclass AS relation,
+     l.page, l.tuple, l.transactionid, l.classid, l.objid
+   FROM pg_locks l
+   JOIN pg_stat_activity a ON a.pid = l.pid
+   WHERE a.datname = current_database() AND a.pid <> pg_backend_pid()
+   ORDER BY l.granted, l.pid`,
+];
+
+/**
+ * On a failed wait, attaches what every other session on the lane's database
+ * is doing, and the locks each holds or waits for, to the running test. A save
+ * that never answers is usually a transaction waiting on a lock, and that is
+ * gone once the server stops, so it is read while the save still hangs.
+ */
+async function withDatabaseActivityOnFailure(
+  reason: string,
+  wait: () => Promise<void>,
+): Promise<void> {
+  try {
+    await wait();
+  } catch (error) {
+    const url = process.env.DATABASE_URL;
+    await test.info().attach("database-activity.txt", {
+      body: url
+        ? await readDatabaseActivity(url, reason)
+        : `skipped: DATABASE_URL is not set, so there is no lane database to read (${reason})`,
+      contentType: "text/plain",
+    });
+    throw error;
+  }
+}
+
+async function readDatabaseActivity(
+  databaseUrl: string,
+  reason: string,
+): Promise<string> {
+  const target = new URL(databaseUrl);
+  const database = decodeURIComponent(target.pathname.slice(1));
+  const port = target.port || "5432";
+  const user = decodeURIComponent(target.username);
+  const source = `host=${target.hostname} port=${port} database=${database} user=${user} password=${target.password ? "[redacted]" : "none"}, from DATABASE_URL`;
+  console.log(`[database-activity] reading ${source}`);
+  const header = `${reason}\n${source}\n\n`;
+  try {
+    const { stdout } = await promisify(execFile)(
+      "psql",
+      [
+        "-X",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-P",
+        "pager=off",
+        ...DATABASE_ACTIVITY_QUERIES.flatMap((query) => ["-c", query]),
+      ],
+      {
+        env: {
+          ...process.env,
+          PGHOST: target.hostname,
+          PGPORT: port,
+          PGUSER: user,
+          PGDATABASE: database,
+          PGCONNECT_TIMEOUT: "5",
+          ...(target.password
+            ? { PGPASSWORD: decodeURIComponent(target.password) }
+            : {}),
+        },
+        timeout: 15_000,
+      },
+    );
+    return header + stdout;
+    // coercion-ok: the attachment says the read failed and why; the wait's own failure is rethrown.
+  } catch (error) {
+    return `${header}unreadable: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 /** Append one scenario's counts to the lane's JSON report. */
