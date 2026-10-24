@@ -589,6 +589,22 @@ export function dbText(
   );
 }
 
+type DatabasePluralMessageKey = DatabaseMessageKey extends infer Key
+  ? Key extends `${infer Base}_other`
+    ? Base
+    : never
+  : never;
+
+// Picks the form the locale uses for `count`, as i18next reads a plural key.
+// Arabic, for one, has separate words for 2, for 3 to 10, and for 11 to 99.
+function dbCountText(key: DatabasePluralMessageKey, count: number): string {
+  const lang =
+    typeof document === "undefined" ? "en-US" : document.documentElement.lang;
+  const locale = lang in messagesByLocale ? lang : "en-US";
+  const form = new Intl.PluralRules(locale).select(count);
+  return dbText(`${key}_${form}` as DatabaseMessageKey, { count });
+}
+
 function sidebarText(key: SidebarMessageKey): string {
   const locale =
     typeof document === "undefined" ? "en-US" : document.documentElement.lang;
@@ -18435,15 +18451,14 @@ const RELATIVE_DATE_DIRECTION_LABEL_KEYS: Record<
   next: "filterDateNext",
 };
 
-// One unit, then more than one.
 const RELATIVE_DATE_UNIT_LABEL_KEYS: Record<
   ContentDatabaseRelativeDateUnit,
-  readonly [DatabaseMessageKey, DatabaseMessageKey]
+  DatabasePluralMessageKey
 > = {
-  day: ["filterDateDay", "filterDateDays"],
-  week: ["filterDateWeek", "filterDateWeeks"],
-  month: ["filterDateMonth", "filterDateMonths"],
-  year: ["filterDateYear", "filterDateYears"],
+  day: "filterDateDays",
+  week: "filterDateWeeks",
+  month: "filterDateMonths",
+  year: "filterDateYears",
 };
 
 const RELATIVE_DATE_THIS_LABEL_KEYS: Record<
@@ -18549,8 +18564,7 @@ function databaseFilterRelativeDateUnitLabel(
   unit: ContentDatabaseRelativeDateUnit,
   count: number,
 ) {
-  const [one, more] = RELATIVE_DATE_UNIT_LABEL_KEYS[unit];
-  return dbText(count === 1 ? one : more);
+  return dbCountText(RELATIVE_DATE_UNIT_LABEL_KEYS[unit], count);
 }
 
 function databaseFilterOperatorInlineLabel(
@@ -18701,6 +18715,9 @@ function DatabaseDateValueField({
             <DropdownMenuItem
               key={choice ?? "exact"}
               onSelect={() => {
+                // A choice drops an unfinished edit, as leaving the field does,
+                // so coming back to Exact date shows the saved date.
+                setDraft(null);
                 if (choice) {
                   onValueChange(choice);
                 } else if (relative) {

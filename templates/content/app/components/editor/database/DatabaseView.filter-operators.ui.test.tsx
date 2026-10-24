@@ -12,6 +12,8 @@ import {
   renderUi,
   typeInto,
 } from "@/test-utils/render-ui";
+// Registers Arabic, whose counts have the most plural forms.
+import "@/i18n/ar-SA";
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
@@ -497,6 +499,44 @@ describe("date filter values", () => {
       vi.useRealTimers();
     }
   });
+
+  it("drops an unfinished date when a relative day is chosen", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // A menu that opens without taking focus leaves the field focused, so
+    // nothing blurs it before the choice.
+    const focusElement = HTMLElement.prototype.focus;
+    const keepFocus = vi
+      .spyOn(HTMLElement.prototype, "focus")
+      .mockImplementation(function (this: HTMLElement, options) {
+        if (!this.closest('[role="menu"]')) focusElement.call(this, options);
+      });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 22, 9));
+      const latest = renderBar(
+        [filter("due", "Due", "on_or_before", "2026-10-22T09:00")],
+        0,
+      );
+      const field = byLabel<HTMLInputElement>("Due");
+      await focus(field);
+      await typeInto(field, "2026-10-21T1");
+      expect(latest.filters[0]?.value).toBe("2026-10-22T09:00");
+
+      // Coming back to Exact date shows the day Today meant, not the
+      // unfinished text.
+      await click(button("Exact date"));
+      await chooseMenuItem("Today");
+      expect(latest.filters[0]?.value).toBe("today");
+      await click(button("Today"));
+      await chooseMenuItem("Exact date");
+      expect(latest.filters[0]?.value).toBe("2026-10-22");
+      const exact = byLabel<HTMLInputElement>("Due");
+      expect(exact.value).toBe("2026-10-22");
+      expect(exact.type).toBe("date");
+    } finally {
+      keepFocus.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("is within ranges", () => {
@@ -613,6 +653,25 @@ describe("is within ranges", () => {
     await chooseMenuItem("days");
     expect(latest.filters[0]?.value).toBe("past_999_days");
     expect(count().value).toBe("999");
+  });
+
+  it("words the unit in the form the locale uses for the count", async () => {
+    const lang = document.documentElement.lang;
+    document.documentElement.lang = "ar-SA";
+    try {
+      renderBar([filter("due", "Due", "is_within", "past_2_weeks")], 0);
+      // Arabic has its own forms for 2, for 3 to 10, and for 11 to 99.
+      button("أسبوعين");
+      await focus(count());
+      await typeInto(count(), "5");
+      button("أسابيع");
+      await typeInto(count(), "11");
+      button("أسبوعًا");
+      await typeInto(count(), "1");
+      button("أسبوع");
+    } finally {
+      document.documentElement.lang = lang;
+    }
   });
 
   it("shows an empty range as the past 7 days, greyed, until one is chosen", async () => {
