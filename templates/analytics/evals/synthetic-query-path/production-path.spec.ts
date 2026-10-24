@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,6 +20,9 @@ import {
 } from "@agent-native/core/eval";
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { compileSourceIndex } from "../../scripts/build-source-index.js";
+import { rankAnalyticsQueryCatalog } from "../../server/lib/analytics-query-catalog.js";
 
 const providerBoundary = vi.hoisted(() => ({
   activeCaseKey: "",
@@ -239,6 +243,64 @@ type SafeCsvRow = {
 };
 
 const cases: readonly Case[] = [
+  {
+    key: "synthetic-row-level-roster-beats-seat-utilization",
+    prompt:
+      "SYNTHETIC: Find the source for the current synthetic organization user roster with assigned roles. Distinguish row-level membership from seat utilization, and do not run a count.",
+    actionAllowlist: ["find-data", "tool-search"],
+    steps: [
+      {
+        name: "find-data",
+        input: {
+          question: "current synthetic organization user roster with roles",
+          limit: 8,
+        },
+      },
+    ],
+    finalText:
+      "The generated dbt membership model is the row-level source: it expands each synthetic user's organization membership and includes the assigned role. The approved seat-utilization metric is an aggregate about capacity, so it cannot provide a person-by-person roster. The dbt model is an unapproved index suggestion and needs owner review before it is treated as canonical. I did not run a count.",
+    check: ({ output, actionCalls, actionResults }) => {
+      const result = actionResults.find(
+        (_value, index) => actionCalls[index]?.name === "find-data",
+      ) as
+        | {
+            results?: Array<{
+              metric?: string;
+              origin?: string;
+              approved?: boolean;
+              grain?: string;
+              inferredMembershipKeys?: string[];
+              inferredMembershipKeyRoles?: {
+                user?: string;
+                organization?: string;
+              };
+              sqlProjectedColumns?: string;
+            }>;
+          }
+        | undefined;
+      const roster = result?.results?.[0];
+      const text = output?.text.toLowerCase() ?? "";
+      return (
+        output?.toolCalls.filter((name) => name === "find-data").length === 1 &&
+        roster?.metric === "model:user_organization_role" &&
+        roster.origin === "source-index" &&
+        roster.approved === false &&
+        roster.grain?.includes("user-organization array entry") === true &&
+        roster.inferredMembershipKeys?.join(",") ===
+          "user_id,organization_id" &&
+        roster.inferredMembershipKeyRoles?.user === "user_id" &&
+        roster.inferredMembershipKeyRoles?.organization === "organization_id" &&
+        roster.sqlProjectedColumns?.includes("organization_role") === true &&
+        text.includes("row-level source") &&
+        text.includes("capacity") &&
+        text.includes("unapproved index suggestion") &&
+        text.includes("did not run a count") &&
+        !output?.toolCalls.some((name) =>
+          ["bigquery", "query-dbt-semantic-metric"].includes(name),
+        )
+      );
+    },
+  },
   {
     key: "synthetic-unbuilt-index-does-not-claim-absence",
     prompt:
@@ -1202,6 +1264,86 @@ const cases: readonly Case[] = [
   },
 ];
 
+async function buildSyntheticRosterCandidates() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "analytics-roster-eval-"));
+  try {
+    const dbtRoot = path.join(root, "dbt");
+    const modelRoot = path.join(dbtRoot, "models", "intermediate");
+    await mkdir(modelRoot, { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "user_organization_role.sql"),
+      [
+        "{% call set_sql_header(config) %}",
+        "create temporary function lookup_user_role(role_json string, org_id string)",
+        "as (string(safe.parse_json(role_json)[org_id]));",
+        "{% endcall %}",
+        "with exploded_users as (",
+        '  select * from {{ ref("users") }} users',
+        "  cross join unnest(users.organizations) as organization",
+        ")",
+        "select exploded_users.user_id,",
+        "  exploded_users.organization as organization_id,",
+        "  coalesce(",
+        "    lookup_user_role(exploded_users.organization_roles, orgs.org_id),",
+        '    "unknown"',
+        "  ) as organization_role",
+        "from exploded_users",
+        'left join {{ ref("organizations") }} orgs',
+        "  on exploded_users.organization = orgs.org_id",
+      ].join("\n"),
+    );
+    const sourceIndex = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-24T00:00:00.000Z",
+    });
+    const sourceEntries = sourceIndex.entries.map((entry) => ({
+      ...entry,
+      origin: "source-index" as const,
+      sourceIndex: true,
+      approved: false,
+      aiGenerated: true,
+    }));
+    const candidates = rankAnalyticsQueryCatalog({
+      search: "current synthetic organization user roster with roles",
+      limit: 8,
+      dashboards: [],
+      dictionaryEntries: [
+        ...sourceEntries,
+        {
+          id: "approved-synthetic-seat-utilization",
+          metric: "Synthetic Seat Utilization",
+          definition:
+            "Monthly percentage of assigned seats used by each organization.",
+          source: "synthetic dbt semantic model",
+          sourceKind: "dbt",
+          table: "synthetic_seat_utilization",
+          grain: "One row per month and organization",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "synthetic-weekly-active-product-users",
+          metric: "Synthetic Weekly Active Product Users",
+          definition:
+            "Distinct synthetic users with a product event in each week by organization.",
+          source: "synthetic application event model",
+          sourceKind: "dbt",
+          table: "synthetic_weekly_product_activity",
+          grain: "One row per week and organization",
+          semanticScope: "product_activity",
+          approved: false,
+          sourceIndex: true,
+          aiGenerated: true,
+          status: "unapproved",
+        },
+      ],
+    });
+    return candidates;
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
 const SAFE_CSV_COLUMNS: readonly (keyof SafeCsvRow)[] = [
   "phase",
   "source_revision",
@@ -1402,9 +1544,10 @@ function safeRow(
     first_party_div_recovery_verified:
       testCase.key === "synthetic-first-party-div-recovery" && scored,
     organization_grain_verified:
-      testCase.key ===
-        "synthetic-dbt-organization-description-does-not-change-grain" &&
-      scored,
+      [
+        "synthetic-dbt-organization-description-does-not-change-grain",
+        "synthetic-row-level-roster-beats-seat-utilization",
+      ].includes(testCase.key) && scored,
     provenance_distinguished:
       testCase.key === "synthetic-source-provenance-ambiguity" &&
       (output?.text.toLowerCase().includes("approved") ?? false) &&
@@ -1506,6 +1649,11 @@ async function runCase(
   providerBoundary.hasAppSecret.mockResolvedValue(true);
   providerBoundary.resolveWorkspaceConnectionCredentialForApp.mockReset();
   providerBoundary.executeProviderApiRequest.mockReset();
+  const isRowLevelRosterCase =
+    testCase.key === "synthetic-row-level-roster-beats-seat-utilization";
+  const syntheticRosterCandidates = isRowLevelRosterCase
+    ? await buildSyntheticRosterCandidates()
+    : [];
   const isCreatorSelfViewCase =
     testCase.key ===
     "synthetic-domain-exclusion-does-not-prove-creator-self-views";
@@ -1514,66 +1662,68 @@ async function runCase(
     testCase.key === "synthetic-latest-skill-event-taxonomy" ||
     testCase.key === "synthetic-content-api-requests-not-visual-views";
   const catalogFixture = {
-    candidates: isCreatorSelfViewCase
-      ? [
-          {
-            metric: "Synthetic Active Product Users",
-            definition:
-              "Synthetic active product users with one row per synthetic user, day, and event type. Applies an internal email-domain exclusion but does not document a creator-to-viewer rule.",
-            origin: "source-index",
-            approved: false,
-            status: "unapproved",
-            grain: "one row per synthetic user, day, and event type",
-            source: "synthetic dbt active-users model",
-          },
-        ]
-      : testCase.key === "synthetic-content-api-requests-not-visual-views"
+    candidates: isRowLevelRosterCase
+      ? syntheticRosterCandidates
+      : isCreatorSelfViewCase
         ? [
             {
-              metric: "Synthetic Visual Views",
+              metric: "Synthetic Active Product Users",
               definition:
-                "Synthetic page views generated when content is rendered.",
+                "Synthetic active product users with one row per synthetic user, day, and event type. Applies an internal email-domain exclusion but does not document a creator-to-viewer rule.",
               origin: "source-index",
               approved: false,
               status: "unapproved",
-              grain: "one row per rendered page view",
-              source: "synthetic visual-view instrumentation",
+              grain: "one row per synthetic user, day, and event type",
+              source: "synthetic dbt active-users model",
             },
           ]
-        : testCase.key === "synthetic-latest-skill-event-taxonomy"
+        : testCase.key === "synthetic-content-api-requests-not-visual-views"
           ? [
               {
-                metric: "Synthetic skill invoked event",
+                metric: "Synthetic Visual Views",
                 definition:
-                  "Synthetic event with skill_name and workspace_id properties.",
-                origin: "approved-dictionary",
-                approved: true,
-                status: "approved",
-                grain: "one row per skill invocation",
-                source: "synthetic instrumentation dictionary",
-              },
-            ]
-          : [
-              {
-                metric: "Synthetic Workspace Seats",
-                definition: "Current synthetic workspace roster membership.",
-                origin: "approved-dictionary",
-                approved: true,
-                status: "approved",
-                grain: "one row per synthetic user and workspace",
-                source: "synthetic dbt model",
-              },
-              {
-                metric: "Synthetic Weekly Active Product Users",
-                definition:
-                  "Weekly unique synthetic actors with a product event.",
+                  "Synthetic page views generated when content is rendered.",
                 origin: "source-index",
                 approved: false,
                 status: "unapproved",
-                grain: "one row per synthetic user and week",
-                source: "synthetic application instrumentation",
+                grain: "one row per rendered page view",
+                source: "synthetic visual-view instrumentation",
               },
-            ],
+            ]
+          : testCase.key === "synthetic-latest-skill-event-taxonomy"
+            ? [
+                {
+                  metric: "Synthetic skill invoked event",
+                  definition:
+                    "Synthetic event with skill_name and workspace_id properties.",
+                  origin: "approved-dictionary",
+                  approved: true,
+                  status: "approved",
+                  grain: "one row per skill invocation",
+                  source: "synthetic instrumentation dictionary",
+                },
+              ]
+            : [
+                {
+                  metric: "Synthetic Workspace Seats",
+                  definition: "Current synthetic workspace roster membership.",
+                  origin: "approved-dictionary",
+                  approved: true,
+                  status: "approved",
+                  grain: "one row per synthetic user and workspace",
+                  source: "synthetic dbt model",
+                },
+                {
+                  metric: "Synthetic Weekly Active Product Users",
+                  definition:
+                    "Weekly unique synthetic actors with a product event.",
+                  origin: "source-index",
+                  approved: false,
+                  status: "unapproved",
+                  grain: "one row per synthetic user and week",
+                  source: "synthetic application instrumentation",
+                },
+              ],
     searched: isSingleResultCase ? 1 : 2,
     of: isSingleResultCase ? 1 : 2,
     truncated: false,
