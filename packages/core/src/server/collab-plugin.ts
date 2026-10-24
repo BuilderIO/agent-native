@@ -5,6 +5,7 @@ import {
   type H3Event,
 } from "h3";
 
+import type { AwarenessIdentity } from "../collab/awareness-identity.js";
 import { postAwareness, getActiveUsers } from "../collab/awareness.js";
 import { getCollabEmitter } from "../collab/emitter.js";
 import { LiveCopyError, type LiveCopyBinding } from "../collab/live-copy.js";
@@ -24,6 +25,7 @@ import { seedFromText, seedFromJson } from "../collab/ydoc-manager.js";
 import { getDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { getOrgContext } from "../org/context.js";
 import { resolveAccess, assertAccess } from "../sharing/access.js";
+import { roleSatisfies } from "../sharing/schema.js";
 import { getSession } from "./auth.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "./core-routes-plugin.js";
 import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
@@ -515,6 +517,7 @@ export function createCollabPlugin(
         const orgId = orgCtx?.orgId ?? undefined;
 
         return runWithRequestContext({ userEmail, orgId }, async () => {
+          let canEdit = true;
           if (resourceType) {
             const resourceId = resolveResourceId
               ? await resolveResourceId(docId)
@@ -563,6 +566,7 @@ export function createCollabPlugin(
                 setResponseStatus(event, 404);
                 return { error: "Not found" };
               }
+              canEdit = roleSatisfies(access.role, "editor");
               const resource = access.resource;
               const awarenessScope: CollabAwarenessScope = {
                 resourceType,
@@ -578,6 +582,11 @@ export function createCollabPlugin(
                 event.context._collabAwarenessScope = awarenessScope;
               }
             }
+          }
+
+          if (event.context) {
+            const identity: AwarenessIdentity = { email: userEmail, canEdit };
+            event.context._collabAwarenessIdentity = identity;
           }
 
           const isWriteAction =

@@ -6,6 +6,10 @@ import type { H3Event } from "h3";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
+  stampAwarenessState,
+  type AwarenessIdentity,
+} from "./awareness-identity.js";
+import {
   deleteAwarenessRow,
   loadAwarenessRows,
   upsertAwarenessRow,
@@ -220,6 +224,15 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   const contextScope = (
     event.context as { _collabAwarenessScope?: AwarenessScope } | undefined
   )?._collabAwarenessScope;
+  const identity = (
+    event.context as
+      | { _collabAwarenessIdentity?: AwarenessIdentity }
+      | undefined
+  )?._collabAwarenessIdentity;
+  if (!identity) {
+    setResponseStatus(event, 500);
+    return { error: "awareness identity unavailable" };
+  }
 
   const body = await readBody(event);
   const { clientId, state } = body as {
@@ -231,19 +244,27 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 400);
     return { error: "clientId and state required" };
   }
+  let stored: string | null = null;
+  if (state !== null) {
+    stored = stampAwarenessState(state, identity);
+    if (stored === null) {
+      setResponseStatus(event, 400);
+      return { error: "state must be a JSON object" };
+    }
+  }
 
   const map = getDocAwareness(docId);
 
-  if (state === null) {
+  if (stored === null) {
     const clearedAt = Date.now();
     map.delete(clientId);
     rememberAwarenessClear(docId, clientId, clearedAt);
     void deleteAwarenessRow(docId, clientId, clearedAt);
   } else {
     forgetAwarenessClear(docId, clientId);
-    const entry = { clientId, state, lastSeen: Date.now() };
+    const entry = { clientId, state: stored, lastSeen: Date.now() };
     map.set(clientId, entry);
-    void upsertAwarenessRow(docId, clientId, state, entry.lastSeen);
+    void upsertAwarenessRow(docId, clientId, stored, entry.lastSeen);
   }
 
   await mergeStoredAwareness(docId, map);

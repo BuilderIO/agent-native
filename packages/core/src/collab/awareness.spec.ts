@@ -23,8 +23,14 @@ import {
   type AwarenessEntry,
 } from "./awareness.js";
 
+const IDENTITY = { email: "me@example.com", canEdit: true };
+
 function event(params: Record<string, string> = {}) {
-  return { _params: params, _status: 200 } as any;
+  return {
+    _params: params,
+    _status: 200,
+    context: { _collabAwarenessIdentity: IDENTITY },
+  } as any;
 }
 
 describe("getDocAwareness", () => {
@@ -145,17 +151,30 @@ describe("postAwareness handler", () => {
     expect(res).toEqual({ error: "clientId and state required" });
   });
 
+  it("returns 500 without touching awareness when the request has no identity", async () => {
+    mockReadBody.mockResolvedValue({ clientId: 5, state: "{}" });
+    const ev = { _params: { docId: "post-doc" }, _status: 200 } as any;
+    const res = await postAwareness(ev);
+    expect(ev._status).toBe(500);
+    expect(res).toEqual({ error: "awareness identity unavailable" });
+    expect(getDocAwareness("post-doc").has(5)).toBe(false);
+  });
+
   it("stores the sender's state and returns only other clients' states", async () => {
     const map = getDocAwareness("post-doc");
     map.set(99, { clientId: 99, state: "other-state", lastSeen: Date.now() });
 
-    mockReadBody.mockResolvedValue({ clientId: 5, state: "my-state" });
+    const state = JSON.stringify({ cursor: { anchor: 3 } });
+    mockReadBody.mockResolvedValue({ clientId: 5, state });
     const ev = event({ docId: "post-doc" });
     const res = (await postAwareness(ev)) as {
       states: Array<{ clientId: number; state: string }>;
     };
 
-    expect(map.get(5)?.state).toBe("my-state");
+    expect(JSON.parse(map.get(5)?.state ?? "null")).toEqual({
+      cursor: { anchor: 3 },
+      user: { email: "me@example.com" },
+    });
     expect(res.states).toEqual([{ clientId: 99, state: "other-state" }]);
   });
 
@@ -181,7 +200,7 @@ describe("postAwareness handler", () => {
     map.set(7, { clientId: 7, state: "expired", lastSeen: 0 });
 
     vi.setSystemTime(40_000);
-    mockReadBody.mockResolvedValue({ clientId: 5, state: "fresh" });
+    mockReadBody.mockResolvedValue({ clientId: 5, state: "{}" });
     const res = (await postAwareness(event({ docId: "post-doc" }))) as {
       states: Array<{ clientId: number }>;
     };
