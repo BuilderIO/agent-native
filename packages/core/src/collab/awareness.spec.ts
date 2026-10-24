@@ -403,6 +403,26 @@ describe("postAwareness handler", () => {
     expect(docAwareness(docId).has(68)).toBe(false);
   });
 
+  it("returns a typed error when a rejected write ownership lookup fails", async () => {
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 71,
+      clientSequence: 1,
+      state: postedAwarenessState("current-state"),
+    });
+    mockWriteAwarenessRow.mockResolvedValueOnce(false);
+    mockLoadAwarenessClientSequence.mockRejectedValueOnce(
+      new Error("ownership read unavailable"),
+    );
+    const ev = event({ docId: "post-doc-rejected-write-read-failure" });
+
+    await expect(postAwareness(ev)).resolves.toEqual({
+      error: "Awareness ownership lookup unavailable",
+      failureType: "Error",
+    });
+
+    expect(ev._status).toBe(503);
+  });
+
   it("keeps the clear actor binding when a local outage clear removes the entry", async () => {
     const docId = "post-doc-outage-cleared-owner";
     mockGetSession.mockResolvedValueOnce({ email: "owner@example.com" });

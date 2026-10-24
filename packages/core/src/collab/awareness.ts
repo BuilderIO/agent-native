@@ -611,9 +611,20 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     };
   }
   const applied = writeOutcome.applied;
-  const current = applied
-    ? undefined
-    : await loadAwarenessClientSequence(docId, clientId);
+  let current: Awaited<ReturnType<typeof loadAwarenessClientSequence>>;
+  if (applied) {
+    current = undefined;
+  } else {
+    try {
+      current = await loadAwarenessClientSequence(docId, clientId);
+    } catch (error) {
+      setResponseStatus(event, 503);
+      return {
+        error: "Awareness ownership lookup unavailable",
+        failureType: error instanceof Error ? error.name : typeof error,
+      };
+    }
+  }
   if (current && current.actorEmail !== actorEmail) {
     setResponseStatus(event, 403);
     return { error: "Awareness client id belongs to another collaborator" };
