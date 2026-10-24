@@ -16,6 +16,8 @@ const dbRows = vi.hoisted(
         client_sequence_raw: number;
         cleared: boolean;
         actor_email: string | null;
+        clear_token_hash: string | null;
+        actor_email_expires_at?: number | null;
       }
     >(),
 );
@@ -42,6 +44,29 @@ vi.mock("../db/client.js", async () => {
       }
       if (
         /^\s*INSERT INTO _collab_awareness/i.test(sql) &&
+        /ON CONFLICT\s*\(\s*doc_id\s*,\s*client_id\s*\) DO NOTHING/i.test(sql)
+      ) {
+        const key = rowKey(String(args[0]), Number(args[1]));
+        if (dbRows.has(key)) return { rows: [], rowsAffected: 0 };
+        dbRows.set(key, {
+          state: "",
+          last_seen: Number(args[2]),
+          client_sequence: Number(args[3]),
+          client_sequence_raw: Number(args[4]),
+          cleared: true,
+          actor_email:
+            typeof args[5] === "string" ? String(args[5]).toLowerCase() : null,
+          clear_token_hash: null,
+          actor_email_expires_at:
+            typeof args[6] === "number" ? Number(args[6]) : null,
+        });
+        return {
+          rows: [{ client_id: Number(args[1]) }],
+          rowsAffected: 1,
+        };
+      }
+      if (
+        /^\s*INSERT INTO _collab_awareness/i.test(sql) &&
         /ON CONFLICT\s*\(\s*doc_id\s*,\s*client_id\s*\)/i.test(sql)
       ) {
         const key = rowKey(String(args[0]), Number(args[1]));
@@ -51,12 +76,24 @@ vi.mock("../db/client.js", async () => {
           typeof args[7] === "string"
             ? String(args[7]).trim().toLowerCase()
             : null;
+        const clearTokenHash =
+          typeof args[8] === "string" ? String(args[8]) : null;
+        const actorEmailExpiresAt =
+          typeof args[9] === "number" ? Number(args[9]) : null;
         const previous = dbRows.get(key);
         let applies = false;
         if (!previous) {
           applies =
             rawSequence > 0 ||
             clientSequence <= MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE;
+        } else if (
+          previous.actor_email !== actorEmail &&
+          previous.actor_email !== null &&
+          (previous.actor_email_expires_at ?? previous.last_seen + 60_000) <=
+            Number(args[3])
+        ) {
+          applies = true;
+          clientSequence = Number(args[4]);
         } else if (rawSequence > 0) {
           applies =
             previous.client_sequence_raw > 0
@@ -90,7 +127,9 @@ vi.mock("../db/client.js", async () => {
           applies &&
           previous &&
           previous.actor_email !== actorEmail &&
-          (previous.actor_email !== null ||
+          ((previous.actor_email !== null &&
+            (previous.actor_email_expires_at ?? previous.last_seen + 60_000) >
+              Number(args[3])) ||
             previous.last_seen >=
               Number(args[3]) - (previous.cleared ? 60_000 : 30_000))
         ) {
@@ -104,8 +143,66 @@ vi.mock("../db/client.js", async () => {
             client_sequence_raw: rawSequence,
             cleared: Boolean(args[5]),
             actor_email: actorEmail,
+            clear_token_hash: clearTokenHash,
+            actor_email_expires_at: actorEmailExpiresAt,
           });
           return { rows: [{ client_id: Number(args[1]) }], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (
+        /^\s*SELECT client_sequence, client_sequence_raw, cleared, actor_email,\s+clear_token_hash, actor_email_expires_at, last_seen/i.test(
+          sql,
+        )
+      ) {
+        const row = dbRows.get(rowKey(String(args[0]), Number(args[1])));
+        return {
+          rows: row ? [{ ...row }] : [],
+          rowsAffected: 0,
+        };
+      }
+      if (
+        /^\s*UPDATE _collab_awareness\s+SET state = '', last_seen = \?, client_sequence = \?,/i.test(
+          sql,
+        )
+      ) {
+        const [
+          lastSeen,
+          clientSequence,
+          rawSequence,
+          actorEmailExpiresAt,
+          docId,
+          clientId,
+          expectedSequence,
+          expectedRawSequence,
+          expectedActorEmail,
+          expectedClearTokenHash,
+          expectedActorEmailExpiresAt,
+          expectedLastSeen,
+        ] = args;
+        const row = dbRows.get(rowKey(String(docId), Number(clientId)));
+        if (
+          row &&
+          !row.cleared &&
+          row.client_sequence === Number(expectedSequence) &&
+          row.client_sequence_raw === Number(expectedRawSequence) &&
+          row.actor_email === expectedActorEmail &&
+          row.clear_token_hash === expectedClearTokenHash &&
+          row.actor_email_expires_at === expectedActorEmailExpiresAt &&
+          row.last_seen === Number(expectedLastSeen)
+        ) {
+          row.state = "";
+          row.last_seen = Number(lastSeen);
+          row.client_sequence = Number(clientSequence);
+          row.client_sequence_raw = Number(rawSequence);
+          row.cleared = true;
+          row.clear_token_hash = null;
+          row.actor_email_expires_at =
+            actorEmailExpiresAt == null ? null : Number(actorEmailExpiresAt);
+          return {
+            rows: [{ client_id: Number(clientId) }],
+            rowsAffected: 1,
+          };
         }
         return { rows: [], rowsAffected: 0 };
       }
@@ -154,7 +251,11 @@ vi.mock("../db/client.js", async () => {
         dbRows.delete(rowKey(String(args[0]), Number(args[1])));
         return { rows: [], rowsAffected: 1 };
       }
-      if (/^\s*UPDATE _collab_awareness\s+SET state = ''/i.test(sql)) {
+      if (
+        /^\s*UPDATE _collab_awareness\s+SET state = '', clear_token_hash = NULL/i.test(
+          sql,
+        )
+      ) {
         const expiredBefore = Number(args[0]);
         for (const row of dbRows.values()) {
           if (
@@ -163,17 +264,25 @@ vi.mock("../db/client.js", async () => {
             row.last_seen < expiredBefore
           ) {
             row.state = "";
+            row.clear_token_hash = null;
           }
         }
         return { rows: [], rowsAffected: 0 };
       }
       if (
-        /^\s*DELETE FROM _collab_awareness\s+WHERE last_seen < \?/i.test(sql)
+        /^\s*DELETE FROM _collab_awareness\s+WHERE \(actor_email IS NOT NULL/i.test(
+          sql,
+        )
       ) {
         purgeCalls.count += 1;
         if (purgeFails.value) throw new Error("purge unavailable");
         for (const [key, row] of dbRows) {
-          if (row.actor_email === null && row.last_seen < Number(args[0])) {
+          if (
+            (row.actor_email !== null &&
+              (row.actor_email_expires_at ?? row.last_seen + 60_000) <=
+                Number(args[0])) ||
+            (row.actor_email === null && row.last_seen < Number(args[1]))
+          ) {
             dbRows.delete(key);
           }
         }
@@ -190,6 +299,7 @@ vi.mock("../db/client.js", async () => {
           client_sequence: number;
           client_sequence_raw: number;
           actor_email: string | null;
+          clear_token_hash: string | null;
           cleared: boolean;
         }> = [];
         for (const [key, row] of dbRows) {
@@ -205,6 +315,7 @@ vi.mock("../db/client.js", async () => {
               client_sequence: row.client_sequence,
               client_sequence_raw: row.client_sequence_raw,
               actor_email: row.actor_email,
+              clear_token_hash: row.clear_token_hash,
               cleared: row.cleared,
             });
           }
@@ -262,6 +373,7 @@ describe("awareness-store", () => {
         clientSequence: 0,
         clientSequenceRaw: 0,
         actorEmail: null,
+        clearTokenHash: null,
         cleared: false,
       },
     ]);
@@ -285,6 +397,7 @@ describe("awareness-store", () => {
       client_sequence_raw: 0,
       cleared: false,
       actor_email: null,
+      clear_token_hash: null,
     });
     purgeFails.value = true;
 
@@ -387,6 +500,7 @@ describe("awareness-store", () => {
         clientSequence: 20,
         clientSequenceRaw: 0,
         actorEmail: null,
+        clearTokenHash: null,
         cleared: true,
       },
     ]);
@@ -404,6 +518,8 @@ describe("awareness-store", () => {
       client_sequence_raw: 0,
       cleared: true,
       actor_email: null,
+      clear_token_hash: null,
+      actor_email_expires_at: null,
     });
   });
 
@@ -480,7 +596,7 @@ describe("awareness-store", () => {
     );
 
     await expect(
-      loadAwarenessRowsStrict("doc-expired-owner", 62_000),
+      loadAwarenessRowsStrict("doc-expired-owner", 59_000),
     ).resolves.toEqual([]);
     expect(dbRows.get(rowKey("doc-expired-owner", 9))).toMatchObject({
       state: "",
@@ -493,7 +609,7 @@ describe("awareness-store", () => {
         "doc-expired-owner",
         9,
         "forged-state",
-        62_001,
+        59_001,
         2,
         false,
         "viewer@example.com",
@@ -505,7 +621,7 @@ describe("awareness-store", () => {
         "doc-expired-owner",
         9,
         "owner-resumed",
-        62_002,
+        59_002,
         2,
         false,
         "owner@example.com",
@@ -513,6 +629,157 @@ describe("awareness-store", () => {
     ).resolves.toBe(true);
     expect(dbRows.get(rowKey("doc-expired-owner", 9))).toMatchObject({
       state: "owner-resumed",
+      actor_email: "owner@example.com",
+    });
+  });
+
+  it("reclaims actor reservations after the stale-request window", async () => {
+    await writeAwarenessRow(
+      "doc-expired-reservation",
+      9,
+      "owner-state",
+      1_000,
+      1,
+      false,
+      "owner@example.com",
+    );
+
+    await expect(
+      loadAwarenessRowsStrict("doc-expired-reservation", 62_000),
+    ).resolves.toEqual([]);
+    expect(dbRows.has(rowKey("doc-expired-reservation", 9))).toBe(false);
+
+    await expect(
+      writeAwarenessRow(
+        "doc-expired-reservation",
+        9,
+        "new-owner-state",
+        62_001,
+        1,
+        false,
+        "viewer@example.com",
+      ),
+    ).resolves.toBe(true);
+    expect(dbRows.get(rowKey("doc-expired-reservation", 9))).toMatchObject({
+      state: "new-owner-state",
+      actor_email: "viewer@example.com",
+    });
+  });
+
+  it("expires legacy actor reservations from their last presence time", async () => {
+    dbRows.set(rowKey("doc-legacy-reservation", 9), {
+      state: "",
+      last_seen: 1_000,
+      client_sequence: 1,
+      client_sequence_raw: 0,
+      cleared: false,
+      actor_email: "owner@example.com",
+      clear_token_hash: null,
+    });
+
+    await expect(
+      writeAwarenessRow(
+        "doc-legacy-reservation",
+        9,
+        "new-owner-state",
+        62_001,
+        1,
+        false,
+        "viewer@example.com",
+      ),
+    ).resolves.toBe(true);
+    expect(dbRows.get(rowKey("doc-legacy-reservation", 9))).toMatchObject({
+      state: "new-owner-state",
+      actor_email: "viewer@example.com",
+    });
+  });
+
+  it("allows only a live clear token to remove another actor's presence", async () => {
+    await expect(
+      writeAwarenessRow(
+        "doc-account-switch",
+        9,
+        "owner-state",
+        1_000,
+        1,
+        false,
+        "owner@example.com",
+        "owner-clear-token-hash",
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      writeAwarenessRow(
+        "doc-account-switch",
+        9,
+        "",
+        2_000,
+        1,
+        true,
+        "viewer@example.com",
+        "owner-clear-token-hash",
+      ),
+    ).resolves.toBe(true);
+    expect(dbRows.get(rowKey("doc-account-switch", 9))).toMatchObject({
+      state: "",
+      cleared: true,
+      actor_email: "owner@example.com",
+      clear_token_hash: null,
+    });
+
+    await expect(
+      writeAwarenessRow(
+        "doc-account-switch",
+        9,
+        "forged-state",
+        2_001,
+        2,
+        false,
+        "viewer@example.com",
+        "owner-clear-token-hash",
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("rejects expired or mismatched cross-actor clear tokens", async () => {
+    await writeAwarenessRow(
+      "doc-expired-clear-token",
+      9,
+      "owner-state",
+      1_000,
+      1,
+      false,
+      "owner@example.com",
+      "owner-clear-token-hash",
+    );
+
+    await expect(
+      writeAwarenessRow(
+        "doc-expired-clear-token",
+        9,
+        "",
+        62_000,
+        1,
+        true,
+        "viewer@example.com",
+        "owner-clear-token-hash",
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      writeAwarenessRow(
+        "doc-expired-clear-token",
+        9,
+        "",
+        2_000,
+        1,
+        true,
+        "viewer@example.com",
+        "wrong-clear-token-hash",
+      ),
+    ).resolves.toBe(false);
+    expect(dbRows.get(rowKey("doc-expired-clear-token", 9))).toMatchObject({
+      state: "owner-state",
+      cleared: false,
       actor_email: "owner@example.com",
     });
   });

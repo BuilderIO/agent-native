@@ -470,12 +470,13 @@ describe("useCollaborativeDoc connection registry", () => {
           ([, init]) =>
             JSON.parse(String(init?.body)) as {
               clientId: number;
-              state: string;
+              clearToken: string;
+              state: string | null;
             },
         );
     expect(awarenessPosts()).toHaveLength(1);
     expect(awarenessPosts()[0]).toMatchObject({ clientId: firstClientId });
-    expect(JSON.parse(awarenessPosts()[0]!.state).user.email).toBe(
+    expect(JSON.parse(awarenessPosts()[0]!.state!).user.email).toBe(
       firstUser.email,
     );
 
@@ -496,10 +497,24 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(secondClientId).not.toBe(firstClientId);
     expect(awarenessPosts()).toHaveLength(2);
     expect(awarenessPosts()[1]).toMatchObject({ clientId: secondClientId });
-    expect(JSON.parse(awarenessPosts()[1]!.state).user.email).toBe(
+    expect(JSON.parse(awarenessPosts()[1]!.state!).user.email).toBe(
       secondUser.email,
     );
-    expect(_collabDocRegistrySizeForTests()).toBe(2);
+    expect(awarenessPosts()[0]!.clearToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(awarenessPosts()[1]!.clearToken).not.toBe(
+      awarenessPosts()[0]!.clearToken,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(awarenessPosts()).toHaveLength(3);
+    expect(awarenessPosts()[2]).toMatchObject({
+      clientId: firstClientId,
+      clearToken: awarenessPosts()[0]!.clearToken,
+      state: null,
+    });
+    expect(_collabDocRegistrySizeForTests()).toBe(1);
   });
 
   it("reconciles state before accepting the first poll watermark without a baseline", async () => {

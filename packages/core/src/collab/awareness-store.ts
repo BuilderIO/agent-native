@@ -10,6 +10,8 @@ import type { AwarenessRow } from "./awareness.js";
 
 const ROW_TTL_MS = 30_000;
 
+const ACTOR_RESERVATION_TTL_MS = ROW_TTL_MS * 2;
+
 const WRITE_THROTTLE_MS = 2_000;
 
 const PURGE_INTERVAL_MS = 30_000;
@@ -67,6 +69,26 @@ export const collabAwarenessStore = defineStore({
         );
       },
     },
+    {
+      name: "clear-token-hash",
+      run: async () => {
+        await ensureColumnExists(
+          "_collab_awareness",
+          "clear_token_hash",
+          "ALTER TABLE _collab_awareness ADD COLUMN IF NOT EXISTS clear_token_hash TEXT",
+        );
+      },
+    },
+    {
+      name: "actor-reservation-expiry",
+      run: async () => {
+        await ensureColumnExists(
+          "_collab_awareness",
+          "actor_email_expires_at",
+          "ALTER TABLE _collab_awareness ADD COLUMN IF NOT EXISTS actor_email_expires_at BIGINT",
+        );
+      },
+    },
   ],
 });
 
@@ -117,9 +139,12 @@ export async function writeAwarenessRow(
   clientSequence: number,
   cleared: boolean,
   actorEmail?: string | null,
+  clearTokenHash?: string | null,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
+  const normalizedActorEmail = actorEmail?.trim().toLowerCase() || null;
+  const normalizedClearTokenHash = clearTokenHash?.trim() || null;
   const isLegacyClockSequence = clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE;
   if (
     isLegacyClockSequence &&
@@ -140,16 +165,150 @@ export async function writeAwarenessRow(
     if (rows.length === 0) return false;
   }
   const storedSequence = isLegacyClockSequence ? 1 : clientSequence;
+  if (cleared) {
+    const { rows: existingRows } = await client.execute({
+      sql: `SELECT client_sequence, client_sequence_raw, cleared, actor_email,
+                   clear_token_hash, actor_email_expires_at, last_seen
+            FROM _collab_awareness
+            WHERE doc_id = ? AND client_id = ?`,
+      args: [docId, clientId],
+    });
+    const existing = existingRows[0] as
+      | {
+          client_sequence?: unknown;
+          client_sequence_raw?: unknown;
+          cleared?: unknown;
+          actor_email?: unknown;
+          clear_token_hash?: unknown;
+          actor_email_expires_at?: unknown;
+          last_seen?: unknown;
+        }
+      | undefined;
+    if (!existing) {
+      const { rows } = await client.execute({
+        sql: `INSERT INTO _collab_awareness
+                (doc_id, client_id, state, last_seen, client_sequence, cleared,
+                 client_sequence_raw, actor_email, clear_token_hash,
+                 actor_email_expires_at)
+              VALUES (?, ?, '', ?, ?, TRUE, ?, ?, NULL, ?)
+              ON CONFLICT (doc_id, client_id) DO NOTHING
+              RETURNING client_id`,
+        args: [
+          docId,
+          clientId,
+          lastSeen,
+          storedSequence,
+          isLegacyClockSequence ? clientSequence : 0,
+          normalizedActorEmail,
+          normalizedActorEmail ? lastSeen + ACTOR_RESERVATION_TTL_MS : null,
+        ],
+      });
+      const applied = rows.length > 0;
+      if (applied) {
+        _lastWrites.delete(writeKey(docId, clientId));
+        await maybePurgeBestEffort(lastSeen);
+      }
+      return applied;
+    }
+    if (existing.cleared === true) return false;
+
+    const existingActorEmail =
+      typeof existing.actor_email === "string" ? existing.actor_email : null;
+    const normalizedExistingActorEmail =
+      existingActorEmail?.trim().toLowerCase() || null;
+    const existingClearTokenHash =
+      typeof existing.clear_token_hash === "string"
+        ? existing.clear_token_hash
+        : null;
+    const existingLastSeen = Number(existing.last_seen);
+    const existingActorEmailExpiresAt =
+      existing.actor_email_expires_at == null
+        ? null
+        : Number(existing.actor_email_expires_at);
+    const sameActor = normalizedExistingActorEmail === normalizedActorEmail;
+    const ownsClearToken =
+      normalizedActorEmail !== null &&
+      normalizedExistingActorEmail !== null &&
+      normalizedClearTokenHash !== null &&
+      existingClearTokenHash === normalizedClearTokenHash &&
+      existingLastSeen >= lastSeen - ROW_TTL_MS * 2;
+    if (!sameActor && !ownsClearToken) return false;
+
+    const currentSequence = Number(existing.client_sequence ?? 0);
+    const currentRawSequence = Number(existing.client_sequence_raw ?? 0);
+    const existingCleared = existing.cleared === true;
+    if (
+      sameActor &&
+      !canAdvanceClientSequence(
+        currentSequence,
+        currentRawSequence,
+        existingCleared,
+        clientSequence,
+      )
+    ) {
+      return false;
+    }
+
+    const nextSequence = sameActor
+      ? isLegacyClockSequence
+        ? currentSequence >= MAX_AWARENESS_CLIENT_SEQUENCE
+          ? 1
+          : currentSequence + 1
+        : storedSequence
+      : currentSequence;
+    const nextRawSequence = sameActor
+      ? isLegacyClockSequence
+        ? clientSequence
+        : 0
+      : currentRawSequence;
+    const { rows } = await client.execute({
+      sql: `UPDATE _collab_awareness
+            SET state = '', last_seen = ?, client_sequence = ?,
+                client_sequence_raw = ?, cleared = TRUE, clear_token_hash = NULL,
+                actor_email_expires_at = ?
+            WHERE doc_id = ? AND client_id = ? AND cleared = FALSE
+              AND client_sequence = ? AND client_sequence_raw = ?
+              AND actor_email IS NOT DISTINCT FROM ?
+              AND clear_token_hash IS NOT DISTINCT FROM ?
+              AND actor_email_expires_at IS NOT DISTINCT FROM ?
+              AND last_seen = ?
+            RETURNING client_id`,
+      args: [
+        lastSeen,
+        nextSequence,
+        nextRawSequence,
+        existingActorEmail ? lastSeen + ACTOR_RESERVATION_TTL_MS : null,
+        docId,
+        clientId,
+        currentSequence,
+        currentRawSequence,
+        existingActorEmail,
+        existingClearTokenHash,
+        existingActorEmailExpiresAt,
+        existingLastSeen,
+      ],
+    });
+    const applied = rows.length > 0;
+    if (applied) {
+      _lastWrites.delete(writeKey(docId, clientId));
+      await maybePurgeBestEffort(lastSeen);
+    }
+    return applied;
+  }
   const { rows } = await client.execute({
     sql: `INSERT INTO _collab_awareness
             (doc_id, client_id, state, last_seen, client_sequence, cleared,
-             client_sequence_raw, actor_email)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             client_sequence_raw, actor_email, clear_token_hash,
+             actor_email_expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (doc_id, client_id)
           DO UPDATE SET
             state = EXCLUDED.state,
             last_seen = EXCLUDED.last_seen,
             client_sequence = CASE
+              WHEN _collab_awareness.actor_email
+                   IS DISTINCT FROM EXCLUDED.actor_email
+                THEN EXCLUDED.client_sequence
               WHEN EXCLUDED.client_sequence_raw > 0 THEN
                 CASE
                   WHEN _collab_awareness.client_sequence >= ${MAX_AWARENESS_CLIENT_SEQUENCE}
@@ -160,7 +319,9 @@ export async function writeAwarenessRow(
             END,
             client_sequence_raw = EXCLUDED.client_sequence_raw,
             cleared = EXCLUDED.cleared,
-            actor_email = EXCLUDED.actor_email
+            actor_email = EXCLUDED.actor_email,
+            clear_token_hash = EXCLUDED.clear_token_hash,
+            actor_email_expires_at = EXCLUDED.actor_email_expires_at
             WHERE (
                  _collab_awareness.actor_email IS NOT DISTINCT FROM EXCLUDED.actor_email
                  OR (_collab_awareness.actor_email IS NULL
@@ -169,8 +330,20 @@ export async function writeAwarenessRow(
                      WHEN _collab_awareness.cleared THEN ${ROW_TTL_MS * 2}
                      ELSE ${ROW_TTL_MS}
                    END)
+                 OR (_collab_awareness.actor_email IS NOT NULL
+                   AND COALESCE(
+                     _collab_awareness.actor_email_expires_at,
+                     _collab_awareness.last_seen + ${ACTOR_RESERVATION_TTL_MS}
+                   ) <= EXCLUDED.last_seen)
                )
-            AND ((EXCLUDED.client_sequence_raw > 0
+            AND (
+              (_collab_awareness.actor_email IS NOT NULL
+               AND _collab_awareness.actor_email IS DISTINCT FROM EXCLUDED.actor_email
+               AND COALESCE(
+                 _collab_awareness.actor_email_expires_at,
+                 _collab_awareness.last_seen + ${ACTOR_RESERVATION_TTL_MS}
+               ) <= EXCLUDED.last_seen)
+             OR ((EXCLUDED.client_sequence_raw > 0
                  AND (( _collab_awareness.client_sequence_raw > 0
                         AND EXCLUDED.client_sequence_raw > _collab_awareness.client_sequence_raw)
                    OR (_collab_awareness.client_sequence_raw = 0
@@ -192,7 +365,7 @@ export async function writeAwarenessRow(
              OR (EXCLUDED.client_sequence_raw = 0
                  AND EXCLUDED.client_sequence = 0
                  AND _collab_awareness.client_sequence = 0
-                 AND _collab_awareness.cleared = FALSE))
+                 AND _collab_awareness.cleared = FALSE)))
           RETURNING client_id`,
     args: [
       docId,
@@ -202,7 +375,9 @@ export async function writeAwarenessRow(
       storedSequence,
       cleared,
       isLegacyClockSequence ? clientSequence : 0,
-      actorEmail?.trim().toLowerCase() || null,
+      normalizedActorEmail,
+      normalizedClearTokenHash,
+      normalizedActorEmail ? lastSeen + ACTOR_RESERVATION_TTL_MS : null,
     ],
   });
   const applied = rows.length > 0;
@@ -211,6 +386,32 @@ export async function writeAwarenessRow(
     await maybePurgeBestEffort(lastSeen);
   }
   return applied;
+}
+
+function canAdvanceClientSequence(
+  currentSequence: number,
+  currentRawSequence: number,
+  cleared: boolean,
+  clientSequence: number,
+): boolean {
+  if (clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE) {
+    return currentRawSequence > 0
+      ? clientSequence > currentRawSequence
+      : currentSequence > MAX_AWARENESS_CLIENT_SEQUENCE
+        ? clientSequence > currentSequence
+        : currentSequence === 0 && !cleared;
+  }
+  if (clientSequence > 0) {
+    return (
+      !cleared &&
+      (currentRawSequence > 0 || currentSequence > MAX_AWARENESS_CLIENT_SEQUENCE
+        ? clientSequence <= MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE
+        : clientSequence > currentSequence &&
+          clientSequence <=
+            currentSequence + MAX_AWARENESS_CLIENT_SEQUENCE_ADVANCE)
+    );
+  }
+  return currentRawSequence === 0 && currentSequence === 0 && !cleared;
 }
 
 export async function deleteAwarenessRow(
@@ -251,7 +452,7 @@ export async function loadAwarenessRowsStrict(
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT client_id, state, last_seen, client_sequence,
-                 client_sequence_raw, actor_email, cleared
+                 client_sequence_raw, actor_email, clear_token_hash, cleared
           FROM _collab_awareness
           WHERE doc_id = ?
             AND ((cleared = FALSE AND last_seen >= ?)
@@ -268,6 +469,8 @@ export async function loadAwarenessRowsStrict(
       typeof row.actor_email === "string"
         ? row.actor_email.trim().toLowerCase()
         : null,
+    clearTokenHash:
+      typeof row.clear_token_hash === "string" ? row.clear_token_hash : null,
     cleared: row.cleared === true,
   }));
 }
@@ -313,17 +516,22 @@ async function maybePurge(now: number): Promise<void> {
   _purgeInFlight = client
     .execute({
       sql: `UPDATE _collab_awareness
-            SET state = ''
+            SET state = '', clear_token_hash = NULL
             WHERE actor_email IS NOT NULL
               AND state <> ''
               AND last_seen < ?`,
-      args: [expiredBefore],
+      args: [now - ROW_TTL_MS],
     })
     .then(() =>
       client.execute({
         sql: `DELETE FROM _collab_awareness
-              WHERE last_seen < ? AND actor_email IS NULL`,
-        args: [expiredBefore],
+              WHERE (actor_email IS NOT NULL
+                     AND COALESCE(
+                       actor_email_expires_at,
+                       last_seen + ${ACTOR_RESERVATION_TTL_MS}
+                     ) <= ?)
+                 OR (actor_email IS NULL AND last_seen < ?)`,
+        args: [now, expiredBefore],
       }),
     )
     .then(() => {

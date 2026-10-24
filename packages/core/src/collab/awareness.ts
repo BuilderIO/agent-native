@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 
 import {
@@ -69,6 +70,7 @@ export interface AwarenessEntry {
   clientSequence?: number;
   clientSequenceRaw?: number;
   actorEmail?: string | null;
+  clearTokenHash?: string | null;
 }
 
 export interface AwarenessRow extends AwarenessEntry {
@@ -336,6 +338,7 @@ function applyLocalAwarenessWrite(
   clientSequence: number,
   cleared: boolean,
   actorEmail: string,
+  clearTokenHash: string | null,
 ): void {
   const existing = map.get(clientId);
   const sequence = localSequenceForWrite(existing, clientSequence);
@@ -352,6 +355,7 @@ function applyLocalAwarenessWrite(
     clientSequenceRaw:
       clientSequence > MAX_AWARENESS_CLIENT_SEQUENCE ? clientSequence : 0,
     actorEmail,
+    clearTokenHash,
   });
 }
 
@@ -362,10 +366,18 @@ function canApplyLocalAwarenessWrite(
   clientSequence: number,
   lastSeen: number,
   actorEmail: string,
+  cleared: boolean,
+  clearTokenHash: string | null,
 ): boolean {
-  if (!existing || existing.actorEmail?.trim().toLowerCase() !== actorEmail) {
-    return false;
-  }
+  if (!existing) return false;
+  const sameActor = existing.actorEmail?.trim().toLowerCase() === actorEmail;
+  const ownsClearToken =
+    cleared &&
+    existing.clearTokenHash != null &&
+    existing.clearTokenHash === clearTokenHash &&
+    lastSeen - existing.lastSeen <= AWARENESS_SCOPE_TIMEOUT;
+  if (!sameActor && !ownsClearToken) return false;
+  if (!sameActor) return true;
 
   let sequenceAllowed = true;
   const currentSequence = existing.clientSequence ?? 0;
@@ -429,10 +441,11 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   )?._collabAwarenessScope;
 
   const body = await readBody(event);
-  const { clientId, clientSequence, state } = body as {
+  const { clientId, clientSequence, state, clearToken } = body as {
     clientId?: number;
     clientSequence?: number;
     state?: string | null;
+    clearToken?: unknown;
   };
 
   if (clientId == null || state === undefined) {
@@ -449,6 +462,8 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   }
   if (
     (state !== null && typeof state !== "string") ||
+    (clearToken !== undefined &&
+      (typeof clearToken !== "string" || clearToken.length > 128)) ||
     (clientSequence !== undefined &&
       (!Number.isSafeInteger(clientSequence) ||
         clientSequence < 0 ||
@@ -459,6 +474,10 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 400);
     return { error: "invalid awareness state or clientSequence" };
   }
+  const clearTokenHash =
+    typeof clearToken === "string" && clearToken.length > 0
+      ? createHash("sha256").update(clearToken).digest("hex")
+      : null;
 
   const boundState =
     state === null
@@ -486,6 +505,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         sequence,
         state === null,
         actorEmail,
+        clearTokenHash,
       ),
     };
   } catch (error) {
@@ -507,6 +527,8 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         sequence,
         lastSeen,
         actorEmail,
+        state === null,
+        clearTokenHash,
       )
     ) {
       applyLocalAwarenessWrite(
@@ -518,6 +540,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
         sequence,
         cleared,
         actorEmail,
+        clearTokenHash,
       );
     }
     cleanExpired(map);
@@ -565,6 +588,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
       sequence,
       state === null,
       actorEmail,
+      clearTokenHash,
     );
   }
   try {

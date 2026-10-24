@@ -223,6 +223,7 @@ describe("postAwareness handler", () => {
     mockReadBody.mockResolvedValueOnce({
       clientId: 51,
       clientSequence: 1,
+      clearToken: "owner-clear-token",
       state: postedAwarenessState("owner-state"),
     });
     await postAwareness(event({ docId }));
@@ -258,6 +259,20 @@ describe("postAwareness handler", () => {
     expect(docAwareness(docId).get(51)?.state).toBe(
       authenticatedAwarenessState("owner-state", "owner@example.com"),
     );
+
+    mockGetSession.mockResolvedValueOnce({ email: "viewer@example.com" });
+    mockReadBody.mockResolvedValueOnce({
+      clientId: 51,
+      clientSequence: 4,
+      clearToken: "owner-clear-token",
+      state: null,
+    });
+    const authorizedClearEv = event({ docId });
+    await expect(postAwareness(authorizedClearEv)).resolves.toMatchObject({
+      states: [],
+    });
+    expect(authorizedClearEv._status).toBe(200);
+    expect(docAwareness(docId).has(51)).toBe(false);
   });
 
   it("requires an authenticated collaborator to post awareness", async () => {

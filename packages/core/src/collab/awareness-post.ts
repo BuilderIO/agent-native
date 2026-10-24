@@ -3,6 +3,7 @@ import { MAX_AWARENESS_CLIENT_SEQUENCE } from "./awareness-sequence.js";
 const AWARENESS_POST_TIMEOUT_MS = 5_000;
 
 const clientSequences = new Map<string, number>();
+const clearTokens = new Map<string, string>();
 const inFlightPosts = new Map<string, number>();
 const cleanupWhenIdle = new Set<string>();
 
@@ -19,6 +20,21 @@ function nextClientSequence(key: string): number {
   return sequence;
 }
 
+function clearTokenFor(key: string): string {
+  const existing = clearTokens.get(key);
+  if (existing) return existing;
+  const bytes = new Uint8Array(32);
+  if (!globalThis.crypto?.getRandomValues) {
+    throw new Error("Secure awareness clear tokens are unavailable");
+  }
+  globalThis.crypto.getRandomValues(bytes);
+  const token = Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  clearTokens.set(key, token);
+  return token;
+}
+
 function finishPost(key: string): void {
   const remaining = (inFlightPosts.get(key) ?? 1) - 1;
   if (remaining > 0) {
@@ -26,7 +42,10 @@ function finishPost(key: string): void {
     return;
   }
   inFlightPosts.delete(key);
-  if (cleanupWhenIdle.delete(key)) clientSequences.delete(key);
+  if (cleanupWhenIdle.delete(key)) {
+    clientSequences.delete(key);
+    clearTokens.delete(key);
+  }
 }
 
 export function forgetAwarenessClientSequence(
@@ -40,6 +59,7 @@ export function forgetAwarenessClientSequence(
     return;
   }
   clientSequences.delete(key);
+  clearTokens.delete(key);
 }
 
 export function postAwarenessState(
@@ -51,6 +71,7 @@ export function postAwarenessState(
 ): Promise<Response> {
   const key = sequenceKey(baseUrl, docId, clientId);
   const clientSequence = nextClientSequence(key);
+  const clearToken = clearTokenFor(key);
   inFlightPosts.set(key, (inFlightPosts.get(key) ?? 0) + 1);
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -64,6 +85,7 @@ export function postAwarenessState(
     body: JSON.stringify({
       clientId,
       clientSequence,
+      clearToken,
       state: state ? JSON.stringify(state) : null,
     }),
     signal: controller.signal,

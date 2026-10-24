@@ -405,6 +405,14 @@
     {
       "name": "actor-email",
       "checksum": null
+    },
+    {
+      "name": "clear-token-hash",
+      "checksum": null
+    },
+    {
+      "name": "actor-reservation-expiry",
+      "checksum": null
     }
   ],
   "collab_docs": [
