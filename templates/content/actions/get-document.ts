@@ -38,8 +38,10 @@ import { serializeDocumentSource } from "./_document-source.js";
 import { refreshGitHubPageBeforeRead } from "./_github-source-freshness.js";
 import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
+  propertyChangeIdsFor,
   propertyGenerationsFor,
   readPropertyGenerations,
+  type StoredPropertyChangeIds,
 } from "./_property-generations.js";
 import {
   getDatabaseById,
@@ -354,12 +356,14 @@ export default defineAction({
     const bodyHydrationAccess = await readBodyHydrationAccess();
     // Before the values: see readPropertyGenerations.
     const storedGenerations = await readPropertyGenerations(db, [doc.id]);
+    const changeIds: StoredPropertyChangeIds = new Map();
     const [properties] = await Promise.all([
       listPropertiesForDocument(doc, selectedDatabaseId, {
         // A share authorizes the exact page and its membership-local fields,
         // not the private database document that owns those definitions.
         requireDatabaseAccess: hasPropertyDatabaseAccess,
         database: propertyDatabase,
+        changeIds,
       }),
       // Reading the collection's own fields also takes resolveAccess on its
       // document, which can refuse a document accessibleDocumentIds admits.
@@ -505,6 +509,7 @@ export default defineAction({
         properties,
         storedGenerations,
       ),
+      propertyChangeIds: propertyChangeIdsFor(doc.id, properties, changeIds),
       contextPath,
       // The same answer get-preview-document-draft gives, so a page open
       // needs no second request before it can show the page.

@@ -339,6 +339,8 @@ Every property on a page has a generation that goes up each time its value chang
 
 To act on a value only while it is still the one you read, pass it back: `set-document-property --expectedGeneration`, or `expectedPropertyGenerations: { [propertyId]: number }` on `update-database-item` and on each `patch-database-items` row. If any named value has changed since, nothing is written and the call fails with `PROPERTY_GENERATION_CONFLICT` (409), listing `{ propertyId, expected, current }`. Reread and decide again. `expectedRowRevision` can't catch this case, because it hashes values. Blocks fields use their own revision instead.
 
+To act once per change, key on the change ID, not the generation. `get-document` and each `get-content-database` item return `propertyChangeIds: { [propertyId]: number | null }`, read from the same row as each value. `set-document-property` returns `changeId`, row receipts carry `readback.propertyChangeIds`, and `property.changed` events carry `data.changeId`, so a poller and a webhook receiver see the same ID for the same change. It changes only when that property's value is written anew. Deleting other values on the page doesn't move it, and it's `null` when the property has no stored value. Don't pass it as an expected generation.
+
 ### refresh-list
 
 Trigger the UI to refresh the document list.

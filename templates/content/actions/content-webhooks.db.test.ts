@@ -59,6 +59,30 @@ vi.mock("@agent-native/core/extensions/url-safety", async (importOriginal) => {
   };
 });
 
+const generationReads = vi.hoisted(() => ({
+  /** Runs once, right after the next generation read and before its values. */
+  thenWrite: null as null | (() => Promise<void>),
+}));
+
+// Lets a test land a write between a read's generations and its values, the
+// race a read's change IDs must not fall into.
+vi.mock("./_property-generations.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_property-generations.js")>();
+  return {
+    ...actual,
+    readPropertyGenerations: async (
+      ...args: Parameters<typeof actual.readPropertyGenerations>
+    ) => {
+      const stored = await actual.readPropertyGenerations(...args);
+      const write = generationReads.thenWrite;
+      generationReads.thenWrite = null;
+      if (write) await write();
+      return stored;
+    },
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-webhooks-${process.pid}-${Date.now()}.pglite`,
@@ -1336,6 +1360,13 @@ describe("property generations", () => {
     return response.items.find((item) => item.id === itemId)!;
   }
 
+  function valueRow(documentId: string, propertyId: string) {
+    return and(
+      eq(schema.documentPropertyValues.documentId, documentId),
+      eq(schema.documentPropertyValues.propertyId, propertyId),
+    );
+  }
+
   async function storedValue(documentId: string, propertyId: string) {
     const [row] = await getDb()
       .select({ valueJson: schema.documentPropertyValues.valueJson })
@@ -1641,5 +1672,143 @@ describe("property generations", () => {
       ),
     ).toEqual([[ids.properties.rank], [ids.properties.rank]]);
     expect(await storedValue(first.documentId, ids.properties.rank)).toBe(20);
+    const patchedFirst = await readItem(ids.databaseId, first.itemId);
+    expect(patched.receipt.rows[0].readback.propertyChangeIds).toEqual({
+      [ids.properties.rank]:
+        patchedFirst.propertyChangeIds![ids.properties.rank],
+    });
+  });
+
+  it("a change ID moves only when its own value does, and reads, writes and events agree", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed"],
+        propertyIds: [ids.properties.turn],
+      }),
+    );
+    const readChangeIds = async () => {
+      const item = await readItem(ids.databaseId, row.itemId);
+      const page = await asOwner(() =>
+        getDocument.run({ id: row.documentId, databaseId: ids.databaseId }),
+      );
+      expect(page.propertyChangeIds).toEqual(item.propertyChangeIds);
+      return item;
+    };
+
+    const toAgent = await setTurn(ids, "agent");
+    const before = await readChangeIds();
+    expect(before.propertyChangeIds![ids.properties.turn]).toBe(
+      toAgent.changeId,
+    );
+
+    // Clearing another field moves every generation on the page once, but
+    // not this property's change ID.
+    await getDb()
+      .delete(schema.documentPropertyValues)
+      .where(valueRow(row.documentId, ids.properties.notes));
+    const cleared = await readChangeIds();
+    expect(cleared.propertyGenerations![ids.properties.turn]).toBeGreaterThan(
+      before.propertyGenerations![ids.properties.turn],
+    );
+    expect(cleared.propertyChangeIds).toMatchObject({
+      [ids.properties.turn]: toAgent.changeId,
+      [ids.properties.notes]: null,
+    });
+
+    // Agent → Alice → Agent is two changes, so two new IDs. A write that
+    // leaves the value as it was keeps its ID.
+    const toAlice = await setTurn(ids, "alice");
+    const backToAgent = await setTurn(ids, "agent");
+    const unchanged = await setTurn(ids, "agent");
+    expect(
+      new Set([toAgent.changeId, toAlice.changeId, backToAgent.changeId]).size,
+    ).toBe(3);
+    expect(unchanged.changeId).toBe(backToAgent.changeId);
+    const after = await readChangeIds();
+    expect(after.propertyChangeIds![ids.properties.turn]).toBe(
+      backToAgent.changeId,
+    );
+
+    await settled(webhook.id, 3);
+    expect(
+      eventsFor(webhook.id).map((request) => [
+        request.event.data.newValue,
+        request.event.data.changeId,
+      ]),
+    ).toEqual([
+      ["agent", toAgent.changeId],
+      ["alice", toAlice.changeId],
+      ["agent", backToAgent.changeId],
+    ]);
+
+    const updated = await asOwner(async () =>
+      updateRow.run({
+        ...envelope(await contract(ids.databaseId), "change-id-update"),
+        itemId: row.itemId,
+        documentId: row.documentId,
+        expectedRowRevision: after.rowRevision!,
+        propertyValues: { [ids.properties.turn]: "alice" },
+      }),
+    );
+    const updatedTurn =
+      updated.receipt.readback.propertyChangeIds![ids.properties.turn];
+    expect(updatedTurn).not.toBe(backToAgent.changeId);
+    expect(
+      (await readChangeIds()).propertyChangeIds![ids.properties.turn],
+    ).toBe(updatedTurn);
+  });
+
+  it("a read takes each value and its change ID from one row", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const toAgent = await setTurn(ids, "agent");
+    const writeTurn = (value: string) => async () => {
+      await getDb()
+        .update(schema.documentPropertyValues)
+        .set({ valueJson: JSON.stringify(value) })
+        .where(valueRow(row.documentId, ids.properties.turn));
+    };
+    const storedChangeId = async () => {
+      const [stored] = await getDb()
+        .select({ generation: schema.documentPropertyValues.generation })
+        .from(schema.documentPropertyValues)
+        .where(valueRow(row.documentId, ids.properties.turn));
+      return Number(stored.generation);
+    };
+
+    // A writer lands after get-document reads generations and before it reads
+    // values. The value and its change ID come from the new row; only the
+    // generation is from before, which can cost a guarded write one retry.
+    generationReads.thenWrite = writeTurn("alice");
+    const page = await asOwner(() =>
+      getDocument.run({ id: row.documentId, databaseId: ids.databaseId }),
+    );
+    expect(
+      page.properties.find(
+        (property) => property.definition.id === ids.properties.turn,
+      )!.value,
+    ).toBe("alice");
+    const aliceChangeId = await storedChangeId();
+    expect(aliceChangeId).not.toBe(toAgent.changeId);
+    expect(page.propertyChangeIds![ids.properties.turn]).toBe(aliceChangeId);
+    expect(page.propertyGenerations![ids.properties.turn]).toBe(
+      toAgent.generation,
+    );
+
+    generationReads.thenWrite = writeTurn("agent");
+    const item = await readItem(ids.databaseId, row.itemId);
+    expect(
+      item.properties.find(
+        (property) => property.definition.id === ids.properties.turn,
+      )!.value,
+    ).toBe("agent");
+    expect(item.propertyChangeIds![ids.properties.turn]).toBe(
+      await storedChangeId(),
+    );
+    expect(item.propertyGenerations![ids.properties.turn]).toBe(aliceChangeId);
   });
 });

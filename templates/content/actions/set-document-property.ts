@@ -34,7 +34,9 @@ import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
   assertPropertyGenerations,
+  propertyChangeIdOf,
   readPropertyGenerations,
+  readWrittenPropertyChangeIds,
 } from "./_property-generations.js";
 import {
   getDatabaseById,
@@ -372,6 +374,7 @@ export default defineAction({
     let valueJson = normalizedValueJson(type, value);
     let webhookEvents = 0;
     let generation = 0;
+    let changeId: number | null = null;
     await db.transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as ReturnType<typeof getDb>,
@@ -615,6 +618,15 @@ export default defineAction({
           { propertyIds: [propertyId] },
         )
       ).of(documentId, propertyId);
+      changeId = propertyChangeIdOf(
+        await readWrittenPropertyChangeIds(
+          tx as unknown as ReturnType<typeof getDb>,
+          [documentId],
+          [propertyId],
+        ),
+        documentId,
+        propertyId,
+      );
     });
     if (webhookEvents) scheduleContentWebhookDelivery();
 
@@ -622,6 +634,7 @@ export default defineAction({
       documentId,
       databaseId: database.id,
       generation,
+      changeId,
       properties:
         (
           await listPropertiesForDatabaseDocuments(database.id, [document], {

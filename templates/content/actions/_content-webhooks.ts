@@ -44,7 +44,11 @@ import {
   parsePropertyValue,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
-import { readPropertyGenerations } from "./_property-generations.js";
+import {
+  propertyChangeIdOf,
+  readPropertyGenerations,
+  readWrittenPropertyChangeIds,
+} from "./_property-generations.js";
 import { getDatabaseById } from "./_property-utils.js";
 
 type Db = ReturnType<typeof getDb>;
@@ -346,16 +350,19 @@ export async function enqueuePropertyChangeWebhooks(
   if (!webhooks.length) return 0;
   const actor = args.actor ?? currentActor();
   const now = new Date().toISOString();
-  // Read after the values are stored, so each event names the generation its
-  // change produced.
-  const generations = await readPropertyGenerations(
+  // Read after the values are stored, so each event names the generation and
+  // change ID its change produced.
+  const documentIds = rows.map((row) => row.documentId);
+  const propertyIds = rows.flatMap((row) =>
+    row.changes.map((change) => change.definition.id),
+  );
+  const generations = await readPropertyGenerations(tx, documentIds, {
+    propertyIds,
+  });
+  const changeIds = await readWrittenPropertyChangeIds(
     tx,
-    rows.map((row) => row.documentId),
-    {
-      propertyIds: rows.flatMap((row) =>
-        row.changes.map((change) => change.definition.id),
-      ),
-    },
+    documentIds,
+    propertyIds,
   );
   const deliveries = rows.flatMap(({ documentId, changes }) =>
     webhooks
@@ -397,6 +404,11 @@ export async function enqueuePropertyChangeWebhooks(
                   // True when a long text value was cut; read the page for all of it.
                   truncated: overLimit(fullOldValue) || overLimit(fullNewValue),
                   generation: generations.of(documentId, change.definition.id),
+                  changeId: propertyChangeIdOf(
+                    changeIds,
+                    documentId,
+                    change.definition.id,
+                  ),
                 },
               },
             };

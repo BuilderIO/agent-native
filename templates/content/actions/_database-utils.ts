@@ -95,8 +95,10 @@ import {
   filesSystemPropertyProjection,
 } from "./_files-system-properties.js";
 import {
+  propertyChangeIdsFor,
   propertyGenerationsFor,
   readPropertyGenerations,
+  type StoredPropertyChangeIds,
 } from "./_property-generations.js";
 import {
   listPropertiesForDatabaseDocuments,
@@ -1107,6 +1109,7 @@ export async function getContentDatabasePageResponse(
   }
   // Before the values: see readPropertyGenerations.
   const storedGenerations = await readPropertyGenerations(db, documentIds);
+  const changeIds: StoredPropertyChangeIds = new Map();
   const [
     favorites,
     shareRows,
@@ -1138,7 +1141,7 @@ export async function getContentDatabasePageResponse(
     listPropertiesForDatabaseDocuments(
       databaseId,
       documents as Array<typeof schema.documents.$inferSelect>,
-      { includeBlocksFieldIdentity: false, propertySchema },
+      { includeBlocksFieldIdentity: false, propertySchema, changeIds },
     ),
     filesSystemPropertyProjection({
       database,
@@ -1247,6 +1250,11 @@ export async function getContentDatabasePageResponse(
         document.id,
         propertiesByDocumentId.get(document.id) ?? [],
         storedGenerations,
+      ),
+      propertyChangeIds: propertyChangeIdsFor(
+        document.id,
+        propertiesByDocumentId.get(document.id) ?? [],
+        changeIds,
       ),
       rowRevision: databaseRowRevision({
         itemId: item.id,

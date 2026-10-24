@@ -38,6 +38,22 @@ export interface PropertyGenerationConflict {
   current: number;
 }
 
+/**
+ * A property's change ID names the write behind its current value: the value
+ * row's own generation. Deleting other values on the page doesn't move it, so
+ * it changes exactly when this value changes or its row is written anew. Use
+ * it to act once per change, and the generation to guard a write. Null when
+ * the property has no stored value; 0 for a value that hasn't changed since
+ * generations began.
+ *
+ * A read takes each change ID from the same row as its value, so the two
+ * always describe one write: see recordPropertyChangeIds.
+ */
+export type PropertyChangeIds = Record<string, number | null>;
+
+/** Change IDs by page, then property. */
+export type StoredPropertyChangeIds = Map<string, Map<string, number>>;
+
 /** A stored generation as a number; NULL (never changed since) is 0. */
 export function generationNumber(value: unknown): number {
   if (value === null || value === undefined) return 0;
@@ -125,27 +141,102 @@ export async function readPropertyGenerations(
   return stored;
 }
 
+type ReadProperty = { definition: { id: string; type: DocumentPropertyType } };
+
+/** Blocks and computed fields take no guarded writes, so they're left out. */
+function storedValueProperties(properties: ReadProperty[]) {
+  return properties.filter(
+    ({ definition }) =>
+      !isBlocksPropertyType(definition.type) &&
+      !isComputedPropertyType(definition.type),
+  );
+}
+
 /**
  * One generation for each property a read returns, including ones with no
- * value yet, so a caller can guard a write to an empty property too. Blocks
- * and computed fields take no guarded writes, so they're left out.
+ * value yet, so a caller can guard a write to an empty property too.
  */
 export function propertyGenerationsFor(
   documentId: string,
-  properties: Array<{ definition: { id: string; type: DocumentPropertyType } }>,
+  properties: ReadProperty[],
   stored: StoredPropertyGenerations,
 ): PropertyGenerations {
   return Object.fromEntries(
-    properties
-      .filter(
-        ({ definition }) =>
-          !isBlocksPropertyType(definition.type) &&
-          !isComputedPropertyType(definition.type),
-      )
-      .map(({ definition }) => [
-        definition.id,
-        stored.of(documentId, definition.id),
-      ]),
+    storedValueProperties(properties).map(({ definition }) => [
+      definition.id,
+      stored.of(documentId, definition.id),
+    ]),
+  );
+}
+
+/** Records the change IDs of the value rows a read or write returned. */
+export function recordPropertyChangeIds(
+  stored: StoredPropertyChangeIds,
+  rows: Iterable<{
+    documentId: string;
+    propertyId: string;
+    generation: unknown;
+  }>,
+): StoredPropertyChangeIds {
+  for (const row of rows) {
+    const forPage = stored.get(row.documentId) ?? new Map<string, number>();
+    forPage.set(row.propertyId, generationNumber(row.generation));
+    stored.set(row.documentId, forPage);
+  }
+  return stored;
+}
+
+export function propertyChangeIdOf(
+  stored: StoredPropertyChangeIds,
+  documentId: string,
+  propertyId: string,
+): number | null {
+  return stored.get(documentId)?.get(propertyId) ?? null;
+}
+
+/** One change ID for each property a read returns, as propertyGenerationsFor. */
+export function propertyChangeIdsFor(
+  documentId: string,
+  properties: ReadProperty[],
+  stored: StoredPropertyChangeIds,
+): PropertyChangeIds {
+  return Object.fromEntries(
+    storedValueProperties(properties).map(({ definition }) => [
+      definition.id,
+      propertyChangeIdOf(stored, documentId, definition.id),
+    ]),
+  );
+}
+
+/**
+ * Reads the change IDs of values a transaction has just written, from inside
+ * that transaction: its writes still hold the rows, so each ID is the one its
+ * own write produced. A read that returns values records change IDs from its
+ * own value rows instead.
+ */
+export async function readWrittenPropertyChangeIds(
+  tx: Db,
+  documentIds: string[],
+  propertyIds: string[],
+): Promise<StoredPropertyChangeIds> {
+  const stored: StoredPropertyChangeIds = new Map();
+  if (!documentIds.length || !propertyIds.length) return stored;
+  const values = schema.documentPropertyValues;
+  return recordPropertyChangeIds(
+    stored,
+    await tx
+      .select({
+        documentId: values.documentId,
+        propertyId: values.propertyId,
+        generation: values.generation,
+      })
+      .from(values)
+      .where(
+        and(
+          inArray(values.documentId, [...new Set(documentIds)]),
+          inArray(values.propertyId, [...new Set(propertyIds)]),
+        ),
+      ),
   );
 }
 

@@ -64,6 +64,7 @@ import {
   propertyGenerationConflictError,
   propertyGenerationConflicts,
   readPropertyGenerations,
+  recordPropertyChangeIds,
   type PropertyGenerations,
 } from "./_property-generations.js";
 import { nanoid } from "./_property-utils.js";
@@ -171,6 +172,8 @@ export interface RowSnapshot {
   values: Map<string, string>;
   /** See _property-generations.ts; a value with no generation yet is 0. */
   generations: Map<string, number>;
+  /** Each stored value's change ID, from the same row as the value. */
+  changeIds: Map<string, number>;
   revision: string;
 }
 
@@ -868,6 +871,7 @@ export async function rowSnapshots(
     }
     valueMap.set(value.propertyId, value.valueJson);
   }
+  const changeIds = recordPropertyChangeIds(new Map(), values);
   const stored = await readPropertyGenerations(
     db,
     found.map((row) => row.item.documentId),
@@ -895,6 +899,7 @@ export async function rowSnapshots(
       ...row,
       values: valueMap,
       generations,
+      changeIds: changeIds.get(row.item.documentId) ?? new Map(),
       revision,
     });
   }
@@ -1061,6 +1066,7 @@ function resultForReceipt(
         ]),
       ),
       propertyGenerations: Object.fromEntries(snapshot.generations),
+      propertyChangeIds: Object.fromEntries(snapshot.changeIds),
     },
   };
   return { receipt };
@@ -2517,6 +2523,14 @@ async function patchRowsInsideTransaction(
             .map((propertyId) => [
               propertyId,
               snapshot.generations.get(propertyId) ?? 0,
+            ]),
+        ),
+        propertyChangeIds: Object.fromEntries(
+          [...patch.keys()]
+            .sort()
+            .map((propertyId) => [
+              propertyId,
+              snapshot.changeIds.get(propertyId) ?? null,
             ]),
         ),
       },
